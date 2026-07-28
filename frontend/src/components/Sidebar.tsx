@@ -143,10 +143,8 @@ const SECTIONS: Section[] = [
         subs: [
           { label: 'Overview',         to: '/operations/risk' },
           { label: 'App Review',       to: '/operations/risk/applications' },
-          { label: 'Portfolio Health', to: '/operations/risk/portfolio' },
-          { label: 'Eye Credit Score', to: '/operations/risk/eye' },
+          { label: 'Portfolio',        to: '/operations/risk/portfolio' },
           { label: 'Vintage Analysis', to: '/operations/risk/vintage' },
-          { label: 'Credit File',      to: '/operations/risk/credit-file' },
         ],
       },
       {

@@ -107,10 +107,8 @@ const CreditAuditTrail        = lazy(() => import('./pages/compliance/CreditAudi
 // Risk
 const RiskOverview     = lazy(() => import('./pages/risk/Overview'))
 const RiskAppReview    = lazy(() => import('./pages/risk/AppReview'))
-const RiskPortfolio    = lazy(() => import('./pages/risk/PortfolioHealth'))
-const RiskEyeScore     = lazy(() => import('./pages/risk/EyeScore'))
+const RiskPortfolio    = lazy(() => import('./pages/risk/Portfolio'))
 const RiskVintage      = lazy(() => import('./pages/risk/VintageAnalysis'))
-const RiskCreditFile   = lazy(() => import('./pages/risk/CreditFile'))
 
 // Recovery
 const RecoveryOverview    = lazy(() => import('./pages/recovery/Overview'))
@@ -1010,9 +1008,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/operations/risk"              element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/applications" element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskAppReview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/portfolio"    element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskPortfolio /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/operations/risk/eye"          element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskEyeScore /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/vintage"      element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintage /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/operations/risk/credit-file"  element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskCreditFile /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Collections */}
                   <Route path="/collections"                 element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsOverview /></PageErrorBoundary></RequireAccess>} />

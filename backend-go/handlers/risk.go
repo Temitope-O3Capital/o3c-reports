@@ -17,6 +17,7 @@ func RegisterRisk(r chi.Router, db *core.DB) {
 	r.With(access).Get("/applications", riskApplications(db))
 	r.With(access).Get("/review-kpis", riskReviewKPIs(db))
 	r.With(access).Get("/applications/export", riskApplicationsExport(db))
+	r.With(access).Get("/loan-book", riskLoanBook(db))
 
 	// PortfolioHealth
 	r.With(access).Get("/portfolio-kpis", riskPortfolioKPIs(db))
@@ -225,6 +226,84 @@ func riskApplicationsExport(db *core.DB) http.HandlerFunc {
 			rows = []core.Row{}
 		}
 		streamCSV(w, "risk-applications.csv", rows)
+	}
+}
+
+// ── LoanBook ─────────────────────────────────────────────────────────────────
+
+func riskLoanBook(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		dpd  := qstr(r, "dpd")
+		band := qstr(r, "band")
+		q    := qstr(r, "q")
+		lim  := qint(r, "limit", 200, 1, 500)
+		off  := qint(r, "offset", 0, 0, 1<<30)
+
+		var where strings.Builder
+		var args  []any
+		n := 1
+
+		where.WriteString(" AND la.status IN ('active','booked')")
+
+		switch dpd {
+		case "current":
+			where.WriteString(" AND GREATEST(0, CURRENT_DATE - COALESCE(la.maturity_date::date, CURRENT_DATE)) < 30")
+		case "par30":
+			where.WriteString(" AND GREATEST(0, CURRENT_DATE - COALESCE(la.maturity_date::date, CURRENT_DATE)) BETWEEN 30 AND 59")
+		case "par60":
+			where.WriteString(" AND GREATEST(0, CURRENT_DATE - COALESCE(la.maturity_date::date, CURRENT_DATE)) BETWEEN 60 AND 89")
+		case "par90":
+			where.WriteString(" AND GREATEST(0, CURRENT_DATE - COALESCE(la.maturity_date::date, CURRENT_DATE)) BETWEEN 90 AND 179")
+		case "npl":
+			where.WriteString(" AND GREATEST(0, CURRENT_DATE - COALESCE(la.maturity_date::date, CURRENT_DATE)) >= 180")
+		}
+
+		if band != "" {
+			where.WriteString(fmt.Sprintf(" AND la.eye_rating = $%d", n))
+			args = append(args, band); n++
+		}
+		if q != "" {
+			where.WriteString(fmt.Sprintf(" AND (la.applicant_name ILIKE $%d OR la.applicant_cif ILIKE $%d OR la.employer ILIKE $%d)", n, n, n))
+			args = append(args, "%"+q+"%"); n++
+		}
+
+		var total int64
+		countRows, err := db.PGQuery(ctx, "SELECT COUNT(*) AS total FROM loan_applications la WHERE 1=1"+where.String(), args...)
+		if err != nil {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
+				respond(w, map[string]any{"data": []any{}, "total": 0}, "pg"); return
+			}
+			respondErr(w, 500, "Query failed"); return
+		}
+		if len(countRows) > 0 { total = toInt64(countRows[0]["total"]) }
+
+		dataArgs := append(args, lim, off)
+		query := fmt.Sprintf(`
+			SELECT
+				la.id,
+				la.reference,
+				COALESCE(la.applicant_name, la.applicant_cif) AS applicant_name,
+				la.applicant_cif,
+				COALESCE(la.employer, '') AS employer,
+				COALESCE(la.product_type, la.loan_type, '') AS product_type,
+				COALESCE(la.amount_requested_kobo, 0) AS amount_kobo,
+				COALESCE(la.outstanding_kobo, la.amount_requested_kobo, 0) AS outstanding_kobo,
+				GREATEST(0, CURRENT_DATE - COALESCE(la.maturity_date::date, CURRENT_DATE)) AS dpd,
+				la.eye_rating AS risk_band,
+				la.eye_score,
+				la.status,
+				la.booked_at,
+				la.maturity_date
+			FROM loan_applications la
+			WHERE 1=1%s
+			ORDER BY dpd DESC NULLS LAST, outstanding_kobo DESC
+			LIMIT $%d OFFSET $%d`, where.String(), n, n+1)
+
+		rows, err := db.PGQuery(ctx, query, dataArgs...)
+		if err != nil { respondErr(w, 500, "Query failed"); return }
+		if rows == nil { rows = []core.Row{} }
+		respond(w, map[string]any{"data": rows, "total": total}, "pg")
 	}
 }
 

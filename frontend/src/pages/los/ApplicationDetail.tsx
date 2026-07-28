@@ -5,7 +5,7 @@ import {
 } from '../../components/UI'
 import { apiFetch, apiPut, apiPost, apiDelete } from '../../lib/api'
 import { fmtKobo, fmtDatetime, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
+import { NAVY, RED, AMBER, GREEN, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -165,6 +165,75 @@ const TABS = [
   { key: 'approval_chain',     label: 'Approval Chain' },
   { key: 'timeline',           label: 'Timeline' },
 ]
+
+// ── Credit File Drawer ────────────────────────────────────────────────────────
+
+interface CreditFileData {
+  eye_score: number | null; eye_rating: string | null; bureau_summary: string | null
+  dti_pct: number | null; monthly_income_kobo: number; monthly_obligation_kobo: number | null
+  amount_requested_kobo: number; amount_approved_kobo: number; tenor_months: number
+  outstanding_kobo: number; dpd: number; employer: string
+}
+
+function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; onClose: () => void }) {
+  const [cfData,    setCfData]    = useState<CreditFileData | null>(null)
+  const [cfLoading, setCfLoading] = useState(false)
+  const [cfError,   setCfError]   = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open || !cif) return
+    setCfLoading(true); setCfError(null)
+    apiFetch<{ data: CreditFileData }>(`/api/risk/credit-file/${cif}`)
+      .then(r => setCfData((r as any).data ?? r ?? null))
+      .catch(e => setCfError(e.message ?? 'Failed'))
+      .finally(() => setCfLoading(false))
+  }, [cif, open])
+
+  const scoreColor = (s: number | null) => {
+    if (!s) return 'var(--txt3)'; if (s >= 700) return GREEN; if (s >= 500) return AMBER; return RED
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Credit File — ${cif}`} width={540}>
+      {cfLoading && <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={24} /></div>}
+      {cfError && <div style={{ color: RED, fontSize: TEXT.sm, padding: SP[3] }}>{cfError}</div>}
+      {cfData && !cfLoading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+          <div style={{ display: 'flex', gap: SP[4], alignItems: 'center', padding: SP[3], borderRadius: RADIUS.md, background: 'var(--th-bg)', border: '1px solid var(--bdr)' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ ...NUM, fontSize: 48, fontWeight: FW.extrabold, color: scoreColor(cfData.eye_score), lineHeight: 1 }}>
+                {cfData.eye_score ?? '—'}
+              </div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>Eye Score</div>
+            </div>
+            <div style={{ flex: 1 }}>
+              {cfData.eye_rating && <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 6 }}>Rating: {cfData.eye_rating}</div>}
+              {cfData.bureau_summary && <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>{cfData.bureau_summary}</div>}
+              {!cfData.eye_score && !cfData.bureau_summary && <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No score on file</div>}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+            {[
+              { label: 'Monthly Income',      value: fmtKobo(cfData.monthly_income_kobo) },
+              { label: 'Monthly Obligations', value: cfData.monthly_obligation_kobo ? fmtKobo(cfData.monthly_obligation_kobo) : '—' },
+              { label: 'DTI Ratio',           value: cfData.dti_pct !== null ? `${Number(cfData.dti_pct).toFixed(1)}%` : '—' },
+              { label: 'Employer',            value: cfData.employer || '—' },
+              { label: 'Amount Disbursed',    value: fmtKobo(cfData.amount_approved_kobo || cfData.amount_requested_kobo) },
+              { label: 'Outstanding',         value: fmtKobo(cfData.outstanding_kobo) },
+              { label: 'Tenor',               value: cfData.tenor_months ? `${cfData.tenor_months} months` : '—' },
+              { label: 'DPD',                 value: `${cfData.dpd ?? 0} days` },
+            ].map(row => (
+              <div key={row.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{row.label}</span>
+                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{row.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
 
 // ── Verification tab ──────────────────────────────────────────────────────────
 
@@ -729,7 +798,13 @@ export default function ApplicationDetail() {
   const [data,     setData]     = useState<DetailData | null>(null)
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState('summary')
+
+  // role detection (before activeTab so we can use it in initial state)
+  const userRole = (() => {
+    try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}')?.role ?? '' } catch { return '' }
+  })()
+  const isRisk = ['risk_officer', 'risk_head', 'Risk Officer', 'Risk Head'].some(r => userRole.toLowerCase().includes(r.toLowerCase()))
+  const [activeTab, setActiveTab] = useState(isRisk ? 'credit_assessment' : 'summary')
 
   // modals
   const [advanceOpen,    setAdvanceOpen]    = useState(false)
@@ -737,6 +812,7 @@ export default function ApplicationDetail() {
   const [reqInfoOpen,    setReqInfoOpen]    = useState(false)
   const [addNoteOpen,    setAddNoteOpen]    = useState(false)
   const [committeeOpen,  setCommitteeOpen]  = useState(false)
+  const [showCreditFile, setShowCreditFile] = useState(false)
 
   // action state
   const [toStage,        setToStage]        = useState('')
@@ -746,11 +822,6 @@ export default function ApplicationDetail() {
   const [noteBody,       setNoteBody]       = useState('')
   const [committeeNote,  setCommitteeNote]  = useState('')
   const [actionLoading,  setActionLoading]  = useState(false)
-
-  // role detection
-  const userRole = (() => {
-    try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}')?.role ?? '' } catch { return '' }
-  })()
 
   const load = useCallback(async () => {
     if (!id) return
@@ -1051,6 +1122,38 @@ export default function ApplicationDetail() {
         </div>
       </div>
 
+      {/* Decision panel */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[4], padding: SP[3], borderRadius: RADIUS.md, background: 'var(--card)', border: '1px solid var(--bdr)', flexWrap: 'wrap' }}>
+        <StagePill stage={app.stage} />
+        {app.status === 'declined' && <span style={{ fontSize: TEXT.sm, color: RED, fontWeight: FW.semibold }}>Declined</span>}
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={() => setShowCreditFile(true)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>insert_drive_file</span>
+          Credit File
+        </button>
+        {app.stage !== 'active' && app.status !== 'declined' && (
+          <button
+            onClick={() => setDeclineOpen(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: RADIUS.sm, border: `1px solid ${RED}40`, background: `${RED}08`, color: RED, cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>
+            Decline
+          </button>
+        )}
+        {nextStages.length > 0 && !isTerminal && (
+          <button
+            onClick={() => { setToStage(nextStages[0]); setAdvanceOpen(true) }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: RADIUS.sm, border: 'none', background: NAVY, color: '#fff', cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_circle_right</span>
+            Advance Stage
+          </button>
+        )}
+      </div>
+
       {/* Tabs */}
       <SectionCard padding={false}>
         <div style={{ padding: '0 18px' }}>
@@ -1252,6 +1355,12 @@ export default function ApplicationDetail() {
           />
         </div>
       </Modal>
+
+      <CreditFileDrawer
+        cif={app.applicant_cif}
+        open={showCreditFile}
+        onClose={() => setShowCreditFile(false)}
+      />
 
       {/* ── Add Note modal ── */}
       <Modal

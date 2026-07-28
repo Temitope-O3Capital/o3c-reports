@@ -439,40 +439,55 @@ function HelpdeskTab({ profile }: { profile: ContactProfileData }) {
   )
 }
 
+const MODULE_ICON: Record<string, string> = {
+  crm: 'handshake', los: 'description', helpdesk: 'support_agent',
+  collections: 'phone_in_talk', recovery: 'gavel', cards: 'credit_card', system: 'settings',
+}
+
 function ActivityTab({ profile }: { profile: ContactProfileData }) {
   if (profile.activity_log.length === 0) return (
     <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No activity recorded yet.</div>
   )
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      {profile.activity_log.map((a, i) => (
-        <div key={a.id} style={{ display: 'flex', gap: 14, paddingBottom: 16 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{
-              width: 28, height: 28, borderRadius: RADIUS.full, flexShrink: 0,
-              background: `${MODULE_COLOUR[a.module] ?? '#6B7280'}18`,
-              border: `2px solid ${MODULE_COLOUR[a.module] ?? '#6B7280'}40`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, color: MODULE_COLOUR[a.module] ?? '#6B7280' }}>
-                {a.module === 'crm' ? 'handshake' : a.module === 'los' ? 'description' : a.module === 'helpdesk' ? 'support_agent' : a.module === 'collections' ? 'phone_in_talk' : a.module === 'recovery' ? 'gavel' : 'history'}
-              </span>
+      {profile.activity_log.map((a, i) => {
+        const colour = MODULE_COLOUR[a.module] ?? '#6B7280'
+        const icon   = MODULE_ICON[a.module] ?? 'history'
+        const isLast = i === profile.activity_log.length - 1
+        return (
+          <div key={a.id} style={{ display: 'flex', gap: 14 }}>
+            {/* Left column: circle + line */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: `${colour}14`, border: `2px solid ${colour}50`,
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16, color: colour }}>
+                  {icon}
+                </span>
+              </div>
+              {!isLast && (
+                <div style={{ width: 2, flex: 1, marginTop: 4, marginBottom: 4, background: 'var(--bdr)', minHeight: 24 }} />
+              )}
             </div>
-            {i < profile.activity_log.length - 1 && (
-              <div style={{ width: 2, flex: 1, marginTop: 4, background: 'var(--bdr)', minHeight: 16 }} />
-            )}
-          </div>
-          <div style={{ flex: 1, paddingTop: 2 }}>
-            <div style={{ fontSize: TEXT.base, color: 'var(--txt)', marginBottom: 2 }}>{a.description}</div>
-            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
-              {a.created_by} · {fmtDate(a.created_at)}
-              <span style={{ marginLeft: 8, padding: '1px 7px', borderRadius: RADIUS.md, background: `${MODULE_COLOUR[a.module] ?? '#6B7280'}14`, color: MODULE_COLOUR[a.module] ?? '#6B7280', fontSize: TEXT['2xs'], fontWeight: FW.semibold }}>
-                {a.module}
-              </span>
+            {/* Content */}
+            <div style={{ flex: 1, paddingTop: 5, paddingBottom: isLast ? 0 : 20 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{a.description}</div>
+              <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 3 }}>
+                {a.created_by} · {fmtDate(a.created_at)}
+                <span style={{
+                  marginLeft: 8, padding: '1px 7px', borderRadius: RADIUS.md,
+                  background: `${colour}14`, color: colour,
+                  fontSize: TEXT['2xs'], fontWeight: FW.semibold,
+                }}>
+                  {a.module}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
