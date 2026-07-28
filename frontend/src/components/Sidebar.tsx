@@ -141,6 +141,7 @@ const SECTIONS: Section[] = [
         icon: 'shield', label: 'Risk', to: '/operations/risk',
         vis: ['risk_officer','risk_head'],
         subs: [
+          { label: 'Overview',         to: '/operations/risk' },
           { label: 'App Review',       to: '/operations/risk/applications' },
           { label: 'Portfolio Health', to: '/operations/risk/portfolio' },
           { label: 'Eye Credit Score', to: '/operations/risk/eye' },

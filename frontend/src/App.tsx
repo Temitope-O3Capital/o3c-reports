@@ -105,6 +105,7 @@ const RecoveryActivityLog     = lazy(() => import('./pages/recovery/ActivityLog'
 const CreditAuditTrail        = lazy(() => import('./pages/compliance/CreditAuditTrail'))
 
 // Risk
+const RiskOverview     = lazy(() => import('./pages/risk/Overview'))
 const RiskAppReview    = lazy(() => import('./pages/risk/AppReview'))
 const RiskPortfolio    = lazy(() => import('./pages/risk/PortfolioHealth'))
 const RiskEyeScore     = lazy(() => import('./pages/risk/EyeScore'))
@@ -1005,7 +1006,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/cards/billing"      element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsBilling /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Operations — Risk */}
-                  <Route path="/operations/risk"              element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskAppReview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk"              element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/applications" element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskAppReview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/portfolio"    element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskPortfolio /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/eye"          element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskEyeScore /></PageErrorBoundary></RequireAccess>} />
