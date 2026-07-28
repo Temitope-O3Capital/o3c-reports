@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, ExpandableFilterBar, ErrBanner, Sk, DateFilter } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -85,6 +86,7 @@ function SkeletonRows({ count }: { count: number }) {
             <td key={j} style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', textAlign: 'right' }}><Sk h={14} w={48} /></td>
           ))}
           <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }}><Sk h={14} w={56} /></td>
+          <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }} />
         </tr>
       ))}
     </>
@@ -94,6 +96,7 @@ function SkeletonRows({ count }: { count: number }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function VintageAnalysis() {
+  const navigate = useNavigate()
   const [rows,      setRows]      = useState<VintageRow[]>([])
   const [kpis,      setKpis]      = useState<VintageKPIs | null>(null)
   const [loading,   setLoading]   = useState(true)
@@ -267,7 +270,7 @@ export default function VintageAnalysis() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
-                {['Booking Month', 'Count', 'PAR30 at 1m', 'PAR30 at 3m', 'PAR30 at 6m', 'PAR30 at 12m', 'Trend'].map(h => (
+                {['Booking Month', 'Count', 'PAR30 at 1m', 'PAR30 at 3m', 'PAR30 at 6m', 'PAR30 at 12m', 'Trend', ''].map(h => (
                   <th key={h} style={{ padding: '10px 16px', textAlign: h === 'Booking Month' || h === 'Trend' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
                     {h}
                   </th>
@@ -279,7 +282,7 @@ export default function VintageAnalysis() {
                 <SkeletonRows count={8} />
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13, borderBottom: '1px solid var(--bdr)' }}>
+                  <td colSpan={8} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13, borderBottom: '1px solid var(--bdr)' }}>
                     No vintage data found
                   </td>
                 </tr>
@@ -292,7 +295,8 @@ export default function VintageAnalysis() {
                     return (
                       <tr
                         key={row.booking_month}
-                        style={{ background: rowBg }}
+                        style={{ background: rowBg, cursor: 'pointer' }}
+                        onClick={() => navigate(`/operations/risk/vintage/${encodeURIComponent(row.booking_month)}`)}
                         onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = isBest ? 'rgba(22,163,74,.12)' : isWorst ? 'rgba(192,0,0,.09)' : 'var(--row-hvr)'}
                         onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = rowBg}
                       >
@@ -317,11 +321,14 @@ export default function VintageAnalysis() {
                         <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }}>
                           <Sparkline values={[row.par30_1m, row.par30_3m, row.par30_6m, row.par30_12m]} />
                         </td>
+                        <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', textAlign: 'center' }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: 14, color: 'var(--txt3)' }}>chevron_right</span>
+                        </td>
                       </tr>
                     )
                   })}
 
-                  {/* Portfolio Average row */}
+                  {/* Portfolio Average row — not clickable */}
                   {avgRow && (
                     <tr style={{ background: 'var(--th-bg)', borderTop: `2px solid ${NAVY}30` }}>
                       <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', whiteSpace: 'nowrap' }}>
@@ -337,6 +344,7 @@ export default function VintageAnalysis() {
                       <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }}>
                         <Sparkline values={[avgRow.par30_1m, avgRow.par30_3m, avgRow.par30_6m, avgRow.par30_12m]} />
                       </td>
+                      <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }} />
                     </tr>
                   )}
                 </>

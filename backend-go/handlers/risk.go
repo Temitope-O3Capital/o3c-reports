@@ -29,6 +29,7 @@ func RegisterRisk(r chi.Router, db *core.DB) {
 	// VintageAnalysis
 	r.With(access).Get("/vintage", riskVintage(db))
 	r.With(access).Get("/vintage-kpis", riskVintageKPIs(db))
+	r.With(access).Get("/vintage/{month}", riskVintageDetail(db))
 
 	// EyeScore
 	r.With(access).Get("/eye-scores", riskEyeScores(db))
@@ -660,6 +661,183 @@ func riskVintageKPIs(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, rows[0], "pg")
+	}
+}
+
+func riskVintageDetail(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		month := chi.URLParam(r, "month")
+		if month == "" {
+			respondErr(w, 400, "month is required")
+			return
+		}
+
+		empty := func() {
+			respond(w, map[string]any{
+				"booking_month":    month,
+				"total_count":      0,
+				"active_count":     0,
+				"active_book_kobo": 0,
+				"written_off_count": 0,
+				"par30_rate_pct":   0,
+				"par60_rate_pct":   0,
+				"par90_rate_pct":   0,
+				"npl_rate_pct":     0,
+				"avg_eye_score":    0,
+				"historical_par":   []any{},
+				"dpd_buckets":      []any{},
+				"employers":        []any{},
+				"products":         []any{},
+				"loans":            []any{},
+			}, "pg")
+		}
+
+		// 1. All aggregate stats + DPD buckets + historical PAR milestones in one query
+		aggRows, err := db.PGQuery(ctx, `
+			SELECT
+				COUNT(*) AS total_count,
+				COUNT(*) FILTER (WHERE status IN ('active','booked')) AS active_count,
+				COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0))
+					FILTER (WHERE status IN ('active','booked')), 0) AS active_book_kobo,
+				COUNT(*) FILTER (WHERE status = 'written_off') AS written_off_count,
+				COALESCE(CASE WHEN COUNT(*) > 0
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				          / NULLIF(COUNT(*),0), 2) END, 0) AS par30_rate_pct,
+				COALESCE(CASE WHEN COUNT(*) > 0
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 60)
+				          / NULLIF(COUNT(*),0), 2) END, 0) AS par60_rate_pct,
+				COALESCE(CASE WHEN COUNT(*) > 0
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 90)
+				          / NULLIF(COUNT(*),0), 2) END, 0) AS par90_rate_pct,
+				COALESCE(CASE WHEN COUNT(*) > 0
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) >= 180)
+				          / NULLIF(COUNT(*),0), 2) END, 0) AS npl_rate_pct,
+				COALESCE(ROUND(AVG(eye_score) FILTER (WHERE eye_score IS NOT NULL), 0), 0) AS avg_eye_score,
+				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)))
+				          <= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				          / NULLIF(COUNT(*),0), 1) END AS par30_1m,
+				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)))
+				          <= DATE_TRUNC('month', NOW()) - INTERVAL '3 months'
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				          / NULLIF(COUNT(*),0), 1) END AS par30_3m,
+				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)))
+				          <= DATE_TRUNC('month', NOW()) - INTERVAL '6 months'
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				          / NULLIF(COUNT(*),0), 1) END AS par30_6m,
+				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)))
+				          <= DATE_TRUNC('month', NOW()) - INTERVAL '12 months'
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				          / NULLIF(COUNT(*),0), 1) END AS par30_12m,
+				COUNT(*) FILTER (WHERE COALESCE(dpd,0) < 30) AS dpd_current,
+				COUNT(*) FILTER (WHERE COALESCE(dpd,0) BETWEEN 30 AND 59) AS dpd_par30,
+				COUNT(*) FILTER (WHERE COALESCE(dpd,0) BETWEEN 60 AND 89) AS dpd_par60,
+				COUNT(*) FILTER (WHERE COALESCE(dpd,0) BETWEEN 90 AND 179) AS dpd_par90,
+				COUNT(*) FILTER (WHERE COALESCE(dpd,0) >= 180) AS dpd_npl
+			FROM loan_applications
+			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)), 'Mon YYYY') = $1`,
+			month)
+		if err != nil {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
+				empty(); return
+			}
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if len(aggRows) == 0 {
+			empty(); return
+		}
+		agg := aggRows[0]
+
+		// Build structured sub-arrays from the flat aggregate row
+		historicalPAR := []map[string]any{
+			{"age_label": "1m",  "par30_pct": agg["par30_1m"]},
+			{"age_label": "3m",  "par30_pct": agg["par30_3m"]},
+			{"age_label": "6m",  "par30_pct": agg["par30_6m"]},
+			{"age_label": "12m", "par30_pct": agg["par30_12m"]},
+		}
+		dpdBuckets := []map[string]any{
+			{"label": "Current", "count": agg["dpd_current"]},
+			{"label": "PAR30",   "count": agg["dpd_par30"]},
+			{"label": "PAR60",   "count": agg["dpd_par60"]},
+			{"label": "PAR90",   "count": agg["dpd_par90"]},
+			{"label": "NPL",     "count": agg["dpd_npl"]},
+		}
+
+		// 2. Employer breakdown (top 10 by loan count)
+		employerRows, err := db.PGQuery(ctx, `
+			SELECT
+				COALESCE(NULLIF(employer,''), 'Unknown') AS employer,
+				COUNT(*) AS count,
+				COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0)), 0) AS book_kobo,
+				COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30) AS par30_count
+			FROM loan_applications
+			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)), 'Mon YYYY') = $1
+			GROUP BY COALESCE(NULLIF(employer,''), 'Unknown')
+			ORDER BY count DESC
+			LIMIT 10`, month)
+		if err != nil || employerRows == nil {
+			employerRows = []core.Row{}
+		}
+
+		// 3. Product breakdown
+		productRows, err := db.PGQuery(ctx, `
+			SELECT
+				COALESCE(NULLIF(COALESCE(product_type, loan_type),''), 'Other') AS product_type,
+				COUNT(*) AS count,
+				COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0)), 0) AS book_kobo,
+				COALESCE(CASE WHEN COUNT(*) > 0
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				          / NULLIF(COUNT(*),0), 1) END, 0) AS par30_pct
+			FROM loan_applications
+			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)), 'Mon YYYY') = $1
+			GROUP BY COALESCE(NULLIF(COALESCE(product_type, loan_type),''), 'Other')
+			ORDER BY count DESC`, month)
+		if err != nil || productRows == nil {
+			productRows = []core.Row{}
+		}
+
+		// 4. Individual loans (up to 200, highest DPD first)
+		loanRows, err := db.PGQuery(ctx, `
+			SELECT
+				id,
+				COALESCE(reference, 'LA-'||id::text) AS reference,
+				COALESCE(applicant_name, applicant_cif) AS applicant_name,
+				applicant_cif,
+				COALESCE(employer, '') AS employer,
+				COALESCE(product_type, loan_type, '') AS product_type,
+				COALESCE(outstanding_kobo, amount_requested_kobo, 0) AS outstanding_kobo,
+				COALESCE(dpd, 0) AS dpd,
+				COALESCE(eye_rating, '') AS risk_band,
+				eye_score,
+				status,
+				maturity_date
+			FROM loan_applications
+			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)), 'Mon YYYY') = $1
+			ORDER BY dpd DESC NULLS LAST
+			LIMIT 200`, month)
+		if err != nil || loanRows == nil {
+			loanRows = []core.Row{}
+		}
+
+		respond(w, map[string]any{
+			"booking_month":    month,
+			"total_count":      agg["total_count"],
+			"active_count":     agg["active_count"],
+			"active_book_kobo": agg["active_book_kobo"],
+			"written_off_count": agg["written_off_count"],
+			"par30_rate_pct":   agg["par30_rate_pct"],
+			"par60_rate_pct":   agg["par60_rate_pct"],
+			"par90_rate_pct":   agg["par90_rate_pct"],
+			"npl_rate_pct":     agg["npl_rate_pct"],
+			"avg_eye_score":    agg["avg_eye_score"],
+			"historical_par":   historicalPAR,
+			"dpd_buckets":      dpdBuckets,
+			"employers":        employerRows,
+			"products":         productRows,
+			"loans":            loanRows,
+		}, "pg")
 	}
 }
 
