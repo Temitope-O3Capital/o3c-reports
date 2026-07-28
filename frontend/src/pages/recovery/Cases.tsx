@@ -512,13 +512,19 @@ function DetailPanel({ rc, agents, onAction }: {
             </div>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>CIF: {rc.account_cif}</div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <StatusPill status={rc.status} />
+            <button
+              onClick={() => navigate(`/recovery/cases/${rc.id}`)}
+              style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
+            >
+              Full Detail →
+            </button>
             <button
               onClick={() => navigate(`/contacts/${rc.account_cif}`)}
               style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
-              Full profile →
+              C360 →
             </button>
           </div>
         </div>

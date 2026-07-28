@@ -113,10 +113,11 @@ const RiskVintage      = lazy(() => import('./pages/risk/VintageAnalysis'))
 const RiskCreditFile   = lazy(() => import('./pages/risk/CreditFile'))
 
 // Recovery
-const RecoveryOverview = lazy(() => import('./pages/recovery/Overview'))
-const RecoveryCases    = lazy(() => import('./pages/recovery/Cases'))
-const RecoveryLegal    = lazy(() => import('./pages/recovery/Legal'))
-const RecoveryDebtSale = lazy(() => import('./pages/recovery/DebtSale'))
+const RecoveryOverview    = lazy(() => import('./pages/recovery/Overview'))
+const RecoveryCases       = lazy(() => import('./pages/recovery/Cases'))
+const RecoveryCaseDetail  = lazy(() => import('./pages/recovery/CaseDetail'))
+const RecoveryLegal       = lazy(() => import('./pages/recovery/Legal'))
+const RecoveryDebtSale    = lazy(() => import('./pages/recovery/DebtSale'))
 
 // Collections Ops
 const CollOpsAgentDash = lazy(() => import('./pages/collections-ops/AgentDashboard'))
@@ -1029,6 +1030,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   {/* Recovery */}
                   <Route path="/recovery"                element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/cases"          element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryCases /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery/cases/:id"      element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryCaseDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/legal"          element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryLegal /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/activity-log"   element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryActivityLog /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/debt-sales"     element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryDebtSale /></PageErrorBoundary></RequireAccess>} />

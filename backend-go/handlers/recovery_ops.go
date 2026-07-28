@@ -21,6 +21,7 @@ func RegisterRecoveryOps(r chi.Router, db *core.DB) {
 
 	r.With(base).Get("/cases", recoveryOpsCases(db))
 	r.With(base).Get("/cases/{id}", recoveryOpsCaseDetail(db))
+	r.With(base).Get("/cases/{id}/full", recoveryOpsCaseDetailFull(db))
 	r.With(assign).Put("/cases/{id}/assign", recoveryOpsAssign(db))
 	r.With(base).Post("/cases/{id}/payment", recoveryOpsPayment(db))
 	r.With(base).Post("/cases/{id}/legal", recoveryOpsAddLegal(db))
@@ -161,6 +162,92 @@ func recoveryOpsCaseDetail(db *core.DB) http.HandlerFunc {
 			"payments":    nilToEmpty(payments),
 			"proceedings": nilToEmpty(proceedings),
 			"visits":      nilToEmpty(visits),
+		}
+		if len(writeoffs) > 0 {
+			result["write_off_approval"] = writeoffs[0]
+		} else {
+			result["write_off_approval"] = nil
+		}
+
+		respond(w, result, "pg")
+	}
+}
+
+// recoveryOpsCaseDetailFull returns everything recoveryOpsCaseDetail returns, plus
+// the full cross-team credit_activity_log for the account CIF so agents can see
+// the complete lifecycle including the collections phase.
+func recoveryOpsCaseDetailFull(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid case ID")
+			return
+		}
+		ctx := r.Context()
+
+		cases, err := db.PGQuery(ctx, `
+			SELECT rc.*, u.full_name AS agent_name, au.full_name AS assigned_by_name
+			FROM recovery_cases rc
+			LEFT JOIN o3c_users u  ON rc.assigned_agent_id = u.id
+			LEFT JOIN o3c_users au ON rc.assigned_by = au.id
+			WHERE rc.id = $1`, id)
+		if err != nil || len(cases) == 0 {
+			respondErr(w, 404, "Case not found")
+			return
+		}
+
+		cif := fmt.Sprint(cases[0]["account_cif"])
+
+		payments, _    := db.PGQuery(ctx, `SELECT rp.*, u.full_name AS agent_name FROM recovery_payments rp LEFT JOIN o3c_users u ON rp.agent_user_id = u.id WHERE rp.case_id = $1 ORDER BY rp.payment_date DESC`, id)
+		proceedings, _ := db.PGQuery(ctx, `SELECT * FROM legal_proceedings WHERE case_id = $1 ORDER BY filing_date DESC`, id)
+		visits, _      := db.PGQuery(ctx, `
+			SELECT rfv.*, u.full_name AS agent_name
+			FROM recovery_field_visits rfv
+			LEFT JOIN o3c_users u ON rfv.agent_user_id = u.id
+			WHERE rfv.case_id = $1 ORDER BY rfv.visit_date DESC`, id)
+		writeoffs, _ := db.PGQuery(ctx, `
+			SELECT rwo.*, u.full_name AS approver_name
+			FROM recovery_write_off_approvals rwo
+			LEFT JOIN o3c_users u ON rwo.approved_by = u.id
+			WHERE rwo.case_id = $1 ORDER BY rwo.created_at DESC LIMIT 1`, id)
+
+		// Full cross-team activity log for this CIF (collections + recovery phases)
+		activityLog, _ := db.PGQuery(ctx, `
+			SELECT cal.id, cal.module, cal.entity_type, cal.entity_id, cal.account_cif,
+			       cal.action, cal.detail, cal.created_at, u.full_name AS actor_name
+			FROM credit_activity_log cal
+			LEFT JOIN o3c_users u ON cal.actor_user_id = u.id
+			WHERE cal.account_cif = $1
+			ORDER BY cal.created_at DESC
+			LIMIT 200`, cif)
+
+		// Collections-phase contacts and promises for context
+		contacts, _  := db.PGQuery(ctx, `
+			SELECT cc.*, u.full_name AS agent_name
+			FROM collection_contacts cc
+			LEFT JOIN o3c_users u ON cc.agent_user_id = u.id
+			WHERE cc.cif_number = $1 ORDER BY cc.created_at DESC LIMIT 50`, cif)
+		promises, _ := db.PGQuery(ctx, `
+			SELECT cp.*, u.full_name AS agent_name
+			FROM collection_promises cp
+			LEFT JOIN o3c_users u ON cp.created_by = u.id
+			WHERE cp.cif_number = $1 ORDER BY cp.promise_date DESC LIMIT 20`, cif)
+
+		nilToEmpty := func(rows []core.Row) []core.Row {
+			if rows == nil {
+				return []core.Row{}
+			}
+			return rows
+		}
+
+		result := map[string]any{
+			"case":            cases[0],
+			"payments":        nilToEmpty(payments),
+			"proceedings":     nilToEmpty(proceedings),
+			"visits":          nilToEmpty(visits),
+			"activity_log":    nilToEmpty(activityLog),
+			"coll_contacts":   nilToEmpty(contacts),
+			"coll_promises":   nilToEmpty(promises),
 		}
 		if len(writeoffs) > 0 {
 			result["write_off_approval"] = writeoffs[0]
