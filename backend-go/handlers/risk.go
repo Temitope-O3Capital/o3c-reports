@@ -250,25 +250,27 @@ func riskPortfolioKPIs(db *core.DB) http.HandlerFunc {
 		_ = n
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-				-- C10: compute DPD on-the-fly from maturity_date rather than relying on the
-				-- never-auto-populated dpd column.
-				-- NPL ratio: active loans overdue by >90 days
 				CASE WHEN COUNT(*) FILTER (WHERE status = 'active') > 0
 				     THEN ROUND(100.0
 				          * COUNT(*) FILTER (WHERE status = 'active'
 				            AND GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 90)
 				          / COUNT(*) FILTER (WHERE status = 'active'), 2)
 				     ELSE 0 END AS npl_ratio_pct,
-				-- PAR30 rate: active loans overdue by >30 days
 				CASE WHEN COUNT(*) FILTER (WHERE status = 'active') > 0
 				     THEN ROUND(100.0
 				          * COUNT(*) FILTER (WHERE status = 'active'
 				            AND GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / COUNT(*) FILTER (WHERE status = 'active'), 2)
 				     ELSE 0 END AS par30_rate_pct,
-				-- Avg eye score for active loans
+				CASE WHEN COUNT(*) FILTER (WHERE status = 'active') > 0
+				     THEN ROUND(100.0
+				          * COUNT(*) FILTER (WHERE status = 'active'
+				            AND GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 60)
+				          / COUNT(*) FILTER (WHERE status = 'active'), 2)
+				     ELSE 0 END AS par60_rate_pct,
 				COALESCE(ROUND(AVG(eye_score) FILTER (WHERE status = 'active' AND eye_score IS NOT NULL), 0), 0) AS avg_credit_score,
-				-- Top employer exposure (sum of outstanding or requested kobo)
+				COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0)) FILTER (WHERE status = 'active'), 0) AS total_book_kobo,
+				COUNT(*) FILTER (WHERE status = 'active') AS total_active_loans,
 				COALESCE((
 					SELECT SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0))
 					FROM loan_applications sub
@@ -283,8 +285,9 @@ func riskPortfolioKPIs(db *core.DB) http.HandlerFunc {
 		if err != nil {
 			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, map[string]any{
-					"npl_ratio_pct": 0, "par30_rate_pct": 0,
+					"npl_ratio_pct": 0, "par30_rate_pct": 0, "par60_rate_pct": 0,
 					"avg_credit_score": 0, "top_employer_exposure_kobo": 0,
+					"total_book_kobo": 0, "total_active_loans": 0,
 				}, "pg")
 				return
 			}
@@ -293,8 +296,9 @@ func riskPortfolioKPIs(db *core.DB) http.HandlerFunc {
 		}
 		if len(rows) == 0 {
 			respond(w, map[string]any{
-				"npl_ratio_pct": 0, "par30_rate_pct": 0,
+				"npl_ratio_pct": 0, "par30_rate_pct": 0, "par60_rate_pct": 0,
 				"avg_credit_score": 0, "top_employer_exposure_kobo": 0,
+				"total_book_kobo": 0, "total_active_loans": 0,
 			}, "pg")
 			return
 		}
