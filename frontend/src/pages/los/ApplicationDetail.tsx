@@ -1438,6 +1438,372 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
   )
 }
 
+// ── Timeline Tab ─────────────────────────────────────────────────────────────
+
+type FeedItem =
+  | { kind: 'event'; ts: string; item: AppEvent }
+  | { kind: 'note';  ts: string; item: AppNote  }
+
+function TimelineTab({ events, notes }: { events: AppEvent[]; notes: AppNote[] }) {
+  const feed: FeedItem[] = [
+    ...events.map(e => ({ kind: 'event' as const, ts: e.created_at, item: e })),
+    ...notes.map(n  => ({ kind: 'note'  as const, ts: n.created_at, item: n  })),
+  ].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+
+  const eventColor: Record<string, string> = {
+    stage_changed:     NAVY,
+    declined:          RED,
+    request_info:      AMBER,
+    credit_assessment: '#7C3AED',
+    condition_added:   BLUE,
+    condition_met:     GREEN,
+    document_uploaded: GREEN,
+    note_added:        'var(--txt2)',
+  }
+
+  const eventIcon: Record<string, string> = {
+    stage_changed:     'swap_horiz',
+    declined:          'cancel',
+    request_info:      'help',
+    credit_assessment: 'query_stats',
+    condition_added:   'add_task',
+    condition_met:     'check_circle',
+    document_uploaded: 'upload_file',
+    note_added:        'sticky_note_2',
+  }
+
+  if (feed.length === 0) {
+    return (
+      <SectionCard title="Activity Timeline">
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '40px 0', color: 'var(--txt2)' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 38, opacity: 0.3 }}>history</span>
+          <div style={{ fontSize: 13 }}>No activity recorded yet.</div>
+        </div>
+      </SectionCard>
+    )
+  }
+
+  return (
+    <SectionCard title="Activity Timeline" badge={feed.length}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0, position: 'relative' }}>
+        {/* Vertical line */}
+        <div style={{ position: 'absolute', left: 19, top: 0, bottom: 0, width: 2, background: 'var(--bdr)', zIndex: 0 }} />
+
+        {feed.map((f, i) => {
+          if (f.kind === 'event') {
+            const ev  = f.item as AppEvent
+            const col = eventColor[ev.event_type] ?? 'var(--txt2)'
+            const ico = eventIcon[ev.event_type]  ?? 'radio_button_checked'
+            const isStage = ev.event_type === 'stage_changed'
+            return (
+              <div key={`e-${ev.id}`} style={{ display: 'flex', gap: 14, padding: '14px 0', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
+                <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: `${col}15`, border: `2px solid ${col}40`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 17, color: col }}>{ico}</span>
+                </div>
+                <div style={{ flex: 1, paddingTop: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
+                    {isStage && ev.from_stage && ev.to_stage ? (
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
+                        Stage moved: <StagePill stage={ev.from_stage} size="sm" /> → <StagePill stage={ev.to_stage} size="sm" />
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', textTransform: 'capitalize' }}>
+                        {ev.event_type.replace(/_/g, ' ')}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {ev.actor_name && <span style={{ fontSize: 12, color: 'var(--txt2)', fontWeight: 500 }}>{ev.actor_name}</span>}
+                    <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDatetime(ev.created_at)}</span>
+                  </div>
+                  {ev.notes && (
+                    <div style={{ marginTop: 6, padding: '8px 12px', borderRadius: 7, background: 'var(--th-bg)', border: '1px solid var(--bdr)', fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.55 }}>
+                      {ev.notes}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          }
+
+          const note = f.item as AppNote
+          return (
+            <div key={`n-${note.id}`} style={{ display: 'flex', gap: 14, padding: '14px 0', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: 'var(--th-bg)', border: '2px solid var(--bdr)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16, color: note.is_internal ? AMBER : 'var(--txt2)' }}>
+                  {note.is_internal ? 'lock' : 'sticky_note_2'}
+                </span>
+              </div>
+              <div style={{ flex: 1, paddingTop: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>Note</span>
+                  {note.is_internal && (
+                    <span style={{ fontSize: 10.5, fontWeight: 600, padding: '1px 7px', borderRadius: 10, background: 'rgba(217,119,6,.12)', color: AMBER }}>Internal</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6 }}>
+                  {note.author_name && <span style={{ fontSize: 12, color: 'var(--txt2)', fontWeight: 500 }}>{note.author_name}</span>}
+                  <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{fmtDatetime(note.created_at)}</span>
+                </div>
+                <div style={{ padding: '8px 12px', borderRadius: 7, background: 'var(--th-bg)', border: '1px solid var(--bdr)', fontSize: 12.5, color: 'var(--txt)', lineHeight: 1.55 }}>
+                  {note.body}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </SectionCard>
+  )
+}
+
+// ── Approval Chain Tab ────────────────────────────────────────────────────────
+
+function ApprovalChainTab({ app, events }: { app: Application; events: AppEvent[] }) {
+  const currentIdx = STAGE_ORDER.indexOf(app.stage)
+  const declined   = app.stage === 'declined'
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {declined && app.decline_reason && (
+        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', borderRadius: 10, background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.2)' }}>
+          <span className="material-symbols-rounded" style={{ color: RED, fontSize: 18, flexShrink: 0 }}>cancel</span>
+          <div><div style={{ fontSize: 13, fontWeight: 700, color: RED }}>Application Declined</div><div style={{ fontSize: 13, color: 'var(--txt)', marginTop: 2 }}>{app.decline_reason}</div></div>
+        </div>
+      )}
+
+      <SectionCard padding={false}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {APPROVAL_CHAIN.map((entry, i) => {
+            const entryIdx  = STAGE_ORDER.indexOf(entry.stage)
+            const done      = entryIdx <= currentIdx && !declined
+            const active    = entry.stage === app.stage
+            const ev        = events.find(e => e.to_stage === entry.stage)
+            const prevEv    = events.find(e => e.from_stage === entry.stage)
+            const duration  = ev && prevEv
+              ? Math.round((new Date(prevEv.created_at).getTime() - new Date(ev.created_at).getTime()) / 60000)
+              : null
+
+            return (
+              <div key={entry.stage} style={{ display: 'grid', gridTemplateColumns: '44px 1fr auto', gap: 14, padding: '16px 20px', borderBottom: i < APPROVAL_CHAIN.length - 1 ? '1px solid var(--bdr)' : undefined, alignItems: 'flex-start' }}>
+                {/* Status icon */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: declined ? 'rgba(192,0,0,.08)' : done ? (active ? `${NAVY}12` : 'rgba(22,163,74,.1)') : 'var(--chip-bg)', border: `2px solid ${declined ? RED : done ? (active ? NAVY : GREEN) : 'var(--bdr)'}` }}>
+                    {done && !active && !declined
+                      ? <span className="material-symbols-rounded" style={{ fontSize: 17, color: GREEN }}>check</span>
+                      : active && !declined
+                      ? <span style={{ width: 10, height: 10, borderRadius: '50%', background: NAVY, display: 'block' }} />
+                      : declined && entryIdx <= currentIdx
+                      ? <span className="material-symbols-rounded" style={{ fontSize: 17, color: RED }}>close</span>
+                      : <span style={{ ...NUM, fontSize: 11, fontWeight: 700, color: 'var(--txt3)' }}>{i + 1}</span>
+                    }
+                  </div>
+                  {i < APPROVAL_CHAIN.length - 1 && (
+                    <div style={{ width: 2, height: 20, background: done && !active ? GREEN : 'var(--bdr)' }} />
+                  )}
+                </div>
+
+                {/* Content */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: active ? NAVY : done ? 'var(--txt)' : 'var(--txt2)' }}>{entry.label}</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--txt3)', fontStyle: 'italic' }}>{entry.role}</span>
+                  </div>
+                  {ev && (
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {ev.actor_name && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--txt2)', fontWeight: 500 }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: 13 }}>person</span>{ev.actor_name}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(ev.created_at)}</span>
+                      {duration !== null && duration > 0 && (
+                        <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>· {duration < 60 ? `${duration}m` : `${Math.round(duration / 60)}h`} at this stage</span>
+                      )}
+                    </div>
+                  )}
+                  {ev?.notes && (
+                    <div style={{ marginTop: 6, padding: '7px 11px', borderRadius: 6, background: 'var(--th-bg)', border: '1px solid var(--bdr)', fontSize: 12, color: 'var(--txt2)', lineHeight: 1.5 }}>
+                      {ev.notes}
+                    </div>
+                  )}
+                </div>
+
+                {/* Status badge */}
+                <div style={{ paddingTop: 8 }}>
+                  {declined && entryIdx >= currentIdx
+                    ? <span style={{ ...NUM, fontSize: 11, fontWeight: 700, color: RED }}>—</span>
+                    : done && !active
+                    ? <span style={{ ...NUM, fontSize: 11, fontWeight: 700, color: GREEN }}>Done</span>
+                    : active
+                    ? <span style={{ ...NUM, fontSize: 11, fontWeight: 700, color: NAVY }}>In Progress</span>
+                    : <span style={{ ...NUM, fontSize: 11, fontWeight: 700, color: 'var(--txt3)' }}>Pending</span>
+                  }
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </SectionCard>
+    </div>
+  )
+}
+
+// ── Eye Report Tab ────────────────────────────────────────────────────────────
+
+function EyeTab({ app }: { app: Application }) {
+  const [cfData,    setCfData]    = useState<CreditFileData | null>(null)
+  const [cfLoading, setCfLoading] = useState(false)
+
+  useEffect(() => {
+    if (!app.applicant_cif) return
+    setCfLoading(true)
+    apiFetch<{ data: CreditFileData }>(`/api/risk/credit-file/${app.applicant_cif}`)
+      .then(r => setCfData((r as any).data ?? null))
+      .catch(() => {})
+      .finally(() => setCfLoading(false))
+  }, [app.applicant_cif])
+
+  const score      = app.eye_score
+  const rating     = app.eye_rating
+  const scoreColor = score === null ? 'var(--txt3)' : score >= 700 ? GREEN : score >= 500 ? AMBER : RED
+
+  const monthlyRepayment = (app.tenor_months && app.amount_requested_kobo)
+    ? Math.round(app.amount_requested_kobo / app.tenor_months * (1 + (app.interest_rate_bps ?? 0) / 10000))
+    : 0
+  const dtiPct   = app.dti_pct
+  const dtiColor = dtiPct === null ? 'var(--txt2)' : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : GREEN
+  const netAfter = (app.monthly_income_kobo && monthlyRepayment) ? app.monthly_income_kobo - monthlyRepayment : null
+
+  const veyonraUrl = (import.meta as any).env?.VITE_VEYONRA_URL as string | undefined
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Score hero */}
+      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 0, borderRadius: 12, background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)', overflow: 'hidden' }}>
+        {/* Score circle panel */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '28px 20px', borderRight: '1px solid var(--bdr)', background: score !== null ? `${scoreColor}06` : 'var(--th-bg)' }}>
+          <div style={{ ...NUM, fontSize: 68, fontWeight: 900, color: scoreColor, lineHeight: 1 }}>{score ?? '—'}</div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Eye Score</div>
+          {rating && (
+            <span style={{ fontSize: 13, fontWeight: 700, padding: '4px 14px', borderRadius: 20, background: `${RATING_COLORS[rating] ?? 'var(--txt2)'}18`, color: RATING_COLORS[rating] ?? 'var(--txt2)' }}>
+              {rating}
+            </span>
+          )}
+          {score === null && (
+            <span style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: 'rgba(217,119,6,.12)', color: AMBER }}>Not assessed</span>
+          )}
+          {/* Score band bar */}
+          {score !== null && (
+            <div style={{ width: '80%', marginTop: 8 }}>
+              <div style={{ position: 'relative', height: 8, borderRadius: 4, background: 'var(--bdr)', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${(score / 850) * 100}%`, borderRadius: 4, background: `linear-gradient(90deg, ${RED}, ${AMBER}, ${GREEN})` }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
+                <span style={{ fontSize: 9, color: 'var(--txt3)' }}>0</span>
+                <span style={{ fontSize: 9, color: 'var(--txt3)' }}>850</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Metrics */}
+        <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 16 }}>
+            {[
+              { label: 'Monthly Income',        value: app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : '—', color: 'var(--txt)' },
+              { label: 'Monthly Obligations',   value: app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : '—', color: 'var(--txt)' },
+              { label: 'Est. Monthly Repayment',value: monthlyRepayment ? fmtKobo(monthlyRepayment) : '—', color: 'var(--txt)' },
+              { label: 'Net After Deduction',   value: netAfter !== null ? fmtKobo(netAfter) : '—', color: netAfter !== null ? (netAfter > 0 ? GREEN : RED) : 'var(--txt)' },
+            ].map(m => (
+              <div key={m.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{m.label}</span>
+                <span style={{ ...NUM, fontSize: 15, fontWeight: 700, color: m.color }}>{m.value}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* DTI gauge */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Debt-to-Income Ratio</span>
+              <span style={{ ...NUM, fontSize: 16, fontWeight: 800, color: dtiColor }}>{dtiPct !== null ? `${dtiPct.toFixed(1)}%` : '—'}</span>
+            </div>
+            <div style={{ position: 'relative', height: 10, borderRadius: 5, background: 'var(--bdr)', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: dtiPct !== null ? `${Math.min(dtiPct, 100)}%` : '0%', borderRadius: 5, background: dtiColor, transition: 'width 0.6s ease' }} />
+              {/* 33% threshold */}
+              <div style={{ position: 'absolute', left: '33%', top: 0, bottom: 0, width: 2, background: 'rgba(255,255,255,.6)' }} />
+              {/* 50% threshold */}
+              <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, background: 'rgba(255,255,255,.6)' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: 4 }}>
+              {[['0–33%', GREEN, 'Good'], ['33–50%', AMBER, 'Caution'], ['50%+', RED, 'High Risk']].map(([r, c, l]) => (
+                <span key={r} style={{ fontSize: 10, color: c as string, fontWeight: 600 }}>{r} {l}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bureau summary */}
+      {app.bureau_summary && (
+        <SectionCard title="Bureau Summary">
+          <div style={{ fontSize: 13.5, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{app.bureau_summary}</div>
+        </SectionCard>
+      )}
+
+      {/* Credit file data (from risk endpoint) */}
+      {cfLoading && <SectionCard title="Credit History"><Sk h={80} /></SectionCard>}
+      {cfData && !cfLoading && (
+        <SectionCard title="Credit History">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+            {[
+              { label: 'Outstanding Balance', value: fmtKobo(cfData.outstanding_kobo), color: cfData.outstanding_kobo > 0 ? AMBER : 'var(--txt)' },
+              { label: 'Days Past Due (DPD)', value: `${cfData.dpd ?? 0} days`, color: cfData.dpd > 0 ? (cfData.dpd >= 90 ? RED : AMBER) : GREEN },
+              { label: 'Amount Disbursed',    value: fmtKobo(cfData.amount_approved_kobo || cfData.amount_requested_kobo), color: 'var(--txt)' },
+              { label: 'Loan Tenor',          value: cfData.tenor_months ? `${cfData.tenor_months} months` : '—', color: 'var(--txt)' },
+              { label: 'Interest Rate',       value: cfData.tenor_months ? `${((app.interest_rate_bps ?? 0) / 100).toFixed(2)}% p.a.` : '—', color: 'var(--txt)' },
+              { label: 'Employer',            value: cfData.employer || '—', color: 'var(--txt)' },
+            ].map(m => (
+              <div key={m.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{m.label}</span>
+                <span style={{ ...NUM, fontSize: 14, fontWeight: 700, color: m.color }}>{m.value}</span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {/* Veyonra deep link */}
+      {(veyonraUrl || app.applicant_cif) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', borderRadius: 10, background: `${NAVY}06`, border: `1px solid ${NAVY}18` }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 20, color: NAVY }}>open_in_new</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>View Full Report in Veyonra / Eye</div>
+            <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 1 }}>Open the complete SHAP factor breakdown and bureau response in the Eye service.</div>
+          </div>
+          {veyonraUrl ? (
+            <a href={`${veyonraUrl}/report/${app.applicant_cif}`} target="_blank" rel="noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600, textDecoration: 'none' }}>
+              Open<span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_outward</span>
+            </a>
+          ) : (
+            <span style={{ fontSize: 11.5, color: 'var(--txt3)', fontStyle: 'italic' }}>Set VITE_VEYONRA_URL to enable deep link</span>
+          )}
+        </div>
+      )}
+
+      {!score && !app.bureau_summary && !cfData && !cfLoading && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '40px 0', color: 'var(--txt2)' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 42, opacity: 0.3 }}>query_stats</span>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>No Eye report on file</div>
+          <div style={{ fontSize: 13, color: 'var(--txt3)' }}>Credit assessment has not been entered for this application.</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main ApplicationDetail ────────────────────────────────────────────────────
 
 export default function ApplicationDetail() {
@@ -1447,6 +1813,7 @@ export default function ApplicationDetail() {
   const [data,    setData]    = useState<DetailData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
+  const [subTab,  setSubTab]  = useState<'overview' | 'timeline' | 'approval' | 'eye'>('overview')
 
   const userObj      = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}') } catch { return {} } })()
   const userRole     = userObj?.role ?? ''
@@ -1557,6 +1924,14 @@ export default function ApplicationDetail() {
 
   const nextStages = ALLOWED_TRANSITIONS[app.stage] ?? []
 
+  // For exec/admin roles (md, coo, cfo, etc.) that don't match a specific team,
+  // pick the view that matches the application's current stage so they always
+  // see the contextually appropriate layout.
+  const RISK_STAGES    = ['risk_review', 'risk_head_review', 'pending_conditions']
+  const FINANCE_STAGES = ['finance_approval', 'booking', 'active']
+  const showRisk    = isRisk    || (!isFinance && !isCompliance && RISK_STAGES.includes(app.stage))
+  const showFinance = isFinance || (!isRisk    && !isCompliance && FINANCE_STAGES.includes(app.stage))
+
   return (
     <Page
       title={app.reference || `APP-${app.id}`}
@@ -1567,8 +1942,35 @@ export default function ApplicationDetail() {
         </button>
       }
     >
-      {/* Render role-specific view */}
-      {isRisk ? (
+      {/* Sub-page tab bar — visible to all roles */}
+      {(() => {
+        const tabs: { key: typeof subTab; label: string; icon: string }[] = [
+          { key: 'overview',  label: 'Overview',       icon: 'dashboard' },
+          { key: 'timeline',  label: 'Activity',       icon: 'history' },
+          { key: 'approval',  label: 'Approval Queue', icon: 'approval' },
+          { key: 'eye',       label: 'Eye Report',     icon: 'query_stats' },
+        ]
+        return (
+          <div style={{ display: 'flex', gap: 2, padding: '4px', background: 'var(--th-bg)', borderRadius: 10, border: '1px solid var(--bdr)', marginBottom: 4, overflowX: 'auto' }}>
+            {tabs.map(t => (
+              <button key={t.key} onClick={() => setSubTab(t.key)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 7, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 13, fontWeight: subTab === t.key ? 700 : 500, background: subTab === t.key ? 'var(--card)' : 'transparent', color: subTab === t.key ? NAVY : 'var(--txt2)', boxShadow: subTab === t.key ? '0 1px 4px rgba(0,0,0,.08)' : 'none', transition: 'all 0.15s' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{t.icon}</span>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )
+      })()}
+
+      {/* Render role-specific view, with stage-based fallback for exec/admin roles */}
+      {subTab === 'timeline' ? (
+        <TimelineTab events={events} notes={data.notes ?? []} />
+      ) : subTab === 'approval' ? (
+        <ApprovalChainTab app={app} events={events} />
+      ) : subTab === 'eye' ? (
+        <EyeTab app={app} />
+      ) : showRisk ? (
         <RiskView
           app={app} conditions={conditions} events={events}
           onRefresh={load}
@@ -1578,7 +1980,7 @@ export default function ApplicationDetail() {
           onCreditFile={() => setShowCreditFile(true)}
           onCommittee={() => setCommitteeOpen(true)}
         />
-      ) : isFinance ? (
+      ) : showFinance ? (
         <FinanceView
           app={app} conditions={conditions} events={events}
           onRefresh={load}
