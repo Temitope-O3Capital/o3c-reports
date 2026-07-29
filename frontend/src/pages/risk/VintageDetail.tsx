@@ -511,7 +511,7 @@ export default function VintageDetail() {
           keyFn={r => r.id}
           loading={loading}
           skeletonRows={8}
-          onRowClick={r => navigate(`/sales/applications/${r.id}`)}
+          onRowClick={r => navigate(`/operations/risk/applications/${r.id}`)}
           emptyText="No loans match the selected filter"
         />
       </SectionCard>

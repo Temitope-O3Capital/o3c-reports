@@ -271,7 +271,7 @@ export default function RiskPortfolio() {
           cols={cols} rows={rows}
           keyFn={r => r.id}
           loading={loading} skeletonRows={12}
-          onRowClick={r => navigate(`/sales/applications/${r.id}`)}
+          onRowClick={r => navigate(`/operations/risk/applications/${r.id}`)}
           emptyText="No active loans found"
           pageSize={PAGE_SIZE}
         />

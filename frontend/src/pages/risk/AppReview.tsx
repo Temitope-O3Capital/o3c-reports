@@ -295,7 +295,7 @@ export default function RiskAppReview() {
           {
             icon: 'visibility',
             label: 'View Application',
-            onClick: () => navigate(`/sales/applications/${r.id}`),
+            onClick: () => navigate(`/operations/risk/applications/${r.id}`),
           },
         ]} />
       ),
@@ -415,7 +415,7 @@ export default function RiskAppReview() {
           keyFn={r => r.id}
           loading={loading}
           skeletonRows={8}
-          onRowClick={r => navigate(`/sales/applications/${r.id}`)}
+          onRowClick={r => navigate(`/operations/risk/applications/${r.id}`)}
           selectable
           selectedIds={selected}
           onSelect={setSelected}

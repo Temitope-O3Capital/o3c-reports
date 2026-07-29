@@ -1006,11 +1006,12 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/cards/billing"      element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsBilling /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Operations — Risk */}
-                  <Route path="/operations/risk"              element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskOverview /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/operations/risk/applications" element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskAppReview /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/operations/risk/portfolio"    element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskPortfolio /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/operations/risk/vintage"        element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintage /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/operations/risk/vintage/:month" element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintageDetail /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk"                   element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/applications"      element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskAppReview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/applications/:id"  element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><LOSAppDetail /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/portfolio"         element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskPortfolio /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/vintage"           element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintage /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/vintage/:month"    element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintageDetail /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Collections */}
                   <Route path="/collections"                 element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsOverview /></PageErrorBoundary></RequireAccess>} />
