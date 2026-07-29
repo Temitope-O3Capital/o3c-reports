@@ -21,6 +21,67 @@ import (
 
 const waAPIBase = "https://graph.facebook.com/v19.0"
 
+// sendWhatsAppCampaign dispatches a campaign message: uses the template API when
+// templateName is set (required for proactive outbound), free-form text otherwise.
+func sendWhatsAppCampaign(ctx context.Context, db *core.DB, phone, body, templateName string) (bool, string) {
+	if templateName != "" {
+		return sendWhatsAppTemplate(ctx, db, phone, templateName, body)
+	}
+	return sendWhatsApp(ctx, db, phone, body)
+}
+
+// sendWhatsAppTemplate sends via the Meta template messages API.
+// bodyText is passed as a single body parameter — the template must have exactly
+// one {{1}} body variable, or be a static template (parameters array is omitted).
+func sendWhatsAppTemplate(ctx context.Context, db *core.DB, phone, templateName, bodyText string) (ok bool, providerID string) {
+	phoneID := resolveCredKey(ctx, db, "WHATSAPP_PHONE_NUMBER_ID")
+	token   := resolveCredKey(ctx, db, "WHATSAPP_ACCESS_TOKEN")
+	if phoneID == "" || token == "" {
+		slog.Warn("whatsapp template: WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not configured")
+		return false, "not_configured"
+	}
+	phone = normalizeE164(phone)
+	components := []map[string]any{}
+	if bodyText != "" {
+		components = append(components, map[string]any{
+			"type": "body",
+			"parameters": []map[string]any{
+				{"type": "text", "text": bodyText},
+			},
+		})
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"messaging_product": "whatsapp",
+		"recipient_type":    "individual",
+		"to":                phone,
+		"type":              "template",
+		"template": map[string]any{
+			"name":       templateName,
+			"language":   map[string]string{"code": "en"},
+			"components": components,
+		},
+	})
+	url  := fmt.Sprintf("%s/%s/messages", waAPIBase, phoneID)
+	resp, err := httpPost(url, "application/json", "Bearer "+token, payload, 15*time.Second)
+	if err != nil {
+		slog.Error("whatsapp template: http error", "error", err)
+		return false, err.Error()
+	}
+	defer resp.Body.Close()
+	var d map[string]any
+	json.NewDecoder(resp.Body).Decode(&d) //nolint:errcheck
+	if resp.StatusCode == 200 {
+		if msgs, ok2 := d["messages"].([]any); ok2 && len(msgs) > 0 {
+			if m, ok3 := msgs[0].(map[string]any); ok3 {
+				return true, str(m["id"])
+			}
+		}
+		return true, ""
+	}
+	slog.Error("whatsapp template: api error", "status", resp.StatusCode, "template", templateName, "body", d)
+	return false, fmt.Sprintf("status %d", resp.StatusCode)
+}
+
 // sendWhatsApp sends a text message via Meta Cloud API.
 // phone may be in local Nigerian format; it is normalised to E.164 internally.
 func sendWhatsApp(ctx context.Context, db *core.DB, phone, message string) (ok bool, providerID string) {
@@ -169,9 +230,43 @@ func waInbound(db *core.DB) http.HandlerFunc {
 					}
 					go processWAMessage(db, fromPhone, senderName, text)
 				}
+
+				// Delivery status callbacks for outbound campaign messages
+				statuses, _ := val["statuses"].([]any)
+				for _, statusEntry := range statuses {
+					s, _  := statusEntry.(map[string]any)
+					msgID := str(s["id"])
+					st    := str(s["status"]) // "sent", "delivered", "read", "failed"
+					if msgID == "" {
+						continue
+					}
+					go processWADeliveryStatus(db, msgID, st)
+				}
 			}
 		}
 		w.WriteHeader(200)
+	}
+}
+
+// processWADeliveryStatus updates campaign_contacts when Meta posts a delivery/read receipt.
+func processWADeliveryStatus(db *core.DB, providerID, status string) {
+	ctx := context.Background()
+	switch status {
+	case "delivered", "read":
+		sub, _ := db.PGQuery(ctx,
+			`SELECT campaign_id FROM campaign_contacts WHERE whatsapp_provider_id=$1 LIMIT 1`, providerID)
+		db.PGExec(ctx, //nolint:errcheck
+			`UPDATE campaign_contacts SET whatsapp_status='delivered', updated_at=NOW()
+			 WHERE whatsapp_provider_id=$1 AND whatsapp_status NOT IN ('delivered')`, providerID)
+		if len(sub) > 0 {
+			db.PGExec(ctx, //nolint:errcheck
+				`UPDATE campaigns SET whatsapp_delivered=whatsapp_delivered+1, updated_at=NOW() WHERE id=$1`,
+				sub[0]["campaign_id"])
+		}
+	case "failed":
+		db.PGExec(ctx, //nolint:errcheck
+			`UPDATE campaign_contacts SET whatsapp_status='failed', updated_at=NOW()
+			 WHERE whatsapp_provider_id=$1 AND whatsapp_status NOT IN ('delivered')`, providerID)
 	}
 }
 

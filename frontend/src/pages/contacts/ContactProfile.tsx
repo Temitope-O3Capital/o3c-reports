@@ -2,8 +2,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, Tabs } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDate, fmtKobo } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, SORA, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { fmtDate, fmtDatetime, fmtKobo } from '../../lib/fmt'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -100,21 +100,19 @@ interface ContactProfileData {
   }[]
 
   activity_log: {
-    id: number
+    id: string
     type: string
     description: string
     created_by: string
     created_at: string
     module: string
+    ref: string
+    meta: string
   }[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const MODULE_COLOUR: Record<string, string> = {
-  crm: BLUE, los: NAVY, cards: PURPLE, collections: AMBER,
-  recovery: RED, helpdesk: '#0891B2', system: '#6B7280',
-}
 
 function statusColour(status: string): string {
   const s = status.toLowerCase()
@@ -439,9 +437,26 @@ function HelpdeskTab({ profile }: { profile: ContactProfileData }) {
   )
 }
 
-const MODULE_ICON: Record<string, string> = {
-  crm: 'handshake', los: 'description', helpdesk: 'support_agent',
-  collections: 'phone_in_talk', recovery: 'gavel', cards: 'credit_card', system: 'settings',
+const ACTIVITY_ICON: Record<string, string> = {
+  call: 'call', email: 'mail', meeting: 'groups', task: 'task_alt',
+  stage_change: 'swap_horiz', note_added: 'sticky_note_2',
+  condition_added: 'rule', condition_waived: 'check_circle',
+  declined: 'cancel', approved: 'verified',
+  collection_contact: 'phone_in_talk',
+  ticket_opened: 'confirmation_number', ticket_resolved: 'support_agent',
+  payment: 'payments', disbursement: 'account_balance',
+}
+
+const MODULE_LABEL: Record<string, { label: string; colour: string }> = {
+  crm:         { label: 'CRM',         colour: BLUE },
+  los:         { label: 'LOS',         colour: NAVY },
+  collections: { label: 'Collections', colour: AMBER },
+  helpdesk:    { label: 'Helpdesk',    colour: '#0891B2' },
+  recovery:    { label: 'Recovery',    colour: RED },
+}
+
+function fmtStage(s: string) {
+  return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 function ActivityTab({ profile }: { profile: ContactProfileData }) {
@@ -451,39 +466,87 @@ function ActivityTab({ profile }: { profile: ContactProfileData }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {profile.activity_log.map((a, i) => {
-        const colour = MODULE_COLOUR[a.module] ?? '#6B7280'
-        const icon   = MODULE_ICON[a.module] ?? 'history'
-        const isLast = i === profile.activity_log.length - 1
+        const icon    = ACTIVITY_ICON[a.type] ?? 'history'
+        const isLast  = i === profile.activity_log.length - 1
+        const title   = a.type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+        const mod     = MODULE_LABEL[a.module]
+        // meta may be "from_stage → to_stage" for LOS or "Call · Promised to pay" for collections
+        const metaParts = a.meta ? a.meta.split(' → ') : []
+        const isStageTransition = metaParts.length === 2
+
         return (
-          <div key={a.id} style={{ display: 'flex', gap: 14 }}>
-            {/* Left column: circle + line */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: `${colour}14`, border: `2px solid ${colour}50`,
-              }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 16, color: colour }}>
-                  {icon}
-                </span>
-              </div>
-              {!isLast && (
-                <div style={{ width: 2, flex: 1, marginTop: 4, marginBottom: 4, background: 'var(--bdr)', minHeight: 24 }} />
-              )}
+          <div key={a.id} style={{ display: 'flex', gap: 12, paddingBottom: isLast ? 0 : 12, position: 'relative' }}>
+            {!isLast && (
+              <div style={{ position: 'absolute', left: 15, top: 40, bottom: 0, width: 1, background: 'var(--bdr)' }} />
+            )}
+            {/* Circle */}
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%', flexShrink: 0, marginTop: 10,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'var(--chip-bg)', border: '1px solid var(--bdr)', zIndex: 1,
+            }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt2)' }}>{icon}</span>
             </div>
-            {/* Content */}
-            <div style={{ flex: 1, paddingTop: 5, paddingBottom: isLast ? 0 : 20 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{a.description}</div>
-              <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 3 }}>
-                {a.created_by} · {fmtDate(a.created_at)}
-                <span style={{
-                  marginLeft: 8, padding: '1px 7px', borderRadius: RADIUS.md,
-                  background: `${colour}14`, color: colour,
-                  fontSize: TEXT['2xs'], fontWeight: FW.semibold,
-                }}>
-                  {a.module}
-                </span>
+
+            {/* Pill card */}
+            <div style={{
+              flex: 1, background: 'var(--card)',
+              border: '1px solid var(--bdr)', borderRadius: RADIUS.lg,
+              padding: '10px 14px',
+            }}>
+              {/* Header row: title + module badge + ref */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{title}</span>
+                {mod && (
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: RADIUS.xl,
+                    background: `${mod.colour}15`, color: mod.colour, border: `1px solid ${mod.colour}30`,
+                  }}>{mod.label}</span>
+                )}
+                {a.ref && (
+                  <span style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--txt2)',
+                    background: 'var(--th-bg)', padding: '1px 6px', borderRadius: RADIUS.md,
+                    border: '1px solid var(--bdr)',
+                  }}>{a.ref}</span>
+                )}
               </div>
+
+              {/* Timestamp · actor */}
+              <div style={{ fontSize: 12, color: 'var(--txt2)' }}>
+                {fmtDatetime(a.created_at)}{a.created_by && ` · ${a.created_by}`}
+              </div>
+
+              {/* Stage transition */}
+              {isStageTransition && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                  <span style={{
+                    fontSize: 12, padding: '2px 8px', borderRadius: RADIUS.md,
+                    background: 'var(--th-bg)', border: '1px solid var(--bdr)', color: 'var(--txt2)',
+                  }}>{fmtStage(metaParts[0])}</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14, color: 'var(--txt3)' }}>arrow_forward</span>
+                  <span style={{
+                    fontSize: 12, padding: '2px 8px', borderRadius: RADIUS.md,
+                    background: `${NAVY}12`, border: `1px solid ${NAVY}25`, color: NAVY,
+                    fontWeight: 600,
+                  }}>{fmtStage(metaParts[1])}</span>
+                </div>
+              )}
+
+              {/* Plain meta (e.g. "Call · Promised to pay") */}
+              {a.meta && !isStageTransition && (
+                <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 5, fontStyle: 'italic' }}>{a.meta}</div>
+              )}
+
+              {/* Description / notes */}
+              {a.description && (
+                <div style={{
+                  marginTop: 7, fontSize: 13, color: 'var(--txt2)', lineHeight: 1.5,
+                  paddingTop: 7, borderTop: '1px solid var(--bdr)',
+                }}>
+                  {a.description}
+                </div>
+              )}
             </div>
           </div>
         )

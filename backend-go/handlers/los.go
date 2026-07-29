@@ -40,6 +40,9 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	r.With(base).Get("/{id}/documents", losGetDocuments(db))
 	r.With(base).Post("/{id}/documents", losUploadDocument(db))
 	r.With(base).Delete("/documents/{doc_id}", losDeleteDocument(db))
+	r.With(base).Get("/team-users", losTeamUsers(db))
+	r.With(base).Get("/{id}/messages", losGetMessages(db))
+	r.With(base).Post("/{id}/messages", losPostMessage(db))
 }
 
 // allowedTransitions maps from_stage → []to_stage
@@ -537,7 +540,42 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 				EventType: EvtLoanSubmitted,
 				Title:     "New Loan Application Submitted",
 				Body:      fmt.Sprintf("Application %s is ready for risk review", loanRef),
-				ActionURL: fmt.Sprintf("/sales/applications/%d", id),
+				ActionURL: fmt.Sprintf("/operations/risk/applications/%d", id),
+				EntityRef: fmt.Sprintf("loan_application:%d", id),
+			})
+		case "risk_review":
+			if salesOfficerID != 0 && salesOfficerID != user.ID {
+				go Notify(context.Background(), db, NotifPayload{
+					EventType: EvtLoanStageChanged,
+					UserID:    salesOfficerID,
+					Title:     "Application sent to Risk Review",
+					Body:      fmt.Sprintf("Application %s has been sent to risk review", loanRef),
+					ActionURL: fmt.Sprintf("/sales/applications/%d", id),
+					EntityRef: fmt.Sprintf("loan_application:%d", id),
+				})
+			}
+		case "pending_conditions":
+			go NotifyRole(context.Background(), db, "risk_head", NotifPayload{
+				EventType: EvtLoanStageChanged,
+				Title:     "Application ready for condition tracking",
+				Body:      fmt.Sprintf("Application %s is ready for condition tracking", loanRef),
+				ActionURL: fmt.Sprintf("/operations/risk/applications/%d", id),
+				EntityRef: fmt.Sprintf("loan_application:%d", id),
+			})
+		case "finance_approval":
+			go NotifyRole(context.Background(), db, "finance_officer", NotifPayload{
+				EventType: EvtLoanStageChanged,
+				Title:     "Application ready for finance approval",
+				Body:      fmt.Sprintf("Application %s is ready for finance approval", loanRef),
+				ActionURL: fmt.Sprintf("/operations/risk/applications/%d", id),
+				EntityRef: fmt.Sprintf("loan_application:%d", id),
+			})
+		case "booking":
+			go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
+				EventType: EvtLoanStageChanged,
+				Title:     "Application approved — ready for booking",
+				Body:      fmt.Sprintf("Application %s has been approved and is ready for booking", loanRef),
+				ActionURL: fmt.Sprintf("/operations/risk/applications/%d", id),
 				EntityRef: fmt.Sprintf("loan_application:%d", id),
 			})
 		case "active":
@@ -1039,5 +1077,114 @@ func losDeleteDocument(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "delete failed: "+err.Error()); return
 		}
 		w.WriteHeader(204)
+	}
+}
+
+// ── LOS Messaging ─────────────────────────────────────────────────────────────
+
+func losTeamUsers(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT id, full_name, role FROM o3c_users WHERE is_active = TRUE ORDER BY full_name ASC`)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func losGetMessages(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID")
+			return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT * FROM application_messages
+			WHERE application_id = $1
+			ORDER BY created_at ASC`, id)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+func losPostMessage(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Body       string  `json:"body"`
+		MentionIDs []int64 `json:"mention_ids"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.Body == "" {
+			respondErr(w, 422, "body is required")
+			return
+		}
+		if b.MentionIDs == nil {
+			b.MentionIDs = []int64{}
+		}
+
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		apps, err := db.PGQuery(ctx, `SELECT reference FROM loan_applications WHERE id = $1`, id)
+		if err != nil || len(apps) == 0 {
+			respondErr(w, 404, "Application not found")
+			return
+		}
+		loanRef := str(apps[0]["reference"])
+
+		mentionJSON, _ := json.Marshal(b.MentionIDs)
+		rows, err := db.PGQuery(ctx, `
+			INSERT INTO application_messages
+			    (application_id, author_user_id, author_name, author_role, body, mention_ids, msg_type)
+			VALUES ($1, $2, $3, $4, $5, $6, 'message')
+			RETURNING id, application_id, author_user_id, author_name, author_role, body, mention_ids, msg_type, created_at`,
+			id, user.ID, user.FullName, user.Role, b.Body, string(mentionJSON))
+		if err != nil {
+			respondErr(w, 500, "Insert failed")
+			return
+		}
+
+		// Notify mentioned users (skip self)
+		actionURL := fmt.Sprintf("/operations/risk/applications/%d", id)
+		if loanRef == "" {
+			actionURL = fmt.Sprintf("/sales/applications/%d", id)
+		}
+		for _, mentionID := range b.MentionIDs {
+			if mentionID == user.ID {
+				continue
+			}
+			mid := mentionID
+			go Notify(context.Background(), db, NotifPayload{
+				EventType: EvtLoanStageChanged,
+				UserID:    mid,
+				Title:     fmt.Sprintf("You were mentioned in %s", loanRef),
+				Body:      fmt.Sprintf("%s mentioned you: %.100s", user.FullName, b.Body),
+				ActionURL: actionURL,
+				EntityRef: fmt.Sprintf("loan_application:%d", id),
+			})
+		}
+
+		respond(w, rows[0], "pg")
 	}
 }

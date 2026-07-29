@@ -39,6 +39,7 @@ interface MonthlyVolume {
   month: string
   email: number
   sms: number
+  whatsapp: number
 }
 
 interface TopCampaign {
@@ -61,7 +62,8 @@ interface AnalyticsResp {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const CHANNEL_COLORS: Record<string, string> = { email: BLUE, sms: PURPLE, multi: GREEN, whatsapp: GREEN }
+const WA_GREEN = '#25D366'
+const CHANNEL_COLORS: Record<string, string> = { email: BLUE, sms: PURPLE, multi: GREEN, whatsapp: WA_GREEN }
 const PIE_COLORS = [BLUE, PURPLE, GREEN, AMBER]
 
 function toN(v: any): number { return Number(v) || 0 }
@@ -141,6 +143,7 @@ export default function CampaignAnalytics() {
           <option value="">All Channels</option>
           <option value="email">Email</option>
           <option value="sms">SMS</option>
+          <option value="whatsapp">WhatsApp</option>
           <option value="multi">Multi</option>
         </select>
       </FilterBar>
@@ -166,8 +169,9 @@ export default function CampaignAnalytics() {
                 <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
                 <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
                 <Legend iconSize={10} wrapperStyle={{ fontSize: TEXT.xs }} />
-                <Bar dataKey="email" fill={BLUE}   name="Email" radius={[3,3,0,0]} stackId="a" />
-                <Bar dataKey="sms"   fill={PURPLE} name="SMS"   radius={[3,3,0,0]} stackId="a" />
+                <Bar dataKey="email"    fill={BLUE}     name="Email"    radius={[3,3,0,0]} stackId="a" />
+                <Bar dataKey="sms"     fill={PURPLE}   name="SMS"      radius={[3,3,0,0]} stackId="a" />
+                <Bar dataKey="whatsapp"fill={WA_GREEN} name="WhatsApp" radius={[3,3,0,0]} stackId="a" />
               </BarChart>
             </ResponsiveContainer>
           ) : (

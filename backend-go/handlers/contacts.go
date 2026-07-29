@@ -66,6 +66,71 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			WHERE customer_cif = $1
 			ORDER BY created_at DESC LIMIT 20`, cif)
 
+		// ── Activity log (UNION across all modules) ────────────────────────────
+		activityRows, _ := db.PGQuery(ctx, `
+			SELECT id, type, description, created_by, created_at, module, ref, meta
+			FROM (
+				SELECT a.id::text AS id,
+				       a.type,
+				       COALESCE(a.note,'') AS description,
+				       COALESCE(u.full_name,'') AS created_by,
+				       a.created_at,
+				       'crm' AS module,
+				       '' AS ref,
+				       '' AS meta
+				FROM crm_activities a
+				LEFT JOIN o3c_users u ON u.id = a.created_by
+				WHERE a.contact_id = (SELECT id FROM crm_contacts WHERE cif_number = $1 LIMIT 1)
+
+				UNION ALL
+
+				SELECT ae.id::text,
+				       ae.event_type AS type,
+				       COALESCE(ae.notes,'') AS description,
+				       COALESCE(u.full_name,'') AS created_by,
+				       ae.created_at,
+				       'los' AS module,
+				       COALESCE(la.reference,'') AS ref,
+				       CASE
+				         WHEN ae.from_stage IS NOT NULL AND ae.to_stage IS NOT NULL
+				         THEN ae.from_stage || ' → ' || ae.to_stage
+				         ELSE ''
+				       END AS meta
+				FROM application_events ae
+				JOIN loan_applications la ON la.id = ae.application_id
+				LEFT JOIN o3c_users u ON u.id = ae.actor_user_id
+				WHERE la.applicant_cif = $1
+
+				UNION ALL
+
+				SELECT cc.id::text,
+				       'collection_contact' AS type,
+				       COALESCE(cc.notes, cc.outcome, '') AS description,
+				       COALESCE(u.full_name,'') AS created_by,
+				       cc.created_at,
+				       'collections' AS module,
+				       '' AS ref,
+				       CONCAT_WS(' · ', NULLIF(cc.contact_type,''), NULLIF(cc.outcome,'')) AS meta
+				FROM collection_contacts cc
+				LEFT JOIN o3c_users u ON u.id = cc.agent_user_id
+				WHERE cc.cif_number = $1
+
+				UNION ALL
+
+				SELECT t.id::text,
+				       'ticket_opened' AS type,
+				       t.subject AS description,
+				       '' AS created_by,
+				       t.created_at,
+				       'helpdesk' AS module,
+				       COALESCE(t.ticket_ref,'') AS ref,
+				       CONCAT_WS(' · ', NULLIF(t.priority,''), NULLIF(t.status,'')) AS meta
+				FROM helpdesk_tickets t
+				WHERE t.customer_cif = $1
+			) sub
+			ORDER BY created_at DESC
+			LIMIT 30`, cif)
+
 		// ── Base profile ───────────────────────────────────────────────────────
 		profile := map[string]any{
 			"cif":              cif,
@@ -230,6 +295,22 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			})
 		}
 		profile["helpdesk_tickets"] = hdList
+
+		// Activity log
+		actList := make([]any, 0)
+		for _, a := range activityRows {
+			actList = append(actList, map[string]any{
+				"id":          a["id"],
+				"type":        a["type"],
+				"description": a["description"],
+				"created_by":  a["created_by"],
+				"created_at":  a["created_at"],
+				"module":      a["module"],
+				"ref":         a["ref"],
+				"meta":        a["meta"],
+			})
+		}
+		profile["activity_log"] = actList
 
 		respond(w, profile, "pg")
 	}

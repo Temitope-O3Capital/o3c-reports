@@ -22,10 +22,12 @@ interface Campaign {
   email_subject?: string; email_body_html?: string; email_body_text?: string
   email_blocks_json?: string
   from_name?: string; from_email?: string; sms_body?: string
+  whatsapp_body?: string; whatsapp_template_name?: string
   scheduled_at?: string; started_at?: string; completed_at?: string
   pause_reason?: string; created_at: string; created_by_name?: string
   emails_sent?: number; emails_delivered?: number; emails_opened?: number
   emails_clicked?: number; sms_sent?: number; sms_delivered?: number
+  whatsapp_sent?: number; whatsapp_delivered?: number
   bounce_count?: number; unsubscribe_count?: number
 }
 
@@ -61,8 +63,9 @@ const STATUS_META: Record<string, { color: string; label: string }> = {
   cancelled: { color: RED,      label: 'Cancelled' },
 }
 
-const TYPE_COLOR: Record<string, string> = { email: BLUE, sms: PURPLE, multi: GREEN }
-const TYPE_LABEL: Record<string, string> = { email: 'Email', sms: 'SMS', multi: 'Multi-channel' }
+const WA_GREEN = '#25D366'
+const TYPE_COLOR: Record<string, string> = { email: BLUE, sms: PURPLE, multi: GREEN, whatsapp: WA_GREEN }
+const TYPE_LABEL: Record<string, string> = { email: 'Email', sms: 'SMS', multi: 'Multi-channel', whatsapp: 'WhatsApp' }
 
 const MERGE_TAGS = ['{{first_name}}', '{{last_name}}', '{{phone}}', '{{email}}', '{{cif_number}}']
 
@@ -628,6 +631,8 @@ export default function CampaignDetail() {
   const [fromName,     setFromName]     = useState('')
   const [fromEmail,    setFromEmail]    = useState('')
   const [smsBody,      setSmsBody]      = useState('')
+  const [waBody,       setWaBody]       = useState('')
+  const [waTplName,    setWaTplName]    = useState('')
   const [scheduledAt,  setScheduledAt]  = useState('')
   const [listId,       setListId]       = useState<number | ''>('')
   const [contactLists, setContactLists] = useState<ContactListItem[]>([])
@@ -650,8 +655,9 @@ export default function CampaignDetail() {
   const [testSending, setTestSending] = useState(false)
 
   // multi-channel overrides (only relevant for type='multi')
-  const [enableSMS,   setEnableSMS]   = useState(true)
-  const [enableEmail, setEnableEmail] = useState(true)
+  const [enableSMS,      setEnableSMS]      = useState(true)
+  const [enableEmail,    setEnableEmail]    = useState(true)
+  const [enableWhatsApp, setEnableWhatsApp] = useState(true)
 
   // live progress
   const [progress, setProgress] = useState<Progress | null>(null)
@@ -672,6 +678,8 @@ export default function CampaignDetail() {
       setName(camp.name ?? '')
       setDescription((camp as any).description ?? '')
       setSmsBody(camp.sms_body ?? '')
+      setWaBody(camp.whatsapp_body ?? '')
+      setWaTplName(camp.whatsapp_template_name ?? '')
       setEmailSubject(camp.email_subject ?? '')
       setFromName(camp.from_name ?? '')
       setFromEmail(camp.from_email ?? '')
@@ -691,9 +699,10 @@ export default function CampaignDetail() {
 
   useEffect(() => { load() }, [load])
 
-  const canEdit = campaign?.status === 'draft' || campaign?.status === 'scheduled'
-  const isSMS   = campaign?.type === 'sms'   || campaign?.type === 'multi'
-  const isEmail = campaign?.type === 'email'  || campaign?.type === 'multi'
+  const canEdit    = campaign?.status === 'draft' || campaign?.status === 'scheduled'
+  const isSMS      = campaign?.type === 'sms'       || campaign?.type === 'multi'
+  const isEmail    = campaign?.type === 'email'     || campaign?.type === 'multi'
+  const isWhatsApp = campaign?.type === 'whatsapp'  || campaign?.type === 'multi'
 
   useEffect(() => {
     if (!canEdit) return
@@ -723,7 +732,8 @@ export default function CampaignDetail() {
       if (description) p.description = description
       if (scheduledAt) p.scheduled_at = new Date(scheduledAt).toISOString()
       if (listId !== '') p.list_id = Number(listId)
-      if (isSMS)   p.sms_body = smsBody
+      if (isSMS)      p.sms_body = smsBody
+      if (isWhatsApp) { p.whatsapp_body = waBody; p.whatsapp_template_name = waTplName }
       if (isEmail) {
         p.email_subject     = emailSubject
         p.email_blocks_json = JSON.stringify(emailBlocks)
@@ -740,14 +750,15 @@ export default function CampaignDetail() {
     }, 2500)
     return () => { if (autoSaveRef.current) clearTimeout(autoSaveRef.current) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, description, emailBlocks, emailSubject, fromName, fromEmail, smsBody, scheduledAt, listId])
+  }, [name, description, emailBlocks, emailSubject, fromName, fromEmail, smsBody, waBody, waTplName, scheduledAt, listId])
 
   function buildPayload() {
     const p: Record<string, any> = { name }
     if (description) p.description = description
     if (scheduledAt) p.scheduled_at = new Date(scheduledAt).toISOString()
     if (listId !== '') p.list_id = Number(listId)
-    if (isSMS)   p.sms_body = smsBody
+    if (isSMS)      p.sms_body = smsBody
+    if (isWhatsApp) { p.whatsapp_body = waBody; p.whatsapp_template_name = waTplName }
     if (isEmail) {
       p.email_subject     = emailSubject
       p.email_blocks_json = JSON.stringify(emailBlocks)
@@ -793,8 +804,9 @@ export default function CampaignDetail() {
       if (canEdit) await apiFetch(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(buildPayload()) })
       const isMulti = campaign?.type === 'multi'
       await apiPost(`/api/campaigns/${id}/start`, {
-        skip_sms:   isMulti && !enableSMS,
-        skip_email: isMulti && !enableEmail,
+        skip_sms:      isMulti && !enableSMS,
+        skip_email:    isMulti && !enableEmail,
+        skip_whatsapp: isMulti && !enableWhatsApp,
       })
       toast.success('Campaign started')
       setPreflightOpen(false)
@@ -865,17 +877,19 @@ export default function CampaignDetail() {
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner /></div>
   if (!campaign) return <ErrBanner error={err ?? 'Campaign not found'} />
 
-  const isMulti      = campaign.type === 'multi'
-  const activeSMS    = isSMS   && (!isMulti || enableSMS)
-  const activeEmail  = isEmail && (!isMulti || enableEmail)
+  const isMulti        = campaign.type === 'multi'
+  const activeSMS      = isSMS      && (!isMulti || enableSMS)
+  const activeEmail    = isEmail    && (!isMulti || enableEmail)
+  const activeWhatsApp = isWhatsApp && (!isMulti || enableWhatsApp)
 
   const checks = [
     { label: 'Campaign name',   ok: name.trim().length > 0,                   hint: 'Enter a name in Setup' },
     { label: 'Contact list',    ok: listId !== '',                             hint: 'Choose a list in Setup' },
-    ...(isMulti && !enableSMS && !enableEmail
-      ? [{ label: 'At least one channel enabled', ok: false, hint: 'Enable SMS or Email in Content' }]
+    ...(isMulti && !enableSMS && !enableEmail && !enableWhatsApp
+      ? [{ label: 'At least one channel enabled', ok: false, hint: 'Enable at least one channel in Content' }]
       : []),
-    ...(activeSMS   ? [{ label: 'SMS body',      ok: smsBody.trim().length > 0,      hint: 'Write your SMS in Content' }]  : []),
+    ...(activeSMS        ? [{ label: 'SMS body',          ok: smsBody.trim().length > 0,      hint: 'Write your SMS in Content' }]  : []),
+    ...(activeWhatsApp   ? [{ label: 'WhatsApp body',     ok: waBody.trim().length > 0,       hint: 'Write your WhatsApp message in Content' }]  : []),
     ...(activeEmail ? [
       { label: 'Email subject', ok: emailSubject.trim().length > 0, hint: 'Enter a subject in Content' },
       { label: 'Email body',    ok: emailBlocks.blocks.length > 0,  hint: 'Build your email in Content' },
@@ -1110,8 +1124,9 @@ export default function CampaignDetail() {
             <div style={{ display: 'flex', gap: 10, padding: '10px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', alignItems: 'center' }}>
               <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginRight: 4 }}>Send via:</span>
               {([
-                { key: 'sms',   label: 'SMS',   icon: 'smartphone', color: PURPLE, enabled: enableSMS,   set: setEnableSMS },
-                { key: 'email', label: 'Email', icon: 'mail',       color: BLUE,   enabled: enableEmail, set: setEnableEmail },
+                { key: 'sms',      label: 'SMS',      icon: 'smartphone', color: PURPLE,   enabled: enableSMS,      set: setEnableSMS },
+                { key: 'whatsapp', label: 'WhatsApp', icon: 'chat',       color: WA_GREEN, enabled: enableWhatsApp, set: setEnableWhatsApp },
+                { key: 'email',    label: 'Email',    icon: 'mail',       color: BLUE,     enabled: enableEmail,    set: setEnableEmail },
               ] as const).map(ch => (
                 <button key={ch.key} type="button"
                   onClick={() => ch.set(v => !v)}
@@ -1129,7 +1144,7 @@ export default function CampaignDetail() {
                   {ch.label}
                 </button>
               ))}
-              {!enableSMS && !enableEmail && (
+              {!enableSMS && !enableEmail && !enableWhatsApp && (
                 <span style={{ fontSize: TEXT.xs, color: RED, marginLeft: 4 }}>At least one channel must be enabled</span>
               )}
             </div>
@@ -1152,6 +1167,69 @@ export default function CampaignDetail() {
                   {isMulti && !enableSMS && <span style={{ fontSize: TEXT.xs, fontWeight: FW.normal, color: 'var(--txt3)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>disabled for this send</span>}
                 </div>
                 <SMSBuilder value={smsBody} onChange={setSmsBody} canEdit={canEdit} senderName={fromName || campaign.from_name} />
+              </SectionCard>
+            </div>
+          )}
+
+          {isWhatsApp && (
+            <div style={{ opacity: isMulti && !enableWhatsApp ? .45 : 1, pointerEvents: isMulti && !enableWhatsApp ? 'none' : 'auto', transition: 'opacity .2s' }}>
+              <SectionCard padding title={undefined}>
+                <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: WA_GREEN, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>chat</span>
+                  WhatsApp Message
+                  {isMulti && !enableWhatsApp && <span style={{ fontSize: TEXT.xs, fontWeight: FW.normal, color: 'var(--txt3)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>disabled for this send</span>}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'start' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                      <label style={lbl}>Template Name <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional — leave blank for free-form text)</span></label>
+                      <input value={waTplName} onChange={e => setWaTplName(e.target.value)} disabled={!canEdit}
+                        placeholder="e.g. statement_ready" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>
+                        Template messages are required for proactive outbound campaigns. The template must be pre-approved by Meta.
+                      </div>
+                    </div>
+                    <div>
+                      <label style={lbl}>
+                        Message Body
+                        <span style={{ fontWeight: 400, marginLeft: 6, color: waBody.length > 1024 ? RED : 'var(--txt3)' }}>
+                          {waBody.length}/1024
+                        </span>
+                      </label>
+                      <textarea value={waBody} onChange={e => setWaBody(e.target.value)} disabled={!canEdit}
+                        placeholder={`Write your WhatsApp message. Use {{first_name}}, {{cif_number}} for personalisation.`}
+                        rows={5} maxLength={1024}
+                        style={{ ...fld, height: 'auto', resize: 'vertical', lineHeight: 1.6, padding: '8px 12px', opacity: canEdit ? 1 : .85 }} />
+                    </div>
+                  </div>
+                  {/* WhatsApp chat bubble preview */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <div style={{ width: '100%', maxWidth: 280, background: '#E5DDD5', borderRadius: 12, padding: 12, minHeight: 120 }}>
+                      <div style={{ background: WA_GREEN, borderRadius: '8px 8px 0 0', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: 18, color: '#fff' }}>business</span>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff' }}>O3 Capital</div>
+                          <div style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,0.75)' }}>Business Account</div>
+                        </div>
+                      </div>
+                      {waBody.trim() ? (
+                        <div style={{ background: '#fff', borderRadius: '0 8px 8px 8px', padding: '8px 12px', fontSize: TEXT.sm, lineHeight: 1.55, color: '#111', maxWidth: '85%', boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
+                          {waBody.slice(0, 320)}{waBody.length > 320 ? '…' : ''}
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '20px 8px', color: 'rgba(0,0,0,0.4)', fontSize: TEXT.sm }}>Preview will appear here</div>
+                      )}
+                    </div>
+                    {waTplName && (
+                      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, color: WA_GREEN }}>
+                        <span className="material-symbols-rounded" style={{ fontSize: 13 }}>verified</span>
+                        Template: <span style={{ fontFamily: 'monospace' }}>{waTplName}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </SectionCard>
             </div>
           )}
@@ -1275,6 +1353,21 @@ export default function CampaignDetail() {
                     )}
                   </div>
                 )}
+                {activeWhatsApp && (
+                  <div style={{ background: `${WA_GREEN}08`, border: `1px solid ${WA_GREEN}25`, borderRadius: RADIUS.md, padding: '10px 14px' }}>
+                    <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: WA_GREEN, letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 13 }}>chat</span> WhatsApp
+                    </div>
+                    {waBody.trim() ? (
+                      <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', lineHeight: 1.6, fontFamily: 'monospace', maxHeight: 72, overflow: 'hidden' }}>
+                        {waBody.slice(0, 160)}{waBody.length > 160 ? '…' : ''}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: TEXT.sm, color: RED }}>No message body — add one in Content tab</div>
+                    )}
+                    {waTplName && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>Template: <span style={{ fontFamily: 'monospace', color: WA_GREEN }}>{waTplName}</span></div>}
+                  </div>
+                )}
                 {activeEmail && (
                   <div style={{ background: `${BLUE}08`, border: `1px solid ${BLUE}25`, borderRadius: RADIUS.md, padding: '10px 14px' }}>
                     <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: BLUE, letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1292,7 +1385,7 @@ export default function CampaignDetail() {
                     </div>
                   </div>
                 )}
-                {isMulti && !enableSMS && !enableEmail && (
+                {isMulti && !enableSMS && !enableEmail && !enableWhatsApp && (
                   <div style={{ fontSize: TEXT.sm, color: RED }}>No channels enabled — enable at least one in Content tab.</div>
                 )}
               </div>
@@ -1385,12 +1478,20 @@ export default function CampaignDetail() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
                 <KpiCard label="Sent"          value={fmtNum(toN(m.sent))} />
                 <KpiCard label="Delivery Rate" value={fmtPct(toN(m.delivery_rate))} accent={GREEN} />
-                {isSMS
-                  ? <KpiCard label="SMS Delivered" value={fmtNum(toN(m.delivered))} accent={GREEN} />
-                  : <KpiCard label="Open Rate"     value={fmtPct(toN(m.open_rate))} accent={BLUE}  />
+                {isWhatsApp && !isEmail
+                  ? <KpiCard label="WA Delivered"  value={fmtNum(toN(campaign.whatsapp_delivered))} accent={WA_GREEN} />
+                  : isSMS && !isEmail
+                    ? <KpiCard label="SMS Delivered" value={fmtNum(toN(m.delivered))} accent={GREEN} />
+                    : <KpiCard label="Open Rate"     value={fmtPct(toN(m.open_rate))} accent={BLUE}  />
                 }
               </div>
-              {!isSMS && (
+              {isWhatsApp && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
+                  <KpiCard label="WA Sent"      value={fmtNum(toN(campaign.whatsapp_sent))}      />
+                  <KpiCard label="WA Delivered" value={fmtNum(toN(campaign.whatsapp_delivered))} accent={WA_GREEN} />
+                </div>
+              )}
+              {!isSMS && !isWhatsApp && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
                   <KpiCard label="Click Rate"   value={fmtPct(toN(m.click_rate))} accent={PURPLE} />
                   <KpiCard label="Bounced"      value={fmtNum(toN(m.bounced))} accent={toN(m.bounce_rate) > 2 ? RED : undefined} />

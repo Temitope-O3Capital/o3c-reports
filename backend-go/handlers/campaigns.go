@@ -302,8 +302,9 @@ func startDispatch(db *core.DB, campaignID int64) {
 		if str(camp["status"]) != "active" {
 			return
 		}
-		isSMS := str(camp["type"]) == "sms" || str(camp["type"]) == "multi"
-		isEmail := str(camp["type"]) == "email" || str(camp["type"]) == "multi"
+		isSMS       := str(camp["type"]) == "sms"       || str(camp["type"]) == "multi"
+		isEmail     := str(camp["type"]) == "email"     || str(camp["type"]) == "multi"
+		isWhatsApp  := str(camp["type"]) == "whatsapp"  || str(camp["type"]) == "multi"
 		sendDelay := time.Duration(intSetting(ctx, db, "campaign_send_delay_ms", 250)) * time.Millisecond
 		dailyLimit := effectiveCampaignDailyLimit(ctx, db)
 		perCampaignDailyLimit := intSetting(ctx, db, "campaign_per_campaign_daily_email_limit", 5000)
@@ -311,8 +312,8 @@ func startDispatch(db *core.DB, campaignID int64) {
 		contactRows, err := db.PGQuery(ctx, `
 			SELECT * FROM campaign_contacts
 			WHERE campaign_id=$1
-			  AND (($2 AND sms_status='pending') OR ($3 AND email_status='pending'))
-			ORDER BY position ASC`, campaignID, isSMS, isEmail)
+			  AND (($2 AND sms_status='pending') OR ($3 AND email_status='pending') OR ($4 AND whatsapp_status='pending'))
+			ORDER BY position ASC`, campaignID, isSMS, isEmail, isWhatsApp)
 		if err != nil {
 			slog.Error("Campaign dispatch: contacts query failed", "id", campaignID, "err", err)
 			return
@@ -356,6 +357,30 @@ func startDispatch(db *core.DB, campaignID int64) {
 						smsStatus, pid, cid)
 					db.PGExec(ctx, //nolint:errcheck
 						fmt.Sprintf("UPDATE campaigns SET %s=%s+1, updated_at=NOW() WHERE id=$1", smsCol, smsCol), campaignID)
+				}
+			}
+
+			if isWhatsApp && str(c["whatsapp_status"]) == "pending" && str(c["phone"]) != "" {
+				claimed, _ := db.PGQuery(ctx, `
+					UPDATE campaign_contacts
+					SET whatsapp_status='sending', updated_at=NOW()
+					WHERE id=$1 AND whatsapp_status='pending'
+					RETURNING id`, cid)
+				if len(claimed) > 0 {
+					body         := renderTemplate(str(camp["whatsapp_body"]), mergeData)
+					templateName := str(camp["whatsapp_template_name"])
+					ok, pid := sendWhatsAppCampaign(ctx, db, str(c["phone"]), body, templateName)
+					waStatus := "sent"
+					waCol    := "whatsapp_sent"
+					if !ok {
+						waStatus = "failed"
+						waCol    = "whatsapp_failed"
+					}
+					db.PGExec(ctx, //nolint:errcheck
+						`UPDATE campaign_contacts SET whatsapp_status=$1, whatsapp_provider_id=$2, whatsapp_sent_at=NOW(), updated_at=NOW() WHERE id=$3`,
+						waStatus, pid, cid)
+					db.PGExec(ctx, //nolint:errcheck
+						fmt.Sprintf("UPDATE campaigns SET %s=%s+1, updated_at=NOW() WHERE id=$1", waCol, waCol), campaignID)
 				}
 			}
 
@@ -464,6 +489,11 @@ func ResumeInterruptedCampaigns(db *core.DB) {
 		SET email_status='pending', updated_at=NOW()
 		FROM campaigns c
 		WHERE c.id=cc.campaign_id AND c.status='active' AND cc.email_status='sending'`) //nolint:errcheck
+	db.PGExec(ctx, `
+		UPDATE campaign_contacts cc
+		SET whatsapp_status='pending', updated_at=NOW()
+		FROM campaigns c
+		WHERE c.id=cc.campaign_id AND c.status='active' AND cc.whatsapp_status='sending'`) //nolint:errcheck
 	rows, err := db.PGQuery(ctx, `
 		SELECT DISTINCT c.id
 		FROM campaigns c
@@ -471,7 +501,7 @@ func ResumeInterruptedCampaigns(db *core.DB) {
 		  AND EXISTS (
 		      SELECT 1 FROM campaign_contacts cc
 		      WHERE cc.campaign_id = c.id
-		        AND (cc.sms_status = 'pending' OR cc.email_status = 'pending')
+		        AND (cc.sms_status = 'pending' OR cc.email_status = 'pending' OR cc.whatsapp_status = 'pending')
 		  )`)
 	if err != nil {
 		slog.Error("ResumeInterruptedCampaigns: query failed", "err", err)
@@ -539,7 +569,8 @@ func resumeDailyLimitCampaigns(db *core.DB) {
 
 var campaignUpdateCols = []string{
 	"name", "description", "email_subject", "email_body_html", "email_body_text",
-	"from_name", "from_email", "sms_body", "scheduled_at", "list_id", "email_blocks_json",
+	"from_name", "from_email", "sms_body", "whatsapp_body", "whatsapp_template_name",
+	"scheduled_at", "list_id", "email_blocks_json",
 }
 
 func RegisterCampaigns(r chi.Router, db *core.DB) {
@@ -581,8 +612,8 @@ func campaignPreflight(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "list_id is required")
 			return
 		}
-		if channel != "email" && channel != "sms" && channel != "multi" {
-			respondErr(w, 422, "type must be email, sms, or multi")
+		if channel != "email" && channel != "sms" && channel != "multi" && channel != "whatsapp" {
+			respondErr(w, 422, "type must be email, sms, whatsapp, or multi")
 			return
 		}
 		if err := ensureMailSchema(r.Context(), db); err != nil {
@@ -642,7 +673,7 @@ func campaignPreflight(db *core.DB) http.HandlerFunc {
 		}
 		usableSMS := withPhone
 		usable := usableEmail
-		if channel == "sms" {
+		if channel == "sms" || channel == "whatsapp" {
 			usable = usableSMS
 		} else if channel == "multi" {
 			usable = usableEmail + usableSMS
@@ -653,7 +684,7 @@ func campaignPreflight(db *core.DB) http.HandlerFunc {
 		estimatedSeconds := int64(0)
 		if channel == "email" {
 			estimatedSeconds = (usableEmail * int64(sendDelayMs)) / 1000
-		} else if channel == "sms" {
+		} else if channel == "sms" || channel == "whatsapp" {
 			estimatedSeconds = (usableSMS * int64(sendDelayMs)) / 1000
 		} else {
 			estimatedSeconds = ((usableEmail + usableSMS) * int64(sendDelayMs)) / 1000
@@ -698,7 +729,7 @@ func campaignPreflight(db *core.DB) http.HandlerFunc {
 				warnings = append(warnings, "30,000+ email run with no daily email limit configured")
 			}
 		}
-		if channel == "sms" || channel == "multi" {
+		if channel == "sms" || channel == "multi" || channel == "whatsapp" {
 			if total-withPhone > 0 {
 				warnings = append(warnings, fmt.Sprintf("%d active contact(s) have no phone number", total-withPhone))
 			}
@@ -799,19 +830,21 @@ func listCampaigns(db *core.DB) http.HandlerFunc {
 func createCampaign(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
-			Name          string  `json:"name"`
-			Description   *string `json:"description"`
-			Type          string  `json:"type"`
-			ListID        *int64  `json:"list_id"`
-			ScheduledAt   *string `json:"scheduled_at"`
-			Subject       *string `json:"subject"`
-			Message       *string `json:"message"`
-			EmailSubject  *string `json:"email_subject"`
-			EmailBodyHTML *string `json:"email_body_html"`
-			EmailBodyText *string `json:"email_body_text"`
-			FromName      *string `json:"from_name"`
-			FromEmail     *string `json:"from_email"`
-			SMSBody       *string `json:"sms_body"`
+			Name                 string  `json:"name"`
+			Description          *string `json:"description"`
+			Type                 string  `json:"type"`
+			ListID               *int64  `json:"list_id"`
+			ScheduledAt          *string `json:"scheduled_at"`
+			Subject              *string `json:"subject"`
+			Message              *string `json:"message"`
+			EmailSubject         *string `json:"email_subject"`
+			EmailBodyHTML        *string `json:"email_body_html"`
+			EmailBodyText        *string `json:"email_body_text"`
+			FromName             *string `json:"from_name"`
+			FromEmail            *string `json:"from_email"`
+			SMSBody              *string `json:"sms_body"`
+			WhatsAppBody         *string `json:"whatsapp_body"`
+			WhatsAppTemplateName *string `json:"whatsapp_template_name"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -821,7 +854,7 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "name is required")
 			return
 		}
-		if b.Type != "sms" && b.Type != "email" && b.Type != "multi" {
+		if b.Type != "sms" && b.Type != "email" && b.Type != "multi" && b.Type != "whatsapp" {
 			b.Type = "sms"
 		}
 		if b.EmailSubject == nil {
@@ -856,11 +889,13 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 			INSERT INTO campaigns
 			    (name, description, status, type, list_id, email_subject, email_body_html,
 			     email_body_text, from_name, from_email, sms_body,
+			     whatsapp_body, whatsapp_template_name,
 			     scheduled_at, total_contacts, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
 			b.Name, b.Description, status, b.Type, b.ListID,
 			b.EmailSubject, b.EmailBodyHTML, b.EmailBodyText, b.FromName, b.FromEmail,
-			b.SMSBody, b.ScheduledAt, total, user.ID)
+			b.SMSBody, b.WhatsAppBody, b.WhatsAppTemplateName,
+			b.ScheduledAt, total, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -983,8 +1018,9 @@ func startCampaign(db *core.DB) http.HandlerFunc {
 
 		// Optional body: channel overrides for multi-channel campaigns
 		var opts struct {
-			SkipSMS   bool `json:"skip_sms"`
-			SkipEmail bool `json:"skip_email"`
+			SkipSMS      bool `json:"skip_sms"`
+			SkipEmail    bool `json:"skip_email"`
+			SkipWhatsApp bool `json:"skip_whatsapp"`
 		}
 		json.NewDecoder(r.Body).Decode(&opts) //nolint:errcheck — body is optional
 
@@ -1030,6 +1066,10 @@ func startCampaign(db *core.DB) http.HandlerFunc {
 			db.PGExec(r.Context(), //nolint:errcheck
 				"UPDATE campaign_contacts SET email_status='skipped', updated_at=NOW() WHERE campaign_id=$1 AND email_status='pending'", campID)
 		}
+		if opts.SkipWhatsApp {
+			db.PGExec(r.Context(), //nolint:errcheck
+				"UPDATE campaign_contacts SET whatsapp_status='skipped', updated_at=NOW() WHERE campaign_id=$1 AND whatsapp_status='pending'", campID)
+		}
 
 		db.PGExec(r.Context(), //nolint:errcheck
 			"UPDATE campaigns SET status='active', pause_reason=NULL, paused_until=NULL, started_at=COALESCE(started_at, NOW()), updated_at=NOW() WHERE id=$1", campID)
@@ -1046,8 +1086,15 @@ func prepareCampaignRecipients(ctx context.Context, db *core.DB, campaignID int6
 		return
 	}
 	typ := str(rows[0]["type"])
-	isSMS := typ == "sms" || typ == "multi"
-	isEmail := typ == "email" || typ == "multi"
+	isSMS      := typ == "sms" || typ == "multi"
+	isEmail    := typ == "email" || typ == "multi"
+	isWhatsApp := typ == "whatsapp" || typ == "multi"
+	if isWhatsApp {
+		_, _ = db.PGExec(ctx, `
+			UPDATE campaign_contacts
+			SET whatsapp_status='skipped', updated_at=NOW()
+			WHERE campaign_id=$1 AND whatsapp_status='pending' AND NULLIF(TRIM(phone),'') IS NULL`, campaignID)
+	}
 	if isSMS {
 		_, _ = db.PGExec(ctx, `
 			UPDATE campaign_contacts
@@ -1189,6 +1236,7 @@ func restartCampaign(db *core.DB) http.HandlerFunc {
 			    sms_sent=0, sms_failed=0, sms_delivered=0,
 			    emails_sent=0, emails_bounced=0, emails_delivered=0,
 			    emails_opened=0, emails_clicked=0,
+			    whatsapp_sent=0, whatsapp_delivered=0, whatsapp_failed=0,
 			    unsubscribe_count=0, bounce_count=0,
 			    updated_at=NOW()
 			WHERE id=$1`, id)
@@ -1200,8 +1248,9 @@ func restartCampaign(db *core.DB) http.HandlerFunc {
 		db.PGExec(r.Context(), //nolint:errcheck
 			`UPDATE campaign_contacts
 			 SET sms_status='pending', email_status='pending',
-			     sms_sent_at=NULL, email_sent_at=NULL,
-			     sms_provider_id=NULL, email_provider_id=NULL,
+			     whatsapp_status='pending',
+			     sms_sent_at=NULL, email_sent_at=NULL, whatsapp_sent_at=NULL,
+			     sms_provider_id=NULL, email_provider_id=NULL, whatsapp_provider_id=NULL,
 			     email_opened_at=NULL, updated_at=NOW()
 			 WHERE campaign_id=$1`, id)
 		respond(w, map[string]string{"status": "draft"}, "pg")
@@ -1222,12 +1271,13 @@ func duplicateCampaign(db *core.DB) http.HandlerFunc {
 		inserted, err := db.PGQuery(r.Context(), `
 			INSERT INTO campaigns
 			    (name, description, type, list_id, email_subject, email_body_html,
-			     email_body_text, email_blocks_json, from_name, from_email, sms_body, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+			     email_body_text, email_blocks_json, from_name, from_email, sms_body,
+			     whatsapp_body, whatsapp_template_name, created_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
 			newName, src["description"], src["type"], src["list_id"],
 			src["email_subject"], src["email_body_html"], src["email_body_text"],
 			src["email_blocks_json"], src["from_name"], src["from_email"],
-			src["sms_body"], user.ID)
+			src["sms_body"], src["whatsapp_body"], src["whatsapp_template_name"], user.ID)
 		if err != nil || len(inserted) == 0 {
 			respondErr(w, 500, "Duplicate failed")
 			return
@@ -1645,13 +1695,15 @@ func campaignProgress(db *core.DB) http.HandlerFunc {
 			SELECT
 			    c.status, c.type, c.total_contacts,
 			    c.emails_sent, c.sms_sent,
+			    COALESCE(c.whatsapp_sent,0) AS whatsapp_sent,
 			    c.emails_delivered, c.sms_delivered,
+			    COALESCE(c.whatsapp_delivered,0) AS whatsapp_delivered,
 			    (SELECT COUNT(*) FROM campaign_contacts
 			     WHERE campaign_id=c.id
-			       AND (email_status='pending' OR sms_status='pending')) AS pending,
+			       AND (email_status='pending' OR sms_status='pending' OR whatsapp_status='pending')) AS pending,
 			    (SELECT COUNT(*) FROM campaign_contacts
 			     WHERE campaign_id=c.id
-			       AND (email_status IN ('bounced','spam','failed') OR sms_status='failed')) AS bounced
+			       AND (email_status IN ('bounced','spam','failed') OR sms_status='failed' OR whatsapp_status='failed')) AS bounced
 			FROM campaigns c WHERE c.id=$1`, id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Campaign not found")
@@ -1660,8 +1712,8 @@ func campaignProgress(db *core.DB) http.HandlerFunc {
 		row := rows[0]
 		total := toInt64(row["total_contacts"])
 		pending := toInt64(row["pending"])
-		sent := toInt64(row["emails_sent"]) + toInt64(row["sms_sent"])
-		delivered := toInt64(row["emails_delivered"]) + toInt64(row["sms_delivered"])
+		sent := toInt64(row["emails_sent"]) + toInt64(row["sms_sent"]) + toInt64(row["whatsapp_sent"])
+		delivered := toInt64(row["emails_delivered"]) + toInt64(row["sms_delivered"]) + toInt64(row["whatsapp_delivered"])
 		bounced := toInt64(row["bounced"])
 		done := total - pending
 		pct := 0.0

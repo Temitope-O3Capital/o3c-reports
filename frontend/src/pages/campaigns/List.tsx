@@ -27,6 +27,8 @@ interface Campaign {
   emails_clicked?: number
   sms_sent?: number
   sms_delivered?: number
+  whatsapp_sent?: number
+  whatsapp_delivered?: number
   bounce_count?: number
   unsubscribe_count?: number
   scheduled_at?: string
@@ -42,7 +44,8 @@ interface ContactList { id: number; name: string; member_count?: number }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const TYPE_COLOR: Record<string, string> = { email: BLUE, sms: PURPLE, multi: GREEN }
+const WA_GREEN = '#25D366'
+const TYPE_COLOR: Record<string, string> = { email: BLUE, sms: PURPLE, multi: GREEN, whatsapp: WA_GREEN }
 
 function TypePill({ type }: { type: string }) {
   const c = TYPE_COLOR[type] ?? NAVY
@@ -55,11 +58,11 @@ function TypePill({ type }: { type: string }) {
 
 
 function sentCount(c: Campaign): number {
-  return Number(c.emails_sent ?? 0) + Number(c.sms_sent ?? 0)
+  return Number(c.emails_sent ?? 0) + Number(c.sms_sent ?? 0) + Number(c.whatsapp_sent ?? 0)
 }
 
 function deliveredCount(c: Campaign): number {
-  return Number(c.emails_delivered ?? 0) + Number(c.sms_delivered ?? 0)
+  return Number(c.emails_delivered ?? 0) + Number(c.sms_delivered ?? 0) + Number(c.whatsapp_delivered ?? 0)
 }
 
 function openRate(c: Campaign): number {
@@ -297,9 +300,10 @@ export default function CampaignsList() {
               key: 'type',
               label: 'Type',
               options: [
-                { value: 'email', label: 'Email', color: BLUE },
-                { value: 'sms', label: 'SMS', color: PURPLE },
-                { value: 'multi', label: 'Multi-channel', color: GREEN },
+                { value: 'email',    label: 'Email',         color: BLUE },
+                { value: 'sms',     label: 'SMS',           color: PURPLE },
+                { value: 'multi',   label: 'Multi-channel', color: GREEN },
+                { value: 'whatsapp',label: 'WhatsApp',      color: WA_GREEN },
               ],
               selected: fTypes,
               onChange: setFTypes,
@@ -390,9 +394,10 @@ export default function CampaignsList() {
             <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 8 }}>CHANNEL</div>
             <div style={{ display: 'flex', gap: 8 }}>
               {([
-                { value: 'email', icon: 'mail',       label: 'Email' },
-                { value: 'sms',   icon: 'smartphone', label: 'SMS' },
-                { value: 'multi', icon: 'hub',        label: 'Multi-channel' },
+                { value: 'email',    icon: 'mail',       label: 'Email' },
+                { value: 'sms',     icon: 'smartphone', label: 'SMS' },
+                { value: 'whatsapp',icon: 'chat',       label: 'WhatsApp' },
+                { value: 'multi',   icon: 'hub',        label: 'Multi-channel' },
               ] as const).map(ch => (
                 <button
                   key={ch.value}
