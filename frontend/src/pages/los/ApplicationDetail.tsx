@@ -883,11 +883,14 @@ export default function ApplicationDetail() {
   const [error,   setError]   = useState<string | null>(null)
 
   // Role
-  const userRole = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}')?.role ?? '' } catch { return '' } })()
-  const isRisk     = userRole.toLowerCase().includes('risk')
-  const isFinance  = userRole.toLowerCase().includes('finance')
+  const userRole  = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}')?.role ?? '' } catch { return '' } })()
+  const roleKey   = userRole.toLowerCase()
+  const isRisk    = roleKey.includes('risk')
+  const isFinance = roleKey.includes('finance')
+  const isSales   = roleKey.includes('sales')
 
-  const [activeTab, setActiveTab] = useState(isRisk ? 'credit_assessment' : 'summary')
+  const defaultTab = isRisk ? 'credit_assessment' : isFinance ? 'summary' : 'summary'
+  const [activeTab, setActiveTab] = useState(defaultTab)
 
   // Modals (advance / decline / request-info / committee)
   const [advanceOpen,   setAdvanceOpen]   = useState(false)
@@ -995,18 +998,28 @@ export default function ApplicationDetail() {
   const unmetCount = conditions.filter(c => !c.is_met).length
 
   const tabsWithBadges = TABS.map(t => {
-    if (t.key === 'timeline')    return { ...t, badge: events.length }
-    if (t.key === 'notes')       return { ...t, badge: notes.length }
-    if (t.key === 'conditions')  return { ...t, badge: unmetCount > 0 ? unmetCount : conditions.length }
+    if (t.key === 'timeline')   return { ...t, badge: events.length }
+    if (t.key === 'notes')      return { ...t, badge: notes.length }
+    if (t.key === 'conditions') return { ...t, badge: unmetCount > 0 ? unmetCount : conditions.length }
     return t
   })
+
+  // Each role sees only the tabs relevant to their workflow
+  const ROLE_TABS: Record<string, string[]> = {
+    risk:    ['credit_assessment', 'conditions', 'summary', 'notes', 'documents', 'timeline'],
+    finance: ['summary', 'conditions', 'notes', 'approval_chain', 'timeline'],
+    sales:   ['summary', 'verification', 'documents', 'notes', 'approval_chain', 'timeline'],
+    default: TABS.map(t => t.key),
+  }
+  const tabKeys    = isRisk ? ROLE_TABS.risk : isFinance ? ROLE_TABS.finance : isSales ? ROLE_TABS.sales : ROLE_TABS.default
+  const visibleTabs = tabsWithBadges.filter(t => tabKeys.includes(t.key)).sort((a, b) => tabKeys.indexOf(a.key) - tabKeys.indexOf(b.key))
 
   return (
     <Page
       title={app.reference || `APP-${app.id}`}
       subtitle={app.applicant_name}
       actions={
-        <button onClick={() => navigate('/sales/applications')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+        <button onClick={() => navigate(-1)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 15 }}>arrow_back</span>Back
         </button>
       }
@@ -1120,7 +1133,7 @@ export default function ApplicationDetail() {
       {/* ── Main tab card ── */}
       <SectionCard padding={false}>
         <div style={{ padding: '0 18px' }}>
-          <Tabs tabs={tabsWithBadges} active={activeTab} onChange={setActiveTab} />
+          <Tabs tabs={visibleTabs} active={activeTab} onChange={setActiveTab} />
         </div>
         <div style={{ padding: '0 18px 24px' }}>
           {activeTab === 'summary'          && <SummaryTab app={app} />}
