@@ -415,6 +415,49 @@ function ConditionsInline({ appId, conditions, onRefresh, canManage }: {
   )
 }
 
+// ── Document preview modal ────────────────────────────────────────────────────
+
+function DocPreviewModal({ doc, onClose }: { doc: LosDoc | null; onClose: () => void }) {
+  if (!doc) return null
+  const ext = doc.file_name.split('.').pop()?.toLowerCase() ?? ''
+  const isPdf   = ext === 'pdf'
+  const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
+  const canRender = isPdf || isImage
+
+  return (
+    <Modal open={!!doc} onClose={onClose} title={doc.file_name} width={isPdf ? 820 : 640}>
+      {isPdf && (
+        <div style={{ height: 620, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--bdr)' }}>
+          <iframe src={doc.file_url} style={{ width: '100%', height: '100%', border: 'none' }} title={doc.file_name} />
+        </div>
+      )}
+      {isImage && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
+          <img src={doc.file_url} alt={doc.file_name} style={{ maxWidth: '100%', maxHeight: 560, borderRadius: 8, objectFit: 'contain', border: '1px solid var(--bdr)' }} />
+        </div>
+      )}
+      {!canRender && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '40px 0' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 44, color: 'var(--txt3)' }}>description</span>
+          <div style={{ fontSize: 14, color: 'var(--txt2)' }}>This file type cannot be previewed in-browser.</div>
+          <a href={doc.file_url} target="_blank" rel="noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 8, background: NAVY, color: '#fff', fontWeight: 600, fontSize: 13, textDecoration: 'none' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>Download
+          </a>
+        </div>
+      )}
+      {canRender && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+          <a href={doc.file_url} target="_blank" rel="noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, textDecoration: 'none' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>Open in new tab
+          </a>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 // ── Documents inline component ────────────────────────────────────────────────
 
 const DOC_SLOTS = [
@@ -430,10 +473,11 @@ interface LosDoc {
   created_at: string; uploaded_by_name: string | null
 }
 
-function DocumentsInline({ appId }: { appId: number }) {
+function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?: boolean }) {
   const [docs,      setDocs]      = useState<LosDoc[]>([])
   const [uploading, setUploading] = useState<Record<string, boolean>>({})
   const [deleting,  setDeleting]  = useState<Record<number, boolean>>({})
+  const [preview,   setPreview]   = useState<LosDoc | null>(null)
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const loadDocs = useCallback(async () => {
@@ -473,46 +517,68 @@ function DocumentsInline({ appId }: { appId: number }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      {DOC_SLOTS.map(slot => {
-        const uploaded    = docs.filter(d => d.doc_type === slot.key)
-        const isUploading = uploading[slot.key]
-        return (
-          <div key={slot.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderBottom: '1px solid var(--bdr)' }}>
-            <div style={{ width: 30, height: 30, borderRadius: 8, background: uploaded.length > 0 ? 'rgba(22,163,74,.1)' : 'var(--chip-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15, color: uploaded.length > 0 ? GREEN : 'var(--txt2)' }}>{slot.icon}</span>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{slot.label}</div>
-              {uploaded.length > 0 && (
-                <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 1 }}>
-                  {uploaded.map(d => (
-                    <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 12 }}>
-                      <a href={d.file_url} target="_blank" rel="noreferrer" style={{ color: NAVY, fontWeight: 600, textDecoration: 'none' }}>{d.file_name}</a>
-                      <button onClick={() => handleDelete(d)} disabled={deleting[d.id]} style={{ background: 'none', border: 'none', cursor: 'pointer', color: RED, padding: 0, lineHeight: 1 }}>
-                        <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
-                      </button>
-                    </span>
-                  ))}
-                </div>
+    <>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        {DOC_SLOTS.map(slot => {
+          const uploaded    = docs.filter(d => d.doc_type === slot.key)
+          const isUploading = uploading[slot.key]
+          return (
+            <div key={slot.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderBottom: '1px solid var(--bdr)' }}>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: uploaded.length > 0 ? 'rgba(22,163,74,.1)' : 'var(--chip-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15, color: uploaded.length > 0 ? GREEN : 'var(--txt2)' }}>{slot.icon}</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{slot.label}</div>
+                {uploaded.length > 0 ? (
+                  <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 1 }}>
+                    {uploaded.map(d => (
+                      <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 12 }}>
+                        {readOnly ? (
+                          <button onClick={() => setPreview(d)}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: NAVY, fontWeight: 600, fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <span className="material-symbols-rounded" style={{ fontSize: 13 }}>visibility</span>{d.file_name}
+                          </button>
+                        ) : (
+                          <a href={d.file_url} target="_blank" rel="noreferrer" style={{ color: NAVY, fontWeight: 600, textDecoration: 'none' }}>{d.file_name}</a>
+                        )}
+                        {!readOnly && (
+                          <button onClick={() => handleDelete(d)} disabled={deleting[d.id]} style={{ background: 'none', border: 'none', cursor: 'pointer', color: RED, padding: 0, lineHeight: 1 }}>
+                            <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                ) : readOnly ? (
+                  <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 1, fontStyle: 'italic' }}>Not yet uploaded</div>
+                ) : null}
+              </div>
+              <div style={{ flexShrink: 0 }}>
+                {uploaded.length === 0
+                  ? <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: 'rgba(217,119,6,.12)', color: AMBER }}>Pending</span>
+                  : <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: 'rgba(22,163,74,.12)', color: GREEN }}>Uploaded</span>
+                }
+              </div>
+              {readOnly && uploaded.length > 0 && (
+                <button onClick={() => setPreview(uploaded[0])}
+                  style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: `1px solid ${NAVY}25`, background: `${NAVY}08`, color: NAVY, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>visibility</span>View
+                </button>
+              )}
+              {!readOnly && (
+                <label style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: 12, cursor: 'pointer' }}>
+                  {isUploading ? <Spinner size={12} /> : <><span className="material-symbols-rounded" style={{ fontSize: 13 }}>upload</span>Upload</>}
+                  <input ref={el => { fileRefs.current[slot.key] = el }} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                    style={{ display: 'none' }} disabled={isUploading}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(slot.key, f) }} />
+                </label>
               )}
             </div>
-            <div style={{ flexShrink: 0 }}>
-              {uploaded.length === 0
-                ? <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: 'rgba(217,119,6,.12)', color: AMBER }}>Pending</span>
-                : <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: 'rgba(22,163,74,.12)', color: GREEN }}>Uploaded</span>
-              }
-            </div>
-            <label style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: 12, cursor: 'pointer' }}>
-              {isUploading ? <Spinner size={12} /> : <><span className="material-symbols-rounded" style={{ fontSize: 13 }}>upload</span>Upload</>}
-              <input ref={el => { fileRefs.current[slot.key] = el }} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                style={{ display: 'none' }} disabled={isUploading}
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(slot.key, f) }} />
-            </label>
-          </div>
-        )
-      })}
-    </div>
+          )
+        })}
+      </div>
+      <DocPreviewModal doc={preview} onClose={() => setPreview(null)} />
+    </>
   )
 }
 
@@ -1077,6 +1143,107 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
         </div>
       )}
 
+      {/* Documents — read-only view for risk */}
+      <SectionCard title="Supporting Documents" padding={false}>
+        <DocumentsInline appId={app.id} readOnly />
+      </SectionCard>
+
+      {/* Team thread */}
+      <InternalThread appId={app.id} />
+    </div>
+  )
+}
+
+// ── COMPLIANCE VIEW ───────────────────────────────────────────────────────────
+
+function ComplianceView({ app, events, conditions, onRefresh }: {
+  app: Application
+  events: AppEvent[]
+  conditions: AppCondition[]
+  onRefresh: () => void
+}) {
+  const navigate = useNavigate()
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Header strip */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '14px 18px', background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, boxShadow: 'var(--card-shadow)' }}>
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Applicant</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{app.applicant_name}</div>
+        </div>
+        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Product</div>
+          <ProductPill product={app.product_type || '—'} />
+        </div>
+        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Amount</div>
+          <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{fmtKobo(app.amount_requested_kobo)}</div>
+        </div>
+        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
+        <StagePill stage={app.stage} />
+        <div style={{ marginLeft: 'auto' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 12px', borderRadius: 20, background: 'rgba(124,58,237,.08)', color: '#7C3AED' }}>Compliance View — Read Only</span>
+        </div>
+      </div>
+
+      {/* Declined banner */}
+      {app.stage === 'declined' && app.decline_reason && (
+        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', borderRadius: 10, background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.2)' }}>
+          <span className="material-symbols-rounded" style={{ color: RED, fontSize: 18, flexShrink: 0 }}>cancel</span>
+          <div><div style={{ fontSize: 13, fontWeight: 700, color: RED }}>Application Declined</div><div style={{ fontSize: 13, color: 'var(--txt)', marginTop: 2 }}>{app.decline_reason}</div></div>
+        </div>
+      )}
+
+      {/* Customer info + Documents side by side */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <SectionCard title="Applicant Information">
+          <InfoRow label="Full Name"    value={app.applicant_name} />
+          <InfoRow label="Phone"        value={app.applicant_phone} />
+          <InfoRow label="Email"        value={app.applicant_email} />
+          <InfoRow label="CIF"          value={app.applicant_cif} />
+          <InfoRow label="Employer"     value={app.employer} />
+          <InfoRow label="Purpose"      value={app.purpose} />
+          <InfoRow label="Submitted"    value={app.submitted_at ? fmtDatetime(app.submitted_at) : '—'} />
+        </SectionCard>
+
+        <SectionCard title="Submitted Documents" padding={false}>
+          <DocumentsInline appId={app.id} readOnly />
+        </SectionCard>
+      </div>
+
+      {/* Loan terms */}
+      <SectionCard title="Loan Details">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+          {[
+            { label: 'Product',          value: <ProductPill product={app.product_type || '—'} /> },
+            { label: 'Amount Requested', value: fmtKobo(app.amount_requested_kobo) },
+            { label: 'Tenor',            value: app.tenor_months ? `${app.tenor_months} months` : '—' },
+            { label: 'Interest Rate',    value: app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : '—' },
+            { label: 'Monthly Income',   value: app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : '—' },
+            { label: 'Current Stage',    value: <StagePill stage={app.stage} /> },
+          ].map(row => (
+            <div key={row.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{row.label}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--txt)' }}>{row.value}</span>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* Conditions (read-only) + Approval chain */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <SectionCard title="Conditions" padding={false}>
+          <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={false} />
+        </SectionCard>
+
+        <SectionCard title="Approval Chain" padding={false}>
+          <ApprovalChainCompact app={app} events={events} />
+        </SectionCard>
+      </div>
+
       {/* Team thread */}
       <InternalThread appId={app.id} />
     </div>
@@ -1281,11 +1448,12 @@ export default function ApplicationDetail() {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
 
-  const userObj   = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}') } catch { return {} } })()
-  const userRole  = userObj?.role ?? ''
-  const roleKey   = userRole.toLowerCase()
-  const isRisk    = roleKey.includes('risk')
-  const isFinance = roleKey.includes('finance')
+  const userObj      = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}') } catch { return {} } })()
+  const userRole     = userObj?.role ?? ''
+  const roleKey      = userRole.toLowerCase()
+  const isRisk       = roleKey.includes('risk')
+  const isFinance    = roleKey.includes('finance')
+  const isCompliance = roleKey.includes('compliance')
 
   const [advanceOpen,   setAdvanceOpen]   = useState(false)
   const [declineOpen,   setDeclineOpen]   = useState(false)
@@ -1417,6 +1585,11 @@ export default function ApplicationDetail() {
           onAdvance={openAdvance}
           onDecline={() => setDeclineOpen(true)}
           onReqInfo={() => setReqInfoOpen(true)}
+        />
+      ) : isCompliance ? (
+        <ComplianceView
+          app={app} conditions={conditions} events={events}
+          onRefresh={load}
         />
       ) : (
         <SalesView
