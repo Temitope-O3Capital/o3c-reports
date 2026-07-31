@@ -747,7 +747,95 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
 // INTERSWITCH TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function InterspwitchTab() {
+interface IswSummary {
+  configured: boolean
+  message?: string
+  fetched_at?: string
+  interswitch?: { txn_count: number; total_volume: number; error?: string }
+  eod?: { txn_count: number; total_vol_ngn: number }
+  delta?: { txn_count_diff: number; volume_diff: number }
+}
+
+function InterswitchTab({ from, to }: { from: string; to: string }) {
+  const [data, setData]       = useState<IswSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const res = await apiFetch<IswSummary>(`/api/reconciliation/interswitch/summary?date_from=${from}&date_to=${to}`)
+      setData(res)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load')
+    } finally {
+      setLoading(false)
+    }
+  }, [from, to])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt3)' }}>Loading Interswitch data…</div>
+  if (error)   return <ErrBanner error={error} onRetry={load} />
+
+  // Not configured → show the onboarding / activation guide.
+  if (!data?.configured) return <InterswitchOnboarding />
+
+  // Configured → live processor-vs-ledger reconciliation for the selected period.
+  const isw = data.interswitch
+  const eod = data.eod
+  const ngn = (v?: number) => `₦${fmtNum(Number(v ?? 0))}`
+  const cntDelta = data.delta?.txn_count_diff ?? 0
+  const volDelta = data.delta?.volume_diff ?? 0
+  const deltaColor = (d: number) => d === 0 ? GREEN : Math.abs(d) < 1 ? AMBER : RED
+  const card = (label: string, value: string, sub?: string) => (
+    <div style={{ flex: 1, minWidth: 160, padding: '14px 16px', borderRadius: RADIUS.lg, background: 'var(--card)', border: '1px solid var(--bdr)' }}>
+      <p style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt3)', margin: '0 0 6px' }}>{label}</p>
+      <p style={{ ...NUM, fontSize: 20, fontWeight: FW.bold, color: 'var(--txt)', margin: 0 }}>{value}</p>
+      {sub && <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', margin: '3px 0 0' }}>{sub}</p>}
+    </div>
+  )
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <StatusBadge status="Connected" />
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>
+          {data.fetched_at ? `Synced ${fmtDate(data.fetched_at)}` : 'Live'}
+        </span>
+      </div>
+
+      {isw?.error && (
+        <div style={{ padding: '10px 14px', borderRadius: RADIUS.md, background: `${AMBER}12`, border: `1px solid ${AMBER}30`, fontSize: TEXT.sm, color: 'var(--txt)' }}>
+          Interswitch API note: {isw.error}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[3] }}>
+        {card('Interswitch Txns', fmtNum(isw?.txn_count ?? 0), 'processor')}
+        {card('Interswitch Volume', ngn(isw?.total_volume), 'processor')}
+        {card('Ledger Txns (EOD)', fmtNum(eod?.txn_count ?? 0), 'internal')}
+        {card('Ledger Volume (EOD)', ngn(eod?.total_vol_ngn), 'internal')}
+      </div>
+
+      <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
+        <div style={{ padding: '10px 16px', background: 'var(--th-bg)', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>
+          Processor vs Ledger — {from} to {to}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--bdr)' }}>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Transaction count difference</span>
+          <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: deltaColor(cntDelta) }}>{cntDelta === 0 ? 'Match' : (cntDelta > 0 ? `+${cntDelta}` : cntDelta)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--bdr)' }}>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Volume difference (NGN)</span>
+          <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: deltaColor(volDelta) }}>{volDelta === 0 ? 'Match' : ngn(volDelta)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function InterswitchOnboarding() {
   const steps = [
     { icon: 'call', title: 'Contact your Interswitch account manager', detail: 'Call 01-2715555 or email merchantsupport@interswitchgroup.com. Tell them you need reporting API credentials for your existing merchant account.' },
     { icon: 'vpn_key', title: 'Request specific credentials', detail: 'Merchant ID (MID) · Client ID · Client Secret · Reporting API base URL. Your account type is: Card acquiring (Web, POS, ATM).' },
@@ -865,7 +953,7 @@ export default function ProcessorReconciliation() {
       </div>
 
       {tab === 'paystack' && <PaystackTab from={from} to={to} />}
-      {tab === 'interswitch' && <InterspwitchTab />}
+      {tab === 'interswitch' && <InterswitchTab from={from} to={to} />}
     </Page>
   )
 }

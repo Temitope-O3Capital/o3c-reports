@@ -225,6 +225,7 @@ func execFinanceHandler(db *core.DB) http.HandlerFunc {
 			"gl_entries_count":    glEntriesCount,
 			"pending_settlements": pendingSettlements,
 			"settled_period":      settledPeriod,
+			"paystack_wallet_kobo": paystackWalletKobo(ctx, db),
 		}, "pg")
 	}
 }
@@ -510,6 +511,7 @@ func execSettlementsHandler(db *core.DB) http.HandlerFunc {
 			"settled_period_kobo":         settledPeriodKobo,
 			"failed_period":               failedPeriod,
 			"total_settled_all_time_kobo": totalSettledAllTimeKobo,
+			"paystack_wallet_kobo":        paystackWalletKobo(ctx, db),
 		}, "pg")
 	}
 }

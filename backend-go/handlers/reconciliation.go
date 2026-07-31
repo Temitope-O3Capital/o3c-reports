@@ -456,6 +456,27 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 
 // ── Register ──────────────────────────────────────────────────────────────────
 
+// paystackWalletKobo returns the primary Paystack wallet balance in kobo,
+// best-effort. Returns 0 when Paystack isn't configured or the call fails, so
+// callers can use it inline on dashboards without error handling.
+func paystackWalletKobo(ctx context.Context, db *core.DB) int64 {
+	if resolvePaystackKey(ctx, db) == "" {
+		return 0
+	}
+	pctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	bal, err := paystackFetch(pctx, db, "/balance", nil)
+	if err != nil {
+		return 0
+	}
+	if data, ok := bal["data"].([]any); ok && len(data) > 0 {
+		if m0, ok := data[0].(map[string]any); ok {
+			return toInt64(m0["balance"])
+		}
+	}
+	return 0
+}
+
 func RegisterPaystackRecon(r chi.Router, db *core.DB) {
 	access := core.RequirePages("reconciliation")
 	r.With(access).Get("/summary",      psReconSummary(db))

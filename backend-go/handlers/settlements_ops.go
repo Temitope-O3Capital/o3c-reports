@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -724,8 +726,35 @@ func soaOverview(db *core.DB) http.HandlerFunc {
 				"total": 0, "matched": 0, "unmatched": 0,
 				"exception_count": 0, "exception_value_kobo": 0, "reconciliation_rate_pct": 0,
 			},
-			"paystack":    map[string]any{"configured": resolvePaystackKey(ctx, db) != "", "wallet_balance_kobo": 0, "last_sync_at": nil, "open_disputes": 0},
-			"interswitch": map[string]any{"configured": false},
+			"paystack":    map[string]any{"configured": false, "wallet_balance_kobo": 0, "last_sync_at": nil, "open_disputes": 0},
+			"interswitch": map[string]any{"configured": iswConfiguredWith(ctx, db)},
+		}
+
+		// Paystack channel — reflect real config, and when configured pull the live
+		// wallet balance + open-dispute count (best-effort, short timeout so a slow
+		// Paystack never blocks the settlements dashboard).
+		if resolvePaystackKey(ctx, db) != "" {
+			ps := map[string]any{
+				"configured":          true,
+				"wallet_balance_kobo": 0,
+				"last_sync_at":        time.Now().UTC().Format(time.RFC3339),
+				"open_disputes":       0,
+			}
+			pctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+			if bal, err := paystackFetch(pctx, db, "/balance", nil); err == nil {
+				if data, ok := bal["data"].([]any); ok && len(data) > 0 {
+					if m0, ok := data[0].(map[string]any); ok {
+						ps["wallet_balance_kobo"] = toInt64(m0["balance"])
+					}
+				}
+			}
+			if dsp, err := paystackFetch(pctx, db, "/dispute", url.Values{"status": {"awaiting-merchant-feedback"}, "perPage": {"1"}}); err == nil {
+				if meta, ok := dsp["meta"].(map[string]any); ok {
+					ps["open_disputes"] = toInt64(meta["total"])
+				}
+			}
+			cancel()
+			out["paystack"] = ps
 		}
 
 		if batchRows, _ := db.PGQuery(ctx, `
