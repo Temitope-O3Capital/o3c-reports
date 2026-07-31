@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, StatusBadge, ExpandableFilterBar, filterInputStyle, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
@@ -178,6 +179,7 @@ export default function NIPReconciliation() {
   }, [date, fStatuses])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['settlement_exceptions','settlements'] })
 
   const excCols = ExcCols(setResolving)
 

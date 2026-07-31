@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, KpiCard, SectionCard, ErrBanner, ExpandableFilterBar, StatusBadge, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -129,6 +130,7 @@ export default function SettlementBatches() {
   }, [fStatuses, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['settlements'] })
 
   async function toggleExpand(id: number) {
     if (expandedId === id) {

@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, ErrBanner, StatusBadge, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -776,6 +777,7 @@ function InterswitchTab({ from, to }: { from: string; to: string }) {
   }, [from, to])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: [] })
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt3)' }}>Loading Interswitch data…</div>
   if (error)   return <ErrBanner error={error} onRetry={load} />

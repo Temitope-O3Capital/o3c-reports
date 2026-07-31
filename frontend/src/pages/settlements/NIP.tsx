@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, ExpandableFilterBar, filterInputStyle, StatusBadge, Modal, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -250,6 +251,7 @@ export default function NIPReconciliation() {
   }, [dateFilter, fStatuses])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['settlement_exceptions'] })
 
   // Sort: Exception → Unmatched → Matched, then value_date desc within groups
   const sorted = useMemo(() => {

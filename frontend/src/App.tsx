@@ -12,6 +12,7 @@ import NotificationBell from './components/NotificationBell'
 import GlobalSearch     from './components/GlobalSearch'
 import CallWidget       from './components/CallWidget'
 import C360Drawer       from './components/C360Drawer'
+import { RealtimeProvider } from './hooks/useRealtime'
 import { type AuthUser, ROLE_PAGES } from './hooks/useAuth'
 import { useModules } from './hooks/useModules'
 import { roleLabel, MGMT } from './lib/roles'
@@ -898,6 +899,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
   return (
     <BrowserRouter>
+     <RealtimeProvider>
       <div style={{
         display: 'flex', height: '100vh', overflow: 'hidden',
         ...(dark ? DARK : LIGHT),
@@ -1195,6 +1197,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
           </div>
         )}
       </div>
+     </RealtimeProvider>
     </BrowserRouter>
   )
 })

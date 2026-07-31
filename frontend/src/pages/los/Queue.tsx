@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, DateFilter, NameCell, ActionRow, ExpandableFilterBar } from '../../components/UI'
@@ -169,6 +170,7 @@ export default function LOSQueue() {
   }, [nextCursor, loadingMore])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['loans'] })
 
   // Page-level date scope — drives KPIs and table together
   const dateFiltered = useMemo(() => {

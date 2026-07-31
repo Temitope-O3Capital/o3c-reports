@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { StatusBadge, Modal, Spinner, ErrBanner, TblSearch, DateFilter, NameCell, ActionRow } from '../../components/UI'
@@ -261,6 +262,7 @@ function TicketPanel({
   }, [ticketId])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['tickets'] })
 
   useEffect(() => {
     if (data?.messages?.length) {

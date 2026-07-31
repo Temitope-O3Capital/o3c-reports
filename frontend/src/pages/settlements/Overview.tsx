@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, ErrBanner } from '../../components/UI'
@@ -127,6 +128,7 @@ export default function SettlementsOverview() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['settlements','settlement_exceptions','manual_postings'] })
 
   const nip = data?.nip
   const ps = data?.paystack

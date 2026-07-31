@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, ExpandableFilterBar, StatusBadge, Modal, ConfirmModal, btnPrimary, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
@@ -395,6 +396,7 @@ export default function ManualPostings() {
   }, [fStages, initiatorSearch, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['manual_postings'] })
 
   async function handleApprove() {
     if (!confirmApprove) return

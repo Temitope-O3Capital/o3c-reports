@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, ExpandableFilterBar, Modal, ConfirmModal, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
@@ -141,6 +142,7 @@ export default function FailedTransactions() {
   }, [fReasons, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['settlement_exceptions'] })
 
   const filtered = useMemo(() => {
     if (!search) return rows
