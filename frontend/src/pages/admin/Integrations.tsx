@@ -160,9 +160,8 @@ export default function AdminIntegrations() {
   async function ping(integ: Integration) {
     setPinging(integ.id)
     try {
-      const result = await apiPost<{ status: string; status_code?: number; note?: string }>(
-        `/api/admin/integrations/${integ.id}/ping`, {}
-      )
+      const raw = await apiPost<any>(`/api/admin/integrations/${integ.id}/ping`, {})
+      const result = (raw?.data ?? raw) as { status?: string; status_code?: number; note?: string }
       const label = result.status_code ? ` (HTTP ${result.status_code})` : (result.note ? ` — ${result.note}` : '')
       toast.success(`${integ.name}: ${result.status}${label}`)
       load()

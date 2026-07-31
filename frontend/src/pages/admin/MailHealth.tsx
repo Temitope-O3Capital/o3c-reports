@@ -134,11 +134,12 @@ export default function AdminMailHealth() {
     setError(null)
     try {
       const [m, s, d] = await Promise.allSettled([
-        apiFetch<MailMetrics>(`/api/mail/metrics?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<any>(`/api/mail/metrics?from=${dateFrom}&to=${dateTo}`),
         apiFetch<Suppression[]>(`/api/mail/suppressions?from=${dateFrom}&to=${dateTo}`),
         apiFetch<Deliverability>('/api/mail/deliverability'),
       ])
-      if (m.status === 'fulfilled') setMetrics(m.value)
+      // /api/mail/metrics wraps in { data:{...} }; tolerate a bare object too.
+      if (m.status === 'fulfilled') { const mv: any = m.value; setMetrics(mv?.data ?? mv) }
       if (s.status === 'fulfilled') setSuppresions(Array.isArray(s.value) ? s.value : [])
       if (d.status === 'fulfilled') setDeliverability(d.value)
     } catch (e: any) {

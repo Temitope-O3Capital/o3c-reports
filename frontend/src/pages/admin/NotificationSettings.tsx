@@ -1,14 +1,26 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { GREEN, NAVY, INTER, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-interface NotifSettings {
-  [key: string]: boolean | string | number
+// Backend GET /api/admin/notification-settings returns rows from
+// notification_event_config: one row per (event_type, channel).
+interface NotifRow {
+  event_type: string
+  channel: string
+  enabled: boolean
+  label?: string
+  description?: string
 }
+
+const CHANNELS: { key: string; label: string }[] = [
+  { key: 'in_app',   label: 'In-app' },
+  { key: 'email',    label: 'Email' },
+  { key: 'sms',      label: 'SMS' },
+  { key: 'whatsapp', label: 'WhatsApp' },
+]
 
 // ── Toggle component ──────────────────────────────────────────────────────────
 
@@ -31,40 +43,6 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   )
 }
 
-// ── Default settings structure ────────────────────────────────────────────────
-
-const DEFAULT_SETTINGS: NotifSettings = {
-  loan_approved: true,
-  loan_declined: true,
-  loan_disbursed: true,
-  repayment_due: true,
-  repayment_received: true,
-  overdue_alert: true,
-  writeoff_trigger: true,
-  new_dispute: true,
-  dispute_resolved: true,
-  new_ticket: true,
-  ticket_escalated: true,
-  ticket_resolved: true,
-  new_user_invited: true,
-  user_deactivated: false,
-  api_key_rotated: true,
-  sync_failure: true,
-  sync_success: false,
-  budget_threshold: true,
-  large_transaction: true,
-  fd_maturity: true,
-}
-
-const GROUPS: { label: string; icon: string; keys: string[] }[] = [
-  { label: 'Loans & Disbursements', icon: 'account_balance', keys: ['loan_approved','loan_declined','loan_disbursed','repayment_due','repayment_received','overdue_alert','writeoff_trigger'] },
-  { label: 'Cards & Disputes', icon: 'credit_card', keys: ['new_dispute','dispute_resolved'] },
-  { label: 'Helpdesk', icon: 'support_agent', keys: ['new_ticket','ticket_escalated','ticket_resolved'] },
-  { label: 'Admin & Security', icon: 'admin_panel_settings', keys: ['new_user_invited','user_deactivated','api_key_rotated'] },
-  { label: 'Sync & Data', icon: 'sync', keys: ['sync_failure','sync_success'] },
-  { label: 'Finance', icon: 'attach_money', keys: ['budget_threshold','large_transaction','fd_maturity'] },
-]
-
 function labelOf(key: string): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
@@ -72,20 +50,20 @@ function labelOf(key: string): string {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminNotificationSettings() {
-  const [settings, setSettings] = useState<NotifSettings>(DEFAULT_SETTINGS)
-  const [loading,  setLoading]  = useState(true)
-  const [error,    setError]    = useState<string | null>(null)
-  const [dirty,    setDirty]    = useState(false)
-  const [saving,   setSaving]   = useState(false)
+  const [rows,    setRows]    = useState<NotifRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState<string | null>(null)
+  const [dirty,   setDirty]   = useState(false)
+  const [saving,  setSaving]  = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiFetch<NotifSettings>('/api/admin/notification-settings')
-      if (data && typeof data === 'object') {
-        setSettings({ ...DEFAULT_SETTINGS, ...data })
-      }
+      const data = await apiFetch<NotifRow[] | { data?: NotifRow[] }>('/api/admin/notification-settings')
+      const list = Array.isArray(data) ? data : (data?.data ?? [])
+      setRows(list)
+      setDirty(false)
     } catch (e: any) {
       if (!e.message?.includes('404')) setError(e.message)
     } finally {
@@ -95,17 +73,35 @@ export default function AdminNotificationSettings() {
 
   useEffect(() => { load() }, [load])
 
-  function toggle(key: string, val: boolean) {
-    setSettings(s => ({ ...s, [key]: val }))
+  // Group the flat rows into one entry per event, keyed by channel.
+  const events = useMemo(() => {
+    const m = new Map<string, { event_type: string; label: string; description: string; channels: Record<string, boolean | undefined> }>()
+    for (const r of rows) {
+      let e = m.get(r.event_type)
+      if (!e) {
+        e = { event_type: r.event_type, label: r.label || labelOf(r.event_type), description: r.description || '', channels: {} }
+        m.set(r.event_type, e)
+      }
+      if (r.label && !e.label) e.label = r.label
+      if (r.description && !e.description) e.description = r.description
+      e.channels[r.channel] = r.enabled
+    }
+    return Array.from(m.values())
+  }, [rows])
+
+  function toggle(event_type: string, channel: string, val: boolean) {
+    setRows(rs => rs.map(r =>
+      r.event_type === event_type && r.channel === channel ? { ...r, enabled: val } : r))
     setDirty(true)
   }
 
   async function save() {
     setSaving(true)
     try {
+      const payload = rows.map(r => ({ event_type: r.event_type, channel: r.channel, enabled: r.enabled }))
       await apiFetch('/api/admin/notification-settings', {
         method: 'PUT',
-        body: JSON.stringify(settings),
+        body: JSON.stringify(payload),
       })
       toast.success('Notification settings saved')
       setDirty(false)
@@ -116,11 +112,16 @@ export default function AdminNotificationSettings() {
     }
   }
 
+  const th: React.CSSProperties = {
+    padding: '10px 14px', textAlign: 'left', fontSize: TEXT.xs, fontWeight: FW.bold,
+    color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.05em',
+  }
+
   return (
     <Page
       back={{ label: 'Admin', to: '/admin' }}
       title="Notification Settings"
-      subtitle="Control which events trigger in-app and email notifications"
+      subtitle="Control which channels fire for each system event"
       actions={
         dirty ? (
           <button onClick={save} disabled={saving} style={{
@@ -136,23 +137,50 @@ export default function AdminNotificationSettings() {
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--txt3)' }}>Loading…</div>
+      ) : events.length === 0 ? (
+        <SectionCard title="Event Notifications">
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>
+            No notification events are configured.
+          </div>
+        </SectionCard>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
-          {GROUPS.map(group => (
-            <SectionCard key={group.label} title={group.label}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-                {group.keys.map(key => (
-                  <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[3] }}>
-                    <div>
-                      <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{labelOf(key)}</div>
-                    </div>
-                    <Toggle checked={Boolean(settings[key])} onChange={v => toggle(key, v)} />
-                  </div>
+        <SectionCard title="Event Notifications" subtitle="Choose which channels fire for each event. A dash means that channel is not available for the event.">
+          <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.md, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
+              <thead>
+                <tr style={{ background: 'var(--th-bg)' }}>
+                  <th style={th}>Event</th>
+                  {CHANNELS.map(c => (
+                    <th key={c.key} style={{ ...th, textAlign: 'center' }}>{c.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((e, i) => (
+                  <tr key={e.event_type} style={{ borderTop: '1px solid var(--bdr)', background: i % 2 === 0 ? 'transparent' : 'var(--th-bg)' }}>
+                    <td style={{ padding: '10px 14px' }}>
+                      <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{e.label}</div>
+                      {e.description && (
+                        <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 2 }}>{e.description}</div>
+                      )}
+                    </td>
+                    {CHANNELS.map(c => (
+                      <td key={c.key} style={{ padding: '10px 14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center' }}>
+                          {e.channels[c.key] === undefined ? (
+                            <span style={{ color: 'var(--txt3)' }}>—</span>
+                          ) : (
+                            <Toggle checked={!!e.channels[c.key]} onChange={v => toggle(e.event_type, c.key, v)} />
+                          )}
+                        </div>
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-              </div>
-            </SectionCard>
-          ))}
-        </div>
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
       )}
     </Page>
   )

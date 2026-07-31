@@ -131,8 +131,8 @@ export default function AdminSettings() {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiFetch<Setting[]>('/api/settings')
-      setRows(Array.isArray(data) ? data : [])
+      const data = await apiFetch<Setting[] | { data?: Setting[] }>('/api/settings')
+      setRows(Array.isArray(data) ? data : (data?.data ?? []))
     } catch (e: any) {
       setError(e.message)
     } finally {

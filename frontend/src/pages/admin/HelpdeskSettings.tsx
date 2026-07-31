@@ -9,13 +9,13 @@ import { toast } from 'sonner'
 
 interface RoutingRule {
   id: number
-  name: string
-  conditions: Record<string, string>
-  target_queue: string
-  priority: number
-  active: boolean
+  ticket_type: string | null
+  channel: string | null
+  priority: string | null   // condition to match (low/medium/high/urgent), null = any
+  queue: string             // destination queue
+  assign_to: number | null
+  is_active: boolean
   created_at: string
-  updated_at: string
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -68,43 +68,34 @@ const inputStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
-function conditionsSummary(cond: Record<string, string>): string {
-  if (!cond || Object.keys(cond).length === 0) return 'All tickets'
-  return Object.entries(cond)
-    .map(([k, v]) => `${k.replace(/_/g, ' ')} = ${v}`)
-    .join(' · ')
+function matchSummary(r: RoutingRule): string {
+  const parts: string[] = []
+  if (r.ticket_type) parts.push(`type = ${r.ticket_type}`)
+  if (r.channel)     parts.push(`channel = ${r.channel}`)
+  if (r.priority)    parts.push(`priority = ${r.priority}`)
+  return parts.length ? parts.join(' · ') : 'All tickets'
 }
 
 // ── Rule form ─────────────────────────────────────────────────────────────────
 
 interface RuleForm {
-  name: string
-  target_queue: string
-  priority: number
-  active: boolean
-  cond_ticket_type: string
-  cond_channel: string
-  cond_priority: string
+  ticket_type: string
+  channel: string
+  priority: string
+  queue: string
+  is_active: boolean
 }
 
-const EMPTY_FORM: RuleForm = {
-  name: '', target_queue: 'general', priority: 10, active: true,
-  cond_ticket_type: '', cond_channel: '', cond_priority: '',
-}
+const EMPTY_FORM: RuleForm = { ticket_type: '', channel: '', priority: '', queue: 'general', is_active: true }
 
-function formToConditions(f: RuleForm): Record<string, string> {
-  const c: Record<string, string> = {}
-  if (f.cond_ticket_type) c.ticket_type = f.cond_ticket_type
-  if (f.cond_channel) c.channel = f.cond_channel
-  if (f.cond_priority) c.priority = f.cond_priority
-  return c
-}
-
-function conditionsToForm(cond: Record<string, string>): Pick<RuleForm, 'cond_ticket_type' | 'cond_channel' | 'cond_priority'> {
+// Empty condition = "match any" → send null so the routing engine ignores it.
+function formToPayload(f: RuleForm) {
   return {
-    cond_ticket_type: cond?.ticket_type ?? '',
-    cond_channel: cond?.channel ?? '',
-    cond_priority: cond?.priority ?? '',
+    ticket_type: f.ticket_type || null,
+    channel:     f.channel || null,
+    priority:    f.priority || null,
+    queue:       f.queue,
+    is_active:   f.is_active,
   }
 }
 
@@ -112,29 +103,10 @@ function RuleFormFields({ form, onChange }: { form: RuleForm; onChange: (f: Rule
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
       <div>
-        <label style={labelStyle}>Rule Name *</label>
-        <input
-          value={form.name} onChange={e => onChange({ ...form, name: e.target.value })}
-          placeholder="e.g. Route card disputes to cards queue"
-          style={inputStyle}
-        />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-        <div>
-          <label style={labelStyle}>Target Queue *</label>
-          <select value={form.target_queue} onChange={e => onChange({ ...form, target_queue: e.target.value })} style={{ ...inputStyle }}>
-            {QUEUES.map(q => <option key={q} value={q}>{q}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={labelStyle}>Priority (lower = runs first)</label>
-          <input
-            type="number" min={1} max={100} value={form.priority}
-            onChange={e => onChange({ ...form, priority: Number(e.target.value) })}
-            style={inputStyle}
-          />
-        </div>
+        <label style={labelStyle}>Destination Queue *</label>
+        <select value={form.queue} onChange={e => onChange({ ...form, queue: e.target.value })} style={{ ...inputStyle }}>
+          {QUEUES.map(q => <option key={q} value={q}>{q}</option>)}
+        </select>
       </div>
 
       <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', paddingTop: 4 }}>
@@ -144,27 +116,27 @@ function RuleFormFields({ form, onChange }: { form: RuleForm; onChange: (f: Rule
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
         <div>
           <label style={labelStyle}>Ticket Type</label>
-          <select value={form.cond_ticket_type} onChange={e => onChange({ ...form, cond_ticket_type: e.target.value })} style={{ ...inputStyle }}>
+          <select value={form.ticket_type} onChange={e => onChange({ ...form, ticket_type: e.target.value })} style={{ ...inputStyle }}>
             <option value="">Any</option>
             {TICKET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div>
           <label style={labelStyle}>Channel</label>
-          <select value={form.cond_channel} onChange={e => onChange({ ...form, cond_channel: e.target.value })} style={{ ...inputStyle }}>
+          <select value={form.channel} onChange={e => onChange({ ...form, channel: e.target.value })} style={{ ...inputStyle }}>
             <option value="">Any</option>
             {CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div>
           <label style={labelStyle}>Priority</label>
-          <select value={form.cond_priority} onChange={e => onChange({ ...form, cond_priority: e.target.value })} style={{ ...inputStyle }}>
+          <select value={form.priority} onChange={e => onChange({ ...form, priority: e.target.value })} style={{ ...inputStyle }}>
             <option value="">Any</option>
             {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], paddingTop: 22 }}>
-          <input type="checkbox" id="rule-active" checked={form.active} onChange={e => onChange({ ...form, active: e.target.checked })} style={{ width: 15, height: 15, cursor: 'pointer' }} />
+          <input type="checkbox" id="rule-active" checked={form.is_active} onChange={e => onChange({ ...form, is_active: e.target.checked })} style={{ width: 15, height: 15, cursor: 'pointer' }} />
           <label htmlFor="rule-active" style={{ fontSize: TEXT.base, color: 'var(--txt)', cursor: 'pointer' }}>Rule is active</label>
         </div>
       </div>
@@ -225,8 +197,8 @@ export default function HelpdeskSettings() {
     setScriptsLoading(true)
     setScriptsError(null)
     try {
-      const data = await apiFetch<CallScript[]>('/api/helpdesk/call-scripts')
-      setScripts(Array.isArray(data) ? data : [])
+      const data = await apiFetch<CallScript[] | { data?: CallScript[] }>('/api/helpdesk/call-scripts')
+      setScripts(Array.isArray(data) ? data : (data?.data ?? []))
     } catch (e: any) {
       setScriptsError(e.message)
     } finally {
@@ -263,26 +235,19 @@ export default function HelpdeskSettings() {
 
   function openEdit(r: RoutingRule) {
     setForm({
-      name: r.name,
-      target_queue: r.target_queue,
-      priority: r.priority,
-      active: r.active,
-      ...conditionsToForm(r.conditions),
+      ticket_type: r.ticket_type ?? '',
+      channel: r.channel ?? '',
+      priority: r.priority ?? '',
+      queue: r.queue,
+      is_active: r.is_active,
     })
     setEditRule(r)
   }
 
   async function handleCreate() {
-    if (!form.name.trim()) { toast.error('Rule name is required'); return }
     setSaving(true)
     try {
-      await apiPost('/api/helpdesk/routing-rules', {
-        name: form.name.trim(),
-        conditions: formToConditions(form),
-        target_queue: form.target_queue,
-        priority: form.priority,
-        active: form.active,
-      })
+      await apiPost('/api/helpdesk/routing-rules', formToPayload(form))
       toast.success('Rule created')
       setNewOpen(false)
       load()
@@ -295,16 +260,9 @@ export default function HelpdeskSettings() {
 
   async function handleUpdate() {
     if (!editRule) return
-    if (!form.name.trim()) { toast.error('Rule name is required'); return }
     setSaving(true)
     try {
-      await apiPut(`/api/helpdesk/routing-rules/${editRule.id}`, {
-        name: form.name.trim(),
-        conditions: formToConditions(form),
-        target_queue: form.target_queue,
-        priority: form.priority,
-        active: form.active,
-      })
+      await apiPut(`/api/helpdesk/routing-rules/${editRule.id}`, formToPayload(form))
       toast.success('Rule updated')
       setEditRule(null)
       load()
@@ -332,8 +290,8 @@ export default function HelpdeskSettings() {
 
   async function handleToggleActive(rule: RoutingRule) {
     try {
-      await apiPut(`/api/helpdesk/routing-rules/${rule.id}`, { active: !rule.active })
-      toast.success(rule.active ? 'Rule disabled' : 'Rule enabled')
+      await apiPut(`/api/helpdesk/routing-rules/${rule.id}`, { is_active: !rule.is_active })
+      toast.success(rule.is_active ? 'Rule disabled' : 'Rule enabled')
       load()
     } catch (e: any) {
       toast.error(e.message)
@@ -478,24 +436,24 @@ export default function HelpdeskSettings() {
                   <div key={rule.id} style={{
                     display: 'flex', alignItems: 'center', gap: SP[3], padding: `${SP[3]} ${SP[4]}`,
                     borderBottom: i < rules.length - 1 ? '1px solid var(--bdr)' : 'none',
-                    background: rule.active ? 'transparent' : 'var(--th-bg)',
-                    opacity: rule.active ? 1 : 0.65,
+                    background: rule.is_active ? 'transparent' : 'var(--th-bg)',
+                    opacity: rule.is_active ? 1 : 0.65,
                   }}>
-                    <div style={{ flexShrink: 0, width: 32, height: 32, borderRadius: RADIUS.md, background: `${NAVY}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.base, fontWeight: FW.bold, color: NAVY }}>
-                      {rule.priority}
+                    <div style={{ flexShrink: 0, width: 32, height: 32, borderRadius: RADIUS.md, background: `${NAVY}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: NAVY }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>alt_route</span>
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{rule.name}</span>
-                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 8px', borderRadius: RADIUS.lg, background: `${NAVY}12`, color: NAVY }}>→ {rule.target_queue}</span>
-                        {!rule.active && <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.lg, background: 'rgba(75,85,99,.12)', color: '#6B7280' }}>Inactive</span>}
+                        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{matchSummary(rule)}</span>
+                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 8px', borderRadius: RADIUS.lg, background: `${NAVY}12`, color: NAVY }}>→ {rule.queue}</span>
+                        {!rule.is_active && <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.lg, background: 'rgba(75,85,99,.12)', color: '#6B7280' }}>Inactive</span>}
                       </div>
-                      <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 3 }}>{conditionsSummary(rule.conditions)}</div>
+                      <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 3 }}>Routes matching tickets to the <strong>{rule.queue}</strong> queue</div>
                     </div>
-                    <div style={{ flexShrink: 0, fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(rule.updated_at)}</div>
+                    <div style={{ flexShrink: 0, fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDatetime(rule.created_at)}</div>
                     <div style={{ flexShrink: 0, display: 'flex', gap: SP[1], alignItems: 'center' }}>
-                      <button onClick={() => handleToggleActive(rule)} style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${rule.active ? AMBER : GREEN}40`, background: rule.active ? `${AMBER}0d` : `${GREEN}0d`, color: rule.active ? AMBER : GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-                        {rule.active ? 'Disable' : 'Enable'}
+                      <button onClick={() => handleToggleActive(rule)} style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${rule.is_active ? AMBER : GREEN}40`, background: rule.is_active ? `${AMBER}0d` : `${GREEN}0d`, color: rule.is_active ? AMBER : GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
+                        {rule.is_active ? 'Disable' : 'Enable'}
                       </button>
                       <button onClick={() => openEdit(rule)} style={{ width: 28, height: 28, borderRadius: RADIUS.sm, border: '1.5px solid var(--input-bdr)', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt2)' }}>
                         <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>edit</span>
@@ -650,7 +608,7 @@ export default function HelpdeskSettings() {
       <ConfirmModal
         open={!!deleteRule}
         title="Delete Routing Rule"
-        body={`Delete rule "${deleteRule?.name}"? This cannot be undone.`}
+        body={`Delete this routing rule (→ ${deleteRule?.queue})? This cannot be undone.`}
         confirmLabel="Delete"
         loading={deleting}
         onConfirm={handleDelete}
