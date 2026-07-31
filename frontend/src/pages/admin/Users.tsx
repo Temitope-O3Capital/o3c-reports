@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, DateFilter, ConfirmModal, NameCell, ActionRow, StatusBadge, avatarColor, nameInitials } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, ConfirmModal, NameCell, ActionRow, StatusBadge, avatarColor, nameInitials } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
+import { fmtDate, fmtDatetime } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 import { roleLabel, ROLE_LABELS } from '../../lib/roles'
@@ -373,8 +373,6 @@ export default function AdminUsers() {
   const [editing,   setEditing]   = useState<User | null>(null)
   const [inviting,  setInviting]  = useState(false)
   const [search,    setSearch]    = useState('')
-  const [dateFrom,  setDateFrom]  = useState(monthStart())
-  const [dateTo,    setDateTo]    = useState(today())
   const [fRoles,    setFRoles]    = useState<Set<string>>(new Set())
   const [fStatuses, setFStatuses] = useState<Set<string>>(new Set())
   const [fDepts,    setFDepts]    = useState<Set<string>>(new Set())
@@ -386,14 +384,14 @@ export default function AdminUsers() {
     setLoading(true)
     setError(null)
     try {
-      const u = await apiFetch<{ data: User[] }>(`/api/admin/users?from=${dateFrom}&to=${dateTo}`)
+      const u = await apiFetch<{ data: User[] }>(`/api/admin/users`)
       setRows(u.data ?? [])
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [dateFrom, dateTo])
+  }, [])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(1) }, [search, fRoles, fStatuses, fDepts])
@@ -478,7 +476,6 @@ export default function AdminUsers() {
       subtitle={`${rows.filter(u => u.is_active).length} active · ${rows.filter(u => !u.is_active).length} inactive`}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <button onClick={() => setInviting(true)} style={{
             display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
             border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
