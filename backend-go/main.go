@@ -709,13 +709,20 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+		// CSP must allow the served React SPA: its own /assets/*.js and .css
+		// ('self'), the static inline theme script and React's inline style
+		// attributes ('unsafe-inline'), Google Fonts, and same-origin API calls.
+		// The previous "default-src 'none' + unpkg-only" policy was API-only and
+		// blocked the app's own scripts, producing a blank page.
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'none'; "+
-				"script-src 'nonce-"+nonce+"' https://unpkg.com; "+
-				"connect-src 'self'; "+
-				"img-src 'self' data:; "+
-				"style-src 'nonce-"+nonce+"' https://unpkg.com; "+
-				"font-src 'self' data:; "+
+			"default-src 'self'; "+
+				"script-src 'self' 'unsafe-inline'; "+
+				"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
+				"font-src 'self' data: https://fonts.gstatic.com; "+
+				"img-src 'self' data: https:; "+
+				"connect-src 'self' https://crm.o3cards.pri:8443; "+
+				"base-uri 'self'; "+
+				"form-action 'self'; "+
 				"frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
