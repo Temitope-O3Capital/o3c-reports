@@ -384,8 +384,9 @@ export default function AdminUsers() {
     setLoading(true)
     setError(null)
     try {
-      const u = await apiFetch<{ data: User[] }>(`/api/admin/users`)
-      setRows(u.data ?? [])
+      // Backend returns a bare JSON array; tolerate a { data: [...] } wrapper too.
+      const u = await apiFetch<User[] | { data?: User[] }>(`/api/admin/users`)
+      setRows(Array.isArray(u) ? u : (u?.data ?? []))
     } catch (e: any) {
       setError(e.message)
     } finally {
