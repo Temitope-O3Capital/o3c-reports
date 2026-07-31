@@ -1052,7 +1052,7 @@ func SendTemporaryPasswordEmail(ctx context.Context, db *core.DB, email, name, t
 	html := wrapBrandedEmail("Your O3 Capital Workspace login is ready", inner)
 	text := fmt.Sprintf("Hello %s,\n\nUse the temporary password below to sign in to the O3 Capital Workspace, then set your own password.\n\nTemporary password: %s\n\nSign in: %s\n\nIf you weren't expecting this email, contact your administrator.\n\n— O3 Capital Workspace (no-reply)",
 		coalesce(name, "there"), tempPassword, workspaceURL())
-	return SendMail(ctx, db, SendMailOptions{
+	res := SendMail(ctx, db, SendMailOptions{
 		To:          []MailAddress{{Email: email, Name: name}},
 		FromEmail:   "no-reply@o3cards.com",
 		FromName:    "O3 Capital",
@@ -1066,6 +1066,28 @@ func SendTemporaryPasswordEmail(ctx context.Context, db *core.DB, email, name, t
 		Attachments: []MailAttachment{brandedLogoAttachment()},
 		CustomArgs:  map[string]string{"o3c_template": "password_reset"},
 	})
+	if !res.OK {
+		go alertMailFailure(context.Background(), db, email, "login email", res.Error)
+	}
+	return res
+}
+
+// alertMailFailure notifies admins (in-app + their own email) that a system
+// email could not be delivered — e.g. a bounce because the recipient mailbox
+// doesn't exist. The in-app notification is the reliable channel; the alert
+// email is best-effort. Runs in its own goroutine; never alerts recursively.
+func alertMailFailure(ctx context.Context, db *core.DB, recipient, kind, reason string) {
+	if reason == "" {
+		reason = "delivery failed"
+	}
+	NotifyRoles(ctx, db, []string{"admin", "it_admin"}, NotifPayload{
+		EventType: EvtSystemAlert,
+		Title:     "Email delivery failed",
+		Body:      fmt.Sprintf("The %s to %s could not be sent: %s", kind, recipient, reason),
+		ActionURL: "/admin/mail-health",
+		EntityRef: recipient,
+	})
+	slog.Warn("mail failure alerted to admins", "recipient", recipient, "kind", kind, "reason", reason)
 }
 
 // hasSuppressedRecipient checks whether any recipient in the list is suppressed.

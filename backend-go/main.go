@@ -518,9 +518,19 @@ func main() {
 			}
 			full := filepath.Join(frontendDir, filepath.Clean(req.URL.Path))
 			if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
+				// Content-hashed build assets are immutable → cache forever.
+				// Everything else (index.html, favicon…) must revalidate so a
+				// redeploy is picked up without a manual hard-refresh.
+				if strings.HasPrefix(req.URL.Path, "/assets/") {
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				} else {
+					w.Header().Set("Cache-Control", "no-cache")
+				}
 				fileServer.ServeHTTP(w, req)
 				return
 			}
+			// SPA fallback: never cache the app shell, so new deploys load immediately.
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 			http.ServeFile(w, req, indexPath) // SPA fallback
 		})
 		slog.Info("serving frontend", "dir", frontendDir)
