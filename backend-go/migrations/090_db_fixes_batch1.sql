@@ -1,7 +1,11 @@
 -- DB2: Fix loan_ref_seq seed to use MAX(id) instead of COUNT(*).
 -- COUNT may be less than MAX(id) after deletes, causing duplicate reference collisions.
+-- currval() errors if nextval() was not called in this session ("currval of
+-- sequence is not yet defined in this session"). Read the sequence's current
+-- value directly via last_value instead, which needs no prior nextval.
 SELECT setval('loan_ref_seq',
-  GREATEST(COALESCE((SELECT MAX(id) FROM loan_applications), 1), currval('loan_ref_seq')));
+  GREATEST(COALESCE((SELECT MAX(id) FROM loan_applications), 1),
+           (SELECT last_value FROM loan_ref_seq)));
 
 -- DB6: Rename crm_deals.expected_value to expected_value_kobo BIGINT.
 -- All monetary values must be stored as kobo (BIGINT), not NUMERIC.

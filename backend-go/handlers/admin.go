@@ -171,7 +171,7 @@ func createUser(db *core.DB) http.HandlerFunc {
 			str(result["email"]), str(result["full_name"]), tempPW, toInt64(result["id"]))
 		result["email_sent"] = mailRes.OK
 		newUID := toInt64(result["id"])
-		go NotifyRole(r.Context(), db, "it_admin", NotifPayload{
+		go NotifyRoles(r.Context(), db, []string{"admin", "it_admin"}, NotifPayload{
 			EventType: EvtNewAccountCreated,
 			Title:     "New account created",
 			Body:      fmt.Sprintf("%s (%s) was added with role %s.", fullName, b.Email, b.Role),

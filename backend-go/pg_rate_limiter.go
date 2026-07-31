@@ -27,22 +27,22 @@ func (c *pgLimitCounter) Increment(key string, currentWindow time.Time) error {
 
 func (c *pgLimitCounter) IncrementBy(key string, currentWindow time.Time, amount int) error {
 	_, err := c.db.PGExec(context.Background(),
-		`INSERT INTO rate_limit_counters(key, window, count) VALUES($1, $2, $3)
-		 ON CONFLICT(key, window) DO UPDATE SET count = rate_limit_counters.count + EXCLUDED.count`,
+		`INSERT INTO rate_limit_counters(key, window_start, count) VALUES($1, $2, $3)
+		 ON CONFLICT(key, window_start) DO UPDATE SET count = rate_limit_counters.count + EXCLUDED.count`,
 		key, currentWindow.UTC(), amount)
 	return err
 }
 
 func (c *pgLimitCounter) Get(key string, currentWindow, previousWindow time.Time) (int, int, error) {
 	rows, err := c.db.PGQuery(context.Background(),
-		`SELECT window, count FROM rate_limit_counters WHERE key = $1 AND window IN ($2, $3)`,
+		`SELECT window_start, count FROM rate_limit_counters WHERE key = $1 AND window_start IN ($2, $3)`,
 		key, currentWindow.UTC(), previousWindow.UTC())
 	if err != nil {
 		return 0, 0, err
 	}
 	curr, prev := 0, 0
 	for _, row := range rows {
-		w, _ := row["window"].(time.Time)
+		w, _ := row["window_start"].(time.Time)
 		n := pgInt(row["count"])
 		if w.UTC().Equal(currentWindow.UTC()) {
 			curr = n
@@ -59,7 +59,7 @@ func (c *pgLimitCounter) cleanup() {
 	defer t.Stop()
 	for range t.C {
 		c.db.PGExec(context.Background(), //nolint:errcheck
-			`DELETE FROM rate_limit_counters WHERE window < NOW() - INTERVAL '2 minutes'`)
+			`DELETE FROM rate_limit_counters WHERE window_start < NOW() - INTERVAL '2 minutes'`)
 	}
 }
 

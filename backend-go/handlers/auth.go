@@ -227,7 +227,7 @@ func RegisterHandler(db *core.DB) http.HandlerFunc {
 		newUID := toInt64(rows[0]["id"])
 		ctx := r.Context()
 
-		go NotifyRole(ctx, db, "it_admin", NotifPayload{
+		go NotifyRoles(ctx, db, []string{"admin", "it_admin"}, NotifPayload{
 			EventType: EvtNewAccountCreated,
 			Title:     "New access request",
 			Body:      fmt.Sprintf("%s (%s) has requested workspace access. Review in Admin → Users.", fullName, b.Email),
