@@ -567,10 +567,13 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 			"period":      map[string]string{"from": dateFrom, "to": dateTo},
 			"paystack":    ps,
 			"eod": map[string]any{
-				"txn_count":    eod.TxnCount,
-				"total_dr_ngn": eod.TotalDR,
-				"total_cr_ngn": eod.TotalCR,
+				"txn_count":     eod.TxnCount,
+				"total_dr_ngn":  eod.TotalDR,
+				"total_cr_ngn":  eod.TotalCR,
 				"total_vol_ngn": eod.TotalVol,
+				// Frontend compares against paystack.total_volume_kobo (kobo), so
+				// expose the ledger volume in kobo too.
+				"total_vol_kobo": int64(math.Round(eod.TotalVol * 100)),
 			},
 			"delta": map[string]any{
 				"txn_count_diff":  cntDelta,

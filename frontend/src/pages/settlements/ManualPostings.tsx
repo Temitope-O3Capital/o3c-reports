@@ -331,8 +331,8 @@ function DetailModal({ posting, onClose }: { posting: ManualPosting | null; onCl
         {/* Roles */}
         <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'var(--th-bg)' }}>
           {[
-            { label: 'Approver roles', roles: posting.approver_roles, color: NAVY },
-            { label: 'Poster roles',   roles: posting.poster_roles,   color: GREEN },
+            { label: 'Approver roles', roles: posting.approver_roles ?? [], color: NAVY },
+            { label: 'Poster roles',   roles: posting.poster_roles ?? [],   color: GREEN },
           ].map(row => (
             <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 5 }}>
               <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: row.color, width: 90, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 2 }}>{row.label}</span>
@@ -503,8 +503,9 @@ export default function ManualPostings() {
     {
       key: '_actions', label: '', sortable: false, width: 160,
       render: (r) => {
-        const canApprove = r.stage === 'pending_approval' && r.approver_roles.includes(role)
-        const canPost    = r.stage === 'approved'         && r.poster_roles.includes(role)
+        const isAdmin    = role === 'admin'
+        const canApprove = r.stage === 'pending_approval' && (isAdmin || (r.approver_roles ?? []).includes(role))
+        const canPost    = r.stage === 'approved'         && (isAdmin || (r.poster_roles ?? []).includes(role))
         return (
           <ActionRow actions={[
             ...(canApprove ? [
@@ -532,8 +533,9 @@ export default function ManualPostings() {
   ]
 
   const pendingCount = rows.filter(r => {
-    if (r.stage === 'pending_approval' && r.approver_roles.includes(role)) return true
-    if (r.stage === 'approved' && r.poster_roles.includes(role)) return true
+    const isAdmin = role === 'admin'
+    if (r.stage === 'pending_approval' && (isAdmin || (r.approver_roles ?? []).includes(role))) return true
+    if (r.stage === 'approved' && (isAdmin || (r.poster_roles ?? []).includes(role))) return true
     return false
   }).length
 

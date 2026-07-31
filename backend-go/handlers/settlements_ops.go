@@ -40,11 +40,13 @@ func RegisterSettlementOps(r chi.Router, db *core.DB) {
 	r.With(access).Post("/failed/{id}/resolve", soaFailedResolve(db))
 	r.With(access).Post("/failed/{id}/escalate", soaFailedEscalate(db))
 
-	// Manual postings
+	// Manual postings — 3-step: raise → approve → post (+ reject / return)
 	r.With(access).Get("/manual-postings", soaManualPostingsList(db))
 	r.With(access).Post("/manual-postings", soaManualPostingsCreate(db))
 	r.With(access).Put("/manual-postings/{id}/approve", soaManualPostingsApprove(db))
 	r.With(access).Put("/manual-postings/{id}/reject", soaManualPostingsReject(db))
+	r.With(access).Put("/manual-postings/{id}/post", soaManualPostingsPost(db))
+	r.With(access).Put("/manual-postings/{id}/return", soaManualPostingsReturn(db))
 }
 
 /* ── Settlement KPIs ─────────────────────────────────────────────────────── */
@@ -239,15 +241,20 @@ func soaNIPList(db *core.DB) http.HandlerFunc {
 		if date != "" {
 			where += fmt.Sprintf(" AND txn_date = $%d::date", n); args = append(args, date); n++
 		}
-		// Map frontend match_status values to DB status values
+		// Map frontend match_status values to DB status values.
+		// Accepts a comma-separated list (multi-select).
 		if statusRaw != "" {
-			switch strings.ToLower(statusRaw) {
-			case "matched":
-				where += fmt.Sprintf(" AND status = $%d", n); args = append(args, "resolved"); n++
-			case "exception":
-				where += fmt.Sprintf(" AND status = $%d", n); args = append(args, "escalated"); n++
-			case "unmatched":
-				where += fmt.Sprintf(" AND status = $%d", n); args = append(args, "open"); n++
+			statusMap := map[string]string{"matched": "resolved", "exception": "escalated", "unmatched": "open"}
+			var placeholders []string
+			for _, part := range strings.Split(statusRaw, ",") {
+				if dbv, ok := statusMap[strings.ToLower(strings.TrimSpace(part))]; ok {
+					placeholders = append(placeholders, fmt.Sprintf("$%d", n))
+					args = append(args, dbv)
+					n++
+				}
+			}
+			if len(placeholders) > 0 {
+				where += " AND status IN (" + strings.Join(placeholders, ",") + ")"
 			}
 		}
 		args = append(args, limit)
@@ -329,10 +336,21 @@ func soaFailedList(db *core.DB) http.HandlerFunc {
 		where := "status IN ('open','escalated')"
 		var args []any
 		n := 1
+		// reason accepts a comma-separated list (multi-select) → OR'd substring match.
 		if reason != "" {
-			where += fmt.Sprintf(" AND description ILIKE $%d", n)
-			args = append(args, "%"+reason+"%")
-			n++
+			var ors []string
+			for _, part := range strings.Split(reason, ",") {
+				p := strings.TrimSpace(part)
+				if p == "" {
+					continue
+				}
+				ors = append(ors, fmt.Sprintf("description ILIKE $%d", n))
+				args = append(args, "%"+p+"%")
+				n++
+			}
+			if len(ors) > 0 {
+				where += " AND (" + strings.Join(ors, " OR ") + ")"
+			}
 		}
 		if dateFrom != "" {
 			where += fmt.Sprintf(" AND txn_date >= $%d::date", n); args = append(args, dateFrom); n++
@@ -433,62 +451,78 @@ func soaFailedEscalate(db *core.DB) http.HandlerFunc {
 /* ── Manual Postings ─────────────────────────────────────────────────────── */
 
 func soaManualPostingsList(db *core.DB) http.HandlerFunc {
+	// Map a frontend stage token → the DB status value.
+	stageToStatus := map[string]string{
+		"pending_approval": "pending",
+		"approved":         "approved",
+		"posted":           "posted",
+		"rejected":         "rejected",
+		"returned":         "returned",
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		statusRaw    := qstr(r, "status")
-		search       := qstr(r, "q")
-		dateFrom, _  := validDate(r, "date_from")
-		dateTo, _    := validDate(r, "date_to")
-		limit        := qint(r, "limit", 100, 1, 500)
+		stageRaw    := qstr(r, "stage")
+		search      := qstr(r, "q")
+		dateFrom, _ := validDate(r, "date_from")
+		dateTo, _   := validDate(r, "date_to")
+		limit       := qint(r, "limit", 100, 1, 500)
 
 		where := "1=1"
 		var args []any
 		n := 1
 
-		if statusRaw != "" {
-			// Map frontend label → DB value
-			dbStatus := statusRaw
-			switch strings.ToLower(statusRaw) {
-			case "pending approval":
-				dbStatus = "pending"
-			case "approved":
-				dbStatus = "approved"
-			case "rejected":
-				dbStatus = "rejected"
+		// Stage filter — accepts a comma-separated list (multi-select) of stage tokens.
+		if stageRaw != "" {
+			var placeholders []string
+			for _, part := range strings.Split(stageRaw, ",") {
+				if st, ok := stageToStatus[strings.ToLower(strings.TrimSpace(part))]; ok {
+					placeholders = append(placeholders, fmt.Sprintf("$%d", n))
+					args = append(args, st)
+					n++
+				}
 			}
-			where += fmt.Sprintf(" AND status=$%d", n); args = append(args, dbStatus); n++
+			if len(placeholders) > 0 {
+				where += " AND mp.status IN (" + strings.Join(placeholders, ",") + ")"
+			}
 		}
 		if search != "" {
-			where += fmt.Sprintf(" AND (initiated_by_name ILIKE $%d OR narrative ILIKE $%d)", n, n)
+			where += fmt.Sprintf(" AND (mp.initiated_by_name ILIKE $%d OR mp.narrative ILIKE $%d)", n, n)
 			args = append(args, "%"+search+"%")
 			n++
 		}
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND mp.created_at::date >= $%d::date", n); args = append(args, dateFrom); n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND mp.created_at::date <= $%d::date", n); args = append(args, dateTo); n++
 		}
 		args = append(args, limit)
 
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
-			  id,
-			  'MP-' || LPAD(id::text, 5, '0') AS ref,
-			  CASE WHEN dr_account='SUSPENSE' THEN 'Credit' ELSE 'Debit' END AS type,
-			  amount_kobo,
-			  CASE WHEN dr_account='SUSPENSE' THEN cr_account ELSE dr_account END AS account,
-			  narrative AS description,
-			  COALESCE(initiated_by_name, '') AS initiated_by,
-			  CASE status
-			    WHEN 'pending'  THEN 'Pending Approval'
-			    WHEN 'approved' THEN 'Approved'
-			    WHEN 'rejected' THEN 'Rejected'
-			    ELSE status
-			  END AS status,
-			  created_at
-			FROM manual_postings
+			  mp.id,
+			  'MP-' || LPAD(mp.id::text, 5, '0') AS ref,
+			  CASE WHEN mp.dr_account='SUSPENSE' THEN 'Credit' ELSE 'Debit' END AS type,
+			  mp.amount_kobo,
+			  CASE WHEN mp.dr_account='SUSPENSE' THEN mp.cr_account ELSE mp.dr_account END AS account,
+			  mp.narrative AS description,
+			  COALESCE(mp.initiated_by_name, '') AS initiated_by,
+			  CASE mp.status WHEN 'pending' THEN 'pending_approval' ELSE mp.status END AS stage,
+			  mp.workflow_template_id,
+			  wt.name AS workflow_template_name,
+			  COALESCE(wt.approver_roles, '{}') AS approver_roles,
+			  COALESCE(wt.poster_roles,   '{}') AS poster_roles,
+			  mp.approved_by_name AS approved_by,
+			  mp.approved_at,
+			  mp.posted_by_name   AS posted_by,
+			  mp.posted_at,
+			  mp.rejected_by_name AS rejected_by,
+			  mp.rejected_at,
+			  COALESCE(mp.rejection_reason, mp.return_reason) AS rejection_reason,
+			  mp.created_at
+			FROM manual_postings mp
+			LEFT JOIN workflow_templates wt ON wt.id = mp.workflow_template_id
 			WHERE %s
-			ORDER BY created_at DESC
+			ORDER BY mp.created_at DESC
 			LIMIT $%d`, where, n), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
@@ -506,10 +540,11 @@ func soaManualPostingsCreate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
 		var b struct {
-			Type        string `json:"type"`
-			AmountKobo  int64  `json:"amount_kobo"`
-			Account     string `json:"account"`
-			Description string `json:"description"`
+			WorkflowTemplateID *int64 `json:"workflow_template_id"`
+			Type               string `json:"type"`
+			AmountKobo         int64  `json:"amount_kobo"`
+			Account            string `json:"account"`
+			Description        string `json:"description"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -529,10 +564,10 @@ func soaManualPostingsCreate(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO manual_postings
-			  (initiated_by, initiated_by_name, dr_account, cr_account, amount_kobo, narrative, status)
-			VALUES ($1,$2,$3,$4,$5,$6,'pending')
+			  (initiated_by, initiated_by_name, dr_account, cr_account, amount_kobo, narrative, status, workflow_template_id)
+			VALUES ($1,$2,$3,$4,$5,$6,'pending',$7)
 			RETURNING id, 'MP-'||LPAD(id::text,5,'0') AS ref, amount_kobo, created_at`,
-			user.ID, user.FullName, drAccount, crAccount, b.AmountKobo, b.Description)
+			user.ID, user.FullName, drAccount, crAccount, b.AmountKobo, b.Description, b.WorkflowTemplateID)
 		if err != nil {
 			respondErr(w, 500, "Create failed: "+err.Error())
 			return
@@ -543,16 +578,43 @@ func soaManualPostingsCreate(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// soaManualPostingsApprove — step 2 of the 3-step workflow. Marks a pending
+// posting 'approved'. NOTE: approval no longer writes the GL entry — that now
+// happens at the separate "post" step (soaManualPostingsPost).
 func soaManualPostingsApprove(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id   := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+
+		rows, err := db.PGQuery(r.Context(), `
+			UPDATE manual_postings
+			SET status='approved', approved_by=$1, approved_by_name=$2,
+			    approved_at=NOW(), updated_at=NOW()
+			WHERE id=$3 AND status='pending'
+			RETURNING id`,
+			user.ID, user.FullName, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Posting not found or not pending")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "approved"}) //nolint:errcheck
+	}
+}
+
+// soaManualPostingsPost — step 3. Transitions an approved posting to 'posted'
+// and writes the double-entry GL journal. This is the only step that touches
+// the ledger.
+func soaManualPostingsPost(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id   := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
 
 		existing, err := db.PGQuery(r.Context(),
 			`SELECT id, dr_account, cr_account, amount_kobo, narrative
-			 FROM manual_postings WHERE id=$1 AND status='pending'`, id)
+			 FROM manual_postings WHERE id=$1 AND status='approved'`, id)
 		if err != nil || len(existing) == 0 {
-			respondErr(w, 404, "Posting not found or not pending")
+			respondErr(w, 404, "Posting not found or not approved")
 			return
 		}
 		mp := existing[0]
@@ -563,15 +625,14 @@ func soaManualPostingsApprove(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		_, err = tx.ExecContext(r.Context(), `
+		if _, err = tx.ExecContext(r.Context(), `
 			UPDATE manual_postings
-			SET status='approved', approved_by=$1, approved_by_name=$2,
-			    approved_at=NOW(), updated_at=NOW()
+			SET status='posted', posted_by=$1, posted_by_name=$2,
+			    posted_at=NOW(), updated_at=NOW()
 			WHERE id=$3`,
-			user.ID, user.FullName, id)
-		if err != nil {
+			user.ID, user.FullName, id); err != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Approval update failed")
+			respondErr(w, 500, "Posting update failed")
 			return
 		}
 
@@ -596,9 +657,35 @@ func soaManualPostingsApprove(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Commit failed")
 			return
 		}
-
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "approved"}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"status": "posted"}) //nolint:errcheck
+	}
+}
+
+// soaManualPostingsReturn — sends an approved posting back to the maker for
+// revision (no GL impact).
+func soaManualPostingsReturn(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id   := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+		var b struct {
+			Reason string `json:"reason"`
+		}
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+
+		rows, err := db.PGQuery(r.Context(), `
+			UPDATE manual_postings
+			SET status='returned', returned_by=$1, returned_by_name=$2,
+			    return_reason=$3, returned_at=NOW(), updated_at=NOW()
+			WHERE id=$4 AND status='approved'
+			RETURNING id`,
+			user.ID, user.FullName, b.Reason, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Posting not found or not approved")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "returned"}) //nolint:errcheck
 	}
 }
 
@@ -613,8 +700,8 @@ func soaManualPostingsReject(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), `
 			UPDATE manual_postings
-			SET status='rejected', approved_by=$1, approved_by_name=$2,
-			    rejection_reason=$3, approved_at=NOW(), updated_at=NOW()
+			SET status='rejected', rejected_by=$1, rejected_by_name=$2,
+			    rejection_reason=$3, rejected_at=NOW(), updated_at=NOW()
 			WHERE id=$4 AND status='pending'
 			RETURNING id`,
 			user.ID, user.FullName, b.Reason, id)
@@ -637,7 +724,7 @@ func soaOverview(db *core.DB) http.HandlerFunc {
 				"total": 0, "matched": 0, "unmatched": 0,
 				"exception_count": 0, "exception_value_kobo": 0, "reconciliation_rate_pct": 0,
 			},
-			"paystack":    map[string]any{"configured": false, "wallet_balance_kobo": 0, "last_sync_at": nil, "open_disputes": 0},
+			"paystack":    map[string]any{"configured": resolvePaystackKey(ctx, db) != "", "wallet_balance_kobo": 0, "last_sync_at": nil, "open_disputes": 0},
 			"interswitch": map[string]any{"configured": false},
 		}
 
@@ -690,11 +777,10 @@ func soaNIPRecon(db *core.DB) http.HandlerFunc {
 			bargs = append(bargs, date)
 			bn++
 		}
-		if statusP != "" {
-			bwhere += fmt.Sprintf(" AND LOWER(b.status) = LOWER($%d)", bn)
-			bargs = append(bargs, statusP)
-			bn++
-		}
+		// NOTE: statusP is an exception-status filter (open/resolved/…); it is
+		// intentionally NOT applied to the batch query — settlement batches use a
+		// different vocabulary (settled/pending/failed), so applying it here left
+		// the Batch Summary tab empty by default.
 		_ = bn
 
 		batchRows, _ := db.PGQuery(ctx, fmt.Sprintf(`
@@ -725,16 +811,24 @@ func soaNIPRecon(db *core.DB) http.HandlerFunc {
 			eargs = append(eargs, date)
 			en++
 		}
+		// Exception status filter — accepts a comma-separated list (multi-select).
 		if statusP != "" {
-			switch strings.ToLower(statusP) {
-			case "matched":
-				ewhere += fmt.Sprintf(" AND e.status = $%d", en); eargs = append(eargs, "resolved"); en++
-			case "exception":
-				ewhere += fmt.Sprintf(" AND e.status = $%d", en); eargs = append(eargs, "escalated"); en++
-			case "unmatched":
-				ewhere += fmt.Sprintf(" AND e.status = $%d", en); eargs = append(eargs, "open"); en++
-			default:
-				ewhere += fmt.Sprintf(" AND LOWER(e.status) = LOWER($%d)", en); eargs = append(eargs, statusP); en++
+			emap := map[string]string{"matched": "resolved", "exception": "escalated", "unmatched": "open"}
+			var ph []string
+			for _, part := range strings.Split(statusP, ",") {
+				v := strings.ToLower(strings.TrimSpace(part))
+				if v == "" {
+					continue
+				}
+				if mapped, ok := emap[v]; ok {
+					v = mapped
+				}
+				ph = append(ph, fmt.Sprintf("LOWER(e.status) = LOWER($%d)", en))
+				eargs = append(eargs, v)
+				en++
+			}
+			if len(ph) > 0 {
+				ewhere += " AND (" + strings.Join(ph, " OR ") + ")"
 			}
 		}
 		_ = en
