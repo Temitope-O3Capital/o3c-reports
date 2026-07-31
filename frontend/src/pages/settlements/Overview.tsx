@@ -226,18 +226,20 @@ export default function SettlementsOverview() {
           )}
         </ChannelCard>
 
-        {/* Interswitch */}
+        {/* Interswitch — upload-based EOD reconciliation */}
         <ChannelCard
           title="Interswitch"
           icon="account_balance"
           statusDot={sw?.configured ? GREEN : AMBER}
-          statusLabel={sw?.configured ? 'Connected' : 'Awaiting credentials'}
+          statusLabel={sw?.configured ? 'EOD uploaded' : 'No EOD uploaded'}
           statusColor={sw?.configured ? GREEN : AMBER}
-          onClick={() => navigate('/settlements/reconciliation')}
+          onClick={() => navigate('/settlements/interswitch')}
         >
           <div style={{ padding: '12px 0', textAlign: 'center' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: 'var(--txt3)', display: 'block', marginBottom: 6 }}>pending</span>
-            <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>Web, POS &amp; ATM reconciliation pending merchant credentials</p>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: 'var(--txt3)', display: 'block', marginBottom: 6 }}>upload_file</span>
+            <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>
+              {sw?.configured ? 'Web, POS & ATM EOD reconciled against the ledger' : 'Upload the Interswitch EOD file to reconcile Web, POS & ATM'}
+            </p>
           </div>
         </ChannelCard>
       </div>

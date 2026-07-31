@@ -688,85 +688,51 @@ func psReconSettlements(db *core.DB) http.HandlerFunc {
 
 // ── Interswitch: Summary ──────────────────────────────────────────────────────
 
+// iswReconSummary reconciles the Interswitch EOD that operators UPLOAD (parsed
+// into interswitch_txns) against the internal EOD ledger for the period.
+// O3 Capital has no live Interswitch reporting API — reconciliation is upload-based.
 func iswReconSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if !iswConfiguredWith(r.Context(), db) {
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-				"data_source": "interswitch", "configured": false,
-				"message": "Set INTERSWITCH_CLIENT_ID, INTERSWITCH_CLIENT_SECRET, INTERSWITCH_BASE_URL",
-			})
-			return
-		}
-
 		dateFrom := qstr(r, "date_from")
 		dateTo   := qstr(r, "date_to")
 		if dateFrom == "" || dateTo == "" {
 			respondErr(w, 422, "date_from and date_to are required")
 			return
 		}
+		ctx := r.Context()
 
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		defer cancel()
+		// Uploaded Interswitch EOD totals for the period (amounts stored in kobo).
+		var iswCount, iswVolKobo int64
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS cnt, COALESCE(SUM(amount_kobo),0) AS vol_kobo
+			FROM interswitch_txns
+			WHERE txn_date >= $1::date AND txn_date <= $2::date`, dateFrom, dateTo); len(rows) > 0 {
+			iswCount   = toInt64(rows[0]["cnt"])
+			iswVolKobo = toInt64(rows[0]["vol_kobo"])
+		}
 
-		// Interswitch transaction path is configurable; defaults use standard date params.
-		// Operators configure INTERSWITCH_BASE_URL + the path to match their API product.
-		txnPath := coalesce(os.Getenv("INTERSWITCH_TRANSACTION_PATH"), "/api/v3/transactions")
-		iswResult, iswErr := iswFetch(ctx, db, txnPath, url.Values{
-			"from":    {dateFrom},
-			"to":      {dateTo},
-			"perPage": {"100"},
-			"page":    {"1"},
-		})
-
-		// EOD totals
+		// Internal EOD ledger totals for the same period (amount is in NGN → kobo).
 		eod := eodTotalsForPeriod(ctx, db, dateFrom, dateTo)
-
-		iswData := map[string]any{}
-		errStr  := ""
-		if iswErr != nil {
-			errStr = iswErr.Error()
-		} else if iswResult != nil {
-			// Normalise response — Interswitch wraps differently per product
-			iswData = iswResult
-		}
-
-		// Extract count from common Interswitch response patterns
-		var iswCount int64
-		var iswVolume float64
-		for _, countKey := range []string{"count", "total", "totalCount", "total_count"} {
-			if v, ok := iswData[countKey]; ok {
-				iswCount = toInt64(v)
-				break
-			}
-		}
-		for _, volKey := range []string{"totalAmount", "total_amount", "volume", "totalVolume"} {
-			if v, ok := iswData[volKey]; ok {
-				iswVolume = toFloat64(v)
-				break
-			}
-		}
+		eodVolKobo := int64(math.Round(eod.TotalVol * 100))
 
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"data_source": "interswitch",
-			"configured":  true,
+			"source":      "uploaded_eod",
+			"has_data":    iswCount > 0,
 			"fetched_at":  time.Now().UTC().Format(time.RFC3339),
 			"period":      map[string]string{"from": dateFrom, "to": dateTo},
 			"interswitch": map[string]any{
-				"txn_count":    iswCount,
-				"total_volume": iswVolume,
-				"raw":          iswData,
-				"error":        errStr,
+				"txn_count":         iswCount,
+				"total_volume_kobo": iswVolKobo,
 			},
 			"eod": map[string]any{
-				"txn_count":     eod.TxnCount,
-				"total_dr_ngn":  eod.TotalDR,
-				"total_cr_ngn":  eod.TotalCR,
-				"total_vol_ngn": eod.TotalVol,
+				"txn_count":      eod.TxnCount,
+				"total_vol_kobo": eodVolKobo,
 			},
 			"delta": map[string]any{
-				"txn_count_diff":  iswCount - eod.TxnCount,
-				"volume_diff":     math.Round((iswVolume-eod.TotalVol)*100) / 100,
+				"txn_count_diff":   iswCount - eod.TxnCount,
+				"volume_kobo_diff": iswVolKobo - eodVolKobo,
 			},
 		})
 	}

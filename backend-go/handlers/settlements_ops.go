@@ -727,7 +727,14 @@ func soaOverview(db *core.DB) http.HandlerFunc {
 				"exception_count": 0, "exception_value_kobo": 0, "reconciliation_rate_pct": 0,
 			},
 			"paystack":    map[string]any{"configured": false, "wallet_balance_kobo": 0, "last_sync_at": nil, "open_disputes": 0},
-			"interswitch": map[string]any{"configured": iswConfiguredWith(ctx, db)},
+			// Interswitch reconciliation is upload-based (parsed EOD → interswitch_txns);
+			// treat "configured" as "EOD data has been uploaded".
+			"interswitch": map[string]any{"configured": false},
+		}
+		if rows, _ := db.PGQuery(ctx, `SELECT EXISTS(SELECT 1 FROM interswitch_txns) AS has`); len(rows) > 0 {
+			if h, ok := rows[0]["has"].(bool); ok {
+				out["interswitch"] = map[string]any{"configured": h}
+			}
 		}
 
 		// Paystack channel — reflect real config, and when configured pull the live

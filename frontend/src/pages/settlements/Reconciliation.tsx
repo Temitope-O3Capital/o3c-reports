@@ -748,14 +748,16 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface IswSummary {
-  configured: boolean
-  message?: string
+  has_data: boolean
   fetched_at?: string
-  interswitch?: { txn_count: number; total_volume: number; error?: string }
-  eod?: { txn_count: number; total_vol_ngn: number }
-  delta?: { txn_count_diff: number; volume_diff: number }
+  interswitch?: { txn_count: number; total_volume_kobo: number }
+  eod?: { txn_count: number; total_vol_kobo: number }
+  delta?: { txn_count_diff: number; volume_kobo_diff: number }
 }
 
+// O3 Capital reconciles Interswitch by UPLOADING the Interswitch EOD file (parsed
+// into interswitch_txns) — there is no live Interswitch API. This tab compares the
+// uploaded EOD against the internal ledger for the selected period.
 function InterswitchTab({ from, to }: { from: string; to: string }) {
   const [data, setData]       = useState<IswSummary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -778,16 +780,16 @@ function InterswitchTab({ from, to }: { from: string; to: string }) {
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt3)' }}>Loading Interswitch data…</div>
   if (error)   return <ErrBanner error={error} onRetry={load} />
 
-  // Not configured → show the onboarding / activation guide.
-  if (!data?.configured) return <InterswitchOnboarding />
-
-  // Configured → live processor-vs-ledger reconciliation for the selected period.
-  const isw = data.interswitch
-  const eod = data.eod
-  const ngn = (v?: number) => `₦${fmtNum(Number(v ?? 0))}`
-  const cntDelta = data.delta?.txn_count_diff ?? 0
-  const volDelta = data.delta?.volume_diff ?? 0
-  const deltaColor = (d: number) => d === 0 ? GREEN : Math.abs(d) < 1 ? AMBER : RED
+  const isw = data?.interswitch
+  const eod = data?.eod
+  const cntDelta = data?.delta?.txn_count_diff ?? 0
+  const volDelta = data?.delta?.volume_kobo_diff ?? 0
+  const deltaColor = (d: number) => d === 0 ? GREEN : RED
+  const btn = (bg: string, color: string): React.CSSProperties => ({
+    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: RADIUS.md,
+    background: bg, color, border: bg === 'transparent' ? '1px solid var(--bdr)' : 'none',
+    fontSize: TEXT.sm, fontWeight: FW.semibold, textDecoration: 'none', cursor: 'pointer',
+  })
   const card = (label: string, value: string, sub?: string) => (
     <div style={{ flex: 1, minWidth: 160, padding: '14px 16px', borderRadius: RADIUS.lg, background: 'var(--card)', border: '1px solid var(--bdr)' }}>
       <p style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--txt3)', margin: '0 0 6px' }}>{label}</p>
@@ -798,115 +800,51 @@ function InterswitchTab({ from, to }: { from: string; to: string }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <StatusBadge status="Connected" />
-        <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>
-          {data.fetched_at ? `Synced ${fmtDate(data.fetched_at)}` : 'Live'}
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <StatusBadge status={data?.has_data ? 'EOD Uploaded' : 'No EOD Uploaded'} />
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Reconciled from your uploaded Interswitch EOD (no live API)</span>
+        </div>
+        <a href="/settlements/interswitch/import" style={btn(NAVY, '#fff')}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>upload_file</span>
+          Upload EOD
+        </a>
       </div>
 
-      {isw?.error && (
-        <div style={{ padding: '10px 14px', borderRadius: RADIUS.md, background: `${AMBER}12`, border: `1px solid ${AMBER}30`, fontSize: TEXT.sm, color: 'var(--txt)' }}>
-          Interswitch API note: {isw.error}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[3] }}>
-        {card('Interswitch Txns', fmtNum(isw?.txn_count ?? 0), 'processor')}
-        {card('Interswitch Volume', ngn(isw?.total_volume), 'processor')}
-        {card('Ledger Txns (EOD)', fmtNum(eod?.txn_count ?? 0), 'internal')}
-        {card('Ledger Volume (EOD)', ngn(eod?.total_vol_ngn), 'internal')}
-      </div>
-
-      <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
-        <div style={{ padding: '10px 16px', background: 'var(--th-bg)', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>
-          Processor vs Ledger — {from} to {to}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--bdr)' }}>
-          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Transaction count difference</span>
-          <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: deltaColor(cntDelta) }}>{cntDelta === 0 ? 'Match' : (cntDelta > 0 ? `+${cntDelta}` : cntDelta)}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--bdr)' }}>
-          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Volume difference (NGN)</span>
-          <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: deltaColor(volDelta) }}>{volDelta === 0 ? 'Match' : ngn(volDelta)}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function InterswitchOnboarding() {
-  const steps = [
-    { icon: 'call', title: 'Contact your Interswitch account manager', detail: 'Call 01-2715555 or email merchantsupport@interswitchgroup.com. Tell them you need reporting API credentials for your existing merchant account.' },
-    { icon: 'vpn_key', title: 'Request specific credentials', detail: 'Merchant ID (MID) · Client ID · Client Secret · Reporting API base URL. Your account type is: Card acquiring (Web, POS, ATM).' },
-    { icon: 'settings', title: 'Add credentials to Platform Settings', detail: 'Once received, go to Admin → Platform Settings → API Credentials and add INTERSWITCH_CLIENT_ID, INTERSWITCH_CLIENT_SECRET, and INTERSWITCH_BASE_URL.' },
-    { icon: 'dashboard', title: 'Live data loads automatically', detail: 'This tab will immediately show Web, POS, and ATM transaction data, settlement reports, and reconciliation against your internal ledger.' },
-  ]
-
-  const capabilities = ['Web card transactions', 'POS terminal settlements', 'ATM withdrawals', 'Transaction line items', 'Processor vs ledger reconciliation', 'Interchange fees breakdown']
-
-  return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden' }}>
-      {/* Header */}
-      <div style={{ background: NAVY, padding: '22px 28px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 48, height: 48, borderRadius: RADIUS.xl, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: '#fff' }}>account_balance</span>
-          </div>
-          <div>
-            <p style={{ fontSize: 17, fontWeight: FW.bold, color: '#fff', margin: '0 0 3px' }}>Interswitch Integration Pending</p>
-            <p style={{ fontSize: TEXT.sm, color: 'rgba(255,255,255,0.6)', margin: 0 }}>Merchant credentials needed to activate Web, POS &amp; ATM reconciliation</p>
-          </div>
-          <div style={{ marginLeft: 'auto' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: RADIUS['2xl'], fontSize: TEXT.sm, fontWeight: FW.semibold, background: 'rgba(217,119,6,0.25)', color: '#FCD34D' }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FCD34D', display: 'inline-block' }} />
-              Awaiting Credentials
-            </span>
+      {!data?.has_data ? (
+        <div style={{ padding: '36px 24px', textAlign: 'center', border: '1px dashed var(--bdr)', borderRadius: RADIUS.xl, background: 'var(--card)' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 44, color: 'var(--txt3)', display: 'block', marginBottom: 8 }}>upload_file</span>
+          <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 4px' }}>No Interswitch EOD uploaded for {from} → {to}</p>
+          <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: '0 0 16px' }}>Upload the Interswitch EOD file to reconcile it against the internal ledger.</p>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+            <a href="/settlements/interswitch/import" style={btn(NAVY, '#fff')}>Import EOD</a>
+            <a href="/settlements/interswitch" style={btn('transparent', 'var(--txt)')}>View Interswitch Summary</a>
           </div>
         </div>
-      </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[3] }}>
+            {card('Interswitch Txns (EOD)', fmtNum(isw?.txn_count ?? 0), 'uploaded')}
+            {card('Interswitch Volume', fmtKobo(isw?.total_volume_kobo ?? 0), 'uploaded')}
+            {card('Ledger Txns (EOD)', fmtNum(eod?.txn_count ?? 0), 'internal')}
+            {card('Ledger Volume', fmtKobo(eod?.total_vol_kobo ?? 0), 'internal')}
+          </div>
 
-      {/* Capabilities */}
-      <div style={{ padding: '16px 28px', borderBottom: '1px solid var(--bdr)', background: 'var(--th-bg)' }}>
-        <p style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--txt2)', margin: '0 0 10px' }}>Once connected, this tab will show</p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-          {capabilities.map(c => (
-            <span key={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', background: 'var(--card)', border: '1px solid var(--bdr)' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, color: NAVY }}>check</span>
-              {c}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* Steps */}
-      <div style={{ padding: '20px 28px' }}>
-        <p style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 16px' }}>How to activate</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {steps.map((s, i) => (
-            <div key={i} style={{ display: 'flex', gap: 14 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                <div style={{ width: 34, height: 34, borderRadius: '50%', background: `${NAVY}12`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 17, color: NAVY }}>{s.icon}</span>
-                </div>
-                {i < steps.length - 1 && <div style={{ width: 1, flex: 1, minHeight: 20, marginTop: 4, marginBottom: 4, background: 'var(--bdr)' }} />}
-              </div>
-              <div style={{ paddingBottom: i < steps.length - 1 ? 20 : 0 }}>
-                <p style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', margin: '6px 0 3px' }}>{s.title}</p>
-                <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0, lineHeight: 1.55 }}>{s.detail}</p>
-              </div>
+          <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
+            <div style={{ padding: '10px 16px', background: 'var(--th-bg)', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>
+              Interswitch EOD vs Internal Ledger — {from} to {to}
             </div>
-          ))}
-        </div>
-
-        <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: RADIUS.lg, background: `${NAVY}06`, border: `1px solid ${NAVY}14`, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: NAVY }}>support_agent</span>
-          <div>
-            <p style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Interswitch Merchant Support</p>
-            <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>01-2715555 &nbsp;·&nbsp; merchantsupport@interswitchgroup.com</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--bdr)' }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Transaction count difference</span>
+              <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: deltaColor(cntDelta) }}>{cntDelta === 0 ? 'Match' : (cntDelta > 0 ? `+${cntDelta}` : cntDelta)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--bdr)' }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Volume difference</span>
+              <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: deltaColor(volDelta) }}>{volDelta === 0 ? 'Match' : fmtKobo(volDelta)}</span>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   )
 }
