@@ -235,16 +235,22 @@ func RegisterHandler(db *core.DB) http.HandlerFunc {
 			EntityRef: fmt.Sprint(newUID),
 		})
 
+		regInner := fmt.Sprintf(`
+			<h1 style="margin:0 0 18px;font-size:22px;font-weight:700;color:#0E2841;">Access request received</h1>
+			<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#374151;">Hi %s,</p>
+			<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#374151;">Your request for access to the <strong>O3 Capital Workspace</strong> has been received. An administrator will review and activate your account.</p>
+			<p style="margin:0;font-size:15px;line-height:1.6;color:#374151;">Once approved, you'll receive your login details by email.</p>`,
+			escapeMailHTML(fullName))
 		go SendMail(ctx, db, SendMailOptions{
-			To:      []MailAddress{{Email: b.Email, Name: fullName}},
-			Subject: "O3 Capital — Access Request Received",
-			HTMLBody: fmt.Sprintf(`<p>Hi %s,</p>
-<p>Your access request for <strong>O3 Capital Workspace</strong> has been received.</p>
-<p>The IT Admin will review and activate your account. You will receive your login credentials by email once approved.</p>`,
-				escapeMailHTML(fullName)),
-			TextBody: fmt.Sprintf("Hi %s,\n\nYour access request for O3 Capital Workspace has been received.\n\nThe IT Admin will review and activate your account. You will receive your login credentials by email once approved.", fullName),
-			Kind:     "auth",
-			Category: "auth",
+			To:          []MailAddress{{Email: b.Email, Name: fullName}},
+			FromEmail:   "no-reply@o3cards.com",
+			FromName:    "O3 Capital",
+			Subject:     "O3 Capital — Access Request Received",
+			HTMLBody:    wrapBrandedEmail("Your access request has been received", regInner),
+			TextBody:    fmt.Sprintf("Hi %s,\n\nYour access request for O3 Capital Workspace has been received. An administrator will review and activate your account. Once approved, you'll receive your login details by email.\n\n— O3 Capital Workspace (no-reply)", fullName),
+			Kind:        "auth",
+			Category:    "auth",
+			Attachments: []MailAttachment{brandedLogoAttachment()},
 		})
 
 		w.WriteHeader(204)

@@ -1039,24 +1039,31 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 }
 
 func SendTemporaryPasswordEmail(ctx context.Context, db *core.DB, email, name, tempPassword string, userID int64) SendMailResult {
-	html := fmt.Sprintf(`
-		<p>Hello %s,</p>
-		<p>Your O3 Capital portal password has been reset.</p>
-		<p><strong>Temporary password:</strong> <code>%s</code></p>
-		<p>Please sign in and change it immediately.</p>
-		<p>If you did not request this reset, contact your administrator.</p>`,
-		escapeMailHTML(coalesce(name, "there")), escapeMailHTML(tempPassword))
-	text := fmt.Sprintf("Hello %s,\n\nYour O3 Capital portal password has been reset.\nTemporary password: %s\n\nPlease sign in and change it immediately.\nIf you did not request this reset, contact your administrator.",
-		coalesce(name, "there"), tempPassword)
+	inner := fmt.Sprintf(`
+		<h1 style="margin:0 0 18px;font-size:22px;font-weight:700;color:#0E2841;">Your O3 Capital Workspace login</h1>
+		<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#374151;">Hello %s,</p>
+		<p style="margin:0 0 8px;font-size:15px;line-height:1.6;color:#374151;">Use the temporary password below to sign in to the O3 Capital Workspace. You'll be asked to set your own password on first sign-in.</p>
+		%s
+		%s
+		<p style="margin:16px 0 0;font-size:13px;line-height:1.6;color:#6b7280;">If you weren't expecting this email, please contact your administrator.</p>`,
+		escapeMailHTML(coalesce(name, "there")),
+		emailHighlight("Temporary password", escapeMailHTML(tempPassword)),
+		emailButton("Sign in to Workspace", workspaceURL()))
+	html := wrapBrandedEmail("Your O3 Capital Workspace login is ready", inner)
+	text := fmt.Sprintf("Hello %s,\n\nUse the temporary password below to sign in to the O3 Capital Workspace, then set your own password.\n\nTemporary password: %s\n\nSign in: %s\n\nIf you weren't expecting this email, contact your administrator.\n\n— O3 Capital Workspace (no-reply)",
+		coalesce(name, "there"), tempPassword, workspaceURL())
 	return SendMail(ctx, db, SendMailOptions{
 		To:          []MailAddress{{Email: email, Name: name}},
-		Subject:     "Your O3C portal password reset",
+		FromEmail:   "no-reply@o3cards.com",
+		FromName:    "O3 Capital",
+		Subject:     "Your O3 Capital Workspace login",
 		HTMLBody:    html,
 		TextBody:    text,
 		Category:    "system",
 		Kind:        "password_reset",
 		RelatedType: "o3c_users",
 		RelatedID:   userID,
+		Attachments: []MailAttachment{brandedLogoAttachment()},
 		CustomArgs:  map[string]string{"o3c_template": "password_reset"},
 	})
 }

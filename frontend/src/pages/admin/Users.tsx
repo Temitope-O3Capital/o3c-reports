@@ -80,10 +80,29 @@ function RolePill({ role }: { role: string }) {
 function InviteModal({ onClose, onSaved }: {
   onClose: () => void; onSaved: (pw: string, name: string) => void
 }) {
+  const EMAIL_DOMAIN = '@o3cards.com'
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', role: 'call_center_agent', department: 'Operations' })
+  const [emailEdited, setEmailEdited] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  function field(k: keyof typeof form, v: string) { setForm(f => ({ ...f, [k]: v })) }
+  // Company email convention: first initial + last name, e.g. Kwame Nahibi → knahibi@o3cards.com.
+  function autoEmail(first: string, last: string): string {
+    const local = ((first.trim().charAt(0) || '') + last.trim()).toLowerCase().replace(/[^a-z0-9.]/g, '')
+    return local ? local + EMAIL_DOMAIN : ''
+  }
+
+  function field(k: keyof typeof form, v: string) {
+    if (k === 'email') { setEmailEdited(true); setForm(f => ({ ...f, email: v })); return }
+    setForm(f => {
+      const next = { ...f, [k]: v }
+      // Auto-fill the email from the name until the admin edits it directly.
+      if (!emailEdited && (k === 'first_name' || k === 'last_name')) {
+        const derived = autoEmail(k === 'first_name' ? v : f.first_name, k === 'last_name' ? v : f.last_name)
+        if (derived) next.email = derived
+      }
+      return next
+    })
+  }
 
   async function save() {
     if (!form.first_name || !form.email) { toast.error('First name and email are required'); return }
@@ -130,7 +149,7 @@ function InviteModal({ onClose, onSaved }: {
           <div>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Email Address *</div>
             <input type="email" value={form.email} onChange={e => field('email', e.target.value)}
-              placeholder="name@company.com"
+              placeholder="auto-filled from name — edit to override"
               style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             />
           </div>
