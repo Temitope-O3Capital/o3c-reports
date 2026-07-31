@@ -124,12 +124,18 @@ const SECTIONS: Section[] = [
         vis: ['cards_ops_officer','cards_ops_head','risk_officer','risk_head'],
         subs: [
           { label: 'My Queue',            to: '/cards/my-queue', vis: ['cards_ops_officer'] },
+          { label: 'Card Trends',         to: '/cards/trends' },
           { label: 'Cardholder Mgmt',     to: '/cards/management' },
           { label: 'Issuance Queue',      to: '/cards/issuance' },
           { label: 'Disputes',            to: '/cards/disputes' },
           { label: 'Credit Limit Review', to: '/cards/credit-limit' },
           { label: 'Billing Cycles',      to: '/cards/billing' },
+          { label: 'Blink Card',          to: '/blink-card', vis: ['cards_ops_officer','cards_ops_head'] },
         ],
+      },
+      {
+        icon: 'smartphone', label: 'Mobile App', to: '/mobile-app',
+        vis: ['cards_ops_head','finance_head','head_ops'],
       },
     ],
   },
@@ -139,12 +145,12 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'shield', label: 'Risk', to: '/operations/risk',
-        vis: ['risk_officer','risk_head'],
+        vis: ['risk_officer','risk_head','finance_officer','finance_head','collections_head','head_collections'],
         subs: [
-          { label: 'Overview',         to: '/operations/risk' },
-          { label: 'App Review',       to: '/operations/risk/applications' },
+          { label: 'Overview',         to: '/operations/risk',              vis: ['risk_officer','risk_head'] },
+          { label: 'App Review',       to: '/operations/risk/applications', vis: ['risk_officer','risk_head'] },
           { label: 'Portfolio',        to: '/operations/risk/portfolio' },
-          { label: 'Vintage Analysis', to: '/operations/risk/vintage' },
+          { label: 'Vintage Analysis', to: '/operations/risk/vintage',      vis: ['risk_officer','risk_head'] },
         ],
       },
       {

@@ -7,6 +7,7 @@ import { apiFetch, apiPut, apiPost, apiDelete } from '../../lib/api'
 import { fmtKobo, fmtDatetime, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
+import { BarChart, Bar, XAxis, YAxis, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -95,6 +96,38 @@ interface DetailData {
   events:      AppEvent[]
   notes:       AppNote[]
   conditions:  AppCondition[]
+}
+
+interface EyeReason {
+  feature:        string
+  direction:      'positive' | 'negative'
+  magnitude:      number
+  human_readable: string
+}
+interface EyeReport {
+  application_id:            string
+  customer_id:               string
+  outcome:                   'approve' | 'refer' | 'decline'
+  pd:                        number | null
+  risk_band:                 string | null
+  predicted_loc:             number | null
+  assigned_limit:            number | null
+  cap_applied:               boolean
+  interest_rate:             number | null
+  decline_reason:            string | null
+  reasons:                   EyeReason[]
+  lgd:                       number | null
+  expected_loss_kobo:        number | null
+  expected_loss_pct:         number | null
+  dcafo:                     number | null
+  residual_monthly_cash_ngn: number | null
+  affordability:             'comfortable' | 'adequate' | 'stressed' | null
+  fair_monthly_rate:         number | null
+  enriched_bureau:           Record<string, any> | null
+  enriched_open_banking:     Record<string, any> | null
+  adverse_action_notice:     { reasons?: string[] } | null
+  model_version:             string | null
+  processing_ms:             number | null
 }
 
 // ── Stage helpers ─────────────────────────────────────────────────────────────
@@ -1651,18 +1684,55 @@ function ApprovalChainTab({ app, events }: { app: Application; events: AppEvent[
 
 // ── Eye Report Tab ────────────────────────────────────────────────────────────
 
+const OUTCOME_META = {
+  approve: { label: 'Application Approved',  color: GREEN,  icon: 'check_circle'   },
+  refer:   { label: 'Referred for Review',   color: AMBER,  icon: 'warning'         },
+  decline: { label: 'Application Declined',  color: RED,    icon: 'cancel'          },
+} as const
+
+const EYE_BAND_COLORS: Record<string, string> = {
+  low:       GREEN,
+  medium:    AMBER,
+  high:      RED,
+  very_high: '#9B1C1C',
+}
+
+const AFFORD_META: Record<string, { label: string; color: string }> = {
+  comfortable: { label: 'Comfortable', color: GREEN },
+  adequate:    { label: 'Adequate',    color: AMBER },
+  stressed:    { label: 'Stressed',    color: RED   },
+}
+
+function MetricCell({ label, value, color = 'var(--txt)' }: { label: string; value: string; color?: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{label}</span>
+      <span style={{ ...NUM, fontSize: 14, fontWeight: 700, color }}>{value}</span>
+    </div>
+  )
+}
+
 function EyeTab({ app }: { app: Application }) {
   const [cfData,    setCfData]    = useState<CreditFileData | null>(null)
   const [cfLoading, setCfLoading] = useState(false)
+  const [report,    setReport]    = useState<EyeReport | null>(null)
+  const [eyeLoading,setEyeLoading]= useState(true)
+  const [eyeError,  setEyeError]  = useState<string | null>(null)
 
   useEffect(() => {
     if (!app.applicant_cif) return
-    setCfLoading(true)
     apiFetch<{ data: CreditFileData }>(`/api/risk/credit-file/${app.applicant_cif}`)
       .then(r => setCfData((r as any).data ?? null))
       .catch(() => {})
-      .finally(() => setCfLoading(false))
   }, [app.applicant_cif])
+
+  useEffect(() => {
+    setEyeLoading(true); setEyeError(null)
+    apiFetch<EyeReport>(`/api/los/${app.id}/eye-report`)
+      .then(r => setReport(r))
+      .catch(e => setEyeError(e.message ?? 'Failed to load Eye report'))
+      .finally(() => setEyeLoading(false))
+  }, [app.id])
 
   const score      = app.eye_score
   const rating     = app.eye_rating
@@ -1675,13 +1745,27 @@ function EyeTab({ app }: { app: Application }) {
   const dtiColor = dtiPct === null ? 'var(--txt2)' : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : GREEN
   const netAfter = (app.monthly_income_kobo && monthlyRepayment) ? app.monthly_income_kobo - monthlyRepayment : null
 
-  const veyonraUrl = (import.meta as any).env?.VITE_VEYONRA_URL as string | undefined
+  const shapData = (report?.reasons ?? []).map(r => ({
+    name:  r.human_readable,
+    value: r.magnitude,
+    fill:  r.direction === 'positive' ? GREEN : RED,
+    dir:   r.direction,
+  }))
+
+  const outcomeMeta  = report?.outcome ? OUTCOME_META[report.outcome] : null
+  const affordMeta   = report?.affordability ? AFFORD_META[report.affordability] : null
+  const bandColor    = report?.risk_band ? (EYE_BAND_COLORS[report.risk_band] ?? 'var(--txt2)') : 'var(--txt2)'
+  const dcafo        = report?.dcafo ?? null
+  const dcafoColor   = dcafo === null ? 'var(--txt2)' : dcafo >= 1.5 ? GREEN : dcafo >= 1.0 ? AMBER : RED
+
+  const bureau  = report?.enriched_bureau   ?? null
+  const openBk  = report?.enriched_open_banking ?? null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Score hero */}
-      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 0, borderRadius: 12, background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)', overflow: 'hidden' }}>
-        {/* Score circle panel */}
+
+      {/* ── Score Hero (O3C stored data) ───────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--card-bdr)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '28px 20px', borderRight: '1px solid var(--bdr)', background: score !== null ? `${scoreColor}06` : 'var(--th-bg)' }}>
           <div style={{ ...NUM, fontSize: 68, fontWeight: 900, color: scoreColor, lineHeight: 1 }}>{score ?? '—'}</div>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Eye Score</div>
@@ -1693,7 +1777,6 @@ function EyeTab({ app }: { app: Application }) {
           {score === null && (
             <span style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: 'rgba(217,119,6,.12)', color: AMBER }}>Not assessed</span>
           )}
-          {/* Score band bar */}
           {score !== null && (
             <div style={{ width: '80%', marginTop: 8 }}>
               <div style={{ position: 'relative', height: 8, borderRadius: 4, background: 'var(--bdr)', overflow: 'hidden' }}>
@@ -1707,23 +1790,14 @@ function EyeTab({ app }: { app: Application }) {
           )}
         </div>
 
-        {/* Metrics */}
         <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 16 }}>
-            {[
-              { label: 'Monthly Income',        value: app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : '—', color: 'var(--txt)' },
-              { label: 'Monthly Obligations',   value: app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : '—', color: 'var(--txt)' },
-              { label: 'Est. Monthly Repayment',value: monthlyRepayment ? fmtKobo(monthlyRepayment) : '—', color: 'var(--txt)' },
-              { label: 'Net After Deduction',   value: netAfter !== null ? fmtKobo(netAfter) : '—', color: netAfter !== null ? (netAfter > 0 ? GREEN : RED) : 'var(--txt)' },
-            ].map(m => (
-              <div key={m.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{m.label}</span>
-                <span style={{ ...NUM, fontSize: 15, fontWeight: 700, color: m.color }}>{m.value}</span>
-              </div>
-            ))}
+            <MetricCell label="Monthly Income"         value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : '—'} />
+            <MetricCell label="Monthly Obligations"    value={app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : '—'} />
+            <MetricCell label="Est. Monthly Repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : '—'} />
+            <MetricCell label="Net After Deduction"    value={netAfter !== null ? fmtKobo(netAfter) : '—'} color={netAfter !== null ? (netAfter > 0 ? GREEN : RED) : 'var(--txt)'} />
           </div>
 
-          {/* DTI gauge */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Debt-to-Income Ratio</span>
@@ -1731,9 +1805,7 @@ function EyeTab({ app }: { app: Application }) {
             </div>
             <div style={{ position: 'relative', height: 10, borderRadius: 5, background: 'var(--bdr)', overflow: 'hidden' }}>
               <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: dtiPct !== null ? `${Math.min(dtiPct, 100)}%` : '0%', borderRadius: 5, background: dtiColor, transition: 'width 0.6s ease' }} />
-              {/* 33% threshold */}
               <div style={{ position: 'absolute', left: '33%', top: 0, bottom: 0, width: 2, background: 'rgba(255,255,255,.6)' }} />
-              {/* 50% threshold */}
               <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, background: 'rgba(255,255,255,.6)' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: 4 }}>
@@ -1745,60 +1817,235 @@ function EyeTab({ app }: { app: Application }) {
         </div>
       </div>
 
-      {/* Bureau summary */}
+      {/* ── Full Eye / Veyonra Report ──────────────────────────────────── */}
+      {eyeLoading && (
+        <SectionCard title="Eye / Veyonra Report"><Sk h={200} /></SectionCard>
+      )}
+
+      {eyeError && !eyeLoading && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 18px', borderRadius: 10, background: `${RED}08`, border: `1px solid ${RED}20` }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 20, color: RED, flexShrink: 0, marginTop: 1 }}>error</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: RED }}>Eye Service Unavailable</div>
+            <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>{eyeError}</div>
+          </div>
+        </div>
+      )}
+
+      {report && !eyeLoading && (
+        <>
+          {/* Outcome Banner */}
+          {outcomeMeta && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderRadius: 12, background: `${outcomeMeta.color}10`, border: `1px solid ${outcomeMeta.color}30` }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 28, color: outcomeMeta.color, flexShrink: 0 }}>{outcomeMeta.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: outcomeMeta.color }}>{outcomeMeta.label}</div>
+                {report.decline_reason && (
+                  <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>{report.decline_reason}</div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 20, flexShrink: 0 }}>
+                {report.pd !== null && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ ...NUM, fontSize: 18, fontWeight: 800, color: outcomeMeta.color }}>{(report.pd * 100).toFixed(2)}%</div>
+                    <div style={{ fontSize: 10, color: 'var(--txt3)', fontWeight: 600 }}>PD</div>
+                  </div>
+                )}
+                {report.risk_band && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: bandColor, textTransform: 'capitalize' }}>{report.risk_band.replace('_', ' ')}</div>
+                    <div style={{ fontSize: 10, color: 'var(--txt3)', fontWeight: 600 }}>Risk Band</div>
+                  </div>
+                )}
+                {report.model_version && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', fontFamily: 'monospace' }}>{report.model_version}</div>
+                    <div style={{ fontSize: 10, color: 'var(--txt3)', fontWeight: 600 }}>Model</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* SHAP Decision Factors */}
+          {shapData.length > 0 && (
+            <SectionCard title="Decision Factors">
+              <div style={{ paddingTop: 8 }}>
+                <div style={{ display: 'flex', gap: 20, marginBottom: 10, fontSize: 11, color: 'var(--txt2)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: GREEN, display: 'inline-block' }} />Positive influence
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: RED, display: 'inline-block' }} />Negative influence
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={shapData.length * 56 + 24}>
+                  <BarChart layout="vertical" data={shapData} margin={{ top: 0, right: 48, left: 4, bottom: 0 }}>
+                    <XAxis type="number" hide domain={[0, Math.max(...shapData.map(d => d.value)) * 1.25]} />
+                    <YAxis type="category" dataKey="name" width={196} tick={{ fontSize: 12.5, fill: 'var(--txt)' } as any} tickLine={false} axisLine={false} />
+                    <Tooltip
+                      formatter={(v: number, _: any, p: any) => [`Impact: ${p.payload.value.toFixed(4)}`, p.payload.dir === 'positive' ? 'Positive factor' : 'Negative factor']}
+                      contentStyle={{ fontSize: 12 }}
+                    />
+                    <Bar dataKey="value" barSize={22} radius={[0, 4, 4, 0]} label={{ position: 'right', formatter: (v: number) => v.toFixed(3), fontSize: 11, fill: 'var(--txt2)' } as any}>
+                      {shapData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Affordability + LGD/EL side by side */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+
+            {/* Affordability */}
+            <div style={{ borderRadius: 10, background: 'var(--card)', border: '1px solid var(--card-bdr)', padding: '18px 20px' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 14 }}>Affordability</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
+                <span style={{ ...NUM, fontSize: 36, fontWeight: 900, color: dcafoColor, lineHeight: 1 }}>
+                  {dcafo !== null ? `${dcafo.toFixed(2)}×` : '—'}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--txt3)', fontWeight: 600 }}>DCAFO ratio</span>
+              </div>
+              {/* DCAFO bar — 1.0 is breakeven */}
+              {dcafo !== null && (
+                <div style={{ marginTop: 8, marginBottom: 10 }}>
+                  <div style={{ position: 'relative', height: 8, borderRadius: 4, background: 'var(--bdr)', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.min((dcafo / 2) * 100, 100)}%`, borderRadius: 4, background: dcafoColor, transition: 'width .5s ease' }} />
+                    {/* 1.0 line */}
+                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, background: 'rgba(255,255,255,.7)' }} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                    <span style={{ fontSize: 9, color: 'var(--txt3)' }}>0</span>
+                    <span style={{ fontSize: 9, color: 'var(--txt2)', fontWeight: 600 }}>1.0 breakeven</span>
+                    <span style={{ fontSize: 9, color: 'var(--txt3)' }}>2+</span>
+                  </div>
+                </div>
+              )}
+              {affordMeta && (
+                <span style={{ fontSize: 12.5, fontWeight: 700, padding: '3px 12px', borderRadius: 20, background: `${affordMeta.color}15`, color: affordMeta.color }}>
+                  {affordMeta.label}
+                </span>
+              )}
+              {report.residual_monthly_cash_ngn !== null && (
+                <div style={{ marginTop: 10 }}>
+                  <MetricCell label="Residual Monthly Cash" value={`₦${(report.residual_monthly_cash_ngn / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`} color={report.residual_monthly_cash_ngn > 0 ? GREEN : RED} />
+                </div>
+              )}
+            </div>
+
+            {/* LGD / Expected Loss */}
+            <div style={{ borderRadius: 10, background: 'var(--card)', border: '1px solid var(--card-bdr)', padding: '18px 20px' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 14 }}>Loss Estimation</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {report.lgd !== null && (
+                  <MetricCell label="Loss Given Default (LGD)" value={`${(report.lgd * 100).toFixed(1)}%`} color={report.lgd > 0.6 ? RED : report.lgd > 0.4 ? AMBER : GREEN} />
+                )}
+                {report.expected_loss_kobo !== null && (
+                  <MetricCell label="Expected Loss" value={fmtKobo(report.expected_loss_kobo)} color={RED} />
+                )}
+                {report.expected_loss_pct !== null && (
+                  <MetricCell label="EL as % of Loan" value={`${(report.expected_loss_pct * 100).toFixed(2)}%`} color={RED} />
+                )}
+                {report.fair_monthly_rate !== null && (
+                  <MetricCell label="Fair Monthly Rate" value={`${(report.fair_monthly_rate * 100).toFixed(2)}%`} />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Limit Comparison */}
+          {(report.predicted_loc || report.assigned_limit) && (
+            <SectionCard title="Credit Limit">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+                {report.predicted_loc !== null && (
+                  <MetricCell label="Predicted LOC" value={fmtKobo(report.predicted_loc)} color={BLUE} />
+                )}
+                {report.assigned_limit !== null && (
+                  <MetricCell label="Assigned Limit" value={fmtKobo(report.assigned_limit)} color={GREEN} />
+                )}
+                {report.cap_applied && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'center' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: `${AMBER}15`, color: AMBER, width: 'fit-content' }}>Cap Applied</span>
+                    <span style={{ fontSize: 11, color: 'var(--txt2)' }}>Limit was capped below predicted LOC by policy</span>
+                  </div>
+                )}
+              </div>
+              {report.predicted_loc !== null && report.assigned_limit !== null && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ position: 'relative', height: 10, borderRadius: 5, background: 'var(--bdr)', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.min((report.assigned_limit / report.predicted_loc) * 100, 100)}%`, borderRadius: 5, background: GREEN }} />
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--txt3)', marginTop: 3 }}>
+                    Assigned is {((report.assigned_limit / report.predicted_loc) * 100).toFixed(0)}% of predicted
+                  </div>
+                </div>
+              )}
+            </SectionCard>
+          )}
+
+          {/* Enriched Bureau */}
+          {bureau && Object.keys(bureau).length > 0 && (
+            <SectionCard title="Enriched Bureau Data">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+                {bureau.total_accounts    != null && <MetricCell label="Total Accounts"       value={String(bureau.total_accounts)} />}
+                {bureau.active_loans      != null && <MetricCell label="Active Loans"         value={String(bureau.active_loans)} />}
+                {bureau.delinquent_accounts != null && <MetricCell label="Delinquent Accounts" value={String(bureau.delinquent_accounts)} color={bureau.delinquent_accounts > 0 ? RED : GREEN} />}
+                {bureau.payment_history_rate != null && <MetricCell label="Payment History" value={`${(bureau.payment_history_rate * 100).toFixed(0)}%`} color={bureau.payment_history_rate >= 0.9 ? GREEN : bureau.payment_history_rate >= 0.7 ? AMBER : RED} />}
+                {bureau.max_overdue_days  != null && <MetricCell label="Max Overdue Days"     value={`${bureau.max_overdue_days}d`} color={bureau.max_overdue_days > 90 ? RED : bureau.max_overdue_days > 30 ? AMBER : GREEN} />}
+                {bureau.total_outstanding != null && <MetricCell label="Total Outstanding"    value={fmtKobo(bureau.total_outstanding)} />}
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Enriched Open Banking */}
+          {openBk && Object.keys(openBk).length > 0 && (
+            <SectionCard title="Open Banking Signals">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+                {openBk.avg_monthly_inflow  != null && <MetricCell label="Avg Monthly Inflow"  value={fmtKobo(openBk.avg_monthly_inflow)}  color={GREEN} />}
+                {openBk.avg_monthly_outflow != null && <MetricCell label="Avg Monthly Outflow" value={fmtKobo(openBk.avg_monthly_outflow)} />}
+                {openBk.salary_detected     != null && <MetricCell label="Salary Detected"     value={openBk.salary_detected ? 'Yes' : 'No'} color={openBk.salary_detected ? GREEN : AMBER} />}
+                {openBk.bounce_count        != null && <MetricCell label="Bounce Count"        value={String(openBk.bounce_count)} color={openBk.bounce_count > 3 ? RED : openBk.bounce_count > 0 ? AMBER : GREEN} />}
+                {openBk.income_stability    != null && <MetricCell label="Income Stability"    value={String(openBk.income_stability)} />}
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Adverse Action Notice */}
+          {report.outcome === 'decline' && report.adverse_action_notice?.reasons && report.adverse_action_notice.reasons.length > 0 && (
+            <div style={{ padding: '16px 18px', borderRadius: 10, background: `${RED}07`, border: `1px solid ${RED}25` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: RED, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Adverse Action Notice</div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {report.adverse_action_notice.reasons.map((r: string, i: number) => (
+                  <li key={i} style={{ fontSize: 13, color: 'var(--txt)', marginBottom: 4, lineHeight: 1.5 }}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Bureau Summary (O3C stored) ────────────────────────────────── */}
       {app.bureau_summary && (
         <SectionCard title="Bureau Summary">
           <div style={{ fontSize: 13.5, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{app.bureau_summary}</div>
         </SectionCard>
       )}
 
-      {/* Credit file data (from risk endpoint) */}
+      {/* ── Credit History (from risk endpoint) ───────────────────────── */}
       {cfLoading && <SectionCard title="Credit History"><Sk h={80} /></SectionCard>}
       {cfData && !cfLoading && (
         <SectionCard title="Credit History">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
-            {[
-              { label: 'Outstanding Balance', value: fmtKobo(cfData.outstanding_kobo), color: cfData.outstanding_kobo > 0 ? AMBER : 'var(--txt)' },
-              { label: 'Days Past Due (DPD)', value: `${cfData.dpd ?? 0} days`, color: cfData.dpd > 0 ? (cfData.dpd >= 90 ? RED : AMBER) : GREEN },
-              { label: 'Amount Disbursed',    value: fmtKobo(cfData.amount_approved_kobo || cfData.amount_requested_kobo), color: 'var(--txt)' },
-              { label: 'Loan Tenor',          value: cfData.tenor_months ? `${cfData.tenor_months} months` : '—', color: 'var(--txt)' },
-              { label: 'Interest Rate',       value: cfData.tenor_months ? `${((app.interest_rate_bps ?? 0) / 100).toFixed(2)}% p.a.` : '—', color: 'var(--txt)' },
-              { label: 'Employer',            value: cfData.employer || '—', color: 'var(--txt)' },
-            ].map(m => (
-              <div key={m.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{m.label}</span>
-                <span style={{ ...NUM, fontSize: 14, fontWeight: 700, color: m.color }}>{m.value}</span>
-              </div>
-            ))}
+            <MetricCell label="Outstanding Balance" value={fmtKobo(cfData.outstanding_kobo)} color={cfData.outstanding_kobo > 0 ? AMBER : 'var(--txt)'} />
+            <MetricCell label="Days Past Due (DPD)" value={`${cfData.dpd ?? 0} days`}        color={cfData.dpd > 0 ? (cfData.dpd >= 90 ? RED : AMBER) : GREEN} />
+            <MetricCell label="Amount Disbursed"    value={fmtKobo(cfData.amount_approved_kobo || cfData.amount_requested_kobo)} />
+            <MetricCell label="Loan Tenor"          value={cfData.tenor_months ? `${cfData.tenor_months} months` : '—'} />
+            <MetricCell label="Interest Rate"       value={cfData.tenor_months ? `${((app.interest_rate_bps ?? 0) / 100).toFixed(2)}% p.a.` : '—'} />
+            <MetricCell label="Employer"            value={cfData.employer || '—'} />
           </div>
         </SectionCard>
-      )}
-
-      {/* Veyonra deep link */}
-      {(veyonraUrl || app.applicant_cif) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', borderRadius: 10, background: `${NAVY}06`, border: `1px solid ${NAVY}18` }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 20, color: NAVY }}>open_in_new</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>View Full Report in Veyonra / Eye</div>
-            <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 1 }}>Open the complete SHAP factor breakdown and bureau response in the Eye service.</div>
-          </div>
-          {veyonraUrl ? (
-            <a href={`${veyonraUrl}/report/${app.applicant_cif}`} target="_blank" rel="noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, background: NAVY, color: '#fff', fontSize: 12.5, fontWeight: 600, textDecoration: 'none' }}>
-              Open<span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_outward</span>
-            </a>
-          ) : (
-            <span style={{ fontSize: 11.5, color: 'var(--txt3)', fontStyle: 'italic' }}>Set VITE_VEYONRA_URL to enable deep link</span>
-          )}
-        </div>
-      )}
-
-      {!score && !app.bureau_summary && !cfData && !cfLoading && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '40px 0', color: 'var(--txt2)' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 42, opacity: 0.3 }}>query_stats</span>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>No Eye report on file</div>
-          <div style={{ fontSize: 13, color: 'var(--txt3)' }}>Credit assessment has not been entered for this application.</div>
-        </div>
       )}
     </div>
   )

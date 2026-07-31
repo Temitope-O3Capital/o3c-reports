@@ -27,7 +27,9 @@ func RegisterSettlementOps(r chi.Router, db *core.DB) {
 	// NIP reconciliation
 	r.With(access).Get("/nip", soaNIPList(db))
 	r.With(access).Put("/nip/{id}/resolve", soaNIPResolveHandler(db))
+	r.With(access).Post("/nip/bulk-resolve", nipBulkResolve(db))
 	r.With(access).Get("/nip-recon", soaNIPRecon(db))
+	r.With(access).Post("/nip-recon/exceptions/{id}/resolve", soaNIPReconResolve(db))
 
 	// Overview dashboard
 	r.With(access).Get("/overview", soaOverview(db))
@@ -766,6 +768,73 @@ func soaNIPRecon(db *core.DB) http.HandlerFunc {
 			"batches":    batchRows,
 			"exceptions": excRows,
 		})
+	}
+}
+
+/* ── NIP Bulk Resolve ────────────────────────────────────────────────────── */
+
+func nipBulkResolve(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			IDs            []int64 `json:"ids"`
+			ResolutionType string  `json:"resolution_type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if len(b.IDs) == 0 {
+			respondErr(w, 422, "ids must not be empty")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+
+		// Build a parameterized IN clause — pgx stdlib doesn't support slice args.
+		phs := make([]string, len(b.IDs))
+		args := make([]any, 0, len(b.IDs)+2)
+		args = append(args, user.ID, b.ResolutionType)
+		for i, id := range b.IDs {
+			phs[i] = fmt.Sprintf("$%d", i+3)
+			args = append(args, id)
+		}
+		updatedRows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			UPDATE settlement_exceptions
+			SET status='resolved', resolved_by=$1, resolved_at=NOW(),
+			    resolution_note=$2, updated_at=NOW()
+			WHERE id IN (%s) AND status != 'resolved'
+			RETURNING id`, strings.Join(phs, ",")), args...)
+		if err != nil {
+			respondErr(w, 500, "Bulk resolve failed: "+err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"resolved": len(updatedRows)}) //nolint:errcheck
+	}
+}
+
+/* ── NIP Recon Exception Resolve ─────────────────────────────────────────── */
+
+func soaNIPReconResolve(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id   := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+		var b struct {
+			Note string `json:"note"`
+		}
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+
+		rows, err := db.PGQuery(r.Context(), `
+			UPDATE settlement_exceptions
+			SET status='resolved', resolved_by=$1, resolved_at=NOW(),
+			    resolution_note=$2, updated_at=NOW()
+			WHERE id=$3 AND status != 'resolved'
+			RETURNING id`, user.ID, b.Note, id)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Exception not found or already resolved")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true}) //nolint:errcheck
 	}
 }
 

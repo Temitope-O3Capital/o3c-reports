@@ -1,12 +1,23 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Spinner, Modal } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Spinner, Modal } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+interface LoanSummary {
+  total_loans:            number
+  total_outstanding_kobo: number
+  current_count:          number
+  dpd_1_30:               number
+  dpd_31_60:              number
+  dpd_61_90:              number
+  dpd_90plus:             number
+  npl_outstanding_kobo:   number
+}
 
 interface LoanRow {
   id: number
@@ -155,7 +166,14 @@ export default function RiskPortfolio() {
   const [fDpd,    setFDpd]    = useState(new Set<string>())
   const [fBand,   setFBand]   = useState(new Set<string>())
   const [cifFile, setCifFile] = useState<string | null>(null)
+  const [summary, setSummary] = useState<LoanSummary | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    apiFetch<{ summary: LoanSummary }>('/api/active-loans/stats')
+      .then(r => setSummary(r?.summary ?? null))
+      .catch(() => {})
+  }, [])
 
   const buildQS = useCallback((off = 0) => {
     const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(off) })
@@ -255,8 +273,17 @@ export default function RiskPortfolio() {
   ]
 
   return (
-    <Page title="Portfolio" subtitle={`Active loan book — ${fmtNum(total)} accounts`}>
+    <Page title="Loan Portfolio" subtitle={`Active loan book — ${fmtNum(total)} accounts`}>
       <ErrBanner error={error} onRetry={() => load(0)} />
+
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[4], marginBottom: SP[5] }}>
+        <KpiCard label="Total Loans"       value={fmtNum(summary?.total_loans ?? 0)}           loading={!summary} />
+        <KpiCard label="Outstanding"       value={fmtKobo(summary?.total_outstanding_kobo ?? 0)} loading={!summary} />
+        <KpiCard label="Current"           value={fmtNum(summary?.current_count ?? 0)}          loading={!summary} sub="no overdue" />
+        <KpiCard label="PAR 1–90"          value={fmtNum((summary?.dpd_1_30 ?? 0) + (summary?.dpd_31_60 ?? 0) + (summary?.dpd_61_90 ?? 0))} loading={!summary} sub="DPD 1–90 accounts" />
+        <KpiCard label="NPL (90+)"         value={fmtNum(summary?.dpd_90plus ?? 0)}             loading={!summary} sub={summary ? fmtKobo(summary.npl_outstanding_kobo) : undefined} accent={RED} />
+      </div>
 
       <SectionCard title="Active Loan Book" badge={total} padding={false}>
         <ExpandableFilterBar

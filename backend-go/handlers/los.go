@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -43,6 +44,7 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	r.With(base).Get("/team-users", losTeamUsers(db))
 	r.With(base).Get("/{id}/messages", losGetMessages(db))
 	r.With(base).Post("/{id}/messages", losPostMessage(db))
+	r.With(base).Get("/{id}/eye-report", losEyeReport(db))
 }
 
 // allowedTransitions maps from_stage → []to_stage
@@ -1186,5 +1188,118 @@ func losPostMessage(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, rows[0], "pg")
+	}
+}
+
+// losEyeReport proxies to the Phoenix OS Eye scoring service.
+// On the first call it scores on demand and caches the Eye application_id (eye_report_id).
+// Subsequent calls retrieve the cached decision via GET instead of re-scoring.
+func losEyeReport(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		eyeURL := strings.TrimRight(os.Getenv("EYE_SERVICE_URL"), "/")
+		eyeKey := os.Getenv("EYE_SERVICE_KEY")
+		eyeTenant := os.Getenv("EYE_TENANT_ID")
+
+		if eyeURL == "" {
+			respondErr(w, 503, "Eye service not configured — set EYE_SERVICE_URL")
+			return
+		}
+
+		appID, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID")
+			return
+		}
+
+		appRows, err := db.PGQuery(r.Context(), `
+			SELECT applicant_cif,
+			       COALESCE(amount_requested_kobo, 0)   AS amount_requested_kobo,
+			       COALESCE(tenor_months, 0)             AS tenor_months,
+			       COALESCE(monthly_income_kobo, 0)      AS monthly_income_kobo,
+			       COALESCE(monthly_obligation_kobo, 0)  AS monthly_obligation_kobo,
+			       COALESCE(eye_report_id, '')            AS eye_report_id
+			FROM loan_applications WHERE id = $1`, appID)
+		if err != nil || len(appRows) == 0 {
+			respondErr(w, 404, "Application not found")
+			return
+		}
+		app := appRows[0]
+
+		eyeReportID := str(app["eye_report_id"])
+
+		var eyeHTTPReq *http.Request
+		if eyeReportID != "" {
+			eyeHTTPReq, err = http.NewRequestWithContext(r.Context(), "GET",
+				eyeURL+"/score/internal/"+eyeReportID, nil)
+		} else {
+			incomeKobo := int64(0)
+			obligKobo := int64(0)
+			amountKobo := int64(0)
+			tenorMonths := int64(0)
+			if v, ok := app["monthly_income_kobo"].(int64); ok {
+				incomeKobo = v
+			}
+			if v, ok := app["monthly_obligation_kobo"].(int64); ok {
+				obligKobo = v
+			}
+			if v, ok := app["amount_requested_kobo"].(int64); ok {
+				amountKobo = v
+			}
+			if v, ok := app["tenor_months"].(int64); ok {
+				tenorMonths = v
+			}
+
+			payload, _ := json.Marshal(map[string]any{
+				"customer_id":       str(app["applicant_cif"]),
+				"tenant_id":         eyeTenant,
+				"requested_amount":  amountKobo,
+				"tenor_months":      tenorMonths,
+				"borrower_category": "individual",
+				"open_banking": map[string]any{
+					"avg_monthly_inflow":  incomeKobo,
+					"avg_monthly_outflow": obligKobo,
+				},
+			})
+
+			eyeHTTPReq, err = http.NewRequestWithContext(r.Context(), "POST",
+				eyeURL+"/score/internal", bytes.NewReader(payload))
+			if err == nil {
+				eyeHTTPReq.Header.Set("Content-Type", "application/json")
+			}
+		}
+		if err != nil {
+			respondErr(w, 500, "Failed to build Eye request")
+			return
+		}
+		eyeHTTPReq.Header.Set("X-Service-Key", eyeKey)
+
+		eyeResp, err := http.DefaultClient.Do(eyeHTTPReq)
+		if err != nil {
+			respondErr(w, 502, "Eye service unreachable: "+err.Error())
+			return
+		}
+		defer eyeResp.Body.Close()
+
+		respBody, err := io.ReadAll(eyeResp.Body)
+		if err != nil {
+			respondErr(w, 502, "Failed to read Eye response")
+			return
+		}
+
+		// Cache the Eye application_id so future calls retrieve the same decision.
+		if eyeReportID == "" && eyeResp.StatusCode == http.StatusOK {
+			var parsed map[string]any
+			if json.Unmarshal(respBody, &parsed) == nil {
+				if eyeAppID, ok := parsed["application_id"].(string); ok && eyeAppID != "" {
+					_, _ = db.PGQuery(r.Context(),
+						`UPDATE loan_applications SET eye_report_id = $1 WHERE id = $2`,
+						eyeAppID, appID)
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(eyeResp.StatusCode)
+		_, _ = w.Write(respBody)
 	}
 }

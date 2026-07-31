@@ -1344,8 +1344,28 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 			"car_min_pct":   10.0,
 		}
 
+		// Compute CAR: equity capital / risk-weighted assets (loan portfolio) * 100.
+		// Uses gl_accounts type='equity' for capital and loan_applications outstanding for RWA.
+		carPct := 0.0
+		carRows, carErr := db.PGQuery(ctx, `
+			SELECT
+			    COALESCE((SELECT SUM(je.amount_kobo) FROM gl_journal_entries je
+			              JOIN gl_accounts ga ON ga.id = je.account_id
+			              WHERE ga.type = 'equity' AND je.direction = 'CR'), 0) AS equity_kobo,
+			    COALESCE((SELECT SUM(outstanding_kobo) FROM loan_applications
+			              WHERE stage = 'active' AND outstanding_kobo > 0), 0)  AS rwa_kobo`)
+		if carErr == nil && len(carRows) > 0 {
+			equity := float64(toInt64(carRows[0]["equity_kobo"]))
+			rwa := float64(toInt64(carRows[0]["rwa_kobo"]))
+			if rwa > 0 {
+				carPct = round1(equity / rwa * 100)
+			}
+		}
+		result["car_pct"] = carPct
+		result["cbn_thresholds"].(map[string]any)["car_min_pct"] = 10.0
+
 		// H7: breach detection — NPL and PAR90 are max thresholds (breach if above).
-		// CAR / liquidity_ratio are min thresholds; not yet computable here — left as TODO.
+		// CAR is a min threshold (breach if below).
 		type breach struct {
 			RatioType string  `json:"ratio_type"`
 			Value     float64 `json:"value"`
@@ -1358,6 +1378,9 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 		}
 		if v, ok := result["par90_pct"].(float64); ok && v > 5.0 {
 			breaches = append(breaches, breach{"PAR90", v, 5.0, "above_max"})
+		}
+		if carPct > 0 && carPct < 10.0 {
+			breaches = append(breaches, breach{"CAR", carPct, 10.0, "below_min"})
 		}
 		if breaches == nil {
 			breaches = []breach{}
@@ -1574,7 +1597,11 @@ func complianceDSARStats(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Stats query failed"); return
 		}
 		if len(rows) == 0 {
-			respond(w, map[string]any{}, ""); return
+			respond(w, map[string]any{
+				"total": 0, "pending": 0, "in_progress": 0, "resolved": 0,
+				"erasures_pending_purge": 0, "last_purge_run": nil,
+			}, "")
+			return
 		}
 		respond(w, rows[0], "")
 	}
@@ -1641,13 +1668,11 @@ func complianceDSARCreate(db *core.DB) http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.RequestType == "" {
 			respondErr(w, 400, "request_type is required"); return
 		}
-		// H5: sla_due_at = NOW() + INTERVAL '30 days' should be set here.
-		// TODO: add the column to data_subject_requests (migration 058 omits it)
-		// and then change the INSERT to include sla_due_at.
 		rows, err := db.PGQuery(ctx, `
-			INSERT INTO data_subject_requests (subject_cif, subject_name, subject_email, request_type, notes, status)
-			VALUES ($1,$2,$3,$4,$5,'pending')
-			RETURNING id, request_type, status, created_at`,
+			INSERT INTO data_subject_requests
+				(subject_cif, subject_name, subject_email, request_type, notes, status, sla_due_at)
+			VALUES ($1,$2,$3,$4,$5,'pending', NOW() + INTERVAL '30 days')
+			RETURNING id, request_type, status, created_at, sla_due_at`,
 			b.SubjectCIF, b.SubjectName, b.SubjectEmail, b.RequestType, b.Notes)
 		if err != nil {
 			respondErr(w, 500, "Create failed"); return

@@ -468,7 +468,7 @@ func RegisterPaystackRecon(r chi.Router, db *core.DB) {
 	r.With(access).Get("/disputes",  psProxy(db, "/dispute", nil))
 }
 
-func RegisterInterspwitchRecon(r chi.Router, db *core.DB) {
+func RegisterInterswitchRecon(r chi.Router, db *core.DB) {
 	access := core.RequirePages("reconciliation")
 	r.With(access).Get("/summary", iswReconSummary(db))
 	r.With(access).Get("/transactions", iswReconTransactions(db))

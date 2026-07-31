@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -43,6 +45,14 @@ func RegisterReports(r chi.Router, db *core.DB) {
 	r.With(audit).Get("/audit-trail-export", reportAuditTrailExport(db))
 	r.With(read).Get("/kpis",        reportKPIsHandler(db))
 	r.With(read).Get("/kpi-history", reportKPIHistoryHandler(db))
+
+	// BI report builder (reports/BI.tsx)
+	r.With(read).Post("/run",          reportsBIRun(db))
+	r.With(read).Post("/export",       reportsBIExport(db))
+	r.With(read).Post("/saved",        reportsSavedCreate(db))
+	r.With(read).Get("/saved",         reportsSavedList(db))
+	r.With(read).Post("/schedules",    reportsScheduleCreate(db))
+	r.With(read).Get("/export-log",    reportsExportLog(db))
 }
 
 // reportsList returns metadata for all available report types.
@@ -880,5 +890,254 @@ func reportKPIHistoryHandler(db *core.DB) http.HandlerFunc {
 			rows = []map[string]any{}
 		}
 		respond(w, rows, "pg")
+	}
+}
+
+/* ── BI Report Builder ────────────────────────────────────────────────────────
+   Shared query dispatcher used by both /run (JSON) and /export (CSV).
+*/
+
+type biReportReq struct {
+	ReportType string         `json:"report_type"`
+	DateFrom   string         `json:"date_from"`
+	DateTo     string         `json:"date_to"`
+	Filters    map[string]any `json:"filters"`
+}
+
+func runBIReportRows(r *http.Request, db *core.DB, b biReportReq) ([]core.Row, error) {
+	switch b.ReportType {
+	case "loan_portfolio":
+		where := "WHERE 1=1"
+		var args []any
+		n := 1
+		if b.DateFrom != "" {
+			where += fmt.Sprintf(" AND created_at::date >= $%d", n)
+			args = append(args, b.DateFrom)
+			n++
+		}
+		if b.DateTo != "" {
+			where += fmt.Sprintf(" AND created_at::date <= $%d", n)
+			args = append(args, b.DateTo)
+			n++
+		}
+		_ = n
+		return db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT id, reference, applicant_name, stage, disbursed_amount_kobo AS amount_kobo,
+			       loan_officer_name AS officer, status, created_at::date AS date
+			FROM loan_applications %s
+			ORDER BY created_at DESC LIMIT 1000`, where), args...)
+
+	case "collections":
+		return db.PGQuery(r.Context(), `
+			SELECT cif_number, dpd_bucket, outstanding_kobo, assigned_at
+			FROM collection_assignments
+			ORDER BY outstanding_kobo DESC LIMIT 1000`)
+
+	case "employees":
+		return db.PGQuery(r.Context(), `
+			SELECT id, employee_id, full_name, department, position, status, created_at
+			FROM employees ORDER BY full_name LIMIT 1000`)
+
+	case "transactions":
+		where := "WHERE 1=1"
+		var args []any
+		n := 1
+		if b.DateFrom != "" {
+			where += fmt.Sprintf(" AND j.entry_date >= $%d::date", n)
+			args = append(args, b.DateFrom)
+			n++
+		}
+		if b.DateTo != "" {
+			where += fmt.Sprintf(" AND j.entry_date <= $%d::date", n)
+			args = append(args, b.DateTo)
+			n++
+		}
+		_ = n
+		return db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT j.id, j.entry_date AS date, j.description, j.reference,
+			       j.debit_account, j.credit_account, j.amount_kobo, j.source_type
+			FROM gl_journal_entries j %s
+			ORDER BY j.entry_date DESC LIMIT 1000`, where), args...)
+
+	default:
+		return []core.Row{}, nil
+	}
+}
+
+func reportsBIRun(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b biReportReq
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+
+		rows, err := runBIReportRows(r, db, b)
+		if err != nil {
+			respondErr(w, 500, "Report query failed: "+err.Error())
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+
+		// Log the run to export_log
+		user := core.UserFromCtx(r.Context())
+		filtersJSON, _ := json.Marshal(b.Filters)
+		db.PGExec(r.Context(), //nolint:errcheck
+			`INSERT INTO report_export_log (report_type, filters, row_count, created_by)
+			 VALUES ($1, $2::jsonb, $3, $4)`,
+			b.ReportType, string(filtersJSON), len(rows), user.ID)
+
+		// Collect column names from first row
+		var columns []string
+		if len(rows) > 0 {
+			for k := range rows[0] {
+				columns = append(columns, k)
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"data":         rows,
+			"columns":      columns,
+			"total_rows":   len(rows),
+			"generated_at": time.Now().UTC().Format(time.RFC3339),
+			"report_type":  b.ReportType,
+		})
+	}
+}
+
+func reportsBIExport(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b biReportReq
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+
+		rows, err := runBIReportRows(r, db, b)
+		if err != nil {
+			respondErr(w, 500, "Report query failed: "+err.Error())
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+
+		user := core.UserFromCtx(r.Context())
+		filtersJSON, _ := json.Marshal(b.Filters)
+		db.PGExec(r.Context(), //nolint:errcheck
+			`INSERT INTO report_export_log (report_type, filters, row_count, created_by)
+			 VALUES ($1, $2::jsonb, $3, $4)`,
+			b.ReportType, string(filtersJSON), len(rows), user.ID)
+
+		filename := strings.ReplaceAll(b.ReportType, "_", "-") + "_" +
+			time.Now().UTC().Format("2006-01-02") + ".csv"
+		streamCSV(w, filename, rows)
+	}
+}
+
+func reportsSavedCreate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			Name       string         `json:"name"`
+			ReportType string         `json:"report_type"`
+			Filters    map[string]any `json:"filters"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.Name == "" || b.ReportType == "" {
+			respondErr(w, 422, "name and report_type are required")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		filtersJSON, _ := json.Marshal(b.Filters)
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO report_configs (name, report_type, filters, created_by)
+			VALUES ($1, $2, $3::jsonb, $4)
+			RETURNING id, name, report_type, created_at`,
+			b.Name, b.ReportType, string(filtersJSON), user.ID)
+		if err != nil {
+			respondErr(w, 500, "Save failed: "+err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func reportsSavedList(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, name, report_type, filters, created_by, created_at
+			FROM report_configs
+			ORDER BY created_at DESC`)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
+	}
+}
+
+func reportsScheduleCreate(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			SavedReportID int64    `json:"saved_report_id"`
+			Cron          string   `json:"cron"`
+			Recipients    []string `json:"recipients"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.Cron == "" {
+			respondErr(w, 422, "cron is required")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		// Convert []string to PostgreSQL text[] literal: {"a","b"}
+		recipientsJSON, _ := json.Marshal(b.Recipients)
+		rows, err := db.PGQuery(r.Context(), `
+			INSERT INTO report_schedules (report_config_id, cron_expr, recipients, created_by)
+			VALUES ($1, $2, ARRAY(SELECT jsonb_array_elements_text($3::jsonb)), $4)
+			RETURNING id, report_config_id, cron_expr, created_at`,
+			b.SavedReportID, b.Cron, string(recipientsJSON), user.ID)
+		if err != nil {
+			respondErr(w, 500, "Create failed: "+err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
+	}
+}
+
+func reportsExportLog(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT el.id, el.report_type, el.row_count, el.created_at,
+			       COALESCE(u.full_name, '') AS created_by
+			FROM report_export_log el
+			LEFT JOIN o3c_users u ON u.id = el.created_by
+			ORDER BY el.created_at DESC
+			LIMIT 50`)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}
 }

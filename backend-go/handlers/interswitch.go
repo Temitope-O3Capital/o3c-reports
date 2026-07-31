@@ -26,9 +26,62 @@ func RegisterInterswitch(r chi.Router, db *core.DB) {
 
 // ── Summary ────────────────────────────────────────────────────────────────────
 
-func interswitchSummary(_ *core.DB) http.HandlerFunc {
+func interswitchSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		respond(w, map[string]any{"status": "stub — query DB after EODTXN import populates interswitch_txns"}, "stub")
+		ctx := r.Context()
+		// MTD summary
+		rows, err := db.PGQuery(ctx, `
+			SELECT
+				COUNT(*)                                                     AS total_txns,
+				COUNT(*) FILTER (WHERE sign='DR')                           AS debit_count,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='DR'), 0)      AS debit_volume_kobo,
+				COUNT(*) FILTER (WHERE sign='CR')                           AS credit_count,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='CR'), 0)      AS credit_volume_kobo,
+				COUNT(DISTINCT branch_code)                                 AS branch_count,
+				COUNT(DISTINCT product_code)                                AS product_count,
+				MIN(txn_date)                                               AS earliest_date,
+				MAX(txn_date)                                               AS latest_date
+			FROM interswitch_txns
+			WHERE txn_date >= DATE_TRUNC('month', CURRENT_DATE)`)
+		if err != nil || len(rows) == 0 {
+			respond(w, map[string]any{
+				"total_txns": 0, "debit_count": 0, "debit_volume_kobo": 0,
+				"credit_count": 0, "credit_volume_kobo": 0,
+				"branch_count": 0, "product_count": 0,
+				"data_available": false,
+			}, "pg")
+			return
+		}
+		row := rows[0]
+		// Channel breakdown for current month
+		chanRows, _ := db.PGQuery(ctx, `
+			SELECT
+				CASE
+					WHEN txn_code IN ('01','02','03','04','05') THEN 'ATM'
+					WHEN txn_code IN ('06','07','08','09') THEN 'POS'
+					WHEN txn_code IN ('10','11','12','13','14','15') THEN 'WEB'
+					ELSE 'Transfer'
+				END AS channel,
+				COUNT(*) AS txn_count,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='DR'), 0) AS volume_kobo
+			FROM interswitch_txns
+			WHERE txn_date >= DATE_TRUNC('month', CURRENT_DATE)
+			GROUP BY 1
+			ORDER BY volume_kobo DESC`)
+
+		respond(w, map[string]any{
+			"total_txns":         toInt64(row["total_txns"]),
+			"debit_count":        toInt64(row["debit_count"]),
+			"debit_volume_kobo":  toInt64(row["debit_volume_kobo"]),
+			"credit_count":       toInt64(row["credit_count"]),
+			"credit_volume_kobo": toInt64(row["credit_volume_kobo"]),
+			"branch_count":       toInt64(row["branch_count"]),
+			"product_count":      toInt64(row["product_count"]),
+			"earliest_date":      row["earliest_date"],
+			"latest_date":        row["latest_date"],
+			"channel_breakdown":  chanRows,
+			"data_available":     true,
+		}, "pg")
 	}
 }
 
@@ -69,25 +122,59 @@ type channelTotals struct {
 	TransferAvg int64   `json:"transfer_avg"`
 }
 
-func interswitchReport(_ *core.DB) http.HandlerFunc {
+func interswitchReport(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		year   := r.URL.Query().Get("year")
 		period := r.URL.Query().Get("period")
-		if year == "" {   year = "2026" }
+		if year == ""   { year = "2026" }
 		if period == "" { period = "H1" }
 
-		months := selectPeriod(baseMonths, period)
-		for i := range months {
-			months[i].Total = months[i].ATM + months[i].POS + months[i].WEB + months[i].Transfer
-		}
-		totals := computeTotals(months)
+		ctx := r.Context()
+		// Try to serve live data from interswitch_txns
+		yr := year
+		dbRows, err := db.PGQuery(ctx, `
+			SELECT
+				TO_CHAR(txn_date, 'FMMonth') AS month,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE txn_code IN ('01','02','03','04','05') AND sign='DR'), 0) AS atm,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE txn_code IN ('06','07','08','09')      AND sign='DR'), 0) AS pos,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE txn_code IN ('10','11','12','13','14','15') AND sign='DR'), 0) AS web,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='DR'
+					AND txn_code NOT IN ('01','02','03','04','05','06','07','08','09','10','11','12','13','14','15')), 0) AS transfer
+			FROM interswitch_txns
+			WHERE EXTRACT(YEAR FROM txn_date) = $1::int
+			GROUP BY DATE_TRUNC('month', txn_date), TO_CHAR(txn_date, 'FMMonth')
+			ORDER BY DATE_TRUNC('month', txn_date)`, yr)
 
+		var months []monthlyRow
+		if err == nil && len(dbRows) > 0 {
+			for _, row := range dbRows {
+				m := monthlyRow{
+					Month:    str(row["month"]),
+					ATM:      toInt64(row["atm"]),
+					POS:      toInt64(row["pos"]),
+					WEB:      toInt64(row["web"]),
+					Transfer: toInt64(row["transfer"]),
+				}
+				m.Total = m.ATM + m.POS + m.WEB + m.Transfer
+				months = append(months, m)
+			}
+			months = selectPeriod(months, period)
+		} else {
+			// Fall back to hardcoded H1 2026 data until real imports accumulate
+			months = selectPeriod(baseMonths, period)
+			for i := range months {
+				months[i].Total = months[i].ATM + months[i].POS + months[i].WEB + months[i].Transfer
+			}
+		}
+
+		totals := computeTotals(months)
 		respond(w, map[string]any{
 			"data": map[string]any{
-				"period_label": fmt.Sprintf("%s %s", period, year),
+				"period_label": fmt.Sprintf("%s %s", strings.ToUpper(period), year),
 				"generated_at": time.Now().Format("2006-01-02"),
 				"months":       months,
 				"totals":       totals,
+				"source":       map[bool]string{true: "live", false: "static"}[err == nil && len(dbRows) > 0],
 			},
 		}, "ok")
 	}
@@ -176,7 +263,7 @@ var (
 	reSpaces  = regexp.MustCompile(`\s{2,}`)
 )
 
-func interswitchImport(_ *core.DB) http.HandlerFunc {
+func interswitchImport(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(64 << 20); err != nil {
 			http.Error(w, "failed to parse multipart form", http.StatusBadRequest)
@@ -225,7 +312,24 @@ func interswitchImport(_ *core.DB) http.HandlerFunc {
 		var products []productSum
 		for _, v := range productMap { products = append(products, *v) }
 
-		// TODO: persist to interswitch_txns table once migration is ready
+		// Persist parsed transactions — use INSERT ON CONFLICT DO NOTHING to make re-uploads idempotent.
+		// De-duplicate on (trace_num, txn_date, branch_code) — same trace on same date from same branch is the same txn.
+		if len(allTxns) > 0 && db != nil {
+			ctx := r.Context()
+			for _, t := range allTxns {
+				db.PGExec(ctx, //nolint:errcheck
+					`INSERT INTO interswitch_txns
+						(trace_num, auth_num, card_num, txn_code, txn_date, merchant_id,
+						 amount_kobo, sign, currency, merchant_name, description,
+						 account_no, cif, product_code, product_name, branch_code, branch_name)
+					 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+					 ON CONFLICT DO NOTHING`,
+					t.TraceNum, t.AuthNum, t.CardNum, t.TxnCode, t.TxnDate.Format("2006-01-02"),
+					t.MerchantID, t.AmountKobo, t.Sign, t.Currency, t.MerchantName,
+					t.Description, t.AccountNo, t.CIF, t.ProductCode, t.ProductName,
+					t.BranchCode, t.BranchName)
+			}
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{

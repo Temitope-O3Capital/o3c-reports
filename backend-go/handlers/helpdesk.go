@@ -256,10 +256,51 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Delete("/call-scripts/{id}", hdDeleteCallScript(db))
 
 		// Agent dashboard
-		r.Get("/my-dashboard", func(w http.ResponseWriter, r *http.Request) {
-			respond(w, map[string]any{"status": "stub"}, "stub")
-		})
+		r.Get("/my-dashboard", hdMyDashboard(db))
 	})
+}
+
+func hdMyDashboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		statsRows, _ := db.PGQuery(ctx, `
+			SELECT
+				COUNT(CASE WHEN status NOT IN ('resolved','closed') THEN 1 END)                                                                   AS open_tickets,
+				COUNT(CASE WHEN status NOT IN ('resolved','closed') AND sla_due_at IS NOT NULL AND sla_due_at < NOW() THEN 1 END)                 AS sla_breached,
+				COUNT(CASE WHEN status = 'resolved' AND updated_at::date = CURRENT_DATE THEN 1 END)                                               AS resolved_today,
+				COUNT(CASE WHEN created_at::date = CURRENT_DATE THEN 1 END)                                                                       AS tickets_today
+			FROM helpdesk_tickets
+			WHERE assigned_to = $1`, user.ID)
+
+		recentRows, _ := db.PGQuery(ctx, `
+			SELECT id, ticket_ref, subject, status, priority, created_at, sla_due_at
+			FROM helpdesk_tickets
+			WHERE assigned_to = $1
+			ORDER BY created_at DESC
+			LIMIT 10`, user.ID)
+
+		if recentRows == nil {
+			recentRows = []core.Row{}
+		}
+
+		result := map[string]any{
+			"open_tickets":   int64(0),
+			"sla_breached":   int64(0),
+			"resolved_today": int64(0),
+			"tickets_today":  int64(0),
+			"recent_tickets": recentRows,
+		}
+		if len(statsRows) > 0 {
+			result["open_tickets"]   = statsRows[0]["open_tickets"]
+			result["sla_breached"]   = statsRows[0]["sla_breached"]
+			result["resolved_today"] = statsRows[0]["resolved_today"]
+			result["tickets_today"]  = statsRows[0]["tickets_today"]
+		}
+
+		respond(w, result, "pg")
+	}
 }
 
 // ── Tickets ───────────────────────────────────────────────────────────────────

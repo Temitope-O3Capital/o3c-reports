@@ -89,6 +89,10 @@ const LOSQueue         = lazy(() => import('./pages/los/Queue'))
 const LOSNewApp        = lazy(() => import('./pages/los/NewApplication'))
 const LOSAppDetail     = lazy(() => import('./pages/los/ApplicationDetail'))
 
+// Mobile App & Blink Card
+const MobileAppDashboard = lazy(() => import('./pages/mobile/Dashboard'))
+const BlinkCard          = lazy(() => import('./pages/cards/BlinkCard'))
+
 // Collections
 const CollectionsOverview  = lazy(() => import('./pages/collections/Overview'))
 const CollectionsQueue     = lazy(() => import('./pages/collections/Queue'))
@@ -142,6 +146,7 @@ const HelpdeskCBNReport   = lazy(() => import('./pages/helpdesk/CBNReport'))
 
 // Cards
 const CardsOverview    = lazy(() => import('./pages/cards/Overview'))
+const CardTrends       = lazy(() => import('./pages/cards/Trends'))
 const CardsMgmt        = lazy(() => import('./pages/cards/Management'))
 const CardsIssuance    = lazy(() => import('./pages/cards/Issuance'))
 const CardsDisputes    = lazy(() => import('./pages/cards/Disputes'))
@@ -272,12 +277,12 @@ function homeFor(role: string): string {
 // ── Access guard ──────────────────────────────────────────────────────────────
 
 
-function RequireAccess({ page, user, children }: { page: string; user: AuthUser; children: ReactNode }) {
+function RequireAccess({ page, user, children }: { page: string | string[]; user: AuthUser; children: ReactNode }) {
   const role = user.role as string
   if (MGMT.has(role)) return <>{children}</>
-  const allowed = user.pages?.length
-    ? user.pages.includes(page)
-    : (ROLE_PAGES[role] ?? []).includes(page)
+  const pages = Array.isArray(page) ? page : [page]
+  const userPages = user.pages?.length ? user.pages : (ROLE_PAGES[role] ?? [])
+  const allowed = pages.some(p => userPages.includes(p))
   if (!allowed) return <Navigate to={homeFor(role)} replace />
   return <>{children}</>
 }
@@ -341,6 +346,8 @@ const MODULE_TITLES: [string, string, string][] = [
   ['/sales',           'Sales & BD',        'Sales'],
   ['/telemarketing',   'Contact Centre',    'Telemarketing'],
   ['/helpdesk',        'Contact Centre',    'Customer Service'],
+  ['/blink-card',      'Cards',             'Blink Card'],
+  ['/mobile-app',      'Cards',             'Mobile App Analytics'],
   ['/cards',           'Cards',             'Card Operations'],
   ['/operations/risk', 'Credit Management', 'Risk'],
   ['/collections',     'Credit Management', 'Collections'],
@@ -971,6 +978,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/sales/applications"     element={<RequireAccess page="loans" user={user}><PageErrorBoundary><LOSQueue /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/applications/new" element={<RequireAccess page="loans" user={user}><PageErrorBoundary><LOSNewApp /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/applications/:id" element={<RequireAccess page="loans" user={user}><PageErrorBoundary><LOSAppDetail /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/loans/portfolio" element={<Navigate to="/operations/risk/portfolio" replace />} />
 
                   {/* Marketing */}
                   <Route path="/marketing/attribution" element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><MarketingAttribution /></PageErrorBoundary></RequireAccess>} />
@@ -999,17 +1007,23 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* Cards */}
                   <Route path="/cards"              element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/trends"       element={<RequireAccess page="card_trends" user={user}><PageErrorBoundary><CardTrends /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/management"   element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMgmt /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/issuance"     element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsIssuance /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/disputes"     element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsDisputes /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/credit-limit" element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsCreditLimit /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/billing"      element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsBilling /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/blink-card"         element={<RequireAccess page="blink_card" user={user}><PageErrorBoundary><BlinkCard /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mobile-app"         element={<RequireAccess page="mobile_app" user={user}><PageErrorBoundary><MobileAppDashboard /></PageErrorBoundary></RequireAccess>} />
+
+                  {/* Retired: Active Loan Book → Risk Portfolio; Credit Portfolio → Risk Portfolio */}
+                  <Route path="/loans/active" element={<Navigate to="/operations/risk/portfolio" replace />} />
 
                   {/* Operations — Risk */}
                   <Route path="/operations/risk"                   element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/applications"      element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskAppReview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/applications/:id"  element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><LOSAppDetail /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/operations/risk/portfolio"         element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskPortfolio /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/portfolio"         element={<RequireAccess page={['credit_portfolio','active_loan_book']} user={user}><PageErrorBoundary><RiskPortfolio /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/vintage"           element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintage /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/vintage/:month"    element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintageDetail /></PageErrorBoundary></RequireAccess>} />
 

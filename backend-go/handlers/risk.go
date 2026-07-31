@@ -329,6 +329,14 @@ func riskPortfolioKPIs(db *core.DB) http.HandlerFunc {
 		}
 		_ = n
 		rows, err := db.PGQuery(r.Context(), `
+			WITH top_emp AS (
+				SELECT COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0)), 0) AS top_exposure
+				FROM loan_applications
+				WHERE status = 'active'
+				GROUP BY COALESCE(NULLIF(employer, ''), 'Unknown')
+				ORDER BY top_exposure DESC
+				LIMIT 1
+			)
 			SELECT
 				CASE WHEN COUNT(*) FILTER (WHERE status = 'active') > 0
 				     THEN ROUND(100.0
@@ -351,15 +359,7 @@ func riskPortfolioKPIs(db *core.DB) http.HandlerFunc {
 				COALESCE(ROUND(AVG(eye_score) FILTER (WHERE status = 'active' AND eye_score IS NOT NULL), 0), 0) AS avg_credit_score,
 				COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0)) FILTER (WHERE status = 'active'), 0) AS total_book_kobo,
 				COUNT(*) FILTER (WHERE status = 'active') AS total_active_loans,
-				COALESCE((
-					SELECT SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0))
-					FROM loan_applications sub
-					WHERE sub.status = 'active'
-					  AND sub.employer = la.employer
-					GROUP BY sub.employer
-					ORDER BY 1 DESC
-					LIMIT 1
-				), 0) AS top_employer_exposure_kobo
+				COALESCE((SELECT top_exposure FROM top_emp), 0) AS top_employer_exposure_kobo
 			FROM loan_applications la
 			WHERE 1=1`+dateWhere, args...)
 		if err != nil {
@@ -393,11 +393,11 @@ func riskPARTrend(db *core.DB) http.HandlerFunc {
 				TO_CHAR(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)), 'Mon YYYY') AS month,
 				DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) AS _sort,
 				COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0))
-					FILTER (WHERE COALESCE(dpd,0) > 30), 0) AS par30_kobo,
+					FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30), 0) AS par30_kobo,
 				COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0))
-					FILTER (WHERE COALESCE(dpd,0) > 60), 0) AS par60_kobo,
+					FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 60), 0) AS par60_kobo,
 				COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0))
-					FILTER (WHERE COALESCE(dpd,0) > 90), 0) AS par90_kobo
+					FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 90), 0) AS par90_kobo
 			FROM loan_applications
 			WHERE status = 'active'
 			  AND COALESCE(disbursed_at, created_at) >= NOW() - INTERVAL '13 months'
@@ -517,7 +517,7 @@ func riskTopEmployers(db *core.DB) http.HandlerFunc {
 				          * COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0)), 0)
 				          / (SELECT grand_total FROM book_total), 2)
 				     ELSE 0 END AS pct_of_total,
-				COUNT(*) FILTER (WHERE COALESCE(dpd, 0) > 30) AS par30_count
+				COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30) AS par30_count
 			FROM loan_applications
 			WHERE status = 'active'
 			GROUP BY COALESCE(NULLIF(employer,''), 'Unknown')
@@ -573,16 +573,16 @@ func riskVintage(db *core.DB) http.HandlerFunc {
 				DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) AS _sort,
 				COUNT(*) AS cohort_count,
 				CASE WHEN DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) <= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / NULLIF(COUNT(*), 0), 1) END AS par30_1m,
 				CASE WHEN DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) <= DATE_TRUNC('month', NOW()) - INTERVAL '3 months'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / NULLIF(COUNT(*), 0), 1) END AS par30_3m,
 				CASE WHEN DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) <= DATE_TRUNC('month', NOW()) - INTERVAL '6 months'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / NULLIF(COUNT(*), 0), 1) END AS par30_6m,
 				CASE WHEN DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) <= DATE_TRUNC('month', NOW()) - INTERVAL '12 months'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / NULLIF(COUNT(*), 0), 1) END AS par30_12m
 			FROM loan_applications
 			WHERE 1=1`+extraClauses.String()+`
@@ -636,7 +636,7 @@ func riskVintageKPIs(db *core.DB) http.HandlerFunc {
 			WITH cohorts AS (
 				SELECT
 					DATE_TRUNC('month', COALESCE(disbursed_at, created_at)) AS booking_month,
-					ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+					ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 					      / NULLIF(COUNT(*), 0), 1) AS par30_rate
 				FROM loan_applications
 				WHERE 1=1`+extraClauses.String()+`
@@ -702,39 +702,39 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 					FILTER (WHERE status IN ('active','booked')), 0) AS active_book_kobo,
 				COUNT(*) FILTER (WHERE status = 'written_off') AS written_off_count,
 				COALESCE(CASE WHEN COUNT(*) > 0
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / NULLIF(COUNT(*),0), 2) END, 0) AS par30_rate_pct,
 				COALESCE(CASE WHEN COUNT(*) > 0
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 60)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 60)
 				          / NULLIF(COUNT(*),0), 2) END, 0) AS par60_rate_pct,
 				COALESCE(CASE WHEN COUNT(*) > 0
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 90)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 90)
 				          / NULLIF(COUNT(*),0), 2) END, 0) AS par90_rate_pct,
 				COALESCE(CASE WHEN COUNT(*) > 0
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) >= 180)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) >= 180)
 				          / NULLIF(COUNT(*),0), 2) END, 0) AS npl_rate_pct,
 				COALESCE(ROUND(AVG(eye_score) FILTER (WHERE eye_score IS NOT NULL), 0), 0) AS avg_eye_score,
 				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)))
 				          <= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / NULLIF(COUNT(*),0), 1) END AS par30_1m,
 				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)))
 				          <= DATE_TRUNC('month', NOW()) - INTERVAL '3 months'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / NULLIF(COUNT(*),0), 1) END AS par30_3m,
 				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)))
 				          <= DATE_TRUNC('month', NOW()) - INTERVAL '6 months'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / NULLIF(COUNT(*),0), 1) END AS par30_6m,
 				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)))
 				          <= DATE_TRUNC('month', NOW()) - INTERVAL '12 months'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / NULLIF(COUNT(*),0), 1) END AS par30_12m,
-				COUNT(*) FILTER (WHERE COALESCE(dpd,0) < 30) AS dpd_current,
-				COUNT(*) FILTER (WHERE COALESCE(dpd,0) BETWEEN 30 AND 59) AS dpd_par30,
-				COUNT(*) FILTER (WHERE COALESCE(dpd,0) BETWEEN 60 AND 89) AS dpd_par60,
-				COUNT(*) FILTER (WHERE COALESCE(dpd,0) BETWEEN 90 AND 179) AS dpd_par90,
-				COUNT(*) FILTER (WHERE COALESCE(dpd,0) >= 180) AS dpd_npl
+				COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) < 30) AS dpd_current,
+				COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) BETWEEN 30 AND 59) AS dpd_par30,
+				COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) BETWEEN 60 AND 89) AS dpd_par60,
+				COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) BETWEEN 90 AND 179) AS dpd_par90,
+				COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) >= 180) AS dpd_npl
 			FROM loan_applications
 			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)), 'Mon YYYY') = $1`,
 			month)
@@ -771,7 +771,7 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 				COALESCE(NULLIF(employer,''), 'Unknown') AS employer,
 				COUNT(*) AS count,
 				COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0)), 0) AS book_kobo,
-				COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30) AS par30_count
+				COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30) AS par30_count
 			FROM loan_applications
 			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)), 'Mon YYYY') = $1
 			GROUP BY COALESCE(NULLIF(employer,''), 'Unknown')
@@ -788,7 +788,7 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 				COUNT(*) AS count,
 				COALESCE(SUM(COALESCE(outstanding_kobo, amount_requested_kobo, 0)), 0) AS book_kobo,
 				COALESCE(CASE WHEN COUNT(*) > 0
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30)
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) > 30)
 				          / NULLIF(COUNT(*),0), 1) END, 0) AS par30_pct
 			FROM loan_applications
 			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(disbursed_at, created_at)), 'Mon YYYY') = $1
@@ -808,7 +808,7 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 				COALESCE(employer, '') AS employer,
 				COALESCE(product_type, loan_type, '') AS product_type,
 				COALESCE(outstanding_kobo, amount_requested_kobo, 0) AS outstanding_kobo,
-				COALESCE(dpd, 0) AS dpd,
+				GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) AS dpd,
 				COALESCE(eye_rating, '') AS risk_band,
 				eye_score,
 				status,
@@ -891,7 +891,6 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 				COALESCE(product_type, loan_type, '') AS product_type,
 				eye_score AS score,
 				COALESCE(eye_rating, '') AS band,
-				CAST(NULL AS TEXT) AS top_factor,
 				dti_pct,
 				COALESCE(risk_reviewed_at, submitted_at, created_at) AS scored_at
 			FROM loan_applications`
@@ -987,7 +986,7 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 				COALESCE(product_type, loan_type, 'Loan') AS product,
 				COALESCE(amount_requested_kobo, 0) AS principal_kobo,
 				COALESCE(outstanding_kobo, 0) AS outstanding_kobo,
-				COALESCE(dpd, 0) AS dpd,
+				GREATEST(0, CURRENT_DATE - COALESCE(maturity_date::date, CURRENT_DATE)) AS dpd,
 				COALESCE(status, 'unknown') AS status,
 				COALESCE(disbursed_at, created_at)::text AS disbursed_at
 			FROM loan_applications
@@ -1075,7 +1074,6 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 			"phone":                  phone,
 			"eye_score":              eyeScore,
 			"eye_band":               eyeBand,
-			"bureau_score":           nil,
 			"total_loan_count":       totalCount,
 			"active_loan_count":      activeCount,
 			"total_outstanding_kobo": totalOutstanding,

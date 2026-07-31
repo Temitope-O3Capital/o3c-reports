@@ -820,10 +820,49 @@ func tmBulkSkip(db *core.DB) http.HandlerFunc {
 
 func tmExportQueue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Placeholder: full CSV export is a follow-on task
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(202)
-		json.NewEncoder(w).Encode(map[string]any{"status": "queued"}) //nolint:errcheck
+		ctx := r.Context()
+		campaignID := qstr(r, "campaign_id")
+
+		where := "1=1"
+		args := []any{}
+		n := 1
+		if campaignID != "" {
+			where += fmt.Sprintf(" AND tl.campaign_id=$%d", n)
+			args = append(args, campaignID)
+			n++
+		}
+		_ = n
+		rows, err := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT tl.id, tc.name AS campaign_name, tl.customer_name, tl.customer_phone,
+			       tl.customer_cif, tl.status, tl.lead_score, tl.assigned_to,
+			       u.full_name AS agent_name, tl.created_at
+			FROM telemarketing_leads tl
+			LEFT JOIN telemarketing_campaigns tc ON tc.id = tl.campaign_id
+			LEFT JOIN o3c_users u ON u.id = tl.assigned_to
+			WHERE %s
+			ORDER BY tl.created_at DESC`, where), args...)
+		if err != nil {
+			respondErr(w, 500, "Export query failed")
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="telemarketing_queue.csv"`)
+		w.WriteHeader(200)
+		fmt.Fprint(w, "ID,Campaign,Customer Name,Phone,CIF,Status,Lead Score,Agent,Created At\n")
+		for _, row := range rows {
+			fmt.Fprintf(w, "%v,%q,%q,%q,%q,%q,%v,%q,%v\n",
+				row["id"],
+				str(row["campaign_name"]),
+				str(row["customer_name"]),
+				str(row["customer_phone"]),
+				str(row["customer_cif"]),
+				str(row["status"]),
+				row["lead_score"],
+				str(row["agent_name"]),
+				row["created_at"],
+			)
+		}
 	}
 }
 

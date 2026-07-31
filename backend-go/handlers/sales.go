@@ -42,9 +42,51 @@ func RegisterSales(r chi.Router, db *core.DB) {
 	r.Get("/cohort-detail", salesCohortDetail(db))
 
 	// Agent dashboard
-	r.Get("/my-dashboard", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, map[string]any{"status": "stub"}, "stub")
-	})
+	r.Get("/my-dashboard", salesMyDashboard(db))
+}
+
+func salesMyDashboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		kpiRows, _ := db.PGQuery(ctx, `
+			SELECT
+				COUNT(CASE WHEN created_at >= DATE_TRUNC('month', NOW()) THEN 1 END)                                                          AS mtd_submitted,
+				COALESCE(SUM(CASE WHEN stage = 'active' AND created_at >= DATE_TRUNC('month', NOW()) THEN disbursed_amount_kobo END), 0)      AS mtd_disbursed_kobo,
+				COUNT(CASE WHEN stage NOT IN ('declined','cancelled') THEN 1 END)                                                             AS pipeline_count,
+				COALESCE(SUM(CASE WHEN stage NOT IN ('declined','cancelled') THEN amount_requested_kobo END), 0)                              AS pipeline_kobo
+			FROM loan_applications
+			WHERE sales_officer_id = $1`, user.ID)
+
+		stageRows, _ := db.PGQuery(ctx, `
+			SELECT stage, COUNT(*) AS count
+			FROM loan_applications
+			WHERE sales_officer_id = $1
+			  AND stage NOT IN ('declined','cancelled')
+			GROUP BY stage
+			ORDER BY count DESC`, user.ID)
+
+		if stageRows == nil {
+			stageRows = []core.Row{}
+		}
+
+		result := map[string]any{
+			"mtd_submitted":      int64(0),
+			"mtd_disbursed_kobo": int64(0),
+			"pipeline_count":     int64(0),
+			"pipeline_kobo":      int64(0),
+			"stage_breakdown":    stageRows,
+		}
+		if len(kpiRows) > 0 {
+			result["mtd_submitted"] = kpiRows[0]["mtd_submitted"]
+			result["mtd_disbursed_kobo"] = kpiRows[0]["mtd_disbursed_kobo"]
+			result["pipeline_count"] = kpiRows[0]["pipeline_count"]
+			result["pipeline_kobo"] = kpiRows[0]["pipeline_kobo"]
+		}
+
+		respond(w, result, "pg")
+	}
 }
 
 // salesLoanKPIs returns LOS-based KPIs for the Sales Overview page.

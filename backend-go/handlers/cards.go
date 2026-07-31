@@ -39,9 +39,54 @@ func RegisterCards(r chi.Router, db *core.DB) {
 	r.With(income).Get("/cycle-summary", cardCycleSummary(db))
 
 	// Agent queue dashboard
-	r.With(cards).Get("/my-queue", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, map[string]any{"status": "stub"}, "stub")
-	})
+	r.With(cards).Get("/my-queue", cardMyQueue(db))
+}
+
+func cardMyQueue(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		issuance, _ := db.PGQuery(ctx, `
+			SELECT id, cif_number, customer_name, card_type, status, submitted_by, created_at
+			FROM card_issuance_requests
+			WHERE submitted_by = $1
+			  AND status IN ('pending','doc_review','credit_check','risk_review')
+			ORDER BY created_at DESC`, user.ID)
+
+		disputes, _ := db.PGQuery(ctx, `
+			SELECT id, cif_number, customer_name, card_type, amount_kobo, dispute_type, notes, status, filed_at, resolved_at
+			FROM card_disputes
+			WHERE status NOT IN ('resolved','closed')
+			ORDER BY filed_at DESC`)
+
+		creditReviews, _ := db.PGQuery(ctx, `
+			SELECT id, cif_number, customer_name, card_type, current_limit_kobo, proposed_limit_kobo, utilization_pct, eye_score, status, created_at
+			FROM card_credit_limit_reviews
+			WHERE status = 'pending'
+			ORDER BY created_at DESC`)
+
+		if issuance == nil {
+			issuance = []core.Row{}
+		}
+		if disputes == nil {
+			disputes = []core.Row{}
+		}
+		if creditReviews == nil {
+			creditReviews = []core.Row{}
+		}
+
+		respond(w, map[string]any{
+			"issuance_queue":          issuance,
+			"open_disputes":           disputes,
+			"pending_credit_reviews":  creditReviews,
+			"summary": map[string]any{
+				"issuance_count":       len(issuance),
+				"disputes_count":       len(disputes),
+				"credit_reviews_count": len(creditReviews),
+			},
+		}, "pg")
+	}
 }
 
 func cardsKPIs(db *core.DB) http.HandlerFunc {

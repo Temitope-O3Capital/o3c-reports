@@ -275,8 +275,6 @@ func overviewCCStages(db *core.DB) http.HandlerFunc {
 		}
 
 		row := rows[0]
-		// C5 TODO: doc_review, credit_check, risk_review have no matching status values in
-		// card_issuance_requests. Map these when the card issuance workflow adds intermediate stages.
 		respond(w, map[string]any{
 			"application":  toInt64(row["application"]),
 			"doc_review":   toInt64(row["doc_review"]),

@@ -334,9 +334,6 @@ func main() {
 		r.Route("/api/overview", func(r chi.Router) {
 			handlers.RegisterOverview(r, db)
 		})
-		r.Route("/api/transactions", func(r chi.Router) {
-			handlers.RegisterTransactions(r, db)
-		})
 		r.Route("/api/collections", func(r chi.Router) {
 			handlers.RegisterCollections(r, db)
 		})
@@ -351,9 +348,6 @@ func main() {
 		})
 		r.Route("/api/card-trends", func(r chi.Router) {
 			handlers.RegisterCardTrends(r, db)
-		})
-		r.Route("/api/loans", func(r chi.Router) {
-			handlers.RegisterLoans(r, db)
 		})
 		r.Route("/api/admin", func(r chi.Router) {
 			handlers.RegisterAdmin(r, db)
@@ -376,9 +370,6 @@ func main() {
 		})
 		r.Route("/api/contacts", func(r chi.Router) {
 			handlers.RegisterContactProfile(r, db)
-		})
-		r.Route("/api/cohort", func(r chi.Router) {
-			handlers.RegisterCohort(r, db)
 		})
 		r.Route("/api/executive", func(r chi.Router) {
 			handlers.RegisterExecutive(r, db)
@@ -405,13 +396,10 @@ func main() {
 			handlers.RegisterPaystackRecon(r, db)
 		})
 		r.Route("/api/reconciliation/interswitch", func(r chi.Router) {
-			handlers.RegisterInterspwitchRecon(r, db)
+			handlers.RegisterInterswitchRecon(r, db)
 		})
 		r.Route("/api/uploads", func(r chi.Router) {
 			handlers.RegisterUploads(r, db)
-		})
-		r.Route("/api/income", func(r chi.Router) {
-			handlers.RegisterIncome(r, db)
 		})
 		r.Route("/api/eod", func(r chi.Router) {
 			handlers.RegisterEOD(r, db)
@@ -427,9 +415,6 @@ func main() {
 			r.Get("/fx-rates/latest", handlers.FXRatesLatest(db))
 			r.Get("/fx-rates/history", handlers.FXRatesHistory(db))
 			r.Post("/fx-rates/refresh", handlers.FXRatesRefresh(db))
-		})
-		r.Route("/api/settlement", func(r chi.Router) {
-			handlers.RegisterSettlement(r, db)
 		})
 		r.Route("/api/settlements", func(r chi.Router) {
 			handlers.RegisterSettlementOps(r, db)
@@ -458,9 +443,6 @@ func main() {
 		})
 		r.Route("/api/settings", func(r chi.Router) {
 			handlers.RegisterSettings(r, db)
-		})
-		r.Route("/api/kpi", func(r chi.Router) {
-			handlers.RegisterKPI(r, db)
 		})
 		r.Route("/api/reports", func(r chi.Router) {
 			handlers.RegisterReports(r, db)

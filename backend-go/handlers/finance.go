@@ -44,6 +44,9 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 	// FD Accrual (per-FD daily interest)
 	r.With(access).Get("/fd-accrual", finFDAccrual(db))
 
+	// FD KPIs (headline metrics for the Fixed Deposit page)
+	r.With(access).Get("/fd-kpis", finFDKPIs(db))
+
 	// Income ledger (sourced from card cycle data)
 	r.With(access).Get("/income",            finIncomeList(db))
 	r.With(access).Get("/income/chart",      finIncomeChart(db))
@@ -834,6 +837,41 @@ func finFDAccrual(db *core.DB) http.HandlerFunc {
 			return
 		}
 		jsonRows(w, rows)
+	}
+}
+
+/* ── FD KPIs ─────────────────────────────────────────────────────────────────
+   Headline metrics for the Fixed Deposit page. Reads fd_transactions.
+*/
+
+func finFDKPIs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+			    COUNT(*)                                                                           AS total_fds,
+			    COUNT(*) FILTER (WHERE transaction_type='inflow' AND maturity_date >= CURRENT_DATE)
+			                                                                                       AS active_fds,
+			    COALESCE(SUM(ngn_amount) FILTER (WHERE transaction_type='inflow'
+			        AND maturity_date >= CURRENT_DATE), 0)                                         AS total_principal_kobo,
+			    COALESCE(SUM(
+			        ROUND((ngn_amount::numeric * COALESCE(rate,0) / 100 / 365)
+			        * GREATEST(0, CURRENT_DATE - transaction_date::date))::bigint
+			    ) FILTER (WHERE transaction_type='inflow' AND maturity_date >= CURRENT_DATE), 0)   AS total_interest_accrued_kobo,
+			    COUNT(*) FILTER (WHERE transaction_type='inflow'
+			        AND DATE_TRUNC('month', maturity_date) = DATE_TRUNC('month', CURRENT_DATE))    AS matured_this_month,
+			    COALESCE(AVG(tenor_days) FILTER (WHERE transaction_type='inflow'), 0)::bigint      AS avg_tenor_days
+			FROM fd_transactions`)
+		if err != nil || len(rows) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"total_fds": 0, "active_fds": 0,
+				"total_principal_kobo": 0, "total_interest_accrued_kobo": 0,
+				"matured_this_month": 0, "avg_tenor_days": 0,
+			})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
 
