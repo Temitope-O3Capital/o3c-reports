@@ -3,77 +3,52 @@ package cbssync
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	"github.com/o3c/reports/core"
 )
 
-// Reconcile links freshly-synced CBS accounts to workspace records via the
-// cbs_links table, keyed on CIF, and returns how many CBS accounts matched a
-// workspace record vs. how many are still unmatched (surfaced for manual linking).
-//
-// Matching is best-effort by CIF:
-//   - loans: cbs_loans.cbs_customer_id == loan_applications.applicant_cif
-//   - FDs:   cbs_fixed_deposits.cbs_customer_id == fd_transactions.cif_number
-//
-// A fresh CBS rollout may legitimately produce zero matches; that is fine -- the
-// unmatched count then drives the reconciliation UI.
+// customerMasterTable is the Sage/MSSQL customer snapshot (populated by the nightly
+// sync). Udara's cbs_customer_id equals its "CIF Number", so that is the reconciliation
+// key. The workspace-native loan/FD tables are not used here — they hold no records in
+// this deployment; the customer master is the authoritative directory.
+const customerMasterTable = `"Accounts"`
+
+// Reconcile counts how many synced CBS accounts belong to a customer known to the
+// workspace (i.e. cbs_customer_id exists in the Sage customer master "CIF Number"),
+// versus how many are Udara-only customers not yet in the master. Returns
+// (matched, unmatched). If the customer master table is absent (e.g. a fresh env
+// without the Sage sync), everything is reported unmatched rather than erroring.
 func Reconcile(ctx context.Context, db *core.DB) (matched, unmatched int, err error) {
-	tx, err := db.PG.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, 0, fmt.Errorf("cbs reconcile: begin tx: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	// Loans -> loan_applications by CIF. DISTINCT ON (la.id) so one workspace loan
-	// maps to at most one CBS account per statement (avoids ON CONFLICT double-hit).
-	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO cbs_links (entity_type, entity_id, cbs_account_number, cbs_customer_id)
-		SELECT DISTINCT ON (la.id) 'loan', la.id, cl.cbs_account_number, cl.cbs_customer_id
-		FROM cbs_loans cl
-		JOIN loan_applications la ON la.applicant_cif = cl.cbs_customer_id
-		WHERE cl.cbs_customer_id IS NOT NULL AND cl.cbs_customer_id <> ''
-		ORDER BY la.id, cl.cbs_account_number
-		ON CONFLICT (entity_type, entity_id)
-		DO UPDATE SET cbs_account_number = EXCLUDED.cbs_account_number,
-		              cbs_customer_id    = EXCLUDED.cbs_customer_id`); err != nil {
-		return 0, 0, fmt.Errorf("cbs reconcile: link loans: %w", err)
-	}
-
-	// FDs -> fd_transactions by CIF.
-	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO cbs_links (entity_type, entity_id, cbs_account_number, cbs_customer_id)
-		SELECT DISTINCT ON (fd.id) 'fd', fd.id, cf.cbs_account_number, cf.cbs_customer_id
-		FROM cbs_fixed_deposits cf
-		JOIN fd_transactions fd ON fd.cif_number = cf.cbs_customer_id
-		WHERE cf.cbs_customer_id IS NOT NULL AND cf.cbs_customer_id <> ''
-		ORDER BY fd.id, cf.cbs_account_number
-		ON CONFLICT (entity_type, entity_id)
-		DO UPDATE SET cbs_account_number = EXCLUDED.cbs_account_number,
-		              cbs_customer_id    = EXCLUDED.cbs_customer_id`); err != nil {
-		return 0, 0, fmt.Errorf("cbs reconcile: link fds: %w", err)
-	}
-
-	if err = tx.Commit(); err != nil {
-		return 0, 0, fmt.Errorf("cbs reconcile: commit: %w", err)
-	}
-
-	// matched = CBS accounts (loans + FDs) that have a workspace counterpart.
-	matched = scalarInt(ctx, db, `
-		SELECT
-		  (SELECT count(*) FROM cbs_loans cl WHERE cl.cbs_customer_id <> ''
-		     AND EXISTS (SELECT 1 FROM loan_applications la WHERE la.applicant_cif = cl.cbs_customer_id))
-		+ (SELECT count(*) FROM cbs_fixed_deposits cf WHERE cf.cbs_customer_id <> ''
-		     AND EXISTS (SELECT 1 FROM fd_transactions fd WHERE fd.cif_number = cf.cbs_customer_id))`)
-
 	total := scalarInt(ctx, db,
 		`SELECT (SELECT count(*) FROM cbs_loans) + (SELECT count(*) FROM cbs_fixed_deposits)`)
+
+	if !CustomerMasterExists(ctx, db) {
+		return 0, total, nil
+	}
+
+	matched = scalarInt(ctx, db, `
+		SELECT
+		  (SELECT count(*) FROM cbs_loans cl
+		     WHERE cl.cbs_customer_id <> '' AND EXISTS (
+		         SELECT 1 FROM `+customerMasterTable+` a WHERE a."CIF Number" = cl.cbs_customer_id))
+		+ (SELECT count(*) FROM cbs_fixed_deposits cf
+		     WHERE cf.cbs_customer_id <> '' AND EXISTS (
+		         SELECT 1 FROM `+customerMasterTable+` a WHERE a."CIF Number" = cf.cbs_customer_id))`)
 
 	unmatched = total - matched
 	if unmatched < 0 {
 		unmatched = 0
 	}
 	return matched, unmatched, nil
+}
+
+// CustomerMasterExists reports whether the Sage customer-master snapshot table is present.
+func CustomerMasterExists(ctx context.Context, db *core.DB) bool {
+	var reg sql.NullString
+	if err := db.PG.QueryRowContext(ctx, `SELECT to_regclass('`+customerMasterTable+`')`).Scan(&reg); err != nil {
+		return false
+	}
+	return reg.Valid
 }
 
 func scalarInt(ctx context.Context, db *core.DB, q string) int {

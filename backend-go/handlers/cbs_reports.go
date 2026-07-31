@@ -6,22 +6,36 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/o3c/reports/cbssync"
 	"github.com/o3c/reports/core"
 )
 
 // RegisterCBSReports mounts read-only reporting endpoints over the CBS snapshot
 // tables (populated by the sync worker). All amounts are in kobo. Mounted under
-// /api/cbs, so already behind AuthMiddleware.
+// /api/cbs, so already behind AuthMiddleware. Customer names are resolved from the
+// Sage customer master ("Accounts") by CIF (Udara's cbs_customer_id == "CIF Number").
 func RegisterCBSReports(r chi.Router, db *core.DB) {
 	r.Get("/reports/loan-book", cbsLoanBook(db))
 	r.Get("/reports/fd-book", cbsFDBook(db))
 	r.Get("/reports/reconciliation", cbsReconciliation(db))
 }
 
+// custName returns a SELECT expression for the customer name: from the Sage master
+// by CIF when available, otherwise the name embedded in the CBS record.
+func custName(master bool, alias string) string {
+	if master {
+		return `COALESCE((SELECT NULLIF(trim(a."First Name"||' '||COALESCE(a."Last Name",'')),'')
+		         FROM "Accounts" a WHERE a."CIF Number" = ` + alias + `.cbs_customer_id LIMIT 1),
+		         ` + alias + `.raw->>'name') AS customer_name`
+	}
+	return alias + `.raw->>'name' AS customer_name`
+}
+
 // cbsLoanBook returns the credit book: totals, breakdowns by status/product, and the loan list.
 func cbsLoanBook(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		master := cbssync.CustomerMasterExists(ctx, db)
 		summary := queryRows(ctx, db, `
 			SELECT count(*)::bigint AS accounts,
 			       COALESCE(sum(loan_amount_kobo),0)::bigint           AS disbursed_kobo,
@@ -38,10 +52,11 @@ func cbsLoanBook(db *core.DB) http.HandlerFunc {
 			       COALESCE(sum(outstanding_principal_kobo),0)::bigint AS outstanding_kobo
 			FROM cbs_loans GROUP BY product_name ORDER BY count(*) DESC`)
 		loans := queryRows(ctx, db, `
-			SELECT cbs_account_number, cbs_customer_id, product_name, status,
-			       loan_amount_kobo, outstanding_principal_kobo, outstanding_interest_kobo,
-			       interest_rate, tenor_days, start_date, maturity_date, officer_name
-			FROM cbs_loans ORDER BY outstanding_principal_kobo DESC`)
+			SELECT cl.cbs_account_number, cl.cbs_customer_id, `+custName(master, "cl")+`,
+			       cl.product_name, cl.status, cl.loan_amount_kobo, cl.outstanding_principal_kobo,
+			       cl.outstanding_interest_kobo, cl.interest_rate, cl.tenor_days,
+			       cl.start_date, cl.maturity_date, cl.officer_name
+			FROM cbs_loans cl ORDER BY cl.outstanding_principal_kobo DESC`)
 
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
 			"summary":    firstRow(summary),
@@ -56,6 +71,7 @@ func cbsLoanBook(db *core.DB) http.HandlerFunc {
 func cbsFDBook(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		master := cbssync.CustomerMasterExists(ctx, db)
 		summary := queryRows(ctx, db, `
 			SELECT count(*)::bigint AS accounts,
 			       COALESCE(sum(principal_kobo),0)::bigint        AS principal_kobo,
@@ -77,10 +93,11 @@ func cbsFDBook(db *core.DB) http.HandlerFunc {
 			FROM cbs_fixed_deposits WHERE maturity_date IS NOT NULL
 			GROUP BY 1 ORDER BY 1`)
 		fds := queryRows(ctx, db, `
-			SELECT cbs_account_number, cbs_customer_id, product_name, status,
-			       principal_kobo, accrued_interest_kobo, ledger_balance_kobo,
-			       interest_rate, tenor_days, commencement_date, maturity_date
-			FROM cbs_fixed_deposits ORDER BY principal_kobo DESC`)
+			SELECT cf.cbs_account_number, cf.cbs_customer_id, `+custName(master, "cf")+`,
+			       cf.product_name, cf.status, cf.principal_kobo, cf.accrued_interest_kobo,
+			       cf.ledger_balance_kobo, cf.interest_rate, cf.tenor_days,
+			       cf.commencement_date, cf.maturity_date
+			FROM cbs_fixed_deposits cf ORDER BY cf.principal_kobo DESC`)
 
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
 			"summary":         firstRow(summary),
@@ -92,38 +109,53 @@ func cbsFDBook(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// cbsReconciliation reports how the CBS book maps to workspace records and lists unmatched CBS accounts.
+// cbsReconciliation reports how many CBS accounts belong to a known customer (CIF in
+// the Sage master) versus Udara-only customers, and lists the unmatched accounts.
 func cbsReconciliation(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		master := cbssync.CustomerMasterExists(ctx, db)
+
+		// matched predicate differs by whether the customer master is available.
+		matchedLoan := "false"
+		matchedFD := "false"
+		if master {
+			matchedLoan = `cbs_customer_id <> '' AND EXISTS (SELECT 1 FROM "Accounts" a WHERE a."CIF Number" = cbs_loans.cbs_customer_id)`
+			matchedFD = `cbs_customer_id <> '' AND EXISTS (SELECT 1 FROM "Accounts" a WHERE a."CIF Number" = cbs_fixed_deposits.cbs_customer_id)`
+		}
+
 		loanStats := queryRows(ctx, db, `
 			SELECT count(*)::bigint AS cbs_total,
-			       count(*) FILTER (WHERE cbs_customer_id <> '' AND EXISTS (
-			           SELECT 1 FROM loan_applications la WHERE la.applicant_cif = cbs_loans.cbs_customer_id))::bigint AS matched
+			       (count(*) FILTER (WHERE `+matchedLoan+`))::bigint AS matched
 			FROM cbs_loans`)
 		fdStats := queryRows(ctx, db, `
 			SELECT count(*)::bigint AS cbs_total,
-			       count(*) FILTER (WHERE cbs_customer_id <> '' AND EXISTS (
-			           SELECT 1 FROM fd_transactions fd WHERE fd.cif_number = cbs_fixed_deposits.cbs_customer_id))::bigint AS matched
+			       (count(*) FILTER (WHERE `+matchedFD+`))::bigint AS matched
 			FROM cbs_fixed_deposits`)
+
+		unmatchedLoanWhere := "true"
+		unmatchedFDWhere := "true"
+		if master {
+			unmatchedLoanWhere = `cl.cbs_customer_id = '' OR NOT EXISTS (SELECT 1 FROM "Accounts" a WHERE a."CIF Number" = cl.cbs_customer_id)`
+			unmatchedFDWhere = `cf.cbs_customer_id = '' OR NOT EXISTS (SELECT 1 FROM "Accounts" a WHERE a."CIF Number" = cf.cbs_customer_id)`
+		}
 		unmatchedLoans := queryRows(ctx, db, `
-			SELECT cbs_account_number, cbs_customer_id, product_name, status, outstanding_principal_kobo
-			FROM cbs_loans cl
-			WHERE cl.cbs_customer_id = '' OR NOT EXISTS (
-			    SELECT 1 FROM loan_applications la WHERE la.applicant_cif = cl.cbs_customer_id)
-			ORDER BY outstanding_principal_kobo DESC`)
+			SELECT cl.cbs_account_number, cl.cbs_customer_id, cl.raw->>'name' AS customer_name,
+			       cl.product_name, cl.status, cl.outstanding_principal_kobo
+			FROM cbs_loans cl WHERE `+unmatchedLoanWhere+`
+			ORDER BY cl.outstanding_principal_kobo DESC`)
 		unmatchedFDs := queryRows(ctx, db, `
-			SELECT cbs_account_number, cbs_customer_id, product_name, status, principal_kobo
-			FROM cbs_fixed_deposits cf
-			WHERE cf.cbs_customer_id = '' OR NOT EXISTS (
-			    SELECT 1 FROM fd_transactions fd WHERE fd.cif_number = cf.cbs_customer_id)
-			ORDER BY principal_kobo DESC`)
+			SELECT cf.cbs_account_number, cf.cbs_customer_id, cf.raw->>'name' AS customer_name,
+			       cf.product_name, cf.status, cf.principal_kobo
+			FROM cbs_fixed_deposits cf WHERE `+unmatchedFDWhere+`
+			ORDER BY cf.principal_kobo DESC`)
 
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
-			"loans":           firstRow(loanStats),
-			"fixed_deposits":  firstRow(fdStats),
-			"unmatched_loans": unmatchedLoans,
-			"unmatched_fds":   unmatchedFDs,
+			"customer_master_available": master,
+			"loans":                     firstRow(loanStats),
+			"fixed_deposits":            firstRow(fdStats),
+			"unmatched_loans":           unmatchedLoans,
+			"unmatched_fds":             unmatchedFDs,
 		})
 	}
 }

@@ -161,6 +161,7 @@ function Overview({ loan, fd, recon, loading }: { loan: LoanBook | null; fd: FDB
 function LoanTab({ data, loading }: { data: LoanBook | null; loading: boolean }) {
   const cols: TableCol[] = [
     { key: 'cbs_account_number', label: 'Account', render: r => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.cbs_account_number || '—'}</span> },
+    { key: 'customer_name', label: 'Customer', render: r => r.customer_name || '—' },
     { key: 'product_name', label: 'Product' },
     { key: 'status', label: 'Status', render: r => <StatusTag s={r.status} /> },
     { key: 'outstanding_principal_kobo', label: 'Outstanding', align: 'right', render: r => fmtKobo(r.outstanding_principal_kobo) },
@@ -198,6 +199,7 @@ function LoanTab({ data, loading }: { data: LoanBook | null; loading: boolean })
 function FDTab({ data, loading }: { data: FDBook | null; loading: boolean }) {
   const cols: TableCol[] = [
     { key: 'cbs_account_number', label: 'Account', render: r => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.cbs_account_number || '—'}</span> },
+    { key: 'customer_name', label: 'Customer', render: r => r.customer_name || '—' },
     { key: 'product_name', label: 'Product' },
     { key: 'status', label: 'Status', render: r => <StatusTag s={r.status} /> },
     { key: 'principal_kobo', label: 'Principal', align: 'right', render: r => fmtKobo(r.principal_kobo) },
@@ -235,14 +237,16 @@ function FDTab({ data, loading }: { data: FDBook | null; loading: boolean }) {
 function ReconTab({ data, loading }: { data: Recon | null; loading: boolean }) {
   const loanCols: TableCol[] = [
     { key: 'cbs_account_number', label: 'Account' },
-    { key: 'cbs_customer_id', label: 'CBS customer' },
+    { key: 'customer_name', label: 'Customer (per CBS)', render: r => r.customer_name || '—' },
+    { key: 'cbs_customer_id', label: 'CIF' },
     { key: 'product_name', label: 'Product' },
     { key: 'status', label: 'Status', render: r => <StatusTag s={r.status} /> },
     { key: 'outstanding_principal_kobo', label: 'Outstanding', align: 'right', render: r => fmtKobo(r.outstanding_principal_kobo) },
   ]
   const fdCols: TableCol[] = [
     { key: 'cbs_account_number', label: 'Account' },
-    { key: 'cbs_customer_id', label: 'CBS customer' },
+    { key: 'customer_name', label: 'Customer (per CBS)', render: r => r.customer_name || '—' },
+    { key: 'cbs_customer_id', label: 'CIF' },
     { key: 'product_name', label: 'Product' },
     { key: 'status', label: 'Status', render: r => <StatusTag s={r.status} /> },
     { key: 'principal_kobo', label: 'Principal', align: 'right', render: r => fmtKobo(r.principal_kobo) },
@@ -251,8 +255,9 @@ function ReconTab({ data, loading }: { data: Recon | null; loading: boolean }) {
   return (
     <>
       <div style={{ background: AMBER + '12', border: `1px solid ${AMBER}40`, borderRadius: 10, padding: SP[4], marginBottom: SP[6], color: TXT2, fontSize: 13 }}>
-        These CBS accounts have no matching workspace record (matched on CIF). Linking connects each to a workspace
-        customer so overlay data (officers, notes, approvals) and workflows attach to the right account.
+        Accounts are matched to the workspace customer master by CIF. The ones below belong to customers not
+        found in the master — likely created directly in Udara. Add them to the master (or link manually) so
+        overlay data (officers, notes, approvals) and workflows attach to the right customer.
       </div>
       <div style={grid(220)}>
         <KpiCard label="Loans linked" value={`${fmtNum(lt?.matched)} / ${fmtNum(lt?.cbs_total)}`} sub="matched to workspace" icon="link" accent={lt && lt.matched === lt.cbs_total ? GREEN : AMBER} loading={loading} />
