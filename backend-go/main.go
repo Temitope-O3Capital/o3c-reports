@@ -325,6 +325,11 @@ func main() {
 	})
 
 	// SSE stream — no JWT header (EventSource can't set headers); uses short-lived ticket
+	// App-wide realtime change-feed (ticket-authenticated, like notifications SSE).
+	r.Route("/api/events", func(r chi.Router) {
+		handlers.RegisterEvents(r, db)
+	})
+
 	r.Route("/api/notifications", func(r chi.Router) {
 		handlers.RegisterNotificationsSSE(r, db)
 		r.Group(func(r chi.Router) {
@@ -499,6 +504,7 @@ func main() {
 			handlers.RegisterCoreBanking(r, cbsClient)
 			handlers.RegisterCBSSync(r, cbsClient, db)
 			handlers.RegisterCBSReports(r, db)
+			handlers.RegisterCBSWrite(r, cbsClient, db)
 		})
 		r.Route("/api/cc-statements", func(r chi.Router) {
 			handlers.RegisterCCStatements(r, db)
