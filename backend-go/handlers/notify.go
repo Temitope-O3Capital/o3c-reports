@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/o3c/reports/core"
 )
@@ -245,7 +244,7 @@ func NotifyRoles(ctx context.Context, db *core.DB, roles []string, p NotifPayloa
 }
 
 func buildNotifEmail(title, body, actionURL, logoURL string) string {
-	appURL   := coalesce(os.Getenv("APP_URL"), "https://reports.o3cards.com")
+	appURL   := workspaceURL() // APP_BASE_URL → https://crm.o3cards.pri:8443
 	prefsURL := appURL + "/settings/notifications"
 
 	logoTag := ""
