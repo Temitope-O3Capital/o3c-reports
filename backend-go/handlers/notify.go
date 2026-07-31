@@ -214,23 +214,33 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 
 // NotifyRole sends to every active user with the given role.
 func NotifyRole(ctx context.Context, db *core.DB, role string, p NotifPayload) {
-	rows, _ := db.PGQuery(ctx,
-		`SELECT id FROM o3c_users WHERE role=$1 AND is_active=TRUE`, role)
-	for _, row := range rows {
-		uid, _ := row["id"].(int64)
-		if uid == 0 {
-			continue
-		}
-		cp := p
-		cp.UserID = uid
-		go Notify(ctx, db, cp)
-	}
+	NotifyRoles(ctx, db, []string{role}, p)
 }
 
 // NotifyRoles sends to all active users whose role is in the given list.
+// Admins are ALWAYS copied so they can track every alert (Temitope's request);
+// recipients are de-duplicated so no one is notified twice for one event.
 func NotifyRoles(ctx context.Context, db *core.DB, roles []string, p NotifPayload) {
-	for _, role := range roles {
-		NotifyRole(ctx, db, role, p)
+	roleSet := map[string]bool{"admin": true} // always copy admins
+	for _, r := range roles {
+		if r != "" {
+			roleSet[r] = true
+		}
+	}
+	seen := map[int64]bool{}
+	for role := range roleSet {
+		rows, _ := db.PGQuery(ctx,
+			`SELECT id FROM o3c_users WHERE role=$1 AND is_active=TRUE`, role)
+		for _, row := range rows {
+			uid, _ := row["id"].(int64)
+			if uid == 0 || seen[uid] {
+				continue
+			}
+			seen[uid] = true
+			cp := p
+			cp.UserID = uid
+			go Notify(ctx, db, cp)
+		}
 	}
 }
 

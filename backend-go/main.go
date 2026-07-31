@@ -112,6 +112,10 @@ func main() {
 	// Zoho Voice — import call logs every hour so the Calls page stays current.
 	go handlers.StartZohoAutoSync(db)
 
+	// Mail bounce monitor — poll SendGrid every 30m and alert admins about
+	// recipients whose mail bounced (e.g. an @o3cards.com mailbox that doesn't exist).
+	handlers.StartBounceMonitor(db)
+
 	// D8: MSSQL tunnel health monitor — pings every 60s, notifies IT Admin + CTO on failure.
 	if db.MS != nil {
 		go func() {
