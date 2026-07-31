@@ -62,6 +62,10 @@ func CSPNonceFromCtx(ctx context.Context) string {
 // HasPage reports whether the user has been granted the given page permission,
 // either via their role's built-in page list or their per-user page overrides.
 func (c *Claims) HasPage(page string) bool {
+	// admin is the super-user (app builder): unconditional access to every page.
+	if c.Role == "admin" {
+		return true
+	}
 	for _, p := range RolePages[c.Role] {
 		if p == page {
 			return true
@@ -304,6 +308,11 @@ func RequirePages(pages ...string) func(http.Handler) http.Handler {
 			user := UserFromCtx(r.Context())
 			if user == nil {
 				authErr(w, 401, "Unauthorized")
+				return
+			}
+			// admin is the super-user (app builder): bypass all page gating.
+			if user.Role == "admin" {
+				next.ServeHTTP(w, r)
 				return
 			}
 			allowed := make(map[string]bool)
