@@ -7,14 +7,15 @@ import { IcoBell } from '../lib/icons'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Notification {
-  id:         number
-  type:       string
-  severity:   'red' | 'blue' | 'amber' | 'green'
-  title:      string
-  body:       string
-  link:       string
-  read_at:    string | null
-  created_at: string
+  id:          number
+  type:        string
+  severity?:   'red' | 'blue' | 'amber' | 'green'
+  title:       string
+  body:        string
+  link?:       string
+  action_url?: string   // backend field name
+  read_at:     string | null
+  created_at:  string
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -46,8 +47,9 @@ export default function NotificationBell() {
 
   const load = useCallback(async () => {
     try {
-      const data = await apiFetch<{ items: Notification[]; unread_count: number }>('/api/notifications', { silent: true })
-      setItems(data.items ?? [])
+      // Backend returns { notifications: [...], unread_count, total }.
+      const data = await apiFetch<{ notifications?: Notification[]; items?: Notification[]; unread_count: number }>('/api/notifications', { silent: true })
+      setItems(data.notifications ?? data.items ?? [])
       setUnread(data.unread_count ?? 0)
     } catch {}
   }, [])
@@ -82,7 +84,8 @@ export default function NotificationBell() {
       setUnread(c => Math.max(0, c - 1))
     }
     setOpen(false)
-    if (n.link) navigate(n.link)
+    const link = n.link ?? n.action_url
+    if (link) navigate(link)
   }
 
   return (
@@ -175,7 +178,7 @@ export default function NotificationBell() {
                 {/* Severity dot */}
                 <div style={{
                   width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 5,
-                  background: SEVERITY_COLOR[n.severity] ?? GREEN,
+                  background: SEVERITY_COLOR[n.severity ?? ''] ?? GREEN,
                 }} />
                 {/* Content */}
                 <div style={{ flex: 1, minWidth: 0 }}>

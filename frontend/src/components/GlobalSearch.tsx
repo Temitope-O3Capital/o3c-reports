@@ -45,8 +45,9 @@ export default function GlobalSearch({ open, onClose }: Props) {
     setLoading(true)
     debounce.current = setTimeout(async () => {
       try {
-        const data = await apiFetch<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`)
-        setResults(Array.isArray(data) ? data : [])
+        // Backend wraps the array in { data: [...] }; tolerate a bare array too.
+        const data = await apiFetch<SearchResult[] | { data?: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}`)
+        setResults(Array.isArray(data) ? data : (data?.data ?? []))
       } catch {
         setResults([])
       } finally {
