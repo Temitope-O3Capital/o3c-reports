@@ -1,4 +1,15 @@
-export const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// API base. When VITE_API_URL is set (dev points at the local backend), use it.
+// In a production build it is left empty so requests are same-origin (relative) —
+// the on-prem server serves both the frontend and /api from one origin (Go on
+// :8000, or nginx on the domain proxying /api), so relative URLs are correct
+// regardless of host/port.
+const _apiBase = import.meta.env.VITE_API_URL as string | undefined
+export const API =
+  _apiBase != null && _apiBase !== ''
+    ? _apiBase
+    : import.meta.env.DEV
+      ? 'http://localhost:8000'
+      : ''
 
 export function getCsrfToken(): string {
   // Prefer localStorage — works cross-origin (Cloudflare Pages ↔ Railway).

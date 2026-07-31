@@ -112,6 +112,10 @@ func main() {
 	// Zoho Voice — import call logs every hour so the Calls page stays current.
 	go handlers.StartZohoAutoSync(db)
 
+	// Udara360 CBS — spool the core-banking book (products/loans/FDs) into the
+	// snapshot tables shortly after boot, then every CBS_SYNC_INTERVAL (default 1h).
+	go handlers.StartCBSSyncWorker(cbsClient, db)
+
 	// Mail bounce monitor — poll SendGrid every 30m and alert admins about
 	// recipients whose mail bounced (e.g. an @o3cards.com mailbox that doesn't exist).
 	handlers.StartBounceMonitor(db)
@@ -493,6 +497,8 @@ func main() {
 		})
 		r.Route("/api/cbs", func(r chi.Router) {
 			handlers.RegisterCoreBanking(r, cbsClient)
+			handlers.RegisterCBSSync(r, cbsClient, db)
+			handlers.RegisterCBSReports(r, db)
 		})
 		r.Route("/api/cc-statements", func(r chi.Router) {
 			handlers.RegisterCCStatements(r, db)
