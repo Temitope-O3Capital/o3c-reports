@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch } from '../lib/api'
+import { apiFetch, API } from '../lib/api'
 import { MONO, RED, BLUE, AMBER, GREEN } from '../lib/design'
 import { IcoBell } from '../lib/icons'
 
@@ -56,9 +56,48 @@ export default function NotificationBell() {
 
   useEffect(() => {
     load()
+    // Polling kept as a safety net (also re-syncs the authoritative unread count).
     const t = setInterval(load, 60_000)
     return () => clearInterval(t)
   }, [load])
+
+  // ── Real-time push via SSE ──────────────────────────────────────────────────
+  // Opens an EventSource that streams notifications created after connect (~4s
+  // latency). Reconnects with a fresh ticket if the stream drops or the ticket
+  // expires. Polling above stays as a fallback and count reconciliation.
+  useEffect(() => {
+    let es: EventSource | null = null
+    let closed = false
+    let retry: ReturnType<typeof setTimeout> | null = null
+
+    async function connect() {
+      if (closed) return
+      try {
+        const { ticket } = await apiFetch<{ ticket: string }>('/api/notifications/sse-ticket', { method: 'POST', silent: true })
+        if (closed) return
+        es = new EventSource(`${API}/api/notifications/sse?ticket=${encodeURIComponent(ticket)}`)
+        es.onmessage = ev => {
+          try {
+            const n = JSON.parse(ev.data) as Notification
+            if (!n || typeof n.id !== 'number') return
+            setItems(prev => prev.some(p => p.id === n.id) ? prev : [n, ...prev].slice(0, 50))
+            if (!n.read_at) setUnread(c => c + 1)
+          } catch { /* ignore keepalives / malformed frames */ }
+        }
+        es.onerror = () => {
+          // The browser would auto-retry with the same (possibly expired) ticket;
+          // close and reconnect manually so we mint a fresh ticket.
+          es?.close(); es = null
+          if (!closed && !retry) retry = setTimeout(() => { retry = null; connect() }, 5000)
+        }
+      } catch {
+        if (!closed && !retry) retry = setTimeout(() => { retry = null; connect() }, 5000)
+      }
+    }
+
+    connect()
+    return () => { closed = true; es?.close(); if (retry) clearTimeout(retry) }
+  }, [])
 
   // Close on outside click
   useEffect(() => {
