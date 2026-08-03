@@ -102,7 +102,7 @@ export default function CoreBanking() {
 
   const last = sync?.last_run
   const lastLabel = last?.finished_at
-    ? `Synced ${fmtDate(last.finished_at, { dateStyle: 'medium' })}`
+    ? `Live · synced ${fmtDatetime(last.finished_at)}`
     : 'Not yet synced'
 
   const tabs = [
