@@ -130,7 +130,7 @@ export default function FinanceBudget() {
     setLoading(true); setError(null)
     try {
       const data = await apiFetch<{ data: BudgetLine[] }>(`/api/finance/budget?period=${period}`)
-      setRows(data.data ?? [])
+      setRows(Array.isArray(data) ? data : (data?.data ?? []))
     } catch (e: any) {
       setError(e.message ?? 'Failed to load budget')
     } finally {

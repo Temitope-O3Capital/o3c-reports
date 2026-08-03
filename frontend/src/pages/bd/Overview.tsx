@@ -108,9 +108,9 @@ export default function BDOverview() {
         apiFetch<{ data: Lead[] }>(`/api/bd/leads?limit=500&from=${dateFrom}&to=${dateTo}`),
         apiFetch<{ data: Employer[] }>(`/api/bd/employers?limit=100`),
       ])
-      setStats(s.data ?? null)
-      setLeads(l.data ?? [])
-      setEmployers(e.data ?? [])
+      setStats((s?.data ?? s) ?? null)
+      setLeads(Array.isArray(l) ? l : (l?.data ?? []))
+      setEmployers(Array.isArray(e) ? e : (e?.data ?? []))
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
   }, [dateFrom, dateTo])

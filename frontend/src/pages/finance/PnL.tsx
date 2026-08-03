@@ -98,7 +98,7 @@ export default function FinancePnL() {
     if (product) params.set('product', product)
     setLoading(true)
     apiFetch<{ data: PnLData }>(`/api/finance/pnl?${params}`)
-      .then(r => setData(r.data ?? null))
+      .then(r => setData((r?.data ?? r) ?? null))
       .catch(() => setData(null))
       .finally(() => setLoading(false))
   }, [dateFrom, dateTo, product])

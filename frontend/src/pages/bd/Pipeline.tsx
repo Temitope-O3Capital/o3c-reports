@@ -188,7 +188,7 @@ export default function BDPipeline() {
         apiFetch<{ data: Lead[] }>('/api/bd/leads?limit=500'),
         apiFetch<{ data: PipelineKPIs }>('/api/bd/pipeline-kpis'),
       ])
-      setLeads(data.data ?? [])
+      setLeads(Array.isArray(data) ? data : (data?.data ?? []))
       setKpis(kpiRes.data)
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load leads')

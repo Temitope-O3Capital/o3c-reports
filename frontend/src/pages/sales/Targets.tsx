@@ -98,7 +98,7 @@ export default function SalesTargets() {
       ])
       setActuals(act?.data ?? [])
       setTargets(tgt?.data ?? [])
-      setUsers((usr?.data ?? []).filter((u: User) =>
+      setUsers((Array.isArray(usr) ? usr : (usr?.data ?? [])).filter((u: User) =>
         ['sales_officer','sales_head','bd_officer','bd_head'].includes(u.role)
       ))
     } catch (e: any) { setError(e.message) }

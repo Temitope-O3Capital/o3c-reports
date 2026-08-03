@@ -516,7 +516,7 @@ export default function BDMyDashboard() {
     setLoading(true); setError(null)
     try {
       const r = await apiFetch<{ my_dashboard: BDDash }>('/api/bd/my-dashboard')
-      setData(r.my_dashboard)
+      setData(((r as any)?.data ?? r) as BDDash)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])

@@ -95,8 +95,8 @@ export default function BlinkCard() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const res = await apiFetch<BlinkSummary>('/api/blink-card/summary')
-      setSummary(res)
+      const res = await apiFetch<any>('/api/blink-card/summary')
+      setSummary((res?.data ?? res) as BlinkSummary)
       // If the response has no rows or total is 0, treat as stub
       const rows = (res as any).status_breakdown as StatusRow[] | undefined
       const total = rows?.reduce((s, r) => s + Number(r.count ?? 0), 0) ?? 0
