@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
@@ -90,6 +91,7 @@ export default function RegulatoryCalendar() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   const uniqueRegulators = useMemo(() => [...new Set(rawItems.map(r => r.regulatory_body).filter(Boolean))] as string[], [rawItems])
 

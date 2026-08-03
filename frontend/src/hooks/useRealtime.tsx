@@ -5,8 +5,10 @@ import { apiFetch, API } from '../lib/api'
 // Topics emitted by the backend change-feed (/api/events/sse). Adding a topic
 // here + in events.go is all it takes to make a new data area live.
 const TOPICS = [
-  'tickets', 'loans', 'settlements', 'settlement_exceptions',
-  'manual_postings', 'recovery', 'crm', 'repayments',
+  'tickets', 'loans', 'repayments', 'settlements', 'settlement_exceptions',
+  'manual_postings', 'collections', 'recovery', 'cards', 'fixed_deposits',
+  'crm', 'deals', 'tasks', 'campaigns', 'compliance', 'finance', 'hr',
+  'payroll', 'users',
 ] as const
 
 type Listener = () => void

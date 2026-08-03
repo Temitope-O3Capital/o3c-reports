@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
@@ -90,6 +91,7 @@ export default function Training() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['hr','payroll'] })
 
   async function handleCreate() {
     if (!form.title) { toast.error('Training name is required'); return }

@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
@@ -79,6 +80,7 @@ export default function TelemarketingDNC() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   useEffect(() => {
     setKpiLoading(true)

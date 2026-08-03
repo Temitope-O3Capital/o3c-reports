@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -48,6 +49,7 @@ export default function AuditTrail() {
   }, [from, to])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   const uniqueModules = useMemo(() => [...new Set(allLogs.map(l => l.entity_type).filter(Boolean))] as string[], [allLogs])
   const uniqueActions = useMemo(() => [...new Set(allLogs.map(l => l.action).filter(Boolean))] as string[], [allLogs])

@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
@@ -421,6 +422,7 @@ export default function WriteoffRequests() {
   }, [statusTab])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['collections','loans'] })
 
   const STATUS_TABS: { key: StatusFilter; label: string }[] = [
     { key: 'pending',  label: 'Pending' },

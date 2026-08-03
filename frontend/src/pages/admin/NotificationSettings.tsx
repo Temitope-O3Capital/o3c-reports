@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -72,6 +73,7 @@ export default function AdminNotificationSettings() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['users'] })
 
   // Group the flat rows into one entry per event, keyed by channel.
   const events = useMemo(() => {

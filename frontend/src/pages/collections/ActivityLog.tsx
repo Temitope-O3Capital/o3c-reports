@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, KpiCard, DataTable, ErrBanner, DateFilter, filterInputStyle,
@@ -201,6 +202,7 @@ export default function CollectionsActivityLog() {
   }, [dateFrom, dateTo, filterAction, filterEntity, page])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['collections','loans'] })
 
   // Reset to page 1 when filters change (but not page itself)
   useEffect(() => { setPage(1) }, [dateFrom, dateTo, filterAction, filterEntity])

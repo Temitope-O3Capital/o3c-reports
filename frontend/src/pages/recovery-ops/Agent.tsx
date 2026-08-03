@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
@@ -84,6 +85,7 @@ export default function RecoveryAgentDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['recovery'] })
 
   const displayedCases = useMemo(() => {
     const rows = data?.cases ?? []

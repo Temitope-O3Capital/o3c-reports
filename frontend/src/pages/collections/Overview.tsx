@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
@@ -159,6 +160,7 @@ export default function CollectionsOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['collections','loans'] })
 
   const kpiLoading = loading && !kpis
   const collectedMTD = agents.reduce((s, a) => s + Number(a.total ?? 0), 0)

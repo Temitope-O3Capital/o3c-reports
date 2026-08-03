@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -170,6 +171,7 @@ export default function Checklists() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   return (
     <Page title="Compliance Checklists" subtitle="Periodic compliance verification checklists">

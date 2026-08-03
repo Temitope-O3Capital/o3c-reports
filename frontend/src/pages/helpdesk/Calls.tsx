@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -305,6 +306,7 @@ export default function Calls() {
   }, [buildQS])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['tickets'] })
 
   useEffect(() => {
     if (!logOpen || !logForm.ticket_type) { setCallScript(null); return }

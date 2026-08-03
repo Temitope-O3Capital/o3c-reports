@@ -1,3 +1,4 @@
+import { useLiveData } from "../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import DOMPurify from 'dompurify'
@@ -534,6 +535,7 @@ function NotificationsTab() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   function toggle(eventType: string, channel: string) {
     setPrefs(prev => prev.map(p =>

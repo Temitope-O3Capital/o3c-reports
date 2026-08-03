@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -310,6 +311,7 @@ export default function FinanceFixedDeposit() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['finance','manual_postings'] })
 
   const filtered = useMemo(() => rows.filter(r => {
     if (fStatuses.size > 0 && !fStatuses.has(r.transaction_type)) return false

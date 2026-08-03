@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, Spinner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -57,6 +58,7 @@ export default function FDAccrual() {
   }, [asOf])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['finance','manual_postings'] })
 
   const totalAccrued = rows.reduce((s, r) => s + Number(r.accrued_interest_kobo ?? 0), 0)
   const totalDaily   = rows.reduce((s, r) => s + Number(r.daily_interest_kobo ?? 0), 0)

@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, KpiCard, DataTable, ErrBanner, Spinner, ExpandableFilterBar } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
@@ -74,6 +75,7 @@ export default function CardsMyQueue() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['cards'] })
 
   const issuanceQueue = useMemo(() => (data?.issuance_queue ?? []).filter(r => {
     if (iPriorities.size && !iPriorities.has(r.priority?.toLowerCase())) return false

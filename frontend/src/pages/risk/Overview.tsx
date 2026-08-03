@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -146,6 +147,7 @@ export default function RiskOverview() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['loans'] })
 
   const approvalRate = reviewKPIs
     ? (reviewKPIs.approved + reviewKPIs.declined > 0

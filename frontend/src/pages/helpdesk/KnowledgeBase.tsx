@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Page, ExpandableFilterBar, ErrBanner, Modal, ConfirmModal, Spinner } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
@@ -211,6 +212,7 @@ export default function KnowledgeBase() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['tickets'] })
 
   // Client-side filtering
   const filtered = useMemo(() => articles.filter(a => {

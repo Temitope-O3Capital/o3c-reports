@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, Modal, Spinner, ExpandableFilterBar, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -224,6 +225,7 @@ export default function BDAssignments() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['deals','crm'] })
 
   const filtered = useMemo(() => rows.filter(r => {
     if (fStatuses.size && !fStatuses.has(r.status)) return false

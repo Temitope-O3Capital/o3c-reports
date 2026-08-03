@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -64,6 +65,7 @@ export default function PrudentialRatios() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   return (
     <Page title="Prudential Ratios" subtitle="CBN-required portfolio health indicators">

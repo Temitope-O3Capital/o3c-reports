@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, KpiCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -113,6 +114,7 @@ export default function BDAnalytics() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['deals','crm'] })
 
   const totalLeads    = leads.length
   const wonLeads      = leads.filter(l => l.stage === 'won').length

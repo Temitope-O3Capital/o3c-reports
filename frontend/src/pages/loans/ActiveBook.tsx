@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import type { CSSProperties } from 'react'
 import {
@@ -245,6 +246,7 @@ export default function ActiveLoanBook() {
   }, [search, dpdBucket])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   // Compute avg DPD from loaded rows (only over current visible set)
   const avgDpd = loans.length > 0

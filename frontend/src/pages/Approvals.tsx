@@ -1,3 +1,4 @@
+import { useLiveData } from "../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -100,6 +101,7 @@ export default function Approvals() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   const filtered = moduleFilter
     ? items.filter(i => i.module === moduleFilter)

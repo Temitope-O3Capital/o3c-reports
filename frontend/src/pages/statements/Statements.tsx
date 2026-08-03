@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Page, SectionCard, DataTable, Tabs, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -652,6 +653,7 @@ function HistoryTab() {
   }, [limit])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   const filtered = useMemo(() => {
     if (!search) return rows

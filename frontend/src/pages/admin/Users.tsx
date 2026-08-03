@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, ConfirmModal, NameCell, ActionRow, StatusBadge, avatarColor, nameInitials } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
@@ -395,6 +396,7 @@ export default function AdminUsers() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['users'] })
   useEffect(() => { setPage(1) }, [search, fRoles, fStatuses, fDepts])
 
   async function resetUserPassword(userId: number) {

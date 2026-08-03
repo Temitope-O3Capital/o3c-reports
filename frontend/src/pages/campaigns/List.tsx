@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -140,6 +141,7 @@ export default function CampaignsList() {
   }
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   async function doAction(id: number, action: 'start' | 'pause' | 'cancel') {
     setActionErr(null)

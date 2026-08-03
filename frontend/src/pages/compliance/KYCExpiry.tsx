@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
@@ -76,6 +77,7 @@ export default function KYCExpiry() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   async function handleKYCAction(cif: string, action: string) {
     try {

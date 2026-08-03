@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   Page, KpiCard, SectionCard, DataTable, ErrBanner, Tabs,
@@ -218,6 +219,7 @@ export default function CreditPortfolio() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   async function openDetail(id: number) {
     setDetailLoading(true)

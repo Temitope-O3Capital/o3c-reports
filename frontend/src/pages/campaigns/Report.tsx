@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
@@ -698,6 +699,7 @@ export default function CampaignDetail() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   const canEdit    = campaign?.status === 'draft' || campaign?.status === 'scheduled'
   const isSMS      = campaign?.type === 'sms'       || campaign?.type === 'multi'

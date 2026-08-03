@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
 import {
   Page, SectionCard, KpiCard, ErrBanner, DateFilter, Spinner, filterInputStyle,
@@ -340,6 +341,7 @@ export default function CreditAuditTrail() {
   }, [dateFrom, dateTo, filterModule, filterAction, filterActorId, filterCif, filterEntity, page])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   // Reset to page 1 when non-page filters change
   useEffect(() => {

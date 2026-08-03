@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
@@ -181,6 +182,7 @@ export default function RecoveryPaymentApprovals() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['collections','loans'] })
 
   const totalPendingKobo = rows.reduce((s, r) => s + r.amount_kobo, 0)
 

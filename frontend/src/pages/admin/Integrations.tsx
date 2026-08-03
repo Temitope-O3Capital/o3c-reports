@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, Modal } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -123,6 +124,7 @@ export default function AdminIntegrations() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['users'] })
 
   async function handleCreate(body: Partial<Integration>) {
     setSaving(true)

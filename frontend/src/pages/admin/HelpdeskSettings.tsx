@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Modal, ConfirmModal, Spinner, Tabs } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
@@ -220,6 +221,7 @@ export default function HelpdeskSettings() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['users'] })
 
   useEffect(() => {
     if (activeTab === 'scripts') loadScripts()

@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar, Modal, ConfirmModal,
@@ -514,6 +515,7 @@ export default function ContactLists() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   async function create() {
     if (!name.trim()) return

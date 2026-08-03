@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, Tabs } from '../../components/UI'
@@ -608,6 +609,7 @@ export default function ContactProfile() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   if (loading) return (
     <Page title="Contact Profile">

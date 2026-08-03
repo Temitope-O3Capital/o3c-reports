@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, DateFilter, NameCell,
@@ -242,6 +243,7 @@ export default function TelemarketingLeads() {
   }, [campaignId, status, search, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   useEffect(() => {
     apiFetch<TMCampaign[]>('/api/telemarketing/campaigns')

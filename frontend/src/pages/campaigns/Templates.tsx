@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -82,6 +83,7 @@ export default function CampaignTemplates() {
   }, [fChannels, fCategories, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   const displayed = useMemo(() =>
     search

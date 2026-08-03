@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, ErrBanner, Spinner, Modal, DataTable, DateFilter,
@@ -105,6 +106,7 @@ export default function SalesTargets() {
   }, [period, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['deals','crm'] })
 
   async function handleSave() {
     setSaving(true)

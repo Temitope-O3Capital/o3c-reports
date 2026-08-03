@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, DataTable, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -67,6 +68,7 @@ export default function Attribution() {
   }, [from, to])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['campaigns'] })
 
   const maxApps    = Math.max(1, ...campaigns.map(c => c.contacts_reached))
   const totalDisb  = campaigns.reduce((s, c) => s + c.disbursement_kobo, 0)

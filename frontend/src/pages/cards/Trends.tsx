@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis,
@@ -145,6 +146,7 @@ export default function CardTrends() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['cards'] })
 
   const delinquent = (kpis?.terminated ?? 0) + (kpis?.legal_suspended ?? 0)
 

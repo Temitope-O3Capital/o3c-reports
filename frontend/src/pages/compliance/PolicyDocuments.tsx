@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, btnPrimary, btnSecondary } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -252,6 +253,7 @@ export default function PolicyDocuments() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   function handleSaved(updated: PolicyDoc) {
     setDocs(prev => prev.map(d => d.id === updated.id ? updated : d))

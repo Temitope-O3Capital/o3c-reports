@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -139,6 +140,7 @@ export default function HelpdeskStats() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['tickets'] })
 
   const donutTotal = typeDist.reduce((s, d) => s + d.count, 0)
 

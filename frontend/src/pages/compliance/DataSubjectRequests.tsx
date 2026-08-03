@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, DataTable, ExpandableFilterBar, Modal, btnPrimary, btnSecondary, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -83,6 +84,7 @@ export default function DataSubjectRequests() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   const create = async () => {
     if (!formType) { toast.error('Request type is required'); return }

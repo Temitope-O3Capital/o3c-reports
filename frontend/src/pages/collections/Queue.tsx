@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -888,6 +889,7 @@ export default function CollectionsQueue() {
   }, [items, fContact, search])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['collections','loans'] })
 
   const groups: FilterGroupDef[] = [
     {

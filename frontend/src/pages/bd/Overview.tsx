@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -115,6 +116,7 @@ export default function BDOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['deals','crm'] })
 
   const pipeline      = stats?.pipeline ?? []
   const totalLeads    = leads.length

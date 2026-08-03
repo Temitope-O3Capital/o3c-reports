@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -121,6 +122,7 @@ export default function OrgChart() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['hr','payroll'] })
 
   const roots = buildTree(
     query

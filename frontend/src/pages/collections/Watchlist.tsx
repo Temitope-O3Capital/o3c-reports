@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, KpiCard, DataTable, ErrBanner, Modal, Spinner,
@@ -192,6 +193,7 @@ export default function Watchlist() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['collections','loans'] })
 
   // ── KPIs ──────────────────────────────────────────────────────────────────────
 

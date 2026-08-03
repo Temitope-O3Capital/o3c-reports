@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import { Page, SectionCard, KpiCard, DataTable, ErrBanner, Spinner } from '../../components/UI'
@@ -79,6 +80,7 @@ export default function HelpdeskMyDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['tickets'] })
 
   if (loading) return (
     <Page title="My Helpdesk Dashboard" back={{ label: 'Helpdesk', to: '/helpdesk/tickets' }}>

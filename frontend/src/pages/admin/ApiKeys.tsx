@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, SearchInput } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -183,6 +184,7 @@ export default function AdminApiKeys() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['users'] })
 
   const categories = [...new Set(rows.map(r => r.category))].sort()
 

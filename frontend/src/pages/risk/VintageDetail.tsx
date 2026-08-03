@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
@@ -236,6 +237,7 @@ export default function VintageDetail() {
   }, [month])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['loans'] })
 
   const filteredLoans = useMemo(
     () => filterByDPD(detail?.loans ?? [], dpdFilter),

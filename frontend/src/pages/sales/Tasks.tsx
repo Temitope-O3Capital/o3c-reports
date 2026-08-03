@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
@@ -103,6 +104,7 @@ export default function CRMTasks() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['deals','crm'] })
 
   const filteredTasks = useMemo(() => tasks.filter(t => {
     if (fStatuses.size) {

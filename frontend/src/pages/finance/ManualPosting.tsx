@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, ExpandableFilterBar, ErrBanner, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
@@ -185,6 +186,7 @@ export default function FinanceManualPosting() {
   }, [fStatuses, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['finance','manual_postings'] })
 
   async function handleBulkApprove() {
     const ids = [...sel].filter(id => rows.find(r => r.id === id)?.status === 'pending')

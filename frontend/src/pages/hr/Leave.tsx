@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
@@ -94,6 +95,7 @@ export default function Leave() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['hr','payroll'] })
 
   async function handleCreate() {
     if (!form.start_date || !form.end_date || !form.leave_type_id) { toast.error('All required fields must be filled'); return }

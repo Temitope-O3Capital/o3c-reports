@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, DataTable, ExpandableFilterBar, Modal, btnPrimary, btnSecondary } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -69,6 +70,7 @@ export default function CreditBureau() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   const download = async () => {
     if (!dlMonth) { toast.error('Select a month first'); return }

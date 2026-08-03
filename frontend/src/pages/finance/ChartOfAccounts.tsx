@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Page, SectionCard, DataTable, StatusBadge, filterInputStyle, SearchInput, ErrBanner, Spinner, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
@@ -254,6 +255,7 @@ export default function FinanceChartOfAccounts() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['finance','manual_postings'] })
 
   const activeFilterCount = (classFilter ? 1 : 0)
 

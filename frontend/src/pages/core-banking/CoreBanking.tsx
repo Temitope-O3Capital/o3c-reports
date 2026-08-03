@@ -4,7 +4,7 @@ import {
   type TableCol,
 } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtPct, fmtDate, fmtNum, n } from '../../lib/fmt'
+import { fmtKobo, fmtPct, fmtDate, fmtDatetime, fmtNum, n } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, FW, SP } from '../../lib/design'
 
 // ── Types (mirror /api/cbs/reports/* and /api/cbs/sync/status) ────────────────
@@ -62,8 +62,11 @@ export default function CoreBanking() {
   const [err, setErr] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
 
-  async function load() {
-    setLoading(true); setErr(null)
+  // load pulls all report data. Pass silent=true for the background auto-refresh so
+  // the view updates in place without flashing skeletons or surfacing transient errors.
+  async function load(silent = false) {
+    if (!silent) setLoading(true)
+    if (!silent) setErr(null)
     try {
       const [lb, fb, rc, ss] = await Promise.all([
         apiFetch<LoanBook>('/api/cbs/reports/loan-book'),
@@ -73,12 +76,17 @@ export default function CoreBanking() {
       ])
       setLoan(lb); setFD(fb); setRecon(rc); setSync(ss)
     } catch (e: any) {
-      setErr(e?.message || 'Failed to load core banking data')
+      if (!silent) setErr(e?.message || 'Failed to load core banking data')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
-  useEffect(() => { load() }, [])
+  // Initial load + live auto-refresh every 60s (matches the backend's 1-min sync).
+  useEffect(() => {
+    load()
+    const id = setInterval(() => load(true), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   async function runSync() {
     setSyncing(true); setErr(null)

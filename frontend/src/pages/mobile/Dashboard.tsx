@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { Page, KpiCard, SectionCard, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -90,6 +91,7 @@ export default function MobileAppDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   const stub = isStub(data)
   const s = data?.summary?.[0]

@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Modal, ConfirmModal, StatusBadge, btnPrimary, Spinner, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -72,6 +73,7 @@ export default function BreachIncidents() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   async function handleCreate() {
     if (!form.title) { toast.error('Title is required'); return }

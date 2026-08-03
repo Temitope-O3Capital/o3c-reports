@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, ExpandableFilterBar, ErrBanner, Sk, DateFilter } from '../../components/UI'
@@ -135,6 +136,7 @@ export default function VintageAnalysis() {
   }, [buildQS])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['loans'] })
 
   const kpiLoading = loading && !kpis
 

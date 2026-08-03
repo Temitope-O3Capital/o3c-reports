@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -681,6 +682,7 @@ export default function RecoveryCases() {
   }, [fStatusKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['recovery'] })
 
   const displayed = useMemo(() => {
     if (!search.trim()) return cases

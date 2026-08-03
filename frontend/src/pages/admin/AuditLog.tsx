@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, SearchInput, DateFilter, NameCell, ActionRow, Modal } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
@@ -70,6 +71,7 @@ export default function AdminAuditLog() {
   }, [limit, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['users'] })
 
   const cols: TableCol<LogEntry>[] = [
     { key: 'ts', label: 'Time', sortable: true, width: 155,

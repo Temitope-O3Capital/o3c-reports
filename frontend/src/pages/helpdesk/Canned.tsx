@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Modal, ConfirmModal, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
@@ -112,6 +113,7 @@ export default function Canned() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['tickets'] })
 
   function openNew() {
     setForm(EMPTY_FORM)

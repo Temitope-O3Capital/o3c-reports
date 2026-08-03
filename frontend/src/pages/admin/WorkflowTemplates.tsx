@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
@@ -278,6 +279,7 @@ export default function WorkflowTemplates() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['users'] })
 
   async function handleDelete() {
     if (!deleting) return

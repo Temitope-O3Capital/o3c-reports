@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, DateFilter, NameCell, StatusBadge } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
@@ -204,6 +205,7 @@ export default function CardsIssuance() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['cards'] })
 
   const cols: TableCol<IssuanceRequest>[] = useMemo(() => [
     { key: 'customer_name', label: 'Customer',

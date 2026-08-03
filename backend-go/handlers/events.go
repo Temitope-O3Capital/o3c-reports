@@ -4,35 +4,115 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
 )
 
-// liveTopics maps a realtime topic name → a cheap signature query (row count +
-// latest change timestamp). A single central poller diffs these every few
-// seconds and pushes the topic name to all connected clients when it changes,
-// so pages can refetch without any per-write-handler wiring. Per-topic query
-// errors are ignored (that topic simply never signals — pages still have their
-// own polling / focus-refresh as a fallback).
+// liveTopics maps a realtime topic → a cheap signature query (row count + latest
+// change marker). One global poller diffs these every few seconds and broadcasts
+// the changed topic to every connected client, so pages refetch without any
+// per-write-handler wiring. Per-topic query errors are ignored (that topic just
+// never signals; pages still have focus-refresh as a fallback).
 var liveTopics = []struct{ Name, SQL string }{
 	{"tickets", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM helpdesk_tickets`},
 	{"loans", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM loan_applications`},
+	{"repayments", `SELECT COUNT(*)||':'||COALESCE(MAX(created_at)::text,'') FROM loan_repayments`},
 	{"settlements", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM settlement_batches`},
 	{"settlement_exceptions", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM settlement_exceptions`},
 	{"manual_postings", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM manual_postings`},
+	{"collections", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM collection_assignments`},
 	{"recovery", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM recovery_cases`},
+	{"cards", `SELECT COUNT(*)||':'||COALESCE(MAX(id)::text,'0') FROM card_cycle_data`},
+	{"fixed_deposits", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM fd_transactions`},
 	{"crm", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM crm_contacts`},
-	{"repayments", `SELECT COUNT(*)||':'||COALESCE(MAX(created_at)::text,'') FROM loan_repayments`},
+	{"deals", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM crm_deals`},
+	{"tasks", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM crm_tasks`},
+	{"campaigns", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM campaigns`},
+	{"compliance", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM audit_findings`},
+	{"finance", `SELECT COUNT(*)||':'||COALESCE(MAX(created_at)::text,'') FROM gl_journal_entries`},
+	{"hr", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM leave_applications`},
+	{"payroll", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM payroll_runs`},
+	{"users", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM o3c_users`},
+}
+
+// ── Event hub — one poller, many subscribers ────────────────────────────────
+
+type eventHub struct {
+	mu   sync.Mutex
+	subs map[chan string]struct{}
+}
+
+var hub = &eventHub{subs: map[chan string]struct{}{}}
+var hubOnce sync.Once
+
+func (h *eventHub) add() chan string {
+	ch := make(chan string, 32)
+	h.mu.Lock()
+	h.subs[ch] = struct{}{}
+	h.mu.Unlock()
+	return ch
+}
+
+func (h *eventHub) remove(ch chan string) {
+	h.mu.Lock()
+	if _, ok := h.subs[ch]; ok {
+		delete(h.subs, ch)
+		close(ch)
+	}
+	h.mu.Unlock()
+}
+
+func (h *eventHub) broadcast(topic string) {
+	h.mu.Lock()
+	for ch := range h.subs {
+		select {
+		case ch <- topic:
+		default: // slow client — drop; its next focus-refresh reconciles
+		}
+	}
+	h.mu.Unlock()
+}
+
+// startEventPoller runs a single background goroutine that diffs every topic
+// every 4s and broadcasts changes. Query load is independent of client count.
+func startEventPoller(db *core.DB) {
+	hubOnce.Do(func() {
+		go func() {
+			ctx := context.Background()
+			sig := make(map[string]string, len(liveTopics))
+			for _, t := range liveTopics {
+				if s, ok := topicSig(ctx, db, t.SQL); ok {
+					sig[t.Name] = s
+				}
+			}
+			tick := time.NewTicker(4 * time.Second)
+			defer tick.Stop()
+			for range tick.C {
+				for _, t := range liveTopics {
+					s, ok := topicSig(ctx, db, t.SQL)
+					if !ok {
+						continue
+					}
+					if sig[t.Name] != s {
+						sig[t.Name] = s
+						hub.broadcast(t.Name)
+					}
+				}
+			}
+		}()
+	})
 }
 
 // RegisterEvents mounts the app-wide change-feed SSE (ticket-authenticated).
 func RegisterEvents(r chi.Router, db *core.DB) {
-	r.Get("/sse", eventsSSE(db))
+	startEventPoller(db)
+	r.Get("/sse", eventsSSE())
 }
 
-func eventsSSE(db *core.DB) http.HandlerFunc {
+func eventsSSE() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ticket := r.URL.Query().Get("ticket")
 		if ticket == "" {
@@ -51,19 +131,13 @@ func eventsSSE(db *core.DB) http.HandlerFunc {
 		rc := http.NewResponseController(w)
 		ctx := r.Context()
 
-		// Seed signatures so we only push changes that occur after connect.
-		sig := make(map[string]string, len(liveTopics))
-		for _, t := range liveTopics {
-			if s, ok := topicSig(ctx, db, t.SQL); ok {
-				sig[t.Name] = s
-			}
-		}
+		ch := hub.add()
+		defer hub.remove(ch)
+
 		fmt.Fprint(w, ":ok\n\n") //nolint:errcheck
 		rc.Flush()               //nolint:errcheck
 
-		poll := time.NewTicker(4 * time.Second)
 		heartbeat := time.NewTicker(25 * time.Second)
-		defer poll.Stop()
 		defer heartbeat.Stop()
 
 		for {
@@ -73,22 +147,12 @@ func eventsSSE(db *core.DB) http.HandlerFunc {
 			case <-heartbeat.C:
 				fmt.Fprint(w, ":hb\n\n") //nolint:errcheck
 				rc.Flush()               //nolint:errcheck
-			case <-poll.C:
-				changed := false
-				for _, t := range liveTopics {
-					s, ok := topicSig(ctx, db, t.SQL)
-					if !ok {
-						continue
-					}
-					if sig[t.Name] != s {
-						sig[t.Name] = s
-						fmt.Fprintf(w, "event: %s\ndata: %s\n\n", t.Name, s) //nolint:errcheck
-						changed = true
-					}
+			case topic, ok := <-ch:
+				if !ok {
+					return
 				}
-				if changed {
-					rc.Flush() //nolint:errcheck
-				}
+				fmt.Fprintf(w, "event: %s\ndata: 1\n\n", topic) //nolint:errcheck
+				rc.Flush()                                      //nolint:errcheck
 			}
 		}
 	}

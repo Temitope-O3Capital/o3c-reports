@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { Page, SectionCard, DataTable, FilterBar, filterInputStyle, ErrBanner, Sk, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -156,6 +157,7 @@ export default function KPITracker() {
   }, [period, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   // History table columns
   const historyCols: TableCol<KPIHistoryRow>[] = [

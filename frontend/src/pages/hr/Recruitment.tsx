@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, ErrBanner, Spinner, Modal, DataTable, DateFilter,
@@ -106,6 +107,7 @@ export default function Recruitment() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['hr','payroll'] })
 
   const uniqueSources = useMemo(() => [...new Set(applicants.map(a => a.source).filter(Boolean))] as string[], [applicants])
 

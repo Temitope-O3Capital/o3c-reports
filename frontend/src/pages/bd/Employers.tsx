@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, Modal, Spinner, ExpandableFilterBar, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -217,6 +218,7 @@ function StaffRosterModal({
   }, [employer.id])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['deals','crm'] })
 
   const set = (k: keyof typeof EMPTY_STAFF) =>
     (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [k]: e.target.value }))

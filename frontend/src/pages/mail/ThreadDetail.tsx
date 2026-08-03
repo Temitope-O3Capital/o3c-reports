@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import DOMPurify from 'dompurify'
@@ -149,6 +150,7 @@ export default function MailThreadDetail() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   // Auto-focus reply box when navigated from inbox Reply button
   useEffect(() => {

@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import {
@@ -126,6 +127,7 @@ export default function WriteoffQueue() {
   }, [fDpdRangeKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['collections','loans'] })
 
   const displayed = useMemo(() => {
     if (!search.trim()) return rows

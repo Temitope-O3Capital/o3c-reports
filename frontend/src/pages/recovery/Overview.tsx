@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import {
   ResponsiveContainer, AreaChart, Area,
@@ -195,6 +196,7 @@ export default function RecoveryOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['recovery'] })
 
   const kpiLoading = loading && !kpis
 

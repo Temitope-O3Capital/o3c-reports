@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, DataTable, Modal, ConfirmModal, btnPrimary, btnSecondary, btnDanger, DateFilter } from '../../components/UI'
@@ -75,6 +76,7 @@ export default function ScheduledReports() {
   }, [formReport, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   const createSchedule = async () => {
     if (!formReport || !formCron.trim()) { toast.error('Select a report and enter a cron expression'); return }

@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, NameCell, ActionRow, KpiCard } from '../../components/UI'
@@ -105,6 +106,7 @@ export default function MyAccounts() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['deals','crm'] })
 
   const dpd0   = accounts.filter(a => a.max_dpd === 0).length
   const dpd30  = accounts.filter(a => a.max_dpd > 0 && a.max_dpd < 30).length

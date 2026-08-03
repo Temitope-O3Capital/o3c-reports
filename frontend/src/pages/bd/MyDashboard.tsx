@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, DataTable, ErrBanner } from '../../components/UI'
@@ -521,6 +522,7 @@ export default function BDMyDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['deals','crm'] })
 
   const k = data?.kpis
 

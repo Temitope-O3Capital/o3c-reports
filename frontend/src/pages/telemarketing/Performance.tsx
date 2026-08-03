@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import {
   ResponsiveContainer, BarChart, Bar,
@@ -212,6 +213,7 @@ export default function TelemarketingPerformance() {
   }, [agent, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   const kpiLoading = loading && !kpis
 

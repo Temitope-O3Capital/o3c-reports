@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Spinner,
@@ -194,6 +195,7 @@ export default function DialerCampaigns() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   const displayedCampaigns = useMemo(() => campaigns.filter(c => {
     if (dialerStatuses.size && !dialerStatuses.has(c.status)) return false

@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, DataTable, FilterBar, filterInputStyle, ErrBanner, DateFilter } from '../../components/UI'
@@ -95,6 +96,7 @@ export default function CampaignAnalytics() {
   }, [dateFrom, dateTo, channel])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   const s = data?.summary
   const topCols: TableCol<TopCampaign>[] = [

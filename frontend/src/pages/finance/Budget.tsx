@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -138,6 +139,7 @@ export default function FinanceBudget() {
   }, [period])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['finance','manual_postings'] })
 
   const centres = [...new Set(rows.map(l => l.cost_centre))]
   const filtered = useMemo(() => rows.filter(l => {

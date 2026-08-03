@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, ErrBanner, DateFilter, filterInputStyle } from '../../components/UI'
@@ -95,6 +96,7 @@ export default function SalesCohort() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['deals','crm'] })
 
   const reg    = Number(funnel?.registered  ?? 0)
   const issued = Number(funnel?.card_issued ?? 0)

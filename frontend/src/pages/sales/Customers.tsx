@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, lazy, Suspense, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -117,6 +118,7 @@ export default function CRMContacts() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['deals','crm'] })
 
   const uniqueAssigneeNames = useMemo(
     () => [...new Set(contacts.map(c => c.assigned_name).filter(Boolean))] as string[],

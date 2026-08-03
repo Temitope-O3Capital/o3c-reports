@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
@@ -2093,6 +2094,7 @@ export default function ApplicationDetail() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['loans'] })
 
   async function doAdvance() {
     if (!toStage) { toast.error('Select a target stage'); return }

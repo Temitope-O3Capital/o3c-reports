@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, Spinner, filterInputStyle, DateFilter,
@@ -228,6 +229,7 @@ export default function DebtSales() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['recovery'] })
 
   const displayed = useMemo(() => {
     if (!search.trim()) return sales

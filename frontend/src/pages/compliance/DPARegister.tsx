@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, Modal, btnPrimary, btnSecondary, DateFilter } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -94,6 +95,7 @@ export default function DPARegister() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   const create = async () => {
     if (!fName || !fPurpose || !fBasis) { toast.error('Name, purpose and legal basis are required'); return }

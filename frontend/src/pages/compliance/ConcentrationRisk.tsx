@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -48,6 +49,7 @@ export default function ConcentrationRisk() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['compliance'] })
 
   const th: React.CSSProperties = {
     textAlign: 'left', padding: '8px 14px', fontWeight: FW.bold, fontSize: TEXT.xs,

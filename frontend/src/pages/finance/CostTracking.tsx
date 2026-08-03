@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Page, SectionCard, DataTable, filterInputStyle, ExpandableFilterBar, ErrBanner, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
@@ -200,6 +201,7 @@ export default function FinanceCostTracking() {
   }, [fDepts, fCats, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['finance','manual_postings'] })
 
   const filtered = useMemo(() => rows.filter(r => {
     if (search) {

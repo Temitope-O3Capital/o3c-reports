@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
@@ -48,6 +49,7 @@ export default function AdminModules() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['users'] })
 
   const toggle = useCallback(async (mod: Module) => {
     setToggling(mod.key)

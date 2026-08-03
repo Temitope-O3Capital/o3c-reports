@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -91,6 +92,7 @@ export default function Funnel() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['campaigns'] })
 
   const customerSteps: FunnelStep[] = [
     { label: 'Total Contacts (CIF)', value: salesFunnel?.contacts        ?? 0, color: NAVY  },

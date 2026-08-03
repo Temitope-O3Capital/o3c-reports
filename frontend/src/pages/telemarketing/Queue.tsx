@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -540,6 +541,7 @@ export default function TelemarketingQueue() {
   }, [priority, disposition, dpd, search, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load)
 
   // Derived stats
   const highCount = items.filter(i => i.priority === 'High').length

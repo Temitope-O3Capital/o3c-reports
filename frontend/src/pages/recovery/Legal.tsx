@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo, Fragment } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
@@ -281,6 +282,7 @@ export default function RecoveryLegal() {
   }, [fMilestonesKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['recovery'] })
 
   useEffect(() => {
     setKpiLoading(true)

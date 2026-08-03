@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -109,6 +110,7 @@ export default function AgentDashboard() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['collections','loans'] })
 
   async function handleLogContact() {
     if (!logRow) return

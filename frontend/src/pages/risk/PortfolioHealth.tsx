@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell,
@@ -173,6 +174,7 @@ export default function PortfolioHealth() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['loans'] })
 
   const kpiLoading = loading && !kpis
   const totalBandCount = bandDist.reduce((acc, d) => acc + d.count, 0)

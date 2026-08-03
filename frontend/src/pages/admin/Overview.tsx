@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, ErrBanner } from '../../components/UI'
@@ -279,6 +280,7 @@ export default function AdminOverview() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['users'] })
 
   const ctx: StatsCtx = { users, roles, activity }
 

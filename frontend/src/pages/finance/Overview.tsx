@@ -1,3 +1,4 @@
+import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import {
   ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell, Tooltip,
@@ -182,6 +183,7 @@ export default function FinanceOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+  useLiveData(load, { topics: ['finance','manual_postings'] })
 
   // Derive KPIs from available data
   const interestIncomeMTD = fd?.total_interest ?? 0
