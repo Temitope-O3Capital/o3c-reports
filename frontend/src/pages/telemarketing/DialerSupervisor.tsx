@@ -188,17 +188,19 @@ export default function DialerSupervisor() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [liveData, allData] = await Promise.all([
-        apiFetch<LiveCampaign[]>('/api/dialer/live'),
-        apiFetch<LiveCampaign[]>('/api/dialer/campaigns'),
+      const [liveRaw, allRaw] = await Promise.all([
+        apiFetch<any>('/api/dialer/live'),
+        apiFetch<any>('/api/dialer/campaigns'),
       ])
-      setLive(Array.isArray(liveData) ? liveData : [])
-      setAll(Array.isArray(allData) ? allData : [])
+      const liveData: LiveCampaign[] = Array.isArray(liveRaw) ? liveRaw : (liveRaw?.data ?? [])
+      const allData:  LiveCampaign[] = Array.isArray(allRaw)  ? allRaw  : (allRaw?.data ?? [])
+      setLive(liveData)
+      setAll(allData)
 
       // Load stats for all active campaigns
-      const activeCamps = Array.isArray(allData) ? allData.filter((c: LiveCampaign) => c.status === 'active') : []
+      const activeCamps = allData.filter((c: LiveCampaign) => c.status === 'active')
       const statsEntries = await Promise.allSettled(
-        activeCamps.map(c => apiFetch<CampaignStats>(`/api/dialer/campaigns/${c.id}/stats`).then(s => [c.id, s] as [number, CampaignStats]))
+        activeCamps.map(c => apiFetch<any>(`/api/dialer/campaigns/${c.id}/stats`).then(s => [c.id, (s?.data ?? s)] as [number, CampaignStats]))
       )
       const newStats: Record<number, CampaignStats> = {}
       statsEntries.forEach(r => { if (r.status === 'fulfilled') newStats[r.value[0]] = r.value[1] })

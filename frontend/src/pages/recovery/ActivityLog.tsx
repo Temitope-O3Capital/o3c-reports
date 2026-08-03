@@ -191,9 +191,11 @@ export default function RecoveryActivityLog() {
     if (filterAction) params.set('action', filterAction)
     if (filterEntity) params.set('entity_type', filterEntity)
     try {
-      const res = await apiFetch<ActivityPage>(`/api/collections/activity?${params}`)
-      setData(res.data ?? [])
-      setTotal(res.total ?? 0)
+      // Endpoint double-wraps: respond({data:rows,total}) -> res.data.data
+      const res = await apiFetch<any>(`/api/collections/activity?${params}`)
+      const payload = res?.data
+      setData(Array.isArray(payload) ? payload : (payload?.data ?? []))
+      setTotal((Array.isArray(payload) ? res?.total : payload?.total) ?? 0)
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load activity log')
     } finally {

@@ -73,8 +73,10 @@ export default function HelpdeskMyDashboard() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const r = await apiFetch<{ data: HelpdeskAgentDash }>('/api/helpdesk/my-dashboard')
-      setData(r.data)
+      const r = await apiFetch<any>('/api/helpdesk/my-dashboard')
+      const d = r?.data ?? r ?? {}
+      // Default fields the backend may omit so the dashboard never crashes.
+      setData({ ...d, my_tickets: d.my_tickets ?? [], csat_score: d.csat_score ?? 0 })
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])

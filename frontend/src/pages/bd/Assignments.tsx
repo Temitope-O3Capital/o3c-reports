@@ -215,8 +215,8 @@ export default function BDAssignments() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const data = await apiFetch<Assignment[]>('/api/bd/assignments')
-      setRows(data ?? [])
+      const data = await apiFetch<any>('/api/bd/assignments')
+      setRows(Array.isArray(data) ? data : (data?.data ?? []))
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load assignments')
     } finally {

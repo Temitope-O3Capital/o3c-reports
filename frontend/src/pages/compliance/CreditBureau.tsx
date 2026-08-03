@@ -63,8 +63,8 @@ export default function CreditBureau() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const res = await apiFetch<Submission[]>('/api/compliance/bureau-submissions')
-      setLogs(res ?? [])
+      const res = await apiFetch<any>('/api/compliance/bureau-submissions')
+      setLogs(Array.isArray(res) ? res : (res?.data ?? []))
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])

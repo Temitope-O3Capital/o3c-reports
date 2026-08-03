@@ -63,8 +63,8 @@ export default function CBNReport() {
     setError(null)
     try {
       const qs = new URLSearchParams({ from: dateFrom, to: dateTo }).toString()
-      const resp = await apiFetch<CBNReportData>(`/api/helpdesk/reports/cbn-consumer-protection?${qs}`)
-      setData(resp)
+      const resp = await apiFetch<any>(`/api/helpdesk/reports/cbn-consumer-protection?${qs}`)
+      setData((resp?.data ?? resp) as CBNReportData)
     } catch (e: any) {
       setError(e.message)
     } finally {

@@ -72,8 +72,14 @@ export default function Interswitch() {
   const load = useCallback(async (p: Period) => {
     setLoading(true); setError(null)
     try {
-      const r = await apiFetch<{ data: InterswitchSummary }>(`/api/cards/interswitch/summary?period=${p}`)
-      setData(r.data)
+      const r = await apiFetch<any>(`/api/cards/interswitch/summary?period=${p}`)
+      const d = r?.data ?? r ?? {}
+      setData({ ...d,
+        product_breakdown:  d.product_breakdown ?? [],
+        txn_type_breakdown: d.txn_type_breakdown ?? [],
+        daily_trend:        d.daily_trend ?? [],
+        top_merchants:      d.top_merchants ?? [],
+      })
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])

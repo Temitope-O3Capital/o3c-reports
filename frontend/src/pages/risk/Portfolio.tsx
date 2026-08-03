@@ -187,11 +187,15 @@ export default function RiskPortfolio() {
     abortRef.current?.abort(); abortRef.current = new AbortController()
     setLoading(true); setError(null)
     try {
-      const res = await apiFetch<{ data: LoanRow[]; total: number }>(
+      const res = await apiFetch<any>(
         `/api/risk/loan-book?${buildQS(off)}`,
         { signal: abortRef.current.signal },
       )
-      setRows(res.data ?? []); setTotal(res.total ?? 0); setOffset(off)
+      // Endpoint double-wraps: respond({data:rows,total}) -> res.data.data
+      const payload = res?.data
+      setRows(Array.isArray(payload) ? payload : (payload?.data ?? []))
+      setTotal((Array.isArray(payload) ? res?.total : payload?.total) ?? 0)
+      setOffset(off)
     } catch (e: any) {
       if (e.name !== 'AbortError') setError(e.message ?? 'Failed')
     } finally { setLoading(false) }

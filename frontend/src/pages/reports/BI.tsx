@@ -111,14 +111,15 @@ export default function ReportsBI() {
     setLoading(true)
     setError(null)
     try {
-      const res = await apiPost<{ data: ReportResult }>('/api/reports/run', {
+      const res = await apiPost<any>('/api/reports/run', {
         module: selectedModule,
         metrics: selectedMetrics,
         date_from: dateFrom,
         date_to: dateTo,
         granularity,
       })
-      setResult(res.data)
+      // Response is { data: rows[], columns: string[] } — assemble ReportResult.
+      setResult({ columns: res?.columns ?? [], rows: Array.isArray(res?.data) ? res.data : (res?.rows ?? []) })
       setHasRun(true)
     } catch (e: any) {
       setError(e.message ?? 'Failed to run report')

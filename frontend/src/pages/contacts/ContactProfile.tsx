@@ -599,8 +599,8 @@ export default function ContactProfile() {
     if (!id) return
     setLoading(true); setError(null)
     try {
-      const data = await apiFetch<ContactProfileData>(`/api/contacts/${id}`)
-      setProfile(data)
+      const data = await apiFetch<any>(`/api/contacts/${id}`)
+      setProfile((data?.data ?? data) as ContactProfileData)
     } catch (e: any) {
       setError(e.message)
     } finally {

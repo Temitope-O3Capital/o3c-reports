@@ -68,8 +68,10 @@ export default function CardsMyQueue() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const r = await apiFetch<{ data: CardsAgentDash }>('/api/cards/my-queue')
-      setData(r.data)
+      const r = await apiFetch<any>('/api/cards/my-queue')
+      const d = r?.data ?? r ?? {}
+      // Backend returns disputes under open_disputes; normalize + default arrays.
+      setData({ ...d, issuance_queue: d.issuance_queue ?? [], disputes_queue: d.disputes_queue ?? d.open_disputes ?? [] })
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])

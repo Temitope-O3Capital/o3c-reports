@@ -188,8 +188,8 @@ export default function DialerCampaigns() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const data = await apiFetch<Campaign[]>(`/api/dialer/campaigns?from=${dateFrom}&to=${dateTo}`)
-      setCampaigns(Array.isArray(data) ? data : [])
+      const data = await apiFetch<any>(`/api/dialer/campaigns?from=${dateFrom}&to=${dateTo}`)
+      setCampaigns(Array.isArray(data) ? data : (data?.data ?? []))
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [dateFrom, dateTo])
@@ -205,8 +205,8 @@ export default function DialerCampaigns() {
 
   async function loadStats(id: number) {
     try {
-      const s = await apiFetch<CampaignStats>(`/api/dialer/campaigns/${id}/stats`)
-      setStatsMap(prev => ({ ...prev, [id]: s }))
+      const s = await apiFetch<any>(`/api/dialer/campaigns/${id}/stats`)
+      setStatsMap(prev => ({ ...prev, [id]: (s?.data ?? s) as CampaignStats }))
     } catch { /* ignore */ }
   }
 

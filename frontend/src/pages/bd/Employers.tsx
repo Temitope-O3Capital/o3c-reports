@@ -210,8 +210,8 @@ function StaffRosterModal({
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await apiFetch<StaffMember[]>(`/api/bd/employers/${employer.id}/staff`)
-      setStaff(data ?? [])
+      const data = await apiFetch<any>(`/api/bd/employers/${employer.id}/staff`)
+      setStaff(Array.isArray(data) ? data : (data?.data ?? []))
     } finally {
       setLoading(false)
     }
