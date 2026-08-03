@@ -426,6 +426,9 @@ func main() {
 		r.Route("/api/fd-book", func(r chi.Router) {
 			handlers.RegisterFDBook(r, db)
 		})
+		r.Route("/api/cards-credit", func(r chi.Router) {
+			handlers.RegisterCardsCredit(r, db)
+		})
 		r.Route("/api/finance", func(r chi.Router) {
 			handlers.RegisterFinance(r, db)
 			r.Get("/fx-rates/latest", handlers.FXRatesLatest(db))

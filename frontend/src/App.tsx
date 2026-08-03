@@ -151,6 +151,7 @@ const HelpdeskCBNReport   = lazy(() => import('./pages/helpdesk/CBNReport'))
 
 // Cards
 const CardsOverview    = lazy(() => import('./pages/cards/Overview'))
+const CardCreditPortfolio = lazy(() => import('./pages/cards/CreditPortfolio'))
 const CardTrends       = lazy(() => import('./pages/cards/Trends'))
 const CardsMgmt        = lazy(() => import('./pages/cards/Management'))
 const CardsIssuance    = lazy(() => import('./pages/cards/Issuance'))
@@ -1016,6 +1017,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* Cards */}
                   <Route path="/cards"              element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/credit-portfolio" element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardCreditPortfolio /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/trends"       element={<RequireAccess page="card_trends" user={user}><PageErrorBoundary><CardTrends /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/management"   element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMgmt /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/issuance"     element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsIssuance /></PageErrorBoundary></RequireAccess>} />

@@ -127,6 +127,7 @@ const SECTIONS: Section[] = [
         vis: ['cards_ops_officer','cards_ops_head','risk_officer','risk_head'],
         subs: [
           { label: 'My Queue',            to: '/cards/my-queue', vis: ['cards_ops_officer'] },
+          { label: 'Credit Card Portfolio', to: '/cards/credit-portfolio' },
           { label: 'Card Trends',         to: '/cards/trends' },
           { label: 'Cardholder Mgmt',     to: '/cards/management' },
           { label: 'Issuance Queue',      to: '/cards/issuance' },
