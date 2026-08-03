@@ -1076,6 +1076,46 @@ func bdMyDashboard(db *core.DB) http.HandlerFunc {
 			JOIN loan_applications la ON la.applicant_cif = c.cif_number
 			WHERE a.bd_officer_id = $1 AND c.cif_number IS NOT NULL`, user.ID)
 
+		// ── Windowed funnel — driven by the page date filter (empty = all-time) ──
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+		winStaff := int64(0)
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(staff_count_at_assignment), 0) AS n
+			FROM bd_assignments
+			WHERE bd_officer_id = $1
+			  AND ($2 = '' OR assigned_at::date >= $2::date)
+			  AND ($3 = '' OR assigned_at::date <= $3::date)`, user.ID, from, to); len(rows) > 0 {
+			winStaff = toInt64(rows[0]["n"])
+		}
+		winContacts, winConverted := int64(0), int64(0)
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(DISTINCT c.id) FILTER (
+			      WHERE ($2 = '' OR c.created_at::date >= $2::date)
+			      AND   ($3 = '' OR c.created_at::date <= $3::date)) AS crm_contacts,
+			  COUNT(DISTINCT c.id) FILTER (
+			      WHERE c.status = 'customer'
+			      AND ($2 = '' OR c.updated_at::date >= $2::date)
+			      AND ($3 = '' OR c.updated_at::date <= $3::date)) AS converted
+			FROM bd_assignments a
+			JOIN crm_contacts c ON c.bd_assignment_id = a.id
+			WHERE a.bd_officer_id = $1`, user.ID, from, to); len(rows) > 0 {
+			winContacts = toInt64(rows[0]["crm_contacts"])
+			winConverted = toInt64(rows[0]["converted"])
+		}
+		winApps := int64(0)
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(DISTINCT la.id) AS n
+			FROM bd_assignments a
+			JOIN crm_contacts c ON c.bd_assignment_id = a.id
+			JOIN loan_applications la ON la.applicant_cif = c.cif_number
+			WHERE a.bd_officer_id = $1 AND c.cif_number IS NOT NULL
+			  AND ($2 = '' OR la.created_at::date >= $2::date)
+			  AND ($3 = '' OR la.created_at::date <= $3::date)`, user.ID, from, to); len(rows) > 0 {
+			winApps = toInt64(rows[0]["n"])
+		}
+
 		// ── Urgency 1: MOUs expiring within 30 days (with contact for email) ──
 		mouExpiring, _ := db.PGQuery(ctx, `
 			SELECT e.id, e.name, e.sector,
@@ -1211,6 +1251,14 @@ func bdMyDashboard(db *core.DB) http.HandlerFunc {
 				"crm_contacts":   asgKPI["mtd_crm_contacts"],
 				"applications":   funnelRow["mtd_applications"],
 				"converted":      asgKPI["mtd_converted"],
+			},
+			// Windowed funnel driven by the page date filter (replaces the funnel's
+			// old all-time/this-month toggle).
+			"funnel": map[string]any{
+				"staff_referred": winStaff,
+				"crm_contacts":   winContacts,
+				"applications":   winApps,
+				"converted":      winConverted,
 			},
 			"urgency": map[string]any{
 				"mou_expiring":      mouExpiring,

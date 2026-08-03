@@ -1,7 +1,7 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, KpiCard, DataTable, ErrBanner } from '../../components/UI'
+import { Page, SectionCard, KpiCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { Drawer } from '../../components/Drawer'
 import { apiFetch } from '../../lib/api'
@@ -61,8 +61,7 @@ interface RecentAssignment {
 
 interface BDDash {
   kpis:               BDKPIs
-  funnel_all:         BDFunnel
-  funnel_mtd:         BDFunnel
+  funnel:             BDFunnel
   urgency:            { mou_expiring: MouExpiringItem[]; stale_assignments: StaleAssignment[]; dormant: DormantPartnership[] }
   employers:          BDEmployer[]
   recent_assignments: RecentAssignment[]
@@ -113,10 +112,7 @@ function pct(num: number, denom: number) {
 
 // ── Referral Funnel ───────────────────────────────────────────────────────────
 
-function ReferralFunnel({ all, mtd }: { all: BDFunnel; mtd: BDFunnel }) {
-  const [period, setPeriod] = useState<'all' | 'mtd'>('all')
-  const f = period === 'mtd' ? mtd : all
-
+function ReferralFunnel({ funnel: f }: { funnel: BDFunnel }) {
   const steps = [
     { label: 'Staff Referred',        value: f.staff_referred, color: NAVY,  icon: 'group' },
     { label: 'CRM Contacts Created',  value: f.crm_contacts,   color: BLUE,  icon: 'contacts' },
@@ -125,28 +121,8 @@ function ReferralFunnel({ all, mtd }: { all: BDFunnel; mtd: BDFunnel }) {
   ]
   const maxVal = Math.max(1, f.staff_referred)
 
-  const toggle = (
-    <div style={{ display: 'flex', gap: 4 }}>
-      {(['all', 'mtd'] as const).map(p => (
-        <button
-          key={p}
-          onClick={() => setPeriod(p)}
-          style={{
-            fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '3px 10px',
-            borderRadius: RADIUS.md, border: `1px solid ${period === p ? NAVY : 'var(--bdr)'}`,
-            background: period === p ? NAVY : 'transparent',
-            color: period === p ? '#fff' : 'var(--txt2)',
-            cursor: 'pointer',
-          }}
-        >
-          {p === 'mtd' ? 'This Month' : 'All-time'}
-        </button>
-      ))}
-    </div>
-  )
-
   return (
-    <SectionCard title="Referral Conversion Funnel" actions={toggle} style={{ marginBottom: SP[3] }}>
+    <SectionCard title="Referral Conversion Funnel" subtitle="Scoped to the selected date range" style={{ marginBottom: SP[3] }}>
       <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
         {steps.map((step, i) => {
           const barWidth = Math.max(12, Math.round((step.value / maxVal) * 100))
@@ -511,15 +487,17 @@ export default function BDMyDashboard() {
   const [error,           setError]          = useState<string | null>(null)
   const [drawerOpen,      setDrawerOpen]     = useState(false)
   const [drawerEmployer,  setDrawerEmployer] = useState<{ id: number; name: string } | null>(null)
+  const [dateFrom,        setDateFrom]       = useState('')   // '' = All time
+  const [dateTo,          setDateTo]         = useState('')
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const r = await apiFetch<{ my_dashboard: BDDash }>('/api/bd/my-dashboard')
+      const r = await apiFetch<{ my_dashboard: BDDash }>(`/api/bd/my-dashboard?from=${dateFrom}&to=${dateTo}`)
       setData(((r as any)?.data ?? r) as BDDash)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['deals','crm'] })
@@ -608,6 +586,7 @@ export default function BDMyDashboard() {
       title="My BD Dashboard"
       subtitle="Employer relationships, referral pipeline and monthly activity"
       back={{ label: 'Business Dev', to: '/bd' }}
+      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />
 
@@ -663,8 +642,8 @@ export default function BDMyDashboard() {
         />
       )}
 
-      {/* ── Referral funnel with period toggle ── */}
-      {data && <ReferralFunnel all={data.funnel_all} mtd={data.funnel_mtd} />}
+      {/* ── Referral funnel — scoped by the page date filter ── */}
+      {data && <ReferralFunnel funnel={data.funnel} />}
 
       {/* ── Employers — full width ── */}
       <SectionCard title="My Employers" badge={data?.employers.length ?? 0} padding={false} style={{ marginBottom: SP[3] }}>
