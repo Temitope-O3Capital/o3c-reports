@@ -3,17 +3,26 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, Modal, Spinner, ExpandableFilterBar, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiDelete } from '../../lib/api'
-import { fmtDate, fmtNum, monthStart, today } from '../../lib/fmt'
+import { fmtDate, fmtNum, fmtKobo } from '../../lib/fmt'
 import { RED, AMBER, GREEN, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 interface Employer {
-  id: number; name: string; rc_number: string; sector: string
-  mou_status: string; mou_signed_date: string; mou_expiry_date: string
-  staff_count: number; active_loans: number; contact_name: string
-  contact_email: string; contact_phone: string; address: string
-  state: string; created_at: string
+  id: number; name: string; sector: string
+  mou_status: string; mou_date: string | null; mou_expiry: string | null
+  staff_count: number; monthly_payroll_kobo: number; credit_limit_kobo: number
+  lead_count: number; contact_name: string
+  contact_email: string; contact_phone: string; address: string | null
+  notes: string | null; is_active: boolean; created_at: string
 }
+
+// Common employer sectors (datalist suggestions — free text still allowed).
+const SECTOR_OPTIONS = [
+  'Banking & Finance', 'Oil & Gas', 'Manufacturing', 'Public Sector',
+  'Telecommunications', 'Healthcare', 'Education', 'Retail & FMCG',
+  'Technology', 'Construction', 'Hospitality', 'Transport & Logistics',
+  'Agriculture', 'Professional Services',
+]
 
 interface StaffMember {
   id: number; employer_id: number; full_name: string
@@ -72,31 +81,47 @@ const IS: React.CSSProperties = {
 // ── Add Employer modal ────────────────────────────────────────────────────────
 
 interface AddEmployerForm {
-  name: string; rc_number: string; sector: string; address: string
-  state: string; contact_name: string; contact_email: string; contact_phone: string
-  staff_count: string; mou_status: string
+  name: string; sector: string; staff_count: string
+  monthly_payroll_naira: string; credit_limit_naira: string
+  mou_status: string; mou_date: string; mou_expiry: string
+  contact_name: string; contact_email: string; contact_phone: string
+  address: string; notes: string
 }
 
 const EMPTY_FORM: AddEmployerForm = {
-  name: '', rc_number: '', sector: '', address: '', state: '',
-  contact_name: '', contact_email: '', contact_phone: '',
-  staff_count: '', mou_status: 'none',
+  name: '', sector: '', staff_count: '',
+  monthly_payroll_naira: '', credit_limit_naira: '',
+  mou_status: 'none', mou_date: '', mou_expiry: '',
+  contact_name: '', contact_email: '', contact_phone: '', address: '', notes: '',
 }
 
 function AddEmployerModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<AddEmployerForm>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
 
-  const set = (k: keyof AddEmployerForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+  const set = (k: keyof AddEmployerForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
+  const nairaToKobo = (v: string) => (v ? Math.round(Number(v) * 100) : 0)
 
   async function submit() {
     if (!form.name.trim()) { toast.error('Employer name is required'); return }
+    if (form.mou_status === 'signed' && !form.mou_date) { toast.error('MOU date is required for a signed MOU'); return }
     setSaving(true)
     try {
       await apiPost('/api/bd/employers', {
-        ...form,
+        name: form.name.trim(),
+        sector: form.sector || null,
         staff_count: form.staff_count ? Number(form.staff_count) : 0,
+        monthly_payroll_kobo: nairaToKobo(form.monthly_payroll_naira),
+        credit_limit_kobo: nairaToKobo(form.credit_limit_naira),
+        mou_status: form.mou_status,
+        mou_date: form.mou_date || null,
+        mou_expiry: form.mou_expiry || null,
+        contact_name: form.contact_name || null,
+        contact_phone: form.contact_phone || null,
+        contact_email: form.contact_email || null,
+        address: form.address || null,
+        notes: form.notes || null,
       })
       toast.success('Employer registered')
       onSaved()
@@ -107,10 +132,13 @@ function AddEmployerModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
     }
   }
 
-  const F = ({ label, k, type = 'text' }: { label: string; k: keyof AddEmployerForm; type?: string }) => (
+  const F = ({ label, k, type = 'text', list, placeholder, prefix }: { label: string; k: keyof AddEmployerForm; type?: string; list?: string; placeholder?: string; prefix?: string }) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{label}</label>
-      <input type={type} value={form[k]} onChange={set(k)} style={IS} />
+      <div style={{ position: 'relative' }}>
+        {prefix && <span style={{ position: 'absolute', left: 10, top: 0, height: 36, display: 'flex', alignItems: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>{prefix}</span>}
+        <input type={type} value={form[k]} list={list} placeholder={placeholder} onChange={set(k)} style={{ ...IS, paddingLeft: prefix ? 24 : 10 }} />
+      </div>
     </div>
   )
 
@@ -118,7 +146,7 @@ function AddEmployerModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
     <Modal
       open
       title="Register Employer"
-      width={520}
+      width={560}
       onClose={onClose}
       footer={
         <>
@@ -130,17 +158,21 @@ function AddEmployerModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
         </>
       }
     >
+      <datalist id="sector-list">{SECTOR_OPTIONS.map(s => <option key={s} value={s} />)}</datalist>
+
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 8 }}>Company</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div style={{ gridColumn: '1/-1' }}><F label="Employer Name *" k="name" /></div>
-        <F label="RC Number" k="rc_number" />
-        <F label="Sector" k="sector" />
-        <F label="State" k="state" />
+        <F label="Sector" k="sector" list="sector-list" placeholder="Search or type…" />
         <F label="Staff Count" k="staff_count" type="number" />
+        <F label="Monthly Payroll" k="monthly_payroll_naira" type="number" prefix="₦" placeholder="0" />
+        <F label="Credit Limit" k="credit_limit_naira" type="number" prefix="₦" placeholder="0" />
         <div style={{ gridColumn: '1/-1' }}><F label="Address" k="address" /></div>
-        <F label="Contact Name" k="contact_name" />
-        <F label="Contact Phone" k="contact_phone" />
-        <div style={{ gridColumn: '1/-1' }}><F label="Contact Email" k="contact_email" type="email" /></div>
-        <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      </div>
+
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', margin: '18px 0 8px' }}>MOU</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>MOU Status</label>
           <select value={form.mou_status} onChange={set('mou_status')} style={{ ...IS, height: 36 }}>
             <option value="none">None</option>
@@ -148,6 +180,19 @@ function AddEmployerModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
             <option value="signed">Signed</option>
             <option value="expired">Expired</option>
           </select>
+        </div>
+        <F label="MOU Date" k="mou_date" type="date" />
+        <F label="MOU Expiry" k="mou_expiry" type="date" />
+      </div>
+
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', margin: '18px 0 8px' }}>Primary Contact</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <F label="Contact Name" k="contact_name" />
+        <F label="Contact Phone" k="contact_phone" />
+        <div style={{ gridColumn: '1/-1' }}><F label="Contact Email" k="contact_email" type="email" /></div>
+        <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Notes</label>
+          <textarea value={form.notes} onChange={set('notes')} rows={2} style={{ ...IS, height: 'auto', resize: 'vertical', padding: '8px 10px' }} />
         </div>
       </div>
     </Modal>
@@ -170,21 +215,26 @@ function EmployerDetailModal({ employer, onClose }: { employer: Employer; onClos
       footer={<button onClick={onClose} style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Close</button>}
     >
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {row('RC Number', employer.rc_number)}
         {row('Sector', employer.sector)}
-        {row('State', employer.state)}
-        {row('Address', employer.address)}
         {row('Staff Count', fmtNum(employer.staff_count))}
-        {row('Active Loans', fmtNum(employer.active_loans))}
+        {row('Monthly Payroll', employer.monthly_payroll_kobo ? fmtKobo(employer.monthly_payroll_kobo) : null)}
+        {row('Credit Limit', employer.credit_limit_kobo ? fmtKobo(employer.credit_limit_kobo) : null)}
+        {row('Leads', fmtNum(employer.lead_count))}
         {row('MOU Status', <span style={{ fontWeight: FW.semibold, color: mouColor, textTransform: 'capitalize' }}>{employer.mou_status || 'None'}</span>)}
-        {row('MOU Signed', employer.mou_signed_date ? fmtDate(employer.mou_signed_date) : null)}
-        {row('MOU Expiry', employer.mou_expiry_date ? fmtDate(employer.mou_expiry_date) : null)}
+        {row('MOU Date', employer.mou_date ? fmtDate(employer.mou_date) : null)}
+        {row('MOU Expiry', employer.mou_expiry ? fmtDate(employer.mou_expiry) : null)}
+        {row('Address', employer.address)}
         <div style={{ marginTop: 14, padding: `${SP[3]} 14px`, borderRadius: RADIUS.lg, background: 'var(--th-bg)', border: '1px solid var(--bdr)' }}>
           <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 8 }}>Contact</div>
           {row('Name', employer.contact_name)}
           {row('Phone', employer.contact_phone)}
           {row('Email', employer.contact_email)}
         </div>
+        {employer.notes && (
+          <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)', fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.5 }}>
+            {employer.notes}
+          </div>
+        )}
       </div>
     </Modal>
   )
@@ -529,15 +579,15 @@ export default function Employers() {
   const [search,   setSearch]   = useState('')
   const [fSectors, setFSectors] = useState<Set<string>>(new Set())
   const [fMOU,     setFMOU]     = useState<Set<string>>(new Set())
-  const [fStates,  setFStates]  = useState<Set<string>>(new Set())
   const [page,       setPage]       = useState(1)
   const [selected,   setSelected]   = useState<Set<string | number>>(new Set())
   const [showAdd,      setShowAdd]      = useState(false)
   const [detailRow,    setDetailRow]    = useState<Employer | null>(null)
   const [staffModal,   setStaffModal]   = useState<Employer | null>(null)
   const [assignModal,  setAssignModal]  = useState<{ employer: Employer; staff: StaffMember[] } | null>(null)
-  const [dateFrom,   setDateFrom]   = useState(monthStart())
-  const [dateTo,     setDateTo]     = useState(today())
+  // A register lists ALL employers by default; the date range is optional (all-time).
+  const [dateFrom,   setDateFrom]   = useState('')
+  const [dateTo,     setDateTo]     = useState('')
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -554,26 +604,24 @@ export default function Employers() {
   useEffect(() => { load() }, [load])
 
   const uniqueSectors = useMemo(() => [...new Set(employers.map(e => e.sector).filter(Boolean))].sort() as string[], [employers])
-  const uniqueStates  = useMemo(() => [...new Set(employers.map(e => e.state).filter(Boolean))].sort() as string[], [employers])
 
 
   const filtered = useMemo(() => employers.filter(e => {
     if (fSectors.size && !fSectors.has(e.sector)) return false
     const mouKey = (e.mou_status?.toLowerCase() || 'none')
     if (fMOU.size && !fMOU.has(mouKey)) return false
-    if (fStates.size && !fStates.has(e.state)) return false
     if (search) {
       const q = search.toLowerCase()
-      if (!['name', 'rc_number', 'contact_name', 'state'].some(k => (e as any)[k]?.toLowerCase?.().includes(q))) return false
+      if (!['name', 'sector', 'contact_name'].some(k => (e as any)[k]?.toLowerCase?.().includes(q))) return false
     }
     return true
-  }), [employers, fSectors, fMOU, fStates, search])
+  }), [employers, fSectors, fMOU, search])
 
   const totalStaff   = employers.reduce((s, e) => s + Number(e.staff_count ?? 0), 0)
   const mouSigned    = employers.filter(e => e.mou_status?.toLowerCase() === 'signed').length
   const mouExpiring  = employers.filter(e => {
-    if (e.mou_status?.toLowerCase() !== 'signed' || !e.mou_expiry_date) return false
-    const days = (new Date(e.mou_expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+    if (e.mou_status?.toLowerCase() !== 'signed' || !e.mou_expiry) return false
+    const days = (new Date(e.mou_expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
     return days >= 0 && days <= 90
   }).length
 
@@ -583,29 +631,29 @@ export default function Employers() {
   const showStart  = filtered.length === 0 ? 0 : (safePage - 1) * PER_PAGE + 1
   const showEnd    = Math.min(safePage * PER_PAGE, filtered.length)
 
-  useEffect(() => { setPage(1) }, [search, fSectors, fMOU, fStates])
+  useEffect(() => { setPage(1) }, [search, fSectors, fMOU])
 
   function resetFilters() {
-    setSearch(''); setFSectors(new Set()); setFMOU(new Set()); setFStates(new Set())
+    setSearch(''); setFSectors(new Set()); setFMOU(new Set())
   }
 
   function exportEmployersCsv(data: Employer[]) {
-    const header = ['Name', 'RC Number', 'Sector', 'State', 'MOU Status', 'MOU Expiry', 'Staff Count', 'Active Loans', 'Contact Name', 'Contact Phone', 'Contact Email', 'Created At']
+    const header = ['Name', 'Sector', 'MOU Status', 'MOU Expiry', 'Staff Count', 'Monthly Payroll (₦)', 'Credit Limit (₦)', 'Leads', 'Contact Name', 'Contact Phone', 'Contact Email', 'Created At']
     const lines = data.map(r => [
       `"${String(r.name ?? '').replace(/"/g, '""')}"`,
-      r.rc_number ?? '',
       r.sector ?? '',
-      r.state ?? '',
       r.mou_status ?? '',
-      r.mou_expiry_date ?? '',
+      r.mou_expiry ?? '',
       r.staff_count != null ? String(r.staff_count) : '',
-      r.active_loans != null ? String(r.active_loans) : '',
+      r.monthly_payroll_kobo != null ? String(Number(r.monthly_payroll_kobo) / 100) : '',
+      r.credit_limit_kobo != null ? String(Number(r.credit_limit_kobo) / 100) : '',
+      r.lead_count != null ? String(r.lead_count) : '',
       `"${String(r.contact_name ?? '').replace(/"/g, '""')}"`,
       r.contact_phone ?? '',
       r.contact_email ?? '',
       r.created_at ?? '',
     ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url
     a.download = `employers-${new Date().toISOString().slice(0, 10)}.csv`
@@ -626,14 +674,14 @@ export default function Employers() {
       render: row => <MOUPill status={row.mou_status ?? 'none'} />,
     },
     {
-      key: 'mou_expiry_date', label: 'MOU Expiry', sortable: true,
+      key: 'mou_expiry', label: 'MOU Expiry', sortable: true,
       render: row => {
-        if (!row.mou_expiry_date) return <span style={{ color: 'var(--txt3)' }}>—</span>
-        const days = Math.ceil((new Date(row.mou_expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        if (!row.mou_expiry) return <span style={{ color: 'var(--txt3)' }}>—</span>
+        const days = Math.ceil((new Date(row.mou_expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
         const color = days < 30 ? RED : days < 90 ? AMBER : 'var(--txt2)'
         return (
           <div>
-            <div style={{ fontSize: TEXT.sm, color }}>{fmtDate(row.mou_expiry_date)}</div>
+            <div style={{ fontSize: TEXT.sm, color }}>{fmtDate(row.mou_expiry)}</div>
             {days >= 0 && days <= 90 && (
               <div style={{ fontSize: TEXT.xs, color, fontWeight: FW.semibold }}>{days}d left</div>
             )}
@@ -646,8 +694,12 @@ export default function Employers() {
       render: row => <span style={NUM}>{fmtNum(row.staff_count)}</span>,
     },
     {
-      key: 'active_loans', label: 'Active Loans', sortable: true, align: 'right',
-      render: row => <span style={NUM}>{fmtNum(row.active_loans)}</span>,
+      key: 'monthly_payroll_kobo', label: 'Payroll', sortable: true, align: 'right',
+      render: row => <span style={NUM}>{row.monthly_payroll_kobo ? fmtKobo(row.monthly_payroll_kobo) : '—'}</span>,
+    },
+    {
+      key: 'lead_count', label: 'Leads', sortable: true, align: 'right',
+      render: row => <span style={NUM}>{fmtNum(row.lead_count)}</span>,
     },
     {
       key: 'contact_name', label: 'Contact', sortable: true,
@@ -657,10 +709,6 @@ export default function Employers() {
           {row.contact_phone && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{row.contact_phone}</div>}
         </div>
       ),
-    },
-    {
-      key: 'state', label: 'State', sortable: true,
-      render: row => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>{row.state ?? '—'}</span>,
     },
     {
       key: '_actions', label: '', sortable: false,
@@ -744,16 +792,6 @@ export default function Employers() {
               })),
               selected: fMOU,
               onChange: setFMOU,
-            },
-            {
-              key: 'state',
-              label: 'State',
-              options: uniqueStates.map(s => ({
-                value: s,
-                count: employers.filter(e => e.state === s).length,
-              })),
-              selected: fStates,
-              onChange: setFStates,
             },
           ]}
           onReset={resetFilters}

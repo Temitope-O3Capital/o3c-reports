@@ -60,6 +60,7 @@ func bdListEmployers(db *core.DB) http.HandlerFunc {
 		             e.monthly_payroll_kobo, e.credit_limit_kobo,
 		             e.mou_status, e.mou_date, e.mou_expiry,
 		             e.contact_name, e.contact_phone, e.contact_email,
+		             e.address, e.notes,
 		             e.is_active, e.created_at, e.updated_at,
 		             COUNT(l.id) AS lead_count
 		      FROM employers e
