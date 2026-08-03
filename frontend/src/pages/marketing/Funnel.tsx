@@ -95,10 +95,11 @@ export default function Funnel() {
   useLiveData(load, { topics: ['campaigns'] })
 
   const customerSteps: FunnelStep[] = [
-    { label: 'Total Contacts (CIF)', value: salesFunnel?.contacts        ?? 0, color: NAVY  },
-    { label: 'Accounts Opened',      value: salesFunnel?.accounts        ?? 0, color: BLUE  },
-    { label: 'Active Accounts',      value: salesFunnel?.active_accounts ?? 0, color: AMBER },
-    { label: 'Transacting',          value: salesFunnel?.transacting     ?? 0, color: GREEN },
+    // Backend /api/sales/funnel returns { registered, card_issued, card_active, transacting }.
+    { label: 'Total Contacts (CIF)', value: (salesFunnel as any)?.registered  ?? 0, color: NAVY  },
+    { label: 'Accounts Opened',      value: (salesFunnel as any)?.card_issued ?? 0, color: BLUE  },
+    { label: 'Active Accounts',      value: (salesFunnel as any)?.card_active ?? 0, color: AMBER },
+    { label: 'Transacting',          value: (salesFunnel as any)?.transacting ?? 0, color: GREEN },
   ]
 
   // Map LOS stages in logical order

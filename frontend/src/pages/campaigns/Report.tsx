@@ -313,8 +313,21 @@ function PreflightModal({ open, onClose, onConfirm, listId, campaignType }: {
     if (!open) { setData(null); setFetchErr(null); return }
     setLoading(true)
     const q = listId ? `?list_id=${listId}&type=${campaignType}` : `?type=${campaignType}`
-    apiFetch<PreflightResp>(`/api/campaigns/preflight${q}`)
-      .then(r => setData(r))
+    apiFetch<any>(`/api/campaigns/preflight${q}`)
+      .then((r: any) => {
+        const d = r?.data ?? r ?? {}
+        // Map backend keys -> PreflightResp shape the UI reads.
+        setData({
+          total:      d.total_active ?? 0,
+          with_email: d.with_email ?? 0,
+          with_phone: d.with_phone ?? 0,
+          suppressed: d.suppressed_email ?? 0,
+          duplicates: d.duplicate_email_rows ?? 0,
+          invalid:    d.invalid_email ?? 0,
+          usable:     d.estimated_messages ?? 0,
+          warnings:   d.warnings ?? [],
+        })
+      })
       .catch(ex => setFetchErr(ex.message))
       .finally(() => setLoading(false))
   }, [open, listId, campaignType])
