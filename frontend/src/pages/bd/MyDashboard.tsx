@@ -307,7 +307,7 @@ function UrgencyTray({
           {stale.map(item => (
             <UrgencyRow
               key={item.id}
-              onClick={() => onNavigate(`/bd/assignments/${item.id}`)}
+              onClick={() => onNavigate("/bd/assignments")}
               left={item.employer_name}
               leftSub={`→ ${item.sales_agent_name} · ${fmtNum(item.staff_count_at_assignment)} staff`}
               rightMain={<span style={{ color: AMBER }}>{item.days_stale}d idle</span>}
@@ -690,7 +690,7 @@ export default function BDMyDashboard() {
           loading={loading}
           skeletonRows={5}
           keyFn={r => r.id}
-          onRowClick={r => navigate(`/bd/assignments/${r.id}`)}
+          onRowClick={r => navigate("/bd/assignments")}
           searchKeys={['employer_name', 'sales_agent_name']}
           searchPlaceholder="Search assignments…"
           pageSize={10}

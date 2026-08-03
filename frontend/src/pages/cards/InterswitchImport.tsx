@@ -202,7 +202,7 @@ export default function InterswitchImport() {
     <Page
       title="Import Interswitch EODTXN"
       subtitle="Upload daily CCS Report 620 files to ingest card transactions"
-      back={{ label: 'Interswitch', to: '/cards/interswitch' }}
+      back={{ label: 'Interswitch', to: '/settlements/interswitch' }}
     >
       <ErrBanner error={error} onRetry={reset} />
 

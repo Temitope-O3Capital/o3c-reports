@@ -123,7 +123,7 @@ export default function InterswitchReport() {
     <Page
       title="Card Transaction Report"
       subtitle="Interswitch CCS — channel volume by period"
-      back={{ label: 'Interswitch', to: '/cards/interswitch' }}
+      back={{ label: 'Interswitch', to: '/settlements/interswitch' }}
       actions={filterBar}
     >
       <ErrBanner error={error} onRetry={() => load(year, period)} />

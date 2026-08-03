@@ -180,7 +180,7 @@ export default function SalesMyDashboard() {
           cols={leadCols}
           rows={data.recent_leads}
           keyFn={r => r.id}
-          onRowClick={r => navigate(`/sales/leads/${r.id}`)}
+          onRowClick={r => navigate("/sales/crm")}
           searchKeys={['company_name', 'contact_name', 'stage']}
           searchPlaceholder="Search leads…"
           pageSize={10}

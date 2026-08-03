@@ -64,7 +64,7 @@ func GlobalSearch(db *core.DB) http.HandlerFunc {
 				ID:    str(row["id"]),
 				Label: fmt.Sprintf("%s — %s", str(row["reference"]), str(row["applicant_name"])),
 				Sub:   fmt.Sprintf("%s · %s", str(row["product_type"]), str(row["status"])),
-				URL:   fmt.Sprintf("/los/applications/%s", str(row["id"])),
+				URL:   fmt.Sprintf("/sales/applications/%s", str(row["id"])),
 			})
 		}
 
@@ -81,7 +81,7 @@ func GlobalSearch(db *core.DB) http.HandlerFunc {
 				ID:    str(row["id"]),
 				Label: fmt.Sprintf("[%s] %s", str(row["reference"]), str(row["subject"])),
 				Sub:   fmt.Sprintf("%s · %s", str(row["customer_name"]), str(row["status"])),
-				URL:   fmt.Sprintf("/helpdesk/tickets/%s", str(row["id"])),
+				URL:   fmt.Sprintf("/helpdesk/%s", str(row["id"])),
 			})
 		}
 
@@ -105,7 +105,7 @@ func GlobalSearch(db *core.DB) http.HandlerFunc {
 				ID:    cif,
 				Label: str(row["name"]),
 				Sub:   fmt.Sprintf("CIF %s · %s", cif, str(row["phone"])),
-				URL:   fmt.Sprintf("/customer360/%s", cif),
+				URL:   fmt.Sprintf("/customers/%s", cif),
 			})
 		}
 
@@ -137,7 +137,7 @@ func GlobalSearch(db *core.DB) http.HandlerFunc {
 				ID:    cif,
 				Label: str(row["name"]),
 				Sub:   fmt.Sprintf("CIF %s · %s", cif, sub),
-				URL:   fmt.Sprintf("/customer360/%s", cif),
+				URL:   fmt.Sprintf("/customers/%s", cif),
 			})
 		}
 

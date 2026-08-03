@@ -419,7 +419,7 @@ function HelpdeskTab({ profile }: { profile: ContactProfileData }) {
       {profile.helpdesk_tickets.map(t => (
         <div
           key={t.id}
-          onClick={() => navigate(`/helpdesk/tickets/${t.id}`)}
+          onClick={() => navigate(`/helpdesk/${t.id}`)}
           style={{ padding: '12px 16px', background: 'var(--card)', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'var(--card)' }}
@@ -689,7 +689,7 @@ export default function ContactProfile() {
             Call
           </a>
           <button
-            onClick={() => navigate(`/helpdesk/tickets/new?cif=${profile.cif}&name=${encodeURIComponent(profile.name)}`)}
+            onClick={() => navigate(`/helpdesk/new?cif=${profile.cif}&name=${encodeURIComponent(profile.name)}`)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: NAVY, border: `1.5px solid ${NAVY}30`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add_comment</span>

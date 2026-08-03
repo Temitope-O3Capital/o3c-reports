@@ -222,9 +222,9 @@ export default function MyAccounts() {
     {
       key: '_actions' as keyof Account, label: '', sortable: false,
       render: (a: Account) => <ActionRow actions={[
-        { icon: 'person_search', label: 'View C360',    onClick: () => navigate(`/customer360/${a.id}`) },
+        { icon: 'person_search', label: 'View C360',    onClick: () => navigate(`/customers/${a.id}`) },
         { icon: 'add_circle',    label: 'New Deal',     onClick: () => navigate(`/sales/crm?contact=${a.id}`) },
-        { icon: 'history',       label: 'Activity Log', onClick: () => navigate(`/customer360/${a.id}?tab=activities`) },
+        { icon: 'history',       label: 'Activity Log', onClick: () => navigate(`/customers/${a.id}?tab=activities`) },
       ]} />,
     },
   ]
@@ -322,7 +322,7 @@ export default function MyAccounts() {
           skeletonRows={8}
           emptyText={isHead ? 'No customer accounts yet' : 'No accounts assigned to you yet — converted leads will appear here'}
           keyFn={a => a.id}
-          onRowClick={a => navigate(`/customer360/${a.id}`)}
+          onRowClick={a => navigate(`/customers/${a.id}`)}
           pageSize={25}
         />
       </SectionCard>

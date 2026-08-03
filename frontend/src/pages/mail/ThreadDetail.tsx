@@ -191,7 +191,7 @@ export default function MailThreadDetail() {
       subtitle={m ? `${m.kind.charAt(0).toUpperCase() + m.kind.slice(1)} · ${m.status}` : 'Loading…'}
       actions={
         <button
-          onClick={() => navigate('/mail')}
+          onClick={() => navigate('/mail/inbox')}
           style={{
             padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
             background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base,
