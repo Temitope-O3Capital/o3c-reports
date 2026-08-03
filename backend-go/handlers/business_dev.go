@@ -431,6 +431,8 @@ func bdGetLead(db *core.DB) http.HandlerFunc {
 func bdUpdateLead(db *core.DB) http.HandlerFunc {
 	type body struct {
 		Stage              *string `json:"stage"`
+		LeadType           *string `json:"lead_type"`
+		EntityType         *string `json:"entity_type"`
 		Notes              *string `json:"notes"`
 		AssignedTo         *int64  `json:"assigned_to"`
 		PotentialValueKobo *int64  `json:"potential_value_kobo"`
@@ -453,6 +455,12 @@ func bdUpdateLead(db *core.DB) http.HandlerFunc {
 		}
 		if b.Stage != nil {
 			add("stage", *b.Stage)
+		}
+		if b.LeadType != nil {
+			add("lead_type", *b.LeadType)
+		}
+		if b.EntityType != nil {
+			add("entity_type", *b.EntityType)
 		}
 		if b.Notes != nil {
 			add("notes", *b.Notes)
@@ -649,6 +657,11 @@ func bdImportLeads(db *core.DB) http.HandlerFunc {
 			}
 			companyName := col(row, "company_name")
 			contactName := col(row, "contact_name")
+			// Support first_name/last_name columns (matches the New Lead form) —
+			// fall back to them when a single contact_name column isn't provided.
+			if contactName == "" {
+				contactName = strings.TrimSpace(col(row, "first_name") + " " + col(row, "last_name"))
+			}
 			title := col(row, "title")
 			if title == "" {
 				if contactName != "" {

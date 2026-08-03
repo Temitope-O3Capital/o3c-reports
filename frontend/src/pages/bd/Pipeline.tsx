@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Modal, filterInputStyle, SearchInput, DateFilter, NameCell, ActionRow, StatusBadge } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiPost, API, getCsrfToken } from '../../lib/api'
+import { apiFetch, apiPost, apiPatch, API, getCsrfToken } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
 import { RED, AMBER, GREEN, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
@@ -115,16 +115,42 @@ function PageBtn({ children, active, disabled, onClick, icon }: {
   )
 }
 
-function FormField({ label, value, onChange, fullWidth, type = 'text' }: {
-  label: string; value: string; onChange: (v: string) => void; fullWidth?: boolean; type?: string
+function FormField({ label, value, onChange, fullWidth, type = 'text', placeholder, list }: {
+  label: string; value: string; onChange: (v: string) => void; fullWidth?: boolean; type?: string; placeholder?: string; list?: string
 }) {
   return (
     <div style={{ gridColumn: fullWidth ? '1/-1' : undefined, display: 'flex', flexDirection: 'column', gap: 4 }}>
       <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{label}</label>
-      <input type={type} value={value} onChange={e => onChange(e.target.value)} style={{ ...filterInputStyle, height: 36 }} />
+      <input type={type} value={value} placeholder={placeholder} list={list} onChange={e => onChange(e.target.value)} style={{ ...filterInputStyle, height: 36 }} />
     </div>
   )
 }
+
+function SelectField({ label, value, onChange, options, fullWidth, placeholder }: {
+  label: string; value: string; onChange: (v: string) => void
+  options: readonly string[] | { value: string; label: string }[]; fullWidth?: boolean; placeholder?: string
+}) {
+  const opts = options.map(o => (typeof o === 'string' ? { value: o, label: o } : o))
+  return (
+    <div style={{ gridColumn: fullWidth ? '1/-1' : undefined, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{label}</label>
+      <select value={value} onChange={e => onChange(e.target.value)} style={{ ...filterInputStyle, height: 36, cursor: 'pointer', textTransform: 'capitalize' }}>
+        {placeholder && <option value="">{placeholder}</option>}
+        {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  )
+}
+
+// Product / loan-type vocabulary — O3 is multi-product (loans, FD, cards).
+const PRODUCT_OPTIONS = [
+  'Salary Loan', 'Business Loan', 'Personal Loan',
+  'Fixed Deposit', 'Credit Card', 'Prepaid Card',
+] as const
+
+// Kanban grouping dimensions.
+type GroupBy = 'stage' | 'product' | 'type'
+const GROUP_LABELS: Record<GroupBy, string> = { stage: 'Stage', product: 'Product', type: 'Type' }
 
 const BULK_ACTIONS = [
   { label: 'Assign to Sales', primary: true  },
@@ -137,8 +163,8 @@ const PER_PAGE = 25
 
 const EMPTY_LEAD = {
   entity_type: 'company' as EntityType,
-  title: '', company_name: '', lead_type: '', stage: 'prospect',
-  contact_name: '', contact_email: '', contact_phone: '',
+  company_name: '', lead_type: '', stage: 'prospect',
+  first_name: '', last_name: '', contact_email: '', contact_phone: '',
   potential_value_kobo: '', notes: '',
 }
 
@@ -169,6 +195,10 @@ export default function BDPipeline() {
   const [page,       setPage]       = useState(1)
   const [selected,   setSelected]   = useState<Set<string | number>>(new Set())
   const [view,       setView]       = useState<'table' | 'kanban'>('table')
+  const [groupBy,    setGroupBy]    = useState<GroupBy>('stage')
+  const [dragId,     setDragId]     = useState<number | null>(null)
+  const [dropCol,    setDropCol]    = useState<string | null>(null)
+  const [employerNames, setEmployerNames] = useState<string[]>([])
   const [newOpen,    setNewOpen]    = useState(false)
   const [newForm,    setNewForm]    = useState(EMPTY_LEAD)
   const [saving,     setSaving]     = useState(false)
@@ -198,6 +228,13 @@ export default function BDPipeline() {
   }
 
   useEffect(() => { load() }, [])
+
+  // Employer name suggestions for the New Lead form (datalist).
+  useEffect(() => {
+    apiFetch<{ data: { name: string }[] }>('/api/bd/employers?limit=500')
+      .then(r => setEmployerNames(((r as any)?.data ?? r ?? []).map((e: any) => e.name).filter(Boolean)))
+      .catch(() => setEmployerNames([]))
+  }, [])
 
   const uniqueTypes     = useMemo(() => [...new Set(leads.map(l => l.lead_type).filter(Boolean))] as string[], [leads])
   const uniqueAssignees = useMemo(() => [...new Set(leads.map(l => l.assigned_name).filter(Boolean))] as string[], [leads])
@@ -258,12 +295,12 @@ export default function BDPipeline() {
 
   function downloadLeadTemplate() {
     const csv = [
-      'entity_type,title,company_name,contact_name,contact_email,contact_phone,lead_type,stage,potential_value_naira,notes',
-      'company,Acme Limited,Acme Limited,Chidi Okeke,chidi@acme.ng,+2348001234567,Salary Loan,prospect,500000,',
-      'individual,,Fatima Ibrahim,Fatima Ibrahim,fatima@email.ng,+2348091234567,Personal Loan,qualified,250000,Referred by staff',
-      'individual_at_company,Bello Ahmed,First Bank,Bello Ahmed,bello@firstbank.ng,+2348071234567,Business Loan,prospect,1000000,',
+      'entity_type,first_name,last_name,company_name,contact_email,contact_phone,lead_type,stage,potential_value_naira,notes',
+      'company,Chidi,Okeke,Acme Limited,chidi@acme.ng,+2348001234567,Salary Loan,prospect,500000,',
+      'individual,Fatima,Ibrahim,,fatima@email.ng,+2348091234567,Personal Loan,qualified,250000,Referred by staff',
+      'individual_at_company,Bello,Ahmed,First Bank,bello@firstbank.ng,+2348071234567,Business Loan,prospect,1000000,',
     ].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url
     a.download = 'leads-import-template.csv'
@@ -276,9 +313,27 @@ export default function BDPipeline() {
     if (!file) return
     setCsvFile(file); setCsvPreview(null)
     const text = await file.text()
-    const lines = text.split('\n').filter(l => l.trim() && !l.startsWith('entity_type'))
-    const valid = lines.filter(l => l.split(',').length >= 2 && l.split(',')[0].trim()).length
-    setCsvPreview({ valid, invalid: lines.length - valid, errors: [] })
+    const rows = text.split(/\r?\n/).filter(l => l.trim())
+    if (rows.length < 2) {
+      setCsvPreview({ valid: 0, invalid: 0, errors: ['No data rows found below the header.'] })
+      if (csvFileRef.current) csvFileRef.current.value = ''
+      return
+    }
+    // Header-aware validation: each row needs a name (company_name, contact_name, or first/last).
+    const headers = rows[0].split(',').map(h => h.trim().toLowerCase())
+    const at = (name: string) => headers.indexOf(name)
+    const iCompany = at('company_name'), iContact = at('contact_name'), iFirst = at('first_name'), iLast = at('last_name')
+    const cell = (cells: string[], i: number) => (i >= 0 && i < cells.length ? cells[i].trim() : '')
+    let valid = 0, invalid = 0
+    const errors: string[] = []
+    rows.slice(1).forEach((line, n) => {
+      const cells = line.split(',')
+      const hasName = cell(cells, iCompany) || cell(cells, iContact) || cell(cells, iFirst) || cell(cells, iLast)
+      if (hasName) valid++
+      else { invalid++; if (errors.length < 4) errors.push(`Row ${n + 2}: no company or contact name`) }
+    })
+    if (iCompany < 0 && iContact < 0 && iFirst < 0) errors.unshift('Missing a name column (company_name, contact_name, or first_name/last_name).')
+    setCsvPreview({ valid, invalid, errors })
     if (csvFileRef.current) csvFileRef.current.value = ''
   }
 
@@ -305,11 +360,12 @@ export default function BDPipeline() {
 
   async function doCreateLead() {
     const et = newForm.entity_type
+    const contactName = `${newForm.first_name} ${newForm.last_name}`.trim()
     if (et === 'company' && !newForm.company_name.trim()) {
       toast.error('Organisation name is required'); return
     }
-    if ((et === 'individual' || et === 'individual_at_company') && !newForm.contact_name.trim()) {
-      toast.error('Full name is required'); return
+    if ((et === 'individual' || et === 'individual_at_company') && !contactName) {
+      toast.error('First name is required'); return
     }
     if (et === 'individual_at_company' && !newForm.company_name.trim()) {
       toast.error('Company / Employer is required'); return
@@ -328,11 +384,11 @@ export default function BDPipeline() {
 
     const extra =
       et === 'company'
-        ? { title: newForm.company_name, company_name: newForm.company_name, contact_name: newForm.contact_name || null }
+        ? { title: newForm.company_name, company_name: newForm.company_name, contact_name: contactName || null }
       : et === 'individual'
-        ? { title: newForm.contact_name, contact_name: newForm.contact_name, company_name: null }
+        ? { title: contactName, contact_name: contactName, company_name: null }
       : /* individual_at_company */
-        { title: newForm.contact_name, contact_name: newForm.contact_name, company_name: newForm.company_name, employer_name: newForm.company_name }
+        { title: contactName, contact_name: contactName, company_name: newForm.company_name, employer_name: newForm.company_name }
 
     setSaving(true)
     try {
@@ -341,6 +397,45 @@ export default function BDPipeline() {
       setNewOpen(false); setNewForm(EMPTY_LEAD); load()
     } catch (e: any) { toast.error(e.message ?? 'Failed to create lead') }
     finally { setSaving(false) }
+  }
+
+  // ── Kanban grouping + drag-drop ───────────────────────────────────────────────
+  const groupField: Record<GroupBy, 'stage' | 'lead_type' | 'entity_type'> = {
+    stage: 'stage', product: 'lead_type', type: 'entity_type',
+  }
+  const groupVal = (l: Lead): string =>
+    groupBy === 'stage' ? l.stage
+    : groupBy === 'product' ? (l.lead_type ?? 'Unspecified')
+    : (l.entity_type ?? 'company')
+
+  const kanbanColumns = useMemo<{ key: string; label: string; color: string }[]>(() => {
+    if (groupBy === 'stage')
+      return STAGES.map(s => ({ key: s, label: s, color: STAGE_COLORS[s] }))
+    if (groupBy === 'type')
+      return (['company', 'individual', 'individual_at_company'] as EntityType[])
+        .map((t, i) => ({ key: t, label: ENTITY_LABELS[t], color: AVATAR_PALETTE[i] }))
+    // product — show the standard products present, plus any others in the data
+    const present = new Set(filtered.map(l => l.lead_type ?? 'Unspecified'))
+    const base = PRODUCT_OPTIONS.filter(p => present.has(p)) as string[]
+    const extra = [...present].filter(p => !(PRODUCT_OPTIONS as readonly string[]).includes(p))
+    const cols = base.concat(extra)
+    return (cols.length ? cols : [...PRODUCT_OPTIONS]).map((p, i) => ({
+      key: p, label: p, color: AVATAR_PALETTE[i % AVATAR_PALETTE.length],
+    }))
+  }, [groupBy, filtered])
+
+  async function moveLead(id: number, toValue: string) {
+    const field = groupField[groupBy]
+    const stored = field === 'lead_type' && toValue === 'Unspecified' ? null : toValue
+    const prev = leads
+    setLeads(ls => ls.map(l => (l.id === id ? ({ ...l, [field]: stored } as Lead) : l)))
+    try {
+      await apiPatch(`/api/bd/leads/${id}`, { [field]: stored ?? '' })
+      toast.success(`Moved to ${toValue}`)
+    } catch {
+      setLeads(prev)
+      toast.error('Could not move lead')
+    }
   }
 
   // ── Table columns ───────────────────────────────────────────────────────────
@@ -405,9 +500,43 @@ export default function BDPipeline() {
     },
   ]
 
-  const byStage = (s: string) => filtered.filter(l => l.stage === s)
-
   const kpiLoading = loading && !kpis
+
+  // Segmented Table / Kanban switch — lives on the leads section header.
+  const viewSwitch = (
+    <div style={{ display: 'inline-flex', background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: 2, border: '1px solid var(--bdr)' }}>
+      {(['table', 'kanban'] as const).map(v => (
+        <button key={v} onClick={() => setView(v)} style={{
+          display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px',
+          borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer',
+          fontSize: TEXT.sm, fontWeight: view === v ? FW.semibold : FW.medium,
+          background: view === v ? 'var(--card)' : 'transparent',
+          color: view === v ? 'var(--txt)' : 'var(--txt2)',
+          boxShadow: view === v ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{v === 'table' ? 'table_rows' : 'view_kanban'}</span>
+          {v === 'table' ? 'Table' : 'Kanban'}
+        </button>
+      ))}
+    </div>
+  )
+
+  const groupBySwitch = (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>Group by</span>
+      <div style={{ display: 'inline-flex', background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: 2, border: '1px solid var(--bdr)' }}>
+        {(['stage', 'product', 'type'] as GroupBy[]).map(g => (
+          <button key={g} onClick={() => setGroupBy(g)} style={{
+            padding: '5px 10px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer',
+            fontSize: TEXT.sm, fontWeight: groupBy === g ? FW.semibold : FW.medium,
+            background: groupBy === g ? 'var(--card)' : 'transparent',
+            color: groupBy === g ? 'var(--txt)' : 'var(--txt2)',
+            boxShadow: groupBy === g ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+          }}>{GROUP_LABELS[g]}</button>
+        ))}
+      </div>
+    </div>
+  )
 
   return (
     <Page
@@ -416,20 +545,6 @@ export default function BDPipeline() {
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          <button
-            onClick={() => setView(v => v === 'table' ? 'kanban' : 'table')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '7px 12px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.medium,
-              border: '1px solid var(--bdr)', background: 'var(--card)',
-              color: 'var(--txt)', cursor: 'pointer',
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>
-              {view === 'table' ? 'view_kanban' : 'table_rows'}
-            </span>
-            {view === 'table' ? 'Kanban' : 'Table'}
-          </button>
           <button
             onClick={() => setNewOpen(true)}
             style={{
@@ -456,7 +571,7 @@ export default function BDPipeline() {
 
       {view === 'table' ? (
 
-        <SectionCard title="All Leads" badge={leads.length} padding={false} actions={<button onClick={() => exportLeadsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <SectionCard title="All Leads" badge={leads.length} padding={false} actions={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{viewSwitch}<button onClick={() => exportLeadsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button></div>}>
 
           {/* ── Filter bar ─────────────────────────────────────────────────── */}
           <div style={{
@@ -724,7 +839,10 @@ export default function BDPipeline() {
 
         /* ── Kanban view ─────────────────────────────────────────────────────── */
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+            {viewSwitch}
+            {groupBySwitch}
+            <div style={{ flex: 1 }} />
             <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
             <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
               {filtered.length} of {leads.length}
@@ -732,49 +850,62 @@ export default function BDPipeline() {
           </div>
 
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
-            {STAGES.map(s => {
-              const col = byStage(s)
+            {kanbanColumns.map(colDef => {
+              const col = filtered.filter(l => groupVal(l) === colDef.key)
               const colValue = col.reduce((sum, l) => sum + Number(l.potential_value_kobo ?? 0), 0)
-              const c = STAGE_COLORS[s]
+              const c = colDef.color
+              const isDrop = dropCol === colDef.key
               return (
-                <div key={s} style={{
-                  minWidth: 220, flex: '0 0 220px',
-                  background: 'var(--card)', borderRadius: RADIUS.xl,
-                  border: '1px solid var(--bdr)', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                }}>
+                <div key={colDef.key}
+                  onDragOver={e => { e.preventDefault(); if (dropCol !== colDef.key) setDropCol(colDef.key) }}
+                  onDragLeave={() => setDropCol(d => (d === colDef.key ? null : d))}
+                  onDrop={e => { e.preventDefault(); setDropCol(null); if (dragId != null && groupVal(leads.find(l => l.id === dragId)!) !== colDef.key) moveLead(dragId, colDef.key); setDragId(null) }}
+                  style={{
+                    minWidth: 220, flex: '0 0 220px',
+                    background: isDrop ? `${c}08` : 'var(--card)', borderRadius: RADIUS.xl,
+                    border: isDrop ? `1.5px dashed ${c}` : '1px solid var(--bdr)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)', transition: 'border-color .12s, background .12s',
+                  }}>
                   <div style={{
                     padding: '10px 14px', borderBottom: '1px solid var(--bdr)',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                       <div style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
-                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', textTransform: 'capitalize' }}>{s}</span>
+                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', textTransform: 'capitalize' }}>{colDef.label}</span>
                       <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: c, background: `${c}14`, borderRadius: RADIUS.lg, padding: '1px 6px' }}>{col.length}</span>
                     </div>
                     <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{fmtKobo(colValue)}</span>
                   </div>
-                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' }}>
+                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, minHeight: 56, maxHeight: 'calc(100vh - 280px)', overflowY: 'auto' }}>
                     {col.length === 0 ? (
-                      <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No leads</div>
-                    ) : col.map(lead => (
+                      <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>{isDrop ? 'Drop here' : 'No leads'}</div>
+                    ) : col.map(lead => {
+                      const nm = lead.company_name ?? lead.contact_name ?? lead.title ?? '?'
+                      return (
                       <div
                         key={lead.id}
+                        draggable
+                        onDragStart={e => { setDragId(lead.id); e.dataTransfer.effectAllowed = 'move' }}
+                        onDragEnd={() => { setDragId(null); setDropCol(null) }}
+                        onClick={() => setDetailLead(lead)}
                         style={{
                           padding: '10px 12px', borderRadius: RADIUS.md,
-                          background: 'var(--bg)', border: '1px solid var(--bdr)', cursor: 'pointer',
+                          background: 'var(--bg)', border: '1px solid var(--bdr)', cursor: 'grab',
+                          opacity: dragId === lead.id ? 0.5 : 1,
                         }}
                         onMouseEnter={e => (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.boxShadow = 'none'}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
                           <div style={{ width: 22, height: 22, borderRadius: RADIUS.full, background: c, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', fontFamily: INTER }}>
-                            {(lead.company_name ?? lead.title ?? '?').charAt(0).toUpperCase()}
+                            {nm.charAt(0).toUpperCase()}
                           </div>
                           <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {lead.company_name ?? lead.title}
+                            {nm}
                           </span>
                         </div>
-                        {lead.contact_name && (
+                        {lead.contact_name && lead.company_name && (
                           <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>{lead.contact_name}</div>
                         )}
                         <div style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY }}>{fmtKobo(lead.potential_value_kobo)}</div>
@@ -782,7 +913,7 @@ export default function BDPipeline() {
                           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>{lead.assigned_name}</div>
                         )}
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               )
@@ -796,7 +927,7 @@ export default function BDPipeline() {
         open={newOpen}
         onClose={() => { setNewOpen(false); setNewForm(EMPTY_LEAD); setNewTab('manual'); setCsvFile(null); setCsvPreview(null) }}
         title="New Lead"
-        width={520}
+        width={460}
         footer={
           newTab === 'manual' ? (
             <>
@@ -858,27 +989,36 @@ export default function BDPipeline() {
               })}
             </div>
 
+            <datalist id="bd-employer-list">
+              {employerNames.map(n => <option key={n} value={n} />)}
+            </datalist>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               {newForm.entity_type === 'company' ? (<>
-                <FormField label="Organisation Name *" fullWidth value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
-                <FormField label="Product / Loan Type" value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
-                <FormField label="Contact Person" value={newForm.contact_name} onChange={v => setNewForm(f => ({ ...f, contact_name: v }))} />
+                <FormField label="Organisation Name *" fullWidth list="bd-employer-list" placeholder="Search or type…" value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
+                <SelectField label="Product / Loan Type" placeholder="Select…" options={PRODUCT_OPTIONS} value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
+                <SelectField label="Stage" options={STAGES} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
+                <FormField label="Contact First Name" value={newForm.first_name} onChange={v => setNewForm(f => ({ ...f, first_name: v }))} />
+                <FormField label="Contact Last Name" value={newForm.last_name} onChange={v => setNewForm(f => ({ ...f, last_name: v }))} />
                 <FormField label="Contact Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
                 <FormField label="Contact Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
-                <FormField label="Est. Value (₦)" value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
+                <FormField label="Est. Value (₦)" fullWidth value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
               </>) : newForm.entity_type === 'individual' ? (<>
-                <FormField label="Full Name *" fullWidth value={newForm.contact_name} onChange={v => setNewForm(f => ({ ...f, contact_name: v }))} />
-                <FormField label="Product / Loan Type" value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
+                <FormField label="First Name *" value={newForm.first_name} onChange={v => setNewForm(f => ({ ...f, first_name: v }))} />
+                <FormField label="Last Name" value={newForm.last_name} onChange={v => setNewForm(f => ({ ...f, last_name: v }))} />
+                <SelectField label="Product / Loan Type" placeholder="Select…" options={PRODUCT_OPTIONS} value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
+                <SelectField label="Stage" options={STAGES} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
                 <FormField label="Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
                 <FormField label="Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
                 <FormField label="Est. Value (₦)" fullWidth value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
               </>) : (<>
-                <FormField label="Full Name *" value={newForm.contact_name} onChange={v => setNewForm(f => ({ ...f, contact_name: v }))} />
-                <FormField label="Company / Employer *" value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
-                <FormField label="Product / Loan Type" value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
+                <FormField label="First Name *" value={newForm.first_name} onChange={v => setNewForm(f => ({ ...f, first_name: v }))} />
+                <FormField label="Last Name" value={newForm.last_name} onChange={v => setNewForm(f => ({ ...f, last_name: v }))} />
+                <FormField label="Company / Employer *" fullWidth list="bd-employer-list" placeholder="Search or type…" value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
+                <SelectField label="Product / Loan Type" placeholder="Select…" options={PRODUCT_OPTIONS} value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
+                <SelectField label="Stage" options={STAGES} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
                 <FormField label="Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
                 <FormField label="Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
-                <FormField label="Est. Value (₦)" value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
+                <FormField label="Est. Value (₦)" fullWidth value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
               </>)}
               <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Notes</label>
@@ -900,7 +1040,7 @@ export default function BDPipeline() {
               <div>
                 <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>CSV Format</div>
                 <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.6 }}>
-                  Required columns: <code>entity_type</code> (company / individual / individual_at_company), <code>contact_name</code> or <code>company_name</code>.<br />
+                  Required: <code>entity_type</code> (company / individual / individual_at_company) and a name — <code>company_name</code> and/or <code>first_name</code> + <code>last_name</code>.<br />
                   Optional: <code>contact_email</code>, <code>contact_phone</code>, <code>lead_type</code>, <code>stage</code>, <code>potential_value_naira</code>, <code>notes</code>
                 </div>
                 <button onClick={downloadLeadTemplate} style={{
@@ -933,15 +1073,24 @@ export default function BDPipeline() {
 
             {/* Preview */}
             {csvPreview && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div style={{ background: `${GREEN}12`, borderRadius: RADIUS.md, padding: '12px 16px', textAlign: 'center' }}>
-                  <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: GREEN }}>{csvPreview.valid}</div>
-                  <div style={{ fontSize: TEXT.xs, color: GREEN, marginTop: 2 }}>Valid rows</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ background: `${GREEN}12`, borderRadius: RADIUS.md, padding: '12px 16px', textAlign: 'center' }}>
+                    <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: GREEN }}>{csvPreview.valid}</div>
+                    <div style={{ fontSize: TEXT.xs, color: GREEN, marginTop: 2 }}>Valid rows</div>
+                  </div>
+                  <div style={{ background: csvPreview.invalid > 0 ? `${RED}12` : `${NAVY}08`, borderRadius: RADIUS.md, padding: '12px 16px', textAlign: 'center' }}>
+                    <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: csvPreview.invalid > 0 ? RED : 'var(--txt3)' }}>{csvPreview.invalid}</div>
+                    <div style={{ fontSize: TEXT.xs, color: csvPreview.invalid > 0 ? RED : 'var(--txt3)', marginTop: 2 }}>Invalid rows</div>
+                  </div>
                 </div>
-                <div style={{ background: csvPreview.invalid > 0 ? `${RED}12` : `${NAVY}08`, borderRadius: RADIUS.md, padding: '12px 16px', textAlign: 'center' }}>
-                  <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: csvPreview.invalid > 0 ? RED : 'var(--txt3)' }}>{csvPreview.invalid}</div>
-                  <div style={{ fontSize: TEXT.xs, color: csvPreview.invalid > 0 ? RED : 'var(--txt3)', marginTop: 2 }}>Invalid rows</div>
-                </div>
+                {csvPreview.errors.length > 0 && (
+                  <div style={{ background: `${RED}0A`, border: `1px solid ${RED}22`, borderRadius: RADIUS.md, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {csvPreview.errors.map((er, i) => (
+                      <div key={i} style={{ fontSize: TEXT.xs, color: RED }}>{er}</div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
