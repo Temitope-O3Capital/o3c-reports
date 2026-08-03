@@ -423,6 +423,9 @@ func main() {
 		r.Route("/api/fixed-deposit", func(r chi.Router) {
 			handlers.RegisterFixedDeposit(r, db)
 		})
+		r.Route("/api/fd-book", func(r chi.Router) {
+			handlers.RegisterFDBook(r, db)
+		})
 		r.Route("/api/finance", func(r chi.Router) {
 			handlers.RegisterFinance(r, db)
 			r.Get("/fx-rates/latest", handlers.FXRatesLatest(db))

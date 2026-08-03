@@ -29,12 +29,19 @@ this project so you can continue development without asking Temitope to re-expla
 
 ## What This Project Is
 
-A full-stack B2B operations platform for **O3 Capital** — a Nigerian fintech company
-offering prepaid, credit, and international USD cards plus business loans.
+A full-stack B2B operations platform for **O3 Capital** — a Nigerian financial-services
+company. O3 is a multi-product business, not a lender-only shop; the workspace serves
+all three core product lines equally:
+
+- **Credit / Lending** — salary loans, individual loans, business loans (origination → servicing → collections → recovery)
+- **Fixed Deposits** — term deposits with interest accrual, rollover, maturity and early withdrawal
+- **Cards** — credit cards (revolving credit: statements, interest, limits), plus prepaid (Blink), and international USD cards
 
 O3 Capital Workspace is the internal staff platform: it consolidates loan origination,
-cards ops, collections, recovery, sales/CRM, compliance, HR, helpdesk, campaigns,
-finance, and executive reporting into a single authenticated web application.
+fixed-deposit operations, card operations, collections, recovery, sales/CRM, compliance,
+HR, helpdesk, campaigns, finance, and executive reporting into a single authenticated
+web application. When building or reporting, treat Fixed Deposits and Cards as
+first-class product lines on par with Credit — not as add-ons to a lending platform.
 It replaces a fragmented mix of Power BI dashboards and spreadsheets.
 
 ---

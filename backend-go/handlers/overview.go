@@ -3,10 +3,27 @@ package handlers
 import (
 	"math"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
 )
+
+// overviewRange resolves the from/to query params into current + previous windows.
+// Both present → custom range; otherwise defaults to the current month.
+// The Executive Overview's period-flow widgets (disbursements, top performers) honor
+// this window; point-in-time snapshots (portfolio, FD book, cards) are always "as of now".
+func overviewRange(r *http.Request) (cs, ce, ps, pe time.Time) {
+	from, to := qstr(r, "from"), qstr(r, "to")
+	if from != "" && to != "" {
+		if a, b, c, dd, err := periodDates("custom", from, to); err == nil {
+			return a, b, c, dd
+		}
+	}
+	a, b, c, dd, _ := periodDates("month", "", "")
+	return a, b, c, dd
+}
 
 func RegisterOverview(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("overview"))
@@ -23,75 +40,141 @@ func RegisterOverview(r chi.Router, db *core.DB) {
 	r.Get("/contact-center",     overviewContactCenter(db))
 }
 
-// overviewKPIs returns the 4 executive KPIs:
-// portfolio outstanding (kobo), collections rate (%), disbursements MTD (kobo), active customers.
+// overviewKPIs returns the executive KPIs from the real Udara/CBS loan book.
+// The workspace-native loan_applications / collection_assignments tables are empty
+// (the workspace is a front-end to Udara core banking), so headline values are read
+// live from cbs_loans; sparkline history + vs-last-period deltas come from
+// cbs_portfolio_snapshot (portfolio/performing/borrowers) and cbs_loans (disbursements).
 func overviewKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		cs, ce, ps, pe := overviewRange(r)
 
-		kpis := map[string]any{
+		out := map[string]any{
 			"portfolio_outstanding_kobo": int64(0),
-			"collections_rate_pct":       0.0,
-			"disbursements_mtd_kobo":     int64(0),
+			"performing_rate_pct":        0.0,
+			"npl_rate_pct":               0.0,
+			"disbursements_kobo":         int64(0),
 			"active_customers":           int64(0),
+			"active_loans":               int64(0),
+			"portfolio_change_pct":       nil,
+			"performing_change_pct":      nil,
+			"disbursements_change_pct":   nil,
+			"customers_change_pct":       nil,
+			"portfolio_series":           []int64{},
+			"performing_series":          []float64{},
+			"disbursements_series":       []int64{},
+			"customers_series":           []int64{},
 		}
 
-		// Portfolio outstanding + collections rate from collection_assignments
-		collRows, err := db.PGQuery(ctx, `
+		// Current headline values — live from the CBS/Udara loan book.
+		// open loans = NOT IN ('Closed','Revoked');  NPL = Defaulting/Expired.
+		if rows, err := db.PGQuery(ctx, `
 			SELECT
-				COALESCE(SUM(outstanding_kobo), 0) AS portfolio_outstanding_kobo,
-				CASE WHEN COUNT(*) = 0 THEN 0::numeric
-				     ELSE ROUND(
-				       COUNT(CASE WHEN dpd_bucket = '0' THEN 1 END)::numeric
-				       / COUNT(*)::numeric * 100, 1
-				     )
-				END AS collections_rate_pct
-			FROM collection_assignments`)
-		if err == nil && len(collRows) > 0 {
-			kpis["portfolio_outstanding_kobo"] = collRows[0]["portfolio_outstanding_kobo"]
-			kpis["collections_rate_pct"] = collRows[0]["collections_rate_pct"]
+				COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status NOT IN ('Closed','Revoked')), 0) AS outstanding_kobo,
+				COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status IN ('Defaulting','Expired')), 0)  AS npl_kobo,
+				COUNT(*)                        FILTER (WHERE status = 'Active')                                 AS active_loans,
+				COUNT(DISTINCT cbs_customer_id) FILTER (WHERE status = 'Active')                                 AS borrowers_active
+			FROM cbs_loans`); err == nil && len(rows) > 0 {
+			outstanding := toInt64(rows[0]["outstanding_kobo"])
+			npl := toInt64(rows[0]["npl_kobo"])
+			out["portfolio_outstanding_kobo"] = outstanding
+			out["active_customers"] = toInt64(rows[0]["borrowers_active"])
+			out["active_loans"] = toInt64(rows[0]["active_loans"])
+			if outstanding > 0 {
+				out["performing_rate_pct"] = round1(float64(outstanding-npl) / float64(outstanding) * 100)
+				out["npl_rate_pct"] = round1(float64(npl) / float64(outstanding) * 100)
+			}
 		}
 
-		// Disbursements MTD + active customers from loan_applications
-		loanRows, err := db.PGQuery(ctx, `
-			SELECT
-				COALESCE(SUM(
-					CASE WHEN stage = 'active'
-					     AND DATE_TRUNC('month', disbursed_at) = DATE_TRUNC('month', NOW())
-					THEN amount_approved_kobo END
-				), 0) AS disbursements_mtd_kobo,
-				COUNT(CASE WHEN stage = 'active' THEN 1 END) AS active_customers
-			FROM loan_applications`)
-		if err == nil && len(loanRows) > 0 {
-			kpis["disbursements_mtd_kobo"] = loanRows[0]["disbursements_mtd_kobo"]
-			kpis["active_customers"] = loanRows[0]["active_customers"]
+		// Disbursements within the selected window (by loan start_date), + prev window.
+		disb := func(s, e time.Time) int64 {
+			if rows, err := db.PGQuery(ctx, `
+				SELECT COALESCE(SUM(loan_amount_kobo), 0) AS v
+				FROM cbs_loans
+				WHERE start_date::date BETWEEN $1 AND $2`, d(s), d(e)); err == nil && len(rows) > 0 {
+				return toInt64(rows[0]["v"])
+			}
+			return 0
+		}
+		curDisb := disb(cs, ce)
+		out["disbursements_kobo"] = curDisb
+		out["disbursements_change_pct"] = pctChange(float64(curDisb), float64(disb(ps, pe)))
+
+		// Disbursements sparkline — real trailing 12-month monthly series.
+		if rows, err := db.PGQuery(ctx, `
+			WITH months AS (
+				SELECT generate_series(DATE_TRUNC('month', NOW()) - INTERVAL '11 months',
+				                       DATE_TRUNC('month', NOW()), '1 month'::interval) AS m)
+			SELECT COALESCE(SUM(l.loan_amount_kobo), 0) AS v
+			FROM months mo
+			LEFT JOIN cbs_loans l ON DATE_TRUNC('month', l.start_date) = mo.m
+			GROUP BY mo.m ORDER BY mo.m`); err == nil {
+			ser := make([]int64, 0, len(rows))
+			for _, row := range rows {
+				ser = append(ser, toInt64(row["v"]))
+			}
+			out["disbursements_series"] = ser
 		}
 
-		respond(w, kpis, "pg")
+		// Portfolio / performing / borrowers sparklines — from the CBS daily snapshot
+		// history (grows one point per day). vs-last-period = last vs first available point.
+		if rows, err := db.PGQuery(ctx, `
+			SELECT outstanding_principal_kobo, npl_kobo, borrowers_active
+			FROM cbs_portfolio_snapshot
+			WHERE snapshot_date >= (CURRENT_DATE - INTERVAL '29 days')
+			ORDER BY snapshot_date`); err == nil && len(rows) > 0 {
+			pSer := make([]int64, 0, len(rows))
+			perfSer := make([]float64, 0, len(rows))
+			cSer := make([]int64, 0, len(rows))
+			for _, row := range rows {
+				o := toInt64(row["outstanding_principal_kobo"])
+				n := toInt64(row["npl_kobo"])
+				pSer = append(pSer, o)
+				cSer = append(cSer, toInt64(row["borrowers_active"]))
+				if o > 0 {
+					perfSer = append(perfSer, round1(float64(o-n)/float64(o)*100))
+				} else {
+					perfSer = append(perfSer, 0)
+				}
+			}
+			out["portfolio_series"] = pSer
+			out["performing_series"] = perfSer
+			out["customers_series"] = cSer
+			if len(pSer) >= 2 {
+				out["portfolio_change_pct"] = pctChange(float64(pSer[len(pSer)-1]), float64(pSer[0]))
+				out["customers_change_pct"] = pctChange(float64(cSer[len(cSer)-1]), float64(cSer[0]))
+				out["performing_change_pct"] = pctChange(perfSer[len(perfSer)-1], perfSer[0])
+			}
+		}
+
+		respond(w, out, "pg")
 	}
 }
 
-// overviewMonthlyVolume returns 12 months of disbursements for the area chart.
+// overviewMonthlyVolume returns the "Loan & FD payouts per month" chart: real loan
+// disbursements (cbs_loans.start_date) and FD payouts at maturity
+// (cbs_fixed_deposits.maturity_date), over a rolling window of 6 months back → 6 forward.
 func overviewMonthlyVolume(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), `
 			WITH months AS (
 				SELECT generate_series(
-					DATE_TRUNC('month', NOW() - INTERVAL '11 months'),
-					DATE_TRUNC('month', NOW()),
+					DATE_TRUNC('month', NOW()) - INTERVAL '6 months',
+					DATE_TRUNC('month', NOW()) + INTERVAL '6 months',
 					'1 month'::interval
 				) AS m
 			)
 			SELECT
-				TO_CHAR(m.m, 'Mon YY')                           AS month,
-				m.m                                              AS month_sort,
-				COALESCE(SUM(la.amount_approved_kobo), 0)        AS disbursements_kobo
-			FROM months m
-			LEFT JOIN loan_applications la
-				ON la.stage = 'active'
-				AND DATE_TRUNC('month', la.disbursed_at) = m.m
-			GROUP BY m.m
-			ORDER BY m.m`)
+				TO_CHAR(mo.m, 'Mon YY') AS month,
+				mo.m                    AS month_sort,
+				COALESCE((SELECT SUM(l.loan_amount_kobo) FROM cbs_loans l
+				          WHERE DATE_TRUNC('month', l.start_date) = mo.m), 0) AS disbursements_kobo,
+				COALESCE((SELECT SUM(f.principal_kobo + COALESCE(f.accrued_interest_kobo, 0))
+				          FROM cbs_fixed_deposits f
+				          WHERE DATE_TRUNC('month', f.maturity_date) = mo.m), 0) AS fd_payouts_kobo
+			FROM months mo
+			ORDER BY mo.m`)
 		if err != nil {
 			respond(w, []any{}, "pg")
 			return
@@ -100,17 +183,17 @@ func overviewMonthlyVolume(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// overviewProductMix returns loan count + volume by product type for the donut chart.
+// overviewProductMix returns the loan book split by product from the CBS book.
 func overviewProductMix(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-				COALESCE(product_type, 'Other') AS product,
-				COUNT(*)                         AS count,
-				COALESCE(SUM(amount_approved_kobo), 0) AS volume_kobo
-			FROM loan_applications
-			WHERE stage NOT IN ('declined', 'closed')
-			GROUP BY product_type
+				COALESCE(NULLIF(product_name, ''), 'Other') AS product,
+				COUNT(*)                                     AS count,
+				COALESCE(SUM(outstanding_principal_kobo), 0) AS volume_kobo
+			FROM cbs_loans
+			WHERE status NOT IN ('Closed', 'Revoked')
+			GROUP BY 1
 			ORDER BY count DESC`)
 		if err != nil {
 			respond(w, []any{}, "pg")
@@ -186,22 +269,23 @@ func overviewAcquisitionFunnel(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// overviewTopPerformers returns the top 10 loan officers by disbursements MTD.
+// overviewTopPerformers returns the top 10 loan officers by disbursement amount
+// within the selected window, from the CBS loan book (officer_name).
 func overviewTopPerformers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cs, ce, _, _ := overviewRange(r)
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-				u.full_name                               AS name,
-				u.role                                    AS dept,
-				COALESCE(SUM(la.amount_approved_kobo), 0) AS amount_kobo,
-				COUNT(la.id)                              AS count
-			FROM loan_applications la
-			JOIN o3c_users u ON u.id = la.sales_officer_id
-			WHERE la.stage = 'active'
-			  AND DATE_TRUNC('month', la.disbursed_at) = DATE_TRUNC('month', NOW())
-			GROUP BY u.id, u.full_name, u.role
+				officer_name                        AS name,
+				'Loan Officer'                      AS dept,
+				COALESCE(SUM(loan_amount_kobo), 0)  AS amount_kobo,
+				COUNT(*)                            AS count
+			FROM cbs_loans
+			WHERE officer_name IS NOT NULL AND officer_name <> ''
+			  AND start_date::date BETWEEN $1 AND $2
+			GROUP BY officer_name
 			ORDER BY amount_kobo DESC
-			LIMIT 10`)
+			LIMIT 10`, d(cs), d(ce))
 		if err != nil {
 			respond(w, []any{}, "pg")
 			return
@@ -287,7 +371,8 @@ func overviewCCStages(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// overviewFDSummary returns fixed deposit book summary.
+// overviewFDSummary returns the fixed deposit book summary from the CBS/Udara register.
+// principal_kobo is already in kobo (unlike the empty native fd_transactions table).
 func overviewFDSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		empty := map[string]any{
@@ -296,15 +381,13 @@ func overviewFDSummary(db *core.DB) http.HandlerFunc {
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-				COUNT(CASE WHEN transaction_type='inflow' THEN 1 END)                                    AS active_fd_count,
-				COALESCE(SUM(CASE WHEN transaction_type='inflow' THEN principal END)::bigint * 100, 0)   AS total_fd_book_kobo,
-				COUNT(CASE WHEN transaction_type='inflow'
-				           AND maturity_date BETWEEN NOW()::date AND (NOW()+INTERVAL'30 days')::date
-				      THEN 1 END)                                                                         AS maturing_30d,
-				COUNT(CASE WHEN transaction_type='inflow'
-				           AND DATE_TRUNC('month',transaction_date)=DATE_TRUNC('month',NOW())
-				      THEN 1 END)                                                                         AS new_this_month
-			FROM fd_transactions`)
+				COUNT(*) FILTER (WHERE status = 'Active')                              AS active_fd_count,
+				COALESCE(SUM(principal_kobo) FILTER (WHERE status = 'Active'), 0)      AS total_fd_book_kobo,
+				COUNT(*) FILTER (WHERE status = 'Active'
+					AND maturity_date BETWEEN NOW()::date AND (NOW()+INTERVAL '30 days')::date) AS maturing_30d,
+				COUNT(*) FILTER (WHERE status = 'Active'
+					AND DATE_TRUNC('month', commencement_date) = DATE_TRUNC('month', NOW()))    AS new_this_month
+			FROM cbs_fixed_deposits`)
 		if err != nil || len(rows) == 0 {
 			respond(w, empty, "pg")
 			return
@@ -462,6 +545,10 @@ func toFloat(v any) float64 {
 		return float64(t)
 	case int32:
 		return float64(t)
+	case string:
+		// pgx returns NUMERIC / AVG / weighted ratios as normalized strings.
+		f, _ := strconv.ParseFloat(t, 64)
+		return f
 	}
 	return 0
 }

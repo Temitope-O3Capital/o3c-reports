@@ -48,12 +48,14 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        icon: 'mark_email_read', label: 'Mail', to: '/mail/inbox',
+        icon: 'mark_email_read', label: 'Mail', to: '/mail/overview',
         vis: ['sales_officer','sales_head','head_sales','bd_officer','bd_head'],
         subs: [
+          { label: 'Overview',  to: '/mail/overview' },
           { label: 'Inbox',     to: '/mail/inbox' },
           { label: 'Sent Mail', to: '/mail/sent' },
           { label: 'Drafts',    to: '/mail/drafts' },
+          { label: 'Signature', to: '/mail/signature' },
         ],
       },
       {
@@ -141,6 +143,22 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    key: 'deposits',
+    header: 'Fixed Deposits',
+    items: [
+      {
+        icon: 'savings', label: 'Fixed Deposits', to: '/deposits',
+        vis: ['finance_officer','finance_head','head_of_reconciliation','head_ops'],
+        subs: [
+          { label: 'Dashboard',    to: '/deposits' },
+          { label: 'Deposit Book', to: '/finance/fixed-deposit' },
+          { label: 'Maturity',     to: '/finance/fd-maturity' },
+          { label: 'Accruals',     to: '/finance/fd-accrual' },
+        ],
+      },
+    ],
+  },
+  {
     key: 'lending',
     header: 'Credit Management',
     items: [
@@ -193,9 +211,6 @@ const SECTIONS: Section[] = [
         subs: [
           { label: 'Transactions',      to: '/finance/transactions' },
           { label: 'Income',            to: '/finance/income' },
-          { label: 'Fixed Deposits',    to: '/finance/fixed-deposit' },
-          { label: 'FD Maturity',       to: '/finance/fd-maturity' },
-          { label: 'FD Accrual',        to: '/finance/fd-accrual' },
           { label: 'EOD / EOB',         to: '/finance/eod' },
           { label: 'P&L',               to: '/finance/pnl' },
           { label: 'Manual Postings',   to: '/finance/manual-postings' },

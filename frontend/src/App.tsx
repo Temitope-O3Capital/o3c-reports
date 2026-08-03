@@ -68,6 +68,8 @@ const CampaignEditor         = lazy(() => import('./pages/campaigns/Editor'))
 
 // Approvals & Mail
 const ApprovalsPage  = lazy(() => import('./pages/Approvals'))
+const MailOverview   = lazy(() => import('./pages/mail/Overview'))
+const MailSignature  = lazy(() => import('./pages/mail/SignatureSettings'))
 const MailInbox      = lazy(() => import('./pages/mail/Inbox'))
 const MailCompose    = lazy(() => import('./pages/mail/Compose'))
 const MailThread     = lazy(() => import('./pages/mail/ThreadDetail'))
@@ -176,6 +178,7 @@ const AdminModules               = lazy(() => import('./pages/admin/Modules'))
 const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
 const FinanceTxns         = lazy(() => import('./pages/finance/Transactions'))
 const FinanceIncome       = lazy(() => import('./pages/finance/Income'))
+const DepositsDashboard   = lazy(() => import('./pages/deposits/Dashboard'))
 const FinanceFD           = lazy(() => import('./pages/finance/FixedDeposit'))
 const FinanceEOD          = lazy(() => import('./pages/finance/Eod'))
 const FinancePnL          = lazy(() => import('./pages/finance/PnL'))
@@ -1077,6 +1080,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/finance"                    element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/transactions"       element={<RequireAccess page="transactions" user={user}><PageErrorBoundary><FinanceTxns /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/income"             element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceIncome /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/deposits"                   element={<RequireAccess page="fixed_deposit" user={user}><PageErrorBoundary><DepositsDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/fixed-deposit"      element={<RequireAccess page="fixed_deposit" user={user}><PageErrorBoundary><FinanceFD /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/eod"                element={<RequireAccess page="eod" user={user}><PageErrorBoundary><FinanceEOD /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/pnl"                element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinancePnL /></PageErrorBoundary></RequireAccess>} />
@@ -1158,10 +1162,13 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/admin/workflow-templates"    element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminWorkflowTemplates /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Mail */}
+                  <Route path="/mail"         element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/overview" element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/mail/inbox"   element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/mail/sent"    element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/mail/drafts"  element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/mail/compose" element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailCompose /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/signature" element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailSignature /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/mail/:id"     element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailThread /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/settings" element={<PageErrorBoundary><UserSettings /></PageErrorBoundary>} />
