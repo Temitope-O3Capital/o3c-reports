@@ -178,3 +178,21 @@ export async function apiExport(path: string, filename: string): Promise<void> {
   a.remove()
   URL.revokeObjectURL(url)
 }
+
+// ── Response-envelope helpers ───────────────────────────────────────────────
+// The backend is inconsistent: respond() wraps payloads as { data, data_source,
+// data_as_of }, while some handlers return the payload bare. These helpers read
+// either shape, so pages never crash or blank on the wrong nesting. Prefer these
+// (or the inline `Array.isArray(x) ? x : (x?.data ?? [])` idiom) in all new code.
+
+/** Return the object payload whether the response is wrapped ({data:…}) or bare. */
+export function unwrap<T = any>(res: any): T {
+  return (res && typeof res === 'object' && 'data' in res ? res.data : res) as T
+}
+
+/** Return an array payload whether the response is a bare array or { data: [] }. */
+export function unwrapList<T = any>(res: any): T[] {
+  if (Array.isArray(res)) return res
+  if (res && Array.isArray(res.data)) return res.data
+  return []
+}
