@@ -4,6 +4,7 @@ import {
   type TableCol,
 } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
+import { useLiveData } from '../../hooks/useRealtime'
 import { fmtKobo, fmtPct, fmtDate, fmtDatetime, fmtNum, n } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, FW, SP } from '../../lib/design'
 
@@ -81,12 +82,10 @@ export default function CoreBanking() {
       if (!silent) setLoading(false)
     }
   }
-  // Initial load + live auto-refresh every 60s (matches the backend's 1-min sync).
-  useEffect(() => {
-    load()
-    const id = setInterval(() => load(true), 60_000)
-    return () => clearInterval(id)
-  }, [])
+  // Initial load, then ride the app-wide realtime layer: the 'cbs' change-feed topic
+  // fires within ~4s of a snapshot sync, and useLiveData also refetches on window focus.
+  useEffect(() => { load() }, [])
+  useLiveData(() => load(true), { topics: ['cbs'] })
 
   async function runSync() {
     setSyncing(true); setErr(null)

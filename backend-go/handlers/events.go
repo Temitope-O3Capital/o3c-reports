@@ -27,6 +27,7 @@ var liveTopics = []struct{ Name, SQL string }{
 	{"recovery", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM recovery_cases`},
 	{"cards", `SELECT COUNT(*)||':'||COALESCE(MAX(id)::text,'0') FROM card_cycle_data`},
 	{"fixed_deposits", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM fd_transactions`},
+	{"cbs", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(synced_at)::text,'') FROM cbs_loans)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(synced_at)::text,'') FROM cbs_fixed_deposits)`},
 	{"crm", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM crm_contacts`},
 	{"deals", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM crm_deals`},
 	{"tasks", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM crm_tasks`},
