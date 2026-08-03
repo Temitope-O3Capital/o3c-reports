@@ -299,10 +299,10 @@ export default function FinanceFixedDeposit() {
         apiFetch<{ data: TrendPoint[] }>('/api/fixed-deposit/trend'),
         apiFetch<{ data: FDKPIs }>('/api/finance/fd-kpis'),
       ])
-      if (txRes.status === 'fulfilled') setRows(txRes.value?.data ?? [])
-      if (sumRes.status === 'fulfilled') setSummary(sumRes.value?.data ?? null)
-      if (trendRes.status === 'fulfilled') setTrend(trendRes.value?.data ?? [])
-      if (kpiRes.status === 'fulfilled') setFdKpis(kpiRes.value?.data ?? null)
+      if (txRes.status === 'fulfilled') setRows((Array.isArray(txRes.value) ? txRes.value : (txRes.value?.data ?? [])))
+      if (sumRes.status === 'fulfilled') setSummary((sumRes.value?.data ?? sumRes.value ?? null))
+      if (trendRes.status === 'fulfilled') setTrend((Array.isArray(trendRes.value) ? trendRes.value : (trendRes.value?.data ?? [])))
+      if (kpiRes.status === 'fulfilled') setFdKpis((kpiRes.value?.data ?? kpiRes.value ?? null))
     } catch (e: any) {
       setError(e.message)
     } finally {

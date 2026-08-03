@@ -43,7 +43,7 @@ export default function AuditTrail() {
       p.set('limit', '500')
       p.set('offset', '0')
       const res = await apiFetch<{ data: { logs: AuditLog[]; total: number } }>(`/api/compliance/audit-log?${p}`)
-      setAllLogs(res.data?.logs ?? [])
+      setAllLogs(Array.isArray(res?.data) ? res.data : (res?.data?.logs ?? []))
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
   }, [from, to])

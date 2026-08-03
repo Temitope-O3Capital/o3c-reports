@@ -59,10 +59,10 @@ export default function Attribution() {
     const qs = [from && `from=${from}`, to && `to=${to}`].filter(Boolean).join('&')
     try {
       const [cam, ls] = await Promise.all([
-        apiFetch<CampaignAttr[]>(`/api/sales/campaign-attribution${qs ? `?${qs}` : ''}`),
-        apiFetch<LeadSourceRow[]>(`/api/sales/by-lead-source${qs ? `?${qs}` : ''}`),
+        apiFetch<any>(`/api/sales/campaign-attribution${qs ? `?${qs}` : ''}`),
+        apiFetch<any>(`/api/sales/by-lead-source${qs ? `?${qs}` : ''}`),
       ])
-      setCampaigns(Array.isArray(cam) ? cam : []); setLeadSources(Array.isArray(ls) ? ls : [])
+      setCampaigns(Array.isArray(cam) ? cam : ((cam as any)?.data ?? [])); setLeadSources(Array.isArray(ls) ? ls : ((ls as any)?.data ?? []))
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [from, to])

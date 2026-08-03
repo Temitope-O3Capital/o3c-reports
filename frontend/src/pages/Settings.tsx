@@ -323,7 +323,7 @@ function TOTPSection() {
 
   useEffect(() => {
     apiFetch<{ data: { totp_enabled: boolean } }>('/api/auth/totp/status')
-      .then(r => setEnabled(r.data?.totp_enabled ?? false))
+      .then(r => setEnabled(((r as any)?.data ?? r)?.totp_enabled ?? false))
       .catch(() => setEnabled(false))
   }, [])
 

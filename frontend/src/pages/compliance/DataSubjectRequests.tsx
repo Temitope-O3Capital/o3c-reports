@@ -72,13 +72,13 @@ export default function DataSubjectRequests() {
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
-    apiFetch<DSARStats>('/api/compliance/dsar-stats').then(s => setStats(s ?? null)).catch(() => {})
+    apiFetch<any>('/api/compliance/dsar-stats').then(s => setStats((s?.data ?? s) ?? null)).catch(() => {})
     try {
       const p = new URLSearchParams()
       if (dateFrom) p.set('from', dateFrom)
       if (dateTo)   p.set('to', dateTo)
-      const res = await apiFetch<DSAR[]>(`/api/compliance/data-subject-requests?${p}`)
-      setItems(res ?? [])
+      const res = await apiFetch<any>(`/api/compliance/data-subject-requests?${p}`)
+      setItems(Array.isArray(res) ? res : (res?.data ?? []))
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [dateFrom, dateTo])

@@ -206,7 +206,7 @@ export default function DialerAgent() {
   const loadSession = useCallback(async () => {
     try {
       const s = await apiFetch<AgentSession | null>('/api/dialer/sessions/me')
-      setSession(s)
+      setSession((s as any)?.data ?? s)
       if (s?.active_call_id) {
         setActiveCall({ id: s.active_call_id, phone: s.active_call_phone ?? '' })
       } else {
@@ -218,7 +218,7 @@ export default function DialerAgent() {
   const loadNextContact = useCallback(async () => {
     try {
       const res = await apiFetch<{ contact: NextContact | null }>('/api/dialer/sessions/me/next-contact')
-      setNextContact(res?.contact ?? null)
+      setNextContact(((res as any)?.data ?? res)?.contact ?? null)
     } catch { setNextContact(null) }
   }, [])
 
@@ -226,11 +226,12 @@ export default function DialerAgent() {
     async function init() {
       setLoading(true)
       try {
-        const [camps] = await Promise.all([
-          apiFetch<Campaign[]>('/api/dialer/campaigns'),
+        const [campsRaw] = await Promise.all([
+          apiFetch<any>('/api/dialer/campaigns'),
           loadSession(),
         ])
-        setCampaigns(Array.isArray(camps) ? camps.filter(c => c.status === 'active') : [])
+        const camps: Campaign[] = Array.isArray(campsRaw) ? campsRaw : (campsRaw?.data ?? [])
+        setCampaigns(camps.filter(c => c.status === 'active'))
       } catch (e: any) { setError(e.message) }
       finally { setLoading(false) }
     }

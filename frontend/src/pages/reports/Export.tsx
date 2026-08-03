@@ -69,7 +69,7 @@ export default function DataExport() {
     setLogsLoading(true)
     try {
       const res = await apiFetch<{ data: ExportLog[] }>('/api/reports/export-log')
-      setLogs(res.data ?? [])
+      setLogs(Array.isArray(res) ? res : (res?.data ?? []))
     } catch {
       // Non-critical — ignore silently
     } finally {

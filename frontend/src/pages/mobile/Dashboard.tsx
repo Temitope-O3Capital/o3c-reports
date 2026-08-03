@@ -78,7 +78,7 @@ export default function MobileAppDashboard() {
     setLoading(true); setErr(null)
     try {
       const res = await apiFetch<MobileAppResponse>('/api/mobile-app/summary')
-      setData(res)
+      setData((res as any)?.data ?? res)
     } catch (e: any) {
       if (e.status === 404) {
         setData(null)

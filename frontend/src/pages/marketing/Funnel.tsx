@@ -84,7 +84,7 @@ export default function Funnel() {
         apiFetch<{ by_stage?: LosPipeline[] }>('/api/los/overview').catch(() => null),
         apiFetch<{ summary?: CampaignSummary }>('/api/campaigns/analytics').catch(() => null),
       ])
-      setSalesFunnel(sf)
+      setSalesFunnel((sf as any)?.data ?? sf)
       setLosStages(los?.by_stage ?? [])
       setCampaigns((cam as any)?.summary ?? null)
     } catch (e: any) { setError(e.message) }

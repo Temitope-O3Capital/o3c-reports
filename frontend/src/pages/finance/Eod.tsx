@@ -153,10 +153,10 @@ export default function FinanceEOD() {
         apiFetch<{ data: ByProductRow[] }>(`/api/eod/by-product?${qs}`),
         apiFetch<{ data: ByBranchRow[] }>(`/api/eod/by-branch?${qs}`),
       ])
-      if (uploadsRes.status === 'fulfilled') setUploads(uploadsRes.value?.data ?? [])
-      if (sumRes.status === 'fulfilled') setSummary(sumRes.value?.data ?? null)
-      if (prodRes.status === 'fulfilled') setByProduct(prodRes.value?.data ?? [])
-      if (branchRes.status === 'fulfilled') setByBranch(branchRes.value?.data ?? [])
+      if (uploadsRes.status === 'fulfilled') setUploads((Array.isArray(uploadsRes.value) ? uploadsRes.value : (uploadsRes.value?.data ?? [])))
+      if (sumRes.status === 'fulfilled') setSummary((sumRes.value?.data ?? sumRes.value ?? null))
+      if (prodRes.status === 'fulfilled') setByProduct((Array.isArray(prodRes.value) ? prodRes.value : (prodRes.value?.data ?? [])))
+      if (branchRes.status === 'fulfilled') setByBranch((Array.isArray(branchRes.value) ? branchRes.value : (branchRes.value?.data ?? [])))
     } catch (e: any) {
       setError(e.message)
     } finally {

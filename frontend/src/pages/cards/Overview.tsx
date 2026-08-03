@@ -93,15 +93,15 @@ export default function CardsOverview() {
     setError(null)
     try {
       const [k, p, s, v] = await Promise.all([
-        apiFetch<KPIs>(`/api/cards/kpis?from=${dateFrom}&to=${dateTo}`),
-        apiFetch<ProductRow[]>('/api/cards/by-product'),
-        apiFetch<StatusRow[]>('/api/cards/by-status'),
-        apiFetch<VolumeRow[]>('/api/cards/volume-by-type'),
+        apiFetch<any>(`/api/cards/kpis?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<any>('/api/cards/by-product'),
+        apiFetch<any>('/api/cards/by-status'),
+        apiFetch<any>('/api/cards/volume-by-type'),
       ])
-      setKpis(k)
-      setProducts(Array.isArray(p) ? p : [])
-      setStatuses(Array.isArray(s) ? s : [])
-      setVolume(Array.isArray(v) ? v : [])
+      setKpis((k as any)?.data ?? k)
+      setProducts(Array.isArray(p) ? p : ((p as any)?.data ?? []))
+      setStatuses(Array.isArray(s) ? s : ((s as any)?.data ?? []))
+      setVolume(Array.isArray(v) ? v : ((v as any)?.data ?? []))
     } catch (e: any) {
       setError(e.message)
     } finally {

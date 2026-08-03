@@ -90,11 +90,11 @@ export default function Performance() {
       p.set('from', dateFrom)
       p.set('to', dateTo)
       const [apps, cs] = await Promise.all([
-        apiFetch<Appraisal[]>(`/api/hr/appraisals?${p}`),
-        apiFetch<ReviewCycle[]>('/api/hr/review-cycles'),
+        apiFetch<any>(`/api/hr/appraisals?${p}`),
+        apiFetch<any>('/api/hr/review-cycles'),
       ])
-      setAppraisals(Array.isArray(apps) ? apps : [])
-      setCycles(Array.isArray(cs) ? cs : [])
+      setAppraisals(Array.isArray(apps) ? apps : ((apps as any)?.data ?? []))
+      setCycles(Array.isArray(cs) ? cs : ((cs as any)?.data ?? []))
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
   }, [dateFrom, dateTo])

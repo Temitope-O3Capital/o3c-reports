@@ -254,7 +254,7 @@ export default function FinanceIncome() {
   useEffect(() => {
     apiFetch<{ data: { cycle_date: string }[] }>('/api/cards/cycle-dates')
       .then(d => {
-        const dates = (d.data ?? []).map(x => x.cycle_date)
+        const dates = ((Array.isArray(d) ? d : (d?.data ?? []))).map(x => x.cycle_date)
         setCycleDates(dates)
         if (dates.length) setSelectedDate(dates[0])
       })
@@ -271,9 +271,9 @@ export default function FinanceIncome() {
       apiFetch<{ data: SummaryRow[] }>(`/api/cards/cycle-summary?cycle_date=${selectedDate}`),
     ])
       .then(([s, c, rows]) => {
-        setSummary(s.data ?? null)
-        setChart(c.data ?? [])
-        setCycleData(rows.data ?? [])
+        setSummary((s?.data ?? s ?? null))
+        setChart((Array.isArray(c) ? c : (c?.data ?? [])))
+        setCycleData((Array.isArray(rows) ? rows : (rows?.data ?? [])))
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -281,7 +281,7 @@ export default function FinanceIncome() {
 
   const loadLoans = useCallback(() => {
     apiFetch<{ data: LoanRow[] }>(`/api/finance/income/loans?date_from=${dateFrom}&date_to=${dateTo}`)
-      .then(d => setLoans(d.data ?? []))
+      .then(d => setLoans((Array.isArray(d) ? d : (d?.data ?? []))))
       .catch(() => {})
   }, [dateFrom, dateTo])
 
@@ -289,7 +289,7 @@ export default function FinanceIncome() {
     const params = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
     if (fFeeTypes.size) params.set('fee_type', [...fFeeTypes].join(','))
     apiFetch<{ data: FeeTypeResponse }>(`/api/finance/income/fee-types?${params}`)
-      .then(d => setFeeData(d.data ?? null))
+      .then(d => setFeeData((d?.data ?? d ?? null)))
       .catch(() => {})
   }, [fFeeTypes, dateFrom, dateTo])
 

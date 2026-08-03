@@ -71,7 +71,7 @@ export default function TelemarketingDNC() {
     if (dateTo) params.set('date_to', dateTo)
     try {
       const res = await apiFetch<{ data: DNCEntry[] }>(`/api/telemarketing/dnc?${params}`)
-      setRows(res.data ?? [])
+      setRows(Array.isArray(res) ? res : (res?.data ?? []))
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load DNC list')
     } finally {
@@ -85,7 +85,7 @@ export default function TelemarketingDNC() {
   useEffect(() => {
     setKpiLoading(true)
     apiFetch<{ data: DncKPIs }>('/api/telemarketing/dnc-kpis')
-      .then(r => setKpis(r.data))
+      .then(r => setKpis((r as any)?.data ?? r))
       .catch(() => {})
       .finally(() => setKpiLoading(false))
   }, [])

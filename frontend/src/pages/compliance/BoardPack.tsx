@@ -47,9 +47,8 @@ export default function BoardPack() {
   useEffect(() => {
     setLoading(true)
     setErr('')
-    apiFetch(`/api/compliance/board-pack?month=${month}`)
-      .then(r => r.json())
-      .then(j => setData(j.data ?? j))
+    apiFetch<any>(`/api/compliance/board-pack?month=${month}`)
+      .then(j => setData(j?.data ?? j))
       .catch(() => setErr('Failed to load board pack data'))
       .finally(() => setLoading(false))
   }, [month])

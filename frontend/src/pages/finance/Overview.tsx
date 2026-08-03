@@ -169,12 +169,12 @@ export default function FinanceOverview() {
         apiFetch<{ data: TxnRow[] }>(`/api/eod/transactions?date_from=${from}&date_to=${to}&limit=10`),
         apiFetch<{ data: Treasury }>('/api/finance/treasury'),
       ])
-      if (eodRes.status === 'fulfilled') setEod(eodRes.value?.data ?? null)
-      if (fdRes.status === 'fulfilled') setFd(fdRes.value?.data ?? null)
-      if (trendRes.status === 'fulfilled') setTrend(trendRes.value?.data ?? [])
-      if (prodRes.status === 'fulfilled') setProducts(prodRes.value?.data ?? [])
-      if (txnRes.status === 'fulfilled') setTxns(txnRes.value?.data ?? [])
-      if (treasuryRes.status === 'fulfilled') setTreasury(treasuryRes.value?.data ?? null)
+      if (eodRes.status === 'fulfilled') setEod((eodRes.value?.data ?? eodRes.value ?? null))
+      if (fdRes.status === 'fulfilled') setFd((fdRes.value?.data ?? fdRes.value ?? null))
+      if (trendRes.status === 'fulfilled') setTrend((Array.isArray(trendRes.value) ? trendRes.value : (trendRes.value?.data ?? [])))
+      if (prodRes.status === 'fulfilled') setProducts((Array.isArray(prodRes.value) ? prodRes.value : (prodRes.value?.data ?? [])))
+      if (txnRes.status === 'fulfilled') setTxns((Array.isArray(txnRes.value) ? txnRes.value : (txnRes.value?.data ?? [])))
+      if (treasuryRes.status === 'fulfilled') setTreasury((treasuryRes.value?.data ?? treasuryRes.value ?? null))
     } catch (e: any) {
       setError(e.message)
     } finally {
