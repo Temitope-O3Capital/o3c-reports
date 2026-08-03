@@ -41,6 +41,7 @@ func RegisterBusinessDev(r chi.Router, db *core.DB) {
 
 	r.Get("/stats", bdStats(db))
 	r.Get("/pipeline-kpis", bdPipelineKPIs(db))
+	r.Get("/sector-analytics", bdSectorAnalytics(db))
 
 	// Agent dashboard
 	r.Get("/my-dashboard", bdMyDashboard(db))
@@ -544,6 +545,33 @@ func bdStats(db *core.DB) http.HandlerFunc {
 			"pipeline":  pipeline,
 			"employers": totalsRow,
 		})
+	}
+}
+
+// bdSectorAnalytics returns a per-sector breakdown of the employer partner base:
+// employer count, total staff, total monthly payroll, and lead count. Source is
+// employers.sector (free-text). Lead counts are pre-aggregated in a subquery to avoid
+// join fan-out inflating the staff/payroll sums.
+func bdSectorAnalytics(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT
+				COALESCE(NULLIF(e.sector, ''), 'Unspecified') AS sector,
+				COUNT(*)                                      AS employer_count,
+				COALESCE(SUM(e.staff_count), 0)               AS staff_total,
+				COALESCE(SUM(e.monthly_payroll_kobo), 0)      AS payroll_total_kobo,
+				COALESCE(SUM(lc.cnt), 0)                      AS lead_count
+			FROM employers e
+			LEFT JOIN (SELECT employer_id, COUNT(*) AS cnt FROM bd_leads GROUP BY employer_id) lc
+			  ON lc.employer_id = e.id
+			WHERE e.is_active = TRUE
+			GROUP BY 1
+			ORDER BY payroll_total_kobo DESC, employer_count DESC`)
+		if err != nil {
+			respond(w, []any{}, "pg")
+			return
+		}
+		respond(w, rows, "pg")
 	}
 }
 

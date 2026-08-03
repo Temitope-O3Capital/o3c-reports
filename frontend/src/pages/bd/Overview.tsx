@@ -28,6 +28,11 @@ interface Employer {
   monthly_payroll_kobo?: number; mou_status?: string; lead_count?: number
 }
 
+interface SectorRow {
+  sector: string; employer_count: number; staff_total: number
+  payroll_total_kobo: number; lead_count: number
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const STAGE_COLORS: Record<string, string> = {
@@ -95,6 +100,7 @@ export default function BDOverview() {
   const [stats,     setStats]     = useState<BDStats | null>(null)
   const [leads,     setLeads]     = useState<Lead[]>([])
   const [employers, setEmployers] = useState<Employer[]>([])
+  const [sectors,   setSectors]   = useState<SectorRow[]>([])
   const [loading,   setLoading]   = useState(true)
   const [err,       setErr]       = useState<string | null>(null)
   const [dateFrom,  setDateFrom]  = useState(monthStart())
@@ -113,6 +119,11 @@ export default function BDOverview() {
       setEmployers(Array.isArray(e) ? e : (e?.data ?? []))
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
+    // Sector analytics — tolerant of a lagging backend deploy (degrades to empty).
+    try {
+      const sec = await apiFetch<{ data: SectorRow[] }>('/api/bd/sector-analytics')
+      setSectors(Array.isArray(sec) ? sec : (sec?.data ?? []))
+    } catch { setSectors([]) }
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
@@ -129,7 +140,10 @@ export default function BDOverview() {
   const monthlyTrend = getMonthlyTrend(leads)
   const sourceBreak  = getSourceBreakdown(leads)
   const officerPerf  = getOfficerPerf(leads)
-  const topEmpl      = [...employers].sort((a, b) => Number(b.lead_count ?? 0) - Number(a.lead_count ?? 0))
+  // Rank employers by payroll size (deal-value signal), lead count as tiebreak.
+  const topEmpl      = [...employers].sort((a, b) =>
+    Number(b.monthly_payroll_kobo ?? 0) - Number(a.monthly_payroll_kobo ?? 0)
+    || Number(b.lead_count ?? 0) - Number(a.lead_count ?? 0))
   const recentLeads  = [...leads].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 15)
 
   const leadCols: TableCol<Lead>[] = [
@@ -166,10 +180,18 @@ export default function BDOverview() {
   const empCols: TableCol<Employer>[] = [
     { key: 'name',   label: 'Employer', render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.name}</span> },
     { key: 'sector', label: 'Sector',   render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.sector ?? '—'}</span> },
+    { key: 'monthly_payroll_kobo', label: 'Payroll', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{r.monthly_payroll_kobo ? fmtKobo(r.monthly_payroll_kobo) : '—'}</span> },
     { key: 'staff_count',          label: 'Staff',   align: 'right', render: r => <span style={NUM}>{fmtNum(r.staff_count ?? 0)}</span> },
-    { key: 'lead_count',           label: 'Leads',   align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{Number(r.lead_count ?? 0)}</span> },
-    { key: 'monthly_payroll_kobo', label: 'Payroll', align: 'right', render: r => <span style={NUM}>{r.monthly_payroll_kobo ? fmtKobo(r.monthly_payroll_kobo) : '—'}</span> },
+    { key: 'lead_count',           label: 'Leads',   align: 'right', render: r => <span style={NUM}>{Number(r.lead_count ?? 0)}</span> },
     { key: 'mou_status',           label: 'MOU',     render: r => <MouPill status={r.mou_status} /> },
+  ]
+
+  const sectorCols: TableCol<SectorRow>[] = [
+    { key: 'sector', label: 'Sector', render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.sector}</span> },
+    { key: 'employer_count',     label: 'Employers', align: 'right', render: r => <span style={NUM}>{fmtNum(r.employer_count)}</span> },
+    { key: 'staff_total',        label: 'Staff',     align: 'right', render: r => <span style={NUM}>{fmtNum(r.staff_total)}</span> },
+    { key: 'payroll_total_kobo', label: 'Payroll',   align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{r.payroll_total_kobo ? fmtKobo(r.payroll_total_kobo) : '—'}</span> },
+    { key: 'lead_count',         label: 'Leads',     align: 'right', render: r => <span style={NUM}>{fmtNum(r.lead_count)}</span> },
   ]
 
   return (
@@ -177,21 +199,7 @@ export default function BDOverview() {
       title="Business Development"
       subtitle="Pipeline, performance and employer overview"
       actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          <button
-            onClick={() => navigate('/bd/employers')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.medium,
-              border: '1px solid var(--bdr)', background: 'var(--card)',
-              color: 'var(--txt)', cursor: 'pointer',
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>corporate_fare</span>
-            Employers
-          </button>
-        </div>
+        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
     >
       <ErrBanner error={err} onRetry={load} />
@@ -298,6 +306,19 @@ export default function BDOverview() {
         </SectionCard>
       </div>
 
+      {/* ── Sector analytics ──────────────────────────────────────────────────── */}
+      <SectionCard title="Sector Analytics" subtitle="Employer partner base by sector" badge={sectors.length} padding={false} style={{ marginBottom: 14 }}>
+        <DataTable<SectorRow>
+          cols={sectorCols}
+          rows={sectors}
+          keyFn={r => r.sector}
+          emptyText="No sector data yet — add employers with a sector to populate"
+          skeletonRows={loading ? 4 : 0}
+          searchKeys={['sector']}
+          searchPlaceholder="Search sectors…"
+        />
+      </SectionCard>
+
       {/* ── Officer performance ───────────────────────────────────────────────── */}
       {officerPerf.length > 0 && (
         <SectionCard title="Conversion by Officer" subtitle="Total leads vs won" style={{ marginBottom: 14 }}>
@@ -340,7 +361,7 @@ export default function BDOverview() {
           />
         </SectionCard>
 
-        <SectionCard title="Employer Ranking" badge={topEmpl.length} subtitle="By lead count" padding={false}>
+        <SectionCard title="Employer Ranking" badge={topEmpl.length} subtitle="By payroll size" padding={false}>
           <DataTable<Employer>
             cols={empCols}
             rows={topEmpl}
