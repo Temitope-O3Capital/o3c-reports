@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -26,9 +27,17 @@ func RegisterContactLists(r chi.Router, db *core.DB) {
 	r.With(access).Post("/{id}/preflight", preflightListCSV(db))
 	r.With(access).Post("/{id}/upload", uploadListCSV(db))
 
-	// Contact Segments — build a contact list from CCS filter criteria
+	// Contact Segments — one-shot build a contact list from CCS filter criteria
 	r.With(access).Post("/segment/preview", segmentPreview(db))
 	r.With(access).Post("/segment/create", segmentCreate(db))
+
+	// Saved (reusable/refreshable) segments
+	r.With(access).Get("/segments", listSegments(db))
+	r.With(access).Post("/segments", createSegment(db))
+	r.With(access).Get("/segments/{sid}", getSegment(db))
+	r.With(access).Put("/segments/{sid}", updateSegment(db))
+	r.With(access).Delete("/segments/{sid}", deleteSegment(db))
+	r.With(access).Post("/segments/{sid}/materialize", materializeSegmentHandler(db))
 }
 
 func syncListCount(db *core.DB, r *http.Request, listID string) {
@@ -678,40 +687,11 @@ func segmentCreate(db *core.DB) http.HandlerFunc {
 		}
 		listID := toInt64(listRows[0]["id"])
 
-		// Fetch matching contacts
-		where, args := buildSegmentWhere(c)
-		members, err := db.PGQuery(ctx,
-			`SELECT DISTINCT ON (applicant_cif) applicant_cif, applicant_name, phone
-			 FROM loan_applications WHERE applicant_cif IS NOT NULL AND applicant_cif != ''`+where+
-				` ORDER BY applicant_cif, created_at DESC LIMIT 5000`, args...)
+		imported, err := materializeSegmentToList(ctx, db, listID, c)
 		if err != nil {
 			respondErr(w, 500, "Failed to query members")
 			return
 		}
-
-		imported := 0
-		for _, m := range members {
-			cif := str(m["applicant_cif"])
-			name := str(m["applicant_name"])
-			phone := str(m["phone"])
-			firstName, lastName := "", name
-			if parts := strings.SplitN(name, " ", 2); len(parts) == 2 {
-				firstName, lastName = parts[0], parts[1]
-			}
-			_, e := db.PGExec(ctx,
-				`INSERT INTO contact_list_members
-				 (list_id, cif_number, first_name, last_name, phone, status, created_at, updated_at)
-				 VALUES ($1,$2,$3,$4,$5,'active',NOW(),NOW())
-				 ON CONFLICT DO NOTHING`,
-				listID, cif, firstName, lastName, phone)
-			if e == nil {
-				imported++
-			}
-		}
-
-		// Update member count
-		db.PGExec(ctx, //nolint:errcheck
-			"UPDATE contact_lists SET member_count=$1, updated_at=NOW() WHERE id=$2", imported, listID)
 
 		respond(w, map[string]any{
 			"list_id":  listID,
@@ -719,4 +699,42 @@ func segmentCreate(db *core.DB) http.HandlerFunc {
 			"imported": imported,
 		}, "pg")
 	}
+}
+
+// materializeSegmentToList fills (or refills) a contact list with the loan-book
+// contacts matching the segment criteria. Reused by one-shot segment creation
+// and by saved-segment refresh. Returns the number of members written.
+func materializeSegmentToList(ctx context.Context, db *core.DB, listID int64, c segmentCriteria) (int, error) {
+	where, args := buildSegmentWhere(c)
+	members, err := db.PGQuery(ctx,
+		`SELECT DISTINCT ON (applicant_cif) applicant_cif, applicant_name, phone
+		 FROM loan_applications WHERE applicant_cif IS NOT NULL AND applicant_cif != ''`+where+
+			` ORDER BY applicant_cif, created_at DESC LIMIT 5000`, args...)
+	if err != nil {
+		return 0, err
+	}
+
+	imported := 0
+	for _, m := range members {
+		cif := str(m["applicant_cif"])
+		name := str(m["applicant_name"])
+		phone := str(m["phone"])
+		firstName, lastName := "", name
+		if parts := strings.SplitN(name, " ", 2); len(parts) == 2 {
+			firstName, lastName = parts[0], parts[1]
+		}
+		_, e := db.PGExec(ctx,
+			`INSERT INTO contact_list_members
+			 (list_id, cif_number, first_name, last_name, phone, status, created_at, updated_at)
+			 VALUES ($1,$2,$3,$4,$5,'active',NOW(),NOW())
+			 ON CONFLICT DO NOTHING`,
+			listID, cif, firstName, lastName, phone)
+		if e == nil {
+			imported++
+		}
+	}
+
+	db.PGExec(ctx, //nolint:errcheck
+		"UPDATE contact_lists SET member_count=$1, updated_at=NOW() WHERE id=$2", imported, listID)
+	return imported, nil
 }

@@ -99,6 +99,7 @@ export default function CampaignsList() {
   const [form, setForm]           = useState(BLANK)
   const [saving, setSaving]       = useState(false)
   const [actionErr, setActionErr] = useState<string | null>(null)
+  const [summary, setSummary]     = useState<{ active: number; scheduled: number; completed: number; draft: number } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null); setPage(1)
@@ -108,9 +109,10 @@ export default function CampaignsList() {
       if (fStatuses.size) p.set('status', [...fStatuses].join(','))
       if (dateFrom)       p.set('from',   dateFrom)
       if (dateTo)         p.set('to',     dateTo)
-      const [res, ls] = await Promise.all([
+      const [res, ls, sum] = await Promise.all([
         apiFetch<{ total: number; campaigns: Campaign[] }>(`/api/campaigns?${p}`),
         apiFetch<ContactList[] | { data: ContactList[] }>('/api/contact-lists?limit=200'),
+        apiFetch<any>('/api/campaigns/summary').catch(() => null),
       ])
       const newCampaigns = Array.isArray(res?.campaigns) ? res.campaigns : []
       setCampaigns(newCampaigns)
@@ -118,6 +120,9 @@ export default function CampaignsList() {
       setHasMore(newCampaigns.length === 50)
       const lsArr = Array.isArray(ls) ? ls : ((ls as any)?.data ?? [])
       setLists(Array.isArray(lsArr) ? lsArr : [])
+      // Server-side status totals for the KPI strip (whole book, not just this page).
+      const s = sum && typeof sum === 'object' && 'data' in sum ? (sum as any).data : sum
+      if (s) setSummary({ active: s.active ?? 0, scheduled: s.scheduled ?? 0, completed: s.completed ?? 0, draft: s.draft ?? 0 })
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
   }, [fTypes, fStatuses, dateFrom, dateTo])
@@ -174,11 +179,11 @@ export default function CampaignsList() {
     search ? campaigns.filter(c => c.name.toLowerCase().includes(search.toLowerCase())) : campaigns
   , [campaigns, search])
 
-  // KPI counts
-  const active    = campaigns.filter(c => c.status === 'active').length
-  const scheduled = campaigns.filter(c => c.status === 'scheduled').length
-  const completed = campaigns.filter(c => c.status === 'completed').length
-  const draft     = campaigns.filter(c => c.status === 'draft').length
+  // KPI counts — prefer server-side whole-book totals; fall back to loaded page.
+  const active    = summary?.active    ?? campaigns.filter(c => c.status === 'active').length
+  const scheduled = summary?.scheduled ?? campaigns.filter(c => c.status === 'scheduled').length
+  const completed = summary?.completed ?? campaigns.filter(c => c.status === 'completed').length
+  const draft     = summary?.draft     ?? campaigns.filter(c => c.status === 'draft').length
 
   function exportCampaignsCsv(data: Campaign[]) {
     const header = ['Name', 'Type', 'Status', 'Audience', 'Sent', 'Delivered', 'Open Rate', 'Scheduled At', 'Created At']

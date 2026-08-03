@@ -1,24 +1,33 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { NAVY, BLUE, INTER, TEXT, FW, RADIUS } from '../../lib/design'
 import EmailBlockEditor, { blocksToHtml, type Block } from '../../components/EmailBlockEditor'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type Channel = 'sms' | 'email' | 'whatsapp'
+
 interface FormState {
   id?: number
   name: string
-  channel: 'sms' | 'email'
+  channel: Channel
   category: string
   sms_body: string
+  whatsapp_body: string
   email_subject: string
   email_blocks: Block[]
 }
 
 const BLANK: FormState = {
   name: '', channel: 'email', category: 'marketing',
-  sms_body: '', email_subject: '', email_blocks: [],
+  sms_body: '', whatsapp_body: '', email_subject: '', email_blocks: [],
+}
+
+// A starter template can be handed in via router state to prefill the editor.
+interface StarterSeed {
+  name?: string; channel?: Channel; category?: string
+  sms_body?: string; whatsapp_body?: string; email_subject?: string; email_blocks?: Block[]
 }
 
 const MERGE_TAGS = [
@@ -166,14 +175,24 @@ const inp: React.CSSProperties = {
 export default function CampaignTemplateEditor() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const [form, setForm] = useState<FormState>(() => ({
-    ...BLANK,
-    channel: (searchParams.get('channel') as 'sms' | 'email') ?? 'email',
-    name:    searchParams.get('name') ?? '',
-  }))
+  const [form, setForm] = useState<FormState>(() => {
+    const seed = (location.state as { starter?: StarterSeed } | null)?.starter
+    const qsChannel = searchParams.get('channel') as Channel | null
+    return {
+      ...BLANK,
+      channel: seed?.channel ?? (qsChannel ?? 'email'),
+      name: seed?.name ?? searchParams.get('name') ?? '',
+      category: seed?.category ?? BLANK.category,
+      sms_body: seed?.sms_body ?? '',
+      whatsapp_body: seed?.whatsapp_body ?? '',
+      email_subject: seed?.email_subject ?? '',
+      email_blocks: seed?.email_blocks ?? [],
+    }
+  })
   const [saving, setSaving]   = useState(false)
   const [saveErr, setSaveErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(!!id)
@@ -184,9 +203,10 @@ export default function CampaignTemplateEditor() {
       .then(t => setForm({
         id: t.id,
         name: t.name ?? '',
-        channel: t.channel === 'email' ? 'email' : 'sms',
+        channel: (['sms', 'email', 'whatsapp'].includes(t.channel) ? t.channel : 'sms') as Channel,
         category: t.category ?? 'marketing',
         sms_body: t.sms_body ?? '',
+        whatsapp_body: t.whatsapp_body ?? '',
         email_subject: t.email_subject ?? '',
         email_blocks: Array.isArray(t.email_blocks) ? t.email_blocks : [],
       }))
@@ -203,6 +223,8 @@ export default function CampaignTemplateEditor() {
       }
       if (form.channel === 'sms') {
         body.sms_body = form.sms_body
+      } else if (form.channel === 'whatsapp') {
+        body.whatsapp_body = form.whatsapp_body
       } else {
         body.email_subject = form.email_subject
         const emailHtml = blocksToHtml(form.email_blocks)
@@ -218,12 +240,13 @@ export default function CampaignTemplateEditor() {
   }, [form, navigate])
 
   function insertTag(tag: string) {
+    const field: 'sms_body' | 'whatsapp_body' = form.channel === 'whatsapp' ? 'whatsapp_body' : 'sms_body'
     const el = textareaRef.current
-    const v  = form.sms_body
-    if (!el) { setForm(f => ({ ...f, sms_body: v + tag })); return }
+    const v  = form[field]
+    if (!el) { setForm(f => ({ ...f, [field]: v + tag })); return }
     const s = el.selectionStart ?? v.length
     const e = el.selectionEnd   ?? v.length
-    setForm(f => ({ ...f, sms_body: v.slice(0, s) + tag + v.slice(e) }))
+    setForm(f => ({ ...f, [field]: v.slice(0, s) + tag + v.slice(e) }))
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + tag.length, s + tag.length) })
   }
 
@@ -266,13 +289,15 @@ export default function CampaignTemplateEditor() {
 
         {/* Channel toggle */}
         <div style={{ display: 'flex', gap: 4, flexShrink: 0, background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: 3 }}>
-          {(['sms', 'email'] as const).map(ch => (
+          {([
+            { ch: 'email', label: 'Email', icon: 'mail', color: BLUE },
+            { ch: 'sms', label: 'SMS', icon: 'smartphone', color: BLUE },
+            { ch: 'whatsapp', label: 'WhatsApp', icon: 'chat', color: '#25D366' },
+          ] as const).map(({ ch, label, icon, color }) => (
             <button key={ch} onClick={() => setForm(f => ({ ...f, channel: ch }))}
-              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: form.channel === ch ? 'var(--card)' : 'transparent', color: form.channel === ch ? BLUE : 'var(--txt3)', cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: INTER, boxShadow: form.channel === ch ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>
-                {ch === 'sms' ? 'smartphone' : 'mail'}
-              </span>
-              {ch === 'sms' ? 'SMS' : 'Email'}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: RADIUS.sm, border: 'none', background: form.channel === ch ? 'var(--card)' : 'transparent', color: form.channel === ch ? color : 'var(--txt3)', cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: INTER, boxShadow: form.channel === ch ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{icon}</span>
+              {label}
             </button>
           ))}
         </div>
@@ -324,7 +349,7 @@ export default function CampaignTemplateEditor() {
             onChange={v => setForm(f => ({ ...f, email_blocks: v.blocks }))}
           />
         </div>
-      ) : (
+      ) : form.channel === 'sms' ? (
         /* ── SMS: composer + live phone preview ── */
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
 
@@ -386,7 +411,98 @@ export default function CampaignTemplateEditor() {
             </div>
           </div>
         </div>
+      ) : (
+        /* ── WhatsApp: composer + live WhatsApp preview ── */
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+          <div style={{ width: 560, flexShrink: 0, display: 'flex', flexDirection: 'column', padding: '24px 28px', gap: 18, overflowY: 'auto', borderRight: '1px solid var(--bdr)' }}>
+            <div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 9 }}>INSERT MERGE TAG</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {MERGE_TAGS.map(t => (
+                  <button key={t} onClick={() => insertTag(t)}
+                    style={{ fontSize: TEXT.xs, padding: '4px 10px', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, background: 'var(--chip-bg)', color: 'var(--txt2)', cursor: 'pointer', fontFamily: 'monospace' }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5 }}>MESSAGE BODY</div>
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
+                ref={textareaRef}
+                value={form.whatsapp_body}
+                onChange={e => setForm(f => ({ ...f, whatsapp_body: e.target.value }))}
+                placeholder="Hi {{first_name}}! Your O3 Capital repayment of ₦{{amount}} is due on {{due_date}}. Tap to pay: {{cta_url}}"
+                style={{ fontSize: TEXT.md, padding: '14px 16px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: 'monospace', resize: 'none', lineHeight: 1.75, boxSizing: 'border-box', width: '100%', flex: 1, minHeight: 260, outline: 'none' }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: 'monospace' }}>{form.whatsapp_body.length} chars</span>
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', display: 'flex', gap: 5, alignItems: 'center' }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14, color: '#25D366' }}>info</span>
+                  Session/template messaging rules apply on WhatsApp
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--th-bg)', padding: 40, overflow: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5 }}>LIVE WHATSAPP PREVIEW</div>
+              <IPhoneMockup>
+                <WhatsAppPreview text={form.whatsapp_body} />
+              </IPhoneMockup>
+              <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', textAlign: 'center', margin: 0, maxWidth: 260, lineHeight: 1.6 }}>
+                Merge tags render as the actual value when sent to each recipient.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
+    </div>
+  )
+}
+
+// ── WhatsApp App Preview ───────────────────────────────────────────────────────
+
+function WhatsAppPreview({ text }: { text: string }) {
+  const ff = '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif'
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#ECE5DD', fontFamily: ff, minHeight: 0 }}>
+      {/* WhatsApp header */}
+      <div style={{ background: '#075E54', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px 10px', gap: 8 }}>
+          <span style={{ color: '#fff', fontSize: 18, fontWeight: 400 }}>‹</span>
+          <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg, #C00000 0%, #8B0000 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>O</div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: '#fff' }}>O3 Capital</div>
+            <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.7)' }}>online</div>
+          </div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 5a2.5 2.5 0 110 5 2.5 2.5 0 010-5z"/></svg>
+        </div>
+      </div>
+      {/* Thread */}
+      <div style={{ flex: 1, padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 6, overflow: 'hidden' }}>
+        <div style={{ textAlign: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 10, color: '#54656f', background: '#fff', padding: '3px 9px', borderRadius: 8, boxShadow: '0 1px 0.5px rgba(0,0,0,0.1)' }}>TODAY</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+          <div style={{
+            background: '#fff', color: '#111b21', borderRadius: '0 8px 8px 8px',
+            padding: '7px 10px 5px', maxWidth: '82%', fontSize: 13, lineHeight: 1.4,
+            wordBreak: 'break-word', boxShadow: '0 1px 0.5px rgba(0,0,0,0.13)', position: 'relative',
+          }}>
+            <span style={{ whiteSpace: 'pre-wrap' }}>{text || <span style={{ color: '#8696a0', fontStyle: 'italic' }}>Your message preview…</span>}</span>
+            <span style={{ fontSize: 10, color: '#8696a0', float: 'right', marginLeft: 8, marginTop: 3 }}>9:41 ✓✓</span>
+          </div>
+        </div>
+      </div>
+      {/* Input bar */}
+      <div style={{ padding: '7px 8px', background: '#F0F0F0', display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ flex: 1, background: '#fff', borderRadius: 18, padding: '8px 14px', fontSize: 13, color: '#8696a0' }}>Message</div>
+        <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#00A884', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+        </div>
+      </div>
     </div>
   )
 }

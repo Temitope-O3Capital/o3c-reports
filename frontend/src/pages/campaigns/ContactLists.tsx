@@ -1,13 +1,13 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, ExpandableFilterBar, Modal, ConfirmModal,
+  Page, SectionCard, DataTable, ExpandableFilterBar, Modal, ConfirmModal, KpiCard,
   ErrBanner, btnPrimary, btnSecondary, Spinner, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete, API, getCsrfToken } from '../../lib/api'
 import { fmtNum, fmtDatetime, monthStart, today } from '../../lib/fmt'
-import { NAVY, GREEN, RED, AMBER, SORA, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { NAVY, GREEN, RED, AMBER, BLUE, SORA, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { filterInputStyle } from '../../components/UI'
 import { toast } from 'sonner'
 
@@ -517,12 +517,18 @@ export default function ContactLists() {
   useEffect(() => { load() }, [load])
   useLiveData(load)
 
-  async function create() {
+  async function create(thenAddContacts = false) {
     if (!name.trim()) return
     setSaving(true); setSaveErr(null)
     try {
-      await apiPost('/api/contact-lists', { name: name.trim(), description: desc.trim() || undefined })
-      setShowCreate(false); setName(''); setDesc(''); load()
+      const created = await apiPost<any>('/api/contact-lists', { name: name.trim(), description: desc.trim() || undefined })
+      const row = created && typeof created === 'object' && 'data' in created ? created.data : created
+      setShowCreate(false); setName(''); setDesc('')
+      await load()
+      // Optionally jump straight into adding members (manual / CSV) via the drawer.
+      if (thenAddContacts && row?.id) {
+        setOpenList({ id: row.id, name: name.trim(), description: desc.trim(), member_count: 0, created_at: row.created_at ?? '' } as ContactList)
+      }
     } catch (ex: any) { setSaveErr(ex.message) }
     finally { setSaving(false) }
   }
@@ -575,6 +581,7 @@ export default function ContactLists() {
   , [lists, listSearch])
 
   const totalMembers = lists.reduce((s, l) => s + Number(l.member_count ?? 0), 0)
+  const largestList  = lists.reduce((m, l) => Math.max(m, Number(l.member_count ?? 0)), 0)
 
   const cols: TableCol<ContactList>[] = [
     {
@@ -622,6 +629,14 @@ export default function ContactLists() {
       }
     >
       <ErrBanner error={err} onRetry={load} />
+
+      {/* Summary KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
+        <KpiCard label="Contact lists" value={fmtNum(lists.length)} icon="format_list_bulleted" accent={NAVY} loading={loading} />
+        <KpiCard label="Total contacts" value={fmtNum(totalMembers)} icon="groups" accent={BLUE} loading={loading} />
+        <KpiCard label="Largest list" value={fmtNum(largestList)} icon="trending_up" accent={GREEN}
+          sub={lists.length ? 'contacts in one list' : undefined} loading={loading} />
+      </div>
 
       <SectionCard
         title="All Lists"
@@ -673,10 +688,14 @@ export default function ContactLists() {
         title="New Contact List"
         width={420}
         footer={
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
             <button onClick={() => { setShowCreate(false); setName(''); setDesc(''); setSaveErr(null) }} style={btnSecondary}>Cancel</button>
-            <button onClick={create} disabled={saving || !name.trim()} style={btnPrimary}>
-              {saving ? 'Creating…' : 'Create List'}
+            <button onClick={() => create(false)} disabled={saving || !name.trim()} style={{ ...btnSecondary, marginLeft: 'auto' }}>
+              {saving ? 'Creating…' : 'Create'}
+            </button>
+            <button onClick={() => create(true)} disabled={saving || !name.trim()} style={btnPrimary}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>group_add</span>
+              Create & add contacts
             </button>
           </div>
         }
@@ -685,7 +704,7 @@ export default function ContactLists() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <label style={lbl}>List Name *</label>
-            <input value={name} onChange={e => setName(e.target.value)}
+            <input value={name} onChange={e => setName(e.target.value)} autoFocus
               placeholder="e.g. Active Prospects Q3" style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
           </div>
           <div>
@@ -694,6 +713,12 @@ export default function ContactLists() {
               value={desc} onChange={e => setDesc(e.target.value)} rows={3}
               placeholder="What's this list for?"
               style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'none', fontSize: TEXT.base }} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--bdr)' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 18, color: BLUE }}>lightbulb</span>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
+              After creating, add contacts manually or import a CSV. You can also build a list automatically from the loan book in <strong>Contact Segments</strong>.
+            </span>
           </div>
         </div>
       </Modal>

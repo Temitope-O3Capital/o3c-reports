@@ -1,297 +1,304 @@
-import { useState } from 'react'
-import { Page, SectionCard, ErrBanner, Spinner } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
-import { fmtNum } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, RED, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Page, SectionCard, ErrBanner, Spinner, Modal, ConfirmModal, EmptyState, btnPrimary, btnSecondary } from '../../components/UI'
+import { apiFetch, apiPost, apiPut, apiDelete, unwrap } from '../../lib/api'
+import { useLiveData } from '../../hooks/useRealtime'
+import { fmtNum, fmtDatetime } from '../../lib/fmt'
+import { NAVY, GREEN, AMBER, RED, BLUE, MONO, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Criteria model (maps to backend segmentCriteria) ───────────────────────────
 
 interface Criteria {
-  product_type:  string
-  stage:         string
-  status:        string
-  employer:      string
-  dpd_min:       string
-  dpd_max:       string
-  outstanding_min: string
-  outstanding_max: string
+  product_type: string; stage: string; status: string; employer: string
+  dpd_min: string; dpd_max: string; outstanding_min: string; outstanding_max: string
+}
+const EMPTY_CRITERIA: Criteria = { product_type: '', stage: '', status: '', employer: '', dpd_min: '', dpd_max: '', outstanding_min: '', outstanding_max: '' }
+
+const PRODUCT_TYPES = ['Salary Loan', 'Individual Loan', 'Business Loan', 'Credit Card', 'Payday Loan']
+const STAGES = ['submitted', 'pre-screening', 'underwriting', 'approval', 'disbursed', 'active', 'closed']
+const STATUSES = ['pending', 'active', 'disbursed', 'rejected', 'cancelled', 'written_off']
+
+interface SegmentCriteria {
+  products?: string[]; stages?: string[]; statuses?: string[]; employers?: string[]
+  min_dpd?: number; max_dpd?: number; min_outstanding_kobo?: number; max_outstanding_kobo?: number
+}
+interface SavedSegment {
+  id: number; name: string; description?: string; criteria: any
+  last_count?: number; last_list_id?: number; last_refreshed_at?: string
+  list_name?: string; list_member_count?: number; created_by_name?: string; updated_at?: string
 }
 
-const EMPTY_CRITERIA: Criteria = {
-  product_type: '', stage: '', status: '', employer: '',
-  dpd_min: '', dpd_max: '', outstanding_min: '', outstanding_max: '',
+function toCriteriaObj(c: Criteria): SegmentCriteria {
+  const o: SegmentCriteria = {}
+  if (c.product_type) o.products = [c.product_type]
+  if (c.stage) o.stages = [c.stage]
+  if (c.status) o.statuses = [c.status]
+  if (c.employer) o.employers = [c.employer]
+  if (c.dpd_min) o.min_dpd = parseInt(c.dpd_min, 10)
+  if (c.dpd_max) o.max_dpd = parseInt(c.dpd_max, 10)
+  if (c.outstanding_min) o.min_outstanding_kobo = Math.round(parseFloat(c.outstanding_min) * 100)
+  if (c.outstanding_max) o.max_outstanding_kobo = Math.round(parseFloat(c.outstanding_max) * 100)
+  return o
+}
+function fromCriteriaObj(raw: any): Criteria {
+  let o: SegmentCriteria = {}
+  try { o = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? {}) } catch { o = {} }
+  return {
+    product_type: o.products?.[0] ?? '',
+    stage: o.stages?.[0] ?? '',
+    status: o.statuses?.[0] ?? '',
+    employer: o.employers?.[0] ?? '',
+    dpd_min: o.min_dpd ? String(o.min_dpd) : '',
+    dpd_max: o.max_dpd ? String(o.max_dpd) : '',
+    outstanding_min: o.min_outstanding_kobo ? String(o.min_outstanding_kobo / 100) : '',
+    outstanding_max: o.max_outstanding_kobo ? String(o.max_outstanding_kobo / 100) : '',
+  }
+}
+function criteriaChips(raw: any): string[] {
+  const c = fromCriteriaObj(raw)
+  const chips: string[] = []
+  if (c.product_type) chips.push(c.product_type)
+  if (c.stage) chips.push(`stage: ${c.stage}`)
+  if (c.status) chips.push(`status: ${c.status}`)
+  if (c.employer) chips.push(`employer ~ ${c.employer}`)
+  if (c.dpd_min || c.dpd_max) chips.push(`DPD ${c.dpd_min || '0'}–${c.dpd_max || '∞'}`)
+  if (c.outstanding_min || c.outstanding_max) chips.push(`₦${c.outstanding_min || '0'}–${c.outstanding_max || '∞'}`)
+  return chips.length ? chips : ['All contacts']
 }
 
-const PRODUCT_TYPES  = ['Salary Loan', 'Individual Loan', 'Business Loan', 'Credit Card', 'Payday Loan']
-const STAGES         = ['submitted', 'pre-screening', 'underwriting', 'approval', 'disbursed', 'active', 'closed']
-const STATUSES       = ['pending', 'active', 'disbursed', 'rejected', 'cancelled', 'written_off']
-
-// ── Style helpers ──────────────────────────────────────────────────────────────
-
-const inputStyle: React.CSSProperties = {
-  padding: '7px 10px', borderRadius: RADIUS.md, border: '1px solid var(--input-bdr)',
-  background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, width: '100%', boxSizing: 'border-box',
-}
-
+const inputStyle: React.CSSProperties = { padding: '7px 10px', borderRadius: RADIUS.md, border: '1px solid var(--input-bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, width: '100%', boxSizing: 'border-box' }
 const selectStyle: React.CSSProperties = { ...inputStyle, cursor: 'pointer' }
+const lbl: React.CSSProperties = { fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }
 
-const btnPrimary: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px',
-  borderRadius: RADIUS.md, background: NAVY, color: '#fff', fontSize: TEXT.sm,
-  fontWeight: FW.semibold, border: 'none', cursor: 'pointer',
-}
-
-const btnSecondary: React.CSSProperties = {
-  ...btnPrimary, background: 'var(--card)', color: 'var(--txt)',
-  border: '1px solid var(--bdr)',
-}
-
-// ── Main ───────────────────────────────────────────────────────────────────────
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function Segments() {
-  const [criteria,  setCriteria]  = useState<Criteria>(EMPTY_CRITERIA)
-  const [listName,  setListName]  = useState('')
-  const [preview,   setPreview]   = useState<number | null>(null)
+  const navigate = useNavigate()
+  const [segments, setSegments] = useState<SavedSegment[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState<number | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<SavedSegment | null>(null)
+  const [builder, setBuilder] = useState<{ open: boolean; editing: SavedSegment | null }>({ open: false, editing: null })
+
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
+    setErr(null)
+    try {
+      const res = await apiFetch<SavedSegment[]>('/api/contact-lists/segments')
+      setSegments(Array.isArray(res) ? res : [])
+    } catch (e: any) { setErr(e.message) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+  useLiveData(() => load(true))
+
+  async function refreshSegment(s: SavedSegment) {
+    setRefreshing(s.id)
+    try {
+      const res = await apiPost<any>(`/api/contact-lists/segments/${s.id}/materialize`, {})
+      const imported = unwrap<{ imported: number }>(res)?.imported ?? 0
+      toast.success(`Refreshed — ${fmtNum(imported)} contacts in the list`)
+      load(true)
+    } catch (e: any) { toast.error(e.message ?? 'Refresh failed') }
+    finally { setRefreshing(null) }
+  }
+
+  async function doDelete() {
+    if (!deleteTarget) return
+    try { await apiDelete(`/api/contact-lists/segments/${deleteTarget.id}`); setDeleteTarget(null); load() }
+    catch (e: any) { setErr(e.message) }
+  }
+
+  return (
+    <Page
+      title="Contact Segments"
+      subtitle="Saved, refreshable audiences built from the loan portfolio"
+      actions={
+        <button onClick={() => setBuilder({ open: true, editing: null })} style={btnPrimary}>
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+          New Segment
+        </button>
+      }
+    >
+      <ErrBanner error={err} onRetry={() => load()} />
+
+      <SectionCard
+        title="Saved segments" badge={segments.length}
+        subtitle="A segment stores its filters so you can refresh its contact list any time"
+      >
+        {loading ? (
+          <div style={{ padding: 30, display: 'flex', justifyContent: 'center' }}><Spinner /></div>
+        ) : segments.length === 0 ? (
+          <EmptyState icon="groups" title="No segments yet"
+            description="Create a segment to define a reusable audience you can refresh into a contact list."
+            action={{ label: 'New Segment', onClick: () => setBuilder({ open: true, editing: null }), icon: 'add' }} />
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
+            {segments.map(s => (
+              <div key={s.id} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 12, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                    {s.description && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1 }}>{s.description}</div>}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, margin: '10px 0' }}>
+                  {criteriaChips(s.criteria).map((c, i) => (
+                    <span key={i} style={{ fontSize: TEXT.xs, padding: '2px 8px', borderRadius: RADIUS.full, background: `${NAVY}12`, color: NAVY, fontWeight: FW.semibold }}>{c}</span>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 10 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 15, color: BLUE }}>group</span>
+                    <span style={{ fontFamily: MONO, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtNum(s.list_member_count ?? s.last_count ?? 0)}</span> contacts
+                  </span>
+                  <span style={{ color: 'var(--txt3)' }}>
+                    {s.last_refreshed_at ? `Refreshed ${fmtDatetime(s.last_refreshed_at)}` : 'Not yet built'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 6, marginTop: 'auto', paddingTop: 10, borderTop: '1px solid var(--bdr)' }}>
+                  <button onClick={() => refreshSegment(s)} disabled={refreshing === s.id}
+                    style={{ ...miniBtn, background: NAVY, color: '#fff', border: 'none', opacity: refreshing === s.id ? 0.6 : 1 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{refreshing === s.id ? 'progress_activity' : 'refresh'}</span>
+                    {refreshing === s.id ? 'Refreshing…' : (s.last_list_id ? 'Refresh' : 'Build list')}
+                  </button>
+                  {s.last_list_id && (
+                    <button onClick={() => navigate('/campaigns/lists')} style={{ ...miniBtn, background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)' }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 15 }}>list</span>List
+                    </button>
+                  )}
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
+                    <IconBtn icon="edit" title="Edit" onClick={() => setBuilder({ open: true, editing: s })} />
+                    <IconBtn icon="delete" title="Delete" danger onClick={() => setDeleteTarget(s)} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      {builder.open && (
+        <SegmentBuilder
+          editing={builder.editing}
+          onClose={() => setBuilder({ open: false, editing: null })}
+          onSaved={() => { setBuilder({ open: false, editing: null }); load() }}
+        />
+      )}
+
+      <ConfirmModal open={!!deleteTarget} title="Delete segment"
+        body={`Delete "${deleteTarget?.name}"? The generated contact list is kept.`}
+        onConfirm={doDelete} onClose={() => setDeleteTarget(null)} />
+    </Page>
+  )
+}
+
+// ── Builder modal ─────────────────────────────────────────────────────────────
+
+function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment | null; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(editing?.name ?? '')
+  const [description, setDescription] = useState(editing?.description ?? '')
+  const [criteria, setCriteria] = useState<Criteria>(editing ? fromCriteriaObj(editing.criteria) : EMPTY_CRITERIA)
+  const [preview, setPreview] = useState<number | null>(editing?.last_count ?? null)
   const [previewing, setPreviewing] = useState(false)
-  const [creating,  setCreating]  = useState(false)
-  const [err,       setErr]       = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
 
   function update(field: keyof Criteria, value: string) {
     setCriteria(prev => ({ ...prev, [field]: value }))
     setPreview(null)
   }
-
-  function buildPayload() {
-    const payload: Record<string, any> = {}
-    if (criteria.product_type) payload.products  = [criteria.product_type]
-    if (criteria.stage)        payload.stages    = [criteria.stage]
-    if (criteria.status)       payload.statuses  = [criteria.status]
-    if (criteria.employer)     payload.employers = [criteria.employer]
-    if (criteria.dpd_min)      payload.min_dpd   = parseInt(criteria.dpd_min, 10)
-    if (criteria.dpd_max)      payload.max_dpd   = parseInt(criteria.dpd_max, 10)
-    if (criteria.outstanding_min) payload.min_outstanding_kobo = Math.round(parseFloat(criteria.outstanding_min) * 100)
-    if (criteria.outstanding_max) payload.max_outstanding_kobo = Math.round(parseFloat(criteria.outstanding_max) * 100)
-    return payload
-  }
+  const hasAnyFilter = Object.values(criteria).some(v => v.trim() !== '')
 
   async function handlePreview() {
     setErr(null); setPreviewing(true)
     try {
-      const res = await apiFetch<{ data: { count: number } }>('/api/contact-lists/segment/preview', {
-        method: 'POST',
-        body: JSON.stringify(buildPayload()),
-      })
-      setPreview(res.data.count)
-    } catch (e: any) {
-      setErr(e.message ?? 'Preview failed')
-    } finally {
-      setPreviewing(false)
-    }
+      const res = await apiFetch<any>('/api/contact-lists/segment/preview', { method: 'POST', body: JSON.stringify(toCriteriaObj(criteria)) })
+      setPreview(unwrap<{ count: number }>(res)?.count ?? 0)
+    } catch (e: any) { setErr(e.message ?? 'Preview failed') }
+    finally { setPreviewing(false) }
   }
 
-  async function handleCreate() {
-    if (!listName.trim()) { toast.error('Enter a name for the contact list'); return }
-    if (preview === null) { toast.error('Run a preview first'); return }
-    if (preview === 0)    { toast.error('No matching contacts — adjust your filters'); return }
-    setErr(null); setCreating(true)
+  async function save() {
+    if (!name.trim()) { toast.error('Enter a segment name'); return }
+    setSaving(true); setErr(null)
     try {
-      const res = await apiFetch<{ data: { list_id: number; imported: number } }>('/api/contact-lists/segment/create', {
-        method: 'POST',
-        body: JSON.stringify({ ...buildPayload(), name: listName.trim() }),
-      })
-      toast.success(`Contact list created — ${fmtNum(res.data.imported)} members added`)
-      setCriteria(EMPTY_CRITERIA)
-      setListName('')
-      setPreview(null)
-    } catch (e: any) {
-      setErr(e.message ?? 'Create failed')
-    } finally {
-      setCreating(false)
-    }
+      const body = { name: name.trim(), description, criteria: toCriteriaObj(criteria) }
+      if (editing) await apiPut(`/api/contact-lists/segments/${editing.id}`, body)
+      else await apiPost('/api/contact-lists/segments', body)
+      toast.success(editing ? 'Segment updated' : 'Segment created')
+      onSaved()
+    } catch (e: any) { setErr(e.message ?? 'Save failed') }
+    finally { setSaving(false) }
   }
-
-  const hasAnyFilter = Object.values(criteria).some(v => v.trim() !== '')
 
   return (
-    <Page title="Contact Segments" subtitle="Build dynamic contact lists by filtering the loan portfolio">
-      <ErrBanner error={err} />
+    <Modal open onClose={onClose} title={editing ? 'Edit segment' : 'New segment'} width={620}
+      footer={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+          <button onClick={handlePreview} disabled={previewing || !hasAnyFilter} style={{ ...btnSecondary, opacity: !hasAnyFilter ? 0.5 : 1 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{previewing ? 'progress_activity' : 'search'}</span>
+            {previewing ? 'Counting…' : 'Preview count'}
+          </button>
+          {preview !== null && (
+            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: preview === 0 ? RED : preview > 5000 ? AMBER : GREEN }}>
+              {fmtNum(preview)} contacts{preview > 5000 ? ' (capped at 5,000)' : ''}
+            </span>
+          )}
+          <button onClick={save} disabled={saving || !name.trim()} style={{ ...btnPrimary, marginLeft: 'auto', opacity: saving || !name.trim() ? 0.6 : 1 }}>
+            {saving ? 'Saving…' : editing ? 'Save changes' : 'Create segment'}
+          </button>
+        </div>
+      }>
+      {err && <ErrBanner error={err} />}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+          <div><label style={lbl}>Segment name</label><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. DPD 30–90 Salary Loans" style={inputStyle} /></div>
+          <div><label style={lbl}>Description (optional)</label><input value={description} onChange={e => setDescription(e.target.value)} placeholder="What this audience is for" style={inputStyle} /></div>
+        </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: SP[4], alignItems: 'start' }}>
-        {/* Filters panel */}
-        <SectionCard title="Filter Criteria" subtitle="All filters are optional — combine them to narrow the audience">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+        <div style={{ height: 1, background: 'var(--bdr)' }} />
 
-            {/* Product type */}
-            <div>
-              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Product Type</label>
-              <select value={criteria.product_type} onChange={e => update('product_type', e.target.value)} style={selectStyle}>
-                <option value="">Any product</option>
-                {PRODUCT_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </div>
-
-            {/* Stage */}
-            <div>
-              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Stage</label>
-              <select value={criteria.stage} onChange={e => update('stage', e.target.value)} style={selectStyle}>
-                <option value="">Any stage</option>
-                {STAGES.map(s => <option key={s} value={s}>{s.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
-              </select>
-            </div>
-
-            {/* Status */}
-            <div>
-              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Status</label>
-              <select value={criteria.status} onChange={e => update('status', e.target.value)} style={selectStyle}>
-                <option value="">Any status</option>
-                {STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
-              </select>
-            </div>
-
-            {/* Employer */}
-            <div>
-              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Employer (contains)</label>
-              <input
-                value={criteria.employer}
-                onChange={e => update('employer', e.target.value)}
-                placeholder="e.g. NNPC, Dangote…"
-                style={inputStyle}
-              />
-            </div>
-
-            {/* DPD range */}
-            <div>
-              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>DPD Min</label>
-              <input
-                type="number" min="0"
-                value={criteria.dpd_min}
-                onChange={e => update('dpd_min', e.target.value)}
-                placeholder="e.g. 30"
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>DPD Max</label>
-              <input
-                type="number" min="0"
-                value={criteria.dpd_max}
-                onChange={e => update('dpd_max', e.target.value)}
-                placeholder="e.g. 90"
-                style={inputStyle}
-              />
-            </div>
-
-            {/* Outstanding range */}
-            <div>
-              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Outstanding Min (₦)</label>
-              <input
-                type="number" min="0"
-                value={criteria.outstanding_min}
-                onChange={e => update('outstanding_min', e.target.value)}
-                placeholder="e.g. 50000"
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Outstanding Max (₦)</label>
-              <input
-                type="number" min="0"
-                value={criteria.outstanding_max}
-                onChange={e => update('outstanding_max', e.target.value)}
-                placeholder="e.g. 5000000"
-                style={inputStyle}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: SP[2], marginTop: SP[3] }}>
-            <button onClick={handlePreview} disabled={previewing || !hasAnyFilter} style={{ ...btnPrimary, opacity: !hasAnyFilter ? 0.5 : 1 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>
-                {previewing ? 'refresh' : 'search'}
-              </span>
-              {previewing ? 'Counting…' : 'Preview Count'}
-            </button>
-            <button onClick={() => { setCriteria(EMPTY_CRITERIA); setPreview(null) }} style={btnSecondary}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>restart_alt</span>
-              Reset
-            </button>
-          </div>
-        </SectionCard>
-
-        {/* Right panel: preview + save */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-          {/* Preview result */}
-          <SectionCard title="Preview">
-            {previewing ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px 0' }}>
-                <Spinner size={28} />
-              </div>
-            ) : preview === null ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 0', gap: SP[2], color: 'var(--txt3)' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 36 }}>group</span>
-                <span style={{ fontSize: TEXT.sm }}>Set filters and click Preview Count</span>
-              </div>
-            ) : (
-              <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                <div style={{ fontSize: 44, fontWeight: FW.bold, color: preview === 0 ? RED : preview > 1000 ? AMBER : GREEN, fontFamily: SORA }}>
-                  {fmtNum(preview)}
-                </div>
-                <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 6 }}>
-                  {preview === 0 ? 'No matching contacts' : preview === 1 ? 'matching contact' : 'matching contacts'}
-                </div>
-                {preview > 5000 && (
-                  <div style={{ marginTop: 8, fontSize: TEXT.xs, color: AMBER, display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>warning</span>
-                    Capped at 5,000 members on save
-                  </div>
-                )}
-              </div>
-            )}
-          </SectionCard>
-
-          {/* Save as list */}
-          <SectionCard title="Save as Contact List">
-            <div style={{ marginBottom: SP[2] }}>
-              <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>List Name</label>
-              <input
-                value={listName}
-                onChange={e => setListName(e.target.value)}
-                placeholder="e.g. DPD 30-90 Salary Loans July"
-                style={inputStyle}
-              />
-            </div>
-
-            {/* Active filters summary */}
-            {hasAnyFilter && (
-              <div style={{ marginBottom: SP[2], display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {Object.entries(criteria).filter(([, v]) => v.trim()).map(([k, v]) => (
-                  <span key={k} style={{
-                    fontSize: TEXT.xs, padding: '2px 8px', borderRadius: RADIUS.full,
-                    background: `${NAVY}12`, color: NAVY, fontWeight: FW.semibold,
-                  }}>
-                    {k.replace(/_/g, ' ')}: {v}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <button
-              onClick={handleCreate}
-              disabled={creating || !listName.trim() || preview === null || preview === 0}
-              style={{
-                ...btnPrimary, width: '100%', justifyContent: 'center',
-                opacity: (!listName.trim() || preview === null || preview === 0) ? 0.5 : 1,
-              }}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>
-                {creating ? 'refresh' : 'playlist_add'}
-              </span>
-              {creating ? 'Creating…' : 'Create Contact List'}
-            </button>
-          </SectionCard>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+          <div><label style={lbl}>Product Type</label>
+            <select value={criteria.product_type} onChange={e => update('product_type', e.target.value)} style={selectStyle}>
+              <option value="">Any product</option>{PRODUCT_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select></div>
+          <div><label style={lbl}>Stage</label>
+            <select value={criteria.stage} onChange={e => update('stage', e.target.value)} style={selectStyle}>
+              <option value="">Any stage</option>{STAGES.map(s => <option key={s} value={s}>{s.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+            </select></div>
+          <div><label style={lbl}>Status</label>
+            <select value={criteria.status} onChange={e => update('status', e.target.value)} style={selectStyle}>
+              <option value="">Any status</option>{STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+            </select></div>
+          <div><label style={lbl}>Employer (contains)</label><input value={criteria.employer} onChange={e => update('employer', e.target.value)} placeholder="e.g. NNPC, Dangote…" style={inputStyle} /></div>
+          <div><label style={lbl}>DPD Min</label><input type="number" min="0" value={criteria.dpd_min} onChange={e => update('dpd_min', e.target.value)} placeholder="e.g. 30" style={inputStyle} /></div>
+          <div><label style={lbl}>DPD Max</label><input type="number" min="0" value={criteria.dpd_max} onChange={e => update('dpd_max', e.target.value)} placeholder="e.g. 90" style={inputStyle} /></div>
+          <div><label style={lbl}>Outstanding Min (₦)</label><input type="number" min="0" value={criteria.outstanding_min} onChange={e => update('outstanding_min', e.target.value)} placeholder="e.g. 50000" style={inputStyle} /></div>
+          <div><label style={lbl}>Outstanding Max (₦)</label><input type="number" min="0" value={criteria.outstanding_max} onChange={e => update('outstanding_max', e.target.value)} placeholder="e.g. 5000000" style={inputStyle} /></div>
         </div>
       </div>
-    </Page>
+    </Modal>
+  )
+}
+
+// ── Small bits ────────────────────────────────────────────────────────────────
+
+const miniBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }
+function IconBtn({ icon, title, onClick, danger }: { icon: string; title: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button title={title} onClick={onClick}
+      style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'transparent', color: danger ? '#C00000' : 'var(--txt2)', cursor: 'pointer' }}
+      onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+      <span className="material-symbols-rounded" style={{ fontSize: 17 }}>{icon}</span>
+    </button>
   )
 }

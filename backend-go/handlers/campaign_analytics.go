@@ -44,6 +44,8 @@ import (
 // that RegisterCampaigns uses.
 func RegisterCampaignAnalytics(r chi.Router, db *core.DB) {
 	access := core.RequirePages("campaigns")
+	r.With(access).Get("/overview", marketingOverview(db))
+	r.With(access).Get("/summary", campaignsSummary(db))
 	r.With(access).Get("/analytics", campaignsAllAnalytics(db))
 	r.With(access).Get("/{id}/analytics", campaignAnalyticsDetail(db))
 	r.With(access).Get("/{id}/contacts-report", campaignContactsReport(db))
@@ -996,4 +998,146 @@ func maxInt64(a, b int64) int64 {
 func roundPct(v float64) float64 {
 	// Round to 1 decimal place
 	return float64(int64(v*10+0.5)) / 10
+}
+
+// ── Marketing overview (landing dashboard) ───────────────────────────────────
+// One round-trip powering the Marketing Overview: campaign counts by status,
+// all-time + 30-day performance, channel mix, audience reach (lists/contacts/
+// segments), template counts by channel, and recent campaigns.
+func marketingOverview(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Campaign status counts (full book).
+		statusCounts := map[string]int64{}
+		var totalCampaigns int64
+		if rows, err := db.PGQuery(ctx, `SELECT status, COUNT(*) AS n FROM campaigns GROUP BY status`); err == nil {
+			for _, row := range rows {
+				c := toInt64(row["n"])
+				statusCounts[str(row["status"])] = c
+				totalCampaigns += c
+			}
+		}
+
+		// Performance — all-time and last 30 days.
+		perf := func(where string) map[string]any {
+			q := `SELECT
+				COALESCE(SUM(emails_sent + sms_sent + whatsapp_sent),0)               AS sent,
+				COALESCE(SUM(emails_delivered + sms_delivered + whatsapp_delivered),0) AS delivered,
+				COALESCE(SUM(emails_opened),0)                                        AS opened,
+				COALESCE(SUM(emails_clicked),0)                                       AS clicked
+				FROM campaigns WHERE ` + where
+			m := map[string]any{"sent": int64(0), "delivered": int64(0), "opened": int64(0), "clicked": int64(0), "open_rate": 0.0, "delivery_rate": 0.0}
+			if rows, err := db.PGQuery(ctx, q); err == nil && len(rows) > 0 {
+				sent := toInt64(rows[0]["sent"])
+				delivered := toInt64(rows[0]["delivered"])
+				opened := toInt64(rows[0]["opened"])
+				m["sent"] = sent
+				m["delivered"] = delivered
+				m["opened"] = opened
+				m["clicked"] = toInt64(rows[0]["clicked"])
+				if sent > 0 {
+					m["delivery_rate"] = roundPct(float64(delivered) / float64(sent) * 100)
+					m["open_rate"] = roundPct(float64(opened) / float64(sent) * 100)
+				}
+			}
+			return m
+		}
+
+		// Channel mix — campaigns + sent volume by type.
+		channelMix := []map[string]any{}
+		if rows, err := db.PGQuery(ctx, `
+			SELECT type,
+			       COUNT(*) AS campaigns,
+			       COALESCE(SUM(emails_sent + sms_sent + whatsapp_sent),0) AS sent
+			FROM campaigns GROUP BY type ORDER BY sent DESC`); err == nil {
+			for _, row := range rows {
+				channelMix = append(channelMix, map[string]any{
+					"type":      str(row["type"]),
+					"campaigns": toInt64(row["campaigns"]),
+					"sent":      toInt64(row["sent"]),
+				})
+			}
+		}
+
+		// Audience — lists, total contacts, saved segments.
+		audience := map[string]any{"lists": int64(0), "contacts": int64(0), "segments": int64(0)}
+		if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS lists, COALESCE(SUM(member_count),0) AS contacts FROM contact_lists`); err == nil && len(rows) > 0 {
+			audience["lists"] = toInt64(rows[0]["lists"])
+			audience["contacts"] = toInt64(rows[0]["contacts"])
+		}
+		if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM contact_segments`); err == nil && len(rows) > 0 {
+			audience["segments"] = toInt64(rows[0]["n"])
+		}
+
+		// Templates by channel.
+		templates := []map[string]any{}
+		var totalTemplates int64
+		if rows, err := db.PGQuery(ctx, `SELECT channel, COUNT(*) AS n FROM message_templates GROUP BY channel ORDER BY n DESC`); err == nil {
+			for _, row := range rows {
+				n := toInt64(row["n"])
+				totalTemplates += n
+				templates = append(templates, map[string]any{"channel": str(row["channel"]), "count": n})
+			}
+		}
+
+		// Recent campaigns.
+		recent := []map[string]any{}
+		if rows, err := db.PGQuery(ctx, `
+			SELECT id, name, type, status, total_contacts,
+			       (emails_sent + sms_sent + whatsapp_sent) AS sent,
+			       (emails_opened) AS opened, created_at
+			FROM campaigns ORDER BY created_at DESC LIMIT 6`); err == nil {
+			for _, row := range rows {
+				recent = append(recent, map[string]any{
+					"id":             toInt64(row["id"]),
+					"name":           str(row["name"]),
+					"type":           str(row["type"]),
+					"status":         str(row["status"]),
+					"total_contacts": toInt64(row["total_contacts"]),
+					"sent":           toInt64(row["sent"]),
+					"opened":         toInt64(row["opened"]),
+					"created_at":     row["created_at"],
+				})
+			}
+		}
+
+		respond(w, map[string]any{
+			"campaigns": map[string]any{
+				"total":     totalCampaigns,
+				"active":    statusCounts["active"],
+				"scheduled": statusCounts["scheduled"],
+				"completed": statusCounts["completed"],
+				"draft":     statusCounts["draft"],
+				"paused":    statusCounts["paused"],
+				"cancelled": statusCounts["cancelled"],
+			},
+			"performance_all":  perf("1=1"),
+			"performance_30d":  perf("created_at >= NOW() - interval '30 days'"),
+			"channel_mix":      channelMix,
+			"audience":         audience,
+			"templates":        templates,
+			"templates_total":  totalTemplates,
+			"recent_campaigns": recent,
+		}, "postgres")
+	}
+}
+
+// campaignsSummary returns full-book status counts so the All Campaigns KPI
+// strip reflects the whole book, not just the currently-loaded page.
+func campaignsSummary(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		counts := map[string]any{"total": int64(0), "active": int64(0), "scheduled": int64(0),
+			"completed": int64(0), "draft": int64(0), "paused": int64(0), "cancelled": int64(0)}
+		var total int64
+		if rows, err := db.PGQuery(r.Context(), `SELECT status, COUNT(*) AS n FROM campaigns GROUP BY status`); err == nil {
+			for _, row := range rows {
+				n := toInt64(row["n"])
+				counts[str(row["status"])] = n
+				total += n
+			}
+		}
+		counts["total"] = total
+		respond(w, counts, "postgres")
+	}
 }

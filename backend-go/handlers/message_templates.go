@@ -10,14 +10,14 @@ import (
 	"github.com/o3c/reports/core"
 )
 
-var templateChannels = map[string]bool{"sms": true, "email": true}
+var templateChannels = map[string]bool{"sms": true, "email": true, "whatsapp": true}
 var templateCategories = map[string]bool{
 	"general": true, "collections": true, "marketing": true,
 	"onboarding": true, "repayment_reminder": true,
 }
 
 var templateUpdateCols = []string{
-	"name", "category", "sms_body", "email_subject",
+	"name", "category", "sms_body", "whatsapp_body", "email_subject",
 	"email_body_html", "email_body_text", "email_blocks", "merge_tags",
 }
 
@@ -26,9 +26,12 @@ func normalizeTemplatePayload(body map[string]any) map[string]any {
 		body["email_subject"] = v
 	}
 	if v, ok := body["body"]; ok {
-		if str(body["channel"]) == "email" {
+		switch str(body["channel"]) {
+		case "email":
 			body["email_body_html"] = v
-		} else {
+		case "whatsapp":
+			body["whatsapp_body"] = v
+		default:
 			body["sms_body"] = v
 		}
 	}
@@ -94,6 +97,7 @@ func createTemplate(db *core.DB) http.HandlerFunc {
 			Subject       *string  `json:"subject"`
 			Body          *string  `json:"body"`
 			SMSBody       *string  `json:"sms_body"`
+			WhatsappBody  *string  `json:"whatsapp_body"`
 			EmailSubject  *string  `json:"email_subject"`
 			EmailBodyHTML *string  `json:"email_body_html"`
 			EmailBodyText *string  `json:"email_body_text"`
@@ -110,7 +114,7 @@ func createTemplate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if !templateChannels[b.Channel] {
-			respondErr(w, 422, "channel must be sms or email")
+			respondErr(w, 422, "channel must be sms, email or whatsapp")
 			return
 		}
 		if b.Category == "" {
@@ -135,6 +139,9 @@ func createTemplate(db *core.DB) http.HandlerFunc {
 			if b.Channel == "sms" && b.SMSBody == nil {
 				b.SMSBody = b.Body
 			}
+			if b.Channel == "whatsapp" && b.WhatsappBody == nil {
+				b.WhatsappBody = b.Body
+			}
 		}
 		tagsJSON, _ := json.Marshal(b.MergeTags)
 		blocksJSON, _ := json.Marshal(b.EmailBlocks)
@@ -144,10 +151,10 @@ func createTemplate(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO message_templates
-			    (name, channel, category, sms_body, email_subject, email_body_html,
+			    (name, channel, category, sms_body, whatsapp_body, email_subject, email_body_html,
 			     email_body_text, email_blocks, merge_tags, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10) RETURNING *`,
-			b.Name, b.Channel, b.Category, b.SMSBody, b.EmailSubject,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11) RETURNING *`,
+			b.Name, b.Channel, b.Category, b.SMSBody, b.WhatsappBody, b.EmailSubject,
 			b.EmailBodyHTML, b.EmailBodyText, string(blocksJSON), string(tagsJSON), user.ID)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
