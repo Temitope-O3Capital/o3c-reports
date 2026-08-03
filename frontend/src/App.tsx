@@ -55,7 +55,6 @@ const InterswitchImport    = lazy(() => import('./pages/cards/InterswitchImport'
 const BDOverview     = lazy(() => import('./pages/bd/Overview'))
 const BDPipeline     = lazy(() => import('./pages/bd/Pipeline'))
 const BDEmployers    = lazy(() => import('./pages/bd/Employers'))
-const BDAnalytics    = lazy(() => import('./pages/bd/Analytics'))
 const BDAssignments  = lazy(() => import('./pages/bd/Assignments'))
 
 // Campaigns
@@ -153,6 +152,7 @@ const HelpdeskCBNReport   = lazy(() => import('./pages/helpdesk/CBNReport'))
 // Cards
 const CardsOverview    = lazy(() => import('./pages/cards/Overview'))
 const CardCreditPortfolio = lazy(() => import('./pages/cards/CreditPortfolio'))
+const CardCycleImport   = lazy(() => import('./pages/cards/CycleImport'))
 const CardTrends       = lazy(() => import('./pages/cards/Trends'))
 const CardsMgmt        = lazy(() => import('./pages/cards/Management'))
 const CardsIssuance    = lazy(() => import('./pages/cards/Issuance'))
@@ -211,6 +211,7 @@ const DialerAgent              = lazy(() => import('./pages/telemarketing/Dialer
 const DialerSupervisor         = lazy(() => import('./pages/telemarketing/DialerSupervisor'))
 
 // Marketing
+const MarketingOverview    = lazy(() => import('./pages/marketing/Overview'))
 const MarketingAttribution = lazy(() => import('./pages/marketing/Attribution'))
 const MarketingFunnel      = lazy(() => import('./pages/marketing/Funnel'))
 
@@ -959,7 +960,6 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/bd/pipeline"    element={<RequireAccess page="bd_pipeline" user={user}><PageErrorBoundary><BDPipeline /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bd/employers"    element={<RequireAccess page="bd_employers" user={user}><PageErrorBoundary><BDEmployers /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bd/assignments"  element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDAssignments /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/bd/analytics"   element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDAnalytics /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/campaigns"            element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignsList /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/campaigns/templates"          element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><CampaignTemplates /></PageErrorBoundary></RequireAccess>} />
@@ -991,6 +991,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/loans/portfolio" element={<Navigate to="/operations/risk/portfolio" replace />} />
 
                   {/* Marketing */}
+                  <Route path="/marketing/overview"    element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><MarketingOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/marketing/attribution" element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><MarketingAttribution /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/marketing/funnel"      element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><MarketingFunnel /></PageErrorBoundary></RequireAccess>} />
 
@@ -1020,6 +1021,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   {/* Cards */}
                   <Route path="/cards"              element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/credit-portfolio" element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardCreditPortfolio /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/cycle-import" element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardCycleImport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/trends"       element={<RequireAccess page="card_trends" user={user}><PageErrorBoundary><CardTrends /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/management"   element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMgmt /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/issuance"     element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsIssuance /></PageErrorBoundary></RequireAccess>} />

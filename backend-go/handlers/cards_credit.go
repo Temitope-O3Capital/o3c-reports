@@ -19,6 +19,7 @@ func RegisterCardsCredit(r chi.Router, db *core.DB) {
 	r.With(access).Get("/receivables-trend", ccReceivablesTrend(db))
 	r.With(access).Get("/by-product", ccByProduct(db))
 	r.With(access).Get("/accounts", ccAccounts(db))
+	r.With(access).Post("/import", cardCycleImport(db))
 }
 
 // latest cycle_date across all credit-card cycle rows, as a scalar subquery.

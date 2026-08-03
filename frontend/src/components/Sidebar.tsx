@@ -44,7 +44,6 @@ const SECTIONS: Section[] = [
           { label: 'My Pipeline',       to: '/bd/pipeline' },
           { label: 'Employer Register', to: '/bd/employers' },
           { label: 'Assignments',       to: '/bd/assignments',   vis: ['bd_officer','bd_head'] },
-          { label: 'Analytics',         to: '/bd/analytics',     vis: ['bd_head','sales_head','head_sales'] },
         ],
       },
       {
@@ -59,9 +58,10 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        icon: 'campaign', label: 'Campaigns & Marketing', to: '/campaigns',
+        icon: 'campaign', label: 'Campaigns & Marketing', to: '/marketing/overview',
         vis: ['sales_head','head_sales','bd_officer','bd_head','telemarketing_head'],
         subs: [
+          { label: 'Overview',           to: '/marketing/overview' },
           { label: 'All Campaigns',      to: '/campaigns' },
           { label: 'Templates',          to: '/campaigns/templates' },
           { label: 'Contact Lists',      to: '/campaigns/lists' },
@@ -128,6 +128,7 @@ const SECTIONS: Section[] = [
         subs: [
           { label: 'My Queue',            to: '/cards/my-queue', vis: ['cards_ops_officer'] },
           { label: 'Credit Card Portfolio', to: '/cards/credit-portfolio' },
+          { label: 'Import Cycle Data',   to: '/cards/cycle-import', vis: ['cards_ops_head','finance_head'] },
           { label: 'Card Trends',         to: '/cards/trends' },
           { label: 'Cardholder Mgmt',     to: '/cards/management' },
           { label: 'Issuance Queue',      to: '/cards/issuance' },
