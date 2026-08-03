@@ -100,7 +100,7 @@ export default function MobileAppDashboard() {
   return (
     <Page
       title="Mobile App Analytics"
-      subtitle="Active users and transaction activity from the O3 Capital mobile app"
+      subtitle="Active users and transaction activity derived from core banking (no dedicated mobile-app telemetry yet)"
     >
       <ErrBanner error={err} onRetry={load} />
 

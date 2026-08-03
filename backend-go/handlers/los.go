@@ -25,6 +25,7 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 
 	r.With(base).Get("/stats", losStats(db))
 	r.With(base).Get("/funnel", losFunnel(db))
+	r.With(base).Get("/overview", losOverview(db))
 	r.With(base).Get("/queue", losQueue(db))
 	r.With(all).Get("/all", losAll(db))
 	r.With(base).Post("/", losCreate(db))
@@ -890,6 +891,43 @@ func losFunnel(db *core.DB) http.HandlerFunc {
 			rows = []core.Row{}
 		}
 		respond(w, rows, "pg")
+	}
+}
+
+// losOverview returns the loan pipeline as { by_stage: [{stage, count}] } in
+// canonical stage order, excluding terminal (declined/closed) applications.
+// Consumed by the marketing acquisition funnel (LOS Pipeline column).
+func losOverview(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT stage, COUNT(*) AS count
+			FROM loan_applications
+			WHERE stage NOT IN ('declined', 'closed')
+			GROUP BY stage
+			ORDER BY
+				CASE stage
+					WHEN 'draft'               THEN 1
+					WHEN 'submitted'           THEN 2
+					WHEN 'document_collection' THEN 3
+					WHEN 'risk_review'         THEN 4
+					WHEN 'risk_head_review'    THEN 5
+					WHEN 'pending_conditions'  THEN 6
+					WHEN 'finance_approval'    THEN 7
+					WHEN 'booking'             THEN 8
+					WHEN 'active'              THEN 9
+					ELSE 10
+				END`)
+		if err != nil {
+			respondErr(w, 500, "LOS overview query failed")
+			return
+		}
+		byStage := make([]map[string]any, 0, len(rows))
+		for _, row := range rows {
+			byStage = append(byStage, map[string]any{
+				"stage": str(row["stage"]), "count": toInt64(row["count"]),
+			})
+		}
+		respond(w, map[string]any{"by_stage": byStage}, "pg")
 	}
 }
 

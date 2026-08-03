@@ -26,60 +26,175 @@ func RegisterInterswitch(r chi.Router, db *core.DB) {
 
 // ── Summary ────────────────────────────────────────────────────────────────────
 
+// iswPeriodWhere maps the frontend period id to a SQL date predicate on txn_date.
+// Whitelisted — never interpolates user input into SQL.
+func iswPeriodWhere(period string) string {
+	switch strings.ToLower(period) {
+	case "l30d":
+		return "txn_date >= CURRENT_DATE - INTERVAL '30 days'"
+	case "l90d":
+		return "txn_date >= CURRENT_DATE - INTERVAL '90 days'"
+	case "ytd":
+		return "txn_date >= DATE_TRUNC('year', CURRENT_DATE)"
+	case "mtd":
+		fallthrough
+	default:
+		return "txn_date >= DATE_TRUNC('month', CURRENT_DATE)"
+	}
+}
+
+// iswChannelCase is the shared ATM/POS/WEB/Transfer classification over txn_code.
+const iswChannelCase = `CASE
+		WHEN txn_code IN ('01','02','03','04','05') THEN 'ATM'
+		WHEN txn_code IN ('06','07','08','09') THEN 'POS'
+		WHEN txn_code IN ('10','11','12','13','14','15') THEN 'WEB'
+		ELSE 'Transfer'
+	END`
+
 func interswitchSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		// MTD summary
+		where := iswPeriodWhere(r.URL.Query().Get("period"))
+
+		// Headline totals. "Volume" follows the existing convention: debit (DR) amounts.
 		rows, err := db.PGQuery(ctx, `
 			SELECT
-				COUNT(*)                                                     AS total_txns,
-				COUNT(*) FILTER (WHERE sign='DR')                           AS debit_count,
-				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='DR'), 0)      AS debit_volume_kobo,
-				COUNT(*) FILTER (WHERE sign='CR')                           AS credit_count,
-				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='CR'), 0)      AS credit_volume_kobo,
-				COUNT(DISTINCT branch_code)                                 AS branch_count,
-				COUNT(DISTINCT product_code)                                AS product_count,
-				MIN(txn_date)                                               AS earliest_date,
-				MAX(txn_date)                                               AS latest_date
+				COUNT(*)                                                AS total_count,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='DR'), 0)  AS total_volume_kobo,
+				COUNT(*) FILTER (WHERE sign='DR')                       AS debit_count,
+				COUNT(*) FILTER (WHERE sign='CR')                       AS credit_count,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='CR'), 0)  AS credit_volume_kobo,
+				COUNT(DISTINCT branch_code)                             AS branch_count,
+				COUNT(DISTINCT product_code)                            AS product_count,
+				MIN(txn_date)                                           AS earliest_date,
+				MAX(txn_date)                                           AS latest_date
 			FROM interswitch_txns
-			WHERE txn_date >= DATE_TRUNC('month', CURRENT_DATE)`)
+			WHERE `+where)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
-				"total_txns": 0, "debit_count": 0, "debit_volume_kobo": 0,
-				"credit_count": 0, "credit_volume_kobo": 0,
+				"total_count": 0, "total_volume_kobo": 0,
+				"debit_count": 0, "credit_count": 0, "credit_volume_kobo": 0,
 				"branch_count": 0, "product_count": 0,
+				"channel_breakdown": []any{}, "product_breakdown": []any{},
+				"txn_type_breakdown": []any{}, "daily_trend": []any{}, "top_merchants": []any{},
 				"data_available": false,
 			}, "pg")
 			return
 		}
 		row := rows[0]
-		// Channel breakdown for current month
+		totalVol := toInt64(row["total_volume_kobo"])
+
+		// Channel breakdown ({channel, volume_kobo, count, pct}).
 		chanRows, _ := db.PGQuery(ctx, `
-			SELECT
-				CASE
-					WHEN txn_code IN ('01','02','03','04','05') THEN 'ATM'
-					WHEN txn_code IN ('06','07','08','09') THEN 'POS'
-					WHEN txn_code IN ('10','11','12','13','14','15') THEN 'WEB'
-					ELSE 'Transfer'
-				END AS channel,
-				COUNT(*) AS txn_count,
+			SELECT `+iswChannelCase+` AS channel,
+				COUNT(*)                                              AS count,
 				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='DR'), 0) AS volume_kobo
 			FROM interswitch_txns
-			WHERE txn_date >= DATE_TRUNC('month', CURRENT_DATE)
+			WHERE `+where+`
 			GROUP BY 1
 			ORDER BY volume_kobo DESC`)
+		channel := make([]map[string]any, 0, len(chanRows))
+		for _, cr := range chanRows {
+			vol := toInt64(cr["volume_kobo"])
+			channel = append(channel, map[string]any{
+				"channel": str(cr["channel"]), "count": toInt64(cr["count"]),
+				"volume_kobo": vol, "pct": pctOf(vol, totalVol),
+			})
+		}
+
+		// Product breakdown ({product, volume_kobo, count}).
+		prodRows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(NULLIF(product_name,''), product_code, 'Unknown') AS product,
+				COUNT(*)                                              AS count,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='DR'), 0) AS volume_kobo
+			FROM interswitch_txns
+			WHERE `+where+`
+			GROUP BY 1
+			ORDER BY volume_kobo DESC`)
+		products := make([]map[string]any, 0, len(prodRows))
+		for _, pr := range prodRows {
+			products = append(products, map[string]any{
+				"product": str(pr["product"]), "count": toInt64(pr["count"]),
+				"volume_kobo": toInt64(pr["volume_kobo"]),
+			})
+		}
+
+		// Transaction type breakdown ({type, count, volume_kobo}) — keyed on channel classification.
+		typeRows, _ := db.PGQuery(ctx, `
+			SELECT `+iswChannelCase+` AS type,
+				COUNT(*)                                              AS count,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='DR'), 0) AS volume_kobo
+			FROM interswitch_txns
+			WHERE `+where+`
+			GROUP BY 1
+			ORDER BY count DESC`)
+		types := make([]map[string]any, 0, len(typeRows))
+		for _, tr := range typeRows {
+			types = append(types, map[string]any{
+				"type": str(tr["type"]), "count": toInt64(tr["count"]),
+				"volume_kobo": toInt64(tr["volume_kobo"]),
+			})
+		}
+
+		// Daily trend ({date, atm, pos, web, transfer}) — DR volume per channel per day.
+		trendRows, _ := db.PGQuery(ctx, `
+			SELECT TO_CHAR(txn_date, 'YYYY-MM-DD') AS date,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE txn_code IN ('01','02','03','04','05') AND sign='DR'), 0)      AS atm,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE txn_code IN ('06','07','08','09') AND sign='DR'), 0)           AS pos,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE txn_code IN ('10','11','12','13','14','15') AND sign='DR'), 0) AS web,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='DR'
+					AND txn_code NOT IN ('01','02','03','04','05','06','07','08','09','10','11','12','13','14','15')), 0) AS transfer
+			FROM interswitch_txns
+			WHERE `+where+`
+			GROUP BY txn_date
+			ORDER BY txn_date`)
+		trend := make([]map[string]any, 0, len(trendRows))
+		for _, dr := range trendRows {
+			trend = append(trend, map[string]any{
+				"date": str(dr["date"]), "atm": toInt64(dr["atm"]), "pos": toInt64(dr["pos"]),
+				"web": toInt64(dr["web"]), "transfer": toInt64(dr["transfer"]),
+			})
+		}
+
+		// Top merchants ({name, volume_kobo, count}) — top 10 by DR volume.
+		merchRows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(NULLIF(merchant_name,''), merchant_id, 'Unknown') AS name,
+				COUNT(*)                                              AS count,
+				COALESCE(SUM(amount_kobo) FILTER (WHERE sign='DR'), 0) AS volume_kobo
+			FROM interswitch_txns
+			WHERE `+where+`
+			GROUP BY 1
+			ORDER BY volume_kobo DESC
+			LIMIT 10`)
+		merchants := make([]map[string]any, 0, len(merchRows))
+		for _, mr := range merchRows {
+			merchants = append(merchants, map[string]any{
+				"name": str(mr["name"]), "count": toInt64(mr["count"]),
+				"volume_kobo": toInt64(mr["volume_kobo"]),
+			})
+		}
+
+		reportDate := ""
+		if d, ok := row["latest_date"].(time.Time); ok {
+			reportDate = d.Format("2006-01-02")
+		}
 
 		respond(w, map[string]any{
-			"total_txns":         toInt64(row["total_txns"]),
+			"report_date":        reportDate,
+			"total_count":        toInt64(row["total_count"]),
+			"total_volume_kobo":  totalVol,
 			"debit_count":        toInt64(row["debit_count"]),
-			"debit_volume_kobo":  toInt64(row["debit_volume_kobo"]),
 			"credit_count":       toInt64(row["credit_count"]),
 			"credit_volume_kobo": toInt64(row["credit_volume_kobo"]),
 			"branch_count":       toInt64(row["branch_count"]),
 			"product_count":      toInt64(row["product_count"]),
 			"earliest_date":      row["earliest_date"],
 			"latest_date":        row["latest_date"],
-			"channel_breakdown":  chanRows,
+			"channel_breakdown":  channel,
+			"product_breakdown":  products,
+			"txn_type_breakdown": types,
+			"daily_trend":        trend,
+			"top_merchants":      merchants,
 			"data_available":     true,
 		}, "pg")
 	}

@@ -2,7 +2,7 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Page, SectionCard, DataTable, Tabs, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, API } from '../../lib/api'
+import { apiFetch, API, unwrap } from '../../lib/api'
 import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, BLUE, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
@@ -467,11 +467,12 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
     setPreviewing(true)
     setPreview(null)
     try {
-      const res = await apiFetch<{ count: number; eligible: number; sample: any[] }>('/api/statements/bulk-send', {
+      const res = await apiFetch<any>('/api/statements/bulk-send', {
         method: 'POST',
         body: JSON.stringify({ date_from: dateFrom, date_to: dateTo, limit: Number(limit) || 0, dry_run: true }),
       })
-      setPreview(res)
+      // Backend wraps the payload in a {data} envelope — unwrap so count/eligible/sample resolve.
+      setPreview(unwrap<{ count: number; eligible: number; sample: any[] }>(res))
     } catch (e: any) {
       toast.error(e.message)
     } finally {
@@ -483,7 +484,7 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
     if (!confirm(`Send statements to ${preview ? preview.count : 'all eligible'} customers?`)) return
     setLaunching(true)
     try {
-      const res = await apiFetch<{ total: number; eligible: number }>('/api/statements/bulk-send', {
+      const res = await apiFetch<any>('/api/statements/bulk-send', {
         method: 'POST',
         body: JSON.stringify({
           date_from: dateFrom, date_to: dateTo,
@@ -494,7 +495,8 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
           dry_run: false,
         }),
       })
-      toast.success(`Bulk send queued for ${res.total} customers`)
+      const launched = unwrap<{ total: number; eligible: number }>(res)
+      toast.success(`Bulk send queued for ${launched.total} customers`)
       setPreview(null)
       onLaunched()
       loadRuns()

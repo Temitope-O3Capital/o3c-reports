@@ -150,57 +150,54 @@ func blinkCardSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// Card counts by status
+		// Card counts by status — scoped to the actual Blink product.
+		// The Blink product is catalogued as "PREP Temporary Virtual" (notes='Blink'),
+		// so match both the brand name and the product name. If nothing matches we return
+		// an empty breakdown (honest) rather than dumping ALL products mislabeled as Blink.
+		const blinkMS = `(Product_Name LIKE '%Blink%' OR Product_Name LIKE '%blink%' OR Product_Name LIKE '%PREP Temporary Virtual%')`
+		const blinkPG = `("Product Name" ILIKE '%blink%' OR "Product Name" ILIKE '%PREP Temporary Virtual%')`
 		statusRows, src, err := db.DualQuery(ctx,
 			`SELECT Account_Status AS status, COUNT(*) AS count
 			 FROM dbo.Account
-			 WHERE Product_Name LIKE '%Blink%' OR Product_Name LIKE '%blink%'
+			 WHERE `+blinkMS+`
 			 GROUP BY Account_Status
 			 ORDER BY count DESC`,
 			`SELECT "Account Status" AS status, COUNT(*) AS count
 			 FROM "Products"
-			 WHERE "Product Name" ILIKE '%blink%'
+			 WHERE `+blinkPG+`
 			 GROUP BY "Account Status"
 			 ORDER BY count DESC`)
 		if err != nil {
-			// Blink may not exist in PG snapshot — fall back to all products
-			statusRows, src, err = db.DualQuery(ctx,
-				`SELECT Product_Name AS product, Account_Status AS status, COUNT(*) AS count
-				 FROM dbo.Account
-				 GROUP BY Product_Name, Account_Status
-				 ORDER BY count DESC`,
-				`SELECT "Product Name" AS product, "Account Status" AS status, COUNT(*) AS count
-				 FROM "Products"
-				 GROUP BY "Product Name", "Account Status"
-				 ORDER BY count DESC`)
-			if err != nil {
-				respondErr(w, 500, "Blink card query failed")
-				return
-			}
+			respondErr(w, 500, "Blink card query failed")
+			return
+		}
+		if statusRows == nil {
+			statusRows = []core.Row{}
 		}
 
-		// Monthly issuance trend (all products, filter client-side)
+		// Monthly issuance trend — Blink product only.
 		trend, tSrc, _ := db.DualQuery(ctx,
 			`SELECT
 			  FORMAT(Account_Created,'MMM yyyy') AS month,
 			  DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1) AS month_sort,
-			  Product_Name AS product,
 			  COUNT(*) AS issued
 			FROM dbo.Account
-			WHERE Account_Created IS NOT NULL
+			WHERE Account_Created IS NOT NULL AND `+blinkMS+`
 			GROUP BY DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1),
-			         FORMAT(Account_Created,'MMM yyyy'), Product_Name
+			         FORMAT(Account_Created,'MMM yyyy')
 			ORDER BY month_sort DESC`,
 			`SELECT
 			  TO_CHAR(DATE_TRUNC('month',"Account Created Date"),'Mon YYYY') AS month,
 			  DATE_TRUNC('month',"Account Created Date") AS month_sort,
-			  "Product Name" AS product,
 			  COUNT(*) AS issued
 			FROM "Products"
-			WHERE "Account Created Date" IS NOT NULL
-			GROUP BY DATE_TRUNC('month',"Account Created Date"), "Product Name"
+			WHERE "Account Created Date" IS NOT NULL AND `+blinkPG+`
+			GROUP BY DATE_TRUNC('month',"Account Created Date")
 			ORDER BY month_sort DESC
 			LIMIT 60`)
+		if trend == nil {
+			trend = []core.Row{}
+		}
 
 		respond(w, map[string]any{
 			"status_breakdown": statusRows,

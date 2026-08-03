@@ -271,7 +271,9 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 				COUNT(CASE WHEN status NOT IN ('resolved','closed') THEN 1 END)                                                                   AS open_tickets,
 				COUNT(CASE WHEN status NOT IN ('resolved','closed') AND sla_due_at IS NOT NULL AND sla_due_at < NOW() THEN 1 END)                 AS sla_breached,
 				COUNT(CASE WHEN status = 'resolved' AND updated_at::date = CURRENT_DATE THEN 1 END)                                               AS resolved_today,
-				COUNT(CASE WHEN created_at::date = CURRENT_DATE THEN 1 END)                                                                       AS tickets_today
+				COUNT(CASE WHEN created_at::date = CURRENT_DATE THEN 1 END)                                                                       AS tickets_today,
+				ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/60.0) FILTER (WHERE resolved_at IS NOT NULL))                            AS avg_handle_time_mins,
+				ROUND(AVG(csat_score)::numeric FILTER (WHERE csat_score IS NOT NULL), 1)                                                          AS csat_score
 			FROM helpdesk_tickets
 			WHERE assigned_to = $1`, user.ID)
 
@@ -281,23 +283,53 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			WHERE assigned_to = $1
 			ORDER BY created_at DESC
 			LIMIT 10`, user.ID)
-
 		if recentRows == nil {
 			recentRows = []core.Row{}
 		}
 
+		// CSAT trend (14 days) — {date, score}. Only days with a scored survey appear.
+		csatTrend, _ := db.PGQuery(ctx, `
+			SELECT TO_CHAR(csat_submitted_at::date, 'YYYY-MM-DD') AS date,
+			       ROUND(AVG(csat_score)::numeric, 2) AS score
+			FROM helpdesk_tickets
+			WHERE assigned_to = $1 AND csat_score IS NOT NULL
+			  AND csat_submitted_at >= CURRENT_DATE - INTERVAL '14 days'
+			GROUP BY csat_submitted_at::date
+			ORDER BY csat_submitted_at::date`, user.ID)
+		if csatTrend == nil {
+			csatTrend = []core.Row{}
+		}
+
+		// Avg handle time by ticket type — {type, avg_mins}.
+		handleByType, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(NULLIF(ticket_type,''), 'Other') AS type,
+			       ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/60.0)) AS avg_mins
+			FROM helpdesk_tickets
+			WHERE assigned_to = $1 AND resolved_at IS NOT NULL
+			GROUP BY 1
+			ORDER BY avg_mins DESC`, user.ID)
+		if handleByType == nil {
+			handleByType = []core.Row{}
+		}
+
 		result := map[string]any{
-			"open_tickets":   int64(0),
-			"sla_breached":   int64(0),
-			"resolved_today": int64(0),
-			"tickets_today":  int64(0),
-			"recent_tickets": recentRows,
+			"open_tickets":         int64(0),
+			"sla_breached":         int64(0),
+			"resolved_today":       int64(0),
+			"tickets_today":        int64(0),
+			"avg_handle_time_mins": int64(0),
+			"csat_score":           nil, // null → frontend shows "—" (no survey responses yet)
+			"recent_tickets":       recentRows,
+			"csat_trend":           csatTrend,
+			"handle_time_by_type":  handleByType,
 		}
 		if len(statsRows) > 0 {
-			result["open_tickets"]   = statsRows[0]["open_tickets"]
-			result["sla_breached"]   = statsRows[0]["sla_breached"]
-			result["resolved_today"] = statsRows[0]["resolved_today"]
-			result["tickets_today"]  = statsRows[0]["tickets_today"]
+			result["open_tickets"]         = statsRows[0]["open_tickets"]
+			result["sla_breached"]         = statsRows[0]["sla_breached"]
+			result["resolved_today"]       = statsRows[0]["resolved_today"]
+			result["tickets_today"]        = statsRows[0]["tickets_today"]
+			result["avg_handle_time_mins"] = statsRows[0]["avg_handle_time_mins"]
+			result["csat_score"]           = statsRows[0]["csat_score"]
 		}
 
 		respond(w, result, "pg")

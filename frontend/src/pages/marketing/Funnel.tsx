@@ -85,8 +85,8 @@ export default function Funnel() {
         apiFetch<{ summary?: CampaignSummary }>('/api/campaigns/analytics').catch(() => null),
       ])
       setSalesFunnel((sf as any)?.data ?? sf)
-      setLosStages(los?.by_stage ?? [])
-      setCampaigns((cam as any)?.summary ?? null)
+      setLosStages((los as any)?.data?.by_stage ?? los?.by_stage ?? [])
+      setCampaigns((cam as any)?.summary ?? (cam as any)?.data?.summary ?? null)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])
@@ -102,15 +102,17 @@ export default function Funnel() {
     { label: 'Transacting',          value: (salesFunnel as any)?.transacting ?? 0, color: GREEN },
   ]
 
-  // Map LOS stages in logical order
-  const stageOrder = ['submitted','risk_review','credit_committee','approved','booking','active']
+  // Map LOS stages in logical order — must mirror backend loan_applications.stage values.
+  const stageOrder = ['submitted','document_collection','risk_review','risk_head_review','pending_conditions','finance_approval','booking','active']
   const stageLabel: Record<string,string> = {
-    submitted:'Submitted', risk_review:'Risk Review', credit_committee:'Credit Committee',
-    approved:'Approved', booking:'Booking', active:'Active Loans',
+    submitted:'Submitted', document_collection:'Document Collection', risk_review:'Risk Review',
+    risk_head_review:'Risk Head Review', pending_conditions:'Pending Conditions',
+    finance_approval:'Finance Approval', booking:'Booking', active:'Active Loans',
   }
   const stageColor: Record<string,string> = {
-    submitted: 'var(--chart-lbl)', risk_review: BLUE, credit_committee: AMBER,
-    approved: GREEN, booking: NAVY, active: '#059669',
+    submitted: 'var(--chart-lbl)', document_collection: BLUE, risk_review: BLUE,
+    risk_head_review: AMBER, pending_conditions: AMBER, finance_approval: GREEN,
+    booking: NAVY, active: '#059669',
   }
   const losSteps: FunnelStep[] = stageOrder
     .map(s => {
