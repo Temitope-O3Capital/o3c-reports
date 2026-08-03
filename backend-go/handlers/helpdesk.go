@@ -69,6 +69,7 @@ func ensureHelpdeskColumns(ctx context.Context, db *core.DB) {
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS customer_cif TEXT`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS customer_name TEXT`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS ticket_ref TEXT`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS source_system TEXT NOT NULL DEFAULT 'o3_crm'`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_tickets_ref ON helpdesk_tickets(ticket_ref) WHERE ticket_ref IS NOT NULL`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS sla_warning_sent BOOLEAN DEFAULT FALSE`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS unassigned_alert_sent BOOLEAN DEFAULT FALSE`,

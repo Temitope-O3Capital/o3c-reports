@@ -98,6 +98,7 @@ const SECTIONS: Section[] = [
           { label: 'My Dashboard',     to: '/helpdesk/my-dashboard',      vis: ['call_center_agent'] },
           { label: 'My Dashboard',     to: '/telemarketing/dialer/agent',  vis: ['telemarketing_agent'] },
           // shared operational tools (both teams)
+          { label: 'Customer Directory', to: '/customers' },
           { label: 'Ticket Queue',     to: '/helpdesk/tickets' },
           { label: 'Call Log',         to: '/helpdesk/calls' },
           { label: 'Outbound Queue',   to: '/telemarketing/queue' },

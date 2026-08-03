@@ -22,7 +22,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -68,8 +70,11 @@ func voiceRefreshUserToken(ctx context.Context, refreshToken string) (string, ti
 
 func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Get("/sync-status", zohoSyncStatus(db))
+	r.Get("/import-status", zohoImportStatus())
 	r.Post("/import-tickets", zohoImportTickets(db))
+	r.Post("/import-threads", zohoImportThreads(db))
 	r.Post("/import-calls", zohoImportDeskCalls(db))
+	r.Post("/import-contacts", zohoImportContacts(db))
 
 	// Voice routes require call_center page permission — these initiate or import live calls.
 	cc := core.RequirePages("call_center")
@@ -90,8 +95,11 @@ func RegisterZohoAdmin(r chi.Router, db *core.DB, adminSecret string) {
 			next.ServeHTTP(w, r)
 		})
 	}
+	r.With(guard).Get("/admin/import-status", zohoImportStatus())
 	r.With(guard).Post("/admin/import-tickets", zohoImportTickets(db))
+	r.With(guard).Post("/admin/import-threads", zohoImportThreads(db))
 	r.With(guard).Post("/admin/import-calls", zohoImportDeskCalls(db))
+	r.With(guard).Post("/admin/import-contacts", zohoImportContacts(db))
 }
 
 // ── Credential helpers ────────────────────────────────────────────────────────
@@ -273,8 +281,8 @@ func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate strin
 			res, insErr := db.PGExec(ctx, `
 				INSERT INTO helpdesk_calls
 				    (agent_name, customer_phone, call_to, direction, duration_sec,
-				     outcome, started_at, zoho_voice_id)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+				     outcome, started_at, zoho_voice_id, source_system)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'zoho_desk')
 				ON CONFLICT DO NOTHING`,
 				ptrOrNilStr(agentName), ptrOrNilStr(customerPhone),
 				ptrOrNilStr(callTo), direction, durSec, outcome, startedAt, voiceID)
@@ -402,127 +410,429 @@ func StartZohoAutoSync(db *core.DB) {
 	}()
 }
 
-// ── Zoho Desk — import tickets ────────────────────────────────────────────────
+// ── Background import jobs ────────────────────────────────────────────────────
+//
+// The Desk migration imports (tickets, threads, calls) can each touch tens of
+// thousands of records and make hundreds of Zoho calls. Running them inside the
+// HTTP request is unsafe: the client times out, and a disconnect cancels the
+// request context mid-run. Instead each import runs as a named background job on
+// context.Background(), pages through Zoho inserting as it goes (bounded memory),
+// and is polled via GET .../import-status?job=<name>.
+
+type zohoJob struct {
+	sync.Mutex
+	running   bool
+	done      bool
+	imported  int
+	skipped   int
+	failed    int
+	pages     int
+	processed int // secondary counter (e.g. tickets processed by the thread job)
+	startedAt time.Time
+	endedAt   time.Time
+	lastErr   string
+}
+
+// zohoJobs is fixed-key and pre-initialised, so concurrent reads need no map lock.
+var zohoJobs = map[string]*zohoJob{
+	"tickets": {}, "threads": {}, "calls": {}, "contacts": {},
+}
+
+// startZohoJob launches fn as the named background job unless one is already
+// running, and writes the HTTP response (202 started / 409 already-running).
+func startZohoJob(name string, w http.ResponseWriter, fn func(ctx context.Context, j *zohoJob)) {
+	j := zohoJobs[name]
+	j.Lock()
+	if j.running {
+		resp := map[string]any{"status": "already_running", "job": name,
+			"imported": j.imported, "skipped": j.skipped, "failed": j.failed, "pages": j.pages}
+		j.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(409)
+		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+		return
+	}
+	j.running, j.done = true, false
+	j.imported, j.skipped, j.failed, j.pages, j.processed = 0, 0, 0, 0, 0
+	j.startedAt, j.endedAt, j.lastErr = time.Now(), time.Time{}, ""
+	j.Unlock()
+
+	go func() {
+		defer func() {
+			j.Lock()
+			j.running, j.done, j.endedAt = false, true, time.Now()
+			slog.Info("zoho import job done", "job", name,
+				"imported", j.imported, "skipped", j.skipped, "failed", j.failed, "pages", j.pages)
+			j.Unlock()
+		}()
+		fn(context.Background(), j)
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	json.NewEncoder(w).Encode(map[string]any{"status": "started", "job": name}) //nolint:errcheck
+}
+
+// zohoImportStatus reports progress of a background import job (?job=tickets|threads|calls).
+func zohoImportStatus() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Query().Get("job")
+		if name == "" {
+			name = "tickets"
+		}
+		j, ok := zohoJobs[name]
+		if !ok {
+			respondErr(w, 400, "unknown job: "+name)
+			return
+		}
+		j.Lock()
+		resp := map[string]any{
+			"job": name, "running": j.running, "done": j.done,
+			"imported": j.imported, "skipped": j.skipped, "failed": j.failed,
+			"pages": j.pages, "processed": j.processed, "last_error": j.lastErr,
+		}
+		if !j.startedAt.IsZero() {
+			resp["started_at"] = j.startedAt.UTC().Format(time.RFC3339)
+		}
+		if !j.endedAt.IsZero() {
+			resp["ended_at"] = j.endedAt.UTC().Format(time.RFC3339)
+		}
+		j.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	}
+}
+
+// ── Zoho Desk — import tickets (background job) ───────────────────────────────
 
 func zohoImportTickets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		if !zohoEnsureConfigured(ctx, db) {
+		if !zohoEnsureConfigured(r.Context(), db) {
 			respondErr(w, 503, "Zoho credentials not configured")
 			return
 		}
-
-		from := r.URL.Query().Get("from_date")
-		to := r.URL.Query().Get("to_date")
-		var dateFrom, dateTo time.Time
-		if from != "" {
-			dateFrom, _ = time.Parse("2006-01-02", from)
+		maxTickets := 100000
+		if v := r.URL.Query().Get("max"); v != "" {
+			if n, perr := strconv.Atoi(v); perr == nil && n > 0 {
+				maxTickets = n
+			}
 		}
-		if to != "" {
-			dateTo, _ = time.Parse("2006-01-02", to)
+		// Zoho's list API caps from/limit pagination at ~31,300 rows. order=desc
+		// sweeps newest-first so asc+desc together cover the full ticket set.
+		desc := r.URL.Query().Get("order") == "desc"
+		startZohoJob("tickets", w, func(ctx context.Context, j *zohoJob) {
+			runZohoTicketImportJob(ctx, db, j, maxTickets, desc)
+		})
+	}
+}
+
+// runZohoTicketImportJob pages through Zoho tickets (oldest first), inserting
+// each page as it arrives so memory stays bounded regardless of total volume.
+func runZohoTicketImportJob(ctx context.Context, db *core.DB, j *zohoJob, maxTickets int, desc bool) {
+	ensureHelpdeskColumns(ctx, db)
+
+	statusMap := map[string]string{
+		"open": "open", "on hold": "pending", "escalated": "open",
+		"resolved": "resolved", "closed": "closed",
+	}
+	priorityMap := map[string]string{
+		"low": "low", "medium": "normal", "high": "high", "urgent": "urgent",
+	}
+
+	sortBy := "createdTime"
+	if desc {
+		sortBy = "-createdTime"
+	}
+
+	// Resume (ascending only): tickets import oldest-first monotonically, so the DB
+	// count is the high-water mark — skip whole pages already done. The descending
+	// pass (to reach the newest ~10k beyond Zoho's ~31,300 offset cap) can't resume
+	// by count, so it starts at 0 and relies on idempotent upserts.
+	offset := 0
+	if !desc {
+		if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM helpdesk_tickets WHERE source_system='zoho_desk'`); err == nil && len(rows) > 0 {
+			existing := int(toInt64(rows[0]["c"]))
+			offset = (existing / 100) * 100
+			if offset > 0 {
+				slog.Info("zohoImportTickets job: resuming", "existing", existing, "from_offset", offset)
+			}
 		}
-
-		ensureHelpdeskColumns(ctx, db)
-
-		tickets, err := zohoFetchTickets(ctx, dateFrom, dateTo, url.Values{"include": {"contacts,assignee"}}, 2000)
+	}
+	for {
+		params := url.Values{
+			"from":    {strconv.Itoa(offset)},
+			"limit":   {"100"},
+			"sortBy":  {sortBy},
+			"include": {"contacts,assignee"},
+		}
+		result, err := zohoFetch(ctx, "tickets", params)
 		if err != nil {
-			respondErr(w, 502, "Zoho API error: "+err.Error())
+			j.Lock()
+			j.lastErr = err.Error()
+			j.Unlock()
+			slog.Error("zohoImportTickets job: fetch", "offset", offset, "err", err)
+			return
+		}
+		batch := zohoItems(result)
+		if len(batch) == 0 {
 			return
 		}
 
-		statusMap := map[string]string{
-			"open": "open", "on hold": "pending", "escalated": "open",
-			"resolved": "resolved", "closed": "closed",
-		}
-		priorityMap := map[string]string{
-			"low": "low", "medium": "normal", "high": "high", "urgent": "urgent",
-		}
-		// Only values allowed by the DB CHECK constraint
-		channelMap := map[string]string{
-			"email": "email", "phone": "phone", "sms": "sms",
-			"whatsapp": "whatsapp", "chat": "in_app", "web": "in_app",
-			"twitter": "in_app", "facebook": "in_app",
+		for _, t := range batch {
+			imp, skip, fail := upsertZohoTicket(ctx, db, t, statusMap, priorityMap)
+			j.Lock()
+			j.imported += imp
+			j.skipped += skip
+			j.failed += fail
+			j.Unlock()
 		}
 
-		var imported, skipped, failed int
-		for _, t := range tickets {
-			zohoID := zohoStr(t["id"])
-			if zohoID == "" {
-				skipped++
+		j.Lock()
+		j.pages++
+		processed := j.imported + j.skipped + j.failed
+		j.Unlock()
+
+		if len(batch) < 100 || processed >= maxTickets {
+			return
+		}
+		offset += 100
+	}
+}
+
+// upsertZohoTicket maps one Zoho ticket into helpdesk_tickets (tagged
+// source_system='zoho_desk') and upserts on ticket_ref. Returns 0/1 counters.
+func upsertZohoTicket(ctx context.Context, db *core.DB, t map[string]any, statusMap, priorityMap map[string]string) (imported, skipped, failed int) {
+	zohoID := zohoStr(t["id"])
+	if zohoID == "" {
+		return 0, 1, 0
+	}
+	ref := "ZOHO-" + zohoID
+
+	subject := zohoStr(t["subject"])
+	if subject == "" {
+		subject = "(no subject)"
+	}
+	body := zohoStr(t["description"])
+
+	status := statusMap[strings.ToLower(zohoStr(t["status"]))]
+	if status == "" {
+		status = "open"
+	}
+	priority := priorityMap[strings.ToLower(zohoStr(t["priority"]))]
+	if priority == "" {
+		priority = "normal"
+	}
+	channel := channelFromZoho(zohoStr(t["channel"]))
+	if channel == "" {
+		channel = "web"
+	}
+
+	dept := zohoStr(t["departmentName"])
+	createdAt := zohoParseTime(t["createdTime"])
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
+	var resolvedAt, closedAt *time.Time
+	if ra := zohoParseTime(t["resolvedTime"]); !ra.IsZero() {
+		resolvedAt = &ra
+	}
+	if ca := zohoParseTime(t["closedTime"]); !ca.IsZero() {
+		closedAt = &ca
+	}
+
+	var custName, custEmail, custPhone string
+	if contact, ok := t["contact"].(map[string]any); ok {
+		custName = strings.TrimSpace(zohoStr(contact["firstName"]) + " " + zohoStr(contact["lastName"]))
+		custEmail = zohoStr(contact["email"])
+		custPhone = zohoStr(contact["phone"])
+	}
+
+	res, err := db.PGExec(ctx, `
+		INSERT INTO helpdesk_tickets
+		  (subject, description, channel, status, priority, department,
+		   customer_name, customer_email, customer_phone,
+		   ticket_ref, resolved_at, closed_at, created_at, updated_at, source_system)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,'zoho_desk')
+		ON CONFLICT (ticket_ref) DO UPDATE SET
+		  status      = EXCLUDED.status,
+		  priority    = EXCLUDED.priority,
+		  channel     = EXCLUDED.channel,
+		  resolved_at = EXCLUDED.resolved_at,
+		  closed_at   = EXCLUDED.closed_at,
+		  updated_at  = EXCLUDED.updated_at`,
+		subject, body, channel, status, priority, dept,
+		custName, custEmail, custPhone,
+		ref, resolvedAt, closedAt, createdAt)
+	if err != nil {
+		slog.Warn("upsertZohoTicket: insert", "ref", ref, "err", err)
+		return 0, 0, 1
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return 1, 0, 0
+	}
+	return 0, 1, 0
+}
+
+// channelFromZoho maps a Zoho channel label to O3's widened channel vocabulary
+// (migration 110). Returns "" for unknown labels so callers can pick a fallback.
+func channelFromZoho(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "email":
+		return "email"
+	case "phone":
+		return "call" // telephony is O3C's dominant channel
+	case "sms":
+		return "sms"
+	case "whatsapp":
+		return "whatsapp"
+	case "chat":
+		return "chat"
+	case "web", "web form", "webform", "forums", "help center", "helpcenter":
+		return "web"
+	case "twitter", "x", "facebook", "instagram":
+		return "social"
+	default:
+		return ""
+	}
+}
+
+// ── Zoho Desk — import conversation threads ──────────────────────────────────
+
+// zohoFetchConversations returns the combined thread/comment timeline for a ticket.
+func zohoFetchConversations(ctx context.Context, ticketZohoID string) ([]map[string]any, error) {
+	result, err := zohoFetch(ctx, "tickets/"+ticketZohoID+"/conversations", url.Values{"limit": {"100"}})
+	if err != nil {
+		return nil, err
+	}
+	raw, _ := result["data"].([]any)
+	out := make([]map[string]any, 0, len(raw))
+	for _, it := range raw {
+		if m, ok := it.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// zohoImportThreads backfills helpdesk_messages from Zoho ticket conversations
+// for tickets already imported (source_system='zoho_desk'). Call-channel tickets
+// are skipped by default — their content is the call log — so we don't spend an
+// API call per phone ticket; pass ?include_calls=true to fetch every ticket.
+// ?max= caps how many tickets are processed in one run.
+func zohoImportThreads(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !zohoEnsureConfigured(r.Context(), db) {
+			respondErr(w, 503, "Zoho credentials not configured")
+			return
+		}
+		includeCalls := r.URL.Query().Get("include_calls") == "true"
+		maxTickets := 100000
+		if v := r.URL.Query().Get("max"); v != "" {
+			if n, perr := strconv.Atoi(v); perr == nil && n > 0 {
+				maxTickets = n
+			}
+		}
+		startZohoJob("threads", w, func(ctx context.Context, j *zohoJob) {
+			runZohoThreadImportJob(ctx, db, j, includeCalls, maxTickets)
+		})
+	}
+}
+
+// runZohoThreadImportJob backfills helpdesk_messages from Zoho ticket
+// conversations, one API call per candidate ticket, on a background context.
+func runZohoThreadImportJob(ctx context.Context, db *core.DB, j *zohoJob, includeCalls bool, maxTickets int) {
+	ensureHelpdeskColumns(ctx, db)
+
+	q := `SELECT id, ticket_ref, channel FROM helpdesk_tickets
+	       WHERE source_system='zoho_desk' AND ticket_ref LIKE 'ZOHO-%'`
+	if !includeCalls {
+		q += ` AND channel <> 'call'`
+	}
+	// Resume: skip tickets that already have an imported message, so a re-trigger
+	// after a restart only processes the ones still missing conversations.
+	q += ` AND NOT EXISTS (
+	         SELECT 1 FROM helpdesk_messages m
+	         WHERE m.ticket_id = helpdesk_tickets.id AND m.source_system='zoho_desk')`
+	q += ` ORDER BY id DESC LIMIT $1`
+	rows, err := db.PGQuery(ctx, q, maxTickets)
+	if err != nil {
+		j.Lock()
+		j.lastErr = "query tickets: " + err.Error()
+		j.Unlock()
+		return
+	}
+
+	for _, row := range rows {
+		localID := toInt64(row["id"])
+		ref := str(row["ticket_ref"])
+		ticketChannel := str(row["channel"])
+		zohoID := strings.TrimPrefix(ref, "ZOHO-")
+		if zohoID == "" {
+			continue
+		}
+
+		convs, cerr := zohoFetchConversations(ctx, zohoID)
+		if cerr != nil {
+			slog.Warn("zohoImportThreads: conversations", "ref", ref, "err", cerr)
+			j.Lock()
+			j.failed++
+			j.lastErr = cerr.Error()
+			j.Unlock()
+			continue
+		}
+		j.Lock()
+		j.processed++
+		j.Unlock()
+
+		for _, c := range convs {
+			extID := zohoStr(c["id"])
+			if extID == "" {
+				j.Lock()
+				j.skipped++
+				j.Unlock()
 				continue
 			}
-			ref := "ZOHO-" + zohoID
 
-			subject := zohoStr(t["subject"])
-			if subject == "" {
-				subject = "(no subject)"
-			}
-			body := zohoStr(t["description"])
-
-			rawStatus := strings.ToLower(zohoStr(t["status"]))
-			status := statusMap[rawStatus]
-			if status == "" {
-				status = "open"
-			}
-			rawPriority := strings.ToLower(zohoStr(t["priority"]))
-			priority := priorityMap[rawPriority]
-			if priority == "" {
-				priority = "normal"
-			}
-			rawChannel := strings.ToLower(zohoStr(t["channel"]))
-			channel := channelMap[rawChannel]
-			if channel == "" {
-				channel = "in_app"
+			isNote := strings.EqualFold(zohoStr(c["type"]), "comment") ||
+				strings.EqualFold(zohoStr(c["visibility"]), "private")
+			direction := "inbound"
+			if isNote || strings.EqualFold(zohoStr(c["direction"]), "out") {
+				direction = "outbound"
 			}
 
-			dept := zohoStr(t["departmentName"])
-			createdAt := zohoParseTime(t["createdTime"])
+			ch := channelFromZoho(zohoStr(c["channel"]))
+			if ch == "" {
+				ch = ticketChannel
+			}
+
+			var author string
+			if a, ok := c["author"].(map[string]any); ok {
+				author = zohoStr(a["name"])
+			}
+			body := zohoStr(c["summary"])
+			createdAt := zohoParseTime(c["createdTime"])
 			if createdAt.IsZero() {
 				createdAt = time.Now()
 			}
-			var resolvedAt, closedAt *time.Time
-			if ra := zohoParseTime(t["resolvedTime"]); !ra.IsZero() {
-				resolvedAt = &ra
-			}
-			if ca := zohoParseTime(t["closedTime"]); !ca.IsZero() {
-				closedAt = &ca
-			}
 
-			// Contact info — nested under "contact"
-			var custName, custEmail, custPhone string
-			if contact, ok := t["contact"].(map[string]any); ok {
-				fn := zohoStr(contact["firstName"])
-				ln := zohoStr(contact["lastName"])
-				custName = strings.TrimSpace(fn + " " + ln)
-				custEmail = zohoStr(contact["email"])
-				custPhone = zohoStr(contact["phone"])
-			}
-
-			res, err := db.PGExec(ctx, `
-				INSERT INTO helpdesk_tickets
-				  (subject, description, channel, status, priority, department,
-				   customer_name, customer_email, customer_phone,
-				   ticket_ref, resolved_at, closed_at, created_at, updated_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
-				ON CONFLICT (ticket_ref) DO NOTHING`,
-				subject, body, channel, status, priority, dept,
-				custName, custEmail, custPhone,
-				ref, resolvedAt, closedAt, createdAt)
-			if err != nil {
-				slog.Warn("zohoImportTickets: insert", "ref", ref, "err", err)
-				failed++
+			res, ierr := db.PGExec(ctx, `
+				INSERT INTO helpdesk_messages
+				  (ticket_id, direction, channel, author_name, body_text,
+				   is_internal_note, external_id, source_system, created_at)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,'zoho_desk',$8)
+				ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO NOTHING`,
+				localID, direction, ch, author, body, isNote, extID, createdAt)
+			j.Lock()
+			if ierr != nil {
+				slog.Warn("zohoImportThreads: insert", "ext", extID, "err", ierr)
+				j.failed++
 			} else if n, _ := res.RowsAffected(); n > 0 {
-				imported++
+				j.imported++
 			} else {
-				skipped++ // already exists (ON CONFLICT DO NOTHING)
+				j.skipped++
 			}
+			j.Unlock()
 		}
-
-		slog.Info("zohoImportTickets done", "imported", imported, "skipped", skipped, "failed", failed)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"imported": imported, "skipped": skipped, "failed": failed,
-		})
 	}
 }
 
@@ -530,49 +840,66 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 
 func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		if !zohoEnsureConfigured(ctx, db) {
+		if !zohoEnsureConfigured(r.Context(), db) {
 			respondErr(w, 503, "Zoho credentials not configured")
 			return
 		}
-		if err := ensureCallLogSchema(ctx, db); err != nil {
+		if err := ensureCallLogSchema(r.Context(), db); err != nil {
 			respondErr(w, 500, "Call log schema error")
 			return
 		}
-
+		// Full migration by default; from_date/to_date narrow the window.
 		from := r.URL.Query().Get("from_date")
 		to := r.URL.Query().Get("to_date")
 		if from == "" {
-			from = time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+			from = "2000-01-01"
 		}
 		if to == "" {
 			to = time.Now().Format("2006-01-02")
 		}
-
-		var imported, skipped, failed int
-		offset := 0
-		pageSize := 100
-
-		for {
-			params := url.Values{
-				"from":  {fmt.Sprintf("%d", offset)},
-				"limit": {fmt.Sprintf("%d", pageSize)},
+		maxOffset := 1000000
+		if v := r.URL.Query().Get("max_offset"); v != "" {
+			if n, perr := strconv.Atoi(v); perr == nil && n > 0 {
+				maxOffset = n
 			}
-			result, err := zohoFetch(ctx, "calls", params)
-			if err != nil {
-				respondErr(w, 502, "Zoho API error: "+err.Error())
-				return
-			}
-			batch := zohoItems(result)
-			if len(batch) == 0 {
-				break
-			}
+		}
+		startZohoJob("calls", w, func(ctx context.Context, j *zohoJob) {
+			runZohoDeskCallImportJob(ctx, db, j, from, to, maxOffset)
+		})
+	}
+}
 
-			for _, c := range batch {
+// runZohoDeskCallImportJob pages through Zoho Desk call logs (background context)
+// and upserts them into helpdesk_calls tagged source_system='zoho_desk'.
+func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from, to string, maxOffset int) {
+	offset := 0
+	pageSize := 100
+
+	for {
+		params := url.Values{
+			"from":  {fmt.Sprintf("%d", offset)},
+			"limit": {fmt.Sprintf("%d", pageSize)},
+		}
+		result, err := zohoFetch(ctx, "calls", params)
+		if err != nil {
+			j.Lock()
+			j.lastErr = err.Error()
+			j.Unlock()
+			slog.Error("zohoImportDeskCalls job: fetch", "offset", offset, "err", err)
+			return
+		}
+		batch := zohoItems(result)
+		if len(batch) == 0 {
+			return
+		}
+
+		for _, c := range batch {
+			imp, skip, fail := 0, 0, 0
+			func() {
 				zohoID := zohoStr(c["id"])
 				if zohoID == "" {
-					skipped++
-					continue
+					skip = 1
+					return
 				}
 
 				// Zoho Desk call API uses createdTime; callStartTime may also appear.
@@ -589,13 +916,13 @@ func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 				}
 				if startedAt.IsZero() {
 					// skip rather than store a wrong date
-					skipped++
-					continue
+					skip = 1
+					return
 				}
 				dateStr := startedAt.Format("2006-01-02")
 				if dateStr < from || dateStr > to {
-					skipped++
-					continue
+					skip = 1
+					return
 				}
 
 				rawType := strings.ToLower(zohoStr(c["callType"]))
@@ -664,8 +991,8 @@ func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 				res, err := db.PGExec(ctx, `
 					INSERT INTO helpdesk_calls
 					  (agent_name, customer_name, customer_phone, call_to, direction,
-					   duration_sec, outcome, started_at, zoho_call_id)
-					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+					   duration_sec, outcome, started_at, zoho_call_id, source_system)
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'zoho_desk')
 					ON CONFLICT (zoho_call_id) WHERE zoho_call_id IS NOT NULL DO UPDATE SET
 					  agent_name     = EXCLUDED.agent_name,
 					  customer_name  = EXCLUDED.customer_name,
@@ -678,29 +1005,162 @@ func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 					durSec, outcome, startedAt, zohoID)
 				if err != nil {
 					slog.Warn("zohoImportDeskCalls: insert", "zoho_id", zohoID, "err", err)
-					failed++
+					fail = 1
 				} else if n, _ := res.RowsAffected(); n > 0 {
-					imported++
+					imp = 1
 				} else {
-					skipped++
+					skip = 1
 				}
-			}
+			}()
 
-			if len(batch) < pageSize {
-				break
-			}
-			offset += pageSize
-			if offset > 5000 {
-				break
-			}
+			j.Lock()
+			j.imported += imp
+			j.skipped += skip
+			j.failed += fail
+			j.Unlock()
 		}
 
-		slog.Info("zohoImportDeskCalls done", "imported", imported, "skipped", skipped, "failed", failed)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"imported": imported, "skipped": skipped, "failed": failed,
+		j.Lock()
+		j.pages++
+		j.Unlock()
+
+		if len(batch) < pageSize {
+			return
+		}
+		offset += pageSize
+		if offset > maxOffset {
+			return
+		}
+	}
+}
+
+// ── Zoho Desk — import contacts ──────────────────────────────────────────────
+
+// zohoImportContacts starts a background import of Zoho Desk contacts into
+// crm_contacts, tagged source='zoho_desk' with the Zoho id as external_id. All
+// contacts land as status='lead' (prospect); a later match pass promotes those
+// found in the customer master to status='customer'. ?max= caps the count.
+func zohoImportContacts(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !zohoEnsureConfigured(r.Context(), db) {
+			respondErr(w, 503, "Zoho credentials not configured")
+			return
+		}
+		maxContacts := 1000000
+		if v := r.URL.Query().Get("max"); v != "" {
+			if n, perr := strconv.Atoi(v); perr == nil && n > 0 {
+				maxContacts = n
+			}
+		}
+		startZohoJob("contacts", w, func(ctx context.Context, j *zohoJob) {
+			runZohoContactImportJob(ctx, db, j, maxContacts)
 		})
 	}
+}
+
+// runZohoContactImportJob pages through Zoho contacts (background context) and
+// upserts them into crm_contacts as prospects, keeping status untouched on
+// re-import so a later customer-promotion isn't undone.
+func runZohoContactImportJob(ctx context.Context, db *core.DB, j *zohoJob, maxContacts int) {
+	pageSize := 100
+	// Resume from the DB high-water mark (contacts import oldest-first, monotonic).
+	offset := 0
+	if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM crm_contacts WHERE source='zoho_desk'`); err == nil && len(rows) > 0 {
+		offset = (int(toInt64(rows[0]["c"])) / pageSize) * pageSize
+	}
+
+	for {
+		params := url.Values{
+			"from":    {strconv.Itoa(offset)},
+			"limit":   {strconv.Itoa(pageSize)},
+			"include": {"accounts"},
+		}
+		result, err := zohoFetch(ctx, "contacts", params)
+		if err != nil {
+			j.Lock()
+			j.lastErr = err.Error()
+			j.Unlock()
+			slog.Error("zohoImportContacts job: fetch", "offset", offset, "err", err)
+			return
+		}
+		batch := zohoItems(result)
+		if len(batch) == 0 {
+			return
+		}
+
+		for _, c := range batch {
+			imp, skip, fail := upsertZohoContact(ctx, db, c)
+			j.Lock()
+			j.imported += imp
+			j.skipped += skip
+			j.failed += fail
+			j.Unlock()
+		}
+
+		j.Lock()
+		j.pages++
+		processed := j.imported + j.skipped + j.failed
+		j.Unlock()
+
+		if len(batch) < pageSize || processed >= maxContacts {
+			return
+		}
+		offset += pageSize
+	}
+}
+
+// upsertZohoContact maps one Zoho contact into crm_contacts. It never changes an
+// existing row's status (so a promoted 'customer' stays a customer on re-import).
+func upsertZohoContact(ctx context.Context, db *core.DB, c map[string]any) (imported, skipped, failed int) {
+	zohoID := zohoStr(c["id"])
+	if zohoID == "" {
+		return 0, 1, 0
+	}
+
+	fn := strings.TrimSpace(zohoStr(c["firstName"]))
+	ln := strings.TrimSpace(zohoStr(c["lastName"]))
+	if fn == "" && ln == "" {
+		ln = "(no name)"
+	}
+
+	phone := zohoStr(c["phone"])
+	if phone == "" {
+		phone = zohoStr(c["mobile"])
+	}
+	email := zohoStr(c["email"])
+
+	var notes *string
+	if acc, ok := c["account"].(map[string]any); ok {
+		if name := zohoStr(acc["accountName"]); name != "" {
+			n := "Zoho account: " + name
+			notes = &n
+		}
+	}
+
+	createdAt := zohoParseTime(c["createdTime"])
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
+
+	res, err := db.PGExec(ctx, `
+		INSERT INTO crm_contacts
+		  (first_name, last_name, phone, email, source, external_id, status, notes, created_at, updated_at)
+		VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),'zoho_desk',$5,'lead',$6,$7,$7)
+		ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
+		  first_name = EXCLUDED.first_name,
+		  last_name  = EXCLUDED.last_name,
+		  phone      = COALESCE(EXCLUDED.phone, crm_contacts.phone),
+		  email      = COALESCE(EXCLUDED.email, crm_contacts.email),
+		  updated_at = EXCLUDED.updated_at`,
+		fn, ln, phone, email, zohoID, notes, createdAt)
+	if err != nil {
+		slog.Warn("upsertZohoContact: insert", "zoho_id", zohoID, "err", err)
+		return 0, 0, 1
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return 1, 0, 0
+	}
+	return 0, 1, 0
 }
 
 // ── Zoho Voice — initiate outbound call ──────────────────────────────────────

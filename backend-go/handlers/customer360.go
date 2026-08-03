@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -9,11 +11,62 @@ import (
 
 func RegisterCustomer360(r chi.Router, db *core.DB) {
 	access := core.RequirePages("customer360")
+	r.With(access).Get("/directory", c360Directory(db))
 	r.With(access).Get("/search", c360Search(db))
 	r.With(access).Get("/{cif}", c360Profile(db))
 	r.With(access).Get("/{cif}/transactions", c360Transactions(db))
 	r.With(access).Get("/{cif}/loans", c360Loans(db))
 	r.With(access).Get("/{cif}/collections", c360Collections(db))
+}
+
+// c360Directory lists the canonical customer base from the "Accounts" table
+// (the same source c360Profile reads), so directory rows deep-link into Customer
+// 360 by CIF. Supports ?q= search and ?state= filter, paginated via limit/offset.
+func c360Directory(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := qint(r, "limit", 50, 1, 200)
+		offset := qint(r, "offset", 0, 0, 1<<30)
+		where := "1=1"
+		var args []any
+		n := 1
+		if q := qstr(r, "q"); q != "" {
+			where += fmt.Sprintf(` AND ("CIF Number" ILIKE $%d OR "First Name" ILIKE $%d OR "Last Name" ILIKE $%d OR "Phone Number" ILIKE $%d OR "Email" ILIKE $%d)`, n, n, n, n, n)
+			args = append(args, "%"+q+"%")
+			n++
+		}
+		if v := qstr(r, "state"); v != "" {
+			where += fmt.Sprintf(` AND "State" = $%d`, n)
+			args = append(args, v)
+			n++
+		}
+
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT "CIF Number"           AS cif,
+			       "First Name"           AS first_name,
+			       "Last Name"            AS last_name,
+			       "Phone Number"         AS phone,
+			       "Email"                AS email,
+			       "State"                AS state,
+			       "City"                 AS city,
+			       "Account Created Date" AS created_at
+			FROM "Accounts"
+			WHERE %s
+			ORDER BY "First Name", "Last Name"
+			LIMIT $%d OFFSET $%d`, where, n, n+1), append(args, limit, offset)...)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+
+		total := 0
+		if tr, e := db.PGQuery(r.Context(),
+			fmt.Sprintf(`SELECT COUNT(*) AS n FROM "Accounts" WHERE %s`, where), args...); e == nil && len(tr) > 0 {
+			total = int(toInt64(tr[0]["n"]))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows, "total": total}) //nolint:errcheck
+	}
 }
 
 func c360Search(db *core.DB) http.HandlerFunc {

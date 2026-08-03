@@ -82,6 +82,8 @@ const CRMContacts    = lazy(() => import('./pages/sales/Customers'))
 const SalesAccounts  = lazy(() => import('./pages/sales/MyAccounts'))
 const CRMContactDetail = lazy(() => import('./pages/sales/ContactDetail'))
 const ContactProfile   = lazy(() => import('./pages/contacts/ContactProfile'))
+const CustomerDirectory = lazy(() => import('./pages/directory/Customers'))
+const CustomerDetailPg  = lazy(() => import('./pages/directory/CustomerDetail'))
 const ContactSegments  = lazy(() => import('./pages/contacts/Segments'))
 const CRMPipelinePg  = lazy(() => import('./pages/sales/CRMPipeline'))
 const CRMTasks       = lazy(() => import('./pages/sales/Tasks'))
@@ -987,6 +989,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/marketing/funnel"      element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><MarketingFunnel /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Contact Centre */}
+                  <Route path="/customers"      element={<RequireAccess page="customer360" user={user}><PageErrorBoundary><CustomerDirectory /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/customers/:cif" element={<RequireAccess page="customer360" user={user}><PageErrorBoundary><CustomerDetailPg /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/telemarketing"             element={<RequireAccess page="telemarketing" user={user}><PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/telemarketing/queue"       element={<RequireAccess page="telemarketing" user={user}><PageErrorBoundary><TelemarketingQueue /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/telemarketing/leads"       element={<RequireAccess page="telemarketing" user={user}><PageErrorBoundary><TelemarketingLeads /></PageErrorBoundary></RequireAccess>} />
