@@ -920,8 +920,8 @@ func bdListAssignments(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				a.id, a.employer_id, e.name AS employer_name,
-				a.bd_officer_id, a.sales_agent_id,
-				u.full_name AS sales_agent_name,
+				a.bd_officer_id, bo.full_name AS bd_officer_name,
+				a.sales_agent_id, u.full_name AS sales_agent_name,
 				a.assignment_type, a.status,
 				a.staff_count_at_assignment, a.notes, a.assigned_at,
 				COUNT(DISTINCT c.id)                                       AS contacts_total,
@@ -930,10 +930,11 @@ func bdListAssignments(db *core.DB) http.HandlerFunc {
 			FROM bd_assignments a
 			JOIN employers     e ON e.id = a.employer_id
 			JOIN o3c_users     u ON u.id = a.sales_agent_id
+			LEFT JOIN o3c_users bo ON bo.id = a.bd_officer_id
 			LEFT JOIN crm_contacts c ON c.bd_assignment_id = a.id
 			LEFT JOIN crm_deals    d ON d.contact_id = c.id AND (d.is_won IS NULL OR d.is_won = false) AND (d.is_lost IS NULL OR d.is_lost = false)
 			WHERE a.bd_officer_id = $1
-			GROUP BY a.id, e.name, u.full_name
+			GROUP BY a.id, e.name, bo.full_name, u.full_name
 			ORDER BY a.assigned_at DESC`, bdOfficerID)
 		if err != nil {
 			respondErr(w, 500, err.Error()); return
