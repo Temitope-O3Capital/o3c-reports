@@ -75,3 +75,16 @@ func (sw *statusWriter) WriteHeader(code int) {
 	sw.status = code
 	sw.ResponseWriter.WriteHeader(code)
 }
+
+// Flush and Unwrap keep the http.Flusher chain intact so Server-Sent-Events
+// (notifications + the realtime change-feed) actually stream instead of buffering.
+// Without these, http.NewResponseController can't reach the underlying flusher.
+func (sw *statusWriter) Flush() {
+	if f, ok := sw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (sw *statusWriter) Unwrap() http.ResponseWriter {
+	return sw.ResponseWriter
+}
