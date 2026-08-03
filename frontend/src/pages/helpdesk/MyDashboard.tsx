@@ -76,7 +76,8 @@ export default function HelpdeskMyDashboard() {
       const r = await apiFetch<any>('/api/helpdesk/my-dashboard')
       const d = r?.data ?? r ?? {}
       // Default fields the backend may omit so the dashboard never crashes.
-      setData({ ...d, my_tickets: d.my_tickets ?? [], csat_score: d.csat_score ?? 0 })
+      // Backend returns the queue as recent_tickets; CSAT is not computed yet (left undefined -> shown as "—").
+      setData({ ...d, my_tickets: d.my_tickets ?? d.recent_tickets ?? [], csat_score: d.csat_score })
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])
@@ -96,7 +97,7 @@ export default function HelpdeskMyDashboard() {
   )
   if (!data) return null
 
-  const csatC = csatColor(data.csat_score)
+  const csatC = csatColor(data.csat_score ?? 0)
 
   const ticketCols: TableCol<MyTicket>[] = [
     { key: 'ticket_ref', label: 'Ref', render: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs }}>{r.ticket_ref}</span> },
@@ -116,7 +117,7 @@ export default function HelpdeskMyDashboard() {
         <KpiCard label="Open Tickets" value={fmtNum(data.open_tickets)} icon="confirmation_number" />
         <KpiCard label="Resolved Today" value={fmtNum(data.resolved_today)} icon="check_circle" accent={GREEN} />
         <KpiCard label="Avg Handle Time" value={`${data.avg_handle_time_mins}m`} icon="timer" accent={AMBER} />
-        <KpiCard label="My CSAT Score" value={data.csat_score.toFixed(1)} icon="star" accent={csatC} sub="/ 5.0" />
+        <KpiCard label="My CSAT Score" value={data.csat_score != null ? data.csat_score.toFixed(1) : '—'} icon="star" accent={csatC} sub="/ 5.0" />
       </div>
 
       {/* Ticket queue */}
