@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import DOMPurify from 'dompurify'
 import { ErrBanner } from '../../components/UI'
-import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
+import { apiFetch, apiPut } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { NAVY, BLUE, RED, NUM, SORA, MONO, TEXT, FW, SP } from '../../lib/design'
+import { NAVY, BLUE, NUM, SORA, MONO, TEXT, FW, SP } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -61,10 +61,6 @@ function fmtShort(iso: string): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
-function parseAddresses(raw: string) {
-  return raw.split(',').map(s => s.trim()).filter(Boolean).map(s => ({ Email: s, Name: '' }))
-}
-
 function parseToAddrs(raw: any): { Email: string; Name: string }[] {
   if (!raw) return []
   if (Array.isArray(raw)) return raw
@@ -89,6 +85,12 @@ function folderFromPath(pathname: string): Folder {
   return 'inbox'
 }
 
+// Plain-text body inside the white reading card (dark text on white).
+const preBody: React.CSSProperties = {
+  fontSize: TEXT.base, lineHeight: 1.7, color: '#1a1a1a',
+  whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontFamily: SORA,
+}
+
 // ── Avatar ────────────────────────────────────────────────────────────────────
 
 function Avatar({ name }: { name: string }) {
@@ -104,111 +106,35 @@ function Avatar({ name }: { name: string }) {
   )
 }
 
-// ── Compose modal ─────────────────────────────────────────────────────────────
+// ── Quote / forward builders (produce HTML for the rich composer) ──────────────
 
-interface ComposeProps {
-  initialTo:   string
-  initialSubj: string
-  initialBody?: string
-  onClose:     () => void
-  onSent:      () => void
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function ComposeModal({ initialTo, initialSubj, initialBody = '', onClose, onSent }: ComposeProps) {
-  const [to,      setTo]      = useState(initialTo)
-  const [subj,    setSubj]    = useState(initialSubj)
-  const [body,    setBody]    = useState(initialBody)
-  const [sending, setSending] = useState(false)
-  const [saving,  setSaving]  = useState(false)
-  const [saved,   setSaved]   = useState(false)
-  const [err,     setErr]     = useState<string | null>(null)
-  const [activeDraftId, setActiveDraftId] = useState<number | null>(null)
-
-  async function send() {
-    if (!to.trim() || !subj.trim() || !body.trim()) return
-    setSending(true); setErr(null)
-    try {
-      await apiPost('/api/mail/send', {
-        to: parseAddresses(to), cc: [], bcc: [],
-        subject: subj, text_body: body,
-        html_body: `<html><body><p>${body.replace(/\n/g, '</p><p>')}</p></body></html>`,
-        send_copy_to_sender: true,
-      })
-      if (activeDraftId) {
-        await apiDelete(`/api/mail/drafts/${activeDraftId}`).catch(() => {})
-      }
-      onSent()
-    } catch (ex: any) { setErr(ex.message) }
-    finally { setSending(false) }
-  }
-
-  async function saveDraft() {
-    setSaving(true); setErr(null); setSaved(false)
-    try {
-      const payload: Record<string, any> = {
-        subject: subj,
-        to_addrs: to ? parseAddresses(to) : [],
-        text_body: body,
-      }
-      if (activeDraftId) payload.id = activeDraftId
-      const saved_draft = await apiPost<{ id: number }>('/api/mail/drafts', payload)
-      if (saved_draft?.id && !activeDraftId) setActiveDraftId(saved_draft.id)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
-    } catch (ex: any) { setErr(ex.message) }
-    finally { setSaving(false) }
-  }
-
-  function handleClose() {
-    setActiveDraftId(null)
-    onClose()
-  }
-
-  const fieldStyle: React.CSSProperties = {
-    width: '100%', border: 'none', outline: 'none', background: 'none',
-    color: 'var(--txt)', fontFamily: SORA, fontSize: TEXT.base,
-    padding: '11px 16px', borderBottom: '1px solid var(--bdr)',
-    boxSizing: 'border-box',
-  }
-
-  return (
-    <div
-      onClick={e => { if (e.target === e.currentTarget) handleClose() }}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}
-    >
-      <div style={{ width: 560, maxWidth: '94vw', background: 'var(--card)', borderRadius: 6, overflow: 'hidden', boxShadow: '0 24px 70px rgba(0,0,0,.35)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', background: NAVY, color: '#fff', padding: '11px 16px', fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: SORA }}>
-          New message
-          <button onClick={handleClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,.6)', fontSize: TEXT.lg, cursor: 'pointer', lineHeight: 1 }}>✕</button>
-        </div>
-        <input placeholder="To" value={to} onChange={e => setTo(e.target.value)} style={fieldStyle} />
-        <input placeholder="Subject" value={subj} onChange={e => setSubj(e.target.value)} style={fieldStyle} />
-        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-          placeholder="Write your message…"
-          value={body}
-          onChange={e => setBody(e.target.value)}
-          style={{ ...fieldStyle, height: 200, resize: 'vertical', borderBottom: 'none', lineHeight: 1.6 }}
-        />
-        <div style={{ display: 'flex', gap: SP[2], padding: `${SP[3]} ${SP[4]}`, borderTop: '1px solid var(--bdr)', alignItems: 'center' }}>
-          <button
-            onClick={send}
-            disabled={sending || !to.trim() || !subj.trim() || !body.trim()}
-            style={{ padding: '7px 16px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, opacity: sending ? 0.6 : 1 }}>
-            {sending ? 'Sending…' : 'Send'}
-          </button>
-          <button
-            onClick={saveDraft}
-            disabled={saving}
-            style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, opacity: saving ? 0.6 : 1 }}>
-            {saving ? 'Saving…' : saved ? 'Saved!' : 'Save draft'}
-          </button>
-          {err && <span style={{ fontSize: TEXT.sm, color: RED }}>{err}</span>}
-        </div>
-      </div>
-    </div>
-  )
+// The body of the original message as HTML (prefer html, fall back to text).
+function originalBodyHtml(html: string | null | undefined, text: string | null | undefined): string {
+  if (html && html.trim()) return DOMPurify.sanitize(html)
+  if (text && text.trim()) return `<p>${escHtml(text).replace(/\n/g, '<br>')}</p>`
+  return ''
 }
 
+// Gmail-style "On <date>, <sender> wrote:" quoted block.
+function buildReplyQuote(sender: string, date: string, bodyHtml: string): string {
+  return `<br><div class="o3c-quote">${escHtml(`On ${date}, ${sender} wrote:`)}` +
+    `<blockquote style="margin:0 0 0 8px;padding-left:12px;border-left:2px solid #d0d7de;color:#57606a;">${bodyHtml}</blockquote></div>`
+}
+
+// Forwarded-message header block.
+function buildForward(sender: string, date: string, subject: string, to: string, bodyHtml: string): string {
+  const hdr = [
+    'From: ' + sender,
+    'Date: ' + date,
+    'Subject: ' + subject,
+    to ? 'To: ' + to : '',
+  ].filter(Boolean).map(escHtml).join('<br>')
+  return `<br><div class="o3c-fwd">---------- Forwarded message ----------<br>${hdr}</div><br>${bodyHtml}`
+}
 
 // ── Normalised item for display ───────────────────────────────────────────────
 
@@ -241,11 +167,6 @@ export default function MailInbox() {
   const [selId, setSelId]           = useState<number | null>(null)
   const [sentDetail, setSentDetail] = useState<SentDetail | null>(null)
   const [bodyLoading, setBodyLoading] = useState(false)
-
-  const [composeOpen, setComposeOpen] = useState(false)
-  const [composeTo,   setComposeTo]   = useState('')
-  const [composeSubj, setComposeSubj] = useState('')
-  const [composeBody, setComposeBody] = useState('')
 
   const [page,    setPage]    = useState(1)
   const [hasMore, setHasMore] = useState(false)
@@ -345,8 +266,47 @@ export default function MailInbox() {
     }
   }
 
-  function openCompose(to = '', subj = '', body = '') {
-    setComposeTo(to); setComposeSubj(subj); setComposeBody(body); setComposeOpen(true)
+  function reStr(s: string | null | undefined, prefix: 're' | 'fwd'): string {
+    const subj = s ?? '(no subject)'
+    const re = /^(re|fwd?):/i.test(subj)
+    if (prefix === 're') return re ? subj : `Re: ${subj}`
+    return /^fwd?:/i.test(subj) ? subj : `Fwd: ${subj}`
+  }
+
+  // Reply / Reply-all to the selected inbound message.
+  function doReply(all: boolean) {
+    if (!selInbound) return
+    const sender = selInbound.from_name ? `${selInbound.from_name} <${selInbound.from_email}>` : selInbound.from_email
+    const quote = buildReplyQuote(sender, fmtDatetime(selInbound.received_at), originalBodyHtml(selInbound.body_html, selInbound.body_text))
+    navigate('/mail/compose', { state: {
+      mode: all ? 'replyall' : 'reply',
+      to: selInbound.from_email,
+      subject: reStr(selInbound.subject, 're'),
+      quotedHtml: quote,
+    } })
+  }
+
+  // Forward the selected message (inbound or sent).
+  function doForward() {
+    if (!selItem) return
+    let sender = '', date = selItem.time, subject = selItem.subject, toLine = '', bodyHtml = ''
+    if (folder === 'inbox' && selInbound) {
+      sender = selInbound.from_name ? `${selInbound.from_name} <${selInbound.from_email}>` : selInbound.from_email
+      date = fmtDatetime(selInbound.received_at)
+      toLine = selInbound.to_email ?? ''
+      bodyHtml = originalBodyHtml(selInbound.body_html, selInbound.body_text)
+    } else if (folder === 'sent' && selSent) {
+      sender = selSent.from_name ?? selSent.from_email ?? ''
+      date = fmtDatetime(selSent.created_at)
+      toLine = recipientDisplay(selSent.recipients)
+      bodyHtml = originalBodyHtml(sentDetail?.html_body, sentDetail?.text_body)
+    }
+    const fwd = buildForward(sender, date, subject, toLine, bodyHtml)
+    navigate('/mail/compose', { state: { mode: 'forward', subject: reStr(subject, 'fwd'), quotedHtml: fwd } })
+  }
+
+  function editDraft() {
+    if (selDraft) navigate(`/mail/compose?draft=${selDraft.id}`)
   }
 
   async function loadMoreInbox() {
@@ -361,24 +321,39 @@ export default function MailInbox() {
     } catch { /* ignore */ }
   }
 
-  // Reader body
-  function renderBody() {
+  // Inner body content (HTML rendered sanitised; plain text kept as <pre>).
+  function bodyInner() {
     if (folder === 'inbox' && selInbound) {
-      if (selInbound.body_html) return <div style={{ fontSize: TEXT.base, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', fontFamily: SORA }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selInbound.body_html) }} />
-      return <pre style={{ fontSize: TEXT.base, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{selInbound.body_text ?? '(no content)'}</pre>
+      if (selInbound.body_html) return <div className="mail-body-html" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selInbound.body_html) }} />
+      return <pre style={preBody}>{selInbound.body_text ?? '(no content)'}</pre>
     }
     if (folder === 'sent') {
-      if (bodyLoading) return <div style={{ fontSize: TEXT.base, color: 'var(--txt3)', fontFamily: SORA }}>Loading…</div>
-      if (sentDetail?.html_body) return <div style={{ fontSize: TEXT.base, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', fontFamily: SORA }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sentDetail.html_body) }} />
-      if (sentDetail?.text_body) return <pre style={{ fontSize: TEXT.base, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{sentDetail.text_body}</pre>
-      return null
+      if (bodyLoading) return <div style={{ fontSize: TEXT.base, color: 'var(--txt3)' }}>Loading…</div>
+      if (sentDetail?.html_body) return <div className="mail-body-html" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sentDetail.html_body) }} />
+      if (sentDetail?.text_body) return <pre style={preBody}>{sentDetail.text_body}</pre>
+      return <div style={{ fontSize: TEXT.base, color: 'var(--txt3)' }}>(no content)</div>
     }
     if (folder === 'drafts' && selDraft) {
-      const body = selDraft.text_body ?? selDraft.html_body
-      if (!body) return null
-      return <pre style={{ fontSize: TEXT.base, lineHeight: 1.65, maxWidth: 640, color: 'var(--txt)', whiteSpace: 'pre-line', margin: 0, fontFamily: SORA }}>{body}</pre>
+      // Drafts now render HTML (rich composer stores html_body); text is a fallback.
+      if (selDraft.html_body && selDraft.html_body.trim()) return <div className="mail-body-html" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selDraft.html_body) }} />
+      if (selDraft.text_body) return <pre style={preBody}>{selDraft.text_body}</pre>
+      return <div style={{ fontSize: TEXT.base, color: 'var(--txt3)' }}>(empty draft)</div>
     }
     return null
+  }
+
+  // Reader body wrapped in a white card (Gmail-style reading surface).
+  function renderBody() {
+    return (
+      <div style={{
+        background: '#fff', color: '#1a1a1a', border: '1px solid var(--bdr)',
+        borderRadius: 12, padding: '22px 26px', maxWidth: 760,
+        fontSize: TEXT.base, lineHeight: 1.7,
+        boxShadow: 'var(--card-shadow)', overflowWrap: 'anywhere',
+      }}>
+        {bodyInner()}
+      </div>
+    )
   }
 
   // Reader meta (from/to and timestamp)
@@ -429,7 +404,7 @@ export default function MailInbox() {
             <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: SORA }}>{folderLabel}</span>
             <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{folderCount}</span>
             <button
-              onClick={() => openCompose()}
+              onClick={() => navigate('/mail/compose')}
               style={{
                 marginLeft: 'auto', padding: '5px 11px', borderRadius: 7,
                 border: 'none', background: NAVY, color: '#fff',
@@ -517,31 +492,45 @@ export default function MailInbox() {
             {/* Body */}
             {renderBody()}
             {/* Actions */}
-            <div style={{ marginTop: 22, display: 'flex', gap: SP[2] }}>
-              <button
-                onClick={() => navigate(`/mail/${selId}?reply=1`)}
-                style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>reply</span>
-                Reply
-              </button>
-              <button
-                onClick={() => {
-                  const sender = selItem.rawInbound?.from_name ?? selItem.rawInbound?.from_email ?? selItem.displayFrom
-                  const date   = selItem.time
-                  const origBody = selItem.rawInbound?.body_text ?? ''
-                  const fwdBody = `\n\n---------- Forwarded message ----------\nFrom: ${sender}\nDate: ${date}\n\n${origBody}`
-                  openCompose('', `Fwd: ${selItem.subject}`, fwdBody)
-                }}
-                style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>forward</span>
-                Forward
-              </button>
-              {folder === 'sent' && selId !== null && (
-                <button
-                  onClick={() => navigate(`/mail/${selId}`)}
-                  style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>open_in_new</span>
-                  Full thread
+            <div style={{ marginTop: 22, display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+              {folder === 'inbox' && (
+                <>
+                  <button onClick={() => doReply(false)} style={btnSolid}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>reply</span>
+                    Reply
+                  </button>
+                  <button onClick={() => doReply(true)} style={btnGhost}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>reply_all</span>
+                    Reply all
+                  </button>
+                  <button onClick={doForward} style={btnGhost}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>forward</span>
+                    Forward
+                  </button>
+                  <button onClick={() => navigate(`/mail/${selId}`)} style={btnGhost}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>open_in_new</span>
+                    Open thread
+                  </button>
+                </>
+              )}
+              {folder === 'sent' && (
+                <>
+                  <button onClick={doForward} style={btnSolid}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>forward</span>
+                    Forward
+                  </button>
+                  {selId !== null && (
+                    <button onClick={() => navigate(`/mail/${selId}`)} style={btnGhost}>
+                      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>open_in_new</span>
+                      Full thread
+                    </button>
+                  )}
+                </>
+              )}
+              {folder === 'drafts' && (
+                <button onClick={editDraft} style={btnSolid}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>edit</span>
+                  Edit draft
                 </button>
               )}
             </div>
@@ -553,16 +542,27 @@ export default function MailInbox() {
         )}
       </div>
 
-      {/* Compose modal */}
-      {composeOpen && (
-        <ComposeModal
-          initialTo={composeTo}
-          initialSubj={composeSubj}
-          initialBody={composeBody}
-          onClose={() => { setComposeOpen(false); setComposeBody('') }}
-          onSent={() => { setComposeOpen(false); setComposeBody(''); if (folder === 'sent') loadFolder() }}
-        />
-      )}
+      {/* Sanitised HTML email body styling (scoped to the white reading card). */}
+      <style>{`
+        .mail-body-html { color: #1a1a1a; }
+        .mail-body-html img { max-width: 100%; height: auto; }
+        .mail-body-html a { color: #2563EB; }
+        .mail-body-html table { max-width: 100%; }
+        .mail-body-html blockquote { border-left: 2px solid #d0d7de; margin: 0 0 0 8px; padding-left: 12px; color: #57606a; }
+        .mail-body-html .o3c-quote, .mail-body-html .o3c-fwd { color: #57606a; }
+      `}</style>
     </div>
   )
+}
+
+// Reader action buttons.
+const btnSolid: React.CSSProperties = {
+  padding: '7px 14px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff',
+  fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA,
+  display: 'flex', alignItems: 'center', gap: 5,
+}
+const btnGhost: React.CSSProperties = {
+  padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
+  fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA,
+  display: 'flex', alignItems: 'center', gap: 5,
 }

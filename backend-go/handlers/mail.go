@@ -108,6 +108,7 @@ func RegisterMail(r chi.Router, db *core.DB) {
 	r.With(access).Get("/messages/{id}/events", listMessageEvents(db))
 	r.With(access).Put("/inbox/{id}/read", markInboundRead(db))
 	r.With(access).Get("/inbox", listInboundMail(db))
+	r.With(access).Get("/overview", mailOverview(db))
 	r.With(admin).Get("/metrics", mailMetrics(db))
 	r.With(admin).Get("/campaign-health", mailCampaignHealth(db))
 	r.With(admin).Put("/campaign-settings", mailCampaignSettingsUpdate(db))
@@ -2505,4 +2506,156 @@ func firstToAddress(raw any) MailAddress {
 		}
 	}
 	return MailAddress{}
+}
+
+// ── Overview ────────────────────────────────────────────────────────────────
+// mailOverview powers the Mail landing dashboard. Unlike /metrics (admin-gated,
+// global), this is scoped to the signed-in user's own mail so any mail user can
+// see it: folder counts, their sent-mail deliverability, a 14-day trend, a
+// status breakdown, and recent activity — all in one round-trip.
+func mailOverview(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ensureMailSchema(r.Context(), db); err != nil {
+			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		// Folder counts. Inbound is scoped like listInboundMail (orphans + replies
+		// to this user's mail); sent + drafts are the user's own.
+		var inboxTotal, inboxUnread, sentTotal, draftsTotal int64
+		if rows, err := db.PGQuery(ctx, `
+			SELECT
+				COUNT(*)                              AS total,
+				COUNT(*) FILTER (WHERE NOT im.is_read) AS unread
+			FROM inbound_mail im
+			LEFT JOIN mail_messages mm ON mm.id = im.mail_message_id
+			WHERE mm.id IS NULL OR mm.created_by=$1 OR mm.recipients @> jsonb_build_array($2::text)`,
+			user.ID, user.Sub); err == nil && len(rows) > 0 {
+			inboxTotal = toInt64(rows[0]["total"])
+			inboxUnread = toInt64(rows[0]["unread"])
+		}
+		if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM mail_messages WHERE created_by=$1`, user.ID); err == nil && len(rows) > 0 {
+			sentTotal = toInt64(rows[0]["n"])
+		}
+		if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM mail_drafts WHERE user_id=$1`, user.ID); err == nil && len(rows) > 0 {
+			draftsTotal = toInt64(rows[0]["n"])
+		}
+
+		// Deliverability of the user's own sent mail. A message's status is a single
+		// terminal value that advances delivered→opened→clicked, so "delivered"
+		// must include opened/clicked, and timestamps are honoured as a fallback.
+		perf := map[string]any{
+			"total_sent": 0, "delivered": 0, "opened": 0, "clicked": 0,
+			"bounced": 0, "spam": 0, "delivery_rate": 0.0, "open_rate": 0.0, "bounce_rate": 0.0,
+		}
+		if rows, err := db.PGQuery(ctx, `
+			SELECT
+				COUNT(*)                                                                              AS total_sent,
+				COUNT(*) FILTER (WHERE status IN ('delivered','opened','clicked') OR delivered_at IS NOT NULL) AS delivered,
+				COUNT(*) FILTER (WHERE status IN ('opened','clicked') OR opened_at IS NOT NULL)         AS opened,
+				COUNT(*) FILTER (WHERE status='clicked' OR clicked_at IS NOT NULL)                     AS clicked,
+				COUNT(*) FILTER (WHERE status='bounced' OR bounced_at IS NOT NULL)                     AS bounced,
+				COUNT(*) FILTER (WHERE status='spam_report')                                           AS spam
+			FROM mail_messages WHERE created_by=$1`, user.ID); err == nil && len(rows) > 0 {
+			row := rows[0]
+			totalSent := toInt64(row["total_sent"])
+			delivered := toInt64(row["delivered"])
+			opened := toInt64(row["opened"])
+			bounced := toInt64(row["bounced"])
+			perf = map[string]any{
+				"total_sent":    totalSent,
+				"delivered":     delivered,
+				"opened":        opened,
+				"clicked":       toInt64(row["clicked"]),
+				"bounced":       bounced,
+				"spam":          toInt64(row["spam"]),
+				"delivery_rate": rate(delivered, totalSent),
+				"open_rate":     rate(opened, delivered),
+				"bounce_rate":   rate(bounced, totalSent),
+			}
+		}
+
+		// Status breakdown of the user's sent mail.
+		statusBreakdown := []map[string]any{}
+		if rows, err := db.PGQuery(ctx, `
+			SELECT status, COUNT(*) AS n FROM mail_messages
+			WHERE created_by=$1 GROUP BY status ORDER BY n DESC`, user.ID); err == nil {
+			for _, row := range rows {
+				statusBreakdown = append(statusBreakdown, map[string]any{
+					"status": str(row["status"]), "count": toInt64(row["n"]),
+				})
+			}
+		}
+
+		// 14-day daily send/delivered/opened trend (user's sent mail).
+		daily := []map[string]any{}
+		if rows, err := db.PGQuery(ctx, `
+			SELECT to_char(created_at::date, 'YYYY-MM-DD') AS day,
+			       COUNT(*)                                                                              AS sent,
+			       COUNT(*) FILTER (WHERE status IN ('delivered','opened','clicked') OR delivered_at IS NOT NULL) AS delivered,
+			       COUNT(*) FILTER (WHERE status IN ('opened','clicked') OR opened_at IS NOT NULL)         AS opened
+			FROM mail_messages
+			WHERE created_by=$1 AND created_at >= now() - interval '14 days'
+			GROUP BY 1 ORDER BY 1`, user.ID); err == nil {
+			for _, row := range rows {
+				daily = append(daily, map[string]any{
+					"day":       str(row["day"]),
+					"sent":      toInt64(row["sent"]),
+					"delivered": toInt64(row["delivered"]),
+					"opened":    toInt64(row["opened"]),
+				})
+			}
+		}
+
+		// Recent activity — last 6 sent, last 6 inbound.
+		recentSent := []map[string]any{}
+		if rows, err := db.PGQuery(ctx, `
+			SELECT id, subject, status, recipients, created_at
+			FROM mail_messages WHERE created_by=$1
+			ORDER BY created_at DESC LIMIT 6`, user.ID); err == nil {
+			for _, row := range rows {
+				recentSent = append(recentSent, map[string]any{
+					"id":         toInt64(row["id"]),
+					"subject":    str(row["subject"]),
+					"status":     str(row["status"]),
+					"recipient":  firstRecipientEmail(row["recipients"]),
+					"created_at": row["created_at"],
+				})
+			}
+		}
+		recentInbound := []map[string]any{}
+		if rows, err := db.PGQuery(ctx, `
+			SELECT im.id, im.from_email, im.from_name, im.subject, im.is_read, im.received_at
+			FROM inbound_mail im
+			LEFT JOIN mail_messages mm ON mm.id = im.mail_message_id
+			WHERE mm.id IS NULL OR mm.created_by=$1 OR mm.recipients @> jsonb_build_array($2::text)
+			ORDER BY im.received_at DESC LIMIT 6`, user.ID, user.Sub); err == nil {
+			for _, row := range rows {
+				recentInbound = append(recentInbound, map[string]any{
+					"id":          toInt64(row["id"]),
+					"from_email":  str(row["from_email"]),
+					"from_name":   str(row["from_name"]),
+					"subject":     str(row["subject"]),
+					"is_read":     row["is_read"],
+					"received_at": row["received_at"],
+				})
+			}
+		}
+
+		respond(w, map[string]any{
+			"counts": map[string]any{
+				"inbox_total":  inboxTotal,
+				"inbox_unread": inboxUnread,
+				"sent_total":   sentTotal,
+				"drafts_total": draftsTotal,
+			},
+			"performance":      perf,
+			"status_breakdown": statusBreakdown,
+			"daily":            daily,
+			"recent_sent":      recentSent,
+			"recent_inbound":   recentInbound,
+		}, "postgres")
+	}
 }
