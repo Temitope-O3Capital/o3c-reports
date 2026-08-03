@@ -52,22 +52,26 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 
 		out := map[string]any{
 			"portfolio_outstanding_kobo": int64(0),
+			"fd_book_kobo":               int64(0),
+			"active_cards":               int64(0),
 			"performing_rate_pct":        0.0,
 			"npl_rate_pct":               0.0,
 			"disbursements_kobo":         int64(0),
 			"active_customers":           int64(0),
 			"active_loans":               int64(0),
 			"portfolio_change_pct":       nil,
+			"fd_change_pct":              nil,
 			"performing_change_pct":      nil,
 			"disbursements_change_pct":   nil,
 			"customers_change_pct":       nil,
 			"portfolio_series":           []int64{},
+			"fd_series":                  []int64{},
 			"performing_series":          []float64{},
 			"disbursements_series":       []int64{},
 			"customers_series":           []int64{},
 		}
 
-		// Current headline values — live from the CBS/Udara loan book.
+		// KPI 1 (Loan Book) — live from the CBS/Udara loan book.
 		// open loans = NOT IN ('Closed','Revoked');  NPL = Defaulting/Expired.
 		if rows, err := db.PGQuery(ctx, `
 			SELECT
@@ -85,6 +89,22 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 				out["performing_rate_pct"] = round1(float64(outstanding-npl) / float64(outstanding) * 100)
 				out["npl_rate_pct"] = round1(float64(npl) / float64(outstanding) * 100)
 			}
+		}
+
+		// KPI 2 (FD Book) — live from the CBS/Udara fixed-deposit register (deposits liability).
+		if rows, err := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(principal_kobo) FILTER (WHERE status = 'Active'), 0) AS fd_book_kobo
+			FROM cbs_fixed_deposits`); err == nil && len(rows) > 0 {
+			out["fd_book_kobo"] = toInt64(rows[0]["fd_book_kobo"])
+		}
+
+		// KPI 3 (Active Cards) — from the live card book (MSSQL dbo.Account or the
+		// synced Postgres "Products" view when MSSQL is not configured).
+		if rows, _, err := db.DualQuery(ctx,
+			`SELECT SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS n FROM dbo.Account`,
+			`SELECT COUNT(*) FILTER (WHERE "Account Status" IN ('Open','Active')) AS n FROM "Products"`,
+		); err == nil && len(rows) > 0 {
+			out["active_cards"] = toInt64(rows[0]["n"])
 		}
 
 		// Disbursements within the selected window (by loan start_date), + prev window.
@@ -120,18 +140,20 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 		// Portfolio / performing / borrowers sparklines — from the CBS daily snapshot
 		// history (grows one point per day). vs-last-period = last vs first available point.
 		if rows, err := db.PGQuery(ctx, `
-			SELECT outstanding_principal_kobo, npl_kobo, borrowers_active
+			SELECT outstanding_principal_kobo, npl_kobo, borrowers_active, fd_principal_kobo
 			FROM cbs_portfolio_snapshot
 			WHERE snapshot_date >= (CURRENT_DATE - INTERVAL '29 days')
 			ORDER BY snapshot_date`); err == nil && len(rows) > 0 {
 			pSer := make([]int64, 0, len(rows))
 			perfSer := make([]float64, 0, len(rows))
 			cSer := make([]int64, 0, len(rows))
+			fdSer := make([]int64, 0, len(rows))
 			for _, row := range rows {
 				o := toInt64(row["outstanding_principal_kobo"])
 				n := toInt64(row["npl_kobo"])
 				pSer = append(pSer, o)
 				cSer = append(cSer, toInt64(row["borrowers_active"]))
+				fdSer = append(fdSer, toInt64(row["fd_principal_kobo"]))
 				if o > 0 {
 					perfSer = append(perfSer, round1(float64(o-n)/float64(o)*100))
 				} else {
@@ -141,10 +163,12 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 			out["portfolio_series"] = pSer
 			out["performing_series"] = perfSer
 			out["customers_series"] = cSer
+			out["fd_series"] = fdSer
 			if len(pSer) >= 2 {
 				out["portfolio_change_pct"] = pctChange(float64(pSer[len(pSer)-1]), float64(pSer[0]))
 				out["customers_change_pct"] = pctChange(float64(cSer[len(cSer)-1]), float64(cSer[0]))
 				out["performing_change_pct"] = pctChange(perfSer[len(perfSer)-1], perfSer[0])
+				out["fd_change_pct"] = pctChange(float64(fdSer[len(fdSer)-1]), float64(fdSer[0]))
 			}
 		}
 
@@ -183,18 +207,24 @@ func overviewMonthlyVolume(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// overviewProductMix returns the loan book split by product from the CBS book.
+// overviewProductMix returns the book split across the three product LINES —
+// Loans, Fixed Deposits and Cards — by book value (kobo) and account count.
+// Cards value is 0 (no card-balance ledger is synced yet); its count still shows.
 func overviewProductMix(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT
-				COALESCE(NULLIF(product_name, ''), 'Other') AS product,
-				COUNT(*)                                     AS count,
-				COALESCE(SUM(outstanding_principal_kobo), 0) AS volume_kobo
-			FROM cbs_loans
-			WHERE status NOT IN ('Closed', 'Revoked')
-			GROUP BY 1
-			ORDER BY count DESC`)
+			SELECT 'Loans' AS product,
+				(SELECT COUNT(*) FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) AS count,
+				(SELECT COALESCE(SUM(outstanding_principal_kobo),0) FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) AS volume_kobo
+			UNION ALL
+			SELECT 'Fixed Deposits',
+				(SELECT COUNT(*) FROM cbs_fixed_deposits WHERE status='Active'),
+				(SELECT COALESCE(SUM(principal_kobo),0) FROM cbs_fixed_deposits WHERE status='Active')
+			UNION ALL
+			SELECT 'Cards',
+				(SELECT COUNT(*) FROM "Products" WHERE "Account Status" IN ('Open','Active')),
+				0
+			ORDER BY volume_kobo DESC`)
 		if err != nil {
 			respond(w, []any{}, "pg")
 			return

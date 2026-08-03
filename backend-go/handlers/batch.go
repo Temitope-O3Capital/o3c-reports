@@ -130,6 +130,17 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "dpd_snapshot:ok")
 	}
 
+	// 1c. CBS/Udara portfolio snapshot — the real loan + FD book (native tables are empty)
+	if err := batchCBSPortfolioSnapshot(ctx, db); err != nil {
+		slog.Error("Batch: CBS portfolio snapshot failed", "err", err)
+		if batchErr == nil {
+			batchErr = err
+		}
+		steps = append(steps, "cbs_portfolio_snapshot:FAILED")
+	} else {
+		steps = append(steps, "cbs_portfolio_snapshot:ok")
+	}
+
 	// 2. Alert rule evaluation
 	if err := batchEvaluateAlerts(ctx, db); err != nil {
 		slog.Error("Batch: alert evaluation failed", "err", err)
@@ -323,6 +334,73 @@ func batchPortfolioSnapshot(ctx context.Context, db *core.DB) error {
 		toInt64(r["par60_kobo"]),
 		toInt64(r["par90_kobo"]),
 		toInt64(r["new_disbursements_kobo"]),
+	)
+	return err
+}
+
+// batchCBSPortfolioSnapshot records the real Udara/CBS loan + FD book once per day.
+// The native loan_applications/collection_assignments tables are empty (the workspace
+// is a front-end to Udara), so the Executive Overview reads the CBS-synced tables live —
+// and this snapshot gives those live KPIs a real daily history for trendlines and
+// vs-last-period deltas. Idempotent: re-running the same day overwrites that day's row.
+//
+// Loan status vocabulary in cbs_loans: Active, Closed, Defaulting, Expired, Revoked.
+//   open loans = NOT IN ('Closed','Revoked');  NPL = Defaulting/Expired;  performing = Active.
+func batchCBSPortfolioSnapshot(ctx context.Context, db *core.DB) error {
+	today := time.Now().Format("2006-01-02")
+
+	loan := map[string]any{}
+	if rows, err := db.PGQuery(ctx, `
+		SELECT
+			COUNT(*)                                                          AS loans_total,
+			COUNT(*) FILTER (WHERE status = 'Active')                        AS loans_active,
+			COUNT(DISTINCT cbs_customer_id) FILTER (WHERE status = 'Active') AS borrowers_active,
+			COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status NOT IN ('Closed','Revoked')), 0) AS outstanding_principal_kobo,
+			COALESCE(SUM(outstanding_interest_kobo)  FILTER (WHERE status NOT IN ('Closed','Revoked')), 0) AS outstanding_interest_kobo,
+			COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status IN ('Defaulting','Expired')), 0) AS npl_kobo,
+			COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status = 'Active'), 0)                   AS performing_kobo
+		FROM cbs_loans`); err == nil && len(rows) > 0 {
+		loan = rows[0]
+	}
+
+	fd := map[string]any{}
+	if rows, err := db.PGQuery(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE status = 'Active')                                 AS fd_active_count,
+			COALESCE(SUM(principal_kobo)      FILTER (WHERE status = 'Active'), 0)     AS fd_principal_kobo,
+			COALESCE(SUM(ledger_balance_kobo) FILTER (WHERE status = 'Active'), 0)     AS fd_ledger_balance_kobo
+		FROM cbs_fixed_deposits`); err == nil && len(rows) > 0 {
+		fd = rows[0]
+	}
+
+	_, err := db.PGExec(ctx, `
+		INSERT INTO cbs_portfolio_snapshot
+			(snapshot_date, loans_total, loans_active, borrowers_active,
+			 outstanding_principal_kobo, outstanding_interest_kobo, npl_kobo, performing_kobo,
+			 fd_active_count, fd_principal_kobo, fd_ledger_balance_kobo)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		ON CONFLICT (snapshot_date) DO UPDATE SET
+			loans_total                = EXCLUDED.loans_total,
+			loans_active               = EXCLUDED.loans_active,
+			borrowers_active           = EXCLUDED.borrowers_active,
+			outstanding_principal_kobo = EXCLUDED.outstanding_principal_kobo,
+			outstanding_interest_kobo  = EXCLUDED.outstanding_interest_kobo,
+			npl_kobo                   = EXCLUDED.npl_kobo,
+			performing_kobo            = EXCLUDED.performing_kobo,
+			fd_active_count            = EXCLUDED.fd_active_count,
+			fd_principal_kobo          = EXCLUDED.fd_principal_kobo,
+			fd_ledger_balance_kobo     = EXCLUDED.fd_ledger_balance_kobo`,
+		today,
+		toInt64(loan["loans_total"]),
+		toInt64(loan["loans_active"]),
+		toInt64(loan["borrowers_active"]),
+		toInt64(loan["outstanding_principal_kobo"]),
+		toInt64(loan["outstanding_interest_kobo"]),
+		toInt64(loan["npl_kobo"]),
+		toInt64(loan["performing_kobo"]),
+		toInt64(fd["fd_active_count"]),
+		toInt64(fd["fd_principal_kobo"]),
+		toInt64(fd["fd_ledger_balance_kobo"]),
 	)
 	return err
 }

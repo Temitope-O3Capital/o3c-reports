@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, SectionCard, Spinner } from '../components/UI'
+import { Page, SectionCard, Spinner, DateFilter } from '../components/UI'
 import { apiFetch } from '../lib/api'
 import { fmtKobo, fmtPct, fmtNum } from '../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, PURPLE, NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../lib/design'
@@ -13,13 +13,34 @@ import { RED, AMBER, BLUE, GREEN, PURPLE, NAVY, INTER, SORA, NUM, TEXT, FW, RADI
 
 interface KPIs {
   portfolio_outstanding_kobo: number
-  collections_rate_pct: number
-  disbursements_mtd_kobo: number
+  fd_book_kobo: number
+  active_cards: number
+  performing_rate_pct: number
+  npl_rate_pct: number
+  disbursements_kobo: number
   active_customers: number
-  portfolio_change_pct?: number
-  collections_change_pct?: number
-  disbursements_change_pct?: number
-  customers_change_pct?: number
+  active_loans: number
+  portfolio_change_pct: number | null
+  fd_change_pct: number | null
+  performing_change_pct: number | null
+  disbursements_change_pct: number | null
+  customers_change_pct: number | null
+  portfolio_series: number[]
+  fd_series: number[]
+  performing_series: number[]
+  disbursements_series: number[]
+  customers_series: number[]
+}
+interface HRSummary {
+  total_employees: number
+  active_employees: number
+  new_hires_period: number
+  pending_leave_requests: number
+}
+interface SettlementsSummary {
+  settled_period_kobo: number
+  pending_count: number
+  failed_period: number
 }
 interface FDSummary {
   total_fd_book_kobo: number
@@ -44,7 +65,7 @@ interface CardsSummary {
   prepaid_usd_count: number;   prepaid_usd_balance_cents: number
   credit_ngn_count: number;    credit_ngn_balance_kobo: number
 }
-interface MonthlyPoint { month: string; disbursements_kobo: number }
+interface MonthlyPoint { month: string; disbursements_kobo: number; fd_payouts_kobo: number }
 interface ProductPoint  { product: string; count: number; volume_kobo: number }
 interface DPDPoint      { month: string; par30: number; par60: number; par90: number }
 interface TopPerformer  { name: string; dept: string; amount_kobo: number; count: number }
@@ -65,7 +86,14 @@ interface AcquisitionFunnel {
   disbursed: number
 }
 
-type Period = 'mtd' | 'l30d' | 'l90d' | 'ytd'
+// ── Date helpers (ISO YYYY-MM-DD) ────────────────────────────────────────────
+function isoDate(dt: Date): string {
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+}
+function monthStartIso(): string {
+  const n = new Date()
+  return isoDate(new Date(n.getFullYear(), n.getMonth(), 1))
+}
 
 // ── Stage configs (CC uses same navy/grey ramp as LOS) ───────────────────────
 
@@ -95,13 +123,6 @@ const CC_STAGES: { key: keyof CCStages; label: string; color: string }[] = [
 
 const DONUT_COLORS = [NAVY, RED, AMBER, GREEN, PURPLE]
 const PERF_COLORS  = [RED, NAVY, AMBER, GREEN, PURPLE, BLUE]
-
-const PERIOD_OPTIONS: { id: Period; label: string }[] = [
-  { id: 'mtd',  label: 'MTD'      },
-  { id: 'l30d', label: 'Last 30d' },
-  { id: 'l90d', label: 'Last 90d' },
-  { id: 'ytd',  label: 'YTD'      },
-]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -274,28 +295,6 @@ function MiniStat({ label, value, sub, subColor }: { label: string; value: strin
   )
 }
 
-// ── Period selector ───────────────────────────────────────────────────────────
-
-function PeriodFilter({ period, onChange }: { period: Period; onChange: (p: Period) => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--chip-bg)', borderRadius: RADIUS.md, padding: 3, border: '1px solid var(--bdr)' }}>
-      {PERIOD_OPTIONS.map(opt => (
-        <button key={opt.id} onClick={() => onChange(opt.id)} style={{
-          padding: '5px 14px', borderRadius: 7, border: 'none',
-          fontSize: TEXT.sm, fontWeight: period === opt.id ? 700 : 500,
-          fontFamily: INTER, cursor: 'pointer',
-          background: period === opt.id ? 'var(--card)' : 'transparent',
-          color: period === opt.id ? 'var(--txt)' : 'var(--txt2)',
-          boxShadow: period === opt.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-          transition: 'all 130ms',
-        }}>
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 // ── DPD Legend (rendered in SectionCard actions — top right) ──────────────────
 
 const DPD_LEGEND = (
@@ -347,7 +346,8 @@ function DeptPanel({ icon, label, color, metrics, to }: {
 
 export default function Overview() {
   const [loading,    setLoading]    = useState(true)
-  const [period,     setPeriod]     = useState<Period>('mtd')
+  const [from,       setFrom]       = useState(monthStartIso())
+  const [to,         setTo]         = useState(isoDate(new Date()))
   const [kpis,       setKpis]       = useState<KPIs | null>(null)
   const [fd,         setFd]         = useState<FDSummary | null>(null)
   const [ccSummary,  setCcSummary]  = useState<ContactCenterSummary | null>(null)
@@ -359,29 +359,29 @@ export default function Overview() {
   const [losStages,  setLosStages]  = useState<LOSStages | null>(null)
   const [ccStages,   setCcStages]   = useState<CCStages | null>(null)
   const [funnel,     setFunnel]     = useState<AcquisitionFunnel | null>(null)
+  const [hr,         setHr]         = useState<HRSummary | null>(null)
+  const [settlements, setSettlements] = useState<SettlementsSummary | null>(null)
   const [lastSync,   setLastSync]   = useState<Date | null>(null)
-  const [syncTick,   setSyncTick]   = useState(0)
 
-  useEffect(() => {
-    const t = setInterval(() => setSyncTick(n => n + 1), 30_000)
-    return () => clearInterval(t)
-  }, [])
-
-  async function load(p: Period) {
+  async function load(f: string, t: string) {
+    const win = `from=${f}&to=${t}`
+    const exec = `period=custom&start=${f}&end=${t}`
     // U2: Use Promise.allSettled so a single failed endpoint doesn't blank the
     // entire dashboard — each section degrades independently.
     const results = await Promise.allSettled([
-      apiFetch<{ data: KPIs                 }>(`/api/overview/kpis?period=${p}`),
-      apiFetch<{ data: MonthlyPoint[]       }>(`/api/overview/monthly-volume?period=${p}`),
-      apiFetch<{ data: ProductPoint[]       }>(`/api/overview/product-mix?period=${p}`),
-      apiFetch<{ data: DPDPoint[]           }>(`/api/overview/dpd-trend?period=${p}`),
-      apiFetch<{ data: TopPerformer[]       }>(`/api/overview/top-performers?period=${p}`),
+      apiFetch<{ data: KPIs                 }>(`/api/overview/kpis?${win}`),
+      apiFetch<{ data: MonthlyPoint[]       }>('/api/overview/monthly-volume'),
+      apiFetch<{ data: ProductPoint[]       }>('/api/overview/product-mix'),
+      apiFetch<{ data: DPDPoint[]           }>('/api/overview/dpd-trend'),
+      apiFetch<{ data: TopPerformer[]       }>(`/api/overview/top-performers?${win}`),
       apiFetch<{ data: LOSStages            }>('/api/overview/los-stages'),
       apiFetch<{ data: CCStages             }>('/api/overview/cc-stages'),
       apiFetch<{ data: FDSummary            }>('/api/overview/fd-summary'),
       apiFetch<{ data: CardsSummary         }>('/api/overview/cards-summary'),
       apiFetch<{ data: ContactCenterSummary }>('/api/overview/contact-center'),
       apiFetch<{ data: AcquisitionFunnel    }>('/api/overview/acquisition-funnel'),
+      apiFetch<{ data: HRSummary            }>(`/api/executive/hr?${exec}`),
+      apiFetch<{ data: SettlementsSummary   }>(`/api/executive/settlements?${exec}`),
     ])
     function ok<T>(r: PromiseSettledResult<{ data: T }>): { data: T } | null {
       return r.status === 'fulfilled' ? r.value : null
@@ -393,40 +393,47 @@ export default function Overview() {
     const tp  = ok<TopPerformer[]>(results[4]  as PromiseSettledResult<{ data: TopPerformer[] }>)
     const ls  = ok<LOSStages>(results[5]       as PromiseSettledResult<{ data: LOSStages }>)
     const ccs = ok<CCStages>(results[6]        as PromiseSettledResult<{ data: CCStages }>)
-    const f   = ok<FDSummary>(results[7]       as PromiseSettledResult<{ data: FDSummary }>)
+    const f2  = ok<FDSummary>(results[7]       as PromiseSettledResult<{ data: FDSummary }>)
     const ca  = ok<CardsSummary>(results[8]    as PromiseSettledResult<{ data: CardsSummary }>)
     const cct = ok<ContactCenterSummary>(results[9]  as PromiseSettledResult<{ data: ContactCenterSummary }>)
     const fn  = ok<AcquisitionFunnel>(results[10] as PromiseSettledResult<{ data: AcquisitionFunnel }>)
+    const hrs = ok<HRSummary>(results[11] as PromiseSettledResult<{ data: HRSummary }>)
+    const stl = ok<SettlementsSummary>(results[12] as PromiseSettledResult<{ data: SettlementsSummary }>)
     if (k?.data)          setKpis(k.data)
     if (m?.data?.length)  setMonthly(m.data)
     if (pr?.data?.length) setProducts(pr.data)
     if (d?.data?.length)  setDpd(d.data)
-    if (tp?.data?.length) setPerformers(tp.data)
+    setPerformers(tp?.data ?? [])   // period-scoped: clear when the new window has none
     if (ls?.data)         setLosStages(ls.data)
     if (ccs?.data)        setCcStages(ccs.data)
-    if (f?.data)          setFd(f.data)
+    if (f2?.data)         setFd(f2.data)
     if (ca?.data)         setCards(ca.data)
     if (cct?.data)        setCcSummary(cct.data)
     if (fn?.data)         setFunnel(fn.data)
+    if (hrs?.data)        setHr(hrs.data)
+    if (stl?.data)        setSettlements(stl.data)
     setLastSync(new Date())
     setLoading(false)
   }
 
-  useEffect(() => { load(period) }, [period])
+  useEffect(() => { load(from, to) }, [from, to])
 
-  const disbSpark  = monthly.slice(-7).map(m => m.disbursements_kobo)
-  const totalCount = products.reduce((s, p) => s + p.count, 0) || 1
-  const perfMax    = performers[0]?.amount_kobo ?? 1
+  const totalVolume = products.reduce((s, p) => s + p.volume_kobo, 0) || 1
+  const perfMax     = performers[0]?.amount_kobo ?? 1
 
+  // Three product-line books + one portfolio-health metric — O3 is a multi-product
+  // business (Credit, Fixed Deposits, Cards), so each line gets a headline slot.
   const KPI_CARDS = [
-    { lbl: 'Portfolio Outstanding', icon: 'account_balance_wallet', color: NAVY,  val: kpis ? fmtKobo(kpis.portfolio_outstanding_kobo) : '—', chg: kpis?.portfolio_change_pct     ?? 0, up: (kpis?.portfolio_change_pct     ?? 0) >= 0, spark: disbSpark },
-    { lbl: 'Collections Rate',      icon: 'trending_up',            color: GREEN, val: kpis ? fmtPct(kpis.collections_rate_pct)         : '—', chg: kpis?.collections_change_pct   ?? 0, up: (kpis?.collections_change_pct   ?? 0) >= 0, spark: disbSpark.map((_, i) => 88 + i * 0.6) },
-    { lbl: 'Disbursements MTD',     icon: 'payments',               color: RED,   val: kpis ? fmtKobo(kpis.disbursements_mtd_kobo)      : '—', chg: kpis?.disbursements_change_pct ?? 0, up: (kpis?.disbursements_change_pct ?? 0) >= 0, spark: disbSpark },
-    { lbl: 'Active Customers',      icon: 'groups',                 color: BLUE,  val: kpis ? fmtNum(kpis.active_customers)              : '—', chg: kpis?.customers_change_pct     ?? 0, up: (kpis?.customers_change_pct     ?? 0) >= 0, spark: disbSpark.map((_, i) => 1100 + i * 20) },
+    { lbl: 'Loan Book',        sub: 'outstanding',   icon: 'account_balance_wallet', color: NAVY,   val: kpis ? fmtKobo(kpis.portfolio_outstanding_kobo) : '—', chg: kpis?.portfolio_change_pct  ?? null, spark: kpis?.portfolio_series  ?? [] },
+    { lbl: 'FD Book',          sub: 'deposits',      icon: 'savings',                color: AMBER,  val: kpis ? fmtKobo(kpis.fd_book_kobo)               : '—', chg: kpis?.fd_change_pct         ?? null, spark: kpis?.fd_series         ?? [] },
+    { lbl: 'Active Cards',     sub: 'cardholders',   icon: 'credit_card',            color: PURPLE, val: kpis ? fmtNum(kpis.active_cards)                : '—', chg: null,                               spark: [] },
+    { lbl: 'Loan Performing',  sub: 'portfolio health', icon: 'monitoring',          color: GREEN,  val: kpis ? fmtPct(kpis.performing_rate_pct)         : '—', chg: kpis?.performing_change_pct ?? null, spark: kpis?.performing_series ?? [] },
   ]
 
+  const dateSlicer = <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
+
   if (loading) return (
-    <Page title="Executive Overview" actions={<PeriodFilter period={period} onChange={p => { setPeriod(p) }} />}>
+    <Page title="Executive Overview" actions={dateSlicer}>
       <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
         <Spinner size={36} />
       </div>
@@ -436,8 +443,8 @@ export default function Overview() {
   return (
     <Page
       title="Executive Overview"
-      subtitle={kpis ? `${fmtNum(kpis.active_customers)} active customers${lastSync ? ' · Last synced ' + fmtRelTime(lastSync) : ''}` : undefined}
-      actions={<PeriodFilter key={syncTick} period={period} onChange={setPeriod} />}
+      subtitle={kpis ? `${fmtNum(kpis.active_customers)} active borrowers${lastSync ? ' · Last synced ' + fmtRelTime(lastSync) : ''}` : undefined}
+      actions={dateSlicer}
     >
 
       {/* ── KPI strip ─────────────────────────────────────────────────────── */}
@@ -453,11 +460,15 @@ export default function Overview() {
               <span className="material-symbols-rounded" style={{ fontSize: 17, color: k.color, opacity: 0.7 }}>{k.icon}</span>
             </div>
             <div style={{ ...NUM, fontSize: 30, fontWeight: FW.extrabold, color: 'var(--txt)', letterSpacing: -1.5, fontFamily: INTER, lineHeight: 1 }}>{k.val}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], marginTop: 8, fontSize: TEXT.xs, fontWeight: FW.semibold, color: k.up ? GREEN : RED, fontFamily: INTER }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>{k.up ? 'arrow_upward' : 'arrow_downward'}</span>
-              <span>{k.up ? '+' : ''}{k.chg.toFixed(1)}% vs last period</span>
-            </div>
-            <div style={{ marginTop: 14 }}><Spark data={k.spark} color={k.color} /></div>
+            {k.chg == null ? (
+              <div style={{ marginTop: 8, fontSize: TEXT.xs, fontWeight: FW.medium, color: 'var(--txt3)', fontFamily: INTER }}>{k.sub}</div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], marginTop: 8, fontSize: TEXT.xs, fontWeight: FW.semibold, color: k.chg >= 0 ? GREEN : RED, fontFamily: INTER }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>{k.chg >= 0 ? 'arrow_upward' : 'arrow_downward'}</span>
+                <span>{k.chg >= 0 ? '+' : ''}{k.chg.toFixed(1)}% vs last period</span>
+              </div>
+            )}
+            <div style={{ marginTop: 14, height: 28 }}><Spark data={k.spark} color={k.color} /></div>
           </div>
         ))}
       </div>
@@ -477,51 +488,59 @@ export default function Overview() {
           ]}
         />
         <DeptPanel
+          icon="savings" label="Fixed Deposits" color={AMBER} to="/executive/fixed-deposits"
+          metrics={[
+            { label: 'FD Book',        value: fd ? fmtKobo(fd.total_fd_book_kobo) : '—' },
+            { label: 'Active Deposits', value: fd ? fmtNum(fd.active_fd_count) : '—' },
+            { label: 'Maturing 30d',   value: fd ? String(fd.maturing_30d) : '—' },
+          ]}
+        />
+        <DeptPanel
           icon="account_balance" label="Finance" color={NAVY} to="/executive/finance"
           metrics={[
             { label: 'FD Book',        value: fd ? fmtKobo(fd.total_fd_book_kobo) : '—' },
-            { label: 'Active FDs',     value: fd ? fmtNum(fd.active_fd_count) : '—' },
-            { label: 'Maturing 30d',   value: fd ? String(fd.maturing_30d) : '—' },
+            { label: 'New This Month', value: fd ? String(fd.new_this_month) : '—' },
+            { label: 'GL Entries',     value: '—' },
           ]}
         />
         <DeptPanel
           icon="trending_up" label="Sales" color={GREEN} to="/executive/sales"
           metrics={[
-            { label: 'Pipeline',            value: '₦248m' },
-            { label: 'Conversions MTD',     value: '18' },
-            { label: 'Target Achievement',  value: '72.4%' },
+            { label: 'Disbursed (period)', value: kpis ? fmtKobo(kpis.disbursements_kobo) : '—' },
+            { label: 'Active Loans',       value: kpis ? fmtNum(kpis.active_loans) : '—' },
+            { label: 'Active Borrowers',   value: kpis ? fmtNum(kpis.active_customers) : '—' },
           ]}
         />
         <DeptPanel
           icon="receipt_long" label="Collections" color={AMBER} to="/executive/collections"
           metrics={[
-            { label: 'Collections Rate',    value: kpis ? fmtPct(kpis.collections_rate_pct) : '—' },
-            { label: 'Disbursements MTD',   value: kpis ? fmtKobo(kpis.disbursements_mtd_kobo) : '—' },
-            { label: 'PAR30',               value: dpd.length > 0 ? String(dpd[dpd.length - 1].par30) : '—' },
+            { label: 'Performing Rate', value: kpis ? fmtPct(kpis.performing_rate_pct) : '—' },
+            { label: 'NPL Rate',        value: kpis ? fmtPct(kpis.npl_rate_pct) : '—' },
+            { label: 'Portfolio',       value: kpis ? fmtKobo(kpis.portfolio_outstanding_kobo) : '—' },
           ]}
         />
         <DeptPanel
           icon="shield" label="Risk" color={RED} to="/executive/risk"
           metrics={[
-            { label: 'Portfolio',    value: kpis ? fmtKobo(kpis.portfolio_outstanding_kobo) : '—' },
-            { label: 'NPL Rate',     value: '8.2%' },
-            { label: 'PAR90',        value: dpd.length > 0 ? String(dpd[dpd.length - 1].par90) : '—' },
+            { label: 'Portfolio',       value: kpis ? fmtKobo(kpis.portfolio_outstanding_kobo) : '—' },
+            { label: 'NPL Rate',        value: kpis ? fmtPct(kpis.npl_rate_pct) : '—' },
+            { label: 'Performing Rate', value: kpis ? fmtPct(kpis.performing_rate_pct) : '—' },
           ]}
         />
         <DeptPanel
           icon="people" label="HR" color={BLUE} to="/executive/hr"
           metrics={[
-            { label: 'Headcount',       value: '84' },
-            { label: 'New Hires MTD',   value: '4' },
-            { label: 'Payroll MTD',     value: '₦148.4m' },
+            { label: 'Headcount',        value: hr ? fmtNum(hr.active_employees) : '—' },
+            { label: 'New Hires',        value: hr ? String(hr.new_hires_period) : '—' },
+            { label: 'Pending Leave',    value: hr ? String(hr.pending_leave_requests) : '—' },
           ]}
         />
         <DeptPanel
           icon="swap_horiz" label="Settlements" color="#7C3AED" to="/executive/settlements"
           metrics={[
-            { label: 'Settled Today',    value: '₦8.4m' },
-            { label: 'NIP Rate',         value: '98.4%' },
-            { label: 'Open Exceptions',  value: '8' },
+            { label: 'Settled (period)', value: settlements ? fmtKobo(settlements.settled_period_kobo) : '—' },
+            { label: 'Pending Batches',  value: settlements ? String(settlements.pending_count) : '—' },
+            { label: 'Failed',           value: settlements ? String(settlements.failed_period) : '—' },
           ]}
         />
       </div>
@@ -597,9 +616,9 @@ export default function Overview() {
           {/* 3 ATM card visuals — credit tiers */}
           <div style={{ display: 'flex', gap: SP[2], marginBottom: 20 }}>
             {cards && <>
-            <ATMCard tier="Green"    gradient="linear-gradient(135deg,#14532D,#16A34A,#22C55E)"   count={cards.green_count}    outstanding={cards.green_outstanding_kobo}    lastFour="4521" />
-            <ATMCard tier="Gold"     gradient="linear-gradient(135deg,#78350F,#D97706,#F59E0B)"   count={cards.gold_count}     outstanding={cards.gold_outstanding_kobo}     lastFour="7820" />
-            <ATMCard tier="Platinum" gradient="linear-gradient(135deg,#374151,#6B7280,#D1D5DB)"   count={cards.platinum_count} outstanding={cards.platinum_outstanding_kobo} lastFour="3614" />
+            <ATMCard tier="Green"    gradient="linear-gradient(135deg,#14532D,#16A34A,#22C55E)"   count={cards.green_count}    outstanding={cards.green_outstanding_kobo}    lastFour="••••" />
+            <ATMCard tier="Gold"     gradient="linear-gradient(135deg,#78350F,#D97706,#F59E0B)"   count={cards.gold_count}     outstanding={cards.gold_outstanding_kobo}     lastFour="••••" />
+            <ATMCard tier="Platinum" gradient="linear-gradient(135deg,#374151,#6B7280,#D1D5DB)"   count={cards.platinum_count} outstanding={cards.platinum_outstanding_kobo} lastFour="••••" />
           </>}
           </div>
 
@@ -699,13 +718,26 @@ export default function Overview() {
       {/* ── Charts: Disbursements + Product Mix ───────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: SP[3], marginBottom: 14 }}>
 
-        <SectionCard title="Monthly Disbursements" subtitle="Loan & FD payouts per month">
+        <SectionCard title="Loan & FD Payouts" subtitle="Loan disbursements vs FD maturities · rolling 12-month view (Udara)"
+          actions={
+            <div style={{ display: 'flex', gap: SP[3] }}>
+              {[{ c: NAVY, l: 'Loan Disbursements' }, { c: AMBER, l: 'FD Payouts' }].map(({ c, l }) => (
+                <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
+                  <div style={{ width: 10, height: 3, borderRadius: 2, background: c }} />{l}
+                </div>
+              ))}
+            </div>
+          }>
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={monthly} margin={{ top: 4, right: 8, bottom: 14, left: 8 }}>
               <defs>
                 <linearGradient id="gradDisb" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%"   stopColor={NAVY} stopOpacity={0.18} />
                   <stop offset="100%" stopColor={NAVY} stopOpacity={0}    />
+                </linearGradient>
+                <linearGradient id="gradFd" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%"   stopColor={AMBER} stopOpacity={0.18} />
+                  <stop offset="100%" stopColor={AMBER} stopOpacity={0}    />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
@@ -721,40 +753,50 @@ export default function Overview() {
                 tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false}
               />
               <Tooltip content={<Tip fmt={v => fmtKobo(v)} />} />
-              <Area type="monotone" dataKey="disbursements_kobo" name="Disbursements"
+              <Area type="monotone" dataKey="disbursements_kobo" name="Loan Disbursements"
                 stroke={NAVY} strokeWidth={2.2} fill="url(#gradDisb)"
                 dot={{ r: 3, fill: NAVY, strokeWidth: 0 }}
                 activeDot={{ r: 5, fill: NAVY, stroke: '#fff', strokeWidth: 2 }}
+              />
+              <Area type="monotone" dataKey="fd_payouts_kobo" name="FD Payouts"
+                stroke={AMBER} strokeWidth={2.2} fill="url(#gradFd)"
+                dot={{ r: 3, fill: AMBER, strokeWidth: 0 }}
+                activeDot={{ r: 5, fill: AMBER, stroke: '#fff', strokeWidth: 2 }}
               />
             </AreaChart>
           </ResponsiveContainer>
         </SectionCard>
 
-        <SectionCard title="Product Mix" subtitle="Portfolio by account count">
+        <SectionCard title="Product Mix" subtitle="By product line · book value (Udara)">
           <div style={{ display: 'flex', alignItems: 'center', gap: SP[4], marginTop: 6 }}>
             <div style={{ position: 'relative', flexShrink: 0 }}>
               <PieChart width={148} height={148}>
                 <Pie data={products} cx={72} cy={72} innerRadius={42} outerRadius={66}
-                  dataKey="count" stroke="none" paddingAngle={3} startAngle={90} endAngle={-270}>
+                  dataKey="volume_kobo" stroke="none" paddingAngle={3} startAngle={90} endAngle={-270}>
                   {products.map((_, i) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
                 </Pie>
-                <Tooltip content={<Tip fmt={v => `${v} accounts`} />} />
+                <Tooltip content={<Tip fmt={v => fmtKobo(v)} />} />
               </PieChart>
               <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
-                <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', fontFamily: INTER, lineHeight: 1 }}>{fmtNum(totalCount)}</div>
-                <div style={{ fontSize: 9, color: 'var(--txt2)', fontFamily: INTER, marginTop: 2 }}>accounts</div>
+                <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', fontFamily: INTER, lineHeight: 1 }}>{fmtKobo(totalVolume)}</div>
+                <div style={{ fontSize: 9, color: 'var(--txt2)', fontFamily: INTER, marginTop: 2 }}>total book</div>
               </div>
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
               {products.map((p, i) => {
-                const pct = Math.round((p.count / totalCount) * 100)
+                const pct = Math.round((p.volume_kobo / totalVolume) * 100)
                 return (
                   <div key={p.product}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
                       <div style={{ width: 8, height: 8, borderRadius: 2, background: DONUT_COLORS[i % DONUT_COLORS.length], flexShrink: 0 }} />
                       <span style={{ flex: 1, fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, fontWeight: FW.medium }}>{p.product}</span>
                       <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER, ...NUM }}>{pct}%</span>
-                      <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, ...NUM, minWidth: 30, textAlign: 'right' }}>{fmtNum(p.count)}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4, paddingLeft: 15 }}>
+                      <span style={{ flex: 1, fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, ...NUM }}>
+                        {p.volume_kobo > 0 ? fmtKobo(p.volume_kobo) : 'balances not synced'}
+                      </span>
+                      <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, ...NUM }}>{fmtNum(p.count)} accts</span>
                     </div>
                     <div style={{ height: 3, background: 'var(--bdr)', borderRadius: 2, overflow: 'hidden' }}>
                       <div style={{ width: `${pct}%`, height: '100%', background: DONUT_COLORS[i % DONUT_COLORS.length], borderRadius: 2 }} />

@@ -20,6 +20,7 @@ func RegisterExecutive(r chi.Router, db *core.DB) {
 	r.Get("/risk",        execRiskHandler(db))
 	r.Get("/hr",          execHRHandler(db))
 	r.Get("/settlements", execSettlementsHandler(db))
+	r.Get("/fixed-deposits", execFixedDepositsHandler(db))
 }
 
 // periodDates returns (currentStart, currentEnd, prevStart, prevEnd) for the given period.
@@ -109,410 +110,581 @@ func d(t time.Time) string { return t.Format("2006-01-02") }
 
 // ── Department handlers ───────────────────────────────────────────────────────
 
+// execRange resolves the drilldown pages' period vocabulary (mtd|l30d|l90d|ytd)
+// as well as the standard month|quarter|year|custom into current + previous windows.
+// Prevents the 400 the drilldowns used to get (they send mtd/l30d/l90d/ytd, which
+// periodDates rejects).
+func execRange(r *http.Request) (cs, ce, ps, pe time.Time) {
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	switch qstr(r, "period") {
+	case "l30d", "l90d":
+		n := 30
+		if qstr(r, "period") == "l90d" {
+			n = 90
+		}
+		cs = today.AddDate(0, 0, -(n - 1))
+		ce = today
+		pe = cs.AddDate(0, 0, -1)
+		ps = pe.AddDate(0, 0, -(n - 1))
+		return
+	case "ytd", "year":
+		if a, b, c, dd, err := periodDates("year", "", ""); err == nil {
+			return a, b, c, dd
+		}
+	case "quarter":
+		if a, b, c, dd, err := periodDates("quarter", "", ""); err == nil {
+			return a, b, c, dd
+		}
+	case "custom":
+		if a, b, c, dd, err := periodDates("custom", qstr(r, "start"), qstr(r, "end")); err == nil {
+			return a, b, c, dd
+		}
+	}
+	a, b, c, dd, _ := periodDates("month", "", "")
+	return a, b, c, dd
+}
+
+// execCardsHandler returns the Cards drilldown shape. Real card counts come from the
+// live card book (MSSQL dbo.Account, or the synced Postgres "Products" view when MSSQL
+// is not configured). No card-transaction / dispute / merchant ledger is synced yet,
+// so those series are returned empty rather than fabricated.
 func execCardsHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		period := qstr(r, "period")
-		if period == "" {
-			period = "month"
-		}
-		cs, ce, _, _, err := periodDates(period, qstr(r, "start"), qstr(r, "end"))
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
+		cs, ce, _, _ := execRange(r)
 		ctx := r.Context()
 
-		var pendingIssuance, approved, dispatched int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT
-				COUNT(*) FILTER (WHERE status = 'pending')    AS pending_issuance,
-				COUNT(*) FILTER (WHERE status = 'approved')   AS approved,
-				COUNT(*) FILTER (WHERE status = 'dispatched') AS dispatched
-			FROM card_issuance_requests`); e == nil && len(rows) > 0 {
-			pendingIssuance = toInt64(rows[0]["pending_issuance"])
-			approved = toInt64(rows[0]["approved"])
-			dispatched = toInt64(rows[0]["dispatched"])
+		var activeCards, totalCards int64
+		if rows, _, e := db.DualQuery(ctx,
+			`SELECT
+			   SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS active_cards,
+			   COUNT(*) AS total_cards
+			 FROM dbo.Account`,
+			`SELECT
+			   COUNT(*) FILTER (WHERE "Account Status" IN ('Open','Active')) AS active_cards,
+			   COUNT(*) AS total_cards
+			 FROM "Products"`); e == nil && len(rows) > 0 {
+			activeCards = toInt64(rows[0]["active_cards"])
+			totalCards = toInt64(rows[0]["total_cards"])
 		}
-
-		var openDisputes, resolvedDisputesPeriod int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT
-				COUNT(*) FILTER (WHERE status = 'filed') AS open_disputes,
-				COUNT(*) FILTER (WHERE status IN ('resolved','closed') AND filed_at::date BETWEEN $1 AND $2) AS resolved_disputes_period
-			FROM card_disputes`, d(cs), d(ce)); e == nil && len(rows) > 0 {
-			openDisputes = toInt64(rows[0]["open_disputes"])
-			resolvedDisputesPeriod = toInt64(rows[0]["resolved_disputes_period"])
-		}
-
-		var pendingCreditReviews int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT COUNT(*) AS cnt
-			FROM card_credit_limit_reviews
-			WHERE status = 'pending_review'`); e == nil && len(rows) > 0 {
-			pendingCreditReviews = toInt64(rows[0]["cnt"])
+		activation := 0.0
+		if totalCards > 0 {
+			activation = round1(float64(activeCards) / float64(totalCards) * 100)
 		}
 
 		respond(w, map[string]any{
-			"period":                  map[string]any{"type": period, "start": d(cs), "end": d(ce)},
-			"pending_issuance":        pendingIssuance,
-			"approved":                approved,
-			"dispatched":              dispatched,
-			"open_disputes":           openDisputes,
-			"resolved_disputes_period": resolvedDisputesPeriod,
-			"pending_credit_reviews":  pendingCreditReviews,
+			"period":               map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"active_cards":         activeCards,
+			"total_cards":          totalCards,
+			"activation_rate_pct":  activation,
+			"txn_volume_kobo":      0,
+			"txn_change_pct":       0,
+			"txn_count":            0,
+			"credit_book_kobo":     0,
+			"disputes_open":        0,
+			"disputes_resolved_mtd": 0,
+			"channel_mix":          []any{},
+			"monthly_trend":        []any{},
+			"top_merchants":        []any{},
 		}, "pg")
 	}
 }
 
+// execFinanceHandler returns the Finance drilldown shape. The FD book is real (CBS
+// cbs_fixed_deposits); the GL (gl_journal_entries/gl_accounts) is empty, so revenue /
+// expenses / P&L series come back zero/empty rather than fabricated.
 func execFinanceHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		period := qstr(r, "period")
-		if period == "" {
-			period = "month"
-		}
-		cs, ce, _, _, err := periodDates(period, qstr(r, "start"), qstr(r, "end"))
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
+		cs, ce, ps, pe := execRange(r)
 		ctx := r.Context()
 
-		var revenueKobo int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT COALESCE(SUM(je.amount_kobo), 0) AS revenue_kobo
-			FROM gl_journal_entries je
-			JOIN gl_accounts a ON a.id = je.account_id
-			WHERE je.direction = 'CR'
-			  AND a.type = 'revenue'
-			  AND je.created_at::date BETWEEN $1 AND $2`, d(cs), d(ce)); e == nil && len(rows) > 0 {
-			revenueKobo = toInt64(rows[0]["revenue_kobo"])
-		}
-
-		var expensesKobo int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT COALESCE(SUM(je.amount_kobo), 0) AS expenses_kobo
-			FROM gl_journal_entries je
-			JOIN gl_accounts a ON a.id = je.account_id
-			WHERE je.direction = 'DR'
-			  AND a.type = 'expense'
-			  AND je.created_at::date BETWEEN $1 AND $2`, d(cs), d(ce)); e == nil && len(rows) > 0 {
-			expensesKobo = toInt64(rows[0]["expenses_kobo"])
-		}
-
-		var glEntriesCount int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT COUNT(*) AS cnt
-			FROM gl_journal_entries
-			WHERE created_at::date BETWEEN $1 AND $2`, d(cs), d(ce)); e == nil && len(rows) > 0 {
-			glEntriesCount = toInt64(rows[0]["cnt"])
-		}
-
-		var pendingSettlements, settledPeriod int64
+		var revenueKobo, expensesKobo, prevRevenueKobo int64
 		if rows, e := db.PGQuery(ctx, `
 			SELECT
-				COUNT(*) FILTER (WHERE status = 'pending') AS pending_settlements,
-				COUNT(*) FILTER (WHERE status = 'settled' AND created_at::date BETWEEN $1 AND $2) AS settled_period
-			FROM settlement_batches`, d(cs), d(ce)); e == nil && len(rows) > 0 {
-			pendingSettlements = toInt64(rows[0]["pending_settlements"])
-			settledPeriod = toInt64(rows[0]["settled_period"])
+				COALESCE(SUM(je.amount_kobo) FILTER (WHERE je.direction='CR' AND a.type='revenue' AND je.created_at::date BETWEEN $1 AND $2), 0) AS rev,
+				COALESCE(SUM(je.amount_kobo) FILTER (WHERE je.direction='DR' AND a.type='expense' AND je.created_at::date BETWEEN $1 AND $2), 0) AS exp,
+				COALESCE(SUM(je.amount_kobo) FILTER (WHERE je.direction='CR' AND a.type='revenue' AND je.created_at::date BETWEEN $3 AND $4), 0) AS prev_rev
+			FROM gl_journal_entries je
+			JOIN gl_accounts a ON a.id = je.account_id`, d(cs), d(ce), d(ps), d(pe)); e == nil && len(rows) > 0 {
+			revenueKobo = toInt64(rows[0]["rev"])
+			expensesKobo = toInt64(rows[0]["exp"])
+			prevRevenueKobo = toInt64(rows[0]["prev_rev"])
+		}
+		netIncome := revenueKobo - expensesKobo
+		netMargin := 0.0
+		if revenueKobo > 0 {
+			netMargin = round1(float64(netIncome) / float64(revenueKobo) * 100)
+		}
+		revChange := 0.0
+		if prevRevenueKobo != 0 {
+			revChange = round1(float64(revenueKobo-prevRevenueKobo) / abs64(float64(prevRevenueKobo)) * 100)
+		}
+
+		// FD book — real, from the CBS/Udara register.
+		var fdBookKobo, fdCount, fdMaturing30d int64
+		if rows, e := db.PGQuery(ctx, `
+			SELECT
+				COALESCE(SUM(principal_kobo) FILTER (WHERE status='Active'), 0) AS book,
+				COUNT(*) FILTER (WHERE status='Active')                        AS cnt,
+				COUNT(*) FILTER (WHERE status='Active'
+					AND maturity_date BETWEEN NOW()::date AND (NOW()+INTERVAL '30 days')::date) AS maturing
+			FROM cbs_fixed_deposits`); e == nil && len(rows) > 0 {
+			fdBookKobo = toInt64(rows[0]["book"])
+			fdCount = toInt64(rows[0]["cnt"])
+			fdMaturing30d = toInt64(rows[0]["maturing"])
 		}
 
 		respond(w, map[string]any{
-			"period":              map[string]any{"type": period, "start": d(cs), "end": d(ce)},
-			"revenue_kobo":        revenueKobo,
-			"expenses_kobo":       expensesKobo,
-			"net_income_kobo":     revenueKobo - expensesKobo,
-			"gl_entries_count":    glEntriesCount,
-			"pending_settlements": pendingSettlements,
-			"settled_period":      settledPeriod,
-			"paystack_wallet_kobo": paystackWalletKobo(ctx, db),
+			"period":                  map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"total_revenue_kobo":      revenueKobo,
+			"revenue_change_pct":      revChange,
+			"total_cost_kobo":         expensesKobo,
+			"net_income_kobo":         netIncome,
+			"net_margin_pct":          netMargin,
+			"fd_book_kobo":            fdBookKobo,
+			"fd_count":                fdCount,
+			"fd_maturing_30d":         fdMaturing30d,
+			"settlement_balance_kobo": 0,
+			"paystack_wallet_kobo":    paystackWalletKobo(ctx, db),
+			"monthly_pnl":             []any{},
+			"revenue_breakdown":       []any{},
 		}, "pg")
 	}
 }
 
+// execSalesHandler returns the Sales drilldown shape from the CBS loan book (the
+// native LOS pipeline tables are empty). Pipeline = the open loan book; stages = loan
+// status mix; top performers = loan officers by book. There is no LOS funnel / activity
+// data, so conversion rate / targets / meetings and the calls series are zero/empty.
 func execSalesHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		period := qstr(r, "period")
-		if period == "" {
-			period = "month"
-		}
-		cs, ce, _, _, err := periodDates(period, qstr(r, "start"), qstr(r, "end"))
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
+		cs, ce, _, _ := execRange(r)
 		ctx := r.Context()
 
-		var submittedPeriod, approvedPeriod int64
-		var disbursedKoboPeriod, totalPipelineKobo int64
+		var pipelineValueKobo, pipelineCount, conversionsMtd int64
 		if rows, e := db.PGQuery(ctx, `
 			SELECT
-				COUNT(*) FILTER (WHERE created_at::date BETWEEN $1 AND $2) AS submitted_period,
-				COUNT(*) FILTER (WHERE stage IN ('approved','active','disbursed') AND created_at::date BETWEEN $1 AND $2) AS approved_period,
-				COALESCE(SUM(disbursed_amount_kobo) FILTER (WHERE stage = 'active' AND created_at::date BETWEEN $1 AND $2), 0) AS disbursed_kobo_period,
-				COALESCE(SUM(amount_requested_kobo) FILTER (WHERE stage NOT IN ('declined','cancelled')), 0) AS total_pipeline_kobo
-			FROM loan_applications`, d(cs), d(ce)); e == nil && len(rows) > 0 {
-			submittedPeriod = toInt64(rows[0]["submitted_period"])
-			approvedPeriod = toInt64(rows[0]["approved_period"])
-			disbursedKoboPeriod = toInt64(rows[0]["disbursed_kobo_period"])
-			totalPipelineKobo = toInt64(rows[0]["total_pipeline_kobo"])
+				COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status NOT IN ('Closed','Revoked')), 0) AS pipeline_value_kobo,
+				COUNT(*) FILTER (WHERE status NOT IN ('Closed','Revoked'))                                     AS pipeline_count,
+				COUNT(*) FILTER (WHERE start_date::date BETWEEN $1 AND $2)                                      AS conversions_period
+			FROM cbs_loans`, d(cs), d(ce)); e == nil && len(rows) > 0 {
+			pipelineValueKobo = toInt64(rows[0]["pipeline_value_kobo"])
+			pipelineCount = toInt64(rows[0]["pipeline_count"])
+			conversionsMtd = toInt64(rows[0]["conversions_period"])
 		}
 
-		var conversionRate float64
-		if submittedPeriod > 0 {
-			conversionRate = round1(float64(approvedPeriod) / float64(submittedPeriod) * 100)
-		}
-
-		stageBreakdown := make([]map[string]any, 0)
+		// Pipeline stages = loan status mix (open book).
+		pipelineStages := make([]map[string]any, 0)
 		if rows, e := db.PGQuery(ctx, `
-			SELECT stage, COUNT(*) AS count
-			FROM loan_applications
-			GROUP BY stage
-			ORDER BY count DESC`); e == nil {
+			SELECT status AS stage, COUNT(*) AS count,
+			       COALESCE(SUM(outstanding_principal_kobo), 0) AS value_kobo
+			FROM cbs_loans
+			WHERE status NOT IN ('Closed','Revoked')
+			GROUP BY status ORDER BY value_kobo DESC`); e == nil {
 			for _, row := range rows {
-				stageBreakdown = append(stageBreakdown, map[string]any{
-					"stage": str(row["stage"]),
-					"count": toInt64(row["count"]),
+				pipelineStages = append(pipelineStages, map[string]any{
+					"stage": str(row["stage"]), "count": toInt64(row["count"]), "value_kobo": toInt64(row["value_kobo"]),
+				})
+			}
+		}
+
+		// Top performers = loan officers by book size.
+		topPerformers := make([]map[string]any, 0)
+		if rows, e := db.PGQuery(ctx, `
+			SELECT officer_name AS name, COUNT(*) AS conversions,
+			       COALESCE(SUM(outstanding_principal_kobo), 0) AS value_kobo
+			FROM cbs_loans
+			WHERE status NOT IN ('Closed','Revoked') AND officer_name IS NOT NULL AND officer_name <> ''
+			GROUP BY officer_name ORDER BY value_kobo DESC LIMIT 10`); e == nil {
+			for _, row := range rows {
+				topPerformers = append(topPerformers, map[string]any{
+					"name": str(row["name"]), "conversions": toInt64(row["conversions"]), "value_kobo": toInt64(row["value_kobo"]),
+				})
+			}
+		}
+
+		// Monthly trend = loans booked per month (real "conversions"); no call data.
+		monthlyTrend := make([]map[string]any, 0)
+		if rows, e := db.PGQuery(ctx, `
+			WITH months AS (
+				SELECT generate_series(DATE_TRUNC('month', NOW()) - INTERVAL '5 months',
+				                       DATE_TRUNC('month', NOW()), '1 month'::interval) AS m)
+			SELECT TO_CHAR(mo.m, 'Mon YY') AS month,
+			       COALESCE((SELECT COUNT(*) FROM cbs_loans l WHERE DATE_TRUNC('month', l.start_date) = mo.m), 0) AS conversions
+			FROM months mo ORDER BY mo.m`); e == nil {
+			for _, row := range rows {
+				monthlyTrend = append(monthlyTrend, map[string]any{
+					"month": str(row["month"]), "calls": 0, "conversions": toInt64(row["conversions"]),
 				})
 			}
 		}
 
 		respond(w, map[string]any{
-			"period":                 map[string]any{"type": period, "start": d(cs), "end": d(ce)},
-			"submitted_period":       submittedPeriod,
-			"approved_period":        approvedPeriod,
-			"disbursed_kobo_period":  disbursedKoboPeriod,
-			"total_pipeline_kobo":    totalPipelineKobo,
-			"conversion_rate":        conversionRate,
-			"stage_breakdown":        stageBreakdown,
+			"period":              map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"pipeline_value_kobo": pipelineValueKobo,
+			"pipeline_count":      pipelineCount,
+			"conversions_mtd":     conversionsMtd,
+			"conversion_rate_pct": 0,
+			"targets_achieved_pct": 0,
+			"meetings_held_mtd":   0,
+			"pipeline_stages":     pipelineStages,
+			"top_performers":      topPerformers,
+			"monthly_trend":       monthlyTrend,
 		}, "pg")
 	}
 }
 
+// execCollectionsHandler returns the Collections drilldown shape derived from the CBS
+// loan book (native collections tables are empty). DPD buckets are computed from days
+// past maturity_date on the open book. There is no collections-activity ledger (agent
+// contacts, promises, collected amounts), so those KPIs / trend / agents are zero/empty.
 func execCollectionsHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		period := qstr(r, "period")
-		if period == "" {
-			period = "month"
-		}
-		cs, ce, _, _, err := periodDates(period, qstr(r, "start"), qstr(r, "end"))
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
+		cs, ce, _, _ := execRange(r)
 		ctx := r.Context()
 
-		var totalAssigned, totalOutstandingKobo int64
+		var v30, v60, v90p int64
+		var c30, c60, c6190, c90p, cCurCnt int64
 		if rows, e := db.PGQuery(ctx, `
-			SELECT COUNT(*) AS total_assigned, COALESCE(SUM(outstanding_kobo), 0) AS total_outstanding_kobo
-			FROM collection_assignments`); e == nil && len(rows) > 0 {
-			totalAssigned = toInt64(rows[0]["total_assigned"])
-			totalOutstandingKobo = toInt64(rows[0]["total_outstanding_kobo"])
+			WITH b AS (
+				SELECT outstanding_principal_kobo AS op, (CURRENT_DATE - maturity_date::date) AS od
+				FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
+			SELECT
+				COUNT(*) FILTER (WHERE od <= 0)             AS c_cur,
+				COUNT(*) FILTER (WHERE od BETWEEN 1 AND 30) AS c_30,
+				COALESCE(SUM(op) FILTER (WHERE od BETWEEN 1 AND 30), 0)  AS v_30,
+				COUNT(*) FILTER (WHERE od BETWEEN 31 AND 60) AS c_60,
+				COALESCE(SUM(op) FILTER (WHERE od BETWEEN 31 AND 60), 0) AS v_60,
+				COUNT(*) FILTER (WHERE od BETWEEN 61 AND 90) AS c_6190,
+				COUNT(*) FILTER (WHERE od > 90)              AS c_90p,
+				COALESCE(SUM(op) FILTER (WHERE od > 90), 0)  AS v_90p
+			FROM b`); e == nil && len(rows) > 0 {
+			cCurCnt = toInt64(rows[0]["c_cur"])
+			c30 = toInt64(rows[0]["c_30"])
+			v30 = toInt64(rows[0]["v_30"])
+			c60 = toInt64(rows[0]["c_60"])
+			v60 = toInt64(rows[0]["v_60"])
+			c6190 = toInt64(rows[0]["c_6190"])
+			c90p = toInt64(rows[0]["c_90p"])
+			v90p = toInt64(rows[0]["v_90p"])
 		}
 
-		var contactsThisPeriod int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT COUNT(*) AS cnt
-			FROM collection_contacts
-			WHERE created_at::date BETWEEN $1 AND $2`, d(cs), d(ce)); e == nil && len(rows) > 0 {
-			contactsThisPeriod = toInt64(rows[0]["cnt"])
+		dpdBreakdown := []map[string]any{
+			{"bucket": "Current", "count": cCurCnt},
+			{"bucket": "1-30", "count": c30},
+			{"bucket": "31-60", "count": c60},
+			{"bucket": "61-90", "count": c6190},
+			{"bucket": "90+", "count": c90p},
 		}
 
-		var ptpsActive int64
+		respond(w, map[string]any{
+			"period":              map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"collected_mtd_kobo":  0,
+			"collected_change_pct": 0,
+			"collection_rate_pct": 0,
+			"promise_rate_pct":    0,
+			"par30_value_kobo":    v30,
+			"par30_count":         c30,
+			"par60_value_kobo":    v60,
+			"par60_count":         c60,
+			"par90_value_kobo":    v90p,
+			"par90_count":         c90p,
+			"recovery_rate_pct":   0,
+			"writeoff_mtd_kobo":   0,
+			"dpd_breakdown":       dpdBreakdown,
+			"monthly_trend":       []any{},
+			"top_agents":          []any{},
+		}, "pg")
+	}
+}
+
+// execRiskHandler returns the Risk drilldown shape from the CBS loan book. Portfolio,
+// NPL (Defaulting/Expired), average loan size, top-10 concentration and product
+// concentration are real. DPD "trend" is the current point-in-time bucket (there is no
+// stored per-month DPD history); vintage performance has no source yet → empty.
+func execRiskHandler(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cs, ce, _, _ := execRange(r)
+		ctx := r.Context()
+
+		var portfolioKobo, nplKobo, avgLoanKobo, top10Kobo int64
 		if rows, e := db.PGQuery(ctx, `
-			SELECT COUNT(*) AS cnt
-			FROM collection_promises
-			WHERE is_kept = FALSE AND promised_date >= CURRENT_DATE`); e == nil && len(rows) > 0 {
-			ptpsActive = toInt64(rows[0]["cnt"])
+			WITH o AS (
+				SELECT outstanding_principal_kobo AS op, loan_amount_kobo AS la, status
+				FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
+			SELECT
+				COALESCE(SUM(op), 0)                                                  AS portfolio,
+				COALESCE(SUM(op) FILTER (WHERE status IN ('Defaulting','Expired')), 0) AS npl,
+				COALESCE(AVG(la), 0)::bigint                                          AS avg_loan,
+				(SELECT COALESCE(SUM(op2), 0) FROM (SELECT op AS op2 FROM o ORDER BY op DESC LIMIT 10) t) AS top10
+			FROM o`); e == nil && len(rows) > 0 {
+			portfolioKobo = toInt64(rows[0]["portfolio"])
+			nplKobo = toInt64(rows[0]["npl"])
+			avgLoanKobo = toInt64(rows[0]["avg_loan"])
+			top10Kobo = toInt64(rows[0]["top10"])
+		}
+		nplPct, concTop10 := 0.0, 0.0
+		if portfolioKobo > 0 {
+			nplPct = round1(float64(nplKobo) / float64(portfolioKobo) * 100)
+			concTop10 = round1(float64(top10Kobo) / float64(portfolioKobo) * 100)
 		}
 
-		bucketBreakdown := make([]map[string]any, 0)
+		productConc := make([]map[string]any, 0)
 		if rows, e := db.PGQuery(ctx, `
-			SELECT dpd_bucket, COUNT(*) AS count, COALESCE(SUM(outstanding_kobo), 0) AS outstanding_kobo
-			FROM collection_assignments
-			WHERE dpd_bucket IS NOT NULL
-			GROUP BY dpd_bucket
-			ORDER BY dpd_bucket`); e == nil {
+			SELECT COALESCE(NULLIF(product_name,''),'Other') AS product, COUNT(*) AS count,
+			       COALESCE(SUM(outstanding_principal_kobo), 0) AS outstanding_kobo
+			FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')
+			GROUP BY 1 ORDER BY outstanding_kobo DESC`); e == nil {
 			for _, row := range rows {
-				bucketBreakdown = append(bucketBreakdown, map[string]any{
-					"dpd_bucket":      str(row["dpd_bucket"]),
-					"count":           toInt64(row["count"]),
-					"outstanding_kobo": toInt64(row["outstanding_kobo"]),
+				productConc = append(productConc, map[string]any{
+					"product": str(row["product"]), "count": toInt64(row["count"]), "outstanding_kobo": toInt64(row["outstanding_kobo"]),
 				})
 			}
 		}
 
+		// DPD "trend" — current point-in-time buckets (no per-month history stored).
+		dpdTrend := make([]map[string]any, 0)
+		if rows, e := db.PGQuery(ctx, `
+			WITH b AS (SELECT (CURRENT_DATE - maturity_date::date) AS od
+			           FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
+			SELECT
+				COUNT(*) FILTER (WHERE od BETWEEN 1 AND 30)  AS par30,
+				COUNT(*) FILTER (WHERE od BETWEEN 31 AND 60) AS par60,
+				COUNT(*) FILTER (WHERE od > 90)              AS par90
+			FROM b`); e == nil && len(rows) > 0 {
+			dpdTrend = append(dpdTrend, map[string]any{
+				"month": time.Now().Format("Jan 06"),
+				"par30": toInt64(rows[0]["par30"]),
+				"par60": toInt64(rows[0]["par60"]),
+				"par90": toInt64(rows[0]["par90"]),
+			})
+		}
+
 		respond(w, map[string]any{
-			"period":                  map[string]any{"type": period, "start": d(cs), "end": d(ce)},
-			"total_assigned":          totalAssigned,
-			"total_outstanding_kobo":  totalOutstandingKobo,
-			"contacts_this_period":    contactsThisPeriod,
-			"ptps_active":             ptpsActive,
-			"bucket_breakdown":        bucketBreakdown,
+			"period":                    map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"portfolio_outstanding_kobo": portfolioKobo,
+			"npl_rate_pct":              nplPct,
+			"concentration_top10_pct":   concTop10,
+			"avg_loan_size_kobo":        avgLoanKobo,
+			"dpd_trend":                 dpdTrend,
+			"product_concentration":     productConc,
+			"vintage_performance":       []any{},
 		}, "pg")
 	}
 }
 
-func execRiskHandler(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		period := qstr(r, "period")
-		if period == "" {
-			period = "month"
-		}
-		cs, ce, _, _, err := periodDates(period, qstr(r, "start"), qstr(r, "end"))
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
-		ctx := r.Context()
-
-		var totalPortfolioKobo, delinquentKobo, nplKobo int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT
-				COALESCE(SUM(outstanding_kobo), 0) AS total_portfolio_kobo,
-				COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 0), 0) AS delinquent_kobo,
-				COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 90), 0) AS npl_kobo
-			FROM loan_applications
-			WHERE stage = 'active'`); e == nil && len(rows) > 0 {
-			totalPortfolioKobo = toInt64(rows[0]["total_portfolio_kobo"])
-			delinquentKobo = toInt64(rows[0]["delinquent_kobo"])
-			nplKobo = toInt64(rows[0]["npl_kobo"])
-		}
-
-		var nplPct, delinquencyRate float64
-		if totalPortfolioKobo > 0 {
-			nplPct = round1(float64(nplKobo) / float64(totalPortfolioKobo) * 100)
-			delinquencyRate = round1(float64(delinquentKobo) / float64(totalPortfolioKobo) * 100)
-		}
-
-		var recoveryCasesOpen, recoveredPeriodKobo int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT
-				COUNT(*) FILTER (WHERE status NOT IN ('closed','written_off')) AS recovery_cases_open,
-				COALESCE(SUM(recovered_kobo) FILTER (WHERE opened_at::date BETWEEN $1 AND $2), 0) AS recovered_period_kobo
-			FROM recovery_cases`, d(cs), d(ce)); e == nil && len(rows) > 0 {
-			recoveryCasesOpen = toInt64(rows[0]["recovery_cases_open"])
-			recoveredPeriodKobo = toInt64(rows[0]["recovered_period_kobo"])
-		}
-
-		respond(w, map[string]any{
-			"period":                 map[string]any{"type": period, "start": d(cs), "end": d(ce)},
-			"total_portfolio_kobo":   totalPortfolioKobo,
-			"delinquent_kobo":        delinquentKobo,
-			"npl_kobo":               nplKobo,
-			"npl_pct":                nplPct,
-			"par90_pct":              nplPct,
-			"delinquency_rate":       delinquencyRate,
-			"recovery_cases_open":    recoveryCasesOpen,
-			"recovered_period_kobo":  recoveredPeriodKobo,
-		}, "pg")
-	}
-}
-
+// execHRHandler returns the HR drilldown shape. The employees / leave_applications
+// tables are currently empty (HR not yet integrated), so these come back zero/empty —
+// the queries use the real column names so numbers appear automatically once data lands.
+// Returns both the rich drilldown fields and the thin fields the Overview HR tile reads.
 func execHRHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		period := qstr(r, "period")
-		if period == "" {
-			period = "month"
-		}
-		cs, ce, _, _, err := periodDates(period, qstr(r, "start"), qstr(r, "end"))
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
+		cs, ce, _, _ := execRange(r)
 		ctx := r.Context()
 
-		var totalEmployees, activeEmployees, onLeaveToday, newHiresPeriod int64
+		var totalEmployees, activeEmployees, newHires, payrollKobo int64
 		if rows, e := db.PGQuery(ctx, `
 			SELECT
-				COUNT(*) AS total_employees,
-				COUNT(*) FILTER (WHERE employment_status = 'active') AS active_employees,
-				COUNT(*) FILTER (WHERE employment_status = 'on_leave') AS on_leave_today,
-				COUNT(*) FILTER (WHERE created_at::date BETWEEN $1 AND $2) AS new_hires_period
+				COUNT(*)                                                       AS total_employees,
+				COUNT(*) FILTER (WHERE status = 'active')                      AS active_employees,
+				COUNT(*) FILTER (WHERE employment_date BETWEEN $1 AND $2)       AS new_hires,
+				COALESCE(SUM(salary_kobo) FILTER (WHERE status = 'active'), 0)  AS payroll_kobo
 			FROM employees`, d(cs), d(ce)); e == nil && len(rows) > 0 {
 			totalEmployees = toInt64(rows[0]["total_employees"])
 			activeEmployees = toInt64(rows[0]["active_employees"])
-			onLeaveToday = toInt64(rows[0]["on_leave_today"])
-			newHiresPeriod = toInt64(rows[0]["new_hires_period"])
+			newHires = toInt64(rows[0]["new_hires"])
+			payrollKobo = toInt64(rows[0]["payroll_kobo"])
 		}
 
-		var pendingLeaveRequests int64
+		var leavesPending, leavesActive int64
 		if rows, e := db.PGQuery(ctx, `
-			SELECT COUNT(*) AS cnt
-			FROM leave_applications
-			WHERE status = 'pending'`); e == nil && len(rows) > 0 {
-			pendingLeaveRequests = toInt64(rows[0]["cnt"])
+			SELECT
+				COUNT(*) FILTER (WHERE status = 'pending')                                                       AS pending,
+				COUNT(*) FILTER (WHERE status = 'approved' AND CURRENT_DATE BETWEEN start_date AND end_date)      AS active
+			FROM leave_applications`); e == nil && len(rows) > 0 {
+			leavesPending = toInt64(rows[0]["pending"])
+			leavesActive = toInt64(rows[0]["active"])
 		}
 
 		deptBreakdown := make([]map[string]any, 0)
 		if rows, e := db.PGQuery(ctx, `
-			SELECT department, COUNT(*) AS count
-			FROM employees
-			WHERE department IS NOT NULL
-			GROUP BY department
-			ORDER BY count DESC`); e == nil {
+			SELECT COALESCE(dp.name, 'Unassigned') AS dept, COUNT(*) AS count
+			FROM employees e LEFT JOIN departments dp ON dp.id = e.department_id
+			WHERE e.status = 'active'
+			GROUP BY dp.name ORDER BY count DESC`); e == nil {
 			for _, row := range rows {
 				deptBreakdown = append(deptBreakdown, map[string]any{
-					"department": str(row["department"]),
-					"count":      toInt64(row["count"]),
+					"dept": str(row["dept"]), "count": toInt64(row["count"]),
 				})
 			}
 		}
 
 		respond(w, map[string]any{
-			"period":                  map[string]any{"type": period, "start": d(cs), "end": d(ce)},
-			"total_employees":         totalEmployees,
-			"active_employees":        activeEmployees,
-			"on_leave_today":          onLeaveToday,
-			"new_hires_period":        newHiresPeriod,
-			"pending_leave_requests":  pendingLeaveRequests,
-			"dept_breakdown":          deptBreakdown,
+			"period":                 map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"headcount":              activeEmployees,
+			"headcount_change":       0,
+			"new_hires_mtd":          newHires,
+			"departures_mtd":         0,
+			"attrition_rate_pct":     0,
+			"payroll_cost_kobo":      payrollKobo,
+			"payroll_change_pct":     0,
+			"headcount_trend":        []any{},
+			"dept_breakdown":         deptBreakdown,
+			"leaves_pending":         leavesPending,
+			"leaves_active":          leavesActive,
+			"total_employees":        totalEmployees,
+			"active_employees":       activeEmployees,
+			"new_hires_period":       newHires,
+			"pending_leave_requests": leavesPending,
 		}, "pg")
 	}
 }
 
+// execSettlementsHandler returns the Settlements drilldown shape. settlement_batches is
+// currently empty (settlements not yet integrated), so amounts/series come back
+// zero/empty. Returns both the rich drilldown fields and the thin fields the Overview
+// Settlements tile reads.
 func execSettlementsHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		period := qstr(r, "period")
-		if period == "" {
-			period = "month"
-		}
-		cs, ce, _, _, err := periodDates(period, qstr(r, "start"), qstr(r, "end"))
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
+		cs, ce, _, _ := execRange(r)
 		ctx := r.Context()
 
 		var pendingCount, settledPeriodCount, failedPeriod int64
-		var pendingAmountKobo, settledPeriodKobo, totalSettledAllTimeKobo int64
+		var pendingKobo, settledPeriodKobo int64
 		if rows, e := db.PGQuery(ctx, `
 			SELECT
 				COUNT(*) FILTER (WHERE status = 'pending') AS pending_count,
-				COALESCE(SUM(total_amount) FILTER (WHERE status = 'pending'), 0) AS pending_amount_kobo,
-				COUNT(*) FILTER (WHERE status = 'settled' AND created_at::date BETWEEN $1 AND $2) AS settled_period_count,
-				COALESCE(SUM(total_amount) FILTER (WHERE status = 'settled' AND created_at::date BETWEEN $1 AND $2), 0) AS settled_period_kobo,
-				COUNT(*) FILTER (WHERE status = 'failed' AND created_at::date BETWEEN $1 AND $2) AS failed_period,
-				COALESCE(SUM(total_amount) FILTER (WHERE status = 'settled'), 0) AS total_settled_all_time_kobo
+				COALESCE(SUM(total_amount) FILTER (WHERE status = 'pending'), 0) AS pending_kobo,
+				COUNT(*) FILTER (WHERE status = 'settled' AND created_at::date BETWEEN $1 AND $2) AS settled_count,
+				COALESCE(SUM(total_amount) FILTER (WHERE status = 'settled' AND created_at::date BETWEEN $1 AND $2), 0) AS settled_kobo,
+				COUNT(*) FILTER (WHERE status = 'failed' AND created_at::date BETWEEN $1 AND $2) AS failed_period
 			FROM settlement_batches`, d(cs), d(ce)); e == nil && len(rows) > 0 {
 			pendingCount = toInt64(rows[0]["pending_count"])
-			pendingAmountKobo = toInt64(rows[0]["pending_amount_kobo"])
-			settledPeriodCount = toInt64(rows[0]["settled_period_count"])
-			settledPeriodKobo = toInt64(rows[0]["settled_period_kobo"])
+			pendingKobo = toInt64(rows[0]["pending_kobo"])
+			settledPeriodCount = toInt64(rows[0]["settled_count"])
+			settledPeriodKobo = toInt64(rows[0]["settled_kobo"])
 			failedPeriod = toInt64(rows[0]["failed_period"])
-			totalSettledAllTimeKobo = toInt64(rows[0]["total_settled_all_time_kobo"])
 		}
 
 		respond(w, map[string]any{
-			"period":                      map[string]any{"type": period, "start": d(cs), "end": d(ce)},
-			"pending_count":               pendingCount,
-			"pending_amount_kobo":         pendingAmountKobo,
-			"settled_period_count":        settledPeriodCount,
-			"settled_period_kobo":         settledPeriodKobo,
-			"failed_period":               failedPeriod,
-			"total_settled_all_time_kobo": totalSettledAllTimeKobo,
-			"paystack_wallet_kobo":        paystackWalletKobo(ctx, db),
+			"period":               map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"settled_today_kobo":   settledPeriodKobo,
+			"pending_kobo":         pendingKobo,
+			"paystack_wallet_kobo": paystackWalletKobo(ctx, db),
+			"nip_success_rate_pct": 0,
+			"recon_rate_pct":       0,
+			"open_exceptions":      failedPeriod,
+			"exception_value_kobo": 0,
+			"failed_count":         failedPeriod,
+			"daily_trend":          []any{},
+			"channel_volumes":      []any{},
+			"settled_period_kobo":  settledPeriodKobo,
+			"pending_count":        pendingCount,
+			"failed_period":        failedPeriod,
+			"settled_period_count": settledPeriodCount,
 		}, "pg")
+	}
+}
+
+// execFixedDepositsHandler returns the Fixed Deposits executive drilldown, entirely
+// from the CBS/Udara register (cbs_fixed_deposits) — FD is a first-class product line.
+// principal_kobo / accrued_interest_kobo are already in kobo.
+func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		out := map[string]any{
+			"fd_book_kobo": 0, "fd_count": 0, "accrued_interest_kobo": 0,
+			"avg_rate_pct": 0.0, "maturing_30d": 0, "maturing_90d": 0,
+			"maturity_ladder": []any{}, "product_breakdown": []any{},
+			"tenor_breakdown": []any{}, "top_deposits": []any{},
+		}
+
+		if rows, e := db.PGQuery(ctx, `
+			SELECT
+				COALESCE(SUM(principal_kobo) FILTER (WHERE status='Active'), 0)        AS book,
+				COUNT(*) FILTER (WHERE status='Active')                               AS cnt,
+				COALESCE(SUM(accrued_interest_kobo) FILTER (WHERE status='Active'), 0) AS accrued,
+				COALESCE(ROUND(AVG(interest_rate) FILTER (WHERE status='Active'), 1), 0) AS avg_rate,
+				COUNT(*) FILTER (WHERE status='Active' AND maturity_date BETWEEN NOW() AND NOW()+INTERVAL '30 days') AS mat30,
+				COUNT(*) FILTER (WHERE status='Active' AND maturity_date BETWEEN NOW() AND NOW()+INTERVAL '90 days') AS mat90
+			FROM cbs_fixed_deposits`); e == nil && len(rows) > 0 {
+			out["fd_book_kobo"] = toInt64(rows[0]["book"])
+			out["fd_count"] = toInt64(rows[0]["cnt"])
+			out["accrued_interest_kobo"] = toInt64(rows[0]["accrued"])
+			out["avg_rate_pct"] = toFloat(rows[0]["avg_rate"])
+			out["maturing_30d"] = toInt64(rows[0]["mat30"])
+			out["maturing_90d"] = toInt64(rows[0]["mat90"])
+		}
+
+		// Maturity ladder — expected payouts (principal + accrued) per month, 12 fwd.
+		ladder := make([]map[string]any, 0)
+		if rows, e := db.PGQuery(ctx, `
+			WITH months AS (
+				SELECT generate_series(DATE_TRUNC('month', NOW()),
+				                       DATE_TRUNC('month', NOW()) + INTERVAL '11 months', '1 month'::interval) AS m)
+			SELECT TO_CHAR(mo.m, 'Mon YY') AS month,
+			       COALESCE((SELECT SUM(principal_kobo + COALESCE(accrued_interest_kobo, 0))
+			                 FROM cbs_fixed_deposits f
+			                 WHERE f.status='Active' AND DATE_TRUNC('month', f.maturity_date) = mo.m), 0) AS payout_kobo
+			FROM months mo ORDER BY mo.m`); e == nil {
+			for _, row := range rows {
+				ladder = append(ladder, map[string]any{"month": str(row["month"]), "payout_kobo": toInt64(row["payout_kobo"])})
+			}
+		}
+		out["maturity_ladder"] = ladder
+
+		// Product breakdown by principal.
+		products := make([]map[string]any, 0)
+		if rows, e := db.PGQuery(ctx, `
+			SELECT COALESCE(NULLIF(product_name,''),'Other') AS product, COUNT(*) AS count,
+			       COALESCE(SUM(principal_kobo), 0) AS principal_kobo
+			FROM cbs_fixed_deposits WHERE status='Active'
+			GROUP BY 1 ORDER BY principal_kobo DESC`); e == nil {
+			for _, row := range rows {
+				products = append(products, map[string]any{
+					"product": str(row["product"]), "count": toInt64(row["count"]), "principal_kobo": toInt64(row["principal_kobo"]),
+				})
+			}
+		}
+		out["product_breakdown"] = products
+
+		// Tenor buckets.
+		tenor := make([]map[string]any, 0)
+		if rows, e := db.PGQuery(ctx, `
+			SELECT bucket, COUNT(*) AS count, COALESCE(SUM(principal_kobo),0) AS principal_kobo FROM (
+				SELECT principal_kobo,
+					CASE WHEN tenor_days <= 90 THEN '0-90d'
+					     WHEN tenor_days <= 180 THEN '91-180d'
+					     WHEN tenor_days <= 365 THEN '181-365d'
+					     ELSE '365d+' END AS bucket,
+					CASE WHEN tenor_days <= 90 THEN 1 WHEN tenor_days <= 180 THEN 2 WHEN tenor_days <= 365 THEN 3 ELSE 4 END AS ord
+				FROM cbs_fixed_deposits WHERE status='Active') s
+			GROUP BY bucket, ord ORDER BY ord`); e == nil {
+			for _, row := range rows {
+				tenor = append(tenor, map[string]any{
+					"bucket": str(row["bucket"]), "count": toInt64(row["count"]), "principal_kobo": toInt64(row["principal_kobo"]),
+				})
+			}
+		}
+		out["tenor_breakdown"] = tenor
+
+		// Largest deposits.
+		top := make([]map[string]any, 0)
+		if rows, e := db.PGQuery(ctx, `
+			SELECT cbs_account_number AS account, COALESCE(NULLIF(product_name,''),'Other') AS product,
+			       principal_kobo, COALESCE(interest_rate,0) AS rate, maturity_date::date::text AS maturity
+			FROM cbs_fixed_deposits WHERE status='Active'
+			ORDER BY principal_kobo DESC LIMIT 10`); e == nil {
+			for _, row := range rows {
+				top = append(top, map[string]any{
+					"account": str(row["account"]), "product": str(row["product"]),
+					"principal_kobo": toInt64(row["principal_kobo"]), "rate": toFloat(row["rate"]), "maturity": str(row["maturity"]),
+				})
+			}
+		}
+		out["top_deposits"] = top
+
+		respond(w, out, "pg")
 	}
 }
 

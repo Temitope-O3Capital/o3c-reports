@@ -45,6 +45,7 @@ const ExecCollections = lazy(() => import('./pages/executive/Collections'))
 const ExecRisk        = lazy(() => import('./pages/executive/Risk'))
 const ExecHR          = lazy(() => import('./pages/executive/HR'))
 const ExecSettlements = lazy(() => import('./pages/executive/Settlements'))
+const ExecFixedDeposits = lazy(() => import('./pages/executive/FixedDeposits'))
 const Interswitch          = lazy(() => import('./pages/cards/Interswitch'))
 const InterswitchReport    = lazy(() => import('./pages/cards/InterswitchReport'))
 const InterswitchImport    = lazy(() => import('./pages/cards/InterswitchImport'))
@@ -945,6 +946,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/executive/risk"         element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecRisk /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/hr"           element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecHR /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/settlements"  element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecSettlements /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/executive/fixed-deposits" element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecFixedDeposits /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/interswitch"           element={<RequireAccess page="settlements" user={user}><PageErrorBoundary><Interswitch /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/interswitch/half-year" element={<RequireAccess page="settlements" user={user}><PageErrorBoundary><InterswitchReport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/interswitch/import"    element={<RequireAccess page="settlements" user={user}><PageErrorBoundary><InterswitchImport /></PageErrorBoundary></RequireAccess>} />

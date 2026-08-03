@@ -101,7 +101,7 @@ export default function ExecSettlements() {
 
       {/* KPI row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="Settled Today"     value={fmtKobo(data.settled_today_kobo)}   sub={`₦${fmtKobo(data.pending_kobo)} pending`}     icon="check_circle"  accent={GREEN} />
+        <KpiCard label="Settled Today"     value={fmtKobo(data.settled_today_kobo)}   sub={`${fmtKobo(data.pending_kobo)} pending`}      icon="check_circle"  accent={GREEN} />
         <KpiCard label="Paystack Wallet"   value={fmtKobo(data.paystack_wallet_kobo)}                                                     icon="account_balance" accent={NAVY}  />
         <KpiCard label="NIP Success Rate"  value={fmtPct(data.nip_success_rate_pct)}   sub={`Recon: ${fmtPct(data.recon_rate_pct)}`}      icon="swap_horiz"    accent={data.nip_success_rate_pct < 95 ? AMBER : BLUE} />
         <KpiCard label="Open Exceptions"   value={fmtNum(data.open_exceptions)}        sub={fmtKobo(data.exception_value_kobo)}            icon="error_outline" accent={data.open_exceptions > 0 ? RED : GREEN} />
