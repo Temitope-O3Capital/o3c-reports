@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -920,6 +921,27 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 	offset := 0
 	pageSize := 100
 
+	// The Zoho Desk call record identifies the customer only by contactId and
+	// embeds the phone number in the subject. Resolve contactId -> our crm_contacts
+	// (imported with external_id = the Zoho contact id) to recover name/phone/CIF.
+	phoneRe := regexp.MustCompile(`\+?\d[\d ]{6,}\d`)
+	contactCache := map[string][3]string{}
+	resolveContact := func(cid string) (name, phone, cif string) {
+		if v, ok := contactCache[cid]; ok {
+			return v[0], v[1], v[2]
+		}
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT trim(concat(coalesce(first_name,''),' ',coalesce(last_name,''))) AS name,
+			       coalesce(phone,'') AS phone, coalesce(cif_number,'') AS cif
+			FROM crm_contacts WHERE source='zoho_desk' AND external_id=$1 LIMIT 1`, cid); len(rows) > 0 {
+			name = strings.TrimSpace(str(rows[0]["name"]))
+			phone = str(rows[0]["phone"])
+			cif = str(rows[0]["cif"])
+		}
+		contactCache[cid] = [3]string{name, phone, cif}
+		return name, phone, cif
+	}
+
 	for {
 		params := url.Values{
 			"from":  {fmt.Sprintf("%d", offset)},
@@ -970,83 +992,65 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 					return
 				}
 
-				rawType := strings.ToLower(zohoStr(c["callType"]))
-				direction := "inbound"
-				if strings.Contains(rawType, "outbound") || strings.Contains(rawType, "outgoing") {
-					direction = "outbound"
+				// Real field: direction is "inbound"/"outbound".
+				direction := strings.ToLower(zohoStr(c["direction"]))
+				if direction != "inbound" && direction != "outbound" {
+					direction = "inbound"
 				}
-
-				outcome := "resolved"
-				rawStatus := strings.ToLower(zohoStr(c["callStatus"]))
-				if strings.Contains(rawStatus, "miss") || strings.Contains(rawStatus, "abandon") {
+				
+				// Outcome from status ("Missed", "Answered", etc).
+				st := strings.ToLower(zohoStr(c["status"]))
+				outcome := "completed"
+				if strings.Contains(st, "miss") || strings.Contains(st, "unanswer") ||
+					strings.Contains(st, "no answer") || strings.Contains(st, "abandon") ||
+					strings.Contains(st, "declin") {
 					outcome = "missed"
 				}
-
-				// Duration: try seconds int, then "HH:MM:SS" string, then millis
-				durSec := zohoParseDurationSec(c["callDuration"])
-				if durSec == nil {
-					durSec = zohoParseDurationSec(c["duration"])
-				}
-
-				// Agent: try direct field then nested owner/agent objects
-				agentName := zohoStr(c["agentName"])
-				if agentName == "" {
-					if owner, ok := c["owner"].(map[string]any); ok {
-						agentName = zohoStr(owner["name"])
+				
+				// Duration = completedTime - startTime (no explicit duration field).
+				var durSec *int
+				if comp := zohoParseTime(c["completedTime"]); !comp.IsZero() && comp.After(startedAt) {
+					d := int(comp.Sub(startedAt).Seconds())
+					if d >= 0 {
+						durSec = &d
 					}
 				}
-				if agentName == "" {
-					if ag, ok := c["agent"].(map[string]any); ok {
-						agentName = zohoStr(ag["name"])
-					}
+				
+				// Agent from modifiedBy (the O3 agent on the record).
+				agentName := ""
+				if mb, ok := c["modifiedBy"].(map[string]any); ok {
+					agentName = strings.TrimSpace(zohoStr(mb["firstName"]) + " " + zohoStr(mb["lastName"]))
 				}
-
-				// Customer phone: Zoho Desk uses callerNumber for inbound
-				custPhone := zohoStr(c["callerNumber"])
-				if custPhone == "" {
-					custPhone = zohoStr(c["customerNumber"])
+				
+				// Customer via the Zoho contact id -> crm_contacts; phone falls back to subject.
+				var custName, custPhone, custCIF string
+				if cid := zohoStr(c["contactId"]); cid != "" {
+					custName, custPhone, custCIF = resolveContact(cid)
 				}
-				if custPhone == "" {
-					custPhone = zohoStr(c["from"])
+				if !isNameLike(custName) {
+					custName = ""
 				}
 				if custPhone == "" {
-					if contact, ok := c["contact"].(map[string]any); ok {
-						custPhone = zohoStr(contact["phone"])
+					if m := phoneRe.FindString(zohoStr(c["subject"])); m != "" {
+						custPhone = strings.ReplaceAll(m, " ", "")
 					}
 				}
-
-				// Customer name
-				custName := zohoStr(c["callerName"])
-				if custName == "" {
-					if contact, ok := c["contact"].(map[string]any); ok {
-						fn := zohoStr(contact["firstName"])
-						ln := zohoStr(contact["lastName"])
-						custName = strings.TrimSpace(fn + " " + ln)
-					}
-				}
-
-				callTo := zohoStr(c["receiverNumber"])
-				if callTo == "" {
-					callTo = zohoStr(c["to"])
-				}
-				if callTo == "" {
-					callTo = zohoStr(c["didNumber"])
-				}
-
+				
 				res, err := db.PGExec(ctx, `
 					INSERT INTO helpdesk_calls
-					  (agent_name, customer_name, customer_phone, call_to, direction,
+					  (agent_name, customer_name, customer_phone, customer_cif, direction,
 					   duration_sec, outcome, started_at, zoho_call_id, source_system)
-					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'zoho_desk')
+					  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'zoho_desk')
 					ON CONFLICT (zoho_call_id) WHERE zoho_call_id IS NOT NULL DO UPDATE SET
 					  agent_name     = EXCLUDED.agent_name,
 					  customer_name  = EXCLUDED.customer_name,
 					  customer_phone = EXCLUDED.customer_phone,
+					  customer_cif   = EXCLUDED.customer_cif,
 					  direction      = EXCLUDED.direction,
 					  duration_sec   = EXCLUDED.duration_sec,
 					  outcome        = EXCLUDED.outcome,
 					  started_at     = EXCLUDED.started_at`,
-					agentName, custName, custPhone, callTo, direction,
+					agentName, custName, custPhone, custCIF, direction,
 					durSec, outcome, startedAt, zohoID)
 				if err != nil {
 					slog.Warn("zohoImportDeskCalls: insert", "zoho_id", zohoID, "err", err)
