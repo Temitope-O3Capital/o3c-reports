@@ -32,6 +32,7 @@ func RegisterTelemarketing(r chi.Router, db *core.DB) {
 
 	// Outbound queue (contacts + call logs)
 	r.Get("/queue", tmListQueue(db))
+	r.Post("/queue/sync-from-crm", tmSyncQueueFromCRM(db))
 	r.Post("/queue/bulk-skip", tmBulkSkip(db))
 	r.Post("/queue/export", tmExportQueue(db))
 	r.Get("/contacts/{id}/calls", tmContactCalls(db))
@@ -658,6 +659,48 @@ func tmDistribute(db *core.DB) http.HandlerFunc {
 }
 
 // ── Outbound Queue ────────────────────────────────────────────────────────────
+
+// tmSyncQueueFromCRM seeds the outbound queue from Zoho-imported CRM leads.
+// Idempotent: dedups by normalised phone and skips numbers already in the queue,
+// so it can be re-run as new leads arrive. Rows are tagged product_name='Zoho Lead'.
+func tmSyncQueueFromCRM(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		res, err := db.PGExec(r.Context(), `
+			INSERT INTO telemarketing_contacts
+			  (customer_name, phone, cif, product_name, priority, is_existing_customer, status)
+			SELECT DISTINCT ON (norm_phone)
+			  COALESCE(NULLIF(clean_name,''), phone),
+			  phone,
+			  NULLIF(cif_number,''),
+			  'Zoho Lead',
+			  'Medium',
+			  (COALESCE(cif_number,'') <> ''),
+			  'pending'
+			FROM (
+			  SELECT
+			    trim(regexp_replace(concat(COALESCE(first_name,''),' ',COALESCE(last_name,'')), '^[.[:space:]]+', '')) AS clean_name,
+			    phone,
+			    right(regexp_replace(COALESCE(phone,''), '\D', '', 'g'), 10) AS norm_phone,
+			    cif_number
+			  FROM crm_contacts
+			  WHERE source='zoho_desk' AND status='lead' AND COALESCE(phone,'') <> ''
+			) x
+			WHERE length(norm_phone) = 10
+			  AND norm_phone NOT IN (SELECT phone FROM dnc_list WHERE phone IS NOT NULL)
+			  AND NOT EXISTS (
+			    SELECT 1 FROM telemarketing_contacts t
+			    WHERE right(regexp_replace(COALESCE(t.phone,''), '\D', '', 'g'), 10) = x.norm_phone
+			  )
+			ORDER BY norm_phone, (clean_name ~ '[A-Za-z]') DESC`)
+		if err != nil {
+			respondErr(w, 500, "Sync failed: "+err.Error())
+			return
+		}
+		n, _ := res.RowsAffected()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"inserted": n}) //nolint:errcheck
+	}
+}
 
 func tmListQueue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

@@ -519,6 +519,7 @@ export default function TelemarketingQueue() {
 
   const [skipConfirm, setSkipConfirm] = useState(false)
   const [skipLoading, setSkipLoading] = useState(false)
+  const [syncLoading, setSyncLoading] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -575,6 +576,19 @@ export default function TelemarketingQueue() {
     }
   }
 
+  async function handleSyncCRM() {
+    setSyncLoading(true)
+    try {
+      const res = await apiPost<{ inserted: number }>('/api/telemarketing/queue/sync-from-crm', {})
+      toast.success(`${res.inserted ?? 0} new lead(s) added to the queue`)
+      load()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Sync failed')
+    } finally {
+      setSyncLoading(false)
+    }
+  }
+
   async function handleExport() {
     try {
       await apiPost('/api/telemarketing/queue/export', { ids: [...checkedIds] })
@@ -586,7 +600,20 @@ export default function TelemarketingQueue() {
 
   return (
     <Page title="Outbound Queue" subtitle="Telemarketing call queue" noPad
-      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          <button
+            onClick={handleSyncCRM}
+            disabled={syncLoading}
+            title="Pull Zoho-imported CRM leads into the queue"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: syncLoading ? 'wait' : 'pointer', opacity: syncLoading ? 0.7 : 1 }}
+          >
+            {syncLoading ? <Spinner size={13} color={NAVY} /> : <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>sync</span>}
+            Sync from CRM
+          </button>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        </div>
+      }
     >
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
