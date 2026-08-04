@@ -195,16 +195,6 @@ function PipelineBar({ stats, total }: { stats: ContactStats; total: number }) {
 
 function SMSBuilder({ value, onChange, canEdit, senderName }: { value: string; onChange: (v: string) => void; canEdit: boolean; senderName?: string }) {
   const taRef = useRef<HTMLTextAreaElement>(null)
-
-  function insertTag(tag: string) {
-    if (!canEdit || !taRef.current) return
-    const ta = taRef.current
-    const start = ta.selectionStart ?? ta.value.length
-    const end   = ta.selectionEnd   ?? ta.value.length
-    onChange(ta.value.slice(0, start) + tag + ta.value.slice(end))
-    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start + tag.length, start + tag.length) })
-  }
-
   const info = smsInfo(value)
   const single = info.unicode ? 70 : 160
   const pct  = Math.min(100, (info.chars / single) * 100)
@@ -215,50 +205,45 @@ function SMSBuilder({ value, onChange, canEdit, senderName }: { value: string; o
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'start' }}>
 
-      {/* Composer */}
+      {/* Composer — same clean header pattern as the WhatsApp composer */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {canEdit && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-            <PersonalizeMenu onPick={tok => insertToken(taRef.current, value, onChange, tok)} />
-            <div style={{ width: 1, height: 20, background: 'var(--bdr)' }} />
-            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Quick:</span>
-            {['{{first_name|there}}', '{{amount}}', '{{due_date}}', '{{cta_url}}'].map(tag => (
-              <button key={tag} type="button" onClick={() => insertToken(taRef.current, value, onChange, tag)}
-                style={{ fontSize: TEXT.xs, padding: '2px 9px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--th-bg)', color: 'var(--txt2)', cursor: 'pointer', fontFamily: 'monospace' }}>
-                {tag.replace(/[{}]/g, '')}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <textarea ref={taRef} value={value} onChange={e => onChange(e.target.value)}
-          disabled={!canEdit} rows={8} maxLength={480}
-          spellCheck={false} data-gramm="false"
-          placeholder={canEdit ? 'Hi {{first_name|there}}, write your SMS here…' : '—'}
-          style={{ ...fld, resize: 'vertical', fontFamily: 'monospace', lineHeight: 1.65, fontSize: TEXT.base, opacity: canEdit ? 1 : .85 }}
-        />
-
-        {/* Segment meter */}
         <div>
-          <div style={{ height: 4, background: 'var(--bdr)', borderRadius: 2, overflow: 'hidden', marginBottom: 5 }}>
-            <div style={{ width: `${pct}%`, height: '100%', background: barC, borderRadius: 2, transition: 'width 0.1s, background 0.2s' }} />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+            <label style={{ ...lbl, marginBottom: 0 }}>Message</label>
             <span style={{ fontSize: TEXT.xs, color: barC, fontFamily: 'monospace', fontWeight: FW.semibold }}>
-              {info.chars} chars · {info.segments || 1} SMS{(info.segments || 1) > 1 ? ' credits' : ''} · {info.unicode ? 'Unicode (70/part)' : 'GSM-7 (160/part)'}
+              {info.chars} · {info.segments || 1} SMS · {info.unicode ? 'Unicode' : 'GSM-7'}
             </span>
+            {canEdit && (
+              <div style={{ marginLeft: 'auto' }}>
+                <PersonalizeMenu align="right" onPick={tok => insertToken(taRef.current, value, onChange, tok)} />
+              </div>
+            )}
+          </div>
+
+          <textarea ref={taRef} value={value} onChange={e => onChange(e.target.value)}
+            disabled={!canEdit} rows={6} maxLength={480}
+            spellCheck={false} data-gramm="false"
+            placeholder={canEdit ? 'Hi {{first_name|there}}, write your SMS here…' : '—'}
+            style={{ ...fld, height: 'auto', resize: 'vertical', fontFamily: 'monospace', lineHeight: 1.6, padding: '8px 12px', fontSize: TEXT.base, opacity: canEdit ? 1 : .85 }}
+          />
+
+          {/* Segment meter */}
+          <div style={{ marginTop: 6 }}>
+            <div style={{ height: 4, background: 'var(--bdr)', borderRadius: 2, overflow: 'hidden', marginBottom: 5 }}>
+              <div style={{ width: `${pct}%`, height: '100%', background: barC, borderRadius: 2, transition: 'width 0.1s, background 0.2s' }} />
+            </div>
             {info.unicode && (
               <span style={{ fontSize: TEXT.xs, color: AMBER, display: 'flex', gap: 4, alignItems: 'center' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 13 }}>warning</span>
-                Emoji/special chars cut the limit to 70
+                Emoji/special characters switch it to Unicode — 70 chars per part
               </span>
             )}
           </div>
         </div>
 
         {canEdit && (
-          <div style={{ padding: '10px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.7 }}>
-            <strong style={{ color: 'var(--txt2)' }}>Tips:</strong> Keep to one segment (160 GSM / 70 Unicode) to save credits. A “Reply STOP to opt out” footer is appended automatically at send. Use a short link for your CTA to save characters.
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.6 }}>
+            One segment = 160 chars (GSM) / 70 (Unicode). A “Reply STOP to opt out” footer is auto-appended at send.
           </div>
         )}
       </div>
