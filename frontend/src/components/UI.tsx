@@ -1352,11 +1352,12 @@ interface ModalProps {
   onClose: () => void
   title: string
   width?: number
+  maxHeight?: string
   children: ReactNode
   footer?: ReactNode
 }
 
-export function Modal({ open, onClose, title, width = 520, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, width = 520, maxHeight, children, footer }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -1387,7 +1388,7 @@ export function Modal({ open, onClose, title, width = 520, children, footer }: M
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div ref={dialogRef} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, width: '100%', maxWidth: width, maxHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+      <div ref={dialogRef} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, width: '100%', maxWidth: width, maxHeight: maxHeight ? `min(${maxHeight}, calc(100vh - 48px))` : 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{title}</h3>
           <button onClick={onClose} style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', borderRadius: 6, color: 'var(--txt2)' }}>

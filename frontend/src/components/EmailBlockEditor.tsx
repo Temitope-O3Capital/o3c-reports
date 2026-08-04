@@ -123,6 +123,17 @@ function blockToHtml(b: EmailBlock): string {
   }
 }
 
+// parseBlocks coerces an email_blocks value into an EmailBlock[]. The API returns
+// jsonb columns as JSON STRINGS (the DB layer stringifies []byte), so templates
+// arrive with email_blocks as a string — this normalises array | string | null.
+export function parseBlocks(v: unknown): EmailBlock[] {
+  if (Array.isArray(v)) return v as EmailBlock[]
+  if (typeof v === 'string' && v.trim()) {
+    try { const p = JSON.parse(v); return Array.isArray(p) ? p as EmailBlock[] : [] } catch { return [] }
+  }
+  return []
+}
+
 export function exportToHtml(blocks: EmailBlock[] = [], settings: EmailSettings = {}): string {
   const bg = settings.background || '#E8ECF2'; const w = settings.contentWidth || 660
   // Preheader = the preview snippet inbox clients show after the subject. Hidden

@@ -12,7 +12,7 @@ import { toast } from 'sonner'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
-import EmailBlockEditor, { exportToHtml } from '../../components/EmailBlockEditor'
+import EmailBlockEditor, { exportToHtml, parseBlocks } from '../../components/EmailBlockEditor'
 import type { EmailBlock, EmailSettings } from '../../components/EmailBlockEditor'
 import PersonalizeMenu from '../../components/PersonalizeMenu'
 import { renderSample, smsInfo, subjectHints, insertToken, QUICK_EMOJIS } from '../../lib/personalize'
@@ -1008,8 +1008,9 @@ export default function CampaignDetail() {
       if (t.whatsapp_body) setWaBody(t.whatsapp_body)
     } else {
       if (t.email_subject) setEmailSubject(t.email_subject)
-      if (Array.isArray(t.email_blocks) && t.email_blocks.length > 0) {
-        setEmailBlocks({ blocks: t.email_blocks as EmailBlock[] })
+      const blocks = parseBlocks(t.email_blocks)
+      if (blocks.length > 0) {
+        setEmailBlocks(prev => ({ blocks, settings: prev.settings }))
       }
     }
     toast.success(`Template "${t.name}" applied`)

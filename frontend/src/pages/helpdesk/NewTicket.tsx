@@ -410,10 +410,12 @@ export default function NewTicketForm({
   onClose,
   onCreated,
   initial,
+  stickyFooter,
 }: {
   onClose: () => void
   onCreated: (id: number) => void
   initial?: InitialCustomer
+  stickyFooter?: boolean
 }) {
   const [ticketType, setTicketType] = useState<TicketType | null>(null)
   const [customFields, setCustomFields] = useState<Record<string, string>>({})
@@ -644,8 +646,12 @@ export default function NewTicketForm({
         />
       </div>
 
-      {/* Footer buttons */}
-      <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
+      {/* Footer buttons — pinned to the bottom of the scroll area inside the modal */}
+      <div style={stickyFooter ? {
+        display: 'flex', gap: 10, position: 'sticky', bottom: -20, zIndex: 2,
+        margin: '4px -20px -20px', padding: '12px 20px',
+        background: 'var(--card)', borderTop: '1px solid var(--bdr)',
+      } : { display: 'flex', gap: 10, paddingTop: 4 }}>
         <button
           type="submit"
           disabled={submitting}

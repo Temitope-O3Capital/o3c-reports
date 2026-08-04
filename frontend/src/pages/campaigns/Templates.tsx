@@ -8,7 +8,7 @@ import { apiFetch, apiPost, apiDelete } from '../../lib/api'
 import { toast } from 'sonner'
 import { fmtDate } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
-import { blocksToHtml, type Block } from '../../components/EmailBlockEditor'
+import { blocksToHtml, parseBlocks, type Block } from '../../components/EmailBlockEditor'
 import { STARTER_TEMPLATES, type StarterTemplate } from './starterTemplates'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ export default function CampaignTemplates() {
       await apiPost('/api/message-templates', {
         name: `${r.name} (copy)`, channel: r.channel, category: r.category,
         sms_body: r.sms_body, whatsapp_body: r.whatsapp_body,
-        email_subject: r.email_subject, email_body_html: r.email_body_html, email_blocks: r.email_blocks,
+        email_subject: r.email_subject, email_body_html: r.email_body_html, email_blocks: parseBlocks(r.email_blocks),
       })
       toast.success('Template duplicated'); load()
     } catch (ex: any) { toast.error(ex.message) }
@@ -301,7 +301,7 @@ function PreviewBody({ t }: { t: Template | StarterTemplate }) {
         </div>
         {t.channel === 'email' ? (
           <iframe
-            srcDoc={(t.email_blocks?.length ?? 0) > 0 ? blocksToHtml(Array.isArray(t.email_blocks) ? t.email_blocks : []) : ((t as Template).email_body_html ?? '')}
+            srcDoc={(() => { const b = parseBlocks(t.email_blocks); return b.length > 0 ? blocksToHtml(b) : ((t as Template).email_body_html ?? '') })()}
             style={{ width: '100%', height: 340, border: 'none', borderRadius: RADIUS.md, background: '#F4F6FA' }}
             title="Email preview" sandbox="allow-same-origin" />
         ) : (

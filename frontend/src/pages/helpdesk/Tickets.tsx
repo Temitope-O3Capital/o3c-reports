@@ -806,8 +806,8 @@ export default function Tickets() {
       </div>
 
       {/* New ticket modal */}
-      <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Ticket" width={640}>
-        <NewTicketForm onClose={() => setNewOpen(false)} onCreated={id => { setNewOpen(false); setSelectedId(id); load() }} />
+      <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Ticket" width={640} maxHeight="78vh">
+        <NewTicketForm stickyFooter onClose={() => setNewOpen(false)} onCreated={id => { setNewOpen(false); setSelectedId(id); load() }} />
       </Modal>
 
       {/* Bulk reassign modal */}

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { NAVY, BLUE, INTER, TEXT, FW, RADIUS } from '../../lib/design'
-import EmailBlockEditor, { blocksToHtml, type Block } from '../../components/EmailBlockEditor'
+import EmailBlockEditor, { blocksToHtml, parseBlocks, type Block } from '../../components/EmailBlockEditor'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -208,7 +208,7 @@ export default function CampaignTemplateEditor() {
         sms_body: t.sms_body ?? '',
         whatsapp_body: t.whatsapp_body ?? '',
         email_subject: t.email_subject ?? '',
-        email_blocks: Array.isArray(t.email_blocks) ? t.email_blocks : [],
+        email_blocks: parseBlocks(t.email_blocks),
       }))
       .catch(() => navigate('/campaigns/templates'))
       .finally(() => setLoading(false))
