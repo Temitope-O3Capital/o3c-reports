@@ -5,7 +5,7 @@ import {
   Page, SectionCard, KpiCard, ErrBanner, Modal,
   btnPrimary, btnSecondary, filterInputStyle, Spinner,
 } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
+import { apiFetch, apiPost, unwrap } from '../../lib/api'
 import { fmtNum, fmtPct, fmtDatetime, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
@@ -950,13 +950,15 @@ export default function CampaignDetail() {
       if (canEdit) {
         try { await apiFetch(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(buildPayload()) }) } catch { /* best-effort */ }
       }
-      const res = await apiPost<{ sent: number; warnings: string[] }>(`/api/campaigns/${id}/test-send`, {
+      const raw = await apiPost<any>(`/api/campaigns/${id}/test-send`, {
         to_email: testEmail || undefined,
         to_phone: testPhone || undefined,
         to_whatsapp: testWhatsApp || undefined,
       })
-      toast.success(`Test ${res.sent > 0 ? 'sent' : 'queued'}${res.warnings?.length ? ' — check warnings' : ''}`)
-      if (res.warnings?.length) res.warnings.forEach(w => toast.warning(w))
+      const res = unwrap<{ sent: number; warnings: string[] }>(raw)
+      if ((res?.sent ?? 0) > 0) toast.success(`Test sent to ${[testEmail, testPhone, testWhatsApp].filter(Boolean).join(', ')}`)
+      else toast.warning('Test not sent — check the warnings below')
+      if (res?.warnings?.length) res.warnings.forEach(w => toast.warning(w))
     } catch (ex: any) { toast.error(ex.message ?? 'Test send failed') }
     finally { setTestSending(false) }
   }
