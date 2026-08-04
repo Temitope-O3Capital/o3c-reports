@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react'
 import { Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { RED, NAVY, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import { RED, NAVY, GREEN, FW, RADIUS, SP, TEXT } from '../../lib/design'
+
+export interface InitialCustomer { cif?: string; name?: string; phone?: string }
+
+// Some source names carry a stray leading title/punctuation (e.g. ". Sunday Essien").
+function cleanName(n?: string) {
+  return (n ?? '').replace(/^[.\s]+/, '').trim()
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -307,16 +314,21 @@ function DynamicFields({
 export default function NewTicketForm({
   onClose,
   onCreated,
+  initial,
 }: {
   onClose: () => void
   onCreated: (id: number) => void
+  initial?: InitialCustomer
 }) {
   const [ticketType, setTicketType] = useState<TicketType | null>(null)
   const [customFields, setCustomFields] = useState<Record<string, string>>({})
 
-  const [customerName, setCustomerName] = useState('')
-  const [customerPhone, setCustomerPhone] = useState('')
-  const [customerCif, setCustomerCif] = useState('')
+  const [customerName, setCustomerName] = useState(cleanName(initial?.name))
+  const [customerPhone, setCustomerPhone] = useState(initial?.phone ?? '')
+  const [customerCif, setCustomerCif] = useState(initial?.cif ?? '')
+  // When we arrive from a customer profile the customer is known — lock the
+  // section to a compact confirmation chip rather than empty inputs.
+  const [customerLocked, setCustomerLocked] = useState(Boolean(initial?.cif || cleanName(initial?.name)))
 
   const [subject, setSubject] = useState('')
   const [priority, setPriority] = useState('medium')
@@ -332,6 +344,14 @@ export default function NewTicketForm({
       .then(r => setAgents(Array.isArray(r) ? r : []))
       .catch(() => setAgents([]))
   }, [])
+
+  // Keep local state in sync if the initial customer resolves after mount.
+  useEffect(() => {
+    if (initial?.cif) setCustomerCif(initial.cif)
+    if (initial?.name) setCustomerName(cleanName(initial.name))
+    if (initial?.phone) setCustomerPhone(initial.phone)
+    if (initial?.cif || cleanName(initial?.name)) setCustomerLocked(true)
+  }, [initial?.cif, initial?.name, initial?.phone])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -377,7 +397,11 @@ export default function NewTicketForm({
   )
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+    <form
+      onSubmit={handleSubmit}
+      onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSubmit(e as any) }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 22 }}
+    >
       <ErrBanner error={err} />
 
       {/* Ticket Type */}
@@ -412,20 +436,52 @@ export default function NewTicketForm({
       {/* Customer */}
       <div>
         {sectionHead('Customer')}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-          <Field label="Customer Name">
-            <input type="text" placeholder="Full name" value={customerName}
-              onChange={e => setCustomerName(e.target.value)} style={inputStyle} />
-          </Field>
-          <Field label="Phone Number">
-            <input type="tel" placeholder="e.g. 08012345678" value={customerPhone}
-              onChange={e => setCustomerPhone(e.target.value)} style={inputStyle} />
-          </Field>
-          <Field label="CIF Number (optional)">
-            <input type="text" placeholder="Customer CIF" value={customerCif}
-              onChange={e => setCustomerCif(e.target.value)} style={inputStyle} />
-          </Field>
-        </div>
+        {customerLocked ? (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+            background: 'var(--th-bg)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg,
+          }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: RADIUS.full, flexShrink: 0,
+              background: `${NAVY}12`, color: NAVY, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', fontSize: TEXT.base, fontWeight: FW.extrabold,
+            }}>
+              {(customerName || '?').split(' ').filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 2)}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)' }}>{customerName || 'Unknown customer'}</div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>
+                {customerCif && <span style={{ fontFamily: 'var(--font-mono)' }}>CIF {customerCif}</span>}
+                {customerPhone && <span>{customerPhone}</span>}
+              </div>
+            </div>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: GREEN, background: `${GREEN}14`, padding: '3px 9px', borderRadius: RADIUS.xl }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>check_circle</span>Linked
+            </span>
+            <button
+              type="button"
+              onClick={() => setCustomerLocked(false)}
+              style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
+            >
+              Change
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+            <Field label="Customer Name">
+              <input type="text" placeholder="Full name" value={customerName}
+                onChange={e => setCustomerName(e.target.value)} style={inputStyle} />
+            </Field>
+            <Field label="Phone Number">
+              <input type="tel" placeholder="e.g. 08012345678" value={customerPhone}
+                onChange={e => setCustomerPhone(e.target.value)} style={inputStyle} />
+            </Field>
+            <Field label="CIF Number (optional)">
+              <input type="text" placeholder="Customer CIF" value={customerCif}
+                onChange={e => setCustomerCif(e.target.value)} style={inputStyle} />
+            </Field>
+          </div>
+        )}
       </div>
 
       {/* Details */}
