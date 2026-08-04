@@ -686,16 +686,16 @@ export default function ContactLists() {
         open={showCreate}
         onClose={() => { setShowCreate(false); setName(''); setDesc(''); setSaveErr(null) }}
         title="New Contact List"
-        width={420}
+        width={480}
         footer={
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', flexWrap: 'wrap' }}>
             <button onClick={() => { setShowCreate(false); setName(''); setDesc(''); setSaveErr(null) }} style={btnSecondary}>Cancel</button>
             <button onClick={() => create(false)} disabled={saving || !name.trim()} style={{ ...btnSecondary, marginLeft: 'auto' }}>
               {saving ? 'Creating…' : 'Create'}
             </button>
-            <button onClick={() => create(true)} disabled={saving || !name.trim()} style={btnPrimary}>
+            <button onClick={() => create(true)} disabled={saving || !name.trim()} style={{ ...btnPrimary, opacity: saving || !name.trim() ? 0.6 : 1 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 16 }}>group_add</span>
-              Create & add contacts
+              Create &amp; add contacts
             </button>
           </div>
         }
@@ -705,6 +705,7 @@ export default function ContactLists() {
           <div>
             <label style={lbl}>List Name *</label>
             <input value={name} onChange={e => setName(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === 'Enter' && name.trim() && !saving) { e.preventDefault(); create(false) } }}
               placeholder="e.g. Active Prospects Q3" style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
           </div>
           <div>

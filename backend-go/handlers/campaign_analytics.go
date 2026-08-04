@@ -755,7 +755,7 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 			if rs, ok2 := file.(readerWithSeek); ok2 {
 				rs.Seek(0, io.SeekStart) //nolint:errcheck
 			}
-			url, ok = saveCampaignImageLocal(r, storedName, file)
+			url, ok = saveCampaignImageLocal(storedName, file)
 		}
 		if !ok {
 			respondErr(w, 503, "Image storage failed: R2 is not configured and the local uploads directory is not writable. Set the R2_* env vars or a writable UPLOAD_ROOT.")
@@ -770,10 +770,16 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 }
 
 // saveCampaignImageLocal persists an uploaded campaign image to the local uploads
-// root (served by the /uploads/* static handler) and returns an ABSOLUTE URL so
-// the image resolves inside externally-opened marketing emails. Used when R2
-// object storage isn't configured (the on-prem deployment).
-func saveCampaignImageLocal(r *http.Request, storedName string, src io.Reader) (string, bool) {
+// root (served by the /uploads/* static handler). Used when R2 object storage
+// isn't configured (the on-prem deployment).
+//
+// It returns a ROOT-RELATIVE URL ("/uploads/campaign-images/<name>") by default,
+// which is the correct, portable form: the browser resolves it against whatever
+// origin the user is on (crm.o3cards.pri, 10.1.2.30, localhost…), and the email
+// send path inlines any /uploads image as a CID attachment, so deliverability
+// doesn't depend on a reachable host. Set PUBLIC_BASE_URL only if you have a
+// genuinely public origin and want absolute links (e.g. to skip CID inlining).
+func saveCampaignImageLocal(storedName string, src io.Reader) (string, bool) {
 	dir := filepath.Join(UploadRoot(), "campaign-images")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		slog.Error("campaign image local save: mkdir failed", "dir", dir, "err", err)
@@ -789,18 +795,11 @@ func saveCampaignImageLocal(r *http.Request, storedName string, src io.Reader) (
 		slog.Error("campaign image local save: copy failed", "err", err)
 		return "", false
 	}
-	// Absolute base URL: explicit env override, else derive from the request.
-	base := strings.TrimRight(coalesce(os.Getenv("PUBLIC_BASE_URL"), os.Getenv("APP_BASE_URL")), "/")
-	if base == "" {
-		scheme := "https"
-		if p := firstForwardedValue(r.Header.Get("X-Forwarded-Proto")); p != "" {
-			scheme = p
-		} else if r.TLS == nil {
-			scheme = "http"
-		}
-		base = scheme + "://" + r.Host
+	rel := "/uploads/campaign-images/" + storedName
+	if base := strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"); base != "" {
+		return base + rel, true
 	}
-	return base + "/uploads/campaign-images/" + storedName, true
+	return rel, true
 }
 
 func uploadCampaignImageToR2(storedName, contentType string, file multipartFile) (string, bool) {

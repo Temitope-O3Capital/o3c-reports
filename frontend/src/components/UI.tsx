@@ -1366,7 +1366,10 @@ export function Modal({ open, onClose, title, width = 520, children, footer }: M
     const focusable = el.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
     const first = focusable[0]
     const last  = focusable[focusable.length - 1]
-    first?.focus()
+    // Prefer the first form field (skip the header ✕) so create/edit forms land
+    // ready to type; fall back to the first focusable for field-less dialogs.
+    const firstField = el.querySelector<HTMLElement>('input:not([type="hidden"]), select, textarea')
+    ;(firstField ?? first)?.focus()
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') { onClose(); return }
       if (e.key !== 'Tab') return
