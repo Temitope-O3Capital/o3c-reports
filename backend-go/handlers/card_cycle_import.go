@@ -272,6 +272,31 @@ func cardCycleImport(db *core.DB) http.HandlerFunc {
 			inserted++
 		}
 
+		// Risk alert: after a cycle lands, notify the relevant heads if the book shows
+		// meaningful over-limit / delinquency, so the signal is acted on — not just charted.
+		if inserted > 0 {
+			if ar, err := db.PGQuery(ctx, `
+				SELECT
+					COUNT(*) FILTER (WHERE d.overdue_amount_kobo > 0)                                               AS overdue,
+					COUNT(*) FILTER (WHERE d.credit_limit_kobo > 0 AND d.outstanding_balance_kobo > d.credit_limit_kobo) AS over_limit,
+					COALESCE(SUM(d.overdue_amount_kobo),0)::bigint                                                  AS overdue_kobo
+				FROM card_cycle_data d
+				JOIN card_products p ON p.product_code = d.product_code AND p.category='credit'
+				WHERE d.cycle_date = $1`, cycleDate.Format("2006-01-02")); err == nil && len(ar) > 0 {
+				overdue := toInt64(ar[0]["overdue"])
+				overLimit := toInt64(ar[0]["over_limit"])
+				if overdue > 0 || overLimit > 0 {
+					NotifyRoles(ctx, db, []string{"cards_ops_head", "risk_head", "head_collections", "finance_head"}, NotifPayload{
+						EventType: "card_cycle_risk",
+						Title:     fmt.Sprintf("Card cycle %s: %d overdue, %d over-limit", cycleDate.Format("2006-01-02"), overdue, overLimit),
+						Body:      fmt.Sprintf("Latest credit-card cycle imported: %d accounts overdue (₦%s), %d over their limit. Review the at-risk list.", overdue, fmtKoboStr(toInt64(ar[0]["overdue_kobo"])), overLimit),
+						ActionURL: "/cards/at-risk",
+						EntityRef: "card_cycle:" + cycleDate.Format("2006-01-02"),
+					})
+				}
+			}
+		}
+
 		_ = user
 		respond(w, map[string]any{
 			"cycle_date":      cycleDate.Format("2006-01-02"),

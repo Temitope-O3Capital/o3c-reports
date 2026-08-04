@@ -19,6 +19,7 @@ func RegisterCardsCredit(r chi.Router, db *core.DB) {
 	r.With(access).Get("/receivables-trend", ccReceivablesTrend(db))
 	r.With(access).Get("/by-product", ccByProduct(db))
 	r.With(access).Get("/accounts", ccAccounts(db))
+	r.With(access).Get("/at-risk", ccAtRisk(db))
 	r.With(access).Post("/import", cardCycleImport(db))
 }
 
@@ -44,6 +45,7 @@ func ccKPIs(db *core.DB) http.HandlerFunc {
 			"avg_balance_kobo":      int64(0),
 			"purchases_kobo":        int64(0),
 			"cash_advance_kobo":     int64(0),
+			"over_limit_accounts":   int64(0),
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
@@ -55,6 +57,7 @@ func ccKPIs(db *core.DB) http.HandlerFunc {
 				COALESCE(SUM(d.minimum_payment_kobo),0)::bigint       AS min_payment_due_kobo,
 				COALESCE(SUM(d.overdue_amount_kobo),0)::bigint        AS overdue_kobo,
 				COUNT(*) FILTER (WHERE d.overdue_amount_kobo > 0)     AS overdue_accounts,
+				COUNT(*) FILTER (WHERE d.credit_limit_kobo > 0 AND d.outstanding_balance_kobo > d.credit_limit_kobo) AS over_limit_accounts,
 				COALESCE(SUM(d.purchase_amount_kobo),0)::bigint       AS purchases_kobo,
 				COALESCE(SUM(d.cash_advance_kobo),0)::bigint          AS cash_advance_kobo
 			FROM card_cycle_data d
@@ -75,6 +78,7 @@ func ccKPIs(db *core.DB) http.HandlerFunc {
 			out["min_payment_due_kobo"] = toInt64(row["min_payment_due_kobo"])
 			out["overdue_kobo"] = toInt64(row["overdue_kobo"])
 			out["overdue_accounts"] = overdueAcct
+			out["over_limit_accounts"] = toInt64(row["over_limit_accounts"])
 			out["purchases_kobo"] = toInt64(row["purchases_kobo"])
 			out["cash_advance_kobo"] = toInt64(row["cash_advance_kobo"])
 			if limit > 0 {
@@ -187,6 +191,68 @@ func ccByProduct(db *core.DB) http.HandlerFunc {
 			rows = []core.Row{}
 		}
 		respond(w, rows, "pg")
+	}
+}
+
+// ccAtRisk — the actionable risk list: credit-card accounts that are over-limit
+// (outstanding > credit limit) and/or overdue, at the latest cycle, ranked by
+// severity, enriched with the customer name. Returns a summary + ranked rows.
+// ?filter=over_limit|overdue|all (default all).
+func ccAtRisk(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := qint(r, "limit", 100, 1, 1000)
+		offset := qint(r, "offset", 0, 0, 1<<30)
+		filter := r.URL.Query().Get("filter")
+		riskClause := "(d.overdue_amount_kobo > 0 OR (d.credit_limit_kobo > 0 AND d.outstanding_balance_kobo > d.credit_limit_kobo))"
+		switch filter {
+		case "over_limit":
+			riskClause = "(d.credit_limit_kobo > 0 AND d.outstanding_balance_kobo > d.credit_limit_kobo)"
+		case "overdue":
+			riskClause = "(d.overdue_amount_kobo > 0)"
+		}
+
+		// Summary counts + exposure over the whole at-risk set (not just the page).
+		summary := map[string]any{
+			"at_risk_accounts": int64(0), "over_limit_accounts": int64(0),
+			"overdue_accounts": int64(0), "overdue_kobo": int64(0), "over_limit_excess_kobo": int64(0),
+		}
+		if sr, err := db.PGQuery(r.Context(), `
+			SELECT
+				COUNT(*)                                                                                       AS at_risk_accounts,
+				COUNT(*) FILTER (WHERE d.credit_limit_kobo > 0 AND d.outstanding_balance_kobo > d.credit_limit_kobo) AS over_limit_accounts,
+				COUNT(*) FILTER (WHERE d.overdue_amount_kobo > 0)                                               AS overdue_accounts,
+				COALESCE(SUM(d.overdue_amount_kobo),0)::bigint                                                  AS overdue_kobo,
+				COALESCE(SUM(GREATEST(d.outstanding_balance_kobo - d.credit_limit_kobo, 0)) FILTER (WHERE d.credit_limit_kobo > 0),0)::bigint AS over_limit_excess_kobo
+			FROM card_cycle_data d
+			JOIN card_products p ON p.product_code = d.product_code AND p.category='credit'
+			WHERE d.cycle_date = `+ccLatestCycle+` AND `+riskClause, ); err == nil && len(sr) > 0 {
+			for k := range summary {
+				summary[k] = toInt64(sr[0][k])
+			}
+		}
+
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT d.account_number, d.cif,
+				TRIM(CONCAT(a."First Name", ' ', a."Last Name")) AS customer_name,
+				COALESCE(NULLIF(p.product_name,''), d.product_code) AS product,
+				d.outstanding_balance_kobo, d.credit_limit_kobo, d.overdue_amount_kobo,
+				d.minimum_payment_kobo, d.total_interest_kobo,
+				CASE WHEN d.credit_limit_kobo > 0
+					THEN ROUND(d.outstanding_balance_kobo::numeric / d.credit_limit_kobo * 100, 1)
+					ELSE 0 END AS utilization_pct,
+				(d.credit_limit_kobo > 0 AND d.outstanding_balance_kobo > d.credit_limit_kobo) AS over_limit,
+				(d.overdue_amount_kobo > 0) AS overdue
+			FROM card_cycle_data d
+			JOIN card_products p ON p.product_code = d.product_code AND p.category='credit'
+			LEFT JOIN "Accounts" a ON a."CIF Number" = d.cif
+			WHERE d.cycle_date = `+ccLatestCycle+` AND `+riskClause+`
+			ORDER BY d.overdue_amount_kobo DESC,
+			         (CASE WHEN d.credit_limit_kobo > 0 THEN d.outstanding_balance_kobo::numeric / d.credit_limit_kobo ELSE 0 END) DESC
+			LIMIT $1 OFFSET $2`, limit, offset)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, map[string]any{"summary": summary, "accounts": rows, "total": summary["at_risk_accounts"]}, "pg")
 	}
 }
 
