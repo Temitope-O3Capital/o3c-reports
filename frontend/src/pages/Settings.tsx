@@ -7,6 +7,7 @@ import { SectionCard, Spinner } from '../components/UI'
 import { apiFetch, apiPost, apiPut } from '../lib/api'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, INTER, TEXT, FW, RADIUS, SP } from '../lib/design'
 import { roleLabel } from '../lib/roles'
+import { getSoundPref, setSoundPref, getVoiceMode, setVoiceMode, playChime, primeAudio, preview, type VoiceMode } from '../lib/notifyEffects'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -519,6 +520,60 @@ const CHANNEL_ICON: Record<string, string> = { in_app: 'notifications', email: '
 const CHANNEL_LABEL: Record<string, string> = { in_app: 'In-app', email: 'Email', sms: 'SMS', push: 'Push' }
 const PREF_CHANNELS = ['in_app', 'email', 'sms']
 
+// Sound + spoken-alert opt-in (saved on this device). Mirrors the effects in
+// lib/notifyEffects; the bell reads the same preferences.
+function SoundVoiceSettings() {
+  const [soundOn, setSoundOn] = useState(getSoundPref())
+  const [voiceMode, setVoiceModeState] = useState<VoiceMode>(getVoiceMode())
+
+  const seg = (active: boolean): React.CSSProperties => ({
+    padding: '6px 14px', borderRadius: RADIUS.md, cursor: 'pointer',
+    border: `1px solid ${active ? BLUE : 'var(--input-bdr)'}`,
+    background: active ? `${BLUE}14` : 'var(--card)', color: active ? BLUE : 'var(--txt2)',
+    fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: INTER, transition: 'all 120ms',
+  })
+
+  return (
+    <SectionCard title="Sound & Voice Alerts" subtitle="Play a chime and an optional spoken announcement when a new notification arrives. Saved on this device.">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+        {/* Sound */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Notification sound</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>A soft chime on each new notification.</div>
+          </div>
+          <button
+            onClick={() => { const v = !soundOn; setSoundOn(v); setSoundPref(v); if (v) { primeAudio(); playChime() } }}
+            style={seg(soundOn)}
+          >{soundOn ? 'On' : 'Off'}</button>
+        </div>
+
+        {/* Voice */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Spoken announcement</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Reads each alert aloud in a Nigerian voice — Ezinne (female) or Abeo (male).</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {(['off', 'female', 'male'] as VoiceMode[]).map(m => (
+              <button
+                key={m}
+                onClick={() => { setVoiceModeState(m); setVoiceMode(m); if (m !== 'off') { primeAudio(); void preview(m) } }}
+                style={seg(voiceMode === m)}
+              >{m === 'off' ? 'Off' : m === 'female' ? '♀ Female' : '♂ Male'}</button>
+            ))}
+            <button
+              onClick={() => { primeAudio(); if (soundOn) playChime(); void preview(voiceMode === 'off' ? 'female' : voiceMode) }}
+              title="Play a test alert"
+              style={{ ...seg(false), background: BLUE, color: '#fff', border: 'none', fontWeight: FW.bold }}
+            >▶ Test</button>
+          </div>
+        </div>
+      </div>
+    </SectionCard>
+  )
+}
+
 function NotificationsTab() {
   const [prefs,   setPrefs]   = useState<NotifPref[]>([])
   const [loading, setLoading] = useState(true)
@@ -557,20 +612,19 @@ function NotificationsTab() {
     finally { setSaving(false) }
   }
 
-  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={22} /></div>
-
-  if (prefs.length === 0) {
-    return (
-      <SectionCard title="Notification Preferences">
-        <div style={{ color: 'var(--txt3)', fontSize: TEXT.base }}>No notification events configured for your account yet.</div>
-      </SectionCard>
-    )
-  }
-
   const grouped: Record<string, NotifPref[]> = {}
   prefs.forEach(p => { if (!grouped[p.event_type]) grouped[p.event_type] = []; grouped[p.event_type].push(p) })
 
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+      <SoundVoiceSettings />
+      {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={22} /></div>
+      ) : prefs.length === 0 ? (
+        <SectionCard title="Notification Preferences">
+          <div style={{ color: 'var(--txt3)', fontSize: TEXT.base }}>No notification events configured for your account yet.</div>
+        </SectionCard>
+      ) : (
     <SectionCard title="Notification Preferences" subtitle="Choose how you receive each type of notification" padding={false}>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
@@ -629,6 +683,8 @@ function NotificationsTab() {
         </div>
       )}
     </SectionCard>
+      )}
+    </div>
   )
 }
 
@@ -892,7 +948,11 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 ]
 
 export default function Settings() {
-  const [tab, setTab] = useState<Tab>('profile')
+  // Honor ?tab=… so deep links (e.g. the bell's "Sound & voice settings") open the right tab.
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
+    return t && TABS.some(x => x.id === t) ? t : 'profile'
+  })
   const [me,  setMe]  = useState<MeData | null>(null)
   const local = readLocalUser()
 
