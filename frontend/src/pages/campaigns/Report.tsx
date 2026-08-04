@@ -15,6 +15,7 @@ import {
 import EmailBlockEditor, { exportToHtml, parseBlocks } from '../../components/EmailBlockEditor'
 import type { EmailBlock, EmailSettings } from '../../components/EmailBlockEditor'
 import PersonalizeMenu from '../../components/PersonalizeMenu'
+import SequenceBuilder from './SequenceBuilder'
 import { renderSample, smsInfo, subjectHints, insertToken, QUICK_EMOJIS } from '../../lib/personalize'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -761,7 +762,7 @@ interface Progress {
   sent: number; delivered: number; bounced: number; progress_pct: number
 }
 
-type TabKey = 'setup' | 'content' | 'review' | 'results'
+type TabKey = 'setup' | 'content' | 'sequence' | 'review' | 'results'
 
 export default function CampaignDetail() {
   const { id }   = useParams<{ id: string }>()
@@ -1084,10 +1085,11 @@ export default function CampaignDetail() {
   const allChecksPass = checks.every(c => c.ok)
 
   const TABS: { key: TabKey; label: string; icon: string }[] = [
-    { key: 'setup',   label: 'Setup',          icon: 'settings' },
-    { key: 'content', label: 'Content',         icon: 'edit_note' },
-    { key: 'review',  label: 'Review & Launch', icon: 'rocket_launch' },
-    { key: 'results', label: 'Results',         icon: 'analytics' },
+    { key: 'setup',    label: 'Setup',          icon: 'settings' },
+    { key: 'content',  label: 'Content',         icon: 'edit_note' },
+    { key: 'sequence', label: 'Sequence',        icon: 'schedule' },
+    { key: 'review',   label: 'Review & Launch', icon: 'rocket_launch' },
+    { key: 'results',  label: 'Results',         icon: 'analytics' },
   ]
 
   return (
@@ -1462,6 +1464,10 @@ export default function CampaignDetail() {
       )}
 
       {/* ── REVIEW & LAUNCH TAB ── */}
+      {tab === 'sequence' && (
+        <SequenceBuilder campaignId={id!} canEdit={canEdit} campaignStatus={campaign.status} />
+      )}
+
       {tab === 'review' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
