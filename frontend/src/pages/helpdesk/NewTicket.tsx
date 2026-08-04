@@ -118,7 +118,7 @@ type TicketType = typeof TICKET_TYPES[number]
 // ── Field styles ──────────────────────────────────────────────────────────────
 
 const inputStyle: React.CSSProperties = {
-  width: '100%', height: 38, padding: '0 12px',
+  width: '100%', height: 34, padding: '0 12px',
   border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
   fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
   outline: 'none', boxSizing: 'border-box',
@@ -156,7 +156,7 @@ function DynamicFields({
 
   if (type === 'Card Dispute') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Field label="Card Number (last 4 digits)">
           <input
             type="text" maxLength={4} placeholder="e.g. 4242"
@@ -185,7 +185,7 @@ function DynamicFields({
           <select
             value={custom.dispute_type ?? ''}
             onChange={e => set('dispute_type', e.target.value)}
-            style={{ ...inputStyle, height: 38 }}
+            style={{ ...inputStyle, height: 34 }}
           >
             <option value="">— Select —</option>
             <option value="Chargeback">Chargeback</option>
@@ -199,7 +199,7 @@ function DynamicFields({
 
   if (type === 'Balance Enquiry') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Field label="Account Number (optional)">
           <input
             type="text" placeholder="e.g. 0123456789"
@@ -223,7 +223,7 @@ function DynamicFields({
 
   if (type === 'Payment Confirmation') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Field label="Transaction Reference">
           <input
             type="text" placeholder="e.g. TXN-000123"
@@ -254,7 +254,7 @@ function DynamicFields({
 
   if (type === 'Statement Request') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Field label="Statement Period From">
           <input
             type="date"
@@ -285,7 +285,7 @@ function DynamicFields({
 
   if (type === 'Loan Complaint') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Field label="Loan Reference">
           <input
             type="text" placeholder="e.g. LN-001234"
@@ -309,7 +309,7 @@ function DynamicFields({
 
   if (type === 'FD Enquiry') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Field label="FD Reference (optional)">
           <input
             type="text" placeholder="e.g. FD-000456"
@@ -333,12 +333,12 @@ function DynamicFields({
 
   if (type === 'Technical / App Issue') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Field label="Device / Platform">
           <select
             value={custom.platform ?? ''}
             onChange={e => set('platform', e.target.value)}
-            style={{ ...inputStyle, height: 38 }}
+            style={{ ...inputStyle, height: 34 }}
           >
             <option value="">— Select —</option>
             <option value="iOS">iOS</option>
@@ -362,12 +362,12 @@ function DynamicFields({
 
   if (type === 'Complaint (CBN reportable)') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Field label="Complaint Category">
           <select
             value={custom.complaint_category ?? ''}
             onChange={e => set('complaint_category', e.target.value)}
-            style={{ ...inputStyle, height: 38 }}
+            style={{ ...inputStyle, height: 34 }}
           >
             <option value="">— Select —</option>
             <option value="Fraud / Unauthorized Transaction">Fraud / Unauthorized Transaction</option>
@@ -487,7 +487,7 @@ export default function NewTicketForm({
   }
 
   const sectionHead = (text: string) => (
-    <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[3] }}>
+    <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: SP[2] }}>
       {text}
     </div>
   )
@@ -496,7 +496,7 @@ export default function NewTicketForm({
     <form
       onSubmit={handleSubmit}
       onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSubmit(e as any) }}
-      style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
     >
       <ErrBanner error={err} />
 
@@ -512,7 +512,7 @@ export default function NewTicketForm({
                 type="button"
                 onClick={() => { setTicketType(t); setCustomFields({}) }}
                 style={{
-                  padding: '10px 8px', borderRadius: RADIUS.md, cursor: 'pointer',
+                  padding: '7px 8px', borderRadius: RADIUS.md, cursor: 'pointer',
                   border: isSelected ? `2px solid ${RED}` : '2px solid var(--bdr)',
                   background: isSelected ? `${RED}08` : 'var(--th-bg)',
                   color: isSelected ? RED : 'var(--txt)',
@@ -563,8 +563,8 @@ export default function NewTicketForm({
             </button>
           </div>
         ) : manual ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2] }}>
               <Field label="Customer Name">
                 <input type="text" placeholder="Full name" value={customerName}
                   onChange={e => setCustomerName(e.target.value)} style={inputStyle} />
@@ -595,15 +595,15 @@ export default function NewTicketForm({
       {/* Details */}
       <div>
         {sectionHead('Details')}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
           <Field label="Subject" required>
             <input type="text" placeholder="Brief summary of the issue" value={subject}
               onChange={e => setSubject(e.target.value)} required style={inputStyle} />
           </Field>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2] }}>
             <Field label="Priority">
               <select value={priority} onChange={e => setPriority(e.target.value)}
-                style={{ ...inputStyle, height: 38 }}>
+                style={{ ...inputStyle, height: 34 }}>
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
@@ -614,7 +614,7 @@ export default function NewTicketForm({
               <select
                 value={agentId ?? ''}
                 onChange={e => setAgentId(e.target.value ? Number(e.target.value) : null)}
-                style={{ ...inputStyle, height: 38 }}
+                style={{ ...inputStyle, height: 34 }}
               >
                 <option value="">— Unassigned —</option>
                 {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
