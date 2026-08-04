@@ -47,6 +47,17 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			FROM cbs_fixed_deposits WHERE cbs_customer_id = $1
 			ORDER BY commencement_date DESC`, cif)
 
+		// ── Recent account transactions ("Transactions" view; Amount is in naira) ─
+		txnRows, _ := db.PGQuery(ctx, `
+			SELECT "Transaction Date"::text AS date, "Amount" AS amount,
+			       "Description" AS description, "Merchant_Name" AS merchant
+			FROM "Transactions" WHERE "CIF Number" = $1
+			ORDER BY "Transaction Date" DESC LIMIT 40`, cif)
+		var txnTotal int64
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM "Transactions" WHERE "CIF Number" = $1`, cif); len(rows) > 0 {
+			txnTotal = toInt64(rows[0]["n"])
+		}
+
 		// ── CRM contact record ────────────────────────────────────────────────
 		contacts, _ := db.PGQuery(ctx, `
 			SELECT id, first_name, last_name, phone, email,
@@ -342,6 +353,52 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		profile["fixed_deposits"] = fdList
 
 		profile["is_active_customer"] = len(activeLoans) > 0 || hasActiveCard || hasActiveFD
+
+		// Recent account transactions (naira amounts).
+		txnList := make([]any, 0)
+		for _, t := range txnRows {
+			txnList = append(txnList, map[string]any{
+				"date":        t["date"],
+				"amount":      t["amount"],
+				"description": t["description"],
+				"merchant":    t["merchant"],
+			})
+		}
+		profile["transactions"] = txnList
+
+		// Relationship summary — drives the KPI strip + financial snapshot.
+		var loanOut, fdPrincipal, fdAccrued int64
+		loanCount := 0
+		for _, l := range cbsLoans {
+			if s := str(l["status"]); s != "Closed" && s != "Revoked" {
+				loanOut += toInt64(l["outstanding_principal_kobo"])
+				loanCount++
+			}
+		}
+		fdCount, activeCards := 0, 0
+		for _, f := range cbsFDs {
+			if str(f["status"]) == "Active" {
+				fdPrincipal += toInt64(f["principal_kobo"])
+				fdAccrued += toInt64(f["accrued_interest_kobo"])
+				fdCount++
+			}
+		}
+		for _, p := range prodRows {
+			if s := str(p["status"]); s == "Open" || s == "Active" {
+				activeCards++
+			}
+		}
+		profile["summary"] = map[string]any{
+			"loan_outstanding_kobo": loanOut,
+			"loan_count":            loanCount,
+			"fd_principal_kobo":     fdPrincipal,
+			"fd_accrued_kobo":       fdAccrued,
+			"fd_count":              fdCount,
+			"card_count":            len(prodRows),
+			"active_card_count":     activeCards,
+			"txn_count":             txnTotal,
+			"net_position_kobo":     fdPrincipal - loanOut,
+		}
 
 		// Collections
 		if len(colls) > 0 {

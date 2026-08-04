@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, Tabs } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDate, fmtDatetime, fmtKobo } from '../../lib/fmt'
+import { fmtDate, fmtDatetime, fmtKobo, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -79,6 +79,25 @@ interface ContactProfileData {
     interest_rate: number
     commencement_date: string | null
     maturity_date: string | null
+  }[]
+
+  summary?: {
+    loan_outstanding_kobo: number
+    loan_count: number
+    fd_principal_kobo: number
+    fd_accrued_kobo: number
+    fd_count: number
+    card_count: number
+    active_card_count: number
+    txn_count: number
+    net_position_kobo: number
+  }
+
+  transactions: {
+    date: string
+    amount: number       // naira
+    description: string
+    merchant: string | null
   }[]
 
   collections?: {
@@ -168,6 +187,73 @@ function StagePill({ stage }: { stage: string }) {
   return <Badge label={label} colour={colour} />
 }
 
+// "Transactions" Amount is whole naira (not kobo).
+function fmtNaira(n: number): string {
+  const v = Math.round(Number(n) || 0)
+  return `${v < 0 ? '-' : ''}₦${Math.abs(v).toLocaleString('en-NG')}`
+}
+
+function initialsOf(name: string): string {
+  return (name || '?').split(' ').filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 2)
+}
+
+// ── Relationship KPI strip ────────────────────────────────────────────────────
+
+function KpiStrip({ profile }: { profile: ContactProfileData }) {
+  const s = profile.summary
+  const net = s?.net_position_kobo ?? 0
+  const cards = [
+    { label: 'Deposits',     value: fmtKobo(s?.fd_principal_kobo ?? 0),     sub: `${s?.fd_count ?? 0} fixed deposit${(s?.fd_count ?? 0) === 1 ? '' : 's'}`,  icon: 'savings',                 color: AMBER },
+    { label: 'Borrowings',   value: fmtKobo(s?.loan_outstanding_kobo ?? 0), sub: `${s?.loan_count ?? 0} active loan${(s?.loan_count ?? 0) === 1 ? '' : 's'}`, icon: 'account_balance_wallet',  color: NAVY  },
+    { label: 'Net Position', value: fmtKobo(net),                           sub: net >= 0 ? 'net saver' : 'net borrower',                                    icon: 'balance',                 color: net >= 0 ? GREEN : RED },
+    { label: 'Active Cards', value: String(s?.active_card_count ?? 0),       sub: `${s?.card_count ?? 0} on file`,                                            icon: 'credit_card',             color: PURPLE },
+    { label: 'Transactions', value: fmtNum(s?.txn_count ?? 0),              sub: 'lifetime activity',                                                        icon: 'receipt_long',            color: BLUE  },
+  ]
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 20 }}>
+      {cards.map(c => (
+        <div key={c.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: SORA }}>{c.label}</span>
+            <span className="material-symbols-rounded" style={{ fontSize: 17, color: c.color, opacity: 0.85 }}>{c.icon}</span>
+          </div>
+          <div style={{ ...NUM, fontSize: 21, fontWeight: FW.extrabold, color: 'var(--txt)', lineHeight: 1, letterSpacing: -0.5 }}>{c.value}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 5 }}>{c.sub}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Transactions tab ──────────────────────────────────────────────────────────
+
+function TransactionsTab({ profile }: { profile: ContactProfileData }) {
+  if (profile.transactions.length === 0) return (
+    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No transactions on record.</div>
+  )
+  return (
+    <SectionCard title="Recent Transactions" subtitle={`${fmtNum(profile.summary?.txn_count ?? profile.transactions.length)} total · latest ${profile.transactions.length}`}>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {profile.transactions.map((t, i) => {
+          const credit = Number(t.amount) >= 0
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 2px', borderBottom: i < profile.transactions.length - 1 ? '1px solid var(--bdr)' : 'none' }}>
+              <div style={{ width: 32, height: 32, borderRadius: '50%', background: credit ? `${GREEN}14` : `${RED}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 17, color: credit ? GREEN : RED }}>{credit ? 'south_west' : 'north_east'}</span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.description || 'Transaction'}</div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(t.date)}{t.merchant ? ` · ${t.merchant}` : ''}</div>
+              </div>
+              <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: credit ? GREEN : 'var(--txt)', flexShrink: 0 }}>{fmtNaira(t.amount)}</div>
+            </div>
+          )
+        })}
+      </div>
+    </SectionCard>
+  )
+}
+
 // ── Lifecycle bar ─────────────────────────────────────────────────────────────
 
 const LIFECYCLE_STEPS = [
@@ -219,9 +305,31 @@ function LifecycleBar({ profile }: { profile: ContactProfileData }) {
 
 // ── Tab content panels ────────────────────────────────────────────────────────
 
-function OverviewTab({ profile }: { profile: ContactProfileData }) {
+function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOpenTab: (t: string) => void }) {
+  const s = profile.summary
+  const txns = profile.transactions.slice(0, 5)
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      {s && (
+        <div style={{ gridColumn: '1 / -1' }}>
+          <SectionCard title="Financial Snapshot">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              {[
+                { label: 'Deposits',    value: fmtKobo(s.fd_principal_kobo),     sub: `${fmtNum(s.fd_count)} FD${s.fd_count === 1 ? '' : 's'}`,              colour: GREEN },
+                { label: 'Borrowings',  value: fmtKobo(s.loan_outstanding_kobo), sub: `${fmtNum(s.loan_count)} loan${s.loan_count === 1 ? '' : 's'}`,        colour: s.loan_outstanding_kobo > 0 ? RED : 'var(--txt)' },
+                { label: 'Net Position',value: fmtKobo(s.net_position_kobo),     sub: s.fd_accrued_kobo > 0 ? `+${fmtKobo(s.fd_accrued_kobo)} accrued` : 'Deposits − borrowings', colour: s.net_position_kobo >= 0 ? GREEN : RED },
+                { label: 'Cards',       value: fmtNum(s.active_card_count),      sub: `${fmtNum(s.card_count)} on file`,                                     colour: 'var(--txt)' },
+              ].map(m => (
+                <div key={m.label} style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, marginBottom: 4 }}>{m.label}</div>
+                  <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.extrabold, color: m.colour }}>{m.value}</div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>{m.sub}</div>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+        </div>
+      )}
       <SectionCard title="Identity">
         <InfoPair label="Full Name"      value={profile.name} />
         <InfoPair label="Phone"          value={profile.phone} />
@@ -281,6 +389,41 @@ function OverviewTab({ profile }: { profile: ContactProfileData }) {
             </>
           )}
         </SectionCard>
+      )}
+
+      {txns.length > 0 && (
+        <div style={{ gridColumn: '1 / -1' }}>
+          <SectionCard
+            title="Recent Transactions"
+            actions={
+              <button
+                onClick={() => onOpenTab('transactions')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 10px', background: 'transparent', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA }}
+              >
+                View all {fmtNum(profile.summary?.txn_count ?? profile.transactions.length)}
+                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>chevron_right</span>
+              </button>
+            }
+          >
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {txns.map((t, i) => {
+                const credit = Number(t.amount) >= 0
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 2px', borderBottom: i < txns.length - 1 ? '1px solid var(--bdr)' : 'none' }}>
+                    <div style={{ width: 30, height: 30, borderRadius: '50%', background: credit ? `${GREEN}14` : `${RED}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 16, color: credit ? GREEN : RED }}>{credit ? 'south_west' : 'north_east'}</span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.description || 'Transaction'}</div>
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(t.date)}{t.merchant ? ` · ${t.merchant}` : ''}</div>
+                    </div>
+                    <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: credit ? GREEN : 'var(--txt)', flexShrink: 0 }}>{fmtNaira(t.amount)}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </SectionCard>
+        </div>
       )}
     </div>
   )
@@ -600,23 +743,6 @@ function ActivityTab({ profile }: { profile: ContactProfileData }) {
 
 // ── Status badges for header ──────────────────────────────────────────────────
 
-function LifecycleBadges({ profile }: { profile: ContactProfileData }) {
-  const badges: { label: string; colour: string }[] = []
-  if (profile.is_written_off)    badges.push({ label: 'Written Off', colour: '#6B7280' })
-  else if (profile.is_in_recovery) badges.push({ label: 'Recovery',  colour: RED })
-  else if (profile.is_delinquent)  badges.push({ label: 'Delinquent', colour: AMBER })
-  if (profile.is_active_customer) badges.push({ label: 'Active Customer', colour: GREEN })
-  if (profile.is_card_holder)    badges.push({ label: 'Card Holder', colour: PURPLE })
-  if (profile.is_applicant)      badges.push({ label: 'Applicant', colour: '#8B5CF6' })
-  if (profile.is_prospect && badges.length === 0) badges.push({ label: 'Prospect', colour: BLUE })
-
-  return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      {badges.map(b => <Badge key={b.label} label={b.label} colour={b.colour} />)}
-    </div>
-  )
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -624,6 +750,7 @@ const TABS = [
   { key: 'loans',       label: 'Loans & Applications' },
   { key: 'fixed_deposits', label: 'Fixed Deposits' },
   { key: 'cards',       label: 'Cards' },
+  { key: 'transactions', label: 'Transactions' },
   { key: 'collections', label: 'Collections' },
   { key: 'recovery',    label: 'Recovery' },
   { key: 'helpdesk',    label: 'Helpdesk' },
@@ -684,64 +811,49 @@ export default function ContactProfile() {
         </button>
       }
     >
-      {/* Header card */}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: `${SP[5]} ${SP[6]}`, marginBottom: SP[4], display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        {/* Avatar */}
+      {/* Premium hero */}
+      <div style={{ background: `linear-gradient(135deg, ${NAVY} 0%, #0A1F38 100%)`, borderRadius: RADIUS.xl, padding: `${SP[6]} ${SP[6]}`, marginBottom: SP[4], display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', boxShadow: '0 10px 30px rgba(14,40,65,0.22)' }}>
         <div style={{
-          width: 56, height: 56, borderRadius: RADIUS.full, flexShrink: 0,
-          background: `${NAVY}18`, border: `2px solid ${NAVY}30`,
+          width: 60, height: 60, borderRadius: RADIUS.full, flexShrink: 0,
+          background: 'rgba(255,255,255,0.12)', border: '2px solid rgba(255,255,255,0.28)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 22, fontWeight: FW.extrabold, color: '#fff', fontFamily: SORA,
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: NAVY }}>person</span>
+          {initialsOf(profile.name)}
         </div>
 
-        {/* Name + meta */}
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
-            <h1 style={{ margin: 0, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', fontFamily: SORA }}>{profile.name}</h1>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.semibold }}>{profile.cif}</span>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+            <h1 style={{ margin: 0, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: '#fff', fontFamily: SORA }}>{profile.name || 'Unknown Customer'}</h1>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.sm, color: 'rgba(255,255,255,0.6)', fontWeight: FW.semibold }}>{profile.cif}</span>
           </div>
-          <LifecycleBadges profile={profile} />
-          <div style={{ marginTop: 10, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-            {profile.phone && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.base, color: 'var(--txt2)' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>call</span>
-                {profile.phone}
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+            {([['call', profile.phone], ['mail', profile.email], ['location_on', profile.state], ['work', profile.employer]] as [string, string | undefined][])
+              .filter(([, v]) => v).map(([icon, v]) => (
+              <span key={icon} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.sm, color: 'rgba(255,255,255,0.82)' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{icon}</span>{v}
               </span>
-            )}
-            {profile.email && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.base, color: 'var(--txt2)' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>mail</span>
-                {profile.email}
-              </span>
-            )}
-            {profile.state && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.base, color: 'var(--txt2)' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>location_on</span>
-                {profile.state}
-              </span>
-            )}
+            ))}
           </div>
         </div>
 
-        {/* Quick actions */}
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
-          <a
-            href={`tel:${profile.phone}`}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: GREEN, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', textDecoration: 'none', fontFamily: SORA }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>call</span>
-            Call
-          </a>
-          <button
-            onClick={() => navigate(`/helpdesk/new?cif=${profile.cif}&name=${encodeURIComponent(profile.name)}`)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--card)', color: NAVY, border: `1.5px solid ${NAVY}30`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add_comment</span>
-            Open Ticket
+          {profile.phone && (
+            <a href={`tel:${profile.phone}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.25)', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', textDecoration: 'none', fontFamily: SORA }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>call</span>Call
+            </a>
+          )}
+          <button onClick={() => navigate(`/statements?cif=${profile.cif}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.25)', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>receipt_long</span>Statement
+          </button>
+          <button onClick={() => navigate(`/helpdesk/new?cif=${profile.cif}&name=${encodeURIComponent(profile.name)}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#fff', color: NAVY, border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add_comment</span>Open Ticket
           </button>
         </div>
       </div>
+
+      {/* Relationship KPIs */}
+      <KpiStrip profile={profile} />
 
       {/* Lifecycle bar */}
       <div style={{ marginBottom: 20 }}>
@@ -753,10 +865,11 @@ export default function ContactProfile() {
         <Tabs tabs={TABS} active={tab} onChange={setTab} />
       </div>
 
-      {tab === 'overview'    && <OverviewTab    profile={profile} />}
+      {tab === 'overview'    && <OverviewTab    profile={profile} onOpenTab={setTab} />}
       {tab === 'loans'       && <LoansTab       profile={profile} />}
       {tab === 'fixed_deposits' && <FixedDepositsTab profile={profile} />}
       {tab === 'cards'       && <CardsTab       profile={profile} />}
+      {tab === 'transactions' && <TransactionsTab profile={profile} />}
       {tab === 'collections' && <CollectionsTab profile={profile} />}
       {tab === 'recovery'    && <RecoveryTab    profile={profile} />}
       {tab === 'helpdesk'    && <HelpdeskTab    profile={profile} />}
