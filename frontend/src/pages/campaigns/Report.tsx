@@ -945,6 +945,11 @@ export default function CampaignDetail() {
     if (!id) return
     setTestSending(true)
     try {
+      // Persist the current builder content first — the backend test-send reads
+      // the saved campaign, so this makes the test send exactly what's on screen.
+      if (canEdit) {
+        try { await apiFetch(`/api/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(buildPayload()) }) } catch { /* best-effort */ }
+      }
       const res = await apiPost<{ sent: number; warnings: string[] }>(`/api/campaigns/${id}/test-send`, {
         to_email: testEmail || undefined,
         to_phone: testPhone || undefined,
