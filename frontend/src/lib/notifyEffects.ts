@@ -47,8 +47,9 @@ function ctx(): AudioContext | null {
 // until the user has interacted). Call from a click handler (e.g. the bell).
 export function primeAudio(): void {
   ctx()
-  // Warm the voice list too (getVoices() is populated asynchronously).
+  // Warm the voice list (populated asynchronously) and the clip manifest.
   loadVoices()
+  void loadManifest()
 }
 
 // A short, pleasant two-tone chime (A5 → D6).
@@ -144,13 +145,71 @@ export function speak(text: string, gender: 'female' | 'male'): void {
 
 // Returns the resolved voice's display name for the current gender (for UI hints).
 export function currentVoiceName(gender: 'female' | 'male'): string {
+  if (clipKeys) return 'O3C Nigerian voice (recorded)'
   const v = pickVoice(gender)
   return v ? v.name : 'default voice'
 }
 
+// ── Pre-rendered clips (human Nigerian voice) ─────────────────────────────────
+// When notif-audio clips are deployed, we play a recorded phrase per event type in
+// the chosen gender — a consistent human Nigerian voice for every user/browser.
+// If no clips are deployed (or the specific one fails), we fall back to the browser
+// SpeechSynthesis voice. Manifest: /notif-audio/manifest.json → { keys: string[] }.
+
+const CLIP_BASE = '/notif-audio'
+let clipKeys: Set<string> | null = null      // null = not loaded / unavailable
+let manifestTried = false
+
+async function loadManifest(): Promise<void> {
+  if (manifestTried) return
+  manifestTried = true
+  try {
+    const res = await fetch(`${CLIP_BASE}/manifest.json`, { cache: 'no-cache' })
+    if (!res.ok) return
+    const data = await res.json()
+    if (Array.isArray(data?.keys) && data.keys.length) clipKeys = new Set<string>(data.keys)
+  } catch { /* no clips deployed — browser voice is used */ }
+}
+
+// Plays the recorded clip for (key, gender). Resolves true if it started, false otherwise.
+function playClip(key: string, gender: 'female' | 'male'): Promise<boolean> {
+  return new Promise(resolve => {
+    try {
+      const audio = new Audio(`${CLIP_BASE}/${key}_${gender}.mp3`)
+      audio.volume = 0.95
+      audio.onerror = () => resolve(false)
+      audio.play().then(() => resolve(true)).catch(() => resolve(false))
+    } catch { resolve(false) }
+  })
+}
+
 // announce plays whichever effects the user has enabled for one new notification.
-export function announce(title: string): void {
+// eventType selects a recorded clip (falling back to a 'default' clip, then to the
+// browser voice reading the title).
+export function announce(title: string, eventType?: string): void {
   if (getSoundPref()) playChime()
   const mode = getVoiceMode()
-  if (mode !== 'off') speak(title, mode)
+  if (mode === 'off') return
+  void voiceOut(title, mode, eventType)
 }
+
+async function voiceOut(title: string, gender: 'female' | 'male', eventType?: string): Promise<void> {
+  await loadManifest()
+  if (clipKeys && clipKeys.size) {
+    const key = eventType && clipKeys.has(eventType) ? eventType : 'default'
+    if (clipKeys.has(key) && await playClip(key, gender)) return
+  }
+  // No usable clip → read the title with the browser voice.
+  speak(title, gender)
+}
+
+// preview plays a sample in the given gender — the recorded 'default' clip if deployed,
+// otherwise the browser voice. Used by the settings Test / Female / Male buttons.
+export async function preview(gender: 'female' | 'male'): Promise<void> {
+  await loadManifest()
+  if (clipKeys && clipKeys.has('default') && await playClip('default', gender)) return
+  speak('This is a test alert from your O3 Capital Workspace.', gender)
+}
+
+// true once a recorded-clip manifest has been found (for UI labelling).
+export function usingRecordedClips(): boolean { return !!(clipKeys && clipKeys.size) }

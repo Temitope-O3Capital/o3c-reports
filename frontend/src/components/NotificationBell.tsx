@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch, API } from '../lib/api'
 import { MONO, RED, BLUE, AMBER, GREEN } from '../lib/design'
 import { IcoBell } from '../lib/icons'
-import { announce, primeAudio, getSoundPref, setSoundPref, getVoiceMode, setVoiceMode, playChime, speak, currentVoiceName, type VoiceMode } from '../lib/notifyEffects'
+import { announce, primeAudio, getSoundPref, setSoundPref, getVoiceMode, setVoiceMode, playChime, preview, currentVoiceName, type VoiceMode } from '../lib/notifyEffects'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -93,7 +93,7 @@ export default function NotificationBell() {
             seenIds.current.add(n.id)
             setItems(prev => [n, ...prev].slice(0, 50))
             if (!n.read_at) setUnread(c => c + 1)
-            announce(n.title) // chime + (opt-in) spoken title
+            announce(n.title, n.type) // chime + (opt-in) recorded clip / spoken title
           } catch { /* ignore keepalives / malformed frames */ }
         }
         es.onerror = () => {
@@ -286,7 +286,7 @@ export default function NotificationBell() {
                     key={m}
                     onClick={() => {
                       setVoiceModeState(m); setVoiceMode(m)
-                      if (m !== 'off') { primeAudio(); speak('You have a new notification', m) }
+                      if (m !== 'off') { primeAudio(); void preview(m) }
                     }}
                     title={m === 'off' ? 'Voice off' : `${m} voice — ${currentVoiceName(m)}`}
                     style={segStyle(voiceMode === m)}
@@ -300,8 +300,7 @@ export default function NotificationBell() {
                 onClick={() => {
                   primeAudio()
                   if (soundOn) playChime()
-                  const g: VoiceMode = voiceMode === 'off' ? 'female' : voiceMode
-                  speak('This is a test alert from your O3 Capital Workspace.', g)
+                  void preview(voiceMode === 'off' ? 'female' : voiceMode)
                 }}
                 title="Play a test alert with the current settings"
                 style={{

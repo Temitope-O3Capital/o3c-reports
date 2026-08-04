@@ -1,0 +1,12 @@
+{
+  "_comment": "Spoken phrase per notification event type. 'default' is the fallback for any type without its own clip. Keys must match the notifications.type / EventType values used by the backend. Each phrase is rendered to <key>_female.mp3 and <key>_male.mp3.",
+  "default": "You have a new notification from O3 Capital Workspace.",
+  "card_cycle_risk": "New at-risk card alert. Please review the at-risk cards list.",
+  "ticket_unassigned_alert": "A support ticket needs your attention.",
+  "task_assigned": "You have been assigned a new task.",
+  "task_due_soon": "You have a task due soon.",
+  "task_overdue": "You have an overdue task.",
+  "loan_submitted": "A new loan application has been submitted.",
+  "loan_stage_changed": "There is an update on a loan application.",
+  "approval_request": "You have a pending approval request."
+}
