@@ -230,8 +230,8 @@ func recoveryOpsCaseDetailFull(db *core.DB) http.HandlerFunc {
 		promises, _ := db.PGQuery(ctx, `
 			SELECT cp.*, u.full_name AS agent_name
 			FROM collection_promises cp
-			LEFT JOIN o3c_users u ON cp.created_by = u.id
-			WHERE cp.cif_number = $1 ORDER BY cp.promise_date DESC LIMIT 20`, cif)
+			LEFT JOIN o3c_users u ON cp.agent_user_id = u.id
+			WHERE cp.cif_number = $1 ORDER BY cp.promised_date DESC LIMIT 20`, cif)
 
 		nilToEmpty := func(rows []core.Row) []core.Row {
 			if rows == nil {
@@ -985,10 +985,10 @@ func recoveryOpsAgentDashboard(db *core.DB) http.HandlerFunc {
 				          WHERE ca.account_cif = rc.account_cif
 				          ORDER BY ca.updated_at DESC LIMIT 1), rc.account_cif) AS debtor_name,
 				v.outcome, v.visit_date AS visited_at,
-				COALESCE(v.amount_promised_kobo, 0) AS amount_promised_kobo
+				0 AS amount_promised_kobo
 			FROM recovery_field_visits v
 			JOIN recovery_cases rc ON rc.id = v.case_id
-			WHERE v.agent_user_id = $1
+			WHERE v.officer_id = $1
 			ORDER BY v.created_at DESC
 			LIMIT 10`, user.ID)
 

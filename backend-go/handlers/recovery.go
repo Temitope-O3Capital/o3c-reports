@@ -366,6 +366,7 @@ func recoveryLegal(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 			    rc.id,
+			    rc.id AS case_id,
 			    rc.account_cif,
 			    rc.outstanding_kobo,
 			    rc.legal_stage AS current_milestone,

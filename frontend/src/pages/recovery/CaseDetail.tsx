@@ -47,11 +47,11 @@ interface ActivityEntry {
   detail?: string; created_at: string; actor_name?: string
 }
 interface CollContact {
-  id: number; contact_date: string; contact_method: string; outcome: string
+  id: number; created_at: string; contact_type: string; outcome: string
   notes?: string; agent_name?: string
 }
 interface CollPromise {
-  id: number; promise_date: string; amount_kobo: number; status: string
+  id: number; promised_date: string; promised_amount_kobo: number; is_kept: boolean
   notes?: string; agent_name?: string
 }
 interface AgentUser { id: number; full_name: string; role: string }
@@ -773,9 +773,9 @@ export default function RecoveryCaseDetail() {
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                         <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                          {c.contact_method} — {c.outcome}
+                          {c.contact_type} — {c.outcome}
                         </span>
-                        <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(c.contact_date)}</span>
+                        <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(c.created_at)}</span>
                       </div>
                       {c.notes && <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{c.notes}</div>}
                       {c.agent_name && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>by {c.agent_name}</div>}
@@ -791,15 +791,15 @@ export default function RecoveryCaseDetail() {
             <SectionCard title="Collections Phase — Promises to Pay" subtitle="PTPs made before recovery referral" badge={coll_promises.length}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {coll_promises.map(p => {
-                  const statusColor = p.status === 'kept' ? GREEN : p.status === 'broken' ? RED : AMBER
+                  const statusColor = p.is_kept ? GREEN : AMBER
                   return (
                     <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderBottom: '1px solid var(--bdr)' }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                            {fmtKobo(p.amount_kobo)}
+                            {fmtKobo(p.promised_amount_kobo)}
                           </span>
-                          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>promised by {fmtDate(p.promise_date)}</span>
+                          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>promised by {fmtDate(p.promised_date)}</span>
                         </div>
                         {p.notes && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{p.notes}</div>}
                       </div>
@@ -807,7 +807,7 @@ export default function RecoveryCaseDetail() {
                         fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px',
                         borderRadius: RADIUS['2xl'], background: `${statusColor}18`, color: statusColor,
                       }}>
-                        {p.status}
+                        {p.is_kept ? 'Kept' : 'Pending'}
                       </span>
                     </div>
                   )

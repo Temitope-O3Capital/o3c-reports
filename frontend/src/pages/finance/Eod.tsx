@@ -36,18 +36,19 @@ interface EODSummary {
 interface ByProductRow {
   product_code: string
   product_name: string
-  volume: number
-  count: number
-  dr: number
-  cr: number
+  total_volume: number
+  txn_count: number
+  total_dr: number
+  total_cr: number
 }
 
 interface ByBranchRow {
   branch_code: string
   branch_name: string
-  volume: number
-  count: number
-  active_accounts: number
+  txn_count: number
+  accounts: number
+  total_dr: number
+  total_cr: number
 }
 
 // ── Table columns ─────────────────────────────────────────────────────────────
@@ -68,18 +69,19 @@ const UPLOAD_COLS: TableCol<EODUpload>[] = [
 const PRODUCT_COLS: TableCol<ByProductRow>[] = [
   { key: 'product_code', label: 'Code', render: r => <span style={NUM}>{r.product_code}</span> },
   { key: 'product_name', label: 'Product', sortable: true },
-  { key: 'count', label: 'Txns', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.count)}</span> },
-  { key: 'cr', label: 'Credits NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.cr)}</span> },
-  { key: 'dr', label: 'Debits NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: RED, fontWeight: FW.semibold }}>{fmtKobo(r.dr)}</span> },
-  { key: 'volume', label: 'Volume NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.volume)}</span> },
+  { key: 'txn_count', label: 'Txns', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.txn_count)}</span> },
+  { key: 'total_cr', label: 'Credits NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.total_cr)}</span> },
+  { key: 'total_dr', label: 'Debits NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: RED, fontWeight: FW.semibold }}>{fmtKobo(r.total_dr)}</span> },
+  { key: 'total_volume', label: 'Volume NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.total_volume)}</span> },
 ]
 
 const BRANCH_COLS: TableCol<ByBranchRow>[] = [
   { key: 'branch_code', label: 'Code', render: r => <span style={NUM}>{r.branch_code}</span> },
   { key: 'branch_name', label: 'Branch', sortable: true },
-  { key: 'active_accounts', label: 'Accounts', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.active_accounts)}</span> },
-  { key: 'count', label: 'Txns', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.count)}</span> },
-  { key: 'volume', label: 'Volume NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKobo(r.volume)}</span> },
+  { key: 'accounts', label: 'Accounts', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.accounts)}</span> },
+  { key: 'txn_count', label: 'Txns', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.txn_count)}</span> },
+  { key: 'total_dr', label: 'Debits NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: RED, fontWeight: FW.semibold }}>{fmtKobo(r.total_dr)}</span> },
+  { key: 'total_cr', label: 'Credits NGN', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKobo(r.total_cr)}</span> },
 ]
 
 // ── Upload button ─────────────────────────────────────────────────────────────
@@ -207,10 +209,10 @@ export default function FinanceEOD() {
     const lines = data.map(r => [
       r.product_code ?? '',
       `"${String(r.product_name ?? '').replace(/"/g, '""')}"`,
-      r.count ?? 0,
-      (r.cr / 100).toFixed(2),
-      (r.dr / 100).toFixed(2),
-      (r.volume / 100).toFixed(2),
+      r.txn_count ?? 0,
+      ((r.total_cr ?? 0) / 100).toFixed(2),
+      ((r.total_dr ?? 0) / 100).toFixed(2),
+      ((r.total_volume ?? 0) / 100).toFixed(2),
     ].join(','))
     const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -220,13 +222,14 @@ export default function FinanceEOD() {
   }
 
   function exportBranchCsv(data: ByBranchRow[]) {
-    const header = ['Code', 'Branch', 'Accounts', 'Txns', 'Volume NGN']
+    const header = ['Code', 'Branch', 'Accounts', 'Txns', 'Debits NGN', 'Credits NGN']
     const lines = data.map(r => [
       r.branch_code ?? '',
       `"${String(r.branch_name ?? '').replace(/"/g, '""')}"`,
-      r.active_accounts ?? 0,
-      r.count ?? 0,
-      (r.volume / 100).toFixed(2),
+      r.accounts ?? 0,
+      r.txn_count ?? 0,
+      ((r.total_dr ?? 0) / 100).toFixed(2),
+      ((r.total_cr ?? 0) / 100).toFixed(2),
     ].join(','))
     const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)

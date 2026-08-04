@@ -9,18 +9,19 @@ import { NAVY, GREEN, AMBER, BLUE, RED, NUM, TEXT, FW, RADIUS, SP } from '../../
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface IssuanceItem {
-  id: number; request_ref: string; customer_name: string; cif: string
-  card_type: string; requested_at: string; status: string; priority: string
+  id: number; cif_number: string; customer_name: string
+  card_type: string; created_at: string; status: string
 }
 
 interface DisputeItem {
-  id: number; dispute_ref: string; customer_name: string; cif: string
-  amount_kobo: number; dispute_type: string; raised_at: string; status: string
+  id: number; cif_number: string; customer_name: string; card_type?: string
+  amount_kobo: number; dispute_type: string; filed_at: string; status: string
 }
 
+interface CardsSummary { issuance_count: number; disputes_count: number; credit_reviews_count: number }
+
 interface CardsAgentDash {
-  issuance_assigned: number; disputes_assigned: number
-  processed_today: number; avg_processing_time_hrs: number
+  summary?: CardsSummary
   issuance_queue: IssuanceItem[]
   disputes_queue: DisputeItem[]
 }
@@ -35,10 +36,8 @@ function StatusPill({ label, color }: { label: string; color: string }) {
   )
 }
 
-const PRIORITY_COLOR: Record<string, string> = { high: RED, medium: AMBER, low: BLUE, urgent: RED }
 const CARD_TYPE_COLOR: Record<string, string> = { credit: NAVY, debit: BLUE, prepaid: AMBER, virtual: '#7C3AED' }
 
-function priorityColor(p: string) { return PRIORITY_COLOR[p?.toLowerCase()] ?? NAVY }
 function cardTypeColor(c: string) { return CARD_TYPE_COLOR[c?.toLowerCase()] ?? NAVY }
 
 function statusColor(s: string) {
@@ -58,7 +57,6 @@ export default function CardsMyQueue() {
 
   // Issuance filters
   const [iSearch,     setISearch]     = useState('')
-  const [iPriorities, setIPriorities] = useState(new Set<string>())
   const [iStatuses,   setIStatuses]   = useState(new Set<string>())
 
   // Dispute filters
@@ -80,20 +78,19 @@ export default function CardsMyQueue() {
   useLiveData(load, { topics: ['cards'] })
 
   const issuanceQueue = useMemo(() => (data?.issuance_queue ?? []).filter(r => {
-    if (iPriorities.size && !iPriorities.has(r.priority?.toLowerCase())) return false
     if (iStatuses.size && !iStatuses.has(r.status?.toLowerCase())) return false
     if (iSearch) {
       const q = iSearch.toLowerCase()
-      return r.customer_name.toLowerCase().includes(q) || r.request_ref.toLowerCase().includes(q) || r.card_type.toLowerCase().includes(q)
+      return (r.customer_name ?? '').toLowerCase().includes(q) || (r.cif_number ?? '').toLowerCase().includes(q) || (r.card_type ?? '').toLowerCase().includes(q)
     }
     return true
-  }), [data, iPriorities, iStatuses, iSearch])
+  }), [data, iStatuses, iSearch])
 
   const disputesQueue = useMemo(() => (data?.disputes_queue ?? []).filter(r => {
     if (dStatuses.size && !dStatuses.has(r.status?.toLowerCase())) return false
     if (dSearch) {
       const q = dSearch.toLowerCase()
-      return r.customer_name.toLowerCase().includes(q) || r.dispute_ref.toLowerCase().includes(q) || r.dispute_type.toLowerCase().includes(q)
+      return (r.customer_name ?? '').toLowerCase().includes(q) || (r.cif_number ?? '').toLowerCase().includes(q) || (r.dispute_type ?? '').toLowerCase().includes(q)
     }
     return true
   }), [data, dStatuses, dSearch])
@@ -111,30 +108,27 @@ export default function CardsMyQueue() {
   if (!data) return null
 
   const issuanceCols: TableCol<IssuanceItem>[] = [
-    { key: 'request_ref', label: 'Ref', render: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs }}>{r.request_ref}</span> },
     { key: 'customer_name', label: 'Customer', render: r => (
       <div>
         <div style={{ fontWeight: FW.semibold }}>{r.customer_name}</div>
-        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>{r.cif}</div>
+        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>{r.cif_number}</div>
       </div>
     )},
     { key: 'card_type', label: 'Card Type', render: r => <StatusPill label={r.card_type} color={cardTypeColor(r.card_type)} /> },
-    { key: 'requested_at', label: 'Requested', render: r => fmtDate(r.requested_at) },
-    { key: 'priority', label: 'Priority', render: r => <StatusPill label={r.priority} color={priorityColor(r.priority)} /> },
+    { key: 'created_at', label: 'Requested', render: r => fmtDate(r.created_at) },
     { key: 'status', label: 'Status', render: r => <StatusPill label={r.status} color={statusColor(r.status)} /> },
   ]
 
   const disputeCols: TableCol<DisputeItem>[] = [
-    { key: 'dispute_ref', label: 'Ref', render: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs }}>{r.dispute_ref}</span> },
     { key: 'customer_name', label: 'Customer', render: r => (
       <div>
         <div style={{ fontWeight: FW.semibold }}>{r.customer_name}</div>
-        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>{r.cif}</div>
+        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>{r.cif_number}</div>
       </div>
     )},
     { key: 'amount_kobo', label: 'Amount', render: r => <span style={NUM}>{fmtKobo(r.amount_kobo)}</span> },
     { key: 'dispute_type', label: 'Type', render: r => <StatusPill label={r.dispute_type} color={NAVY} /> },
-    { key: 'raised_at', label: 'Raised', render: r => fmtDate(r.raised_at) },
+    { key: 'filed_at', label: 'Raised', render: r => fmtDate(r.filed_at) },
     { key: 'status', label: 'Status', render: r => <StatusPill label={r.status} color={statusColor(r.status)} /> },
   ]
 
@@ -142,10 +136,10 @@ export default function CardsMyQueue() {
     <Page title="My Card Queue" subtitle="Issuance requests and disputes assigned to you" back={{ label: 'Card Operations', to: '/cards' }}>
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="Issuance Assigned" value={fmtNum(data.issuance_assigned)} icon="credit_card" />
-        <KpiCard label="Disputes Assigned" value={fmtNum(data.disputes_assigned)} icon="gavel" accent={RED} />
-        <KpiCard label="Processed Today" value={fmtNum(data.processed_today)} icon="check_circle" accent={GREEN} />
-        <KpiCard label="Avg Processing Time" value={`${data.avg_processing_time_hrs}h`} icon="schedule" accent={AMBER} />
+        <KpiCard label="Issuance Queue" value={fmtNum(data.summary?.issuance_count ?? 0)} icon="credit_card" />
+        <KpiCard label="Open Disputes" value={fmtNum(data.summary?.disputes_count ?? 0)} icon="gavel" accent={RED} />
+        <KpiCard label="Credit Reviews" value={fmtNum(data.summary?.credit_reviews_count ?? 0)} icon="fact_check" accent={AMBER} />
+        <KpiCard label="Total Pending" value={fmtNum((data.summary?.issuance_count ?? 0) + (data.summary?.disputes_count ?? 0) + (data.summary?.credit_reviews_count ?? 0))} icon="assignment" accent={NAVY} />
       </div>
 
       {/* Issuance queue */}
@@ -155,21 +149,14 @@ export default function CardsMyQueue() {
           onSearch={setISearch}
           groups={[
             {
-              key: 'priority',
-              label: 'Priority',
-              options: Object.entries(PRIORITY_COLOR).map(([v, color]) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1), color })),
-              selected: iPriorities,
-              onChange: setIPriorities,
-            },
-            {
               key: 'status',
               label: 'Status',
-              options: ['pending', 'approved', 'processing', 'dispatched', 'completed'].map(v => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) })),
+              options: ['pending', 'doc_review', 'credit_check', 'risk_review'].map(v => ({ value: v, label: v.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) })),
               selected: iStatuses,
               onChange: setIStatuses,
             },
           ] as FilterGroupDef[]}
-          onReset={() => { setISearch(''); setIPriorities(new Set()); setIStatuses(new Set()) }}
+          onReset={() => { setISearch(''); setIStatuses(new Set()) }}
           resultCount={issuanceQueue.length}
           totalCount={data.issuance_queue.length}
           placeholder="Search issuance requests…"

@@ -30,8 +30,8 @@ interface FDSummary {
   total_liquidated: number
 }
 
-interface TrendPoint { month: string; volume: number; count: number }
-interface ProductPoint { product_code: string; product_name: string; volume: number; count: number }
+interface TrendPoint { label: string; total_volume: number; txn_count: number }
+interface ProductPoint { product_code: string; product_name: string; total_volume: number; txn_count: number }
 
 interface TxnRow {
   id: number
@@ -164,8 +164,8 @@ export default function FinanceOverview() {
       const [eodRes, fdRes, trendRes, prodRes, txnRes, treasuryRes] = await Promise.allSettled([
         apiFetch<{ data: EODSummary }>(`/api/eod/summary?date_from=${from}&date_to=${to}`),
         apiFetch<{ data: FDSummary }>(`/api/fixed-deposit/summary?date_from=${from}&date_to=${to}`),
-        apiFetch<{ data: TrendPoint[] }>('/api/eod/trend'),
-        apiFetch<{ data: ProductPoint[] }>('/api/eod/by-product'),
+        apiFetch<{ data: TrendPoint[] }>(`/api/eod/trend?date_from=${from}&date_to=${to}`),
+        apiFetch<{ data: ProductPoint[] }>(`/api/eod/by-product?date_from=${from}&date_to=${to}`),
         apiFetch<{ data: TxnRow[] }>(`/api/eod/transactions?date_from=${from}&date_to=${to}&limit=10`),
         apiFetch<{ data: Treasury }>('/api/finance/treasury'),
       ])
@@ -229,10 +229,10 @@ export default function FinanceOverview() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
                   <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} width={72} />
                   <Tooltip content={<VolumeTooltip />} />
-                  <Area type="monotone" dataKey="volume" stroke={NAVY} strokeWidth={2} fill="url(#volGrad)" dot={false} />
+                  <Area type="monotone" dataKey="total_volume" stroke={NAVY} strokeWidth={2} fill="url(#volGrad)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -246,7 +246,7 @@ export default function FinanceOverview() {
               <div style={{ display: 'flex', alignItems: 'center', gap: SP[4] }}>
                 <ResponsiveContainer width={160} height={160}>
                   <PieChart>
-                    <Pie data={products} dataKey="volume" nameKey="product_name" cx="50%" cy="50%"
+                    <Pie data={products} dataKey="total_volume" nameKey="product_name" cx="50%" cy="50%"
                       innerRadius={44} outerRadius={72} strokeWidth={2} stroke="var(--card)">
                       {products.map((_, i) => <Cell key={i} fill={PRODUCT_COLORS[i % PRODUCT_COLORS.length]} />)}
                     </Pie>
@@ -255,8 +255,8 @@ export default function FinanceOverview() {
                 </ResponsiveContainer>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {products.map((p, i) => {
-                    const total = products.reduce((s, x) => s + x.volume, 0)
-                    const pct = total > 0 ? ((p.volume / total) * 100).toFixed(1) : '0'
+                    const total = products.reduce((s, x) => s + x.total_volume, 0)
+                    const pct = total > 0 ? ((p.total_volume / total) * 100).toFixed(1) : '0'
                     return (
                       <div key={p.product_code} style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
                         <span style={{ width: 8, height: 8, borderRadius: 2, background: PRODUCT_COLORS[i % PRODUCT_COLORS.length], flexShrink: 0 }} />

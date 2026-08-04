@@ -219,9 +219,9 @@ function NewPlanModal({ open, onClose, onCreated }: {
 // ── Plan Detail Modal ─────────────────────────────────────────────────────────
 
 const INST_STATUS: Record<string, { bg: string; txt: string }> = {
-  Scheduled: { bg: `${BLUE}1F`,  txt: BLUE  },
-  Paid:      { bg: `${GREEN}1F`, txt: GREEN },
-  Missed:    { bg: `${RED}1A`,   txt: RED   },
+  Pending: { bg: `${BLUE}1F`,  txt: BLUE  },
+  Paid:    { bg: `${GREEN}1F`, txt: GREEN },
+  Missed:  { bg: `${RED}1A`,   txt: RED   },
 }
 
 function InstPill({ status }: { status: string }) {
@@ -350,7 +350,7 @@ function PlanDetailModal({ plan, open, onClose, onUpdated }: {
                     <InstPill status={inst.status} />
                   </td>
                   <td style={{ padding: '9px 12px' }}>
-                    {inst.status === 'Scheduled' && (
+                    {inst.status === 'Pending' && (
                       <button
                         onClick={() => markPaid(inst.id)}
                         disabled={markingId === inst.id}

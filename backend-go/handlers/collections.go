@@ -618,7 +618,7 @@ func collectionsWatchlistList(db *core.DB) http.HandlerFunc {
 			    u.full_name AS flagged_by_name
 			FROM collections_watchlist cw
 			LEFT JOIN o3c_users u ON u.id = cw.flagged_by
-			WHERE cw.status = $1
+			WHERE ($1 = 'all' OR cw.status = $1)
 			ORDER BY cw.created_at DESC
 			LIMIT 200`, status)
 		if err != nil {

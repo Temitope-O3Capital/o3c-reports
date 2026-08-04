@@ -191,9 +191,11 @@ export default function CollectionsActivityLog() {
     if (filterAction) params.set('action', filterAction)
     if (filterEntity) params.set('entity_type', filterEntity)
     try {
-      const res = await apiFetch<ActivityPage>(`/api/collections/activity?${params}`)
-      setData(res.data ?? [])
-      setTotal(res.total ?? 0)
+      // Handler sends {data:rows,total} through respond() → double-wrapped as {data:{data,total}}.
+      const res = await apiFetch<any>(`/api/collections/activity?${params}`)
+      const inner = res?.data ?? res
+      setData(inner?.data ?? (Array.isArray(inner) ? inner : []))
+      setTotal(inner?.total ?? 0)
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load activity log')
     } finally {

@@ -129,7 +129,7 @@ export default function Disciplinary() {
 
   async function handleBatchClose() {
     const ids = Array.from(sel) as number[]
-    await Promise.all(ids.map(id => apiPut(`/api/hr/disciplinary/${id}/close`, {}).catch(() => null)))
+    await Promise.all(ids.map(id => apiPut(`/api/hr/disciplinary/${id}/status`, { status: 'closed' }).catch(() => null)))
     toast.success(`${ids.length} case(s) closed`)
     setSel(new Set()); load()
   }

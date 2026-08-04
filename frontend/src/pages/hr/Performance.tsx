@@ -19,15 +19,22 @@ import {
 
 interface Appraisal {
   id: number
-  employee_name: string
-  department?: string
-  period: string
-  score: number
-  rating?: string
+  first_name?: string
+  last_name?: string
+  staff_id?: string
+  cycle_name?: string
+  final_score?: number | null
+  grade?: string | null
   reviewer_name?: string
   status: string
   created_at: string
   notes?: string
+  // legacy fields still referenced by the chart/CSV/filters/detail (degrade to empty)
+  employee_name?: string
+  department?: string
+  period?: string
+  score?: number
+  rating?: string
 }
 
 interface ReviewCycle {
@@ -47,7 +54,8 @@ function ratingColor(score: number) {
   return RED
 }
 
-function RatingPill({ score }: { score: number }) {
+function RatingPill({ score }: { score?: number | null }) {
+  if (score == null) return <span style={{ color: 'var(--txt3)' }}>—</span>
   const color = ratingColor(score)
   const label = score >= 4.5 ? 'Outstanding' : score >= 3.5 ? 'Good' : score >= 2.5 ? 'Satisfactory' : 'Needs Improvement'
   return (
@@ -117,7 +125,7 @@ export default function Performance() {
   const deptScores = Object.entries(
     appraisals.reduce<Record<string, number[]>>((acc, a) => {
       const d = a.department ?? 'Unknown'
-      acc[d] = [...(acc[d] ?? []), a.score]
+      acc[d] = [...(acc[d] ?? []), a.score ?? 0]
       return acc
     }, {})
   ).map(([dept, scores]) => ({ dept, avg: +(scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(2) }))
@@ -148,15 +156,15 @@ export default function Performance() {
   const cols: TableCol<Appraisal>[] = [
     {
       key: 'employee_name', label: 'Employee',
-      render: r => <NameCell name={r.employee_name} sub={r.department ?? null} />,
+      render: r => <NameCell name={`${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || '—'} sub={r.staff_id ?? null} />,
     },
     {
-      key: 'period', label: 'Period',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.period}</span>,
+      key: 'cycle_name', label: 'Period',
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.cycle_name ?? '—'}</span>,
     },
     {
-      key: 'score', label: 'Rating',
-      render: r => <RatingPill score={r.score} />,
+      key: 'final_score', label: 'Rating',
+      render: r => <RatingPill score={r.final_score} />,
     },
     {
       key: 'reviewer_name', label: 'Reviewer',
@@ -178,7 +186,7 @@ export default function Performance() {
   const uniqueDepts = useMemo(() => [...new Set(appraisals.map(a => a.department).filter(Boolean))] as string[], [appraisals])
 
   const filtered = useMemo(() => appraisals.filter(a => {
-    if (fPeriod.size && !fPeriod.has(a.period)) return false
+    if (fPeriod.size && !fPeriod.has(a.period ?? '')) return false
     if (fDept.size && !fDept.has(a.department ?? '')) return false
     if (search) {
       const q = search.toLowerCase()
@@ -265,7 +273,7 @@ export default function Performance() {
         {detail && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <RatingPill score={detail.score} />
+              <RatingPill score={detail.final_score} />
               <StatusBadge status={detail.status} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2], fontSize: TEXT.base }}>

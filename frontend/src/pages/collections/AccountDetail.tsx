@@ -66,8 +66,8 @@ interface ContactEntry {
 
 interface PromiseEntry {
   id: number
-  promised_amount_kobo: number
-  promised_date: string
+  promise_amount_kobo: number
+  promise_date: string
   status: string
   created_at: string
   agent_name: string | null
@@ -344,7 +344,7 @@ function PromisesTab({ cif, version }: { cif: string; version: number }) {
 
   useEffect(() => {
     setLoading(true)
-    apiFetch<{ data: PromiseEntry[] }>(`/api/collections-ops/promises?cif=${encodeURIComponent(cif)}`)
+    apiFetch<{ data: PromiseEntry[] }>(`/api/collections-ops/promises?q=${encodeURIComponent(cif)}`)
       .then(r => setPromises(r.data ?? []))
       .catch(() => setPromises([]))
       .finally(() => setLoading(false))
@@ -367,7 +367,7 @@ function PromisesTab({ cif, version }: { cif: string; version: number }) {
         }}>
           <div>
             <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>
-              {fmtKobo(p.promised_amount_kobo)} — due {fmtDate(p.promised_date)}
+              {fmtKobo(p.promise_amount_kobo)} — due {fmtDate(p.promise_date)}
             </div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
               {p.agent_name ?? '—'} · {fmtDatetime(p.created_at)}

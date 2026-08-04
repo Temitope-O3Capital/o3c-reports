@@ -21,9 +21,11 @@ interface Employee {
   last_name: string
   email?: string
   phone?: string
+  department_name?: string
   department?: string
   department_id?: number
   job_title?: string
+  grade_level_name?: string
   grade_level?: string
   grade_level_id?: number
   status: string
@@ -42,7 +44,7 @@ interface Employee {
   hmo_plan?: string
 }
 
-interface LeaveBalance { leave_type: string; total_days: number; used_days: number; remaining_days: number }
+interface LeaveBalance { leave_type_name: string; days_total: number; days_used: number }
 interface Department { id: number; name: string }
 interface GradeLevel { id: number; name: string }
 
@@ -219,18 +221,18 @@ export default function Employees() {
       render: r => <NameCell name={`${r.first_name} ${r.last_name}`} sub={r.staff_id ?? null} />,
     },
     {
-      key: 'department', label: 'Department',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.department ?? '—'}</span>,
+      key: 'department_name', label: 'Department',
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.department_name ?? '—'}</span>,
     },
     {
       key: 'job_title', label: 'Job Title',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.job_title ?? '—'}</span>,
     },
     {
-      key: 'grade_level', label: 'Grade',
-      render: r => r.grade_level ? (
+      key: 'grade_level_name', label: 'Grade',
+      render: r => r.grade_level_name ? (
         <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${BLUE}12`, color: BLUE }}>
-          {r.grade_level}
+          {r.grade_level_name}
         </span>
       ) : <span style={{ color: 'var(--txt3)' }}>—</span>,
     },
@@ -515,20 +517,22 @@ export default function Employees() {
                   <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No leave balances found.</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {leaveBalances.map(lb => (
-                      <div key={lb.leave_type} style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: '10px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>
+                    {leaveBalances.map(lb => {
+                      const remaining = (lb.days_total ?? 0) - (lb.days_used ?? 0)
+                      return (
+                      <div key={lb.leave_type_name} style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: '10px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 3 }}>{lb.leave_type}</div>
+                          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 3 }}>{lb.leave_type_name}</div>
                           <div style={{ height: 5, background: 'var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
-                            <div style={{ width: `${lb.total_days > 0 ? (lb.remaining_days / lb.total_days) * 100 : 0}%`, height: '100%', background: GREEN, borderRadius: RADIUS.lg }} />
+                            <div style={{ width: `${lb.days_total > 0 ? (remaining / lb.days_total) * 100 : 0}%`, height: '100%', background: GREEN, borderRadius: RADIUS.lg }} />
                           </div>
                         </div>
                         <div style={{ textAlign: 'right', minWidth: 70 }}>
-                          <div style={{ ...NUM, fontSize: 15, fontWeight: FW.bold, color: GREEN }}>{lb.remaining_days}</div>
-                          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>of {lb.total_days} left</div>
+                          <div style={{ ...NUM, fontSize: 15, fontWeight: FW.bold, color: GREEN }}>{remaining}</div>
+                          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>of {lb.days_total} left</div>
                         </div>
                       </div>
-                    ))}
+                      )})}
                   </div>
                 )
               )}

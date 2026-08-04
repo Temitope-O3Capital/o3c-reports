@@ -50,7 +50,7 @@ interface Activity {
 interface Deal {
   id:                  number
   title:               string
-  value_kobo:          number
+  expected_value:      number
   probability:         number
   stage_name:          string | null
   stage_color:         string | null
@@ -307,7 +307,7 @@ export default function ContactDetail() {
                     </div>
                   </div>
                   <div style={{ textAlign:'right' }}>
-                    <div style={{ fontSize:15, fontWeight:FW.extrabold, color:NAVY, ...NUM }}>{fmtKobo(deal.value_kobo)}</div>
+                    <div style={{ fontSize:15, fontWeight:FW.extrabold, color:NAVY, ...NUM }}>{fmtKobo(deal.expected_value)}</div>
                     <div style={{ fontSize:TEXT.xs, color:'var(--txt3)', marginTop:2 }}>{deal.probability}% likely</div>
                   </div>
                   {deal.stage_name && (

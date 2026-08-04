@@ -859,14 +859,15 @@ func finFDKPIs(db *core.DB) http.HandlerFunc {
 			    ) FILTER (WHERE transaction_type='inflow' AND maturity_date >= CURRENT_DATE), 0)   AS total_interest_accrued_kobo,
 			    COUNT(*) FILTER (WHERE transaction_type='inflow'
 			        AND DATE_TRUNC('month', maturity_date) = DATE_TRUNC('month', CURRENT_DATE))    AS matured_this_month,
-			    COALESCE(AVG(tenor_days) FILTER (WHERE transaction_type='inflow'), 0)::bigint      AS avg_tenor_days
+			    COALESCE(AVG(tenor_days) FILTER (WHERE transaction_type='inflow'), 0)::bigint      AS avg_tenor_days,
+			    COALESCE(ROUND(AVG(rate) FILTER (WHERE transaction_type='inflow')::numeric, 1), 0) AS avg_rate_pct
 			FROM fd_transactions`)
 		if err != nil || len(rows) == 0 {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 				"total_fds": 0, "active_fds": 0,
 				"total_principal_kobo": 0, "total_interest_accrued_kobo": 0,
-				"matured_this_month": 0, "avg_tenor_days": 0,
+				"matured_this_month": 0, "avg_tenor_days": 0, "avg_rate_pct": 0,
 			})
 			return
 		}

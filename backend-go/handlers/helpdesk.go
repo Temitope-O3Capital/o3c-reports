@@ -278,7 +278,7 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			WHERE assigned_to = $1`, user.ID)
 
 		recentRows, _ := db.PGQuery(ctx, `
-			SELECT id, ticket_ref, subject, status, priority, created_at, sla_due_at
+			SELECT id, ticket_ref, subject, customer_name, status, priority, created_at, sla_due_at
 			FROM helpdesk_tickets
 			WHERE assigned_to = $1
 			ORDER BY created_at DESC

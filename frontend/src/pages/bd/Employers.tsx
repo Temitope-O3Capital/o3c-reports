@@ -592,8 +592,8 @@ export default function Employers() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const res = await apiFetch<{ data: Employer[] }>(`/api/bd/employers?from=${dateFrom}&to=${dateTo}`)
-      setEmployers(res?.data ?? [])
+      const res = await apiFetch<any>(`/api/bd/employers?from=${dateFrom}&to=${dateTo}`)
+      setEmployers(Array.isArray(res) ? res : (res?.data ?? []))
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load employers')
     } finally {

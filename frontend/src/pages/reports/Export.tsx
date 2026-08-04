@@ -8,11 +8,10 @@ import { toast } from 'sonner'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ExportLog {
-  id: number
-  dataset: string
-  format: string
+  report_type: string
   created_at: string
   row_count: number
+  created_by?: string
 }
 
 // ── Dataset field map ─────────────────────────────────────────────────────────
@@ -247,7 +246,7 @@ export default function DataExport() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {logs.map(log => (
                     <div
-                      key={log.id}
+                      key={`${log.report_type}-${log.created_at}`}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} ${SP[3]}`,
                         borderRadius: RADIUS.md, background: 'var(--bg)', border: '1px solid var(--bdr)',
@@ -255,10 +254,10 @@ export default function DataExport() {
                     >
                       <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: 'var(--txt3)', flexShrink: 0 }}>description</span>
                       <span style={{ flex: 1, fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>
-                        {log.dataset} · {log.format.toUpperCase()}
+                        {log.report_type}
                       </span>
                       <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>
-                        {log.row_count.toLocaleString()} rows
+                        {(log.row_count ?? 0).toLocaleString()} rows
                       </span>
                       <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>
                         {fmtDatetime(log.created_at)}

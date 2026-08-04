@@ -13,13 +13,10 @@ import { toast } from 'sonner'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface KYCExpiry {
-  id: number
+  cif_number: string
   customer_name: string
-  cif: string
-  phone: string
-  kyc_type: string
-  expiry_date: string
-  days_to_expiry: number
+  kyc_expiry_date: string
+  days_until_expiry: number
   status: string  // "expiring_soon" | "expired"
 }
 
@@ -61,7 +58,6 @@ export default function KYCExpiry() {
 
   const [search, setSearch]     = useState('')
   const [fHorizon, setFHorizon] = useState(new Set<string>())
-  const [fDocType, setFDocType] = useState(new Set<string>())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -89,12 +85,9 @@ export default function KYCExpiry() {
     }
   }
 
-  const uniqueDocTypes = useMemo(() => [...new Set(items.map(i => i.kyc_type).filter(Boolean))] as string[], [items])
-
   const filtered = useMemo(() => items.filter(r => {
-    if (fDocType.size && !fDocType.has(r.kyc_type)) return false
     if (fHorizon.size) {
-      const d = r.days_to_expiry
+      const d = r.days_until_expiry
       const matches = [...fHorizon].some(h => {
         if (h === 'expired') return d < 0
         if (h === '30') return d >= 0 && d <= 30
@@ -106,31 +99,23 @@ export default function KYCExpiry() {
     }
     if (search) {
       const q = search.toLowerCase()
-      if (![r.customer_name, r.kyc_type, r.cif].some(f => f?.toLowerCase().includes(q))) return false
+      if (![r.customer_name, r.cif_number].some(f => f?.toLowerCase().includes(q))) return false
     }
     return true
-  }), [items, fHorizon, fDocType, search])
+  }), [items, fHorizon, search])
 
   const cols: TableCol<KYCExpiry>[] = [
     {
       key: 'customer_name', label: 'Customer',
-      render: r => <NameCell name={r.customer_name} sub={r.cif} />,
+      render: r => <NameCell name={r.customer_name} sub={r.cif_number} />,
     },
     {
-      key: 'phone', label: 'Phone',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.phone}</span>,
+      key: 'kyc_expiry_date', label: 'Expiry Date',
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.kyc_expiry_date)}</span>,
     },
     {
-      key: 'kyc_type', label: 'KYC Type',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.kyc_type}</span>,
-    },
-    {
-      key: 'expiry_date', label: 'Expiry Date',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtDate(r.expiry_date)}</span>,
-    },
-    {
-      key: 'days_to_expiry', label: 'Days Left',
-      render: r => <DaysLeft days={r.days_to_expiry} status={r.status} />,
+      key: 'days_until_expiry', label: 'Days Left',
+      render: r => <DaysLeft days={r.days_until_expiry} status={r.status} />,
     },
     {
       key: 'status', label: 'Status',
@@ -140,8 +125,8 @@ export default function KYCExpiry() {
       key: '_actions', label: '', sortable: false, width: 64,
       render: r => (
         <ActionRow actions={[
-          { icon: 'notifications', label: 'Send Reminder', onClick: () => handleKYCAction(r.cif, 'remind') },
-          { icon: 'verified', label: 'Mark Renewed', onClick: () => handleKYCAction(r.cif, 'renew') },
+          { icon: 'notifications', label: 'Send Reminder', onClick: () => handleKYCAction(r.cif_number, 'remind') },
+          { icon: 'verified', label: 'Mark Renewed', onClick: () => handleKYCAction(r.cif_number, 'renew') },
         ]} />
       ),
     },
@@ -173,27 +158,22 @@ export default function KYCExpiry() {
             {
               key: 'horizon', label: 'Horizon',
               options: [
-                { value: 'expired', label: 'Expired',  color: RED,   count: items.filter(r => r.days_to_expiry < 0).length },
-                { value: '30',      label: '≤ 30 days', color: AMBER, count: items.filter(r => r.days_to_expiry >= 0 && r.days_to_expiry <= 30).length },
-                { value: '60',      label: '≤ 60 days', color: AMBER, count: items.filter(r => r.days_to_expiry >= 0 && r.days_to_expiry <= 60).length },
-                { value: '90',      label: '≤ 90 days', color: GREEN, count: items.filter(r => r.days_to_expiry >= 0 && r.days_to_expiry <= 90).length },
+                { value: 'expired', label: 'Expired',  color: RED,   count: items.filter(r => r.days_until_expiry < 0).length },
+                { value: '30',      label: '≤ 30 days', color: AMBER, count: items.filter(r => r.days_until_expiry >= 0 && r.days_until_expiry <= 30).length },
+                { value: '60',      label: '≤ 60 days', color: AMBER, count: items.filter(r => r.days_until_expiry >= 0 && r.days_until_expiry <= 60).length },
+                { value: '90',      label: '≤ 90 days', color: GREEN, count: items.filter(r => r.days_until_expiry >= 0 && r.days_until_expiry <= 90).length },
               ],
               selected: fHorizon, onChange: (next: Set<string>) => setFHorizon(next),
             },
-            {
-              key: 'doc_type', label: 'KYC Type',
-              options: uniqueDocTypes.map(t => ({ value: t, count: items.filter(r => r.kyc_type === t).length })),
-              selected: fDocType, onChange: (next: Set<string>) => setFDocType(next),
-            },
           ]}
-          onReset={() => { setSearch(''); setFHorizon(new Set()); setFDocType(new Set()) }}
+          onReset={() => { setSearch(''); setFHorizon(new Set()) }}
           resultCount={filtered.length} totalCount={items.length}
           placeholder="Search by name or KYC type…"
         />
         <DataTable<KYCExpiry>
           cols={cols}
           rows={filtered}
-          keyFn={r => r.id}
+          keyFn={r => r.cif_number}
           emptyText="No KYC documents expiring within this horizon"
           skeletonRows={loading ? 5 : 0}
           pageSize={20}

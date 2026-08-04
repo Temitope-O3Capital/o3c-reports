@@ -12,7 +12,7 @@ import { RED, AMBER, BLUE, GREEN, NAVY, NUM, TEXT, FW, RADIUS, SP } from '../../
 interface MyTicket {
   id: number; ticket_ref: string; subject: string
   customer_name: string; priority: string; status: string
-  created_at: string; sla_breach_at: string | null
+  created_at: string; sla_due_at: string | null
 }
 
 interface HelpdeskAgentDash {
@@ -40,9 +40,9 @@ const PRIORITY_COLOR: Record<string, string> = {
 
 function csatColor(s: number) { return s >= 4.5 ? GREEN : s >= 3.5 ? AMBER : RED }
 
-function SlaCell({ sla_breach_at }: { sla_breach_at: string | null }) {
-  if (!sla_breach_at) return <span style={{ color: 'var(--txt3)' }}>—</span>
-  const ms = new Date(sla_breach_at).getTime() - Date.now()
+function SlaCell({ sla_due_at }: { sla_due_at: string | null }) {
+  if (!sla_due_at) return <span style={{ color: 'var(--txt3)' }}>—</span>
+  const ms = new Date(sla_due_at).getTime() - Date.now()
   if (ms < 0) return <StatusPill label="Breached" color={RED} />
   const hrs = ms / 3_600_000
   const color = hrs < 2 ? RED : hrs < 6 ? AMBER : GREEN
@@ -107,7 +107,7 @@ export default function HelpdeskMyDashboard() {
     { key: 'customer_name', label: 'Customer' },
     { key: 'priority', label: 'Priority', render: r => <StatusPill label={r.priority} color={PRIORITY_COLOR[r.priority?.toLowerCase()] ?? NAVY} /> },
     { key: 'status', label: 'Status', render: r => <StatusPill label={r.status} color={NAVY} /> },
-    { key: 'sla_breach_at', label: 'SLA', render: r => <SlaCell sla_breach_at={r.sla_breach_at} /> },
+    { key: 'sla_due_at', label: 'SLA', render: r => <SlaCell sla_due_at={r.sla_due_at} /> },
   ]
 
   return (

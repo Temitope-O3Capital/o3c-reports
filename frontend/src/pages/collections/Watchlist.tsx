@@ -204,7 +204,7 @@ export default function Watchlist() {
   const resolvedMonth  = entries.filter(e =>
     e.status === 'resolved' && e.resolved_at && new Date(e.resolved_at).getTime() >= monthStart
   ).length
-  const escalatedCount = entries.filter(e => e.status === 'escalated').length
+  const escalatedCount = entries.filter(e => e.status === 'escalated_to_recovery').length
 
   // ── Filter ────────────────────────────────────────────────────────────────────
 

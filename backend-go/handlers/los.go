@@ -150,7 +150,7 @@ func losQueue(db *core.DB) http.HandlerFunc {
 			rows, err = db.PGQuery(r.Context(), `
 				SELECT la.id, la.reference, la.applicant_name, la.applicant_cif, la.product_type,
 				       la.amount_requested_kobo, la.amount_approved_kobo, la.status, la.stage,
-				       la.assigned_to_user_id, la.submitted_at, la.created_at, la.updated_at,
+				       la.assigned_to_user_id, la.submitted_at, la.disbursed_at, la.created_at, la.updated_at,
 				       u.full_name AS assigned_officer_name
 				FROM loan_applications la
 				LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
@@ -167,7 +167,7 @@ func losQueue(db *core.DB) http.HandlerFunc {
 			rows, err = db.PGQuery(r.Context(), `
 				SELECT la.id, la.reference, la.applicant_name, la.applicant_cif, la.product_type,
 				       la.amount_requested_kobo, la.amount_approved_kobo, la.status, la.stage,
-				       la.assigned_to_user_id, la.submitted_at, la.created_at, la.updated_at,
+				       la.assigned_to_user_id, la.submitted_at, la.disbursed_at, la.created_at, la.updated_at,
 				       u.full_name AS assigned_officer_name
 				FROM loan_applications la
 				LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id

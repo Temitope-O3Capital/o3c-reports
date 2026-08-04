@@ -47,10 +47,10 @@ interface FDKPIs {
   total_fds: number
   total_principal_kobo: number
   avg_rate_pct: number
-  maturing_this_month: number
+  matured_this_month: number
 }
 
-interface TrendPoint { month: string; inflow: number; liquidation: number }
+interface TrendPoint { label: string; inflow: number; liquidation: number }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -366,8 +366,8 @@ export default function FinanceFixedDeposit() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Total FDs" value={fdKpis ? String(fdKpis.total_fds) : '—'} icon="savings" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Total Principal NGN" value={fdKpis ? fmtKobo(fdKpis.total_principal_kobo) : '—'} icon="account_balance" accent={GREEN} loading={kpiLoading} />
-        <KpiCard label="Avg Rate %" value={fdKpis ? `${fdKpis.avg_rate_pct.toFixed(1)}%` : '—'} icon="percent" accent={BLUE} loading={kpiLoading} />
-        <KpiCard label="Maturing This Month" value={fdKpis ? String(fdKpis.maturing_this_month) : '—'} icon="event" accent={AMBER} loading={kpiLoading} />
+        <KpiCard label="Avg Rate %" value={fdKpis ? `${Number(fdKpis.avg_rate_pct ?? 0).toFixed(1)}%` : '—'} icon="percent" accent={BLUE} loading={kpiLoading} />
+        <KpiCard label="Maturing This Month" value={fdKpis ? String(fdKpis.matured_this_month) : '—'} icon="event" accent={AMBER} loading={kpiLoading} />
       </div>
 
       {/* Trend chart */}
@@ -388,7 +388,7 @@ export default function FinanceFixedDeposit() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="label" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
               <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} width={72} />
               <Tooltip content={<FDTooltip />} />
               <Area type="monotone" dataKey="inflow" name="Inflow" stroke={GREEN} strokeWidth={2} fill="url(#inflowGrad)" dot={false} />

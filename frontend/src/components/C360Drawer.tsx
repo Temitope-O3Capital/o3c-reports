@@ -12,11 +12,12 @@ interface C360Customer {
 }
 
 interface Account {
-  account_number?: string; bank_name?: string; address?: string
+  'Phone Number'?: string; 'Email'?: string; 'City'?: string
+  'State'?: string; 'Job Title'?: string; 'Birthday'?: string
 }
 
 interface Product {
-  product_name?: string; card_type?: string; status?: string
+  'Product Name'?: string; 'Account Status'?: string; 'Name On Card'?: string
 }
 
 interface LoanApplication {
@@ -27,7 +28,7 @@ interface Profile {
   cif?: string; name?: string; phone?: string; email?: string
   account?: Account
   products?: Product[]
-  loan_applications?: LoanApplication[]
+  loan_apps?: LoanApplication[]
   financial_summary?: { dpd_bucket?: string | null }
 }
 
@@ -115,9 +116,9 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
     if (!initialCustomer) return
     setLoading(true)
     setProfile(null)
-    apiFetch<Profile>(`/api/customer360/${initialCustomer.cif}`)
-      .then(data => setProfile({
-        ...data,
+    apiFetch<any>(`/api/customer360/${initialCustomer.cif}`)
+      .then(res => setProfile({
+        ...((res?.data ?? res) as Profile),
         cif: initialCustomer.cif,
         name: initialCustomer.name,
         phone: initialCustomer.phone,
@@ -151,11 +152,11 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
   }, [open, initialCustomer, loadProfile, loadEvents])
 
   const dpdBucket   = profile?.financial_summary?.dpd_bucket ?? 'Current'
-  const activeLoans = (profile?.loan_applications ?? []).filter(l => !REJECTED.has(l.stage ?? ''))
+  const activeLoans = (profile?.loan_apps ?? []).filter(l => !REJECTED.has(l.stage ?? ''))
   const products    = [
     ...(profile?.products ?? []).map(p => ({
-      name: p.product_name ?? p.card_type ?? 'Product',
-      amt:  p.status ?? '',
+      name: p['Product Name'] ?? p['Name On Card'] ?? 'Product',
+      amt:  p['Account Status'] ?? '',
     })),
     ...activeLoans.map(l => ({
       name: l.product_type ?? 'Loan',
@@ -163,11 +164,13 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
     })),
   ]
 
+  const acct = profile?.account
+  const location = [acct?.['City'], acct?.['State']].filter(Boolean).join(', ')
   const profileKVs: [string, string | undefined][] = [
-    ['Phone',     profile?.phone],
-    ['Email',     profile?.email],
-    ['Account #', profile?.account?.account_number],
-    ['Bank',      profile?.account?.bank_name],
+    ['Phone',     profile?.phone ?? acct?.['Phone Number']],
+    ['Email',     profile?.email ?? acct?.['Email']],
+    ['Job Title', acct?.['Job Title']],
+    ['Location',  location || undefined],
   ].filter(([, v]) => v) as [string, string][]
 
   return (
@@ -273,7 +276,10 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                       fontSize: 12.5,
                     }}>
                       <span style={{ fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{p.name}</span>
-                      <span style={{ marginLeft: 'auto', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', color: 'var(--txt2)', fontSize: 12 }}>{p.amt}</span>
+                      {p.amt && (p.amt.startsWith('₦')
+                        ? <span style={{ marginLeft: 'auto', fontFamily: MONO, fontVariantNumeric: 'tabular-nums', color: 'var(--txt2)', fontSize: 12 }}>{p.amt}</span>
+                        : <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: 'var(--th-bg)', color: 'var(--txt2)', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>{p.amt.toLowerCase()}</span>
+                      )}
                     </div>
                   ))}
                 </div>
