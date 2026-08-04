@@ -8,9 +8,19 @@ import { toast } from 'sonner'
 interface Step {
   id: number; step_no: number; channel: string; template_id?: number | null
   schedule_mode: string; offset_days: number; send_at?: string | null
+  audience_filter: string
   status: string; scheduled_for?: string | null; sent_at?: string | null
   sent_count: number; failed_count: number; template_name?: string
 }
+
+const AUDIENCE_OPTS: { v: string; l: string }[] = [
+  { v: 'all',           l: 'Everyone' },
+  { v: 'delivered',     l: 'Prev. delivered' },
+  { v: 'not_delivered', l: 'Prev. not delivered' },
+  { v: 'opened',        l: 'Opened a prev. email' },
+  { v: 'not_opened',    l: "Didn't open prev. email" },
+  { v: 'clicked',       l: 'Clicked a prev. email' },
+]
 interface Tpl { id: number; name: string; channel: string }
 
 const CH: Record<string, { c: string; i: string; l: string }> = {
@@ -64,7 +74,7 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
       await apiPut(`/api/campaigns/${campaignId}/steps/${s.id}`, {
         step_no: next.step_no, channel: next.channel, template_id: next.template_id ?? null,
         schedule_mode: next.schedule_mode, offset_days: Number(next.offset_days) || 0,
-        send_at: next.send_at || '',
+        send_at: next.send_at || '', audience_filter: next.audience_filter || 'all',
       })
     } catch (e: any) { toast.error(e.message); load() }
   }
@@ -144,6 +154,15 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
                         )}
                       </div>
                     </div>
+                    {/* Audience (skip on step 1 — no prior engagement) */}
+                    {i > 0 && (
+                      <div>
+                        <label style={lbl}>Send to</label>
+                        <select value={s.audience_filter || 'all'} disabled={!editable} onChange={e => saveStep(s, { audience_filter: e.target.value })} style={{ ...fld, width: '100%', cursor: editable ? 'pointer' : 'default' }}>
+                          {AUDIENCE_OPTS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                        </select>
+                      </div>
+                    )}
                   </div>
                   {/* Status / actions */}
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0, minWidth: 90 }}>

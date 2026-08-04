@@ -33,6 +33,7 @@ func listSteps(db *core.DB) http.HandlerFunc {
 			SELECT s.id, s.campaign_id, s.step_no, s.channel, s.template_id,
 			       s.schedule_mode, s.offset_days, s.send_at, s.status,
 			       s.scheduled_for, s.sent_at, s.sent_count, s.failed_count,
+			       s.audience_filter,
 			       t.name AS template_name
 			FROM campaign_steps s
 			LEFT JOIN message_templates t ON t.id = s.template_id
@@ -47,12 +48,37 @@ func listSteps(db *core.DB) http.HandlerFunc {
 }
 
 type stepBody struct {
-	StepNo       int    `json:"step_no"`
-	Channel      string `json:"channel"`
-	TemplateID   *int64 `json:"template_id"`
-	ScheduleMode string `json:"schedule_mode"`
-	OffsetDays   int    `json:"offset_days"`
-	SendAt       string `json:"send_at"`
+	StepNo         int    `json:"step_no"`
+	Channel        string `json:"channel"`
+	TemplateID     *int64 `json:"template_id"`
+	ScheduleMode   string `json:"schedule_mode"`
+	OffsetDays     int    `json:"offset_days"`
+	SendAt         string `json:"send_at"`
+	AudienceFilter string `json:"audience_filter"`
+}
+
+var stepAudienceFilters = map[string]bool{
+	"all": true, "delivered": true, "not_delivered": true,
+	"opened": true, "not_opened": true, "clicked": true,
+}
+
+// audienceFilterSQL returns an AND-clause narrowing campaign_contacts to a
+// prior-engagement segment. Empty string = the whole audience.
+func audienceFilterSQL(f string) string {
+	switch f {
+	case "delivered":
+		return " AND (email_status IN ('delivered','opened','clicked') OR sms_status='delivered' OR whatsapp_status='delivered')"
+	case "not_delivered":
+		return " AND NOT (email_status IN ('delivered','opened','clicked') OR sms_status='delivered' OR whatsapp_status='delivered')"
+	case "opened":
+		return " AND email_status IN ('opened','clicked')"
+	case "not_opened":
+		return " AND (email_status IS NULL OR email_status NOT IN ('opened','clicked'))"
+	case "clicked":
+		return " AND email_status='clicked'"
+	default:
+		return ""
+	}
 }
 
 func createStep(db *core.DB) http.HandlerFunc {
@@ -70,14 +96,17 @@ func createStep(db *core.DB) http.HandlerFunc {
 		if b.ScheduleMode != "absolute" {
 			b.ScheduleMode = "offset"
 		}
+		if !stepAudienceFilters[b.AudienceFilter] {
+			b.AudienceFilter = "all"
+		}
 		var sendAt any
 		if b.SendAt != "" {
 			sendAt = b.SendAt
 		}
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO campaign_steps (campaign_id, step_no, channel, template_id, schedule_mode, offset_days, send_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-			id, b.StepNo, b.Channel, b.TemplateID, b.ScheduleMode, b.OffsetDays, sendAt)
+			INSERT INTO campaign_steps (campaign_id, step_no, channel, template_id, schedule_mode, offset_days, send_at, audience_filter)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+			id, b.StepNo, b.Channel, b.TemplateID, b.ScheduleMode, b.OffsetDays, sendAt, b.AudienceFilter)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 500, "Create failed")
 			return
@@ -99,15 +128,18 @@ func updateStep(db *core.DB) http.HandlerFunc {
 		if b.ScheduleMode != "absolute" {
 			b.ScheduleMode = "offset"
 		}
+		if !stepAudienceFilters[b.AudienceFilter] {
+			b.AudienceFilter = "all"
+		}
 		var sendAt any
 		if b.SendAt != "" {
 			sendAt = b.SendAt
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			UPDATE campaign_steps
-			SET step_no=$1, channel=$2, template_id=$3, schedule_mode=$4, offset_days=$5, send_at=$6, updated_at=NOW()
-			WHERE id=$7 RETURNING *`,
-			b.StepNo, b.Channel, b.TemplateID, b.ScheduleMode, b.OffsetDays, sendAt, sid)
+			SET step_no=$1, channel=$2, template_id=$3, schedule_mode=$4, offset_days=$5, send_at=$6, audience_filter=$7, updated_at=NOW()
+			WHERE id=$8 RETURNING *`,
+			b.StepNo, b.Channel, b.TemplateID, b.ScheduleMode, b.OffsetDays, sendAt, b.AudienceFilter, sid)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Step not found")
 			return
@@ -210,7 +242,7 @@ func SequenceStepTicker(db *core.DB) {
 func dispatchStep(db *core.DB, campaignID, stepID int64) {
 	ctx := context.Background()
 	stepRows, _ := db.PGQuery(ctx, `
-		SELECT s.channel, s.template_id, c.from_email, c.from_name
+		SELECT s.channel, s.template_id, s.audience_filter, c.from_email, c.from_name
 		FROM campaign_steps s JOIN campaigns c ON c.id = s.campaign_id
 		WHERE s.id=$1`, stepID)
 	if len(stepRows) == 0 {
@@ -232,7 +264,7 @@ func dispatchStep(db *core.DB, campaignID, stepID int64) {
 	}
 
 	prepareCampaignRecipients(ctx, db, campaignID)
-	contacts, _ := db.PGQuery(ctx, `SELECT * FROM campaign_contacts WHERE campaign_id=$1`, campaignID)
+	contacts, _ := db.PGQuery(ctx, `SELECT * FROM campaign_contacts WHERE campaign_id=$1`+audienceFilterSQL(str(st["audience_filter"])), campaignID)
 
 	fromEmail := coalesce(str(st["from_email"]), resolveCredKey(ctx, db, "SENDGRID_FROM_EMAIL"))
 	fromName := coalesce(str(st["from_name"]), coalesce(resolveCredKey(ctx, db, "SENDGRID_FROM_NAME"), "O3 Capital"))

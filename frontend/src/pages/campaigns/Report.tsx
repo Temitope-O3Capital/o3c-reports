@@ -54,6 +54,64 @@ const CH_META: Record<string, { c: string; i: string; l: string }> = {
   sms:      { c: PURPLE,    i: 'smartphone', l: 'SMS' },
   whatsapp: { c: '#25D366', i: 'chat',       l: 'WhatsApp' },
 }
+
+const STEP_STATUS_COLOR: Record<string, string> = { pending: '#8A95A1', sending: BLUE, sent: GREEN, skipped: AMBER }
+const AUDIENCE_LABEL: Record<string, string> = {
+  all: 'Everyone', delivered: 'Prev. delivered', not_delivered: 'Prev. not delivered',
+  opened: 'Opened prev.', not_opened: "Didn't open prev.", clicked: 'Clicked prev.',
+}
+
+// Per-step results shown on the Results tab for sequence campaigns.
+function StepResults({ campaignId }: { campaignId: string }) {
+  const [steps, setSteps] = useState<any[]>([])
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    apiFetch<any[]>(`/api/campaigns/${campaignId}/steps`)
+      .then(s => setSteps(Array.isArray(s) ? s : []))
+      .catch(() => {})
+      .finally(() => setLoaded(true))
+  }, [campaignId])
+  if (!loaded || steps.length === 0) return null
+  return (
+    <SectionCard title="Sequence steps" subtitle="Per-step send results" padding={false}>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: 'var(--txt3)', fontSize: TEXT.xs, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+              {['#', 'Channel', 'Template', 'Audience', 'When', 'Status', 'Sent', 'Failed'].map((h, i) => (
+                <th key={h} style={{ padding: '9px 12px', borderBottom: '1px solid var(--bdr)', textAlign: i >= 6 ? 'right' : 'left', fontWeight: FW.semibold }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {steps.map((s, i) => {
+              const meta = CH_META[s.channel] ?? { c: NAVY, i: 'campaign', l: s.channel }
+              const when = s.schedule_mode === 'absolute'
+                ? (s.send_at ? fmtDatetime(s.send_at) : '—')
+                : `Day ${toN(s.offset_days)}`
+              return (
+                <tr key={s.id} style={{ borderBottom: '1px solid var(--bdr)' }}>
+                  <td style={{ padding: '9px 12px', ...NUM, color: 'var(--txt3)' }}>{i + 1}</td>
+                  <td style={{ padding: '9px 12px' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: meta.c, fontWeight: FW.semibold }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{meta.i}</span>{meta.l}
+                    </span>
+                  </td>
+                  <td style={{ padding: '9px 12px', color: 'var(--txt2)' }}>{s.template_name || <span style={{ color: RED }}>none</span>}</td>
+                  <td style={{ padding: '9px 12px', color: 'var(--txt3)' }}>{i === 0 ? '—' : (AUDIENCE_LABEL[s.audience_filter] ?? 'Everyone')}</td>
+                  <td style={{ padding: '9px 12px', color: 'var(--txt2)' }}>{when}{s.scheduled_for && s.status === 'pending' ? <span style={{ color: 'var(--txt3)' }}> · {fmtDatetime(s.scheduled_for)}</span> : ''}</td>
+                  <td style={{ padding: '9px 12px' }}><span style={{ color: STEP_STATUS_COLOR[s.status] ?? 'var(--txt3)', fontWeight: FW.semibold, textTransform: 'capitalize' }}>{s.status}</span></td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', ...NUM, fontWeight: FW.semibold, color: GREEN }}>{fmtNum(toN(s.sent_count))}</td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', ...NUM, color: toN(s.failed_count) > 0 ? RED : 'var(--txt3)' }}>{fmtNum(toN(s.failed_count))}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </SectionCard>
+  )
+}
 interface ReportResp { campaign: any; metrics: Metrics; channels?: ChannelMetric[]; timeline: TimelinePoint[]; top_links: { url: string; clicks: number }[]; contact_stats: ContactStats }
 interface EditorValue { blocks: EmailBlock[]; settings?: EmailSettings }
 interface PreflightResp { total: number; with_email: number; with_phone: number; suppressed: number; duplicates: number; invalid: number; usable: number; warnings: string[] }
@@ -1747,6 +1805,7 @@ export default function CampaignDetail() {
               )}
             </>
           )}
+          <StepResults campaignId={id!} />
           <ContactsSection campaignId={id!} />
         </div>
       )}
