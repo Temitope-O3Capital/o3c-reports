@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Page, SectionCard, StatusBadge, Tabs, Modal, ConfirmModal, Spinner, ErrBanner,
+  Page, SectionCard, StatusBadge, Tabs, Modal, ConfirmModal, Spinner, ErrBanner, Avatar,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, fmtKobo } from '../../lib/fmt'
-import { RED, GREEN, AMBER, BLUE, NAVY, PURPLE, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import { RED, GREEN, AMBER, BLUE, NAVY, FW, RADIUS, SP, TEXT, MONO } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -128,6 +128,37 @@ function slaLabel(sla_due_at?: string): { label: string; color: string } {
   if (mins < 60) return { label: `${mins}m remaining`, color: AMBER }
   const hrs = Math.round(mins / 60)
   return { label: `${hrs}h remaining`, color: hrs < 4 ? AMBER : GREEN }
+}
+
+// ── Priority + channel meta ────────────────────────────────────────────────────
+
+const TERMINAL_STATUSES = ['closed', 'resolved', 'merged', 'cancelled']
+const isTerminal = (s?: string) => TERMINAL_STATUSES.includes((s ?? '').toLowerCase())
+
+function priorityMeta(p?: string): { label: string; color: string } {
+  const k = (p ?? '').toLowerCase()
+  const color = PRIORITY_COLOR[k] ?? 'var(--chart-lbl)'
+  const label = k ? k.charAt(0).toUpperCase() + k.slice(1) : 'Normal'
+  return { label, color }
+}
+
+const CHANNEL_ICON: Record<string, string> = {
+  email: 'mail', phone: 'call', voice: 'call', whatsapp: 'chat', sms: 'sms',
+  web: 'language', chat: 'forum', portal: 'language', zoho: 'headset_mic', social: 'public',
+}
+const channelIcon = (c?: string) => CHANNEL_ICON[(c ?? '').toLowerCase()] ?? 'confirmation_number'
+
+// Small labelled meta cell for the ticket header strip
+function MetaItem({ icon, label, children }: { icon: string; label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)' }}>{icon}</span>
+      <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{label}</span>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {children}
+      </span>
+    </div>
+  )
 }
 
 // ── Message bubble ────────────────────────────────────────────────────────────
@@ -360,6 +391,16 @@ export default function TicketDetail() {
         body_text: replyText,
         is_internal_note: replyNote,
       })
+      // A customer-facing reply on a closed/resolved ticket reopens it.
+      if (!replyNote && isTerminal(data?.ticket?.status)) {
+        try {
+          await apiFetch(`/api/helpdesk/tickets/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'open' }),
+          })
+          toast.success('Reply sent — ticket reopened')
+        } catch { /* reply already saved; status change is best-effort */ }
+      }
       setReplyText('')
       setReplyNote(false)
       await load()
@@ -367,6 +408,22 @@ export default function TicketDetail() {
       setReplyErr(e.message)
     } finally {
       setSending(false)
+    }
+  }
+
+  async function handleReopen() {
+    setActionLoading(true)
+    try {
+      await apiFetch(`/api/helpdesk/tickets/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'open' }),
+      })
+      toast.success('Ticket reopened')
+      await load()
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setActionLoading(false)
     }
   }
 
@@ -573,7 +630,8 @@ export default function TicketDetail() {
 
   const { ticket, messages } = data
   const sla = slaLabel(ticket.sla_due_at)
-  const prColor = PRIORITY_COLOR[ticket.priority?.toLowerCase()] ?? 'var(--chart-lbl)'
+  const priority = priorityMeta(ticket.priority)
+  const terminal = isTerminal(ticket.status)
 
   // ── Modal footer helper ──────────────────────────────────────────────────────
   const ModalFooter = ({ onConfirm, label, disabled, danger }: { onConfirm: () => void; label: string; disabled?: boolean; danger?: boolean }) => (
@@ -615,9 +673,9 @@ export default function TicketDetail() {
         <div style={{ flex: '0 0 58%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <SectionCard padding={false} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Ticket header */}
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt2)', fontFamily: 'Inter, monospace' }}>
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', fontFamily: MONO, background: 'var(--chip-bg)', padding: '2px 8px', borderRadius: RADIUS.md }}>
                   #{ticket.ticket_ref || ticket.id}
                 </span>
                 {ticket.ticket_type && (
@@ -626,37 +684,62 @@ export default function TicketDetail() {
                   </span>
                 )}
                 <StatusBadge status={ticket.status} />
-                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: prColor }} title={ticket.priority} />
-                <span style={{ fontSize: TEXT.sm, color: sla.color, fontWeight: FW.semibold }}>{sla.label}</span>
+                {/* Labelled priority chip (replaces the near-invisible dot) */}
+                <span title={`${priority.label} priority`} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold,
+                  padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${priority.color}15`, color: priority.color,
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: priority.color }} />
+                  {priority.label}
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.sm, color: sla.color, fontWeight: FW.semibold }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>schedule</span>
+                  {sla.label}
+                </span>
               </div>
-              <h2 style={{ margin: '6px 0 0', fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', lineHeight: 1.3 }}>
+              <h2 style={{ margin: '10px 0 0', fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', lineHeight: 1.3 }}>
                 {ticket.subject}
               </h2>
 
+              {/* Meta strip — who / when / how */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
+                <MetaItem icon="event" label="Opened">{fmtDatetime(ticket.created_at)}</MetaItem>
+                <MetaItem icon={channelIcon(ticket.channel)} label="Via">{ticket.channel || '—'}</MetaItem>
+                <MetaItem icon="badge" label="Assignee">{ticket.assigned_to_name || 'Unassigned'}</MetaItem>
+              </div>
+
               {/* Action buttons */}
-              <div style={{ display: 'flex', gap: 6, marginTop: SP[3], flexWrap: 'wrap' }}>
-                {['open','in_progress','pending'].includes(ticket.status) && (
-                  <button onClick={() => setResolveOpen(true)}
-                    style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>check_circle</span>
-                    Resolve
+              <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
+                {terminal ? (
+                  <button onClick={handleReopen} disabled={actionLoading}
+                    style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, opacity: actionLoading ? 0.6 : 1 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>lock_open</span>
+                    Reopen
                   </button>
+                ) : (
+                  <>
+                    <button onClick={() => setResolveOpen(true)}
+                      style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>check_circle</span>
+                      Resolve
+                    </button>
+                    <button onClick={() => setTransferOpen(true)}
+                      style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>swap_horiz</span>
+                      Transfer
+                    </button>
+                    <button onClick={() => setEscalateOpen(true)}
+                      style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: `1px solid ${AMBER}50`, background: `${AMBER}10`, color: AMBER, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>priority_high</span>
+                      Escalate
+                    </button>
+                    <button onClick={handleClaimTicket} disabled={actionLoading}
+                      style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>person_add</span>
+                      Assign to Me
+                    </button>
+                  </>
                 )}
-                <button onClick={() => setTransferOpen(true)}
-                  style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>swap_horiz</span>
-                  Transfer
-                </button>
-                <button onClick={() => setEscalateOpen(true)}
-                  style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: `1px solid ${AMBER}50`, background: `${AMBER}10`, color: AMBER, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>priority_high</span>
-                  Escalate
-                </button>
-                <button onClick={handleClaimTicket} disabled={actionLoading}
-                  style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>person_add</span>
-                  Assign to Me
-                </button>
                 <button onClick={() => setMergeOpen(true)}
                   style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                   <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>merge</span>
@@ -668,7 +751,13 @@ export default function TicketDetail() {
             {/* Message thread */}
             <div style={{ flex: 1, overflow: 'auto', padding: '16px 18px' }}>
               {messages.length === 0 ? (
-                <p style={{ color: 'var(--txt2)', fontSize: TEXT.base, textAlign: 'center', marginTop: 40 }}>No messages yet.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '48px 20px', textAlign: 'center' }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 40, color: 'var(--txt3)' }}>forum</span>
+                  <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>No messages yet</div>
+                  <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', maxWidth: 260 }}>
+                    Start the conversation below, or add an internal note for your team.
+                  </div>
+                </div>
               ) : (
                 messages.map(m => <MessageBubble key={m.id} msg={m} />)
               )}
@@ -678,16 +767,41 @@ export default function TicketDetail() {
             {/* Reply area */}
             <div style={{ borderTop: '1px solid var(--bdr)', padding: '14px 18px', flexShrink: 0 }}>
               <ErrBanner error={replyErr} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: SP[2] }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.sm, color: 'var(--txt2)', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={replyNote} onChange={e => setReplyNote(e.target.checked)} style={{ accentColor: AMBER }} />
-                  Internal note
-                </label>
+
+              {/* Segmented Reply / Internal note toggle */}
+              <div style={{ display: 'inline-flex', padding: 3, gap: 3, borderRadius: RADIUS.md, background: 'var(--th-bg)', border: '1px solid var(--bdr)', marginBottom: SP[2] }}>
+                {[
+                  { key: false, label: 'Reply', icon: 'reply', color: NAVY },
+                  { key: true, label: 'Internal note', icon: 'lock', color: AMBER },
+                ].map(m => {
+                  const active = replyNote === m.key
+                  return (
+                    <button key={m.label} onClick={() => setReplyNote(m.key)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', borderRadius: RADIUS.sm, border: 'none',
+                        cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold,
+                        background: active ? 'var(--card)' : 'transparent',
+                        color: active ? m.color : 'var(--txt3)',
+                        boxShadow: active ? 'var(--card-shadow)' : 'none',
+                      }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{m.icon}</span>
+                      {m.label}
+                    </button>
+                  )
+                })}
               </div>
+
+              {terminal && !replyNote && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: SP[2], padding: '6px 10px', borderRadius: RADIUS.sm, background: `${AMBER}0F`, border: `1px solid ${AMBER}30`, fontSize: TEXT.xs, color: AMBER }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>info</span>
+                  This ticket is {ticket.status}. Sending a reply will reopen it.
+                </div>
+              )}
+
               <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
                 value={replyText}
                 onChange={e => setReplyText(e.target.value)}
-                placeholder={replyNote ? 'Write internal note…' : 'Write a reply…'}
+                placeholder={replyNote ? 'Write an internal note (only staff can see this)…' : 'Write a reply to the customer…'}
                 rows={3}
                 style={{
                   width: '100%', resize: 'vertical', padding: '10px 12px',
@@ -698,15 +812,17 @@ export default function TicketDetail() {
                 }}
                 onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendReply() }}
               />
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: SP[2] }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: SP[2] }}>
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>⌘/Ctrl + ↵ to send</span>
                 <button onClick={sendReply} disabled={!replyText.trim() || sending}
                   style={{
-                    padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff',
+                    padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none',
+                    background: replyNote ? AMBER : NAVY, color: '#fff',
                     fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (!replyText.trim() || sending) ? 'not-allowed' : 'pointer',
                     opacity: (!replyText.trim() || sending) ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: SP[2],
                   }}>
                   {sending && <Spinner size={14} color="#fff" />}
-                  Send Reply
+                  {replyNote ? 'Add Note' : 'Send Reply'}
                 </button>
               </div>
             </div>
@@ -718,6 +834,26 @@ export default function TicketDetail() {
 
           {/* Customer context */}
           <SectionCard title="Context" padding={false}>
+            {(ticket.customer_name || ticket.customer_cif) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 18px 14px', margin: '-2px 0 12px', borderBottom: '1px solid var(--bdr)' }}>
+                <Avatar name={ticket.customer_name || 'Customer'} size={38} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {ticket.customer_name || 'Unknown customer'}
+                  </div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: MONO }}>
+                    {ticket.customer_cif ? `CIF ${ticket.customer_cif}` : 'No CIF linked'}
+                  </div>
+                </div>
+                {ticket.customer_cif && (
+                  <button onClick={() => navigate(`/contacts/${ticket.customer_cif}`)} title="Open full profile"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}25`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', flexShrink: 0 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 15 }}>open_in_new</span>
+                    Profile
+                  </button>
+                )}
+              </div>
+            )}
             <div style={{ padding: '0 18px 4px' }}>
               <Tabs
                 tabs={[
@@ -740,7 +876,6 @@ export default function TicketDetail() {
               )}
               {!ctxLoading && tab === 'customer' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <DetailRow label="Name" value={ticket.customer_name} />
                   {ticket.customer_phone ? (
                     <div style={{ display: 'flex', gap: 10, fontSize: TEXT.base, alignItems: 'center' }}>
                       <span style={{ color: 'var(--txt2)', minWidth: 110, flexShrink: 0 }}>Phone</span>
@@ -751,16 +886,6 @@ export default function TicketDetail() {
                     </div>
                   ) : null}
                   <DetailRow label="Email" value={ticket.customer_email} />
-                  <DetailRow label="CIF" value={ticket.customer_cif} mono />
-                  {ticket.customer_cif && (
-                    <button
-                      onClick={() => navigate(`/contacts/${ticket.customer_cif}`)}
-                      style={{ marginTop: SP[1], padding: '5px 12px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                    >
-                      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>person</span>
-                      Full profile →
-                    </button>
-                  )}
                   <DetailRow label="Account Status" value={ctx?.cif ? 'Active' : undefined} />
                   <DetailRow label="Other Open Tickets" value={ctx?.other_open_tickets !== undefined ? String(ctx.other_open_tickets) : undefined} />
                   {!ticket.customer_name && !ticket.customer_phone && (
