@@ -128,6 +128,7 @@ const SECTIONS: Section[] = [
         subs: [
           { label: 'My Queue',            to: '/cards/my-queue', vis: ['cards_ops_officer'] },
           { label: 'Credit Card Portfolio', to: '/cards/credit-portfolio' },
+          { label: 'At-Risk Cards',       to: '/cards/at-risk' },
           { label: 'Import Cycle Data',   to: '/cards/cycle-import', vis: ['cards_ops_head','finance_head'] },
           { label: 'Card Trends',         to: '/cards/trends' },
           { label: 'Cardholder Mgmt',     to: '/cards/management' },
@@ -141,22 +142,6 @@ const SECTIONS: Section[] = [
       {
         icon: 'smartphone', label: 'Mobile App', to: '/mobile-app',
         vis: ['cards_ops_head','finance_head','head_ops'],
-      },
-    ],
-  },
-  {
-    key: 'deposits',
-    header: 'Fixed Deposits',
-    items: [
-      {
-        icon: 'savings', label: 'Fixed Deposits', to: '/deposits',
-        vis: ['finance_officer','finance_head','head_of_reconciliation','head_ops'],
-        subs: [
-          { label: 'Dashboard',    to: '/deposits' },
-          { label: 'Deposit Book', to: '/finance/fixed-deposit' },
-          { label: 'Maturity',     to: '/finance/fd-maturity' },
-          { label: 'Accruals',     to: '/finance/fd-accrual' },
-        ],
       },
     ],
   },
@@ -213,6 +198,10 @@ const SECTIONS: Section[] = [
         subs: [
           { label: 'Transactions',      to: '/finance/transactions' },
           { label: 'Income',            to: '/finance/income' },
+          { label: 'Fixed Deposits',    to: '/deposits' },
+          { label: 'FD — Deposit Book', to: '/finance/fixed-deposit' },
+          { label: 'FD — Maturity',     to: '/finance/fd-maturity' },
+          { label: 'FD — Accrual',      to: '/finance/fd-accrual' },
           { label: 'EOD / EOB',         to: '/finance/eod' },
           { label: 'P&L',               to: '/finance/pnl' },
           { label: 'Manual Postings',   to: '/finance/manual-postings' },

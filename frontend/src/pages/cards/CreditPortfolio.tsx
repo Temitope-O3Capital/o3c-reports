@@ -19,6 +19,7 @@ interface CCKpis {
   min_payment_due_kobo: number
   overdue_kobo: number
   overdue_accounts: number
+  over_limit_accounts: number
   delinquency_rate_pct: number
   avg_balance_kobo: number
   purchases_kobo: number
@@ -115,7 +116,9 @@ export default function CreditCardPortfolio() {
             <KpiCard label="Receivables" value={fmtKobo(kpis?.total_receivables_kobo ?? 0)} icon="account_balance_wallet" accent={NAVY} sub={`${fmtNum(kpis?.accounts ?? 0)} accounts`} />
             <KpiCard label="Utilization" value={`${(kpis?.utilization_pct ?? 0).toFixed(1)}%`} icon="donut_large" accent={BLUE} sub={`of ${fmtKobo(kpis?.total_credit_limit_kobo ?? 0)} limit`} />
             <KpiCard label="Interest Income" value={fmtKobo(kpis?.interest_income_kobo ?? 0)} icon="trending_up" accent={GREEN} sub="this cycle" />
-            <KpiCard label="Delinquency" value={`${(kpis?.delinquency_rate_pct ?? 0).toFixed(1)}%`} icon="warning" accent={RED} sub={`${fmtNum(kpis?.overdue_accounts ?? 0)} accts · ${fmtKobo(kpis?.overdue_kobo ?? 0)}`} />
+            <a href="/cards/at-risk" style={{ textDecoration: 'none', display: 'block' }} title="View at-risk accounts">
+              <KpiCard label="Delinquency" value={`${(kpis?.delinquency_rate_pct ?? 0).toFixed(1)}%`} icon="warning" accent={RED} sub={`${fmtNum(kpis?.overdue_accounts ?? 0)} overdue · ${fmtNum(kpis?.over_limit_accounts ?? 0)} over-limit →`} />
+            </a>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
             <KpiCard label="Min Payment Due" value={fmtKobo(kpis?.min_payment_due_kobo ?? 0)} icon="payments" accent={AMBER} />
