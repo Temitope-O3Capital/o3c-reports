@@ -80,12 +80,18 @@ func c360Search(db *core.DB) http.HandlerFunc {
 		}
 
 		like := "%" + q + "%"
+		// Return a clean {cif,name,phone,email} shape the C360 search bar consumes
+		// (the raw view columns are "CIF Number"/"First Name"/… which the UI can't read).
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT TOP 20 CIF_Number, First_Name, Last_Name, Email, Phone, State
+			`SELECT TOP 20 CIF_Number AS cif,
+			        LTRIM(RTRIM(ISNULL(First_Name,'') + ' ' + ISNULL(Last_Name,''))) AS name,
+			        Phone AS phone, Email AS email, State AS state
 			 FROM dbo.Contact
 			 WHERE CIF_Number LIKE @p1 OR First_Name LIKE @p1 OR Last_Name LIKE @p1 OR Phone LIKE @p1
 			 ORDER BY CIF_Number`,
-			`SELECT "CIF Number", "First Name", "Last Name", "Email", "Phone Number", "State"
+			`SELECT "CIF Number" AS cif,
+			        TRIM(CONCAT("First Name", ' ', "Last Name")) AS name,
+			        "Phone Number" AS phone, "Email" AS email, "State" AS state
 			 FROM "Accounts"
 			 WHERE "CIF Number" ILIKE $1 OR "First Name" ILIKE $1 OR "Last Name" ILIKE $1
 			 ORDER BY "CIF Number"
