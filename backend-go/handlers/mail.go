@@ -980,11 +980,13 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 	if opt.Category != "" {
 		payload["categories"] = []string{opt.Category}
 	}
-	if opt.TrackOpensAndLinks {
-		payload["tracking_settings"] = map[string]any{
-			"click_tracking": map[string]any{"enable": true, "enable_text": false},
-			"open_tracking":  map[string]any{"enable": true},
-		}
+	// Always send tracking_settings so we OVERRIDE any account-level default.
+	// SendGrid has click tracking on account-wide, so without an explicit
+	// enable:false it would wrap even transactional links (e.g. the login URL)
+	// in a url3850.o3cards.com/ls/click redirect — ugly and phishing-flag-prone.
+	payload["tracking_settings"] = map[string]any{
+		"click_tracking": map[string]any{"enable": opt.TrackOpensAndLinks, "enable_text": false},
+		"open_tracking":  map[string]any{"enable": opt.TrackOpensAndLinks},
 	}
 	if opt.Kind == "campaign" {
 		listRecipientEmail := ""
