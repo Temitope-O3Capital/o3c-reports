@@ -29,7 +29,7 @@ export interface EmailBlock {
   cols?: Array<{ value: string; label: string; color: string }>
 }
 
-export interface EmailSettings { background?: string; contentWidth?: number; preheader?: string }
+export interface EmailSettings { background?: string; contentWidth?: number; preheader?: string; fullBleed?: boolean }
 interface EditorValue { blocks: EmailBlock[]; settings?: EmailSettings }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -154,7 +154,15 @@ export function exportToHtml(blocks: EmailBlock[] = [], settings: EmailSettings 
   const preheader = pre
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">${pre.replace(/</g, '&lt;').replace(/>/g, '&gt;')}${'&#847;&zwnj;&nbsp;'.repeat(30)}</div>`
     : ''
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>body{margin:0;padding:0;background:${bg};}a{color:inherit;}img{border:0;max-width:100%;height:auto;}@media(max-width:600px){.ec{width:100%!important;border-radius:0!important;}}</style></head><body style="margin:0;padding:0;background:${bg};">${preheader}<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:${bg};"><tr><td align="center" style="padding:36px 16px;"><table role="presentation" cellspacing="0" cellpadding="0" border="0" class="ec" style="width:100%;max-width:${w}px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.09);">${blocks.map(blockToHtml).join('')}</table></td></tr></table></body></html>`
+  // Full-bleed layout: the content spans the full width with no outer margin,
+  // rounding or card shadow — so hero images fit the page edge-to-edge. The
+  // default "contained" layout is the classic centered, rounded card.
+  const full = settings.fullBleed === true
+  const outerPad = full ? '0' : '36px 16px'
+  const cardStyle = full
+    ? `width:100%;background:#ffffff;`
+    : `width:100%;max-width:${w}px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.09);`
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>body{margin:0;padding:0;background:${bg};}a{color:inherit;}img{border:0;max-width:100%;height:auto;}@media(max-width:600px){.ec{width:100%!important;border-radius:0!important;}}</style></head><body style="margin:0;padding:0;background:${bg};">${preheader}<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:${bg};"><tr><td align="center" style="padding:${outerPad};"><table role="presentation" cellspacing="0" cellpadding="0" border="0" class="ec" style="${cardStyle}">${blocks.map(blockToHtml).join('')}</table></td></tr></table></body></html>`
 }
 
 export const blocksToHtml = (blocks: EmailBlock[], s?: EmailSettings) => exportToHtml(blocks, s)
@@ -727,10 +735,14 @@ export default function EmailBlockEditor({ value, onChange, previewSubject = '',
           <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b', cursor: 'pointer' }}>
             BG <input type="color" value={settings.background || '#E8ECF2'} onChange={e => setSettings(s => ({ ...s, background: e.target.value }))} style={{ width: 22, height: 22, border: '1px solid #E5E7EB', borderRadius: 4, cursor: 'pointer', padding: 1 }} />
           </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b' }}>
-            Width <select value={settings.contentWidth || 660} onChange={e => setSettings(s => ({ ...s, contentWidth: Number(e.target.value) }))} style={{ fontSize: 11, border: '1px solid #E5E7EB', borderRadius: 4, padding: '2px 4px', background: '#fff', color: '#334155' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: settings.fullBleed ? '#CBD5E1' : '#64748b' }}>
+            Width <select value={settings.contentWidth || 660} disabled={!!settings.fullBleed} onChange={e => setSettings(s => ({ ...s, contentWidth: Number(e.target.value) }))} style={{ fontSize: 11, border: '1px solid #E5E7EB', borderRadius: 4, padding: '2px 4px', background: '#fff', color: '#334155' }}>
               {[560, 600, 640, 660, 700, 720].map(w => <option key={w} value={w}>{w}px</option>)}
             </select>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b', cursor: 'pointer' }} title="Remove the centered card so the email + hero images fill the full width">
+            <input type="checkbox" checked={!!settings.fullBleed} onChange={e => setSettings(s => ({ ...s, fullBleed: e.target.checked }))} />
+            Full width
           </label>
         </div>
         {/* Preheader / preview text */}
@@ -775,7 +787,7 @@ export default function EmailBlockEditor({ value, onChange, previewSubject = '',
           onDragOver={e => e.preventDefault()}
           onDrop={e => { e.preventDefault(); handleDrop() }}
         >
-          <div style={{ maxWidth: settings.contentWidth || 660, margin: '0 auto', background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,.16)' }}>
+          <div style={{ maxWidth: settings.fullBleed ? '100%' : (settings.contentWidth || 660), margin: '0 auto', background: '#fff', borderRadius: settings.fullBleed ? 0 : 10, overflow: 'hidden', boxShadow: settings.fullBleed ? 'none' : '0 4px 24px rgba(0,0,0,.16)' }}>
             {blocks.length === 0 ? (
               <div style={{ padding: 60, textAlign: 'center' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 52, color: '#E2E8F0', display: 'block', marginBottom: 16 }}>email</span>

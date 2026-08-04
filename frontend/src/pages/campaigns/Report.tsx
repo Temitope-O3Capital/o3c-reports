@@ -299,7 +299,7 @@ function SMSBuilder({ value, onChange, canEdit, senderName }: { value: string; o
             disabled={!canEdit} rows={6} maxLength={480}
             spellCheck={false} data-gramm="false"
             placeholder={canEdit ? 'Hi {{first_name|there}}, write your SMS here…' : '—'}
-            style={{ ...fld, height: 'auto', resize: 'vertical', fontFamily: 'monospace', lineHeight: 1.6, padding: '8px 12px', fontSize: TEXT.base, opacity: canEdit ? 1 : .85 }}
+            style={{ ...fld, height: 'auto', resize: 'vertical', lineHeight: 1.6, padding: '8px 12px', opacity: canEdit ? 1 : .85 }}
           />
 
           {/* Segment meter */}
