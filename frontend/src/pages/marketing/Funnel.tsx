@@ -7,11 +7,12 @@ import { GREEN, AMBER, RED, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// Keys match the /api/sales/funnel response (salesFunnel in sales.go).
 interface SalesFunnel {
-  contacts?:        number
-  accounts?:        number
-  active_accounts?: number
-  transacting?:     number
+  registered?:  number
+  card_issued?: number
+  card_active?: number
+  transacting?: number
 }
 
 interface LosPipeline {

@@ -126,8 +126,8 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 		summaryRows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 			    COUNT(*)                                            AS total_campaigns,
-			    COALESCE(SUM(emails_sent + sms_sent),0)             AS total_sent,
-			    COALESCE(SUM(emails_delivered + sms_delivered),0)  AS total_delivered,
+			    COALESCE(SUM(emails_sent + sms_sent + whatsapp_sent),0)             AS total_sent,
+			    COALESCE(SUM(emails_delivered + sms_delivered + whatsapp_delivered),0)  AS total_delivered,
 			    COALESCE(SUM(emails_opened),0)                     AS total_opened,
 			    COALESCE(SUM(emails_clicked),0)                    AS total_clicked,
 			    COALESCE(SUM(emails_bounced),0)                    AS total_bounced,
@@ -181,8 +181,8 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 		byChannelRows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 			    type                                                    AS channel,
-			    COALESCE(SUM(emails_sent + sms_sent),0)                 AS sent,
-			    COALESCE(SUM(emails_delivered + sms_delivered),0)      AS delivered,
+			    COALESCE(SUM(emails_sent + sms_sent + whatsapp_sent),0)                 AS sent,
+			    COALESCE(SUM(emails_delivered + sms_delivered + whatsapp_delivered),0)      AS delivered,
 			    COALESCE(SUM(emails_opened),0)                         AS opened,
 			    COALESCE(SUM(emails_clicked),0)                        AS clicked
 			FROM campaigns
@@ -245,7 +245,7 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 			SELECT
 			    to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
 			    type,
-			    COALESCE(SUM(emails_sent + sms_sent),0) AS sent
+			    COALESCE(SUM(emails_sent + sms_sent + whatsapp_sent),0) AS sent
 			FROM campaigns
 			WHERE %s
 			GROUP BY date_trunc('month', created_at), type
@@ -288,8 +288,8 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 		// Top campaigns by open rate (email campaigns with >0 sent)
 		topRows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT id, name, type,
-			       COALESCE(emails_sent + sms_sent,0) AS sent,
-			       GREATEST(COALESCE(emails_delivered + sms_delivered,0), (
+			       COALESCE(emails_sent + sms_sent + whatsapp_sent,0) AS sent,
+			       GREATEST(COALESCE(emails_delivered + sms_delivered + whatsapp_delivered,0), (
 			           SELECT COUNT(*) FROM campaign_contacts cc
 			           WHERE cc.campaign_id=campaigns.id
 			             AND (cc.email_status IN ('delivered','opened','clicked') OR cc.sms_status='delivered')
@@ -303,7 +303,7 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 			           WHERE cc.campaign_id=campaigns.id AND cc.email_status='clicked'
 			       )) AS clicked
 			FROM campaigns
-			WHERE %s AND (emails_sent + sms_sent) > 0
+			WHERE %s AND (emails_sent + sms_sent + whatsapp_sent) > 0
 			ORDER BY
 			    CASE WHEN (emails_sent + sms_sent) > 0
 			         THEN (emails_opened::float / (emails_sent + sms_sent))
@@ -747,17 +747,60 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 		}
 
 		storedName := newUUID() + ext
-		r2URL, ok := uploadCampaignImageToR2(storedName, mime, file)
+		url, ok := uploadCampaignImageToR2(storedName, mime, file)
 		if !ok {
-			respondErr(w, 503, "Image storage is not configured. Set R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_PUBLIC_BASE_URL environment variables.")
+			// On-prem fallback: R2 isn't configured, so persist to local disk and
+			// serve via the /uploads/* static handler. Reset the reader first —
+			// the R2 attempt / MIME sniff may have consumed part of it.
+			if rs, ok2 := file.(readerWithSeek); ok2 {
+				rs.Seek(0, io.SeekStart) //nolint:errcheck
+			}
+			url, ok = saveCampaignImageLocal(r, storedName, file)
+		}
+		if !ok {
+			respondErr(w, 503, "Image storage failed: R2 is not configured and the local uploads directory is not writable. Set the R2_* env vars or a writable UPLOAD_ROOT.")
 			return
 		}
 
-		recordCampaignUpload(r.Context(), db, header.Filename, storedName, mime, 0, r2URL)
+		recordCampaignUpload(r.Context(), db, header.Filename, storedName, mime, 0, url)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"url": r2URL}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"url": url}) //nolint:errcheck
 	}
+}
+
+// saveCampaignImageLocal persists an uploaded campaign image to the local uploads
+// root (served by the /uploads/* static handler) and returns an ABSOLUTE URL so
+// the image resolves inside externally-opened marketing emails. Used when R2
+// object storage isn't configured (the on-prem deployment).
+func saveCampaignImageLocal(r *http.Request, storedName string, src io.Reader) (string, bool) {
+	dir := filepath.Join(UploadRoot(), "campaign-images")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		slog.Error("campaign image local save: mkdir failed", "dir", dir, "err", err)
+		return "", false
+	}
+	dst, err := os.Create(filepath.Join(dir, storedName))
+	if err != nil {
+		slog.Error("campaign image local save: create failed", "err", err)
+		return "", false
+	}
+	defer dst.Close()
+	if _, err := io.Copy(dst, src); err != nil {
+		slog.Error("campaign image local save: copy failed", "err", err)
+		return "", false
+	}
+	// Absolute base URL: explicit env override, else derive from the request.
+	base := strings.TrimRight(coalesce(os.Getenv("PUBLIC_BASE_URL"), os.Getenv("APP_BASE_URL")), "/")
+	if base == "" {
+		scheme := "https"
+		if p := firstForwardedValue(r.Header.Get("X-Forwarded-Proto")); p != "" {
+			scheme = p
+		} else if r.TLS == nil {
+			scheme = "http"
+		}
+		base = scheme + "://" + r.Host
+	}
+	return base + "/uploads/campaign-images/" + storedName, true
 }
 
 func uploadCampaignImageToR2(storedName, contentType string, file multipartFile) (string, bool) {

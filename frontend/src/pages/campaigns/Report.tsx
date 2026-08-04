@@ -39,7 +39,7 @@ interface ReportResp { campaign: any; metrics: Metrics; timeline: TimelinePoint[
 interface EditorValue { blocks: EmailBlock[]; settings?: EmailSettings }
 interface PreflightResp { total: number; with_email: number; with_phone: number; suppressed: number; duplicates: number; invalid: number; usable: number; warnings: string[] }
 interface ContactListItem { id: number; name: string; total?: number }
-interface Template { id: number; name: string; channel: string; category: string; sms_body?: string; email_subject?: string; email_blocks?: any[] }
+interface Template { id: number; name: string; channel: string; category: string; sms_body?: string; whatsapp_body?: string; email_subject?: string; email_blocks?: any[] }
 interface CampaignContact { id: number; first_name?: string; last_name?: string; email?: string; phone?: string; sms_status?: string; email_status?: string }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -441,8 +441,8 @@ function TemplatePickerModal({ open, onClose, onApply, channel }: {
               onMouseEnter={e => { e.currentTarget.style.borderColor = BLUE; e.currentTarget.style.background = `${BLUE}08` }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--bdr)'; e.currentTarget.style.background = 'var(--card)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 18, color: t.channel === 'email' ? BLUE : PURPLE }}>
-                  {t.channel === 'email' ? 'mail' : 'smartphone'}
+                <span className="material-symbols-rounded" style={{ fontSize: 18, color: t.channel === 'email' ? BLUE : t.channel === 'whatsapp' ? '#25D366' : PURPLE }}>
+                  {t.channel === 'email' ? 'mail' : t.channel === 'whatsapp' ? 'chat' : 'smartphone'}
                 </span>
                 <div>
                   <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{t.name}</div>
@@ -661,11 +661,12 @@ export default function CampaignDetail() {
   const [pushOpen,     setPushOpen]     = useState(false)
   const [preflightOpen,setPreflightOpen]= useState(false)
   const [tplOpen,      setTplOpen]      = useState(false)
-  const [tplFor,       setTplFor]       = useState<'email' | 'sms'>('sms')
+  const [tplFor,       setTplFor]       = useState<'email' | 'sms' | 'whatsapp'>('sms')
 
   // test send
   const [testEmail,   setTestEmail]   = useState('')
   const [testPhone,   setTestPhone]   = useState('')
+  const [testWhatsApp, setTestWhatsApp] = useState('')
   const [testSending, setTestSending] = useState(false)
 
   // multi-channel overrides (only relevant for type='multi')
@@ -805,6 +806,7 @@ export default function CampaignDetail() {
       const res = await apiPost<{ sent: number; warnings: string[] }>(`/api/campaigns/${id}/test-send`, {
         to_email: testEmail || undefined,
         to_phone: testPhone || undefined,
+        to_whatsapp: testWhatsApp || undefined,
       })
       toast.success(`Test ${res.sent > 0 ? 'sent' : 'queued'}${res.warnings?.length ? ' — check warnings' : ''}`)
       if (res.warnings?.length) res.warnings.forEach(w => toast.warning(w))
@@ -868,6 +870,8 @@ export default function CampaignDetail() {
   function applyTemplate(t: Template) {
     if (tplFor === 'sms') {
       if (t.sms_body) setSmsBody(t.sms_body)
+    } else if (tplFor === 'whatsapp') {
+      if (t.whatsapp_body) setWaBody(t.whatsapp_body)
     } else {
       if (t.email_subject) setEmailSubject(t.email_subject)
       if (Array.isArray(t.email_blocks) && t.email_blocks.length > 0) {
@@ -1188,7 +1192,15 @@ export default function CampaignDetail() {
 
           {isWhatsApp && (
             <div style={{ opacity: isMulti && !enableWhatsApp ? .45 : 1, pointerEvents: isMulti && !enableWhatsApp ? 'none' : 'auto', transition: 'opacity .2s' }}>
-              <SectionCard padding title={undefined}>
+              <SectionCard padding title={undefined}
+                actions={canEdit ? (
+                  <button onClick={() => { setTplFor('whatsapp'); setTplOpen(true) }}
+                    style={{ ...btnSecondary, fontSize: TEXT.sm, padding: '4px 12px', gap: 5 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 14 }}>folder_open</span>
+                    Load Template
+                  </button>
+                ) : undefined}
+              >
                 <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: WA_GREEN, letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 14 }}>chat</span>
                   WhatsApp Message
@@ -1298,7 +1310,7 @@ export default function CampaignDetail() {
             <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 0, marginBottom: 14 }}>
               Sends a single test with sample merge data. Subject/SMS body will be prefixed [TEST].
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: isEmail && isSMS ? '1fr 1fr auto' : '1fr auto', gap: 10, alignItems: 'flex-end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr '.repeat(Math.max(1, (isEmail ? 1 : 0) + (isSMS ? 1 : 0) + (isWhatsApp ? 1 : 0))) + 'auto', gap: 10, alignItems: 'flex-end' }}>
               {isEmail && (
                 <div>
                   <label style={lbl}>Test email address</label>
@@ -1311,8 +1323,14 @@ export default function CampaignDetail() {
                   <input type="tel" value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="+2348012345678" style={fld} />
                 </div>
               )}
-              <button onClick={sendTest} disabled={testSending || (!testEmail && !testPhone)}
-                style={{ ...btnSecondary, gap: 6, height: 38, alignSelf: 'flex-end', whiteSpace: 'nowrap', opacity: testSending || (!testEmail && !testPhone) ? .55 : 1 }}>
+              {isWhatsApp && (
+                <div>
+                  <label style={lbl}>Test WhatsApp number</label>
+                  <input type="tel" value={testWhatsApp} onChange={e => setTestWhatsApp(e.target.value)} placeholder="+2348012345678" style={fld} />
+                </div>
+              )}
+              <button onClick={sendTest} disabled={testSending || (!testEmail && !testPhone && !testWhatsApp)}
+                style={{ ...btnSecondary, gap: 6, height: 38, alignSelf: 'flex-end', whiteSpace: 'nowrap', opacity: testSending || (!testEmail && !testPhone && !testWhatsApp) ? .55 : 1 }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 15 }}>send</span>
                 {testSending ? 'Sending…' : 'Send Test'}
               </button>

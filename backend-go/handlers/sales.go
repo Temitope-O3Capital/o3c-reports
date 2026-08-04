@@ -170,6 +170,7 @@ func salesRecentApplications(db *core.DB) http.HandlerFunc {
 		// H13: use o3c_users (not legacy users table) and full_name column
 		q := `SELECT la.id, la.stage, la.status, la.amount_requested_kobo,
 		             la.amount_approved_kobo, la.created_at, la.updated_at,
+		             la.applicant_name, la.product_type,
 		             la.officer_id, u.full_name AS officer_name
 		      FROM loan_applications la
 		      LEFT JOIN o3c_users u ON u.id = la.officer_id
@@ -668,24 +669,26 @@ func salesCampaignAttribution(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
 		to := qstr(r, "to")
-		where, args := "WHERE la.campaign_id IS NOT NULL", []any{}
-		if from != "" { where += fmt.Sprintf(" AND la.created_at::date >= $%d", len(args)+1); args = append(args, from) }
-		if to != "" { where += fmt.Sprintf(" AND la.created_at::date <= $%d", len(args)+1); args = append(args, to) }
+		// Subqueries (not joins) keep contacts_reached and applications independent —
+		// a join on both campaign_contacts and loan_applications would cartesian-inflate
+		// the counts. Reach comes from campaign_contacts (populated by dispatch);
+		// applications/disbursement come from loan_applications keyed by campaign_id
+		// (currently native-empty, so 0 until origination is wired — see CBS note).
+		where, args := "WHERE 1=1", []any{}
+		if from != "" { where += fmt.Sprintf(" AND c.created_at::date >= $%d", len(args)+1); args = append(args, from) }
+		if to != "" { where += fmt.Sprintf(" AND c.created_at::date <= $%d", len(args)+1); args = append(args, to) }
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
-			    c.id                            AS campaign_id,
-			    c.name                          AS campaign_name,
-			    c.type                          AS campaign_type,
-			    COUNT(DISTINCT cc.contact_id)   AS contacts_reached,
-			    COUNT(la.id)                    AS applications,
-			    COUNT(CASE WHEN la.status NOT IN ('declined') THEN la.id END) AS loans_disbursed,
-			    COALESCE(SUM(CASE WHEN la.status NOT IN ('declined') THEN la.amount_approved_kobo END),0) AS disbursement_kobo
+			    c.id   AS campaign_id,
+			    c.name AS campaign_name,
+			    c.type AS campaign_type,
+			    (SELECT COUNT(*) FROM campaign_contacts cc WHERE cc.campaign_id = c.id) AS contacts_reached,
+			    (SELECT COUNT(*) FROM loan_applications la WHERE la.campaign_id = c.id) AS applications,
+			    (SELECT COUNT(*) FROM loan_applications la WHERE la.campaign_id = c.id AND la.status NOT IN ('declined')) AS loans_disbursed,
+			    (SELECT COALESCE(SUM(la.amount_approved_kobo),0) FROM loan_applications la WHERE la.campaign_id = c.id AND la.status NOT IN ('declined')) AS disbursement_kobo
 			FROM campaigns c
-			LEFT JOIN campaign_contacts cc ON cc.campaign_id = c.id
-			LEFT JOIN loan_applications la ON la.campaign_id = c.id
 			%s
-			GROUP BY c.id, c.name, c.type
-			ORDER BY applications DESC`, where), args...)
+			ORDER BY contacts_reached DESC, applications DESC`, where), args...)
 		if err != nil { respondErr(w, 500, "Query failed"); return }
 		if rows == nil { rows = []core.Row{} }
 		respond(w, rows, "pg")

@@ -1622,6 +1622,7 @@ func testSendCampaign(db *core.DB) http.HandlerFunc {
 		var body struct {
 			ToEmail string `json:"to_email"`
 			ToPhone string `json:"to_phone"`
+			ToWhatsApp string `json:"to_whatsapp"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -1629,8 +1630,9 @@ func testSendCampaign(db *core.DB) http.HandlerFunc {
 		}
 		body.ToEmail = strings.TrimSpace(body.ToEmail)
 		body.ToPhone = strings.TrimSpace(body.ToPhone)
-		if body.ToEmail == "" && body.ToPhone == "" {
-			respondErr(w, 422, "Provide at least one of to_email or to_phone")
+		body.ToWhatsApp = strings.TrimSpace(body.ToWhatsApp)
+		if body.ToEmail == "" && body.ToPhone == "" && body.ToWhatsApp == "" {
+			respondErr(w, 422, "Provide at least one of to_email, to_phone or to_whatsapp")
 			return
 		}
 
@@ -1642,6 +1644,7 @@ func testSendCampaign(db *core.DB) http.HandlerFunc {
 		camp := rows[0]
 		isSMS := str(camp["type"]) == "sms" || str(camp["type"]) == "multi"
 		isEmail := str(camp["type"]) == "email" || str(camp["type"]) == "multi"
+		isWhatsApp := str(camp["type"]) == "whatsapp" || str(camp["type"]) == "multi"
 
 		testData := map[string]any{
 			"first_name": "Test", "last_name": "User",
@@ -1661,6 +1664,17 @@ func testSendCampaign(db *core.DB) http.HandlerFunc {
 				sent++
 			} else {
 				warns = append(warns, "SMS: "+msg)
+			}
+		}
+
+		if isWhatsApp && body.ToWhatsApp != "" {
+			waBody := renderTemplate(str(camp["whatsapp_body"]), testData)
+			tplName := str(camp["whatsapp_template_name"])
+			ok, msg := sendWhatsAppCampaign(r.Context(), db, body.ToWhatsApp, waBody, tplName)
+			if ok {
+				sent++
+			} else {
+				warns = append(warns, "WhatsApp: "+msg)
 			}
 		}
 
