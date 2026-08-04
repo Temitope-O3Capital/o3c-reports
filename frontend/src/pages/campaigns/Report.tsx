@@ -14,6 +14,8 @@ import {
 } from 'recharts'
 import EmailBlockEditor, { exportToHtml } from '../../components/EmailBlockEditor'
 import type { EmailBlock, EmailSettings } from '../../components/EmailBlockEditor'
+import PersonalizeMenu from '../../components/PersonalizeMenu'
+import { renderSample, smsInfo, subjectHints, insertToken, QUICK_EMOJIS } from '../../lib/personalize'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -203,18 +205,12 @@ function SMSBuilder({ value, onChange, canEdit, senderName }: { value: string; o
     requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start + tag.length, start + tag.length) })
   }
 
-  const len  = value.length
-  const segs = len === 0 ? 1 : len <= 160 ? 1 : Math.ceil(len / 153)
-  const pct  = Math.min(100, (len / 160) * 100)
-  const barC = len > 160 ? RED : len > 130 ? AMBER : GREEN
+  const info = smsInfo(value)
+  const single = info.unicode ? 70 : 160
+  const pct  = Math.min(100, (info.chars / single) * 100)
+  const barC = info.segments > 1 ? AMBER : info.chars > single * 0.85 ? AMBER : GREEN
 
-  const previewText = value
-    .replace(/{{first_name}}/g, 'John').replace(/{{last_name}}/g, 'Okafor')
-    .replace(/{{name}}/g, 'John Okafor').replace(/{{full_name}}/g, 'John Okafor')
-    .replace(/{{phone}}/g, '0801 234 5678').replace(/{{email}}/g, 'john@example.com')
-    .replace(/{{cif_number}}/g, 'CIF-0001').replace(/{{amount}}/g, '₦5,000')
-    .replace(/{{due_date}}/g, '25 Jul 2026').replace(/{{company}}/g, 'O3 Capital')
-    .replace(/{{cta_url}}/g, 'https://o3cap.al/pay')
+  const previewText = renderSample(value)
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'start' }}>
@@ -222,14 +218,14 @@ function SMSBuilder({ value, onChange, canEdit, senderName }: { value: string; o
       {/* Composer */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {canEdit && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', alignSelf: 'center', marginRight: 4 }}>Insert:</span>
-            {MERGE_TAGS.map(tag => (
-              <button key={tag} type="button" onClick={() => insertTag(tag)}
-                style={{ fontSize: TEXT.xs, padding: '2px 9px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--th-bg)', color: 'var(--txt2)', cursor: 'pointer', fontFamily: 'monospace', transition: 'all .12s' }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = PURPLE; e.currentTarget.style.color = PURPLE }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--bdr)'; e.currentTarget.style.color = 'var(--txt2)' }}>
-                {tag}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            <PersonalizeMenu onPick={tok => insertToken(taRef.current, value, onChange, tok)} />
+            <div style={{ width: 1, height: 20, background: 'var(--bdr)' }} />
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Quick:</span>
+            {['{{first_name|there}}', '{{amount}}', '{{due_date}}', '{{cta_url}}'].map(tag => (
+              <button key={tag} type="button" onClick={() => insertToken(taRef.current, value, onChange, tag)}
+                style={{ fontSize: TEXT.xs, padding: '2px 9px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--th-bg)', color: 'var(--txt2)', cursor: 'pointer', fontFamily: 'monospace' }}>
+                {tag.replace(/[{}]/g, '')}
               </button>
             ))}
           </div>
@@ -238,23 +234,23 @@ function SMSBuilder({ value, onChange, canEdit, senderName }: { value: string; o
         <textarea ref={taRef} value={value} onChange={e => onChange(e.target.value)}
           disabled={!canEdit} rows={8} maxLength={480}
           spellCheck={false} data-gramm="false"
-          placeholder={canEdit ? 'Hi {{first_name}}, write your SMS here…' : '—'}
+          placeholder={canEdit ? 'Hi {{first_name|there}}, write your SMS here…' : '—'}
           style={{ ...fld, resize: 'vertical', fontFamily: 'monospace', lineHeight: 1.65, fontSize: TEXT.base, opacity: canEdit ? 1 : .85 }}
         />
 
-        {/* Progress bar */}
+        {/* Segment meter */}
         <div>
           <div style={{ height: 4, background: 'var(--bdr)', borderRadius: 2, overflow: 'hidden', marginBottom: 5 }}>
             <div style={{ width: `${pct}%`, height: '100%', background: barC, borderRadius: 2, transition: 'width 0.1s, background 0.2s' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: TEXT.xs, color: barC, fontFamily: 'monospace', fontWeight: FW.semibold }}>
-              {len} / 160 · {segs} SMS{segs > 1 ? ' credits' : ''}
+              {info.chars} chars · {info.segments || 1} SMS{(info.segments || 1) > 1 ? ' credits' : ''} · {info.unicode ? 'Unicode (70/part)' : 'GSM-7 (160/part)'}
             </span>
-            {len > 130 && (
-              <span style={{ fontSize: TEXT.xs, color: len > 160 ? RED : AMBER, display: 'flex', gap: 4, alignItems: 'center' }}>
+            {info.unicode && (
+              <span style={{ fontSize: TEXT.xs, color: AMBER, display: 'flex', gap: 4, alignItems: 'center' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 13 }}>warning</span>
-                {len > 160 ? `${segs} credits per recipient` : 'Tags may push past 160'}
+                Emoji/special chars cut the limit to 70
               </span>
             )}
           </div>
@@ -262,17 +258,155 @@ function SMSBuilder({ value, onChange, canEdit, senderName }: { value: string; o
 
         {canEdit && (
           <div style={{ padding: '10px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.7 }}>
-            <strong style={{ color: 'var(--txt2)' }}>Tips:</strong> Keep under 160 chars for a single SMS. Unicode/emoji reduces limit to 70 chars per part. Opt-out text is appended automatically.
+            <strong style={{ color: 'var(--txt2)' }}>Tips:</strong> Keep to one segment (160 GSM / 70 Unicode) to save credits. A “Reply STOP to opt out” footer is appended automatically at send. Use a short link for your CTA to save characters.
           </div>
         )}
       </div>
 
       {/* Phone preview */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-        <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', letterSpacing: '.05em', textTransform: 'uppercase' }}>Live Preview</div>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', letterSpacing: '.05em', textTransform: 'uppercase' }}>Live Preview <span style={{ color: 'var(--txt3)', textTransform: 'none', fontWeight: FW.normal }}>· sample data</span></div>
         <IPhoneMockup>
           <SmsAppPreview text={previewText} sender={senderName || 'O3 Capital'} />
         </IPhoneMockup>
+      </div>
+    </div>
+  )
+}
+
+// ── Subject line field with assistant (length / spam / emoji / personalize) ─────
+
+function SubjectField({ value, onChange, canEdit }: { value: string; onChange: (v: string) => void; canEdit: boolean }) {
+  const ref = useRef<HTMLInputElement>(null)
+  const [emoji, setEmoji] = useState(false)
+  const h = subjectHints(value)
+  const tone = h.lengthTone === 'good' ? GREEN : h.lengthTone === 'warn' ? AMBER : RED
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+        <label style={{ ...lbl, marginBottom: 0 }}>Subject Line *</label>
+        {canEdit && (
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', position: 'relative' }}>
+            <button type="button" onClick={() => setEmoji(e => !e)} title="Insert emoji"
+              style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 6px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: 13 }}>😊</button>
+            <PersonalizeMenu align="right" onPick={tok => insertToken(ref.current, value, onChange, tok)} />
+            {emoji && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 50, width: 200, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', padding: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {QUICK_EMOJIS.map(em => (
+                  <button key={em} type="button" onClick={() => { insertToken(ref.current, value, onChange, em); setEmoji(false) }}
+                    style={{ fontSize: 18, border: 'none', background: 'none', cursor: 'pointer', borderRadius: 6, padding: 2 }}>{em}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <input ref={ref} value={value} onChange={e => onChange(e.target.value)} disabled={!canEdit}
+        placeholder="e.g. {{first_name|there}}, your statement is ready" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+      {canEdit && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 5, fontSize: TEXT.xs, flexWrap: 'wrap' }}>
+          <span style={{ color: tone, fontFamily: 'monospace', fontWeight: FW.semibold }}>
+            {h.length} chars {h.lengthTone === 'good' ? '· good' : h.lengthTone === 'bad' ? '· too long (may clip)' : h.length === 0 ? '' : '· getting long'}
+          </span>
+          {h.spamWords.length > 0 && (
+            <span style={{ color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>report</span>
+              spam-trigger: {h.spamWords.slice(0, 3).join(', ')}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── WhatsApp composer (formatting + personalize + live preview) ─────────────────
+
+function wrapSelection(ta: HTMLTextAreaElement | null, value: string, setValue: (v: string) => void, marker: string) {
+  if (!ta) return
+  const s = ta.selectionStart ?? 0, e = ta.selectionEnd ?? 0
+  const sel = value.slice(s, e) || 'text'
+  const next = value.slice(0, s) + marker + sel + marker + value.slice(e)
+  setValue(next)
+  requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(s + marker.length, s + marker.length + sel.length) })
+}
+
+// Render WhatsApp markdown (*bold* _italic_ ~strike~ ```mono```) to safe HTML.
+function waToHtml(text: string): string {
+  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return esc
+    .replace(/```([^`]+)```/g, '<code>$1</code>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<b>$2</b>')
+    .replace(/(^|[\s(])_([^_\n]+)_/g, '$1<i>$2</i>')
+    .replace(/(^|[\s(])~([^~\n]+)~/g, '$1<s>$2</s>')
+    .replace(/\n/g, '<br>')
+}
+
+function WhatsAppComposer({ waBody, setWaBody, waTplName, setWaTplName, canEdit }: {
+  waBody: string; setWaBody: (v: string) => void; waTplName: string; setWaTplName: (v: string) => void; canEdit: boolean
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const fmtBtns: [string, string, string][] = [['format_bold', '*', 'Bold'], ['format_italic', '_', 'Italic'], ['strikethrough_s', '~', 'Strikethrough'], ['code', '```', 'Monospace']]
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'start' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div>
+          <label style={lbl}>Template Name <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional — leave blank for free-form text)</span></label>
+          <input value={waTplName} onChange={e => setWaTplName(e.target.value)} disabled={!canEdit}
+            placeholder="e.g. statement_ready" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>
+            Proactive outbound requires a Meta-approved template. Free-form text only works inside a 24-hour customer service window.
+          </div>
+        </div>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+            <label style={{ ...lbl, marginBottom: 0 }}>Message Body</label>
+            <span style={{ fontSize: TEXT.xs, color: waBody.length > 1024 ? RED : 'var(--txt3)', fontFamily: 'monospace' }}>{waBody.length}/1024</span>
+            {canEdit && (
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
+                {fmtBtns.map(([icon, mark, title]) => (
+                  <button key={mark} type="button" title={title} onMouseDown={e => e.preventDefault()}
+                    onClick={() => wrapSelection(ref.current, waBody, setWaBody, mark)}
+                    style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{icon}</span>
+                  </button>
+                ))}
+                <PersonalizeMenu align="right" onPick={tok => insertToken(ref.current, waBody, setWaBody, tok)} />
+              </div>
+            )}
+          </div>
+          <textarea ref={ref} value={waBody} onChange={e => setWaBody(e.target.value)} disabled={!canEdit}
+            placeholder={'Hi {{first_name|there}}! Your balance of {{amount}} is due {{due_date}}. *Bold*, _italic_, ~strike~ supported.'}
+            rows={6} maxLength={1024}
+            style={{ ...fld, height: 'auto', resize: 'vertical', lineHeight: 1.6, padding: '8px 12px', opacity: canEdit ? 1 : .85 }} />
+        </div>
+      </div>
+      {/* Live WhatsApp preview (sample data + formatting) */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 8 }}>Live Preview <span style={{ textTransform: 'none', fontWeight: FW.normal }}>· sample data</span></div>
+        <div style={{ width: '100%', maxWidth: 280, background: '#E5DDD5', borderRadius: 12, padding: 12, minHeight: 120 }}>
+          <div style={{ background: WA_GREEN, borderRadius: '8px 8px 0 0', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 18, color: '#fff' }}>business</span>
+            </div>
+            <div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff' }}>O3 Capital</div>
+              <div style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,0.75)' }}>Business Account</div>
+            </div>
+          </div>
+          {waBody.trim() ? (
+            <div style={{ background: '#fff', borderRadius: '0 8px 8px 8px', padding: '8px 12px', fontSize: TEXT.sm, lineHeight: 1.55, color: '#111', maxWidth: '90%', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', wordBreak: 'break-word' }}
+              dangerouslySetInnerHTML={{ __html: waToHtml(renderSample(waBody)) }} />
+          ) : (
+            <div style={{ textAlign: 'center', padding: '20px 8px', color: 'rgba(0,0,0,0.4)', fontSize: TEXT.sm }}>Preview will appear here</div>
+          )}
+        </div>
+        {waTplName && (
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, color: WA_GREEN }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 13 }}>verified</span>
+            Template: <span style={{ fontFamily: 'monospace' }}>{waTplName}</span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1138,6 +1272,23 @@ export default function CampaignDetail() {
             </div>
           )}
 
+          {/* Content readiness per channel */}
+          {canEdit && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {([
+                { on: isEmail,    label: 'Email',    ready: emailSubject.trim().length > 0 && emailBlocks.blocks.length > 0, color: BLUE },
+                { on: isSMS,      label: 'SMS',      ready: smsBody.trim().length > 0,      color: PURPLE },
+                { on: isWhatsApp, label: 'WhatsApp', ready: waBody.trim().length > 0,       color: WA_GREEN },
+              ] as const).filter(c => c.on).map(c => (
+                <span key={c.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: RADIUS.xl, border: `1px solid ${c.ready ? c.color : 'var(--bdr)'}`, background: c.ready ? `${c.color}10` : 'var(--card)', fontSize: TEXT.xs, fontWeight: FW.semibold, color: c.ready ? c.color : 'var(--txt3)' }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{c.ready ? 'check_circle' : 'radio_button_unchecked'}</span>
+                  {c.label} {c.ready ? 'ready' : 'incomplete'}
+                </span>
+              ))}
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 4 }}>· Merge tags fill per recipient; use <span style={{ fontFamily: 'monospace' }}>{'{{field|default}}'}</span> for a fallback.</span>
+            </div>
+          )}
+
           {/* Multi-channel toggles */}
           {isMulti && canEdit && (
             <div style={{ display: 'flex', gap: 10, padding: '10px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', alignItems: 'center' }}>
@@ -1206,57 +1357,7 @@ export default function CampaignDetail() {
                   WhatsApp Message
                   {isMulti && !enableWhatsApp && <span style={{ fontSize: TEXT.xs, fontWeight: FW.normal, color: 'var(--txt3)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>disabled for this send</span>}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'start' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div>
-                      <label style={lbl}>Template Name <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional — leave blank for free-form text)</span></label>
-                      <input value={waTplName} onChange={e => setWaTplName(e.target.value)} disabled={!canEdit}
-                        placeholder="e.g. statement_ready" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
-                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>
-                        Template messages are required for proactive outbound campaigns. The template must be pre-approved by Meta.
-                      </div>
-                    </div>
-                    <div>
-                      <label style={lbl}>
-                        Message Body
-                        <span style={{ fontWeight: 400, marginLeft: 6, color: waBody.length > 1024 ? RED : 'var(--txt3)' }}>
-                          {waBody.length}/1024
-                        </span>
-                      </label>
-                      <textarea value={waBody} onChange={e => setWaBody(e.target.value)} disabled={!canEdit}
-                        placeholder={`Write your WhatsApp message. Use {{first_name}}, {{cif_number}} for personalisation.`}
-                        rows={5} maxLength={1024}
-                        style={{ ...fld, height: 'auto', resize: 'vertical', lineHeight: 1.6, padding: '8px 12px', opacity: canEdit ? 1 : .85 }} />
-                    </div>
-                  </div>
-                  {/* WhatsApp chat bubble preview */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ width: '100%', maxWidth: 280, background: '#E5DDD5', borderRadius: 12, padding: 12, minHeight: 120 }}>
-                      <div style={{ background: WA_GREEN, borderRadius: '8px 8px 0 0', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <span className="material-symbols-rounded" style={{ fontSize: 18, color: '#fff' }}>business</span>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff' }}>O3 Capital</div>
-                          <div style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,0.75)' }}>Business Account</div>
-                        </div>
-                      </div>
-                      {waBody.trim() ? (
-                        <div style={{ background: '#fff', borderRadius: '0 8px 8px 8px', padding: '8px 12px', fontSize: TEXT.sm, lineHeight: 1.55, color: '#111', maxWidth: '85%', boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
-                          {waBody.slice(0, 320)}{waBody.length > 320 ? '…' : ''}
-                        </div>
-                      ) : (
-                        <div style={{ textAlign: 'center', padding: '20px 8px', color: 'rgba(0,0,0,0.4)', fontSize: TEXT.sm }}>Preview will appear here</div>
-                      )}
-                    </div>
-                    {waTplName && (
-                      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, color: WA_GREEN }}>
-                        <span className="material-symbols-rounded" style={{ fontSize: 13 }}>verified</span>
-                        Template: <span style={{ fontFamily: 'monospace' }}>{waTplName}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <WhatsAppComposer waBody={waBody} setWaBody={setWaBody} waTplName={waTplName} setWaTplName={setWaTplName} canEdit={canEdit} />
               </SectionCard>
             </div>
           )}
@@ -1278,11 +1379,7 @@ export default function CampaignDetail() {
                   {isMulti && !enableEmail && <span style={{ fontSize: TEXT.xs, fontWeight: FW.normal, color: 'var(--txt3)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>disabled for this send</span>}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
-                  <div>
-                    <label style={lbl}>Subject Line *</label>
-                    <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} disabled={!canEdit}
-                      placeholder="e.g. Your O3 Capital statement is ready" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
-                  </div>
+                  <SubjectField value={emailSubject} onChange={setEmailSubject} canEdit={canEdit} />
                   <div>
                     <label style={lbl}>From Name</label>
                     <input value={fromName} onChange={e => setFromName(e.target.value)} disabled={!canEdit}

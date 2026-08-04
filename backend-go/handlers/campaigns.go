@@ -66,14 +66,29 @@ func resolveCredKey(ctx context.Context, db *core.DB, envKey string) string {
 var mergePlaceholderRE = regexp.MustCompile(`\{\{[^}]+\}\}`)
 
 // renderTemplate substitutes {{key}} merge tags. Unknown tags are stripped.
+// renderTemplate substitutes {{field}} merge tags with values from data.
+// Supports fallback defaults via {{field|default text}} — the default is used
+// when the field is missing or blank. Unknown tags with no default resolve to "".
 func renderTemplate(tmpl string, data map[string]any) string {
-	if tmpl == "" || data == nil {
-		return mergePlaceholderRE.ReplaceAllString(tmpl, "")
+	if tmpl == "" {
+		return ""
 	}
-	for k, v := range data {
-		tmpl = strings.ReplaceAll(tmpl, "{{"+k+"}}", fmt.Sprintf("%v", v))
-	}
-	return mergePlaceholderRE.ReplaceAllString(tmpl, "")
+	return mergePlaceholderRE.ReplaceAllStringFunc(tmpl, func(m string) string {
+		inner := strings.TrimSpace(m[2 : len(m)-2]) // strip the {{ }}
+		key, def := inner, ""
+		if i := strings.Index(inner, "|"); i >= 0 {
+			key = strings.TrimSpace(inner[:i])
+			def = strings.TrimSpace(inner[i+1:])
+		}
+		if data != nil {
+			if v, ok := data[key]; ok {
+				if s := fmt.Sprintf("%v", v); strings.TrimSpace(s) != "" {
+					return s
+				}
+			}
+		}
+		return def
+	})
 }
 
 func campaignContactMergeData(c map[string]any) map[string]any {
@@ -105,6 +120,18 @@ func campaignContactMergeData(c map[string]any) map[string]any {
 }
 
 // ── Provider functions ────────────────────────────────────────────────────────
+
+// withSMSOptOut appends a compliance opt-out line unless the body already has one.
+func withSMSOptOut(body string) string {
+	if strings.TrimSpace(body) == "" {
+		return body
+	}
+	low := strings.ToLower(body)
+	if strings.Contains(low, "opt out") || strings.Contains(low, "opt-out") || strings.Contains(low, "reply stop") {
+		return body
+	}
+	return strings.TrimRight(body, " \n\t") + " Reply STOP to opt out."
+}
 
 func sendSMS(ctx context.Context, db *core.DB, phone, body string) (ok bool, providerID string) {
 	apiKey := resolveCredKey(ctx, db, "TERMII_API_KEY")
@@ -344,7 +371,7 @@ func startDispatch(db *core.DB, campaignID int64) {
 					WHERE id=$1 AND sms_status='pending'
 					RETURNING id`, cid)
 				if len(claimed) > 0 {
-					body := renderTemplate(str(camp["sms_body"]), mergeData)
+					body := withSMSOptOut(renderTemplate(str(camp["sms_body"]), mergeData))
 					ok, pid := sendSMS(ctx, db, str(c["phone"]), body)
 					smsStatus := "sent"
 					smsCol := "sms_sent"

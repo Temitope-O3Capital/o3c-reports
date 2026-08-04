@@ -6,6 +6,7 @@
 import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react'
 import DOMPurify from 'dompurify'
 import { API, getCsrfToken } from '../lib/api'
+import { renderSample } from '../lib/personalize'
 
 const NAVY = '#0E2841'
 const BLUE = '#2563EB'
@@ -28,7 +29,7 @@ export interface EmailBlock {
   cols?: Array<{ value: string; label: string; color: string }>
 }
 
-export interface EmailSettings { background?: string; contentWidth?: number }
+export interface EmailSettings { background?: string; contentWidth?: number; preheader?: string }
 interface EditorValue { blocks: EmailBlock[]; settings?: EmailSettings }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -124,7 +125,13 @@ function blockToHtml(b: EmailBlock): string {
 
 export function exportToHtml(blocks: EmailBlock[] = [], settings: EmailSettings = {}): string {
   const bg = settings.background || '#E8ECF2'; const w = settings.contentWidth || 660
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>body{margin:0;padding:0;background:${bg};}a{color:inherit;}img{border:0;max-width:100%;height:auto;}@media(max-width:600px){.ec{width:100%!important;border-radius:0!important;}}</style></head><body style="margin:0;padding:0;background:${bg};"><table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:${bg};"><tr><td align="center" style="padding:36px 16px;"><table role="presentation" cellspacing="0" cellpadding="0" border="0" class="ec" style="width:100%;max-width:${w}px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.09);">${blocks.map(blockToHtml).join('')}</table></td></tr></table></body></html>`
+  // Preheader = the preview snippet inbox clients show after the subject. Hidden
+  // in the body, with zero-width spacers so following content doesn't leak in.
+  const pre = (settings.preheader || '').trim()
+  const preheader = pre
+    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">${pre.replace(/</g, '&lt;').replace(/>/g, '&gt;')}${'&#847;&zwnj;&nbsp;'.repeat(30)}</div>`
+    : ''
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>body{margin:0;padding:0;background:${bg};}a{color:inherit;}img{border:0;max-width:100%;height:auto;}@media(max-width:600px){.ec{width:100%!important;border-radius:0!important;}}</style></head><body style="margin:0;padding:0;background:${bg};">${preheader}<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:${bg};"><tr><td align="center" style="padding:36px 16px;"><table role="presentation" cellspacing="0" cellpadding="0" border="0" class="ec" style="width:100%;max-width:${w}px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.09);">${blocks.map(blockToHtml).join('')}</table></td></tr></table></body></html>`
 }
 
 export const blocksToHtml = (blocks: EmailBlock[], s?: EmailSettings) => exportToHtml(blocks, s)
@@ -462,7 +469,10 @@ function TemplateGallery({ onPick, onClose }: { onPick(t: typeof TEMPLATES[0]): 
 function PreviewModal({ html, subject, onClose }: { html: string; subject: string; onClose(): void }) {
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop')
   const [copied, setCopied] = useState(false)
+  const [sample, setSample] = useState(true)
   const ff = '-apple-system, BlinkMacSystemFont, sans-serif'
+  const shownHtml = sample ? renderSample(html) : html
+  const shownSubject = sample ? renderSample(subject) : subject
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 3000, display: 'flex', flexDirection: 'column' }}>
@@ -479,6 +489,11 @@ function PreviewModal({ html, subject, onClose }: { html: string; subject: strin
               </button>
             ))}
           </div>
+          <button onClick={() => setSample(s => !s)} title="Fill merge tags with sample data"
+            style={{ padding: '5px 14px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.22)', background: sample ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.08)', color: sample ? NAVY : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{sample ? 'toggle_on' : 'toggle_off'}</span>
+            Sample data
+          </button>
           <button onClick={() => { navigator.clipboard.writeText(html); setCopied(true); setTimeout(() => setCopied(false), 2200) }}
             style={{ padding: '5px 14px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.22)', background: 'rgba(255,255,255,0.08)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
             <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{copied ? 'check' : 'content_copy'}</span>
@@ -520,7 +535,7 @@ function PreviewModal({ html, subject, onClose }: { html: string; subject: strin
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Roboto, Arial, sans-serif' }}>
                 {/* Subject + meta */}
                 <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid #f1f3f4', flexShrink: 0 }}>
-                  <div style={{ fontSize: 20, fontWeight: 500, color: '#202124', marginBottom: 12 }}>{subject || '(no subject)'}</div>
+                  <div style={{ fontSize: 20, fontWeight: 500, color: '#202124', marginBottom: 12 }}>{shownSubject || '(no subject)'}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ width: 40, height: 40, borderRadius: '50%', background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, flexShrink: 0 }}>O</div>
                     <div style={{ flex: 1 }}>
@@ -535,7 +550,7 @@ function PreviewModal({ html, subject, onClose }: { html: string; subject: strin
                 </div>
                 {/* Body */}
                 <div style={{ flex: 1, overflow: 'auto' }}>
-                  <iframe srcDoc={html} style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} title="Email preview" />
+                  <iframe srcDoc={shownHtml} style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} title="Email preview" />
                 </div>
               </div>
             </div>
@@ -575,7 +590,7 @@ function PreviewModal({ html, subject, onClose }: { html: string; subject: strin
                   {/* Header */}
                   <div style={{ padding: '6px 12px 8px', display: 'flex', alignItems: 'center', gap: 8, background: '#fff', borderBottom: '1px solid #f1f3f4', flexShrink: 0 }}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="#5f6368"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-                    <div style={{ flex: 1, fontSize: 14, fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subject || '(no subject)'}</div>
+                    <div style={{ flex: 1, fontSize: 14, fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shownSubject || '(no subject)'}</div>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="#5f6368"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
                   </div>
                   {/* Sender */}
@@ -589,7 +604,7 @@ function PreviewModal({ html, subject, onClose }: { html: string; subject: strin
                   </div>
                   {/* Body */}
                   <div style={{ flex: 1, overflow: 'auto' }}>
-                    <iframe srcDoc={html} style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} title="Email mobile preview" />
+                    <iframe srcDoc={shownHtml} style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} title="Email mobile preview" />
                   </div>
                 </div>
               </div>
@@ -676,6 +691,21 @@ export default function EmailBlockEditor({ value, onChange, previewSubject = '',
             </select>
           </label>
         </div>
+        {/* Preheader / preview text */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b', flex: '1 1 180px', minWidth: 140 }} title="Preview text shown in the inbox after the subject line">
+          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>notes</span>
+          <input
+            value={settings.preheader || ''}
+            onChange={e => setSettings(s => ({ ...s, preheader: e.target.value.slice(0, 140) }))}
+            placeholder="Preview text (preheader)…"
+            style={{ flex: 1, minWidth: 90, fontSize: 11.5, border: '1px solid #E5E7EB', borderRadius: 5, padding: '3px 8px', background: '#fff', color: '#334155', outline: 'none' }}
+          />
+          {(settings.preheader || '').length > 0 && (
+            <span style={{ fontSize: 10, color: (settings.preheader || '').length > 100 ? '#D97706' : '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
+              {(settings.preheader || '').length}/140
+            </span>
+          )}
+        </label>
         <div style={{ marginLeft: 'auto' }}>
           <TB icon="preview" label="Preview" onClick={() => { setPreviewHtml(exportToHtml(blocks, settings)); setPreview(true) }} active />
         </div>
