@@ -2,11 +2,34 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
 	"github.com/o3c/reports/core"
 )
+
+// parseChannelMap decodes a `channels` jsonb value (map, string, or []byte) into
+// a channel→enabled map. Used for notification_defaults / notification_preferences,
+// whose channels column is jsonb like {"in_app":true,"email":false,"sms":false}.
+func parseChannelMap(v any) map[string]bool {
+	out := map[string]bool{}
+	var m map[string]any
+	switch t := v.(type) {
+	case map[string]any:
+		m = t
+	case string:
+		_ = json.Unmarshal([]byte(t), &m)
+	case []byte:
+		_ = json.Unmarshal(t, &m)
+	}
+	for k, val := range m {
+		if b, ok := val.(bool); ok {
+			out[k] = b
+		}
+	}
+	return out
+}
 
 // Event type constants — used as the `type` column in notifications
 // and as the key in notification_event_config / notification_preferences.
@@ -97,52 +120,71 @@ type NotifPayload struct {
 // Safe to call in a goroutine.
 func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 	users, err := db.PGQuery(ctx,
-		`SELECT id, email, phone, full_name FROM o3c_users WHERE id=$1`, p.UserID)
+		`SELECT id, email, phone, full_name, role FROM o3c_users WHERE id=$1`, p.UserID)
 	if err != nil || len(users) == 0 {
 		return
 	}
 	u := users[0]
 
-	// M22: Notification channel resolution uses a 3-table hierarchy (documented order):
-	//   1. notification_defaults    — system-wide fallback for events not yet in event_config
-	//   2. notification_event_config — global per-event channel enable/disable (admin-controlled)
-	//   3. notification_preferences — per-user override (user-controlled)
-	// Resolution: defaults first; event_config overrides defaults; user prefs override both.
-	// A global disable (event_config.enabled=false) cannot be overridden by user prefs.
+	// Channel resolution against the REAL schema (the three tables differ in shape):
+	//   1. notification_defaults(role, event_type, channels jsonb, is_enabled) — role defaults
+	//   2. notification_event_config(event_type, channel, enabled)             — admin global per-channel
+	//   3. notification_preferences(user_id, event_type, channels jsonb)       — per-user override
+	// Precedence: role defaults → admin config → user prefs (later wins).
+	// Default when nothing is configured: in_app ON, email/sms OFF (matches the schema's
+	// channels default) — so notifications are never silently dropped for unconfigured events.
+	inApp, email := true, false
 
-	// Layer 1: system defaults
-	defRows, _ := db.PGQuery(ctx,
-		`SELECT channel, enabled FROM notification_defaults WHERE event_type=$1`, p.EventType)
-	globalEnabled := map[string]bool{}
-	for _, row := range defRows {
-		globalEnabled[str(row["channel"])] = row["enabled"] == true
+	// Layer 1: role defaults (channels jsonb), gated by is_enabled.
+	if rows, _ := db.PGQuery(ctx,
+		`SELECT channels, is_enabled FROM notification_defaults WHERE role=$1 AND event_type=$2`,
+		str(u["role"]), p.EventType); len(rows) > 0 {
+		if rows[0]["is_enabled"] == false {
+			inApp, email = false, false
+		} else {
+			ch := parseChannelMap(rows[0]["channels"])
+			if v, ok := ch["in_app"]; ok {
+				inApp = v
+			}
+			if v, ok := ch["email"]; ok {
+				email = v
+			}
+		}
 	}
-	// Layer 2: admin event config overrides defaults
-	cfgRows, _ := db.PGQuery(ctx,
-		`SELECT channel, enabled FROM notification_event_config WHERE event_type=$1`, p.EventType)
-	for _, row := range cfgRows {
-		globalEnabled[str(row["channel"])] = row["enabled"] == true
+	// Layer 2: admin per-channel event config (overrides defaults).
+	if rows, _ := db.PGQuery(ctx,
+		`SELECT channel, enabled FROM notification_event_config WHERE event_type=$1`, p.EventType); len(rows) > 0 {
+		for _, row := range rows {
+			on := row["enabled"] == true
+			switch str(row["channel"]) {
+			case "in_app":
+				inApp = on
+			case "email":
+				email = on
+			}
+		}
+	}
+	// Layer 3: per-user override (channels jsonb).
+	if rows, _ := db.PGQuery(ctx,
+		`SELECT channels FROM notification_preferences WHERE user_id=$1 AND event_type=$2`,
+		p.UserID, p.EventType); len(rows) > 0 {
+		ch := parseChannelMap(rows[0]["channels"])
+		if v, ok := ch["in_app"]; ok {
+			inApp = v
+		}
+		if v, ok := ch["email"]; ok {
+			email = v
+		}
 	}
 
-	// Layer 3: per-user overrides
-	prefRows, _ := db.PGQuery(ctx,
-		`SELECT channel, enabled FROM notification_preferences
-		 WHERE user_id=$1 AND event_type=$2`, p.UserID, p.EventType)
-	userPref := map[string]bool{}
-	for _, row := range prefRows {
-		userPref[str(row["channel"])] = row["enabled"] == true
-	}
-
-	// channelOn: user override wins; if global disables a channel, it cannot be re-enabled by user prefs.
 	channelOn := func(ch string) bool {
-		gOn, gSet := globalEnabled[ch]
-		if !gSet || !gOn {
-			return false
+		switch ch {
+		case "in_app":
+			return inApp
+		case "email":
+			return email
 		}
-		if uOn, uSet := userPref[ch]; uSet {
-			return uOn
-		}
-		return gOn
+		return false
 	}
 
 	// ── In-app ────────────────────────────────────────────────────────────────
@@ -238,7 +280,9 @@ func NotifyRoles(ctx context.Context, db *core.DB, roles []string, p NotifPayloa
 			seen[uid] = true
 			cp := p
 			cp.UserID = uid
-			go Notify(ctx, db, cp)
+			// Detach from the request context so the fire-and-forget insert isn't
+			// canceled when the HTTP handler returns (keeps values, drops cancellation).
+			go Notify(context.WithoutCancel(ctx), db, cp)
 		}
 	}
 }
