@@ -1,7 +1,7 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { StatusBadge, Modal, Spinner, ErrBanner, TblSearch, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { StatusBadge, Modal, Spinner, ErrBanner, TblSearch, DateFilter, ActionRow } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { RED, AMBER, BLUE, NAVY, GREEN, PURPLE, MONO, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
@@ -126,6 +126,12 @@ function TicketRow({
     ? (() => { const m = Math.floor(slaMs / 60_000); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m` })()
     : null
 
+  // Lead with the person; show the subject (e.g. a call-list name like "IK List")
+  // as a tag. When there's no customer name, the subject becomes the primary line.
+  const hasName = Boolean(ticket.customer_name && ticket.customer_name.trim())
+  const primaryLine = hasName ? ticket.customer_name!.trim() : (ticket.subject || '—')
+  const subjectTag = hasName ? ticket.subject : ''
+
   return (
     <div
       onClick={onSelect}
@@ -160,17 +166,33 @@ function TicketRow({
           </div>
           <StatusBadge status={ticket.status} size="sm" />
         </div>
+        {/* Primary: the person */}
         <div style={{
           fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: SP[1],
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
-          {ticket.subject}
+          {primaryLine}
         </div>
+        {/* Tags: ticket type + subject/list shown as a chip */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
           <TypePill type={ticket.ticket_type} />
+          {subjectTag && (
+            <span
+              title={subjectTag}
+              style={{
+                maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 8px', borderRadius: RADIUS.xl,
+                background: 'var(--chip-bg)', color: 'var(--chip-txt)', border: '1px solid var(--bdr)',
+              }}
+            >
+              {subjectTag}
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-          <NameCell name={ticket.customer_name ?? '—'} sub={ticket.ticket_ref ?? ticket.subject} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT['2xs'], color: 'var(--txt3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {ticket.ticket_ref}
+          </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
             <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
               {fmtDatetime(ticket.last_message_at || ticket.created_at)}
@@ -517,6 +539,7 @@ export default function Tickets() {
   const PER_PAGE = 50
 
   const [search,      setSearch]      = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
@@ -538,6 +561,7 @@ export default function Tickets() {
       if (priorityFilter) params.set('priority', priorityFilter)
       if (dateFrom) params.set('date_from', dateFrom)
       if (dateTo)   params.set('date_to', dateTo)
+      if (debouncedSearch) params.set('search', debouncedSearch)
       params.set('page', String(page))
       params.set('per_page', String(PER_PAGE))
       const resp = await apiFetch<TicketsResp>(`/api/helpdesk/tickets?${params}`)
@@ -547,9 +571,16 @@ export default function Tickets() {
       setLastLoaded(new Date())
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [statusFilter, priorityFilter, page, PER_PAGE, dateFrom, dateTo])
+  }, [statusFilter, priorityFilter, page, PER_PAGE, dateFrom, dateTo, debouncedSearch])
 
   useEffect(() => { load() }, [load])
+
+  // Debounce the search box into a server query (the backend searches subject,
+  // customer name, CIF and ref across ALL tickets — not just the loaded page).
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search.trim()); setPage(1) }, 350)
+    return () => clearTimeout(t)
+  }, [search])
 
   useEffect(() => {
     if (reassignOpen && agents.length === 0) {
@@ -595,16 +626,9 @@ export default function Tickets() {
     finally { setActionLoading(false) }
   }
 
-  const filtered = (() => {
-    if (!search.trim()) return tickets
-    const q = search.toLowerCase()
-    return tickets.filter(t =>
-      t.subject.toLowerCase().includes(q) ||
-      (t.customer_name ?? '').toLowerCase().includes(q) ||
-      (t.assigned_to_name ?? '').toLowerCase().includes(q) ||
-      ticketDisplayRef(t).toLowerCase().includes(q)
-    )
-  })()
+  // Search is applied server-side (across all tickets), so the loaded page is
+  // already the filtered result — no client-side re-filtering.
+  const filtered = tickets
 
   const fieldStyle: React.CSSProperties = {
     padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
