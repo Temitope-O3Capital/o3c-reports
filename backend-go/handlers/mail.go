@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -857,6 +858,14 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 		return SendMailResult{Error: "all recipients are suppressed"}
 	}
 	opt.To = allowed
+	// Inline locally-hosted (/uploads/…) images as CID attachments so they render
+	// for external recipients — the server has no public hostname, so linked
+	// images would break. Applies to all mail (campaigns + compose). Done before
+	// the provider branch so both Graph and SendGrid get the rewritten HTML.
+	if html, imgs := inlineLocalImages(opt.HTMLBody); len(imgs) > 0 {
+		opt.HTMLBody = html
+		opt.Attachments = append(opt.Attachments, imgs...)
+	}
 	if opt.SendViaUserMailbox && opt.ReplyToEmail != "" && graphConfigured(ctx, db) {
 		res := sendMailViaGraph(ctx, db, opt)
 		if res.OK {
@@ -1574,6 +1583,79 @@ func graphRecipients(addresses []MailAddress) []map[string]any {
 		})
 	}
 	return out
+}
+
+// imgSrcRE captures the src URL of any <img> tag (single or double quoted).
+var imgSrcRE = regexp.MustCompile(`(?i)<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']`)
+
+// inlineLocalImages rewrites <img> tags whose src points at a locally-hosted
+// /uploads/ image into CID references and returns the matching inline
+// attachments. This makes campaign/mail images render for EXTERNAL recipients —
+// the server has no public hostname, so a linked image URL would never load in
+// the recipient's client. Images that cannot be read are left untouched.
+func inlineLocalImages(html string) (string, []MailAttachment) {
+	if html == "" || !strings.Contains(html, "/uploads/") {
+		return html, nil
+	}
+	matches := imgSrcRE.FindAllStringSubmatch(html, -1)
+	if len(matches) == 0 {
+		return html, nil
+	}
+	seen := map[string]string{} // src URL -> content-id
+	var atts []MailAttachment
+	for _, m := range matches {
+		src := m[1]
+		if _, done := seen[src]; done || strings.HasPrefix(src, "cid:") {
+			continue
+		}
+		idx := strings.Index(src, "/uploads/")
+		if idx < 0 {
+			continue
+		}
+		rel := src[idx+len("/uploads/"):]
+		if q := strings.IndexAny(rel, "?#"); q >= 0 {
+			rel = rel[:q]
+		}
+		clean := filepath.Clean(rel)
+		if clean == "." || strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+			continue // path-traversal guard
+		}
+		data, err := os.ReadFile(filepath.Join(UploadRoot(), clean))
+		if err != nil {
+			slog.Warn("inline image: read failed", "src", src, "err", err)
+			continue
+		}
+		cid := newUUID()
+		atts = append(atts, MailAttachment{
+			Filename:    filepath.Base(clean),
+			ContentType: imageMimeFromExt(filepath.Ext(clean)),
+			Content:     base64.StdEncoding.EncodeToString(data),
+			Disposition: "inline",
+			ContentID:   cid,
+		})
+		seen[src] = cid
+	}
+	for src, cid := range seen {
+		html = strings.ReplaceAll(html, src, "cid:"+cid)
+	}
+	return html, atts
+}
+
+func imageMimeFromExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".svg":
+		return "image/svg+xml"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 func sendgridAttachments(attachments []MailAttachment) []map[string]string {
