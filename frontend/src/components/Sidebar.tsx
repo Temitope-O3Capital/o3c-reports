@@ -93,7 +93,7 @@ const SECTIONS: Section[] = [
     header: 'Contact Centre',
     items: [
       {
-        icon: 'headset_mic', label: 'Contact Centre', to: '/helpdesk',
+        icon: 'headset_mic', label: 'Call Center', to: '/helpdesk',
         vis: ['call_center_agent','call_center_head','telemarketing_agent','telemarketing_head'],
         subs: [
           // agent dashboards — each role sees only their own
@@ -114,6 +114,19 @@ const SECTIONS: Section[] = [
           // shared resources
           { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
           { label: 'Canned Responses', to: '/helpdesk/canned' },
+        ],
+      },
+      {
+        icon: 'mark_email_unread', label: 'Care', to: '/care',
+        vis: ['call_center_agent','call_center_head','telemarketing_agent','telemarketing_head'],
+        subs: [
+          // Care handles customer mail — email-channel tickets shown as an inbox
+          { label: 'Care Inbox',         to: '/care/inbox' },
+          // shared history + resources (read a customer's prior call/ticket issues)
+          { label: 'Customer Directory', to: '/customers' },
+          { label: 'Ticket Queue',       to: '/helpdesk/tickets' },
+          { label: 'Knowledge Base',     to: '/helpdesk/knowledge-base' },
+          { label: 'Canned Responses',   to: '/helpdesk/canned' },
         ],
       },
     ],
