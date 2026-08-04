@@ -14,6 +14,7 @@ this project so you can continue development without asking Temitope to re-expla
 | **Build Guide** | `frontend/BUILD_GUIDE.md` | Canonical source of truth — sidebar structure, all page specs, build order, architecture rules. Read this first every session. |
 | **Design System** | `frontend/DESIGN_SYSTEM.md` | Component patterns, CSS token usage, typography, chart rules, table rules |
 | **Master Product Spec** | `docs/O3C_WORKSPACE_MASTER_SPEC.md` | Full product specification — all modules, roles, workflows, business rules |
+| **Customer Data Model** | `docs/CUSTOMER_DATA_MODEL.md` | Which of the ~8 contact/customer tables is the source of truth (`app."Accounts"` = identity; `crm_contacts` = CRM/leads only). Read before touching customer identity. |
 | **Deployment** | `docs/DEPLOYMENT.md` | On-prem (Docker Compose + Nginx) deploy steps |
 | **Cloudflare Tunnel** | `docs/CLOUDFLARE_TUNNEL.md` | MSSQL on-site access via Cloudflare Tunnel |
 
