@@ -1060,6 +1060,12 @@ export default function CampaignDetail() {
   const activeSMS      = isSMS      && (!isMulti || enableSMS)
   const activeEmail    = isEmail    && (!isMulti || enableEmail)
   const activeWhatsApp = isWhatsApp && (!isMulti || enableWhatsApp)
+  // Review-tab channel focus: the current content channel if it's active, else
+  // the first active channel (so the summary never shows blank).
+  const reviewCh: 'email' | 'sms' | 'whatsapp' =
+    (contentChannel === 'email' && activeEmail) || (contentChannel === 'sms' && activeSMS) || (contentChannel === 'whatsapp' && activeWhatsApp)
+      ? contentChannel
+      : activeEmail ? 'email' : activeSMS ? 'sms' : 'whatsapp'
 
   const checks = [
     { label: 'Campaign name',   ok: name.trim().length > 0,                   hint: 'Enter a name in Setup' },
@@ -1487,7 +1493,26 @@ export default function CampaignDetail() {
             {/* Content summary */}
             <SectionCard title="What will be sent" padding>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {activeSMS && (
+                {isMulti && (
+                  <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', flexWrap: 'wrap' }}>
+                    {([
+                      { key: 'email',    label: 'Email',    icon: 'mail',       color: BLUE,     on: activeEmail,    ready: emailSubject.trim().length > 0 && emailBlocks.blocks.length > 0 },
+                      { key: 'sms',      label: 'SMS',      icon: 'smartphone', color: PURPLE,   on: activeSMS,      ready: smsBody.trim().length > 0 },
+                      { key: 'whatsapp', label: 'WhatsApp', icon: 'chat',       color: WA_GREEN, on: activeWhatsApp, ready: waBody.trim().length > 0 },
+                    ] as const).filter(c => c.on).map(c => {
+                      const active = reviewCh === c.key
+                      return (
+                        <div key={c.key} onClick={() => setContentChannel(c.key)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', cursor: 'pointer', borderBottom: `2px solid ${active ? c.color : 'transparent'}`, marginBottom: -1, color: active ? 'var(--txt)' : 'var(--txt2)', fontWeight: active ? FW.semibold : FW.normal, fontSize: TEXT.sm }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: 15, color: active ? c.color : 'var(--txt3)' }}>{c.icon}</span>
+                          {c.label}
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.ready ? c.color : 'var(--bdr)', flexShrink: 0 }} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {activeSMS && (!isMulti || reviewCh === 'sms') && (
                   <div style={{ background: `${PURPLE}08`, border: `1px solid ${PURPLE}25`, borderRadius: RADIUS.md, padding: '10px 14px' }}>
                     <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: PURPLE, letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
                       <span className="material-symbols-rounded" style={{ fontSize: 13 }}>smartphone</span> SMS
@@ -1501,7 +1526,7 @@ export default function CampaignDetail() {
                     )}
                   </div>
                 )}
-                {activeWhatsApp && (
+                {activeWhatsApp && (!isMulti || reviewCh === 'whatsapp') && (
                   <div style={{ background: `${WA_GREEN}08`, border: `1px solid ${WA_GREEN}25`, borderRadius: RADIUS.md, padding: '10px 14px' }}>
                     <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: WA_GREEN, letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
                       <span className="material-symbols-rounded" style={{ fontSize: 13 }}>chat</span> WhatsApp
@@ -1516,7 +1541,7 @@ export default function CampaignDetail() {
                     {waTplName && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>Template: <span style={{ fontFamily: 'monospace', color: WA_GREEN }}>{waTplName}</span></div>}
                   </div>
                 )}
-                {activeEmail && (
+                {activeEmail && (!isMulti || reviewCh === 'email') && (
                   <div style={{ background: `${BLUE}08`, border: `1px solid ${BLUE}25`, borderRadius: RADIUS.md, padding: '10px 14px' }}>
                     <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: BLUE, letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
                       <span className="material-symbols-rounded" style={{ fontSize: 13 }}>mail</span> Email

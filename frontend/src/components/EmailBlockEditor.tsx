@@ -20,7 +20,7 @@ export interface EmailBlock {
   id: string; type: string
   logoText?: string; tagline?: string; bg?: string; textColor?: string; padding?: number
   html?: string
-  src?: string; alt?: string; link?: string; align?: string; rounded?: boolean; maxWidth?: number
+  src?: string; alt?: string; link?: string; align?: string; rounded?: boolean; maxWidth?: number; fullWidth?: boolean
   text?: string; url?: string; size?: string
   color?: string; thickness?: number; margin?: number; height?: number
   leftHtml?: string; rightHtml?: string; split?: string
@@ -45,7 +45,7 @@ const CT: Record<string, { bg: string; border: string; tc: string; bc: string }>
 const DEF: Record<string, () => EmailBlock> = {
   header:  () => ({ id: uid(), type: 'header',  logoText: 'O3 Capital', tagline: 'Your Financial Partner', bg: NAVY, textColor: '#ffffff', padding: 36 }),
   text:    () => ({ id: uid(), type: 'text',    html: '<p style="margin:0 0 14px;">Dear <strong>{{first_name}}</strong>,</p><p style="margin:0;">Enter your message here. You can format text and insert merge tags.</p>' }),
-  image:   () => ({ id: uid(), type: 'image',   src: '', alt: '', link: '', align: 'center', rounded: false }),
+  image:   () => ({ id: uid(), type: 'image',   src: '', alt: '', link: '', align: 'center', rounded: false, fullWidth: true }),
   button:  () => ({ id: uid(), type: 'button',  text: 'Get Started', url: '{{cta_url}}', bg: NAVY, textColor: '#ffffff', align: 'center', size: 'md', rounded: true }),
   divider: () => ({ id: uid(), type: 'divider', color: '#E5E7EB', thickness: 1, margin: 20 }),
   spacer:  () => ({ id: uid(), type: 'spacer',  height: 32 }),
@@ -95,8 +95,20 @@ function blockToHtml(b: EmailBlock): string {
       return `<tr><td style="background:${b.bg || NAVY};padding:${b.padding || 36}px 40px;text-align:center;font-family:${FONT};"><div style="font-size:22px;font-weight:800;color:${b.textColor || '#fff'};letter-spacing:-0.4px;">${b.logoText || 'O3 Capital'}</div>${b.tagline ? `<div style="font-size:11px;color:${b.textColor || '#fff'}90;margin-top:8px;text-transform:uppercase;letter-spacing:0.1em;">${b.tagline}</div>` : ''}</td></tr>`
     case 'text':
       return wrap(b.html || '', '20px 40px')
-    case 'image':
-      return wrap(`<div style="text-align:${b.align || 'center'};">${b.link ? `<a href="${b.link}" target="_blank">` : ''}${b.src ? `<img src="${b.src}" alt="${b.alt || ''}" style="max-width:${b.maxWidth ? b.maxWidth + 'px' : '100%'};height:auto;display:inline-block;${b.rounded ? 'border-radius:8px;' : ''}" />` : `<div style="height:180px;background:#F3F4F6;border-radius:8px;border:2px dashed #D1D5DB;text-align:center;padding-top:70px;box-sizing:border-box;color:#9CA3AF;font-size:13px;">[ Image placeholder ]</div>`}${b.link ? '</a>' : ''}</div>`, '12px 32px')
+    case 'image': {
+      const full = b.fullWidth !== false
+      const rad = b.rounded ? 'border-radius:8px;' : ''
+      const imgTag = b.src
+        ? (full
+            ? `<img src="${b.src}" alt="${b.alt || ''}" width="100%" style="width:100%;height:auto;display:block;${rad}" />`
+            : `<img src="${b.src}" alt="${b.alt || ''}" style="max-width:${b.maxWidth ? b.maxWidth + 'px' : '100%'};height:auto;display:inline-block;${rad}" />`)
+        : `<div style="height:180px;background:#F3F4F6;border-radius:8px;border:2px dashed #D1D5DB;text-align:center;padding-top:70px;box-sizing:border-box;color:#9CA3AF;font-size:13px;">[ Image placeholder ]</div>`
+      const linked = b.link ? `<a href="${b.link}" target="_blank" style="${full ? 'display:block;' : ''}">${imgTag}</a>` : imgTag
+      const inner = `<div style="text-align:${b.align || 'center'};">${linked}</div>`
+      // Full-bleed images span the container edge-to-edge (marketing hero look);
+      // contained images keep side padding.
+      return full ? wrap(inner, '0') : wrap(inner, '12px 32px')
+    }
     case 'button':
       return wrap(`<div style="text-align:${b.align || 'center'};padding:8px 0 16px;"><a href="${b.url || '#'}" target="_blank" style="display:inline-block;padding:${b.size === 'lg' ? '16px 48px' : b.size === 'sm' ? '9px 24px' : '13px 36px'};background:${b.bg || NAVY};color:${b.textColor || '#fff'};font-weight:700;font-size:${b.size === 'lg' ? '16px' : '14px'};text-decoration:none;border-radius:${b.rounded !== false ? '7px' : '2px'};font-family:${FONT};">${b.text || 'Click Here'}</a></div>`, '0 32px')
     case 'divider':
@@ -227,7 +239,8 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
         <PPField label="Or paste URL"><PPInp value={block.src || ''} placeholder="https://…" onChange={e => onUpdate({ src: e.target.value })} /></PPField>
         <PPField label="Alt Text"><PPInp value={block.alt || ''} onChange={e => onUpdate({ alt: e.target.value })} /></PPField>
         <PPField label="Click Link"><PPInp value={block.link || ''} placeholder="https://…" onChange={e => onUpdate({ link: e.target.value })} /></PPField>
-        <SegBtn label="Alignment" opts={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} value={(block.align as string) || 'center'} onPick={v => onUpdate({ align: v })} />
+        <PPField label="Width"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.fullWidth !== false} onChange={e => onUpdate({ fullWidth: e.target.checked })} />Full width (edge to edge)</label></PPField>
+        {block.fullWidth === false && <SegBtn label="Alignment" opts={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} value={(block.align as string) || 'center'} onPick={v => onUpdate({ align: v })} />}
         <PPField label="Rounded Corners"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={!!block.rounded} onChange={e => onUpdate({ rounded: e.target.checked })} />Apply 8px radius</label></PPField></>
     case 'button':
       return <><PPField label="Label"><PPInp value={block.text || ''} onChange={e => onUpdate({ text: e.target.value })} /></PPField>
@@ -349,14 +362,16 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
             {...(!selected ? { dangerouslySetInnerHTML: { __html: sanitize(block.html || '') } } : {})}
           />
         </>
-      case 'image':
-        return <div style={{ textAlign: (block.align as any) || 'center', padding: '14px 36px' }}>
-          {block.src ? <img src={block.src} alt={block.alt} style={{ maxWidth: '100%', display: 'inline-block', borderRadius: block.rounded ? 8 : 0 }} />
+      case 'image': {
+        const full = block.fullWidth !== false
+        return <div style={{ textAlign: (block.align as any) || 'center', padding: full ? 0 : '14px 36px' }}>
+          {block.src ? <img src={block.src} alt={block.alt} style={{ width: full ? '100%' : undefined, maxWidth: '100%', display: full ? 'block' : 'inline-block', borderRadius: block.rounded ? 8 : 0 }} />
             : <div style={{ height: 150, background: '#F3F4F6', borderRadius: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, border: '2px dashed #D1D5DB', color: '#9CA3AF' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 32, color: '#D1D5DB' }}>image</span>
                 <span style={{ fontSize: 12 }}>Upload in properties panel →</span>
               </div>}
         </div>
+      }
       case 'button':
         return <div style={{ textAlign: (block.align as any) || 'center', padding: '10px 36px 22px' }}>
           <div style={{ display: 'inline-block', padding: block.size === 'lg' ? '14px 44px' : block.size === 'sm' ? '8px 22px' : '12px 32px', background: block.bg || NAVY, color: block.textColor || '#fff', fontWeight: 700, fontSize: block.size === 'lg' ? 15 : 13.5, borderRadius: block.rounded !== false ? 7 : 2 }}>
