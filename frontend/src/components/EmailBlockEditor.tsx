@@ -649,6 +649,22 @@ export default function EmailBlockEditor({ value, onChange, previewSubject = '',
 
   useEffect(() => { onChange?.({ blocks, settings }) }, [blocks, settings])
 
+  // Sync EXTERNAL value changes into the canvas — e.g. "Load Template" or the
+  // campaign's saved blocks arriving after mount. Guarded by a content signature
+  // so the editor's own emits (above) don't feed back into a loop: we only pull
+  // in `value.blocks` when it differs from what's currently on the canvas.
+  useEffect(() => {
+    const incoming = value?.blocks
+    if (!incoming) return
+    const sig = (bs: EmailBlock[]) => JSON.stringify(bs)
+    if (sig(incoming) !== sig(blocks)) {
+      push(incoming.map(b => ({ ...b, id: b.id || uid() })))
+      setSelectedId(null)
+      if (value?.settings) setSettings(value.settings)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo() } }
     window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h)
