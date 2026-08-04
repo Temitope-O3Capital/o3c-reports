@@ -807,6 +807,8 @@ export default function CampaignDetail() {
   const [enableSMS,      setEnableSMS]      = useState(true)
   const [enableEmail,    setEnableEmail]    = useState(true)
   const [enableWhatsApp, setEnableWhatsApp] = useState(true)
+  // Which channel's builder is shown in the Content tab (multi campaigns use tabs).
+  const [contentChannel, setContentChannel] = useState<'email' | 'sms' | 'whatsapp'>('email')
 
   // live progress
   const [progress, setProgress] = useState<Progress | null>(null)
@@ -861,6 +863,14 @@ export default function CampaignDetail() {
   const isSMS      = campaign?.type === 'sms'       || campaign?.type === 'multi'
   const isEmail    = campaign?.type === 'email'     || campaign?.type === 'multi'
   const isWhatsApp = campaign?.type === 'whatsapp'  || campaign?.type === 'multi'
+
+  // Default the Content tab's active channel to the first applicable one.
+  useEffect(() => {
+    const applicable = { email: isEmail, sms: isSMS, whatsapp: isWhatsApp }
+    if (!applicable[contentChannel]) {
+      setContentChannel(isEmail ? 'email' : isSMS ? 'sms' : 'whatsapp')
+    }
+  }, [isEmail, isSMS, isWhatsApp, contentChannel])
 
   useEffect(() => {
     if (!canEdit) return
@@ -1288,56 +1298,48 @@ export default function CampaignDetail() {
             </div>
           )}
 
-          {/* Content readiness per channel */}
-          {canEdit && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              {([
-                { on: isEmail,    label: 'Email',    ready: emailSubject.trim().length > 0 && emailBlocks.blocks.length > 0, color: BLUE },
-                { on: isSMS,      label: 'SMS',      ready: smsBody.trim().length > 0,      color: PURPLE },
-                { on: isWhatsApp, label: 'WhatsApp', ready: waBody.trim().length > 0,       color: WA_GREEN },
-              ] as const).filter(c => c.on).map(c => (
-                <span key={c.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: RADIUS.xl, border: `1px solid ${c.ready ? c.color : 'var(--bdr)'}`, background: c.ready ? `${c.color}10` : 'var(--card)', fontSize: TEXT.xs, fontWeight: FW.semibold, color: c.ready ? c.color : 'var(--txt3)' }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{c.ready ? 'check_circle' : 'radio_button_unchecked'}</span>
-                  {c.label} {c.ready ? 'ready' : 'incomplete'}
-                </span>
-              ))}
-              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 4 }}>· Merge tags fill per recipient; use <span style={{ fontFamily: 'monospace' }}>{'{{field|default}}'}</span> for a fallback.</span>
-            </div>
-          )}
-
-          {/* Multi-channel toggles */}
-          {isMulti && canEdit && (
-            <div style={{ display: 'flex', gap: 10, padding: '10px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', alignItems: 'center' }}>
-              <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginRight: 4 }}>Send via:</span>
-              {([
-                { key: 'sms',      label: 'SMS',      icon: 'smartphone', color: PURPLE,   enabled: enableSMS,      set: setEnableSMS },
-                { key: 'whatsapp', label: 'WhatsApp', icon: 'chat',       color: WA_GREEN, enabled: enableWhatsApp, set: setEnableWhatsApp },
-                { key: 'email',    label: 'Email',    icon: 'mail',       color: BLUE,     enabled: enableEmail,    set: setEnableEmail },
-              ] as const).map(ch => (
-                <button key={ch.key} type="button"
-                  onClick={() => ch.set(v => !v)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '5px 12px', borderRadius: RADIUS.xl,
-                    border: `1.5px solid ${ch.enabled ? ch.color : 'var(--bdr)'}`,
-                    background: ch.enabled ? `${ch.color}12` : 'var(--card)',
-                    color: ch.enabled ? ch.color : 'var(--txt3)',
-                    fontSize: TEXT.xs, fontWeight: FW.semibold,
-                    cursor: 'pointer', transition: 'all .14s',
-                  }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{ch.enabled ? 'check_circle' : 'radio_button_unchecked'}</span>
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{ch.icon}</span>
-                  {ch.label}
-                </button>
-              ))}
-              {!enableSMS && !enableEmail && !enableWhatsApp && (
-                <span style={{ fontSize: TEXT.xs, color: RED, marginLeft: 4 }}>At least one channel must be enabled</span>
+          {/* Channel tabs (multi campaigns): pick which builder to edit, toggle
+              whether it's included in the send (checkbox), and see ready state. */}
+          {isMulti && (
+            <div>
+              <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', flexWrap: 'wrap' }}>
+                {([
+                  { key: 'email',    label: 'Email',    icon: 'mail',       color: BLUE,     on: isEmail,    enabled: enableEmail,    setE: setEnableEmail,    ready: emailSubject.trim().length > 0 && emailBlocks.blocks.length > 0 },
+                  { key: 'sms',      label: 'SMS',      icon: 'smartphone', color: PURPLE,   on: isSMS,      enabled: enableSMS,      setE: setEnableSMS,      ready: smsBody.trim().length > 0 },
+                  { key: 'whatsapp', label: 'WhatsApp', icon: 'chat',       color: WA_GREEN, on: isWhatsApp, enabled: enableWhatsApp, setE: setEnableWhatsApp, ready: waBody.trim().length > 0 },
+                ] as const).filter(c => c.on).map(c => {
+                  const active = contentChannel === c.key
+                  return (
+                    <div key={c.key} onClick={() => setContentChannel(c.key)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 14px', cursor: 'pointer', borderBottom: `2px solid ${active ? c.color : 'transparent'}`, marginBottom: -1, color: active ? 'var(--txt)' : 'var(--txt2)', fontWeight: active ? FW.semibold : FW.normal, fontSize: TEXT.sm }}>
+                      {canEdit && (
+                        <span onClick={e => { e.stopPropagation(); c.setE(v => !v) }}
+                          title={c.enabled ? 'Included in this send — click to exclude' : 'Not sent this time — click to include'}
+                          style={{ display: 'inline-flex', color: c.enabled ? c.color : 'var(--txt3)' }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: 18 }}>{c.enabled ? 'check_box' : 'check_box_outline_blank'}</span>
+                        </span>
+                      )}
+                      <span className="material-symbols-rounded" style={{ fontSize: 16, color: active ? c.color : 'var(--txt3)' }}>{c.icon}</span>
+                      {c.label}
+                      <span title={c.ready ? 'Content ready' : 'No content yet'} style={{ width: 7, height: 7, borderRadius: '50%', background: c.ready ? c.color : 'var(--bdr)', flexShrink: 0 }} />
+                    </div>
+                  )
+                })}
+              </div>
+              {canEdit && !enableSMS && !enableEmail && !enableWhatsApp && (
+                <div style={{ fontSize: TEXT.xs, color: RED, marginTop: 8 }}>At least one channel must be enabled to send.</div>
               )}
             </div>
           )}
 
-          {isSMS && (
-            <div style={{ opacity: isMulti && !enableSMS ? .45 : 1, pointerEvents: isMulti && !enableSMS ? 'none' : 'auto', transition: 'opacity .2s' }}>
+          {canEdit && (
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+              Merge tags fill per recipient — use <span style={{ fontFamily: 'monospace' }}>{'{{field|default}}'}</span> for a fallback when a field is blank.
+            </div>
+          )}
+
+          {isSMS && (!isMulti || contentChannel === 'sms') && (
+            <div>
               <SectionCard padding title={undefined}
                 actions={canEdit ? (
                   <button onClick={() => { setTplFor('sms'); setTplOpen(true) }}
@@ -1357,8 +1359,8 @@ export default function CampaignDetail() {
             </div>
           )}
 
-          {isWhatsApp && (
-            <div style={{ opacity: isMulti && !enableWhatsApp ? .45 : 1, pointerEvents: isMulti && !enableWhatsApp ? 'none' : 'auto', transition: 'opacity .2s' }}>
+          {isWhatsApp && (!isMulti || contentChannel === 'whatsapp') && (
+            <div>
               <SectionCard padding title={undefined}
                 actions={canEdit ? (
                   <button onClick={() => { setTplFor('whatsapp'); setTplOpen(true) }}
@@ -1378,8 +1380,8 @@ export default function CampaignDetail() {
             </div>
           )}
 
-          {isEmail && (
-            <div style={{ opacity: isMulti && !enableEmail ? .45 : 1, pointerEvents: isMulti && !enableEmail ? 'none' : 'auto', transition: 'opacity .2s' }}>
+          {isEmail && (!isMulti || contentChannel === 'email') && (
+            <div>
               <SectionCard padding title={undefined}
                 actions={canEdit ? (
                   <button onClick={() => { setTplFor('email'); setTplOpen(true) }}
