@@ -11,7 +11,7 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDatetime, today, monthStart } from '../../lib/fmt'
+import { fmtDatetime, today } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -267,7 +267,9 @@ export default function Calls() {
   const [agentFilter, setAgentFilter] = useState('')
   const [fDirs,       setFDirs]       = useState(new Set<string>())
   const [fOutcomes,   setFOutcomes]   = useState(new Set<string>())
-  const [dateFrom,    setDateFrom]    = useState(monthStart())
+  // Default to the last 12 months — call data is historical (synced from Zoho),
+  // so a "this month" default would show nothing.
+  const [dateFrom,    setDateFrom]    = useState(new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10))
   const [dateTo,      setDateTo]      = useState(today())
 
   // Log Call modal

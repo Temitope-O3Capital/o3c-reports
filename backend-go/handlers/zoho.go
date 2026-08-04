@@ -410,6 +410,51 @@ func StartZohoAutoSync(db *core.DB) {
 	}()
 }
 
+// StartZohoDeskAutoSync keeps the helpdesk queue current by importing the newest
+// Zoho Desk tickets every hour (a bounded, newest-first sweep). Idempotent upserts
+// mean re-sweeping the recent window is cheap; new tickets are caught at the top.
+func StartZohoDeskAutoSync(db *core.DB) {
+	if !zohoConfigured() {
+		return
+	}
+	go func() {
+		time.Sleep(2 * time.Minute) // let startup settle before the first sweep
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+
+		runOnce := func() {
+			ctx := context.Background()
+			if !zohoEnsureConfigured(ctx, db) {
+				return
+			}
+			j := zohoJobs["tickets"]
+			j.Lock()
+			if j.running { // a manual import is already in flight — skip this tick
+				j.Unlock()
+				return
+			}
+			j.running, j.done = true, false
+			j.imported, j.skipped, j.failed, j.pages = 0, 0, 0, 0
+			j.startedAt, j.endedAt, j.lastErr = time.Now(), time.Time{}, ""
+			j.Unlock()
+
+			// Newest-first, capped so each hourly sweep only touches the recent window.
+			runZohoTicketImportJob(ctx, db, j, 2000, true)
+
+			j.Lock()
+			j.running, j.done, j.endedAt = false, true, time.Now()
+			imported := j.imported
+			j.Unlock()
+			slog.Info("zoho desk auto-sync: tickets done", "imported", imported)
+		}
+
+		runOnce()
+		for range ticker.C {
+			runOnce()
+		}
+	}()
+}
+
 // ── Background import jobs ────────────────────────────────────────────────────
 //
 // The Desk migration imports (tickets, threads, calls) can each touch tens of

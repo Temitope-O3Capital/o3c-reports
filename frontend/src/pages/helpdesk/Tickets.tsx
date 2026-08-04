@@ -1,9 +1,9 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { StatusBadge, Modal, Spinner, ErrBanner, TblSearch, DateFilter, ActionRow } from '../../components/UI'
+import { StatusBadge, Modal, Spinner, ErrBanner, TblSearch, ActionRow } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDatetime, monthStart, today } from '../../lib/fmt'
+import { fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, BLUE, NAVY, GREEN, PURPLE, MONO, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import NewTicketForm from './NewTicket'
 import { toast } from 'sonner'
@@ -542,8 +542,6 @@ export default function Tickets() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
 
   const [selectedId,   setSelectedId]   = useState<number | null>(null)
   const [checkedIds,   setCheckedIds]   = useState<Set<number>>(new Set())
@@ -559,8 +557,6 @@ export default function Tickets() {
       const params = new URLSearchParams()
       if (statusFilter) params.set('status', statusFilter)
       if (priorityFilter) params.set('priority', priorityFilter)
-      if (dateFrom) params.set('date_from', dateFrom)
-      if (dateTo)   params.set('date_to', dateTo)
       if (debouncedSearch) params.set('search', debouncedSearch)
       params.set('page', String(page))
       params.set('per_page', String(PER_PAGE))
@@ -571,7 +567,7 @@ export default function Tickets() {
       setLastLoaded(new Date())
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [statusFilter, priorityFilter, page, PER_PAGE, dateFrom, dateTo, debouncedSearch])
+  }, [statusFilter, priorityFilter, page, PER_PAGE, debouncedSearch])
 
   useEffect(() => { load() }, [load])
 
@@ -649,7 +645,6 @@ export default function Tickets() {
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 1 }}>{total} ticket{total !== 1 ? 's' : ''}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           {lastLoaded && (
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
               {(() => { const m = Math.floor((Date.now() - lastLoaded.getTime()) / 60_000); return m === 0 ? 'Just loaded' : `${m}m ago` })()}

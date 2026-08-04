@@ -113,6 +113,9 @@ func main() {
 	// Zoho Voice — import call logs every hour so the Calls page stays current.
 	go handlers.StartZohoAutoSync(db)
 
+	// Zoho Desk — import the newest tickets every hour so the helpdesk queue stays fresh.
+	go handlers.StartZohoDeskAutoSync(db)
+
 	// Udara360 CBS — spool the core-banking book (products/loans/FDs) into the
 	// snapshot tables shortly after boot, then every CBS_SYNC_INTERVAL (default 1h).
 	go handlers.StartCBSSyncWorker(cbsClient, db)
