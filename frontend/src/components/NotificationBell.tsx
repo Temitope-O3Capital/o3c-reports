@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch, API } from '../lib/api'
 import { MONO, RED, BLUE, AMBER, GREEN } from '../lib/design'
 import { IcoBell } from '../lib/icons'
+import { announce, primeAudio, getSoundPref, setSoundPref, getVoiceMode, setVoiceMode, playChime, speak, currentVoiceName, type VoiceMode } from '../lib/notifyEffects'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -43,13 +44,21 @@ export default function NotificationBell() {
   const [open,   setOpen]   = useState(false)
   const [items,  setItems]  = useState<Notification[]>([])
   const [unread, setUnread] = useState(0)
+  const [soundOn, setSoundOn] = useState(getSoundPref())
+  const [voiceMode, setVoiceModeState] = useState<VoiceMode>(getVoiceMode())
   const panelRef = useRef<HTMLDivElement>(null)
+  // Track ids we've already seen so realtime pushes only chime for genuinely-new
+  // notifications (never on initial load, reconnect replays, or duplicates).
+  const seenIds = useRef<Set<number>>(new Set())
+  const primed = useRef(false)
 
   const load = useCallback(async () => {
     try {
       // Backend returns { notifications: [...], unread_count, total }.
       const data = await apiFetch<{ notifications?: Notification[]; items?: Notification[]; unread_count: number }>('/api/notifications', { silent: true })
-      setItems(data.notifications ?? data.items ?? [])
+      const list = data.notifications ?? data.items ?? []
+      list.forEach(n => seenIds.current.add(n.id)) // baseline — don't chime for these
+      setItems(list)
       setUnread(data.unread_count ?? 0)
     } catch {}
   }, [])
@@ -80,8 +89,11 @@ export default function NotificationBell() {
           try {
             const n = JSON.parse(ev.data) as Notification
             if (!n || typeof n.id !== 'number') return
-            setItems(prev => prev.some(p => p.id === n.id) ? prev : [n, ...prev].slice(0, 50))
+            if (seenIds.current.has(n.id)) return // duplicate / replay — ignore
+            seenIds.current.add(n.id)
+            setItems(prev => [n, ...prev].slice(0, 50))
             if (!n.read_at) setUnread(c => c + 1)
+            announce(n.title) // chime + (opt-in) spoken title
           } catch { /* ignore keepalives / malformed frames */ }
         }
         es.onerror = () => {
@@ -131,7 +143,7 @@ export default function NotificationBell() {
     <div ref={panelRef} style={{ position: 'relative' }}>
       {/* Bell button */}
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => { if (!primed.current) { primeAudio(); primed.current = true } setOpen(o => !o) }}
         title="Notifications"
         style={{
           position: 'relative', width: 34, height: 34,
@@ -250,8 +262,91 @@ export default function NotificationBell() {
               </div>
             ))}
           </div>
+
+          {/* Sound / voice opt-in — per-user, saved on this device */}
+          <div style={{
+            display: 'flex', flexDirection: 'column', gap: 8,
+            padding: '10px 16px', borderTop: '1px solid var(--bdr)',
+            background: 'var(--row-hvr)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => { const v = !soundOn; setSoundOn(v); setSoundPref(v); if (v) { primeAudio(); playChime() } }}
+                title={`Chime: ${soundOn ? 'on' : 'off'}`}
+                style={chipStyle(soundOn)}
+              >
+                <span style={{ fontSize: 13, opacity: soundOn ? 1 : 0.5 }}>🔔</span> Sound
+                <span style={dotStyle(soundOn)} />
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt3)', fontFamily: "'Sora', sans-serif", marginRight: 2 }}>🗣️ Voice</span>
+                {(['off', 'female', 'male'] as VoiceMode[]).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => {
+                      setVoiceModeState(m); setVoiceMode(m)
+                      if (m !== 'off') { primeAudio(); speak('You have a new notification', m) }
+                    }}
+                    title={m === 'off' ? 'Voice off' : `${m} voice — ${currentVoiceName(m)}`}
+                    style={segStyle(voiceMode === m)}
+                  >
+                    {m === 'off' ? 'Off' : m === 'female' ? '♀ Female' : '♂ Male'}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={() => {
+                  primeAudio()
+                  if (soundOn) playChime()
+                  const g: VoiceMode = voiceMode === 'off' ? 'female' : voiceMode
+                  speak('This is a test alert from your O3 Capital Workspace.', g)
+                }}
+                title="Play a test alert with the current settings"
+                style={{
+                  marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '4px 12px', borderRadius: 999, cursor: 'pointer',
+                  border: 'none', background: BLUE, color: '#fff',
+                  fontSize: 11.5, fontWeight: 700, fontFamily: "'Sora', sans-serif",
+                }}
+              >
+                ▶ Test
+              </button>
+            </div>
+            <span style={{ fontSize: 10.5, color: 'var(--txt3)', fontFamily: MONO }}>
+              Saved on this device · Nigerian voice on Edge/Chrome; falls back otherwise
+            </span>
+          </div>
         </div>
       )}
     </div>
   )
+}
+
+// ── Toggle styles ─────────────────────────────────────────────────────────────
+
+function chipStyle(on: boolean): React.CSSProperties {
+  return {
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
+    border: `1px solid ${on ? BLUE : 'var(--bdr)'}`,
+    background: on ? `${BLUE}14` : 'var(--card)',
+    color: on ? BLUE : 'var(--txt3)',
+    fontSize: 12, fontWeight: 600, fontFamily: "'Sora', sans-serif",
+    transition: 'all 120ms',
+  }
+}
+function dotStyle(on: boolean): React.CSSProperties {
+  return { width: 6, height: 6, borderRadius: '50%', background: on ? GREEN : 'var(--txt3)', marginLeft: 2 }
+}
+function segStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: '4px 9px', borderRadius: 7, cursor: 'pointer',
+    border: `1px solid ${active ? BLUE : 'var(--bdr)'}`,
+    background: active ? `${BLUE}14` : 'var(--card)',
+    color: active ? BLUE : 'var(--txt3)',
+    fontSize: 11.5, fontWeight: 600, fontFamily: "'Sora', sans-serif",
+    transition: 'all 120ms',
+  }
 }
