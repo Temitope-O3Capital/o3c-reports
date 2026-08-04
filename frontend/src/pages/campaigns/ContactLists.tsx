@@ -50,6 +50,22 @@ const inp = (w = '100%'): React.CSSProperties => ({
   ...filterInputStyle, width: w, boxSizing: 'border-box' as const,
 })
 
+// Roomy form-field styles for modals (filterInputStyle is a compact filter-bar
+// style: fixed 36px height + 0 vertical padding, which squishes textareas and
+// cramps placeholders). These give inputs comfortable padding and let the
+// textarea grow with its rows.
+const fieldInput: React.CSSProperties = {
+  width: '100%', boxSizing: 'border-box', height: 40, padding: '0 12px',
+  border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13.5,
+  background: 'var(--card)', color: 'var(--txt)', fontFamily: INTER, outline: 'none',
+}
+const fieldTextarea: React.CSSProperties = {
+  width: '100%', boxSizing: 'border-box', minHeight: 78, padding: '10px 12px',
+  border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 13.5, lineHeight: 1.55,
+  background: 'var(--card)', color: 'var(--txt)', fontFamily: INTER, outline: 'none',
+  resize: 'vertical',
+}
+
 // ── Empty contact form ────────────────────────────────────────────────────────
 
 const emptyForm = () => ({ firstName: '', lastName: '', phone: '', email: '', cifNumber: '' })
@@ -706,14 +722,14 @@ export default function ContactLists() {
             <label style={lbl}>List Name *</label>
             <input value={name} onChange={e => setName(e.target.value)} autoFocus
               onKeyDown={e => { if (e.key === 'Enter' && name.trim() && !saving) { e.preventDefault(); create(false) } }}
-              placeholder="e.g. Active Prospects Q3" style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+              placeholder="e.g. Active Prospects Q3" style={fieldInput} />
           </div>
           <div>
             <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={desc} onChange={e => setDesc(e.target.value)} rows={3}
-              placeholder="What's this list for?"
-              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'none', fontSize: TEXT.base }} />
+              placeholder="What this list is for"
+              style={fieldTextarea} />
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--bdr)' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 18, color: BLUE }}>lightbulb</span>
@@ -744,14 +760,14 @@ export default function ContactLists() {
           <div>
             <label style={lbl}>List Name *</label>
             <input value={editName} onChange={e => setEditName(e.target.value)}
-              placeholder="List name" style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }} />
+              placeholder="List name" style={fieldInput} />
           </div>
           <div>
             <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3}
-              placeholder="What's this list for?"
-              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'none', fontSize: TEXT.base }} />
+              placeholder="What this list is for"
+              style={fieldTextarea} />
           </div>
         </div>
       </Modal>
