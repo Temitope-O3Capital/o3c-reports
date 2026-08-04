@@ -772,7 +772,20 @@ export default function ContactProfile() {
     setLoading(true); setError(null)
     try {
       const data = await apiFetch<any>(`/api/contacts/${key}`)
-      setProfile((data?.data ?? data) as ContactProfileData)
+      const raw = (data?.data ?? data) as ContactProfileData
+      // Guard against any response shape that omits the list fields — every
+      // tab maps over these, so a missing array would crash the page.
+      const p: ContactProfileData = {
+        ...raw,
+        applications:     raw.applications     ?? [],
+        active_loans:     raw.active_loans     ?? [],
+        cards:            raw.cards            ?? [],
+        fixed_deposits:   raw.fixed_deposits   ?? [],
+        transactions:     raw.transactions     ?? [],
+        helpdesk_tickets: raw.helpdesk_tickets ?? [],
+        activity_log:     raw.activity_log     ?? [],
+      }
+      setProfile(p)
     } catch (e: any) {
       setError(e.message)
     } finally {
