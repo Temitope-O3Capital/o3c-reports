@@ -610,7 +610,7 @@ func startActivityWorkers(db *core.DB, ch <-chan activityLogEntry, n int) {
 			for e := range ch {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				db.PGExec(ctx, //nolint:errcheck
-					`INSERT INTO o3c_activity_log (user_id, page, action, detail, ip, resource, method)
+					`INSERT INTO o3c_activity_log (user_id, page, action, detail, ip_address, resource, method)
 					 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 					e.userID, e.page, e.action, "", e.ip, e.resource, e.method)
 				cancel()
