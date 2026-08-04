@@ -95,7 +95,8 @@ interface ContactProfileData {
 
   transactions: {
     date: string
-    amount: number       // naira
+    amount: number       // absolute naira value; direction is money_in
+    money_in: boolean    // true = credit (into account), false = debit
     description: string
     merchant: string | null
   }[]
@@ -235,7 +236,7 @@ function TransactionsTab({ profile }: { profile: ContactProfileData }) {
     <SectionCard title="Recent Transactions" subtitle={`${fmtNum(profile.summary?.txn_count ?? profile.transactions.length)} total · latest ${profile.transactions.length}`}>
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         {profile.transactions.map((t, i) => {
-          const credit = Number(t.amount) >= 0
+          const credit = t.money_in
           return (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 2px', borderBottom: i < profile.transactions.length - 1 ? '1px solid var(--bdr)' : 'none' }}>
               <div style={{ width: 32, height: 32, borderRadius: '50%', background: credit ? `${GREEN}14` : `${RED}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -245,7 +246,7 @@ function TransactionsTab({ profile }: { profile: ContactProfileData }) {
                 <div style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.description || 'Transaction'}</div>
                 <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(t.date)}{t.merchant ? ` · ${t.merchant}` : ''}</div>
               </div>
-              <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: credit ? GREEN : 'var(--txt)', flexShrink: 0 }}>{fmtNaira(t.amount)}</div>
+              <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: credit ? GREEN : 'var(--txt)', flexShrink: 0 }}>{credit ? '+' : '−'}{fmtNaira(t.amount)}</div>
             </div>
           )
         })}
@@ -407,7 +408,7 @@ function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOp
           >
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {txns.map((t, i) => {
-                const credit = Number(t.amount) >= 0
+                const credit = t.money_in
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 2px', borderBottom: i < txns.length - 1 ? '1px solid var(--bdr)' : 'none' }}>
                     <div style={{ width: 30, height: 30, borderRadius: '50%', background: credit ? `${GREEN}14` : `${RED}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -417,7 +418,7 @@ function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOp
                       <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.description || 'Transaction'}</div>
                       <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(t.date)}{t.merchant ? ` · ${t.merchant}` : ''}</div>
                     </div>
-                    <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: credit ? GREEN : 'var(--txt)', flexShrink: 0 }}>{fmtNaira(t.amount)}</div>
+                    <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: credit ? GREEN : 'var(--txt)', flexShrink: 0 }}>{credit ? '+' : '−'}{fmtNaira(t.amount)}</div>
                   </div>
                 )
               })}

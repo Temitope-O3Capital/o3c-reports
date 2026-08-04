@@ -47,14 +47,16 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			FROM cbs_fixed_deposits WHERE cbs_customer_id = $1
 			ORDER BY commencement_date DESC`, cif)
 
-		// ── Recent account transactions ("Transactions" view; Amount is in naira) ─
+		// ── Recent account transactions (naira). Read the base table so we get
+		//    the authoritative money_in flag — in this source credits carry a
+		//    NEGATIVE amount, so the sign alone cannot be trusted for direction. ─
 		txnRows, _ := db.PGQuery(ctx, `
-			SELECT "Transaction Date"::text AS date, "Amount" AS amount,
-			       "Description" AS description, "Merchant_Name" AS merchant
-			FROM "Transactions" WHERE "CIF Number" = $1
-			ORDER BY "Transaction Date" DESC LIMIT 40`, cif)
+			SELECT txn_date::text AS date, amount::float8 AS amount, money_in,
+			       description, merchant_name AS merchant
+			FROM transaction WHERE cif = $1
+			ORDER BY txn_date DESC LIMIT 40`, cif)
 		var txnTotal int64
-		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM "Transactions" WHERE "CIF Number" = $1`, cif); len(rows) > 0 {
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM transaction WHERE cif = $1`, cif); len(rows) > 0 {
 			txnTotal = toInt64(rows[0]["n"])
 		}
 
@@ -357,9 +359,16 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		// Recent account transactions (naira amounts).
 		txnList := make([]any, 0)
 		for _, t := range txnRows {
+			// Source encodes credits as negative amounts; expose the absolute
+			// naira value and let money_in carry the direction unambiguously.
+			amt := toFloat64(t["amount"])
+			if amt < 0 {
+				amt = -amt
+			}
 			txnList = append(txnList, map[string]any{
 				"date":        t["date"],
-				"amount":      t["amount"],
+				"amount":      amt,
+				"money_in":    t["money_in"],
 				"description": t["description"],
 				"merchant":    t["merchant"],
 			})
