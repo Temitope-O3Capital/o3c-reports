@@ -17,6 +17,36 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		cif := chi.URLParam(r, "cif")
 		ctx := r.Context()
 
+		// ── Identity from the customer master ("Accounts" — Sage snapshot) ─────
+		acctRows, _ := db.PGQuery(ctx, `
+			SELECT TRIM(CONCAT("First Name", ' ', "Last Name")) AS name,
+			       "Phone Number" AS phone, "Email" AS email,
+			       "State" AS state, "City" AS city, "Job Title" AS job_title,
+			       "Birthday"::text AS date_of_birth
+			FROM "Accounts" WHERE "CIF Number" = $1 LIMIT 1`, cif)
+
+		// ── Cards / accounts from the "Products" view ─────────────────────────
+		prodRows, _ := db.PGQuery(ctx, `
+			SELECT "Product Name" AS product_name, "Account Status" AS status,
+			       "Name On Card" AS name_on_card, "Card Product" AS scheme
+			FROM "Products" WHERE "CIF Number" = $1`, cif)
+
+		// ── Loans from the CBS/Udara book ─────────────────────────────────────
+		cbsLoans, _ := db.PGQuery(ctx, `
+			SELECT cbs_account_number, product_name, status,
+			       outstanding_principal_kobo, loan_amount_kobo, interest_rate,
+			       start_date, maturity_date
+			FROM cbs_loans WHERE cbs_customer_id = $1
+			ORDER BY start_date DESC`, cif)
+
+		// ── Fixed deposits from the CBS/Udara register ────────────────────────
+		cbsFDs, _ := db.PGQuery(ctx, `
+			SELECT cbs_account_number, product_name, status,
+			       principal_kobo, accrued_interest_kobo, interest_rate,
+			       commencement_date, maturity_date
+			FROM cbs_fixed_deposits WHERE cbs_customer_id = $1
+			ORDER BY commencement_date DESC`, cif)
+
 		// ── CRM contact record ────────────────────────────────────────────────
 		contacts, _ := db.PGQuery(ctx, `
 			SELECT id, first_name, last_name, phone, email,
@@ -140,6 +170,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			"applications":     []any{},
 			"active_loans":     []any{},
 			"cards":            []any{},
+			"fixed_deposits":   []any{},
 			"helpdesk_tickets": []any{},
 			"activity_log":     []any{},
 			"is_prospect":      false,
@@ -149,6 +180,19 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			"is_delinquent":    false,
 			"is_in_recovery":   false,
 			"is_written_off":   false,
+		}
+
+		// Identity from the "Accounts" master (real customer data). CRM record, if any,
+		// overrides below.
+		if len(acctRows) > 0 {
+			a := acctRows[0]
+			profile["name"] = a["name"]
+			profile["phone"] = a["phone"]
+			profile["email"] = a["email"]
+			profile["state"] = a["state"]
+			profile["city"] = a["city"]
+			profile["employer"] = a["job_title"]
+			profile["date_of_birth"] = a["date_of_birth"]
 		}
 
 		// Fill from CRM contact
@@ -216,35 +260,88 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			profile["email"] = a["applicant_email"]
 		}
 
-		// Applications list
+		// Loans from the CBS/Udara book (native loan_applications is empty).
+		// open = NOT IN ('Closed','Revoked');  NPL = Defaulting/Expired.
 		appList := make([]any, 0)
 		activeLoans := make([]any, 0)
-		for _, a := range apps {
+		hasDelinquent := false
+		for _, l := range cbsLoans {
+			status := str(l["status"])
+			open := status != "Closed" && status != "Revoked"
 			appList = append(appList, map[string]any{
-				"id":                    a["id"],
-				"ref":                   a["reference"],
-				"product_type":          a["product_type"],
-				"amount_requested_kobo": a["amount_requested_kobo"],
-				"stage":                 a["stage"],
-				"created_at":            a["created_at"],
+				"id":                    l["cbs_account_number"],
+				"ref":                   l["cbs_account_number"],
+				"product_type":          l["product_name"],
+				"amount_requested_kobo": l["loan_amount_kobo"],
+				"stage":                 status,
+				"created_at":            l["start_date"],
 			})
-			if str(a["stage"]) == "active" || str(a["disbursed_at"]) != "" {
+			if open {
 				activeLoans = append(activeLoans, map[string]any{
-					"id":                a["id"],
-					"ref":               a["reference"],
-					"product_type":      a["product_type"],
-					"outstanding_kobo":  a["outstanding_kobo"],
-					"disbursed_kobo":    a["disbursed_amount_kobo"],
-					"dpd":               a["dpd"],
-					"status":            a["stage"],
-					"next_payment_date": a["next_due_date"],
+					"id":                l["cbs_account_number"],
+					"ref":               l["cbs_account_number"],
+					"product_type":      l["product_name"],
+					"outstanding_kobo":  l["outstanding_principal_kobo"],
+					"disbursed_kobo":    l["loan_amount_kobo"],
+					"dpd":               0,
+					"status":            status,
+					"next_payment_date": l["maturity_date"],
 				})
+			}
+			if status == "Defaulting" || status == "Expired" {
+				hasDelinquent = true
 			}
 		}
 		profile["applications"] = appList
 		profile["active_loans"] = activeLoans
-		profile["is_applicant"] = len(apps) > 0
-		profile["is_active_customer"] = len(activeLoans) > 0
+		profile["is_applicant"] = len(cbsLoans) > 0
+		if hasDelinquent {
+			profile["is_delinquent"] = true
+		}
+
+		// Cards / accounts from the "Products" view.
+		cardList := make([]any, 0)
+		hasActiveCard := false
+		for _, p := range prodRows {
+			status := str(p["status"])
+			cardList = append(cardList, map[string]any{
+				"id":                 p["name_on_card"],
+				"card_number_masked": p["name_on_card"],
+				"scheme":             p["scheme"],
+				"status":             status,
+				"balance_kobo":       0,
+				"issued_at":          nil,
+			})
+			if status == "Open" || status == "Active" {
+				hasActiveCard = true
+			}
+		}
+		profile["cards"] = cardList
+		profile["is_card_holder"] = hasActiveCard
+
+		// Fixed deposits from the CBS/Udara register.
+		fdList := make([]any, 0)
+		hasActiveFD := false
+		for _, f := range cbsFDs {
+			status := str(f["status"])
+			fdList = append(fdList, map[string]any{
+				"id":                    f["cbs_account_number"],
+				"ref":                   f["cbs_account_number"],
+				"product_name":          f["product_name"],
+				"status":                status,
+				"principal_kobo":        f["principal_kobo"],
+				"accrued_interest_kobo": f["accrued_interest_kobo"],
+				"interest_rate":         f["interest_rate"],
+				"commencement_date":     f["commencement_date"],
+				"maturity_date":         f["maturity_date"],
+			})
+			if status == "Active" {
+				hasActiveFD = true
+			}
+		}
+		profile["fixed_deposits"] = fdList
+
+		profile["is_active_customer"] = len(activeLoans) > 0 || hasActiveCard || hasActiveFD
 
 		// Collections
 		if len(colls) > 0 {

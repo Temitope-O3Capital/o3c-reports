@@ -69,6 +69,18 @@ interface ContactProfileData {
     issued_at: string
   }[]
 
+  fixed_deposits: {
+    id: string
+    ref: string
+    product_name: string
+    status: string
+    principal_kobo: number
+    accrued_interest_kobo: number
+    interest_rate: number
+    commencement_date: string | null
+    maturity_date: string | null
+  }[]
+
   collections?: {
     dpd: number
     dpd_bucket: string
@@ -350,6 +362,36 @@ function CardsTab({ profile }: { profile: ContactProfileData }) {
   )
 }
 
+function FixedDepositsTab({ profile }: { profile: ContactProfileData }) {
+  if (profile.fixed_deposits.length === 0) return (
+    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No fixed deposits for this customer.</div>
+  )
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {profile.fixed_deposits.map(f => (
+        <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', background: 'var(--card)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: AMBER }}>savings</span>
+            <div>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>{f.product_name || 'Fixed Deposit'}</div>
+              <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>
+                {f.ref} · {Number(f.interest_rate ?? 0).toFixed(1)}% · matures {f.maturity_date ? fmtDate(f.maturity_date) : '—'}
+              </div>
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>{fmtKobo(f.principal_kobo)}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+              {f.accrued_interest_kobo > 0 && <span style={{ fontSize: TEXT.xs, color: GREEN }}>+{fmtKobo(f.accrued_interest_kobo)} int</span>}
+              <Badge label={f.status} colour={statusColour(f.status)} />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function CollectionsTab({ profile }: { profile: ContactProfileData }) {
   const c = profile.collections
   if (!c) return (
@@ -580,6 +622,7 @@ function LifecycleBadges({ profile }: { profile: ContactProfileData }) {
 const TABS = [
   { key: 'overview',    label: 'Overview' },
   { key: 'loans',       label: 'Loans & Applications' },
+  { key: 'fixed_deposits', label: 'Fixed Deposits' },
   { key: 'cards',       label: 'Cards' },
   { key: 'collections', label: 'Collections' },
   { key: 'recovery',    label: 'Recovery' },
@@ -588,7 +631,9 @@ const TABS = [
 ]
 
 export default function ContactProfile() {
-  const { id } = useParams<{ id: string }>()
+  // Route param is :cif under /customers/:cif (and :id under the legacy /contacts/:id).
+  const { id, cif } = useParams<{ id?: string; cif?: string }>()
+  const key = cif ?? id
   const navigate = useNavigate()
   const [profile, setProfile] = useState<ContactProfileData | null>(null)
   const [loading, setLoading]   = useState(true)
@@ -596,23 +641,23 @@ export default function ContactProfile() {
   const [tab, setTab]           = useState('overview')
 
   const load = useCallback(async () => {
-    if (!id) return
+    if (!key) return
     setLoading(true); setError(null)
     try {
-      const data = await apiFetch<any>(`/api/contacts/${id}`)
+      const data = await apiFetch<any>(`/api/contacts/${key}`)
       setProfile((data?.data ?? data) as ContactProfileData)
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [id])
+  }, [key])
 
   useEffect(() => { load() }, [load])
   useLiveData(load)
 
   if (loading) return (
-    <Page title="Contact Profile">
+    <Page title="Customer">
       <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
         <Spinner size={32} />
       </div>
@@ -620,7 +665,7 @@ export default function ContactProfile() {
   )
 
   if (error || !profile) return (
-    <Page title="Contact Profile">
+    <Page title="Customer">
       <ErrBanner error={error ?? 'Profile not found'} onRetry={load} />
     </Page>
   )
@@ -710,6 +755,7 @@ export default function ContactProfile() {
 
       {tab === 'overview'    && <OverviewTab    profile={profile} />}
       {tab === 'loans'       && <LoansTab       profile={profile} />}
+      {tab === 'fixed_deposits' && <FixedDepositsTab profile={profile} />}
       {tab === 'cards'       && <CardsTab       profile={profile} />}
       {tab === 'collections' && <CollectionsTab profile={profile} />}
       {tab === 'recovery'    && <RecoveryTab    profile={profile} />}
