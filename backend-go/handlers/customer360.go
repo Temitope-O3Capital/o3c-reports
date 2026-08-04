@@ -146,6 +146,35 @@ func c360Profile(db *core.DB) http.HandlerFunc {
 			FROM recovery_cases WHERE cif_number = $1
 			ORDER BY created_at DESC`, cif)
 
+		// Credit-card position (PG — from the latest imported billing cycle for this CIF).
+		// Per-card rows plus a rolled-up summary. Only credit-category products.
+		cardCards, _ := db.PGQuery(ctx, `
+			SELECT d.account_number, COALESCE(NULLIF(p.product_name,''), d.product_code) AS product,
+			       d.outstanding_balance_kobo, d.credit_limit_kobo, d.overdue_amount_kobo,
+			       d.minimum_payment_kobo, d.total_interest_kobo,
+			       TO_CHAR(d.cycle_date,'YYYY-MM-DD') AS cycle_date,
+			       CASE WHEN d.credit_limit_kobo > 0
+			            THEN ROUND(d.outstanding_balance_kobo::numeric / d.credit_limit_kobo * 100, 1)
+			            ELSE 0 END AS utilization_pct
+			FROM card_cycle_data d
+			JOIN card_products p ON p.product_code = d.product_code AND p.category = 'credit'
+			WHERE d.cif = $1
+			  AND d.cycle_date = (SELECT MAX(cycle_date) FROM card_cycle_data WHERE cif = $1)
+			ORDER BY d.outstanding_balance_kobo DESC`, cif)
+
+		cardSummaryRows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS cards,
+			       COALESCE(SUM(d.outstanding_balance_kobo),0)::bigint AS outstanding_kobo,
+			       COALESCE(SUM(d.credit_limit_kobo),0)::bigint        AS credit_limit_kobo,
+			       COALESCE(SUM(d.overdue_amount_kobo),0)::bigint      AS overdue_kobo,
+			       COALESCE(SUM(d.minimum_payment_kobo),0)::bigint     AS min_payment_kobo,
+			       COALESCE(SUM(d.total_interest_kobo),0)::bigint      AS interest_kobo,
+			       TO_CHAR(MAX(d.cycle_date),'YYYY-MM-DD')             AS cycle_date
+			FROM card_cycle_data d
+			JOIN card_products p ON p.product_code = d.product_code AND p.category = 'credit'
+			WHERE d.cif = $1
+			  AND d.cycle_date = (SELECT MAX(cycle_date) FROM card_cycle_data WHERE cif = $1)`, cif)
+
 		// Financial summary (PG only — best-effort, nullable)
 		summaryRows, _ := db.PGQuery(ctx, `
 			SELECT
@@ -169,6 +198,9 @@ func c360Profile(db *core.DB) http.HandlerFunc {
 		if recoveryCases == nil {
 			recoveryCases = []core.Row{}
 		}
+		if cardCards == nil {
+			cardCards = []core.Row{}
+		}
 
 		profile := map[string]any{
 			"account":           firstOrNil(accounts),
@@ -176,6 +208,8 @@ func c360Profile(db *core.DB) http.HandlerFunc {
 			"transactions":      transactions,
 			"loan_apps":         loanApps,
 			"recovery_cases":    recoveryCases,
+			"card_position":     firstOrNil(cardSummaryRows), // rolled-up revolving summary (nil if none)
+			"card_accounts":     cardCards,                   // per-card latest-cycle rows
 			"financial_summary": firstOrNil(summaryRows),
 		}
 

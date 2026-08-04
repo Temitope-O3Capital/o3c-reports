@@ -61,12 +61,36 @@ interface FinancialSummary {
   loan_approved_kobo?:         number | null
 }
 
+interface CardPosition {
+  cards:             number
+  outstanding_kobo:  number
+  credit_limit_kobo: number
+  overdue_kobo:      number
+  min_payment_kobo:  number
+  interest_kobo:     number
+  cycle_date:        string | null
+}
+
+interface CardAccount {
+  account_number:           string
+  product:                  string
+  outstanding_balance_kobo: number
+  credit_limit_kobo:        number
+  overdue_amount_kobo:      number
+  minimum_payment_kobo:     number
+  total_interest_kobo:      number
+  utilization_pct:          number | string
+  cycle_date:               string
+}
+
 interface C360Profile {
   account:           AccountRec | null
   products:          ProductRec[]
   transactions:      TransactionRec[]
   loan_apps:         LoanApp[]
   recovery_cases:    RecoveryCase[]
+  card_position:     CardPosition | null
+  card_accounts:     CardAccount[]
   financial_summary: FinancialSummary | null
 }
 
@@ -149,6 +173,8 @@ export default function CustomerDetail() {
   const transactions   = data.transactions ?? []
   const loan_apps      = data.loan_apps ?? []
   const recovery_cases = data.recovery_cases ?? []
+  const card_position  = data.card_position ?? null
+  const card_accounts  = data.card_accounts ?? []
 
   const firstName = account?.['First Name'] ?? ''
   const lastName  = account?.['Last Name'] ?? ''
@@ -198,6 +224,7 @@ export default function CustomerDetail() {
           {/* Financial summary tiles */}
           <div style={{ display: 'flex', gap: 16, flexShrink: 0 }}>
             {[
+              ...(card_position && card_position.cards > 0 ? [{ label: 'Card Balance', value: fmtKobo(card_position.outstanding_kobo), color: card_position.overdue_kobo > 0 ? RED : NAVY }] : []),
               { label: 'Loan Approved', value: financial_summary?.loan_approved_kobo != null ? fmtKobo(financial_summary.loan_approved_kobo) : '—', color: BLUE },
               { label: 'Recovery O/S',  value: financial_summary?.recovery_outstanding_kobo != null ? fmtKobo(financial_summary.recovery_outstanding_kobo) : '—', color: AMBER },
             ].map(({ label, value, color }) => (
@@ -255,6 +282,65 @@ export default function CustomerDetail() {
           </div>
         )}
       </SectionCard>
+
+      {/* Credit Card position (latest billing cycle) */}
+      {card_position && card_position.cards > 0 && (
+        <SectionCard
+          title="Credit Cards"
+          badge={card_position.cards}
+          padding={false}
+          style={{ marginBottom: SP[5] }}
+        >
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', padding: `${SP[3]} 12px`, borderBottom: '1px solid var(--bdr)' }}>
+            {[
+              { label: 'Balance',     value: fmtKobo(card_position.outstanding_kobo), color: NAVY },
+              { label: 'Credit Limit',value: fmtKobo(card_position.credit_limit_kobo), color: BLUE },
+              { label: 'Min Payment', value: fmtKobo(card_position.min_payment_kobo),  color: AMBER },
+              { label: 'Overdue',     value: fmtKobo(card_position.overdue_kobo),      color: card_position.overdue_kobo > 0 ? RED : GREEN },
+              { label: 'Interest',    value: fmtKobo(card_position.interest_kobo),     color: 'var(--txt2)' },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ minWidth: 120 }}>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</div>
+                <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color, ...NUM, marginTop: 2 }}>{value}</div>
+              </div>
+            ))}
+            {card_position.cycle_date && (
+              <div style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: MONO }}>Cycle {card_position.cycle_date}</div>
+            )}
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={TH}>Account</th>
+                  <th style={TH}>Product</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Balance</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Limit</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Util</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Min Pymt</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>Overdue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {card_accounts.map((c, i) => {
+                  const util = Number(c.utilization_pct)
+                  return (
+                    <tr key={i}>
+                      <td style={{ ...TD, ...NUM, color: 'var(--txt2)' }}>{c.account_number}</td>
+                      <td style={{ ...TD, fontWeight: FW.semibold }}>{c.product}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right' }}>{fmtKobo(c.outstanding_balance_kobo)}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{fmtKobo(c.credit_limit_kobo)}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: util >= 90 ? RED : util >= 70 ? AMBER : 'var(--txt2)', fontWeight: FW.semibold }}>{util.toFixed(0)}%</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{fmtKobo(c.minimum_payment_kobo)}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: c.overdue_amount_kobo > 0 ? RED : 'var(--txt3)' }}>{fmtKobo(c.overdue_amount_kobo)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
 
       {/* Recent Transactions */}
       <SectionCard title="Recent Transactions" badge={transactions.length} padding={false} style={{ marginBottom: SP[5] }}>

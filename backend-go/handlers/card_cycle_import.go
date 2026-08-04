@@ -49,6 +49,7 @@ var (
 	reCycReportID = regexp.MustCompile(`Report\s+ID\s*:\s*(cyc\w+)`)
 	reCurrency   = regexp.MustCompile(`^[A-Z]{3}$`)
 	reProdCode   = regexp.MustCompile(`^\d{1,3}$`)
+	reDigits     = regexp.MustCompile(`^\d+$`)
 )
 
 // naira "1234.56" / "-1234.56" → kobo int64.
@@ -107,8 +108,10 @@ func parseCycleReport(r io.Reader, kind string, into map[string]*cycleRow, prodN
 			continue
 		}
 		f := strings.Fields(line)
-		// data row: Apnum CIF Account Currency <amounts...>
-		if len(f) < 5 || !reProdCode.MatchString(f[0]) || !reCurrency.MatchString(f[3]) {
+		// data row: Apnum CIF Account Currency <amounts...>. CIF and account are always
+		// numeric — this also rejects malformed/footer lines (e.g. a stray "0000000`").
+		if len(f) < 5 || !reProdCode.MatchString(f[0]) || !reCurrency.MatchString(f[3]) ||
+			!reDigits.MatchString(f[1]) || !reDigits.MatchString(f[2]) {
 			continue
 		}
 		prod := f[0]
