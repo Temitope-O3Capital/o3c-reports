@@ -1,13 +1,108 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { RED, NAVY, GREEN, FW, RADIUS, SP, TEXT } from '../../lib/design'
 
 export interface InitialCustomer { cif?: string; name?: string; phone?: string }
 
+interface CustSuggest { cif: string; name: string; phone?: string; email?: string; state?: string }
+
 // Some source names carry a stray leading title/punctuation (e.g. ". Sunday Essien").
 function cleanName(n?: string) {
   return (n ?? '').replace(/^[.\s]+/, '').trim()
+}
+
+function initialsOf(name: string) {
+  return (cleanName(name) || '?').split(' ').filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 2)
+}
+
+// ── Customer typeahead ────────────────────────────────────────────────────────
+// Searches by name / CIF / phone and returns a full record, so picking one
+// suggestion auto-fills name, CIF and phone together.
+function CustomerSearch({ onPick, onManual }: { onPick: (c: CustSuggest) => void; onManual: () => void }) {
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<CustSuggest[]>([])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [active, setActive] = useState(-1)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const term = q.trim()
+    if (term.length < 2) { setResults([]); setOpen(false); setLoading(false); return }
+    let alive = true
+    setLoading(true)
+    const t = setTimeout(() => {
+      apiFetch<any>(`/api/customer360/search?q=${encodeURIComponent(term)}&limit=8`)
+        .then(r => {
+          if (!alive) return
+          const list = (r?.data ?? r) as CustSuggest[]
+          setResults(Array.isArray(list) ? list : [])
+          setOpen(true); setActive(-1)
+        })
+        .catch(() => { if (alive) { setResults([]); setOpen(true) } })
+        .finally(() => { if (alive) setLoading(false) })
+    }, 250)
+    return () => { alive = false; clearTimeout(t) }
+  }, [q])
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  function choose(c: CustSuggest) { onPick(c); setQ(''); setOpen(false); setResults([]) }
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }}>
+        <span className="material-symbols-rounded" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: 'var(--txt3)', pointerEvents: 'none' }}>search</span>
+        <input
+          type="text"
+          value={q}
+          autoFocus
+          onChange={e => setQ(e.target.value)}
+          onFocus={() => { if (results.length) setOpen(true) }}
+          onKeyDown={e => {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive(a => Math.min(a + 1, results.length - 1)) }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(a - 1, 0)) }
+            else if (e.key === 'Enter' && open && active >= 0 && results[active]) { e.preventDefault(); choose(results[active]) }
+            else if (e.key === 'Escape') setOpen(false)
+          }}
+          placeholder="Search customer by name, CIF or phone…"
+          style={{ ...inputStyle, paddingLeft: 36 }}
+        />
+        {loading && <div style={{ position: 'absolute', right: 11, top: '50%', transform: 'translateY(-50%)' }}><Spinner size={14} /></div>}
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 50, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, boxShadow: '0 12px 30px rgba(0,0,0,0.16)', maxHeight: 264, overflowY: 'auto' }}>
+          {results.length === 0 ? (
+            <div style={{ padding: '12px 14px', fontSize: TEXT.sm, color: 'var(--txt3)' }}>{loading ? 'Searching…' : 'No matches found.'}</div>
+          ) : results.map((c, i) => (
+            <button
+              key={c.cif + i}
+              type="button"
+              onMouseEnter={() => setActive(i)}
+              onClick={() => choose(c)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', cursor: 'pointer', background: i === active ? 'var(--row-hvr)' : 'transparent', borderBottom: i < results.length - 1 ? '1px solid var(--bdr)' : 'none' }}
+            >
+              <div style={{ width: 30, height: 30, borderRadius: RADIUS.full, background: `${NAVY}12`, color: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, flexShrink: 0 }}>{initialsOf(c.name)}</div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cleanName(c.name) || 'Unnamed'}</div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>{c.cif}</span>{c.phone ? ` · ${c.phone}` : ''}{c.state ? ` · ${c.state}` : ''}
+                </div>
+              </div>
+            </button>
+          ))}
+          <button type="button" onClick={onManual} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', borderTop: '1px solid var(--bdr)', cursor: 'pointer', background: 'var(--th-bg)', fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.semibold }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>edit</span>Enter manually (walk-in / no CIF)
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -326,9 +421,10 @@ export default function NewTicketForm({
   const [customerName, setCustomerName] = useState(cleanName(initial?.name))
   const [customerPhone, setCustomerPhone] = useState(initial?.phone ?? '')
   const [customerCif, setCustomerCif] = useState(initial?.cif ?? '')
-  // When we arrive from a customer profile the customer is known — lock the
-  // section to a compact confirmation chip rather than empty inputs.
-  const [customerLocked, setCustomerLocked] = useState(Boolean(initial?.cif || cleanName(initial?.name)))
+  // picked = a customer is chosen (shown as a chip). manual = typing a walk-in
+  // by hand. Otherwise the smart search typeahead is shown.
+  const [picked, setPicked] = useState(Boolean(initial?.cif || cleanName(initial?.name)))
+  const [manual, setManual] = useState(false)
 
   const [subject, setSubject] = useState('')
   const [priority, setPriority] = useState('medium')
@@ -350,7 +446,7 @@ export default function NewTicketForm({
     if (initial?.cif) setCustomerCif(initial.cif)
     if (initial?.name) setCustomerName(cleanName(initial.name))
     if (initial?.phone) setCustomerPhone(initial.phone)
-    if (initial?.cif || cleanName(initial?.name)) setCustomerLocked(true)
+    if (initial?.cif || cleanName(initial?.name)) setPicked(true)
   }, [initial?.cif, initial?.name, initial?.phone])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -400,7 +496,7 @@ export default function NewTicketForm({
     <form
       onSubmit={handleSubmit}
       onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSubmit(e as any) }}
-      style={{ display: 'flex', flexDirection: 'column', gap: 22 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
     >
       <ErrBanner error={err} />
 
@@ -436,7 +532,7 @@ export default function NewTicketForm({
       {/* Customer */}
       <div>
         {sectionHead('Customer')}
-        {customerLocked ? (
+        {picked ? (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
             background: 'var(--th-bg)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg,
@@ -446,7 +542,7 @@ export default function NewTicketForm({
               background: `${NAVY}12`, color: NAVY, display: 'flex', alignItems: 'center',
               justifyContent: 'center', fontSize: TEXT.base, fontWeight: FW.extrabold,
             }}>
-              {(customerName || '?').split(' ').filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 2)}
+              {initialsOf(customerName)}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)' }}>{customerName || 'Unknown customer'}</div>
@@ -460,27 +556,39 @@ export default function NewTicketForm({
             </span>
             <button
               type="button"
-              onClick={() => setCustomerLocked(false)}
+              onClick={() => { setPicked(false); setManual(false); setCustomerCif('') }}
               style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
               Change
             </button>
           </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-            <Field label="Customer Name">
-              <input type="text" placeholder="Full name" value={customerName}
-                onChange={e => setCustomerName(e.target.value)} style={inputStyle} />
-            </Field>
-            <Field label="Phone Number">
-              <input type="tel" placeholder="e.g. 08012345678" value={customerPhone}
-                onChange={e => setCustomerPhone(e.target.value)} style={inputStyle} />
-            </Field>
-            <Field label="CIF Number (optional)">
-              <input type="text" placeholder="Customer CIF" value={customerCif}
-                onChange={e => setCustomerCif(e.target.value)} style={inputStyle} />
-            </Field>
+        ) : manual ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+              <Field label="Customer Name">
+                <input type="text" placeholder="Full name" value={customerName}
+                  onChange={e => setCustomerName(e.target.value)} style={inputStyle} />
+              </Field>
+              <Field label="Phone Number">
+                <input type="tel" placeholder="e.g. 08012345678" value={customerPhone}
+                  onChange={e => setCustomerPhone(e.target.value)} style={inputStyle} />
+              </Field>
+            </div>
+            <button type="button" onClick={() => setManual(false)}
+              style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, padding: 0, border: 'none', background: 'none', color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>search</span>Search for an existing customer instead
+            </button>
           </div>
+        ) : (
+          <CustomerSearch
+            onPick={c => {
+              setCustomerName(cleanName(c.name))
+              setCustomerCif(c.cif)
+              setCustomerPhone(c.phone ?? '')
+              setPicked(true)
+            }}
+            onManual={() => setManual(true)}
+          />
         )}
       </div>
 
@@ -529,7 +637,7 @@ export default function NewTicketForm({
         {sectionHead('Additional Description')}
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
           placeholder="Any additional context or details…"
-          rows={4}
+          rows={3}
           value={description}
           onChange={e => setDescription(e.target.value)}
           style={{ ...inputStyle, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.6, fontFamily: 'inherit' }}

@@ -5,6 +5,7 @@ import { StatusBadge, Modal, Spinner, ErrBanner, TblSearch, DateFilter, NameCell
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { RED, AMBER, BLUE, NAVY, GREEN, PURPLE, MONO, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import NewTicketForm from './NewTicket'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -523,6 +524,7 @@ export default function Tickets() {
 
   const [selectedId,   setSelectedId]   = useState<number | null>(null)
   const [checkedIds,   setCheckedIds]   = useState<Set<number>>(new Set())
+  const [newOpen,      setNewOpen]      = useState(false)
   const [reassignOpen, setReassignOpen] = useState(false)
   const [agents,       setAgents]       = useState<Agent[]>([])
   const [reassignTarget, setReassignTarget] = useState('')
@@ -633,7 +635,7 @@ export default function Tickets() {
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>refresh</span>
           </button>
           <button
-            onClick={() => navigate('/helpdesk/new')}
+            onClick={() => setNewOpen(true)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
@@ -802,6 +804,11 @@ export default function Tickets() {
           )}
         </div>
       </div>
+
+      {/* New ticket modal */}
+      <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Ticket" width={640}>
+        <NewTicketForm onClose={() => setNewOpen(false)} onCreated={id => { setNewOpen(false); setSelectedId(id); load() }} />
+      </Modal>
 
       {/* Bulk reassign modal */}
       <Modal
