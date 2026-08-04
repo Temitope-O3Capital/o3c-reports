@@ -2,10 +2,34 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
 )
+
+// isNameLike reports whether s contains at least one alphabetic character, so a
+// value that is really a phone number (all digits / punctuation) is rejected.
+func isNameLike(s string) bool {
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanNameStr trims whitespace and drops any leading non-letter run (stray
+// titles/punctuation like ". Sunday Essien" → "Sunday Essien").
+func cleanNameStr(s string) string {
+	s = strings.TrimSpace(s)
+	for i, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return strings.TrimSpace(s[i:])
+		}
+	}
+	return s
+}
 
 func RegisterContactProfile(r chi.Router, db *core.DB) {
 	access := core.RequirePages("customer360", "los", "recovery", "helpdesk", "collections")
@@ -208,22 +232,27 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			profile["date_of_birth"] = a["date_of_birth"]
 		}
 
+		// fillIfEmpty augments the profile without clobbering good master data —
+		// the "Accounts" snapshot is authoritative for identity; CRM only fills gaps.
+		fillIfEmpty := func(key string, val any) {
+			if str(profile[key]) == "" && str(val) != "" {
+				profile[key] = val
+			}
+		}
+
 		// Fill from CRM contact
 		if len(contacts) > 0 {
 			c := contacts[0]
-			fname := str(c["first_name"])
-			lname := str(c["last_name"])
-			name := fname
-			if lname != "" {
-				name += " " + lname
+			crmName := strings.TrimSpace(str(c["first_name"]) + " " + str(c["last_name"]))
+			if isNameLike(crmName) {
+				fillIfEmpty("name", crmName)
 			}
-			profile["name"] = name
-			profile["phone"] = c["phone"]
-			profile["email"] = c["email"]
+			fillIfEmpty("phone", c["phone"])
+			fillIfEmpty("email", c["email"])
+			fillIfEmpty("state", c["state"])
+			fillIfEmpty("employer", c["employer"])
+			fillIfEmpty("date_of_birth", c["date_of_birth"])
 			profile["address"] = c["address"]
-			profile["state"] = c["state"]
-			profile["employer"] = c["employer"]
-			profile["date_of_birth"] = c["date_of_birth"]
 			profile["gender"] = c["gender"]
 			idType := str(c["id_type"])
 			if idType == "BVN" {
@@ -268,10 +297,24 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		} else if len(apps) > 0 {
 			// No CRM record — infer basics from loan application
 			a := apps[0]
-			profile["name"] = str(a["applicant_name"])
-			profile["phone"] = a["applicant_phone"]
-			profile["email"] = a["applicant_email"]
+			if n := str(a["applicant_name"]); isNameLike(n) {
+				fillIfEmpty("name", n)
+			}
+			fillIfEmpty("phone", a["applicant_phone"])
+			fillIfEmpty("email", a["applicant_email"])
 		}
+
+		// Final fallback: if we still don't have a real name (master/CRM blank or a
+		// phone slipped into the field), use the card's "Name On Card".
+		if !isNameLike(str(profile["name"])) {
+			for _, p := range prodRows {
+				if noc := str(p["name_on_card"]); isNameLike(noc) {
+					profile["name"] = noc
+					break
+				}
+			}
+		}
+		profile["name"] = cleanNameStr(str(profile["name"]))
 
 		// Loans from the CBS/Udara book (native loan_applications is empty).
 		// open = NOT IN ('Closed','Revoked');  NPL = Defaulting/Expired.
