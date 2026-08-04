@@ -37,7 +37,23 @@ interface Campaign {
 interface Metrics { total_contacts: number; sent: number; sent_pct: number; delivered: number; delivery_rate: number; opened: number; open_rate: number; clicked: number; click_rate: number; bounced: number; bounce_rate: number; spam: number; unsubscribed: number; failed: number }
 interface TimelinePoint { hour: string; opened: number; clicked: number; delivered: number }
 interface ContactStats { pending: number; sent: number; delivered: number; opened: number; clicked: number; bounced: number; failed: number }
-interface ReportResp { campaign: any; metrics: Metrics; timeline: TimelinePoint[]; top_links: { url: string; clicks: number }[]; contact_stats: ContactStats }
+interface ChannelMetric { channel: string; sent: number; delivered: number; delivery_rate: number; opened?: number; open_rate?: number; clicked?: number; click_rate?: number; failed: number }
+
+// A label/value row used in the per-channel Results breakdown.
+function ChRow({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: TEXT.sm }}>
+      <span style={{ color: 'var(--txt2)' }}>{label}</span>
+      <span style={{ ...NUM, fontWeight: FW.semibold, color: color ?? 'var(--txt)' }}>{value}</span>
+    </div>
+  )
+}
+const CH_META: Record<string, { c: string; i: string; l: string }> = {
+  email:    { c: BLUE,      i: 'mail',       l: 'Email' },
+  sms:      { c: PURPLE,    i: 'smartphone', l: 'SMS' },
+  whatsapp: { c: '#25D366', i: 'chat',       l: 'WhatsApp' },
+}
+interface ReportResp { campaign: any; metrics: Metrics; channels?: ChannelMetric[]; timeline: TimelinePoint[]; top_links: { url: string; clicks: number }[]; contact_stats: ContactStats }
 interface EditorValue { blocks: EmailBlock[]; settings?: EmailSettings }
 interface PreflightResp { total: number; with_email: number; with_phone: number; suppressed: number; duplicates: number; invalid: number; usable: number; warnings: string[] }
 interface ContactListItem { id: number; name: string; total?: number }
@@ -1633,28 +1649,38 @@ export default function CampaignDetail() {
           )}
           {hasSendData && m && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-                <KpiCard label="Sent"          value={fmtNum(toN(m.sent))} />
-                <KpiCard label="Delivery Rate" value={fmtPct(toN(m.delivery_rate))} accent={GREEN} />
-                {isWhatsApp && !isEmail
-                  ? <KpiCard label="WA Delivered"  value={fmtNum(toN(campaign.whatsapp_delivered))} accent={WA_GREEN} />
-                  : isSMS && !isEmail
-                    ? <KpiCard label="SMS Delivered" value={fmtNum(toN(m.delivered))} accent={GREEN} />
-                    : <KpiCard label="Open Rate"     value={fmtPct(toN(m.open_rate))} accent={BLUE}  />
-                }
+              {/* Overall KPIs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+                <KpiCard label="Total Sent"  value={fmtNum(toN(m.sent))} icon="send" accent={NAVY}
+                  sub={`of ${fmtNum(toN(m.total_contacts))} contacts`} />
+                <KpiCard label="Delivered"   value={fmtNum(toN(m.delivered))} sub={fmtPct(toN(m.delivery_rate))} icon="mark_email_read" accent={GREEN} />
+                {isEmail && <KpiCard label="Open Rate"  value={fmtPct(toN(m.open_rate))}  sub={`${fmtNum(toN(m.opened))} opened`}   icon="drafts"    accent={BLUE} />}
+                {isEmail && <KpiCard label="Click Rate" value={fmtPct(toN(m.click_rate))} sub={`${fmtNum(toN(m.clicked))} clicked`} icon="ads_click" accent={PURPLE} />}
+                <KpiCard label="Failed / Bounced" value={fmtNum(toN(m.bounced) + toN(m.failed))} icon="error"
+                  accent={(toN(m.bounced) + toN(m.failed)) > 0 ? RED : undefined} />
               </div>
-              {isWhatsApp && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
-                  <KpiCard label="WA Sent"      value={fmtNum(toN(campaign.whatsapp_sent))}      />
-                  <KpiCard label="WA Delivered" value={fmtNum(toN(campaign.whatsapp_delivered))} accent={WA_GREEN} />
-                </div>
-              )}
-              {!isSMS && !isWhatsApp && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-                  <KpiCard label="Click Rate"   value={fmtPct(toN(m.click_rate))} accent={PURPLE} />
-                  <KpiCard label="Bounced"      value={fmtNum(toN(m.bounced))} accent={toN(m.bounce_rate) > 2 ? RED : undefined} />
-                  <KpiCard label="Unsubscribed" value={fmtNum(toN(m.unsubscribed))} />
-                </div>
+
+              {/* Per-channel breakdown */}
+              {(report?.channels?.length ?? 0) > 1 && (
+                <SectionCard title="By channel" subtitle="Performance for each channel in this campaign" padding>
+                  <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(200px, 1fr))`, gap: 12 }}>
+                    {report!.channels!.map(ch => {
+                      const meta = CH_META[ch.channel] ?? { c: NAVY, i: 'campaign', l: ch.channel }
+                      return (
+                        <div key={ch.channel} style={{ border: `1px solid ${meta.c}22`, background: `${meta.c}06`, borderRadius: RADIUS.md, padding: '12px 14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: meta.c, fontWeight: FW.bold, fontSize: TEXT.sm, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{meta.i}</span>{meta.l}
+                          </div>
+                          <ChRow label="Sent" value={fmtNum(toN(ch.sent))} />
+                          <ChRow label="Delivered" value={`${fmtNum(toN(ch.delivered))} · ${fmtPct(toN(ch.delivery_rate))}`} color={GREEN} />
+                          {ch.open_rate !== undefined && <ChRow label="Opened" value={`${fmtNum(toN(ch.opened))} · ${fmtPct(toN(ch.open_rate))}`} color={BLUE} />}
+                          {ch.click_rate !== undefined && <ChRow label="Clicked" value={`${fmtNum(toN(ch.clicked))} · ${fmtPct(toN(ch.click_rate))}`} color={PURPLE} />}
+                          {toN(ch.failed) > 0 && <ChRow label="Failed" value={fmtNum(toN(ch.failed))} color={RED} />}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </SectionCard>
               )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 14 }}>
                 <SectionCard title="Delivery Funnel">

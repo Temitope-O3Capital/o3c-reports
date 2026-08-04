@@ -358,6 +358,9 @@ func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 			SELECT id, name, type, status, total_contacts,
 			       emails_sent, emails_delivered, emails_opened, emails_clicked,
 			       emails_bounced, sms_sent, sms_delivered, sms_failed,
+			       COALESCE(whatsapp_sent,0) AS whatsapp_sent,
+			       COALESCE(whatsapp_delivered,0) AS whatsapp_delivered,
+			       COALESCE(whatsapp_failed,0) AS whatsapp_failed,
 			       bounce_count, unsubscribe_count,
 			       started_at, completed_at, scheduled_at, created_at
 			FROM campaigns WHERE id=$1`, id)
@@ -379,31 +382,63 @@ func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 			    COUNT(*) FILTER (WHERE email_status IN ('bounced','spam','unsubscribed','failed')) AS email_bounced,
 			    COUNT(*) FILTER (WHERE sms_status='sent') AS sms_sent,
 			    COUNT(*) FILTER (WHERE sms_status='delivered') AS sms_delivered,
-			    COUNT(*) FILTER (WHERE sms_status='failed') AS sms_failed
+			    COUNT(*) FILTER (WHERE sms_status='failed') AS sms_failed,
+			    COUNT(*) FILTER (WHERE whatsapp_status IN ('sent','delivered')) AS wa_sent,
+			    COUNT(*) FILTER (WHERE whatsapp_status='delivered') AS wa_delivered,
+			    COUNT(*) FILTER (WHERE whatsapp_status='failed') AS wa_failed
 			FROM campaign_contacts
 			WHERE campaign_id=$1`, id)
 		contactRollup := map[string]any{}
 		if len(contactRollupRows) > 0 {
 			contactRollup = contactRollupRows[0]
 		}
-		switch channel {
-		case "sms":
-			sent = maxInt64(toInt64(camp["sms_sent"]), toInt64(contactRollup["sms_sent"]))
-			delivered = maxInt64(toInt64(camp["sms_delivered"]), toInt64(contactRollup["sms_delivered"]))
-			failed = maxInt64(toInt64(camp["sms_failed"]), toInt64(contactRollup["sms_failed"]))
-		case "email":
-			sent = maxInt64(toInt64(camp["emails_sent"]), toInt64(contactRollup["email_sent"]))
-			delivered = maxInt64(toInt64(camp["emails_delivered"]), toInt64(contactRollup["email_delivered"]))
-			opened = maxInt64(toInt64(camp["emails_opened"]), toInt64(contactRollup["email_opened"]))
-			clicked = maxInt64(toInt64(camp["emails_clicked"]), toInt64(contactRollup["email_clicked"]))
-			bounced = maxInt64(toInt64(camp["emails_bounced"]), toInt64(contactRollup["email_bounced"]))
-		case "multi":
-			sent = maxInt64(toInt64(camp["emails_sent"]), toInt64(contactRollup["email_sent"])) + maxInt64(toInt64(camp["sms_sent"]), toInt64(contactRollup["sms_sent"]))
-			delivered = maxInt64(toInt64(camp["emails_delivered"]), toInt64(contactRollup["email_delivered"])) + maxInt64(toInt64(camp["sms_delivered"]), toInt64(contactRollup["sms_delivered"]))
-			opened = maxInt64(toInt64(camp["emails_opened"]), toInt64(contactRollup["email_opened"]))
-			clicked = maxInt64(toInt64(camp["emails_clicked"]), toInt64(contactRollup["email_clicked"]))
-			bounced = maxInt64(toInt64(camp["emails_bounced"]), toInt64(contactRollup["email_bounced"]))
-			failed = maxInt64(toInt64(camp["sms_failed"]), toInt64(contactRollup["sms_failed"]))
+		// Per-channel rollups (max of campaign counters vs live contact-status rollup).
+		emSent := maxInt64(toInt64(camp["emails_sent"]), toInt64(contactRollup["email_sent"]))
+		emDeliv := maxInt64(toInt64(camp["emails_delivered"]), toInt64(contactRollup["email_delivered"]))
+		emOpen := maxInt64(toInt64(camp["emails_opened"]), toInt64(contactRollup["email_opened"]))
+		emClick := maxInt64(toInt64(camp["emails_clicked"]), toInt64(contactRollup["email_clicked"]))
+		emBounce := maxInt64(toInt64(camp["emails_bounced"]), toInt64(contactRollup["email_bounced"]))
+		smSent := maxInt64(toInt64(camp["sms_sent"]), toInt64(contactRollup["sms_sent"]))
+		smDeliv := maxInt64(toInt64(camp["sms_delivered"]), toInt64(contactRollup["sms_delivered"]))
+		smFail := maxInt64(toInt64(camp["sms_failed"]), toInt64(contactRollup["sms_failed"]))
+		waSent := maxInt64(toInt64(camp["whatsapp_sent"]), toInt64(contactRollup["wa_sent"]))
+		waDeliv := maxInt64(toInt64(camp["whatsapp_delivered"]), toInt64(contactRollup["wa_delivered"]))
+		waFail := maxInt64(toInt64(camp["whatsapp_failed"]), toInt64(contactRollup["wa_failed"]))
+
+		hasEmail := channel == "email" || channel == "multi"
+		hasSMS := channel == "sms" || channel == "multi"
+		hasWA := channel == "whatsapp" || channel == "multi"
+
+		if hasEmail {
+			sent += emSent; delivered += emDeliv; opened += emOpen; clicked += emClick; bounced += emBounce
+		}
+		if hasSMS {
+			sent += smSent; delivered += smDeliv; failed += smFail
+		}
+		if hasWA {
+			sent += waSent; delivered += waDeliv; failed += waFail
+		}
+
+		// Per-channel breakdown so the Results page can show each channel on its own.
+		chanMetric := func(ch string, s, d, o, c, f int64, engage bool) map[string]any {
+			mm := map[string]any{"channel": ch, "sent": s, "delivered": d, "delivery_rate": pctOf(d, s), "failed": f}
+			if engage {
+				mm["opened"] = o
+				mm["open_rate"] = pctOf(o, s)
+				mm["clicked"] = c
+				mm["click_rate"] = pctOf(c, s)
+			}
+			return mm
+		}
+		channels := []map[string]any{}
+		if hasEmail {
+			channels = append(channels, chanMetric("email", emSent, emDeliv, emOpen, emClick, emBounce, true))
+		}
+		if hasSMS {
+			channels = append(channels, chanMetric("sms", smSent, smDeliv, 0, 0, smFail, false))
+		}
+		if hasWA {
+			channels = append(channels, chanMetric("whatsapp", waSent, waDeliv, 0, 0, waFail, false))
 		}
 
 		metrics := map[string]any{
@@ -509,6 +544,7 @@ func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 				"completed_at":  camp["completed_at"],
 			},
 			"metrics":       metrics,
+			"channels":      channels,
 			"timeline":      timeline,
 			"top_links":     topLinks,
 			"contact_stats": contactStats,
