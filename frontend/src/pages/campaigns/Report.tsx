@@ -823,23 +823,31 @@ export default function CampaignDetail() {
         apiFetch<Campaign>(`/api/campaigns/${id}`),
         apiFetch<ReportResp>(`/api/campaigns/${id}/analytics`).catch(() => null),
       ])
+      const isFirst = initialLoadRef.current
       setCampaign(camp); setReport(rpt)
-      setName(camp.name ?? '')
-      setDescription((camp as any).description ?? '')
-      setSmsBody(camp.sms_body ?? '')
-      setWaBody(camp.whatsapp_body ?? '')
-      setWaTplName(camp.whatsapp_template_name ?? '')
-      setEmailSubject(camp.email_subject ?? '')
-      setFromName(camp.from_name ?? '')
-      setFromEmail(camp.from_email ?? '')
-      setScheduledAt(toDatetimeLocal(camp.scheduled_at ?? ''))
-      setListId(camp.list_id ?? '')
-      let blocks: EmailBlock[] = [], settings: EmailSettings = {}
-      const src = camp.email_blocks_json || camp.email_body_text || ''
-      if (src) {
-        try { const p = JSON.parse(src); if (Array.isArray(p.blocks)) { blocks = p.blocks; settings = p.settings ?? {} } } catch {}
+      // Only (re)hydrate the editable content from the server on the FIRST load,
+      // or for read-only campaigns. Live refreshes (realtime/focus) must keep
+      // updating status/analytics but MUST NOT clobber content the user is
+      // actively editing (e.g. a just-loaded template not yet saved).
+      const editable = camp.status === 'draft' || camp.status === 'scheduled'
+      if (isFirst || !editable) {
+        setName(camp.name ?? '')
+        setDescription((camp as any).description ?? '')
+        setSmsBody(camp.sms_body ?? '')
+        setWaBody(camp.whatsapp_body ?? '')
+        setWaTplName(camp.whatsapp_template_name ?? '')
+        setEmailSubject(camp.email_subject ?? '')
+        setFromName(camp.from_name ?? '')
+        setFromEmail(camp.from_email ?? '')
+        setScheduledAt(toDatetimeLocal(camp.scheduled_at ?? ''))
+        setListId(camp.list_id ?? '')
+        let blocks: EmailBlock[] = [], settings: EmailSettings = {}
+        const src = camp.email_blocks_json || camp.email_body_text || ''
+        if (src) {
+          try { const p = JSON.parse(src); if (Array.isArray(p.blocks)) { blocks = p.blocks; settings = p.settings ?? {} } } catch {}
+        }
+        setEmailBlocks({ blocks, settings })
       }
-      setEmailBlocks({ blocks, settings })
       if (['active', 'paused', 'completed', 'cancelled'].includes(camp.status)) setTab('results')
       initialLoadRef.current = false
     } catch (ex: any) { setErr(ex.message) }
