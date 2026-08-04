@@ -9,13 +9,15 @@ import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, TEXT, FW, SP, RADIUS } from 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface CampaignAttr {
-  campaign_id:       number
-  campaign_name:     string
-  campaign_type:     string
-  contacts_reached:  number
-  applications:      number
-  loans_disbursed:   number
-  disbursement_kobo: number
+  campaign_id:                   number
+  campaign_name:                 string
+  campaign_type:                 string
+  contacts_reached:              number
+  conversions:                   number
+  matched_cif:                   number
+  matched_phone:                 number
+  matched_email:                 number
+  attributed_disbursement_kobo:  number
 }
 
 interface LeadSourceRow {
@@ -29,6 +31,25 @@ interface LeadSourceRow {
 
 const TYPE_COLOR: Record<string, string> = {
   email: BLUE, sms: GREEN, whatsapp: '#25D366', push: NAVY,
+}
+
+// Shows how conversions were matched to a customer (CIF / phone / email).
+function MatchBasis({ cif, phone, email }: { cif: number; phone: number; email: number }) {
+  const chips = [
+    { n: cif, label: 'CIF', color: GREEN },
+    { n: phone, label: 'phone', color: BLUE },
+    { n: email, label: 'email', color: AMBER },
+  ].filter(c => c.n > 0)
+  if (chips.length === 0) return <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>—</span>
+  return (
+    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+      {chips.map(c => (
+        <span key={c.label} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.full, background: `${c.color}16`, color: c.color, ...NUM }}>
+          {c.n} {c.label}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function ConvBar({ value, max }: { value: number; max: number }) {
@@ -70,10 +91,9 @@ export default function Attribution() {
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['campaigns'] })
 
-  const maxApps    = Math.max(1, ...campaigns.map(c => c.contacts_reached))
-  const totalDisb  = campaigns.reduce((s, c) => s + c.disbursement_kobo, 0)
-  const totalApps  = campaigns.reduce((s, c) => s + c.applications, 0)
-  const totalLoans = campaigns.reduce((s, c) => s + c.loans_disbursed, 0)
+  const totalDisb  = campaigns.reduce((s, c) => s + c.attributed_disbursement_kobo, 0)
+  const totalConv  = campaigns.reduce((s, c) => s + c.conversions, 0)
+  const totalReach = campaigns.reduce((s, c) => s + c.contacts_reached, 0)
 
   const CAMP_COLS: TableCol<CampaignAttr>[] = [
     { key: 'campaign_name', label: 'Campaign', render: r => <span style={{ fontWeight: FW.semibold }}>{r.campaign_name}</span> },
@@ -83,14 +103,14 @@ export default function Attribution() {
       </span>
     )},
     { key: 'contacts_reached', label: 'Reached', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.contacts_reached)}</span> },
-    { key: 'applications', label: 'Applications', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.applications)}</span> },
-    { key: 'loans_disbursed', label: 'Loans → Conv.', render: r => (
+    { key: 'conversions', label: 'Conversions', render: r => (
       <div>
-        <div style={{ ...NUM, fontWeight: FW.bold, fontSize: TEXT.base }}>{fmtNum(r.loans_disbursed)}</div>
-        <ConvBar value={r.applications} max={r.contacts_reached} />
+        <div style={{ ...NUM, fontWeight: FW.bold, fontSize: TEXT.base }}>{fmtNum(r.conversions)}</div>
+        <ConvBar value={r.conversions} max={r.contacts_reached} />
       </div>
     )},
-    { key: 'disbursement_kobo', label: 'Disbursed', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{fmtKobo(r.disbursement_kobo)}</span> },
+    { key: 'matched_cif', label: 'Matched by', render: r => <MatchBasis cif={r.matched_cif} phone={r.matched_phone} email={r.matched_email} /> },
+    { key: 'attributed_disbursement_kobo', label: 'Attributed ₦', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{fmtKobo(r.attributed_disbursement_kobo)}</span> },
   ]
 
   const LS_COLS: TableCol<LeadSourceRow>[] = [
@@ -114,18 +134,24 @@ export default function Attribution() {
       <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 12 }}>
         {[
-          { label: 'Campaigns',       value: fmtNum(campaigns.length), color: NAVY  },
-          { label: 'Applications',    value: fmtNum(totalApps),         color: BLUE  },
-          { label: 'Loans Disbursed', value: fmtNum(totalLoans),        color: GREEN },
-          { label: 'Total Value',     value: fmtKobo(totalDisb),        color: AMBER },
+          { label: 'Campaigns',      value: fmtNum(campaigns.length), color: NAVY  },
+          { label: 'Contacts Reached', value: fmtNum(totalReach),     color: BLUE  },
+          { label: 'Conversions',    value: fmtNum(totalConv),        color: GREEN },
+          { label: 'Attributed ₦',   value: fmtKobo(totalDisb),       color: AMBER },
         ].map(({ label, value, color }) => (
           <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
             <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color, ...NUM }}>{value}</div>
           </div>
         ))}
+      </div>
+
+      {/* Method note */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '9px 12px', background: 'var(--bg)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, marginBottom: 20, fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.5 }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 16, color: BLUE }}>info</span>
+        <span><strong>Estimated attribution.</strong> A recipient counts as a conversion if they can be matched to a customer (by CIF, phone, or email) who took a loan within <strong>90 days after</strong> the campaign was sent. It's a correlation, not proven causation — figures populate once campaigns are sent to contacts.</span>
       </div>
 
       {loading ? <div style={{ display:'flex', justifyContent:'center', padding:60 }}><Spinner size={32} /></div> : (

@@ -669,26 +669,78 @@ func salesCampaignAttribution(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
 		to := qstr(r, "to")
-		// Subqueries (not joins) keep contacts_reached and applications independent —
-		// a join on both campaign_contacts and loan_applications would cartesian-inflate
-		// the counts. Reach comes from campaign_contacts (populated by dispatch);
-		// applications/disbursement come from loan_applications keyed by campaign_id
-		// (currently native-empty, so 0 until origination is wired — see CBS note).
+		// Multi-signal attribution: a campaign recipient is a "conversion" if they
+		// can be resolved to a customer (by CIF, else phone, else email via the
+		// "Accounts" master) who took a CBS loan within 90 days AFTER the send.
+		// Each conversion is tagged with the matching basis. If the customer master
+		// is absent, degrade gracefully to CIF-only resolution.
 		where, args := "WHERE 1=1", []any{}
 		if from != "" { where += fmt.Sprintf(" AND c.created_at::date >= $%d", len(args)+1); args = append(args, from) }
 		if to != "" { where += fmt.Sprintf(" AND c.created_at::date <= $%d", len(args)+1); args = append(args, to) }
-		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT
-			    c.id   AS campaign_id,
-			    c.name AS campaign_name,
-			    c.type AS campaign_type,
-			    (SELECT COUNT(*) FROM campaign_contacts cc WHERE cc.campaign_id = c.id) AS contacts_reached,
-			    (SELECT COUNT(*) FROM loan_applications la WHERE la.campaign_id = c.id) AS applications,
-			    (SELECT COUNT(*) FROM loan_applications la WHERE la.campaign_id = c.id AND la.status NOT IN ('declined')) AS loans_disbursed,
-			    (SELECT COALESCE(SUM(la.amount_approved_kobo),0) FROM loan_applications la WHERE la.campaign_id = c.id AND la.status NOT IN ('declined')) AS disbursement_kobo
+
+		hasMaster := false
+		var reg *string
+		if err := db.PG.QueryRowContext(r.Context(), `SELECT to_regclass('"Accounts"')`).Scan(&reg); err == nil && reg != nil && *reg != "" {
+			hasMaster = true
+		}
+
+		acctCTE := ``
+		resolvedCTE := `resolved AS (
+			SELECT cc.campaign_id, NULLIF(cc.cif_number,'') AS cif, 'cif'::text AS basis
+			FROM campaign_contacts cc)`
+		if hasMaster {
+			acctCTE = `
+			acct_phone AS (
+				SELECT p10, MIN(cif) AS cif FROM (
+					SELECT right(regexp_replace("Phone Number",'\D','','g'),10) AS p10, "CIF Number" AS cif
+					FROM "Accounts" WHERE length(regexp_replace(COALESCE("Phone Number",''),'\D','','g')) >= 10
+				) x GROUP BY p10 HAVING count(DISTINCT cif) = 1),
+			acct_email AS (
+				SELECT em, MIN(cif) AS cif FROM (
+					SELECT lower("Email") AS em, "CIF Number" AS cif FROM "Accounts" WHERE COALESCE("Email",'') <> ''
+				) x GROUP BY em HAVING count(DISTINCT cif) = 1),`
+			resolvedCTE = `resolved AS (
+				SELECT cc.campaign_id,
+				       COALESCE(NULLIF(cc.cif_number,''), ap.cif, ae.cif) AS cif,
+				       CASE WHEN NULLIF(cc.cif_number,'') IS NOT NULL THEN 'cif'
+				            WHEN ap.cif IS NOT NULL THEN 'phone'
+				            WHEN ae.cif IS NOT NULL THEN 'email' END AS basis
+				FROM campaign_contacts cc
+				LEFT JOIN acct_phone ap ON cc.phone IS NOT NULL AND cc.phone <> ''
+				     AND ap.p10 = right(regexp_replace(cc.phone,'\D','','g'),10)
+				LEFT JOIN acct_email ae ON cc.email IS NOT NULL AND cc.email <> ''
+				     AND ae.em = lower(cc.email))`
+		}
+
+		q := `WITH ` + acctCTE + resolvedCTE + `,
+			conv AS (
+				SELECT DISTINCT ON (r.campaign_id, r.cif)
+				       r.campaign_id, r.cif, r.basis,
+				       (SELECT COALESCE(SUM(l.loan_amount_kobo),0) FROM cbs_loans l
+				        WHERE l.cbs_customer_id = r.cif
+				          AND l.start_date >= COALESCE(c.started_at, c.created_at)
+				          AND l.start_date <  COALESCE(c.started_at, c.created_at) + interval '90 days') AS amt
+				FROM resolved r JOIN campaigns c ON c.id = r.campaign_id
+				WHERE r.cif IS NOT NULL
+				  AND EXISTS (SELECT 1 FROM cbs_loans l WHERE l.cbs_customer_id = r.cif
+				              AND l.start_date >= COALESCE(c.started_at, c.created_at)
+				              AND l.start_date <  COALESCE(c.started_at, c.created_at) + interval '90 days')
+				ORDER BY r.campaign_id, r.cif,
+				         CASE r.basis WHEN 'cif' THEN 1 WHEN 'phone' THEN 2 ELSE 3 END)
+			SELECT c.id AS campaign_id, c.name AS campaign_name, c.type AS campaign_type,
+			       (SELECT COUNT(*) FROM campaign_contacts cc WHERE cc.campaign_id = c.id) AS contacts_reached,
+			       COUNT(cv.cif) AS conversions,
+			       COUNT(cv.cif) FILTER (WHERE cv.basis='cif')   AS matched_cif,
+			       COUNT(cv.cif) FILTER (WHERE cv.basis='phone') AS matched_phone,
+			       COUNT(cv.cif) FILTER (WHERE cv.basis='email') AS matched_email,
+			       COALESCE(SUM(cv.amt),0) AS attributed_disbursement_kobo
 			FROM campaigns c
-			%s
-			ORDER BY contacts_reached DESC, applications DESC`, where), args...)
+			LEFT JOIN conv cv ON cv.campaign_id = c.id
+			` + where + `
+			GROUP BY c.id, c.name, c.type
+			ORDER BY conversions DESC, contacts_reached DESC`
+
+		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil { respondErr(w, 500, "Query failed"); return }
 		if rows == nil { rows = []core.Row{} }
 		respond(w, rows, "pg")
