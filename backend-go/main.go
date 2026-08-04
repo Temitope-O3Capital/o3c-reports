@@ -88,6 +88,7 @@ func main() {
 
 	// Auto-launch any campaigns whose scheduled_at has passed.
 	go handlers.ScheduledCampaignTicker(db)
+	go handlers.SequenceStepTicker(db)
 	go handlers.ScheduleCampaignAutoResume(db)
 
 	// Poll MS Graph helpdesk inbox every 3 minutes.
@@ -165,6 +166,11 @@ func main() {
 	// Activity log worker pool — 3 goroutines drain a 1000-entry buffered channel.
 	activityCh := make(chan activityLogEntry, 1000)
 	startActivityWorkers(db, activityCh, 3)
+
+	// Audit trail worker pool — mirrors state-changing requests into the append-only
+	// audit_logs so the compliance trail captures every relevant action automatically.
+	auditCh := make(chan auditLogEntry, 1000)
+	startAuditWorkers(db, auditCh, 2)
 
 	r := chi.NewRouter()
 
@@ -270,7 +276,7 @@ func main() {
 		handlers.RegisterHelpdeskPublic(r, db)
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(activityCh))
+			r.Use(activityLogger(activityCh, auditCh))
 			handlers.RegisterHelpdesk(r, db)
 		})
 	})
@@ -286,7 +292,7 @@ func main() {
 		handlers.RegisterZohoAdmin(r, db, cfg.ZohoImportSecret)
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(activityCh))
+			r.Use(activityLogger(activityCh, auditCh))
 			handlers.RegisterZoho(r, db)
 		})
 	})
@@ -297,7 +303,7 @@ func main() {
 	r.Route("/api/dialer", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(activityCh))
+			r.Use(activityLogger(activityCh, auditCh))
 			handlers.RegisterDialer(r, db)
 		})
 	})
@@ -319,7 +325,7 @@ func main() {
 		handlers.RegisterMailPublic(r, db)
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(activityCh))
+			r.Use(activityLogger(activityCh, auditCh))
 			handlers.RegisterMail(r, db)
 		})
 	})
@@ -334,7 +340,7 @@ func main() {
 		handlers.RegisterNotificationsSSE(r, db)
 		r.Group(func(r chi.Router) {
 			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(activityCh))
+			r.Use(activityLogger(activityCh, auditCh))
 			handlers.RegisterNotifications(r, db)
 		})
 	})
@@ -342,7 +348,7 @@ func main() {
 	// ── Protected routes (all require valid JWT) ───────────────────────────────
 	r.Group(func(r chi.Router) {
 		r.Use(core.AuthMiddleware)
-		r.Use(activityLogger(activityCh))
+		r.Use(activityLogger(activityCh, auditCh))
 
 		r.Route("/api/overview", func(r chi.Router) {
 			handlers.RegisterOverview(r, db)
@@ -398,6 +404,8 @@ func main() {
 			handlers.RegisterCampaigns(r, db)
 			// Analytics, per-campaign reports, image upload — same /api/campaigns prefix
 			handlers.RegisterCampaignAnalytics(r, db)
+			// Multi-step sequence campaigns (steps CRUD + launch)
+			handlers.RegisterCampaignSteps(r, db)
 		})
 		r.Route("/api/contact-lists", func(r chi.Router) {
 			handlers.RegisterContactLists(r, db)
@@ -619,13 +627,19 @@ func startActivityWorkers(db *core.DB, ch <-chan activityLogEntry, n int) {
 	}
 }
 
-func activityLogger(ch chan<- activityLogEntry) func(http.Handler) http.Handler {
+func activityLogger(ch chan<- activityLogEntry, auditCh chan<- auditLogEntry) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, r)
-			if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			isMutation := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
+			if !isMutation {
+				next.ServeHTTP(w, r)
 				return
 			}
+			// Capture the response status for the audit trail. Mutations are never SSE
+			// (SSE is GET), so this wrapper never touches streaming responses.
+			rec := &statusRecorder{ResponseWriter: w, status: 200}
+			next.ServeHTTP(rec, r)
+
 			user := core.UserFromCtx(r.Context())
 			if user == nil {
 				return
@@ -653,6 +667,7 @@ func activityLogger(ch chan<- activityLogEntry) func(http.Handler) http.Handler 
 					break
 				}
 			}
+			// Operational activity log (all mutations).
 			entry := activityLogEntry{userID: user.ID, page: page, action: action, ip: ip, resource: path, method: r.Method}
 			select {
 			case ch <- entry:
@@ -667,8 +682,104 @@ func activityLogger(ch chan<- activityLogEntry) func(http.Handler) http.Handler 
 					}
 				}()
 			}
+			// Compliance audit trail — every state-changing action, minus pure UI/telemetry noise.
+			if !auditSkip(path) {
+				changesJSON, _ := json.Marshal(map[string]any{
+					"method": r.Method, "path": path, "status": rec.status, "query": r.URL.RawQuery,
+				})
+				ae := auditLogEntry{
+					actorID: user.ID, actorRole: user.Role, actorName: user.FullName,
+					action: action, entityType: page, entityID: lastIDSegment(path),
+					ip: ip, changes: string(changesJSON),
+				}
+				select {
+				case auditCh <- ae:
+				default:
+					go func() {
+						select {
+						case auditCh <- ae:
+						case <-time.After(5 * time.Second):
+							slog.Warn("audit log channel full; entry dropped after 5s", "path", path)
+						}
+					}()
+				}
+			}
 		})
 	}
+}
+
+// statusRecorder captures the response status code for the audit trail. It forwards
+// Flush/Unwrap so it never breaks streaming or ResponseController-based handlers.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int)        { s.status = code; s.ResponseWriter.WriteHeader(code) }
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// auditLogEntry is written to the append-only audit_logs (the compliance trail).
+type auditLogEntry struct {
+	actorID                           int64
+	actorRole, actorName, action      string
+	entityType, entityID, ip, changes string
+}
+
+// startAuditWorkers drains auditCh into audit_logs. audit_logs is append-only.
+func startAuditWorkers(db *core.DB, ch <-chan auditLogEntry, n int) {
+	for i := 0; i < n; i++ {
+		go func() {
+			for e := range ch {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				db.PGExec(ctx, //nolint:errcheck
+					`INSERT INTO audit_logs (actor_id, actor_role, actor_name, action, entity_type, entity_id, changes, ip_address, created_at)
+					 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
+					e.actorID, e.actorRole, e.actorName, e.action, e.entityType, e.entityID, e.changes, e.ip)
+				cancel()
+			}
+		}()
+	}
+}
+
+// auditSkip drops pure UI/telemetry noise from the compliance trail (these are still
+// captured in the operational activity log).
+func auditSkip(path string) bool {
+	for _, s := range []string{
+		"/notifications/sse-ticket", "/notifications/read", "/notifications/mark",
+		"/notifications/seen", "/admin/activity", "/events/sse",
+	} {
+		if strings.Contains(path, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// lastIDSegment returns the last all-numeric path segment (the entity id), or "".
+func lastIDSegment(path string) string {
+	segs := strings.Split(strings.Trim(path, "/"), "/")
+	for i := len(segs) - 1; i >= 0; i-- {
+		s := segs[i]
+		if s == "" {
+			continue
+		}
+		allDigits := true
+		for _, c := range s {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			return s
+		}
+	}
+	return ""
 }
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
