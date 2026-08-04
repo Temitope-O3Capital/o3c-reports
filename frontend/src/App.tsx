@@ -10,7 +10,6 @@ import { Toaster, toast } from 'sonner'
 import Sidebar          from './components/Sidebar'
 import NotificationBell from './components/NotificationBell'
 import GlobalSearch     from './components/GlobalSearch'
-import CallWidget       from './components/CallWidget'
 import C360Drawer       from './components/C360Drawer'
 import { RealtimeProvider } from './hooks/useRealtime'
 import { type AuthUser, ROLE_PAGES } from './hooks/useAuth'
@@ -1192,9 +1191,6 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
         {/* Global search (Cmd+K) */}
         <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
-
-        {/* Persistent call widget — dial + inbound ringing */}
-        <CallWidget user={user} />
 
         {/* Idle warning */}
         {idleWarn && (
