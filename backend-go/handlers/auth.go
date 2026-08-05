@@ -199,14 +199,22 @@ func RegisterHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Don't reveal whether email already exists — silently succeed.
+		fullName := strings.TrimSpace(b.FirstName + " " + b.LastName)
+
+		// Don't reveal whether the email already exists to the requester, but do
+		// let admins know an access attempt used an already-registered email —
+		// otherwise a "signup" that silently no-ops looks like a lost request.
 		existing, _ := db.PGQuery(r.Context(), `SELECT id FROM o3c_users WHERE email=$1`, b.Email)
 		if len(existing) > 0 {
+			go NotifyRoles(context.Background(), db, []string{"admin", "it_admin"}, NotifPayload{
+				EventType: EvtNewAccountCreated,
+				Title:     "Duplicate signup attempt",
+				Body:      fmt.Sprintf("%s tried to register, but an account with %s already exists.", fullName, b.Email),
+				ActionURL: "/admin/users",
+			})
 			w.WriteHeader(204)
 			return
 		}
-
-		fullName := strings.TrimSpace(b.FirstName + " " + b.LastName)
 		// Lock the account until admin activates: use a random unusable hash.
 		rawBytes := make([]byte, 32)
 		rand.Read(rawBytes) //nolint:errcheck
@@ -215,7 +223,7 @@ func RegisterHandler(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO o3c_users
 			  (email, password_hash, full_name, first_name, last_name, role, department, must_change_password, is_active)
-			VALUES ($1,$2,$3,$4,$5,'call_centre',$6,TRUE,FALSE)
+			VALUES ($1,$2,$3,$4,$5,'call_center_agent',$6,TRUE,FALSE)
 			RETURNING id`,
 			b.Email, hash, fullName, b.FirstName, b.LastName, b.Department)
 		if err != nil {

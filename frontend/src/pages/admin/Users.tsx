@@ -428,6 +428,69 @@ function PageBtn({ children, active, disabled, onClick, icon }: {
 
 const PER_PAGE = 25
 
+// ── Approve pending user modal ────────────────────────────────────────────────
+
+function ApproveModal({ user, onClose, onDone }: {
+  user: User; onClose: () => void; onDone: () => void
+}) {
+  // Self-registered users default to the legacy call_centre role; steer to
+  // call_center_agent, which actually grants the ticket pages.
+  const [role, setRole] = useState(user.role === 'call_centre' ? 'call_center_agent' : user.role)
+  const [saving, setSaving] = useState(false)
+
+  async function approve() {
+    setSaving(true)
+    try {
+      if (role !== user.role) {
+        await apiFetch(`/api/admin/users/${user.id}`, { method: 'PUT', body: JSON.stringify({ role }) })
+      }
+      await apiFetch(`/api/admin/users/${user.id}/reactivate`, { method: 'PATCH' })
+      toast.success(`${user.full_name} approved — login details emailed`)
+      onDone()
+      onClose()
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div style={{ background: 'var(--card)', borderRadius: RADIUS['2xl'], width: 460, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <h3 style={{ margin: 0, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>Approve access request</h3>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
+            <span className="material-symbols-rounded">close</span>
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+          <div style={{ width: 42, height: 42, borderRadius: '50%', background: avatarColor(user.full_name), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: FW.bold, fontSize: TEXT.base }}>{nameInitials(user.full_name)}</div>
+          <div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>{user.full_name}</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{user.email}</div>
+          </div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Assign role</div>
+          <RoleSelect value={role} onChange={setRole}
+            style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+          />
+        </div>
+        <div style={{ background: 'rgba(22,163,74,.08)', borderRadius: RADIUS.md, padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: 20 }}>
+          Approving activates the account and emails {user.first_name || 'the user'} a temporary password to log in.
+        </div>
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
+          <button onClick={approve} disabled={saving} style={{ padding: '9px 20px', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER, opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'Approving…' : 'Approve & send login'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminUsers() {
   const [rows,      setRows]      = useState<User[]>([])
   const [loading,   setLoading]   = useState(true)
@@ -441,6 +504,8 @@ export default function AdminUsers() {
   const [selected,  setSelected]  = useState<Set<string | number>>(new Set())
   const [page, setPage] = useState(1)
   const [deactivateOpen, setDeactivateOpen] = useState(false)
+  const [approving, setApproving] = useState<User | null>(null)
+  const [pendingOnly, setPendingOnly] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -458,7 +523,7 @@ export default function AdminUsers() {
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['users'] })
-  useEffect(() => { setPage(1) }, [search, fRoles, fStatuses, fDepts])
+  useEffect(() => { setPage(1) }, [search, fRoles, fStatuses, fDepts, pendingOnly])
 
   async function resetUserPassword(userId: number) {
     try {
@@ -479,7 +544,10 @@ export default function AdminUsers() {
     }
   }
 
+  const pendingUsers = useMemo(() => rows.filter(u => !u.is_active && !u.last_login), [rows])
+
   const filtered = useMemo(() => rows.filter(u => {
+    if (pendingOnly && !(!u.is_active && !u.last_login)) return false
     if (fRoles.size && !fRoles.has(u.role)) return false
     if (fStatuses.size && !fStatuses.has(u.is_active ? 'active' : 'inactive')) return false
     if (fDepts.size && !fDepts.has(u.department)) return false
@@ -488,7 +556,7 @@ export default function AdminUsers() {
       return u.full_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.role.includes(q)
     }
     return true
-  }), [rows, search, fRoles, fStatuses, fDepts])
+  }), [rows, search, fRoles, fStatuses, fDepts, pendingOnly])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
   const safePage   = Math.min(page, totalPages)
@@ -526,7 +594,9 @@ export default function AdminUsers() {
       render: u => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDate(u.created_at)}</span> },
     { key: '_actions', label: '', sortable: false,
       render: u => {
+        const pending = !u.is_active && !u.last_login
         const actions: RowAction[] = [
+          ...(pending ? [{ icon: 'how_to_reg', label: 'Approve', onClick: () => setApproving(u) }] : []),
           { icon: 'edit', label: 'Edit', onClick: () => setEditing(u) },
           { icon: 'lock_reset', label: 'Reset Password', onClick: () => resetUserPassword(u.id) },
           ...(u.is_active ? [{ icon: 'person_off', label: 'Deactivate', onClick: () => deactivateUser(u.id), danger: true }] : []),
@@ -557,7 +627,23 @@ export default function AdminUsers() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="All Users" badge={filtered.length} padding={false}>
+      {pendingUsers.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', marginBottom: 14, borderRadius: RADIUS.lg, background: 'rgba(217,119,6,.08)', border: '1px solid rgba(217,119,6,.3)' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 22, color: AMBER }}>how_to_reg</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>
+              {pendingUsers.length} {pendingUsers.length === 1 ? 'user is' : 'users are'} pending approval
+            </div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Access requests awaiting review — approve to activate and email their login.</div>
+          </div>
+          <button onClick={() => setPendingOnly(v => !v)}
+            style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: 'none', background: AMBER, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
+            {pendingOnly ? 'Show all users' : 'Review pending'}
+          </button>
+        </div>
+      )}
+
+      <SectionCard title={pendingOnly ? 'Pending Approval' : 'All Users'} badge={filtered.length} padding={false}>
 
         <ExpandableFilterBar
           search={search}
@@ -654,6 +740,13 @@ export default function AdminUsers() {
           user={editing}
           onClose={() => setEditing(null)}
           onSaved={load}
+        />
+      )}
+      {approving && (
+        <ApproveModal
+          user={approving}
+          onClose={() => setApproving(null)}
+          onDone={load}
         />
       )}
       <ConfirmModal
