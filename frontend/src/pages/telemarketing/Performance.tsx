@@ -98,17 +98,28 @@ function ChartCard({ title, sub, children }: { title: string; sub: string; child
 
 // ── Disposition colors ────────────────────────────────────────────────────────
 
+// Keyed by the real outcome values the backend groups by (see tmLogDisposition).
 const DISP_FILL: Record<string, string> = {
-  'Answered-Interested':     '#16A34A',
-  'Answered-Not Interested': '#C00000',
-  'No Answer':               '#D97706',
-  'PTP':                     '#2563EB',
-  'Callback':                '#7C3AED',
-  'Wrong Number':            'var(--chart-lbl)',
+  interested:     '#16A34A',
+  converted:      '#0E7A4B',
+  not_interested: '#C00000',
+  callback:       '#7C3AED',
+  no_answer:      '#D97706',
+  voicemail:      '#B45309',
+  dnc:            '#6B7280',
+}
+
+const DISP_LABEL: Record<string, string> = {
+  interested: 'Interested', converted: 'Converted', not_interested: 'Not Interested',
+  callback: 'Callback', no_answer: 'No Answer', voicemail: 'Voicemail', dnc: 'DNC',
 }
 
 function dispositionFill(d: string): string {
   return DISP_FILL[d] ?? 'var(--chart-lbl)'
+}
+
+function dispositionLabel(d: string): string {
+  return DISP_LABEL[d] ?? d.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 // ── Agent table columns ───────────────────────────────────────────────────────
@@ -291,6 +302,7 @@ export default function TelemarketingPerformance() {
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
               <XAxis
                 dataKey="disposition"
+                tickFormatter={dispositionLabel}
                 tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }}
                 axisLine={false}
                 tickLine={false}
@@ -315,7 +327,7 @@ export default function TelemarketingPerformance() {
             {byDisposition.map(d => (
               <div key={d.disposition} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: dispositionFill(d.disposition), flexShrink: 0 }} />
-                {d.disposition}
+                {dispositionLabel(d.disposition)}
               </div>
             ))}
           </div>

@@ -467,6 +467,14 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 
+		// Row-level scope: leaf agents see only their own tickets plus the
+		// unassigned pool they can claim; senior/head roles see everything.
+		if u := core.UserFromCtx(r.Context()); u != nil && !core.SeesAllRows(u.Role) {
+			where += fmt.Sprintf(" AND (t.assigned_to=$%d OR t.assigned_to IS NULL)", n)
+			args = append(args, u.ID)
+			n++
+		}
+
 		if v := normalizeHelpdeskFilter(qstr(r, "status")); v != "" {
 			where += fmt.Sprintf(" AND t.status=$%d", n)
 			args = append(args, v)
@@ -734,6 +742,15 @@ func hdGetTicket(db *core.DB) http.HandlerFunc {
 			return
 		}
 		ticket := tRows[0]
+
+		// Row-level scope: a leaf agent may open only their own tickets or
+		// unassigned ones (which they can claim), not another agent's.
+		if u := core.UserFromCtx(r.Context()); u != nil && !core.SeesAllRows(u.Role) {
+			if at := toInt64(ticket["assigned_to"]); at != 0 && at != u.ID {
+				respondErr(w, 403, "This ticket is assigned to another agent")
+				return
+			}
+		}
 
 		msgs, _ := db.PGQuery(r.Context(), `
 			SELECT m.*, u.full_name AS author_user_name
@@ -1419,11 +1436,17 @@ func hdStats(db *core.DB) http.HandlerFunc {
 			`SELECT u.full_name AS agent_name,
 			        COUNT(*) FILTER (WHERE t.status NOT IN ('resolved','closed')) AS open_tickets,
 			        COUNT(*) FILTER (WHERE t.status='resolved' AND t.resolved_at::date=CURRENT_DATE) AS resolved_today,
-			        ROUND((AVG(t.csat_score::numeric) FILTER (WHERE t.csat_score IS NOT NULL)), 1) AS avg_csat
+			        ROUND((AVG(t.csat_score::numeric) FILTER (WHERE t.csat_score IS NOT NULL)), 1) AS avg_csat,
+			        ROUND(AVG(EXTRACT(EPOCH FROM (t.resolved_at - t.created_at))/60.0)
+			              FILTER (WHERE t.resolved_at IS NOT NULL))                                  AS avg_handle_time_min,
+			        COUNT(*) FILTER (WHERE EXISTS (
+			          SELECT 1 FROM helpdesk_messages em
+			          WHERE em.ticket_id=t.id AND em.author_user_id=u.id AND em.body_text ILIKE '[ESCALAT%'
+			        ))                                                                                AS escalations
 			 FROM helpdesk_tickets t
 			 JOIN o3c_users u ON t.assigned_to=u.id
 			 WHERE t.assigned_to IS NOT NULL `+dateClause+`
-			 GROUP BY u.full_name
+			 GROUP BY u.id, u.full_name
 			 ORDER BY u.full_name`, dateArgs...)
 		if agents == nil {
 			agents = []core.Row{}
@@ -2235,6 +2258,7 @@ func hdSupervisor(db *core.DB) http.HandlerFunc {
 			SELECT
 			  u.id,
 			  u.full_name,
+			  COALESCE(u.helpdesk_status, 'available')                                   AS helpdesk_status,
 			  COUNT(t.id) FILTER (WHERE t.status NOT IN ('closed','resolved'))          AS open_tickets,
 			  COUNT(t.id) FILTER (WHERE t.status NOT IN ('closed','resolved')
 			    AND t.sla_due_at < NOW())                                                AS sla_breached,
@@ -2246,7 +2270,7 @@ func hdSupervisor(db *core.DB) http.HandlerFunc {
 			  AND (t.id IS NOT NULL OR EXISTS (
 			    SELECT 1 FROM helpdesk_tickets tt WHERE tt.assigned_to = u.id AND tt.status NOT IN ('closed','resolved')
 			  ))
-			GROUP BY u.id, u.full_name
+			GROUP BY u.id, u.full_name, u.helpdesk_status
 			ORDER BY open_tickets DESC, u.full_name`)
 
 		queues, _ := db.PGQuery(ctx, `
@@ -2429,7 +2453,10 @@ func hdKBList(db *core.DB) http.HandlerFunc {
 
 		q := `SELECT kb.id, kb.title, kb.category,
 		             CASE WHEN kb.is_public THEN 'Live' ELSE 'Draft' END AS status,
-		             NULL::numeric AS helpful_pct,
+		             CASE WHEN (kb.helpful_count + kb.not_helpful_count) > 0
+		                  THEN ROUND(100.0 * kb.helpful_count / (kb.helpful_count + kb.not_helpful_count))
+		                  ELSE NULL END AS helpful_pct,
+		             kb.helpful_count, kb.not_helpful_count,
 		             kb.body_text AS body,
 		             kb.updated_at AS last_updated,
 		             COALESCE(u.full_name, 'Unknown') AS created_by,

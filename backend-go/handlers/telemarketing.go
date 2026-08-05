@@ -256,6 +256,7 @@ func tmLogDisposition(db *core.DB) http.HandlerFunc {
 		Outcome     string  `json:"outcome"`
 		Notes       *string `json:"notes"`
 		DurationSec *int    `json:"duration_sec"`
+		CallbackAt  *string `json:"callback_at"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -281,9 +282,16 @@ func tmLogDisposition(db *core.DB) http.HandlerFunc {
 			leadStatus = s
 		}
 
+		callbackVal := ""
+		if b.CallbackAt != nil {
+			callbackVal = *b.CallbackAt
+		}
 		if _, err := db.PGExec(r.Context(),
-			`UPDATE telemarketing_leads SET status=$1, last_called_at=NOW(), updated_at=NOW() WHERE id=$2`,
-			leadStatus, id); err != nil {
+			`UPDATE telemarketing_leads
+			 SET status=$1, last_called_at=NOW(), updated_at=NOW(),
+			     callback_at = CASE WHEN $3 <> '' THEN $3::timestamptz ELSE callback_at END
+			 WHERE id=$2`,
+			leadStatus, id, callbackVal); err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
@@ -387,7 +395,7 @@ func tmListDNC(db *core.DB) http.HandlerFunc {
 		limit := qint(r, "limit", 100, 1, 500)
 		search := qstr(r, "search")
 
-		q := `SELECT d.id, d.phone, d.reason, d.added_at, u.full_name AS added_by_name
+		q := `SELECT d.id, d.phone, d.reason, d.added_at, u.full_name AS added_by
 		      FROM dnc_list d LEFT JOIN o3c_users u ON u.id = d.added_by WHERE 1=1`
 		var args []any
 		n := 1

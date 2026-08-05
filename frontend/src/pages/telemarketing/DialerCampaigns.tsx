@@ -268,9 +268,10 @@ export default function DialerCampaigns() {
         body: fd,
       })
       if (!res.ok) throw new Error(await res.text())
-      const data = await res.json() as UploadResult
+      const json = await res.json()
+      const data = (json?.data ?? json) as UploadResult // handler wraps in {data:…}
       setUploadResult(data)
-      toast.success(`Uploaded ${data.inserted} contacts`)
+      toast.success(`Uploaded ${data.inserted ?? 0} contacts`)
       load()
     } catch (e: any) { toast.error(e.message) }
     finally { setUploading(false) }
