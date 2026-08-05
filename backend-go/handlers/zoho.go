@@ -78,6 +78,7 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Post("/import-calls", zohoImportDeskCalls(db))
 	r.Post("/import-contacts", zohoImportContacts(db))
 	r.Post("/backfill-assignees", zohoBackfillAssignees(db))
+	r.Post("/onboard-agents", zohoOnboardAgents(db))
 
 	// Voice routes require call_center page permission — these initiate or import live calls.
 	cc := core.RequirePages("call_center")
@@ -104,6 +105,7 @@ func RegisterZohoAdmin(r chi.Router, db *core.DB, adminSecret string) {
 	r.With(guard).Post("/admin/import-calls", zohoImportDeskCalls(db))
 	r.With(guard).Post("/admin/import-contacts", zohoImportContacts(db))
 	r.With(guard).Post("/admin/backfill-assignees", zohoBackfillAssignees(db))
+	r.With(guard).Post("/admin/onboard-agents", zohoOnboardAgents(db))
 }
 
 // ── Credential helpers ────────────────────────────────────────────────────────
@@ -908,6 +910,139 @@ func zohoBackfillAssignees(db *core.DB) http.HandlerFunc {
 			"by_agent":           byAgent,
 			"rows_updated":       updated,
 			"linked_to_users":    linked,
+		})
+	}
+}
+
+// ── Zoho Desk — onboard agents as workspace users ────────────────────────────
+
+type provisionResult struct {
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	Status    string `json:"status"` // created | exists | would_create | error
+	EmailSent bool   `json:"email_sent"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+// provisionWorkspaceUser creates one workspace user and sends the temp-password
+// login email — the same flow as the admin "create user" endpoint. Idempotent:
+// an existing email is left untouched (status "exists").
+func provisionWorkspaceUser(ctx context.Context, db *core.DB, first, last, email, role, dept string) provisionResult {
+	email = strings.TrimSpace(strings.ToLower(email))
+	name := strings.TrimSpace(first + " " + last)
+	pr := provisionResult{Email: email, Name: name}
+	if email == "" || strings.TrimSpace(first) == "" {
+		pr.Status = "error"
+		pr.Detail = "missing email or first name"
+		return pr
+	}
+	if ex, _ := db.PGQuery(ctx, `SELECT id FROM o3c_users WHERE lower(email)=lower($1) AND deleted_at IS NULL`, email); len(ex) > 0 {
+		pr.Status = "exists"
+		return pr
+	}
+	tempPW := genPassword()
+	hash, err := core.HashPassword(tempPW)
+	if err != nil {
+		pr.Status = "error"
+		pr.Detail = "password hash failed"
+		return pr
+	}
+	rows, err := db.PGQuery(ctx, `
+		INSERT INTO o3c_users (email, password_hash, full_name, first_name, last_name, role, department, must_change_password)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)
+		RETURNING id`, email, hash, name, first, last, role, dept)
+	if err != nil || len(rows) == 0 {
+		pr.Status = "error"
+		if err != nil {
+			pr.Detail = err.Error()
+		}
+		return pr
+	}
+	uid := toInt64(rows[0]["id"])
+	mailRes := SendTemporaryPasswordEmail(ctx, db, email, name, tempPW, uid)
+	pr.Status = "created"
+	pr.EmailSent = mailRes.OK
+	if !mailRes.OK {
+		pr.Detail = mailRes.Error
+	}
+	return pr
+}
+
+// zohoOnboardAgents pulls the Zoho Desk agent roster and provisions a workspace
+// account + login email for each ACTIVE agent that doesn't already have one.
+// Dry-run by default; ?apply=true performs the creation and sends emails.
+// ?role= overrides the role (default call_centre); ?include_disabled=true also
+// onboards non-active agents.
+func zohoOnboardAgents(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if !zohoEnsureConfigured(ctx, db) {
+			respondErr(w, 503, "Zoho is not configured")
+			return
+		}
+		apply := r.URL.Query().Get("apply") == "true"
+		includeDisabled := r.URL.Query().Get("include_disabled") == "true"
+		role := r.URL.Query().Get("role")
+		if role == "" {
+			role = "call_centre"
+		}
+
+		result, err := zohoFetch(ctx, "agents", url.Values{"limit": {"200"}})
+		if err != nil {
+			respondErr(w, 502, "Zoho agents fetch failed: "+err.Error())
+			return
+		}
+		agents := zohoItems(result)
+
+		out := make([]provisionResult, 0, len(agents))
+		var considered, created, skipped, failed int
+		for _, a := range agents {
+			status := strings.ToUpper(strings.TrimSpace(zohoStr(a["status"])))
+			if !includeDisabled && status != "" && status != "ACTIVE" {
+				continue
+			}
+			considered++
+			first := zohoStr(a["firstName"])
+			last := zohoStr(a["lastName"])
+			email := zohoStr(a["emailId"])
+			if email == "" {
+				email = zohoStr(a["email"])
+			}
+			name := strings.TrimSpace(first + " " + last)
+
+			if !apply {
+				st := "would_create"
+				if strings.TrimSpace(email) == "" || strings.TrimSpace(first) == "" {
+					st = "error"
+				} else if ex, _ := db.PGQuery(ctx, `SELECT id FROM o3c_users WHERE lower(email)=lower($1) AND deleted_at IS NULL`, strings.ToLower(strings.TrimSpace(email))); len(ex) > 0 {
+					st = "exists"
+				}
+				out = append(out, provisionResult{Email: strings.ToLower(strings.TrimSpace(email)), Name: name, Status: st})
+				continue
+			}
+
+			pr := provisionWorkspaceUser(ctx, db, first, last, email, role, "Call Centre")
+			switch pr.Status {
+			case "created":
+				created++
+			case "exists":
+				skipped++
+			default:
+				failed++
+			}
+			out = append(out, pr)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"applied":         apply,
+			"role":            role,
+			"agents_in_zoho":  len(agents),
+			"considered":      considered,
+			"created":         created,
+			"skipped_exists":  skipped,
+			"failed":          failed,
+			"results":         out,
 		})
 	}
 }
