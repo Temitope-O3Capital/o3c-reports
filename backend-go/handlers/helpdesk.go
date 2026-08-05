@@ -264,7 +264,64 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 
 		// Agent dashboard
 		r.Get("/my-dashboard", hdMyDashboard(db))
+
+		// Care module dashboard — KPIs scoped to the email (mail) channel.
+		r.Get("/care-dashboard", hdCareDashboard(db))
 	})
+}
+
+// hdCareDashboard returns mail-workload KPIs for the Care module (email-channel
+// tickets): open, awaiting-reply, unassigned, resolved-today, SLA-at-risk,
+// average first response, and a recent-mail list.
+func hdCareDashboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		count := func(sql string) int64 {
+			rows, _ := db.PGQuery(ctx, sql)
+			if len(rows) > 0 {
+				return toInt64(rows[0]["n"])
+			}
+			return 0
+		}
+		openMails := count(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND status NOT IN ('resolved','closed')`)
+		unassigned := count(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND status NOT IN ('resolved','closed') AND assigned_to IS NULL`)
+		resolvedToday := count(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND status IN ('resolved','closed') AND resolved_at::date=CURRENT_DATE`)
+		slaAtRisk := count(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND status NOT IN ('resolved','closed') AND sla_due_at IS NOT NULL AND sla_due_at <= NOW() + INTERVAL '2 hours'`)
+		awaiting := count(`
+			SELECT COUNT(*) AS n FROM helpdesk_tickets t
+			WHERE t.channel='email' AND t.status NOT IN ('resolved','closed')
+			  AND (SELECT m.direction FROM helpdesk_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1) = 'inbound'`)
+
+		var avgFirst any
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT ROUND(AVG(EXTRACT(EPOCH FROM (first_response_at - created_at))/60.0)) AS n
+			FROM helpdesk_tickets
+			WHERE channel='email' AND first_response_at IS NOT NULL
+			  AND created_at >= NOW() - INTERVAL '30 days'`); len(rows) > 0 {
+			avgFirst = rows[0]["n"]
+		}
+
+		recent, _ := db.PGQuery(ctx, `
+			SELECT id, ticket_ref, subject, status, priority,
+			       NULLIF(customer_name,'') AS customer_name, customer_cif,
+			       created_at, updated_at AS last_message_at
+			FROM helpdesk_tickets
+			WHERE channel='email'
+			ORDER BY updated_at DESC LIMIT 8`)
+		if recent == nil {
+			recent = []core.Row{}
+		}
+
+		respond(w, map[string]any{
+			"open_mails":              openMails,
+			"unassigned":              unassigned,
+			"awaiting_reply":          awaiting,
+			"resolved_today":          resolvedToday,
+			"sla_at_risk":             slaAtRisk,
+			"avg_first_response_mins": avgFirst,
+			"recent":                  recent,
+		}, "care")
+	}
 }
 
 func hdMyDashboard(db *core.DB) http.HandlerFunc {
@@ -470,7 +527,7 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 
 		// Row-level scope: leaf agents see their own tickets (any status) plus the
 		// still-open unassigned pool they can claim; senior/head roles see all.
-		if u := core.UserFromCtx(r.Context()); u != nil && !core.SeesAllRows(u.Role) {
+		if u := core.UserFromCtx(r.Context()); u != nil && !u.CanSeeAllRows() {
 			where += fmt.Sprintf(" AND (t.assigned_to=$%d OR (t.assigned_to IS NULL AND t.status NOT IN ('resolved','closed')))", n)
 			args = append(args, u.ID)
 			n++
@@ -746,7 +803,7 @@ func hdGetTicket(db *core.DB) http.HandlerFunc {
 
 		// Row-level scope: a leaf agent may open only their own tickets or
 		// unassigned ones (which they can claim), not another agent's.
-		if u := core.UserFromCtx(r.Context()); u != nil && !core.SeesAllRows(u.Role) {
+		if u := core.UserFromCtx(r.Context()); u != nil && !u.CanSeeAllRows() {
 			if at := toInt64(ticket["assigned_to"]); at != 0 && at != u.ID {
 				respondErr(w, 403, "This ticket is assigned to another agent")
 				return

@@ -122,6 +122,7 @@ const SECTIONS: Section[] = [
         vis: ['call_center_agent','call_center_head','telemarketing_agent','telemarketing_head'],
         subs: [
           // Care handles customer mail — email-channel tickets shown as an inbox
+          { label: 'Dashboard',          to: '/care' },
           { label: 'Care Inbox',         to: '/care/inbox' },
           // shared history + resources (read a customer's prior call/ticket issues)
           { label: 'Customer Directory', to: '/customers' },

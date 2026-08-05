@@ -140,6 +140,7 @@ const HelpdeskTickets     = lazy(() => import('./pages/helpdesk/Tickets'))
 const HelpdeskTicketDetail = lazy(() => import('./pages/helpdesk/TicketDetail'))
 const HelpdeskNewTicket   = lazy(() => import('./pages/helpdesk/NewTicketPage'))
 const CareInbox           = lazy(() => import('./pages/care/Inbox'))
+const CareDashboard       = lazy(() => import('./pages/care/Dashboard'))
 const HelpdeskSupervisor  = lazy(() => import('./pages/helpdesk/Supervisor'))
 const HelpdeskCalls       = lazy(() => import('./pages/helpdesk/Calls'))
 const HelpdeskStats       = lazy(() => import('./pages/helpdesk/Stats'))
@@ -996,7 +997,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/helpdesk"                element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/tickets"        element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/new"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskNewTicket /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/care"                    element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><CareInbox /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/care"                    element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><CareDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/care/inbox"              element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><CareInbox /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/calls"          element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskCalls /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/supervisor"     element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskSupervisor /></PageErrorBoundary></RequireAccess>} />
