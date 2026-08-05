@@ -978,125 +978,6 @@ const RISK = [
   http.get(u('/api/risk/applications/export'), () => new HttpResponse(new Blob(['ref,applicant\n'], { type: 'text/csv' }))),
 ]
 
-// ── HR ────────────────────────────────────────────────────────────────────────
-// All return direct arrays
-
-const HR_EMPLOYEES = Array.from({ length: 42 }, (_, i) => {
-  const fn = pick(FIRST), ln = pick(LAST)
-  return {
-    id: i+1, staff_id: `O3-${String(i+100).padStart(4,'0')}`,
-    first_name: fn, last_name: ln, email: email(`${fn} ${ln}`),
-    phone: `080${rng(10000000,99999999)}`, department: pick(DEPTS),
-    job_title: pick(['Officer','Senior Officer','Head','Manager','Analyst']),
-    grade_level: pick(['GL1','GL2','GL3','GL4','GL5','GL6']),
-    status: Math.random() > 0.1 ? 'active' : 'inactive',
-    date_of_birth: dateStr(rng(8000,12000)), gender: pick(['Male','Female']),
-    salary_kobo: rng(20,120)*1_000_000_00, bank_name: pick(BANKS),
-    account_number: String(rng(1000000000,9999999999)), contract_type: pick(['Full-Time','Contract']),
-    hire_date: dateStr(rng(180,1800)),
-  }
-})
-
-const HR = [
-  http.get(u('/api/hr/employees'), () => ok(HR_EMPLOYEES)),
-  http.get(u('/api/hr/employees/:id'), ({ params }) => ok({ ...HR_EMPLOYEES[Number(params.id) % HR_EMPLOYEES.length] })),
-  http.get(u('/api/hr/employees/:id/leave-balance'), () => ok([])),
-  http.post(u('/api/hr/employees'), () => ok({ id: 99, staff_id: 'O3-0199' })),
-  http.put(u('/api/hr/employees/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.delete(u('/api/hr/employees/:id'), () => new HttpResponse(null, { status: 204 })),
-
-  http.get(u('/api/hr/departments'), () => ok(
-    DEPTS.map((n, i) => ({ id: i+1, name: n, head_name: name(), staff_count: rng(3,18) }))
-  )),
-  http.get(u('/api/hr/grade-levels'), () => ok(
-    ['GL1','GL2','GL3','GL4','GL5','GL6'].map((g, i) => ({
-      id: i+1, name: g, min_salary_kobo: (i+1)*20_000_000_00, max_salary_kobo: (i+2)*30_000_000_00,
-    }))
-  )),
-  http.get(u('/api/hr/leave'), () => ok(
-    Array.from({ length: 14 }, (_, i) => ({
-      id: i+1, employee_name: name(), leave_type: pick(['Annual','Sick','Maternity','Casual']),
-      start_date: dateStr(rng(-10,60)), end_date: dateStr(rng(61,75)), days: rng(2,21),
-      status: pick(['pending','approved','rejected']), approved_by: name(), applied_at: isoDate(rng(1,14)),
-    }))
-  )),
-  http.post(u('/api/hr/leave'), () => ok({ id: 99, status: 'pending' })),
-  http.put(u('/api/hr/leave/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/hr/leave-types'), () => ok(
-    ['Annual','Sick','Maternity','Paternity','Casual','Study'].map((t, i) => ({ id: i+1, name: t, default_days: pick([5,10,14,21,30]) }))
-  )),
-  http.get(u('/api/hr/appraisals'), () => ok(
-    Array.from({ length: 20 }, (_, i) => ({
-      id: i+1, employee_name: name(), period: '2026 H1', score: rng(60,100),
-      rating: pick(['Outstanding','Exceeds Expectations','Meets Expectations','Below Expectations']),
-      reviewer_name: name(), status: pick(['pending','submitted','approved']),
-    }))
-  )),
-  http.post(u('/api/hr/appraisals'), () => ok({ id: 99 })),
-  http.get(u('/api/hr/review-cycles'), () => ok([
-    { id: 1, name: '2026 H1', start_date: '2026-01-01', end_date: '2026-06-30', status: 'active' },
-    { id: 2, name: '2025 H2', start_date: '2025-07-01', end_date: '2025-12-31', status: 'completed' },
-  ])),
-  http.get(u('/api/hr/training'), () => ok(
-    Array.from({ length: 10 }, (_, i) => ({
-      id: i+1, title: pick(['AML/CFT Training','Data Protection','Leadership Workshop','Risk Management']),
-      facilitator: name(), start_date: dateStr(rng(-30,60)), end_date: dateStr(rng(61,75)),
-      attendees: rng(5,25), status: pick(['scheduled','ongoing','completed']),
-    }))
-  )),
-  http.post(u('/api/hr/training'), () => ok({ id: 99 })),
-  http.get(u('/api/hr/disciplinary'), () => ok(
-    Array.from({ length: 8 }, (_, i) => ({
-      id: i+1, employee_name: name(), case_type: pick(['Query','Warning','Suspension']),
-      description: 'Policy violation', status: pick(['open','closed']),
-      raised_by: name(), raised_at: isoDate(rng(1,90)), resolved_at: null,
-    }))
-  )),
-  http.get(u('/api/hr/disciplinary/:id'), ({ params }) => ok({
-    id: params.id, employee_name: name(), case_type: 'Query', description: 'Policy violation',
-    status: 'open', raised_by: name(), raised_at: isoDate(5), resolved_at: null, notes: [],
-  })),
-  http.post(u('/api/hr/disciplinary'), () => ok({ id: 99 })),
-  http.put(u('/api/hr/disciplinary/:id'), () => new HttpResponse(null, { status: 204 })),
-]
-
-// ── Payroll ───────────────────────────────────────────────────────────────────
-
-const PAYROLL_RUNS = Array.from({ length: 6 }, (_, i) => ({
-  id: i+1, period_year: 2026, period_month: 7 - i,
-  status: i === 0 ? 'draft' : 'paid',
-  headcount: 42,
-  total_gross_kobo: rng(80,95)*1_000_000_00,
-  total_net_kobo: rng(65,78)*1_000_000_00,
-  total_paye_kobo: rng(8,12)*1_000_000_00,
-  total_pension_kobo: rng(4,6)*1_000_000_00,
-  created_at: isoDate(rng(1,30) + i*30),
-  paid_at: i === 0 ? null : isoDate(rng(1,10) + i*30),
-}))
-
-const PAYROLL = [
-  http.get(u('/api/payroll/summary'), () => ok({
-    runs: PAYROLL_RUNS, active_employees: 42,
-  })),
-  http.get(u('/api/payroll/runs'), () => ok(PAYROLL_RUNS)),
-  http.post(u('/api/payroll/runs'), () => ok({ id: 99, status: 'draft', period_year: 2026, period_month: 8 })),
-  http.get(u('/api/payroll/runs/:id'), ({ params }) => ok(PAYROLL_RUNS[Number(params.id) % PAYROLL_RUNS.length] ?? PAYROLL_RUNS[0])),
-  http.get(u('/api/payroll/runs/:id/items'), () => ok(
-    HR_EMPLOYEES.slice(0,20).map((e, i) => ({
-      id: e.id, employee_id: e.id, employee_name: `${e.first_name} ${e.last_name}`,
-      staff_id: e.staff_id, department: e.department, grade_level: e.grade_level,
-      gross_kobo: e.salary_kobo, net_kobo: Math.floor(e.salary_kobo*0.78),
-      paye_kobo: Math.floor(e.salary_kobo*0.12),
-      employee_pension_kobo: Math.floor(e.salary_kobo*0.06),
-      nhf_kobo: Math.floor(e.salary_kobo*0.025),
-      loan_deduction_kobo: i % 3 === 0 ? Math.floor(e.salary_kobo*0.05) : 0,
-      other_deduction_kobo: 0,
-      bank_name: e.bank_name, account_number: e.account_number,
-    }))
-  )),
-  http.post(u('/api/payroll/runs/:id/process'), () => new HttpResponse(null, { status: 204 })),
-]
-
 // ── Compliance ────────────────────────────────────────────────────────────────
 // All return direct arrays
 
@@ -2596,70 +2477,6 @@ const COMPLIANCE_EXTRA = [
   http.put(u('/api/compliance/soc2/policies/:id'), () => new HttpResponse(null, { status: 204 })),
 ]
 
-// ── HR — New Pages ────────────────────────────────────────────────────────────
-
-const HR_EXTRA = [
-  http.get(u('/api/hr/org-chart'), () => ok([
-    { id:1, full_name:'Temitope Posi', title:'Managing Director', department:'Executive', manager_id: null },
-    { id:2, full_name: name(), title:'Chief Finance Officer', department:'Finance', manager_id: 1 },
-    { id:3, full_name: name(), title:'Head of Sales', department:'Sales', manager_id: 1 },
-    { id:4, full_name: name(), title:'Head of Collections', department:'Collections', manager_id: 1 },
-    { id:5, full_name: name(), title:'Head of Risk', department:'Risk', manager_id: 1 },
-    { id:6, full_name: name(), title:'Finance Officer', department:'Finance', manager_id: 2 },
-    { id:7, full_name: name(), title:'Finance Officer', department:'Finance', manager_id: 2 },
-    { id:8, full_name: name(), title:'Sales Officer', department:'Sales', manager_id: 3 },
-    { id:9, full_name: name(), title:'Sales Officer', department:'Sales', manager_id: 3 },
-    { id:10, full_name: name(), title:'Collections Agent', department:'Collections', manager_id: 4 },
-    { id:11, full_name: name(), title:'Collections Agent', department:'Collections', manager_id: 4 },
-    { id:12, full_name: name(), title:'Risk Analyst', department:'Risk', manager_id: 5 },
-  ])),
-
-  http.get(u('/api/hr/jobs'), () => ok(
-    Array.from({ length: 8 }, (_, i) => ({
-      id: i+1, title: pick(['Sales Officer','Collections Agent','Risk Analyst','Finance Officer','IT Support','Compliance Officer','HR Officer','Recovery Officer']),
-      department: pick(DEPTS), location: pick(STATES.slice(0,3)), job_type: pick(['Full-Time','Contract']),
-      status: pick(['open','open','open','closed','filled']),
-      description: 'We are looking for a motivated professional to join our team.',
-      applicant_count: rng(3,25), target_date: pick([dateStr(rng(7,60)), null]),
-      created_at: isoDate(rng(1,60)),
-    }))
-  )),
-  http.post(u('/api/hr/jobs'), () => ok({ id: 99 })),
-
-  http.get(u('/api/hr/applicants'), () => ok(
-    Array.from({ length: 20 }, (_, i) => ({
-      id: i+1, job_id: rng(1,8), job_title: pick(['Sales Officer','Risk Analyst','Finance Officer']),
-      full_name: name(), email: `applicant${i}@email.com`,
-      phone: `080${rng(10000000,99999999)}`,
-      source: pick(['LinkedIn','Referral','Walk-in','Job Board']),
-      stage: pick(['applied','screening','interview','offer','hired','rejected']),
-      notes: '', interview_date: pick([dateStr(rng(1,14)), null]),
-      created_at: isoDate(rng(1,30)),
-    }))
-  )),
-  http.post(u('/api/hr/applicants'), () => ok({ id: 99 })),
-
-  http.get(u('/api/hr/employees/:id/onboarding'), () => ok(
-    Array.from({ length: 8 }, (_, i) => ({
-      id: i+1, employee_id: 1,
-      category: pick(['Documentation','IT Setup','Training','Orientation']),
-      task: ['Sign employment contract','Set up email account','Complete AML/CFT training','Tour the office','Meet the team','Set up laptop','ID card issuance','Benefits enrollment'][i],
-      status: i < 4 ? 'done' : 'pending',
-      due_date: pick([dateStr(rng(0,14)), null]), completed_at: i < 4 ? isoDate(rng(1,7)) : null,
-      notes: '', sort_order: i+1,
-    }))
-  )),
-  http.get(u('/api/hr/employees/:id/offboarding'), () => ok(
-    Array.from({ length: 6 }, (_, i) => ({
-      id: i+1, employee_id: 1,
-      category: pick(['Documentation','IT','Finance','Handover']),
-      task: ['Collect resignation letter','Revoke system access','Process final salary','Retrieve company assets','Exit interview','Knowledge transfer'][i],
-      status: i < 2 ? 'done' : 'pending',
-      due_date: pick([dateStr(rng(0,14)), null]), completed_at: i < 2 ? isoDate(rng(1,5)) : null,
-      notes: '', sort_order: i+1,
-    }))
-  )),
-]
 
 // ── Sales — New Endpoints ─────────────────────────────────────────────────────
 
@@ -3292,27 +3109,6 @@ const GAP_FILL = [
     })
   }),
 
-  // ── HR — applicant stage & employee exit ──────────────────────────────────────
-  http.put(u('/api/hr/applicants/:id/stage'),   () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/hr/employees/:id/exit'), () => ok({
-    id: rng(100,999), exit_date: dateStr(rng(0,90)),
-    clearance_status: 'initiated',
-  })),
-
-  // ── Payroll — payslip download & run approval ─────────────────────────────────
-  http.get(u('/api/payroll/payslips/:runId/:employeeId'), ({ params }) => ok({
-    run_id: Number(params.runId), employee_id: Number(params.employeeId),
-    employee_name: name(), staff_id: `O3C-${String(rng(1000,9999))}`,
-    period: '2026-06', department: pick(DEPTS),
-    gross_kobo: 42_000_000_00,
-    deductions: { paye_kobo: 5_040_000_00, pension_kobo: 2_520_000_00, nhf_kobo: 1_050_000_00, loan_kobo: 0 },
-    net_kobo: 33_390_000_00,
-    bank_name: 'Access Bank', account_number: '0123456789',
-    paid_at: isoDate(5),
-  })),
-  http.post(u('/api/payroll/runs/:id/approve'),   () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/payroll/runs/:id/disburse'),  () => new HttpResponse(null, { status: 204 })),
-
   // ── Telemarketing — agents, lead disposition, bulk-assign ────────────────────
   http.get(u('/api/telemarketing/agents'), () => ok(
     Array.from({ length: 12 }, (_, i) => ({
@@ -3346,9 +3142,6 @@ const GAP_FILL = [
   http.put(u('/api/helpdesk/kb/:id/status'),  () => new HttpResponse(null, { status: 204 })),
 
   // ── HR — close disciplinary + onboarding/offboarding checklist items ─────────
-  http.post(u('/api/hr/disciplinary/:id/close'),              () => new HttpResponse(null, { status: 204 })),
-  http.put(u('/api/hr/employees/:id/onboarding/:itemId'),     () => new HttpResponse(null, { status: 204 })),
-  http.put(u('/api/hr/employees/:id/offboarding/:itemId'),    () => new HttpResponse(null, { status: 204 })),
 
   // ── Recovery — delete debt sale ───────────────────────────────────────────────
   http.delete(u('/api/recovery/debt-sales/:id'), () => new HttpResponse(null, { status: 204 })),
@@ -3359,8 +3152,6 @@ const GAP_FILL = [
   http.post(u('/api/settlements/nip/:id/resolve'),     () => new HttpResponse(null, { status: 204 })),
 
   // ── HR — leave approve / decline ─────────────────────────────────────────────
-  http.put(u('/api/hr/leave/:id/approve'), () => new HttpResponse(null, { status: 204 })),
-  http.put(u('/api/hr/leave/:id/decline'), () => new HttpResponse(null, { status: 204 })),
 
   // ── Recovery-ops — individual case assign ─────────────────────────────────────
   http.put(u('/api/recovery-ops/cases/:id/assign'), () => new HttpResponse(null, { status: 204 })),
@@ -4177,8 +3968,6 @@ export const handlers = [
   ...CARDS,
   ...FINANCE,
   ...RISK,
-  ...HR,
-  ...PAYROLL,
   ...COMPLIANCE,
   ...HELPDESK,
   ...BD,
@@ -4192,7 +3981,6 @@ export const handlers = [
   ...ADMIN_EXTRA,
   ...COLLECTIONS_EXTRA,
   ...COMPLIANCE_EXTRA,
-  ...HR_EXTRA,
   ...SALES_EXTRA,
   ...REPORTS_EXTRA,
   ...DIALER_EXTRA,
