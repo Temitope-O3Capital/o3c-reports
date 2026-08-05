@@ -77,12 +77,16 @@ func RegisterDialer(r chi.Router, db *core.DB) {
 		r.Put("/sessions/status", dlSetSessionStatus(db))
 		r.Get("/sessions/me", dlMySession(db))
 		r.Get("/sessions/me/next-contact", dlNextContact(db))
+		r.Post("/queue/{id}/skip", dlSkipContact(db))
 
 		// Agent-triggered call (preview/progressive mode)
 		r.Post("/calls/manual", dlManualCall(db))
 
 		// Call disposition (agent sets after call ends)
 		r.Post("/calls/{id}/disposition", dlSetDisposition(db))
+
+		// Supervisor — recent calls feed
+		r.Get("/recent-calls", dlRecentCalls(db))
 	})
 
 	// Start engine
@@ -729,6 +733,35 @@ func dlNextContact(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"contact": contacts[0]}) //nolint:errcheck
+	}
+}
+
+// dlSkipContact defers a queue entry ~30 minutes so the next-contact query
+// surfaces a different contact instead of looping the same one.
+func dlSkipContact(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		db.PGExec(r.Context(), //nolint:errcheck
+			`UPDATE dialer_queue
+			 SET next_attempt_at = NOW() + INTERVAL '30 minutes', attempts = attempts + 1
+			 WHERE id=$1 AND status='pending'`, id)
+		w.WriteHeader(204)
+	}
+}
+
+// dlRecentCalls returns the most recent dialer calls for the supervisor feed.
+func dlRecentCalls(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := qint(r, "limit", 25, 1, 100)
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT id, campaign_id, phone, COALESCE(agent_name,'') AS agent_name, disposition,
+			       duration_sec, call_state, started_at, is_abandoned
+			FROM dialer_call_logs
+			ORDER BY started_at DESC LIMIT $1`, limit)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
 	}
 }
 

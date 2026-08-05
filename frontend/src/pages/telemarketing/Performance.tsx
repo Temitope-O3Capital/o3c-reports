@@ -151,13 +151,6 @@ const AGENT_COLS: TableCol<AgentPerf>[] = [
     },
   },
   {
-    key: 'ptp_count',
-    label: 'PTPs',
-    sortable: true,
-    align: 'right',
-    render: r => <span style={{ ...NUM, fontSize: TEXT.base }}>{r.ptp_count}</span>,
-  },
-  {
     key: 'conversion_pct',
     label: 'Conversion %',
     sortable: true,
@@ -229,12 +222,11 @@ export default function TelemarketingPerformance() {
   const kpiLoading = loading && !kpis
 
   function exportAgentPerfCsv(data: AgentPerf[]) {
-    const header = ['Agent', 'Calls', 'Connected', 'PTPs', 'Conversion %', 'Avg Handle (s)']
+    const header = ['Agent', 'Calls', 'Connected', 'Conversion %', 'Avg Handle (s)']
     const lines = data.map(r => [
       `"${String(r.agent_name ?? '').replace(/"/g, '""')}"`,
       r.calls ?? 0,
       r.connected ?? 0,
-      r.ptp_count ?? 0,
       r.conversion_pct != null ? r.conversion_pct.toFixed(1) : '',
       r.avg_handle_seconds ?? 0,
     ].join(','))
@@ -256,7 +248,7 @@ export default function TelemarketingPerformance() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard
           label="Total Calls"
           value={kpis ? fmtNum(kpis.total_calls) : '—'}
@@ -269,14 +261,6 @@ export default function TelemarketingPerformance() {
           sub="answered calls"
           icon="call_received"
           accent={GREEN}
-          loading={kpiLoading}
-        />
-        <KpiCard
-          label="PTP Count"
-          value={kpis ? fmtNum(kpis.ptp_count) : '—'}
-          sub="promises to pay"
-          icon="handshake"
-          accent={BLUE}
           loading={kpiLoading}
         />
         <KpiCard

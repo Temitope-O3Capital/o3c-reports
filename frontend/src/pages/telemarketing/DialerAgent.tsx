@@ -302,7 +302,8 @@ export default function DialerAgent() {
 
   async function handleSkip() {
     if (!nextContact) return
-    // Mark as pending again (skipping just refreshes next contact)
+    // Defer this contact server-side so the next fetch surfaces a different one.
+    try { await apiPost(`/api/dialer/queue/${nextContact.id}/skip`, {}) } catch { /* non-fatal */ }
     setNextContact(null)
     await loadNextContact()
     toast.info('Skipped — loaded next contact')

@@ -188,14 +188,16 @@ export default function DialerSupervisor() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [liveRaw, allRaw] = await Promise.all([
+      const [liveRaw, allRaw, recentRaw] = await Promise.all([
         apiFetch<any>('/api/dialer/live'),
         apiFetch<any>('/api/dialer/campaigns'),
+        apiFetch<any>('/api/dialer/recent-calls?limit=25'),
       ])
       const liveData: LiveCampaign[] = Array.isArray(liveRaw) ? liveRaw : (liveRaw?.data ?? [])
       const allData:  LiveCampaign[] = Array.isArray(allRaw)  ? allRaw  : (allRaw?.data ?? [])
       setLive(liveData)
       setAll(allData)
+      setRecent((Array.isArray(recentRaw) ? recentRaw : (recentRaw?.data ?? [])) as RecentCall[])
 
       // Load stats for all active campaigns
       const activeCamps = allData.filter((c: LiveCampaign) => c.status === 'active')
