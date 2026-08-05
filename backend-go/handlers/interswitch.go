@@ -28,18 +28,23 @@ func RegisterInterswitch(r chi.Router, db *core.DB) {
 
 // iswPeriodWhere maps the frontend period id to a SQL date predicate on txn_date.
 // Whitelisted — never interpolates user input into SQL.
+//
+// Periods anchor to the LATEST available data (MAX(txn_date)), not today's date, so the
+// dashboard always lands on real data instead of an empty current period when the loaded
+// transactions are historical. Falls back to CURRENT_DATE when the table is empty.
 func iswPeriodWhere(period string) string {
+	ref := "COALESCE((SELECT MAX(txn_date) FROM interswitch_txns), CURRENT_DATE)"
 	switch strings.ToLower(period) {
 	case "l30d":
-		return "txn_date >= CURRENT_DATE - INTERVAL '30 days'"
+		return "txn_date >= " + ref + " - INTERVAL '30 days'"
 	case "l90d":
-		return "txn_date >= CURRENT_DATE - INTERVAL '90 days'"
+		return "txn_date >= " + ref + " - INTERVAL '90 days'"
 	case "ytd":
-		return "txn_date >= DATE_TRUNC('year', CURRENT_DATE)"
+		return "txn_date >= DATE_TRUNC('year', " + ref + ")"
 	case "mtd":
 		fallthrough
 	default:
-		return "txn_date >= DATE_TRUNC('month', CURRENT_DATE)"
+		return "txn_date >= DATE_TRUNC('month', " + ref + ")"
 	}
 }
 
