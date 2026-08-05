@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,6 +77,7 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Post("/import-threads", zohoImportThreads(db))
 	r.Post("/import-calls", zohoImportDeskCalls(db))
 	r.Post("/import-contacts", zohoImportContacts(db))
+	r.Post("/backfill-assignees", zohoBackfillAssignees(db))
 
 	// Voice routes require call_center page permission — these initiate or import live calls.
 	cc := core.RequirePages("call_center")
@@ -101,6 +103,7 @@ func RegisterZohoAdmin(r chi.Router, db *core.DB, adminSecret string) {
 	r.With(guard).Post("/admin/import-threads", zohoImportThreads(db))
 	r.With(guard).Post("/admin/import-calls", zohoImportDeskCalls(db))
 	r.With(guard).Post("/admin/import-contacts", zohoImportContacts(db))
+	r.With(guard).Post("/admin/backfill-assignees", zohoBackfillAssignees(db))
 }
 
 // ── Credential helpers ────────────────────────────────────────────────────────
@@ -693,22 +696,34 @@ func upsertZohoTicket(ctx context.Context, db *core.DB, t map[string]any, status
 		custPhone = zohoStr(contact["phone"])
 	}
 
+	// Ticket owner (assignee) — captured from Zoho and, where the agent has a
+	// matching workspace account, linked to assigned_to so the ticket shows as owned.
+	asgID, asgName, asgEmail := zohoAssignee(t)
+	assignedTo := lookupUserIDByEmail(ctx, db, asgEmail)
+
 	res, err := db.PGExec(ctx, `
 		INSERT INTO helpdesk_tickets
 		  (subject, description, channel, status, priority, department,
 		   customer_name, customer_email, customer_phone,
-		   ticket_ref, resolved_at, closed_at, created_at, updated_at, source_system)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,'zoho_desk')
+		   ticket_ref, resolved_at, closed_at, created_at, updated_at, source_system,
+		   zoho_assignee_id, zoho_assignee_name, zoho_assignee_email, assigned_to)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,'zoho_desk',
+		   NULLIF($14,''),NULLIF($15,''),NULLIF($16,''),$17)
 		ON CONFLICT (ticket_ref) DO UPDATE SET
-		  status      = EXCLUDED.status,
-		  priority    = EXCLUDED.priority,
-		  channel     = EXCLUDED.channel,
-		  resolved_at = EXCLUDED.resolved_at,
-		  closed_at   = EXCLUDED.closed_at,
-		  updated_at  = EXCLUDED.updated_at`,
+		  status              = EXCLUDED.status,
+		  priority            = EXCLUDED.priority,
+		  channel             = EXCLUDED.channel,
+		  resolved_at         = EXCLUDED.resolved_at,
+		  closed_at           = EXCLUDED.closed_at,
+		  updated_at          = EXCLUDED.updated_at,
+		  zoho_assignee_id    = EXCLUDED.zoho_assignee_id,
+		  zoho_assignee_name  = EXCLUDED.zoho_assignee_name,
+		  zoho_assignee_email = EXCLUDED.zoho_assignee_email,
+		  assigned_to         = COALESCE(EXCLUDED.assigned_to, helpdesk_tickets.assigned_to)`,
 		subject, body, channel, status, priority, dept,
 		custName, custEmail, custPhone,
-		ref, resolvedAt, closedAt, createdAt)
+		ref, resolvedAt, closedAt, createdAt,
+		asgID, asgName, asgEmail, assignedTo)
 	if err != nil {
 		slog.Warn("upsertZohoTicket: insert", "ref", ref, "err", err)
 		return 0, 0, 1
@@ -739,6 +754,161 @@ func channelFromZoho(raw string) string {
 		return "social"
 	default:
 		return ""
+	}
+}
+
+// zohoAssignee extracts the ticket owner from a Zoho ticket payload (requires
+// the list/get call to include=assignee). Returns empty strings when unassigned.
+func zohoAssignee(t map[string]any) (id, name, email string) {
+	a, ok := t["assignee"].(map[string]any)
+	if !ok {
+		return "", "", ""
+	}
+	id = zohoStr(a["id"])
+	name = strings.TrimSpace(zohoStr(a["firstName"]) + " " + zohoStr(a["lastName"]))
+	if name == "" {
+		name = strings.TrimSpace(zohoStr(a["name"]))
+	}
+	email = strings.TrimSpace(zohoStr(a["email"]))
+	return id, name, email
+}
+
+// lookupUserIDByEmail returns the workspace user id for an email, or nil if no
+// active account matches. Used to link a Zoho assignee to a real workspace user.
+func lookupUserIDByEmail(ctx context.Context, db *core.DB, email string) *int64 {
+	if strings.TrimSpace(email) == "" {
+		return nil
+	}
+	rows, err := db.PGQuery(ctx,
+		`SELECT id FROM o3c_users WHERE lower(email)=lower($1) LIMIT 1`, strings.TrimSpace(email))
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	uid := toInt64(rows[0]["id"])
+	if uid == 0 {
+		return nil
+	}
+	return &uid
+}
+
+// zohoBackfillAssignees pages Zoho tickets (include=assignee), reports who each
+// ticket is owned by in Zoho, and — with ?apply=true — backfills the local
+// zoho_assignee_* columns and links assigned_to for agents with a workspace
+// account. ?apply is omitted → read-only dry run (answers "who owns what").
+// Params: order=asc|desc (default desc/newest-first), max=N (default 1000).
+func zohoBackfillAssignees(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if !zohoEnsureConfigured(ctx, db) {
+			respondErr(w, 503, "Zoho is not configured")
+			return
+		}
+		ensureHelpdeskColumns(ctx, db)
+
+		apply := r.URL.Query().Get("apply") == "true"
+		desc := r.URL.Query().Get("order") != "asc" // default: newest-first
+		maxTickets := 1000
+		if v := r.URL.Query().Get("max"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				maxTickets = n
+			}
+		}
+		sortBy := "-createdTime"
+		if !desc {
+			sortBy = "createdTime"
+		}
+
+		type agentAgg struct {
+			Name   string `json:"name"`
+			Email  string `json:"email"`
+			Count  int    `json:"count"`
+			Linked bool   `json:"linked_to_workspace_user"`
+		}
+		counts := map[string]int{}
+		emails := map[string]string{}
+		var scanned, assigned, unassigned, updated, linked int
+
+		offset := 0
+		for scanned < maxTickets {
+			params := url.Values{
+				"from":    {strconv.Itoa(offset)},
+				"limit":   {"100"},
+				"sortBy":  {sortBy},
+				"include": {"assignee"},
+			}
+			result, err := zohoFetch(ctx, "tickets", params)
+			if err != nil {
+				respondErr(w, 502, "Zoho fetch failed: "+err.Error())
+				return
+			}
+			batch := zohoItems(result)
+			if len(batch) == 0 {
+				break
+			}
+			for _, t := range batch {
+				scanned++
+				zohoID := zohoStr(t["id"])
+				id, name, email := zohoAssignee(t)
+				if name == "" {
+					unassigned++
+				} else {
+					assigned++
+					counts[name]++
+					if email != "" {
+						emails[name] = email
+					}
+				}
+				if apply && zohoID != "" {
+					uid := lookupUserIDByEmail(ctx, db, email)
+					res, uerr := db.PGExec(ctx, `
+						UPDATE helpdesk_tickets
+						SET zoho_assignee_id=NULLIF($2,''),
+						    zoho_assignee_name=NULLIF($3,''),
+						    zoho_assignee_email=NULLIF($4,''),
+						    assigned_to=COALESCE($5, assigned_to),
+						    updated_at=NOW()
+						WHERE ticket_ref=$1`,
+						"ZOHO-"+zohoID, id, name, email, uid)
+					if uerr == nil {
+						if n, _ := res.RowsAffected(); n > 0 {
+							updated++
+							if uid != nil {
+								linked++
+							}
+						}
+					}
+				}
+				if scanned >= maxTickets {
+					break
+				}
+			}
+			if len(batch) < 100 {
+				break
+			}
+			offset += 100
+		}
+
+		byAgent := make([]agentAgg, 0, len(counts))
+		for n, c := range counts {
+			em := emails[n]
+			byAgent = append(byAgent, agentAgg{
+				Name: n, Email: em, Count: c,
+				Linked: lookupUserIDByEmail(ctx, db, em) != nil,
+			})
+		}
+		sort.Slice(byAgent, func(i, j int) bool { return byAgent[i].Count > byAgent[j].Count })
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"applied":            apply,
+			"scanned":            scanned,
+			"assigned_in_zoho":   assigned,
+			"unassigned_in_zoho": unassigned,
+			"distinct_agents":    len(byAgent),
+			"by_agent":           byAgent,
+			"rows_updated":       updated,
+			"linked_to_users":    linked,
+		})
 	}
 }
 

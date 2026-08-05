@@ -73,6 +73,11 @@ func ensureHelpdeskColumns(ctx context.Context, db *core.DB) {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_tickets_ref ON helpdesk_tickets(ticket_ref) WHERE ticket_ref IS NOT NULL`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS sla_warning_sent BOOLEAN DEFAULT FALSE`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS unassigned_alert_sent BOOLEAN DEFAULT FALSE`,
+		// Zoho Desk ticket owner (assignee). Captured from the sync so ownership
+		// survives even when the Zoho agent has no matching workspace user account.
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS zoho_assignee_id TEXT`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS zoho_assignee_name TEXT`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS zoho_assignee_email TEXT`,
 	}
 	for _, sql := range alters {
 		db.PGExec(ctx, sql) //nolint:errcheck

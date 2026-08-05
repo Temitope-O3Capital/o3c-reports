@@ -39,6 +39,7 @@ interface Ticket {
   customer_cif?: string
   assigned_to?: number
   assigned_to_name?: string
+  zoho_assignee_name?: string
   sla_due_at?: string
   sla_breached?: boolean
   created_at: string
@@ -705,7 +706,12 @@ export default function TicketDetail() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
                 <MetaItem icon="event" label="Opened">{fmtDatetime(ticket.created_at)}</MetaItem>
                 <MetaItem icon={channelIcon(ticket.channel)} label="Via">{ticket.channel || '—'}</MetaItem>
-                <MetaItem icon="badge" label="Assignee">{ticket.assigned_to_name || 'Unassigned'}</MetaItem>
+                <MetaItem icon="badge" label="Assignee">
+                  {ticket.assigned_to_name || ticket.zoho_assignee_name || 'Unassigned'}
+                  {!ticket.assigned_to_name && ticket.zoho_assignee_name && (
+                    <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontWeight: FW.normal, marginLeft: 4 }}>(Zoho)</span>
+                  )}
+                </MetaItem>
               </div>
 
               {/* Action buttons */}
