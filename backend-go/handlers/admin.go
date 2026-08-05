@@ -83,6 +83,23 @@ func validRole(db *core.DB, r *http.Request, role string) bool {
 	return len(rows) > 0
 }
 
+// sanitizeExtraRoles trims/dedups secondary roles and drops any that equal the
+// primary role or are blank. Returns a non-nil slice so it maps to a Postgres
+// TEXT[] cleanly.
+func sanitizeExtraRoles(db *core.DB, r *http.Request, primary string, extras []string) []string {
+	seen := map[string]bool{primary: true}
+	out := []string{}
+	for _, e := range extras {
+		e = strings.TrimSpace(e)
+		if e == "" || seen[e] {
+			continue
+		}
+		seen[e] = true
+		out = append(out, e)
+	}
+	return out
+}
+
 func listUsers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		includeRemoved := r.URL.Query().Get("include_removed") == "true"
@@ -106,7 +123,7 @@ func listUsers(db *core.DB) http.HandlerFunc {
 			SELECT id, email, full_name,
 			       COALESCE(first_name,'') AS first_name,
 			       COALESCE(last_name,'')  AS last_name,
-			       role, department, created_at,
+			       role, COALESCE(extra_roles,'[]'::jsonb) AS extra_roles, department, created_at,
 			       must_change_password, last_login, is_active, deleted_at
 			FROM o3c_users `+where+` ORDER BY created_at DESC, id DESC`, args...)
 		if err != nil {
@@ -120,11 +137,12 @@ func listUsers(db *core.DB) http.HandlerFunc {
 
 func createUser(db *core.DB) http.HandlerFunc {
 	type body struct {
-		FirstName  string `json:"first_name"`
-		LastName   string `json:"last_name"`
-		Email      string `json:"email"`
-		Role       string `json:"role"`
-		Department string `json:"department"`
+		FirstName  string   `json:"first_name"`
+		LastName   string   `json:"last_name"`
+		Email      string   `json:"email"`
+		Role       string   `json:"role"`
+		ExtraRoles []string `json:"extra_roles"`
+		Department string   `json:"department"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -143,6 +161,13 @@ func createUser(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Unknown role: "+b.Role)
 			return
 		}
+		extraRoles := sanitizeExtraRoles(db, r, b.Role, b.ExtraRoles)
+		for _, er := range extraRoles {
+			if !validRole(db, r, er) {
+				respondErr(w, 422, "Unknown extra role: "+er)
+				return
+			}
+		}
 		existing, _ := db.PGQuery(r.Context(), `SELECT id FROM o3c_users WHERE email=$1`, b.Email)
 		if len(existing) > 0 {
 			respondErr(w, 409, "A user with this email already exists")
@@ -155,11 +180,12 @@ func createUser(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Password generation failed")
 			return
 		}
+		extraRolesJSON, _ := json.Marshal(extraRoles)
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO o3c_users (email, password_hash, full_name, first_name, last_name, role, department, must_change_password)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)
-			RETURNING id, email, full_name, first_name, last_name, role, department, created_at, must_change_password`,
-			b.Email, hash, fullName, b.FirstName, b.LastName, b.Role, b.Department)
+			INSERT INTO o3c_users (email, password_hash, full_name, first_name, last_name, role, extra_roles, department, must_change_password)
+			VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,TRUE)
+			RETURNING id, email, full_name, first_name, last_name, role, extra_roles, department, created_at, must_change_password`,
+			b.Email, hash, fullName, b.FirstName, b.LastName, b.Role, string(extraRolesJSON), b.Department)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -188,12 +214,13 @@ func createUser(db *core.DB) http.HandlerFunc {
 
 func updateUser(db *core.DB) http.HandlerFunc {
 	type body struct {
-		FirstName  *string `json:"first_name"`
-		LastName   *string `json:"last_name"`
-		Email      *string `json:"email"`
-		Role       *string `json:"role"`
-		Department *string `json:"department"`
-		Password   *string `json:"password"`
+		FirstName  *string   `json:"first_name"`
+		LastName   *string   `json:"last_name"`
+		Email      *string   `json:"email"`
+		Role       *string   `json:"role"`
+		ExtraRoles *[]string `json:"extra_roles"`
+		Department *string   `json:"department"`
+		Password   *string   `json:"password"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -269,6 +296,24 @@ func updateUser(db *core.DB) http.HandlerFunc {
 			}
 			setCols["role"] = *b.Role
 		}
+		if b.ExtraRoles != nil {
+			// Effective primary role is the incoming role if changing, else current.
+			primary := ""
+			if b.Role != nil {
+				primary = *b.Role
+			} else if cur, _ := db.PGQuery(r.Context(), `SELECT role FROM o3c_users WHERE id=$1`, id); len(cur) > 0 {
+				primary = str(cur[0]["role"])
+			}
+			extraRoles := sanitizeExtraRoles(db, r, primary, *b.ExtraRoles)
+			for _, er := range extraRoles {
+				if !validRole(db, r, er) {
+					respondErr(w, 422, "Unknown extra role: "+er)
+					return
+				}
+			}
+			extraRolesJSON, _ := json.Marshal(extraRoles)
+			setCols["extra_roles"] = string(extraRolesJSON)
+		}
 		if b.Department != nil {
 			setCols["department"] = *b.Department
 		}
@@ -294,7 +339,11 @@ func updateUser(db *core.DB) http.HandlerFunc {
 		var args []any
 		i := 1
 		for col, val := range setCols {
-			parts = append(parts, col+"=$"+itoa(i))
+			placeholder := "$" + itoa(i)
+			if col == "extra_roles" {
+				placeholder += "::jsonb" // value is a JSON string
+			}
+			parts = append(parts, col+"="+placeholder)
 			args = append(args, val)
 			i++
 		}

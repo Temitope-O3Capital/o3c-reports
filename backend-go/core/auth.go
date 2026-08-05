@@ -31,11 +31,20 @@ type Claims struct {
 	Sub        string   `json:"sub"`
 	ID         int64    `json:"id"`
 	Role       string   `json:"role"`
+	ExtraRoles []string `json:"extra_roles,omitempty"` // secondary team roles (multi-team staff)
 	FullName   string   `json:"full_name"`
 	Department string   `json:"department"`
 	Pages      []string `json:"pages"`
 	JTI        string   `json:"jti,omitempty"`
 	jwt.RegisteredClaims
+}
+
+// AllRoles returns the user's primary role plus any secondary (multi-team) roles.
+func (c *Claims) AllRoles() []string {
+	if len(c.ExtraRoles) == 0 {
+		return []string{c.Role}
+	}
+	return append([]string{c.Role}, c.ExtraRoles...)
 }
 
 type ctxKey struct{}
@@ -60,15 +69,17 @@ func CSPNonceFromCtx(ctx context.Context) string {
 }
 
 // HasPage reports whether the user has been granted the given page permission,
-// either via their role's built-in page list or their per-user page overrides.
+// via any of their roles' built-in page lists or the resolved page set on the token.
 func (c *Claims) HasPage(page string) bool {
 	// admin is the super-user (app builder): unconditional access to every page.
 	if c.Role == "admin" {
 		return true
 	}
-	for _, p := range RolePages[c.Role] {
-		if p == page {
-			return true
+	for _, role := range c.AllRoles() {
+		for _, p := range RolePages[role] {
+			if p == page {
+				return true
+			}
 		}
 	}
 	for _, p := range c.Pages {
@@ -316,8 +327,10 @@ func RequirePages(pages ...string) func(http.Handler) http.Handler {
 				return
 			}
 			allowed := make(map[string]bool)
-			for _, p := range RolePages[user.Role] {
-				allowed[p] = true
+			for _, role := range user.AllRoles() {
+				for _, p := range RolePages[role] {
+					allowed[p] = true
+				}
 			}
 			for _, p := range user.Pages {
 				allowed[p] = true

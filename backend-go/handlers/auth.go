@@ -257,6 +257,32 @@ func RegisterHandler(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// resolveRolePages returns the union of page grants across all given roles,
+// resolving each from the built-in RolePages map or, for custom roles, the
+// o3c_custom_roles table. Used to build the token page set for multi-team users.
+func resolveRolePages(ctx context.Context, db *core.DB, roles []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(ps []string) {
+		for _, p := range ps {
+			if p != "" && !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	for _, role := range roles {
+		if bp := core.RolePages[role]; len(bp) > 0 {
+			add(bp)
+			continue
+		}
+		if rows, _ := db.PGQuery(ctx, `SELECT pages FROM o3c_custom_roles WHERE name = $1`, role); len(rows) > 0 {
+			add(core.ParsePages(rows[0]["pages"]))
+		}
+	}
+	return out
+}
+
 func loginHandler(db *core.DB) http.HandlerFunc {
 	type response struct {
 		AccessToken string         `json:"access_token"`
@@ -281,6 +307,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			        COALESCE(first_name,'') AS first_name,
 			        COALESCE(last_name,'')  AS last_name,
 			        role, department,
+			        COALESCE(extra_roles, '[]'::jsonb)    AS extra_roles,
 			        COALESCE(must_change_password, false) AS must_change_password,
 			        COALESCE(is_active, true)             AS is_active,
 			        COALESCE(totp_enabled, false)         AS totp_enabled,
@@ -369,14 +396,8 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			u["id"], ip, r.Header.Get("User-Agent"))
 
 		role := str(u["role"])
-		pages := core.RolePages[role]
-		if len(pages) == 0 {
-			// Custom role — look up from DB
-			rows2, _ := db.PGQuery(r.Context(), `SELECT pages FROM o3c_custom_roles WHERE name = $1`, role)
-			if len(rows2) > 0 {
-				pages = core.ParsePages(rows2[0]["pages"])
-			}
-		}
+		extraRoles := core.ParsePages(u["extra_roles"])
+		pages := resolveRolePages(r.Context(), db, append([]string{role}, extraRoles...))
 
 		// If TOTP is enabled, issue a short-lived MFA challenge token instead.
 		if totpEnabled, _ := u["totp_enabled"].(bool); totpEnabled {
@@ -397,6 +418,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			Sub:        str(u["email"]),
 			ID:         toInt64(u["id"]),
 			Role:       role,
+			ExtraRoles: extraRoles,
 			FullName:   str(u["full_name"]),
 			Department: str(u["department"]),
 			Pages:      pages,
@@ -459,7 +481,7 @@ func refreshHandler(db *core.DB) http.HandlerFunc {
 		}
 
 		rows, err := db.PGQuery(r.Context(),
-			`SELECT id, email, full_name, role, department
+			`SELECT id, email, full_name, role, department, COALESCE(extra_roles, '[]'::jsonb) AS extra_roles
 			 FROM o3c_users WHERE id = $1 AND deleted_at IS NULL AND is_active = TRUE`, old.ID)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 401, "User not found or inactive")
@@ -468,18 +490,14 @@ func refreshHandler(db *core.DB) http.HandlerFunc {
 		u := rows[0]
 
 		role := str(u["role"])
-		pages := core.RolePages[role]
-		if len(pages) == 0 {
-			rows2, _ := db.PGQuery(r.Context(), `SELECT pages FROM o3c_custom_roles WHERE name = $1`, role)
-			if len(rows2) > 0 {
-				pages = core.ParsePages(rows2[0]["pages"])
-			}
-		}
+		extraRoles := core.ParsePages(u["extra_roles"])
+		pages := resolveRolePages(r.Context(), db, append([]string{role}, extraRoles...))
 
 		claims := &core.Claims{
 			Sub:        str(u["email"]),
 			ID:         old.ID,
 			Role:       role,
+			ExtraRoles: extraRoles,
 			FullName:   str(u["full_name"]),
 			Department: str(u["department"]),
 			Pages:      pages,

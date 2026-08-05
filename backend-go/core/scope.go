@@ -68,3 +68,16 @@ var managementRoles = map[string]bool{
 // IsManagement reports whether a role belongs to the executive/management tier
 // that may access company-wide overview dashboards.
 func IsManagement(role string) bool { return managementRoles[role] }
+
+// CanSeeAllRows reports whether the user sees every row (not just their own) in
+// the modules they can access — true if ANY of their roles is a see-all role.
+// For the common multi-team case (agent in two teams) this is false, so they are
+// scoped to their own rows in each module.
+func (c *Claims) CanSeeAllRows() bool {
+	for _, role := range c.AllRoles() {
+		if SeesAllRows(role) {
+			return true
+		}
+	}
+	return false
+}
