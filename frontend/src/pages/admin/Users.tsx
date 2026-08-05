@@ -25,6 +25,16 @@ interface User {
   created_at: string
 }
 
+// Normalize extra_roles, which the users-list API returns as a JSON *string*
+// (jsonb stringified by the db layer) while login returns it as a real array.
+function asRoleArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v as string[]
+  if (typeof v === 'string' && v.trim()) {
+    try { const p = JSON.parse(v); return Array.isArray(p) ? p : [] } catch { return [] }
+  }
+  return []
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DEPARTMENTS = ['Finance', 'Operations', 'IT', 'HR', 'Sales & BD', 'Collections', 'Recovery', 'Compliance', 'Customer Service', 'Cards']
@@ -240,7 +250,7 @@ function EditUserModal({ user, onClose, onSaved }: {
     department: user.department,
     is_active:  user.is_active,
   })
-  const [extraRoles, setExtraRoles] = useState<string[]>(user.extra_roles ?? [])
+  const [extraRoles, setExtraRoles] = useState<string[]>(asRoleArray(user.extra_roles))
   const [saving,          setSaving]          = useState(false)
   const [resettingPw,     setResettingPw]     = useState(false)
   const [newTempPw,       setNewTempPw]       = useState<string | null>(null)
@@ -505,7 +515,7 @@ export default function AdminUsers() {
     { key: 'role', label: 'Role', render: u => (
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
         <RolePill role={u.role} />
-        {u.extra_roles?.map(r => <RolePill key={r} role={r} />)}
+        {asRoleArray(u.extra_roles).map(r => <RolePill key={r} role={r} />)}
       </div>
     ) },
     { key: 'department', label: 'Dept', render: u => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{u.department || '—'}</span> },

@@ -130,6 +130,11 @@ func listUsers(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Query failed")
 			return
 		}
+		// extra_roles is jsonb; the db layer stringifies it. Return a real array
+		// so the client doesn't receive a JSON string.
+		for _, row := range rows {
+			row["extra_roles"] = core.ParsePages(row["extra_roles"])
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}

@@ -27,7 +27,10 @@ export interface AuthUser {
 // allRoles returns a user's primary role plus any secondary roles — the set the
 // sidebar and access checks should consider for multi-team staff.
 export function allRoles(user: { role: string; extra_roles?: string[] }): string[] {
-  return user.extra_roles?.length ? [user.role, ...user.extra_roles] : [user.role]
+  // Guard: extra_roles can arrive as a JSON string from some endpoints (jsonb
+  // stringified by the backend db layer), so never spread a non-array.
+  const extra = Array.isArray(user.extra_roles) ? user.extra_roles : []
+  return extra.length ? [user.role, ...extra] : [user.role]
 }
 
 const CRM        = ['crm_pipeline','crm_contacts','crm_tasks','crm_requests']
