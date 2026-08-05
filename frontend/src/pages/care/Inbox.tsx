@@ -35,7 +35,7 @@ interface Message {
 }
 
 interface DetailResp {
-  ticket: MailTicket & { customer_phone?: string }
+  ticket: MailTicket & { customer_phone?: string; assigned_to?: number; assigned_to_name?: string }
   messages: Message[]
 }
 
@@ -113,6 +113,22 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
     }
   }
 
+  async function claim() {
+    try {
+      await apiPost(`/api/helpdesk/tickets/${ticketId}/claim`, {})
+      toast.success('Assigned to you')
+      load(); onReplied()
+    } catch (e: any) { toast.error(e.message ?? 'Failed to assign') }
+  }
+
+  async function setStatus(status: string) {
+    try {
+      await apiFetch(`/api/helpdesk/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ status }) })
+      toast.success(status === 'resolved' ? 'Marked resolved' : 'Reopened')
+      load(); onReplied()
+    } catch (e: any) { toast.error(e.message ?? 'Failed to update') }
+  }
+
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner size={22} /></div>
   if (!data) return <div style={{ padding: 40, color: 'var(--txt2)' }}>Could not load this mail.</div>
 
@@ -142,6 +158,31 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
               style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', background: 'none', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '4px 9px', cursor: 'pointer' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>Ticket
             </button>
+          </div>
+        </div>
+        {/* Assignee + workflow actions */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 10 }}>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+            {t.assigned_to_name ? `Assigned to ${t.assigned_to_name}` : 'Unassigned'}
+          </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {!t.assigned_to && (
+              <button onClick={claim}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.md, padding: '5px 10px', cursor: 'pointer' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>person_add</span>Assign to me
+              </button>
+            )}
+            {['resolved', 'closed'].includes(t.status) ? (
+              <button onClick={() => setStatus('open')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', background: 'none', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '5px 10px', cursor: 'pointer' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>replay</span>Reopen
+              </button>
+            ) : (
+              <button onClick={() => setStatus('resolved')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff', background: GREEN, border: 'none', borderRadius: RADIUS.md, padding: '5px 12px', cursor: 'pointer' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>check</span>Resolve
+              </button>
+            )}
           </div>
         </div>
       </div>
