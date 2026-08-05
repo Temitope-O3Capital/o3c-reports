@@ -19,8 +19,15 @@ export interface AuthUser {
   name:                string
   email:               string
   role:                Role
+  extra_roles?:        string[]   // secondary team roles (multi-team staff)
   pages?:              string[]
   must_change_password?: boolean
+}
+
+// allRoles returns a user's primary role plus any secondary roles — the set the
+// sidebar and access checks should consider for multi-team staff.
+export function allRoles(user: { role: string; extra_roles?: string[] }): string[] {
+  return user.extra_roles?.length ? [user.role, ...user.extra_roles] : [user.role]
 }
 
 const CRM        = ['crm_pipeline','crm_contacts','crm_tasks','crm_requests']
