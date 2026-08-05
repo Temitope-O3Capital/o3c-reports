@@ -29,22 +29,31 @@ func RegisterInterswitch(r chi.Router, db *core.DB) {
 // iswPeriodWhere maps the frontend period id to a SQL date predicate on txn_date.
 // Whitelisted — never interpolates user input into SQL.
 //
-// Periods anchor to the LATEST available data (MAX(txn_date)), not today's date, so the
-// dashboard always lands on real data instead of an empty current period when the loaded
-// transactions are historical. Falls back to CURRENT_DATE when the table is empty.
+// Periods anchor to the latest DENSE month of data (not today's date, and not a raw
+// MAX(txn_date) — which a handful of mis-dated outlier rows could skew). This makes the
+// dashboard always land on the real bulk of data (e.g. a historical 2025 load) instead
+// of an empty current period. Falls back to CURRENT_DATE when the table is empty.
 func iswPeriodWhere(period string) string {
-	ref := "COALESCE((SELECT MAX(txn_date) FROM interswitch_txns), CURRENT_DATE)"
+	ref := `COALESCE((
+		SELECT MAX(txn_date) FROM interswitch_txns
+		WHERE DATE_TRUNC('month', txn_date) IN (
+			SELECT DATE_TRUNC('month', txn_date) FROM interswitch_txns
+			GROUP BY 1 HAVING COUNT(*) >= 100
+		)
+	), CURRENT_DATE)`
+	// Each window is bounded ABOVE at the anchor too, so stray future-dated outlier rows
+	// are excluded and report_date reflects the anchor.
 	switch strings.ToLower(period) {
 	case "l30d":
-		return "txn_date >= " + ref + " - INTERVAL '30 days'"
+		return "txn_date BETWEEN " + ref + " - INTERVAL '30 days' AND " + ref
 	case "l90d":
-		return "txn_date >= " + ref + " - INTERVAL '90 days'"
+		return "txn_date BETWEEN " + ref + " - INTERVAL '90 days' AND " + ref
 	case "ytd":
-		return "txn_date >= DATE_TRUNC('year', " + ref + ")"
+		return "txn_date >= DATE_TRUNC('year', " + ref + ") AND txn_date <= " + ref
 	case "mtd":
 		fallthrough
 	default:
-		return "txn_date >= DATE_TRUNC('month', " + ref + ")"
+		return "txn_date >= DATE_TRUNC('month', " + ref + ") AND txn_date <= " + ref
 	}
 }
 
