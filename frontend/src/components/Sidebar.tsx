@@ -124,6 +124,7 @@ const SECTIONS: Section[] = [
           // Care handles customer mail — email-channel tickets shown as an inbox
           { label: 'Dashboard',          to: '/care' },
           { label: 'Care Inbox',         to: '/care/inbox' },
+          { label: 'Supervisor',         to: '/care/supervisor',  vis: ['call_center_head','telemarketing_head'] },
           // shared history + resources (customer's cross-channel history via Customer 360)
           { label: 'Customer Directory', to: '/customers' },
           { label: 'Knowledge Base',     to: '/helpdesk/knowledge-base' },
@@ -318,22 +319,24 @@ const SECTIONS: Section[] = [
 // ── Role visibility ───────────────────────────────────────────────────────────
 
 
-function canSee(vis: NavItem['vis'], role: string): boolean {
-  if (MGMT.has(role))  return true
-  if (vis === 'all')   return true
-  if (!vis)            return false
-  return (vis as string[]).includes(role)
+// Visibility is evaluated against the user's full role set (primary + secondary
+// team roles), so multi-team staff see every module any of their roles grants.
+function canSee(vis: NavItem['vis'], roles: string[]): boolean {
+  if (roles.some(r => MGMT.has(r))) return true
+  if (vis === 'all')                return true
+  if (!vis)                         return false
+  return roles.some(r => (vis as string[]).includes(r))
 }
 
-function canSeeSub(vis: string[] | undefined, role: string): boolean {
+function canSeeSub(vis: string[] | undefined, roles: string[]): boolean {
   if (!vis) return true
-  if (MGMT.has(role)) return true
-  return vis.includes(role)
+  if (roles.some(r => MGMT.has(r))) return true
+  return roles.some(r => vis.includes(r))
 }
 
-function visibleSections(role: string): Section[] {
+function visibleSections(roles: string[]): Section[] {
   return SECTIONS
-    .map(s => ({ ...s, items: s.items.filter(item => canSee(item.vis, role)) }))
+    .map(s => ({ ...s, items: s.items.filter(item => canSee(item.vis, roles)) }))
     .filter(s => s.items.length > 0)
 }
 
@@ -385,12 +388,12 @@ function NavBadge({ n, hot }: { n: number; hot?: boolean }) {
 // ── Nav row ───────────────────────────────────────────────────────────────────
 
 function NavRow({
-  item, isActive, hasActiveSub, collapsed, open, onToggle, role,
+  item, isActive, hasActiveSub, collapsed, open, onToggle, roles,
 }: {
   item: NavItem; isActive: boolean; hasActiveSub: boolean
-  collapsed: boolean; open: boolean; onToggle: () => void; role: string
+  collapsed: boolean; open: boolean; onToggle: () => void; roles: string[]
 }) {
-  const visibleSubs = item.subs?.filter(s => canSeeSub(s.vis, role)) ?? []
+  const visibleSubs = item.subs?.filter(s => canSeeSub(s.vis, roles)) ?? []
   const hasSubs     = visibleSubs.length > 0
   const highlighted = isActive || hasActiveSub
   const { pathname } = useLocation()
@@ -551,7 +554,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
   }, [collapsed])
 
   // root and admin sections always show; all others require the module to be enabled
-  const sections = visibleSections(user.role as string).filter(s =>
+  const sections = visibleSections(allRoles(user)).filter(s =>
     s.key === 'root' || s.key === 'admin' || enabledModules.has(s.key)
   )
 

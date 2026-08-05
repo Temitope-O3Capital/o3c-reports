@@ -271,7 +271,70 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		// Customer history — a customer's other tickets + calls (read-only context
 		// so Care knows the customer before replying to their mail).
 		r.Get("/customer-history", hdCustomerHistory(db))
+
+		// Care supervisor — team mail load, unassigned pool, per-agent stats.
+		r.Get("/care-supervisor", hdCareSupervisor(db))
 	})
+}
+
+// hdCareSupervisor returns team-level mail metrics for the Care module: headline
+// KPIs, the unassigned pool, and per-agent load (all scoped to the email channel).
+func hdCareSupervisor(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		count := func(sql string) int64 {
+			rows, _ := db.PGQuery(ctx, sql)
+			if len(rows) > 0 {
+				return toInt64(rows[0]["n"])
+			}
+			return 0
+		}
+		open := count(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND status NOT IN ('resolved','closed')`)
+		unassigned := count(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND status NOT IN ('resolved','closed') AND assigned_to IS NULL`)
+		resolvedToday := count(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND status IN ('resolved','closed') AND resolved_at::date=CURRENT_DATE`)
+		slaAtRisk := count(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND status NOT IN ('resolved','closed') AND sla_due_at IS NOT NULL AND sla_due_at <= NOW() + INTERVAL '2 hours'`)
+		awaiting := count(`
+			SELECT COUNT(*) AS n FROM helpdesk_tickets t
+			WHERE t.channel='email' AND t.status NOT IN ('resolved','closed')
+			  AND (SELECT m.direction FROM helpdesk_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1) = 'inbound'`)
+
+		agents, _ := db.PGQuery(ctx, `
+			SELECT u.full_name AS agent_name,
+			  COUNT(*) FILTER (WHERE t.status NOT IN ('resolved','closed'))                                    AS open,
+			  COUNT(*) FILTER (WHERE t.status IN ('resolved','closed') AND t.resolved_at::date=CURRENT_DATE)    AS resolved_today,
+			  ROUND(AVG(EXTRACT(EPOCH FROM (t.first_response_at - t.created_at))/60.0)
+			        FILTER (WHERE t.first_response_at IS NOT NULL))                                            AS avg_first_response_mins,
+			  COUNT(*) FILTER (WHERE t.status NOT IN ('resolved','closed') AND t.sla_due_at IS NOT NULL
+			        AND t.sla_due_at <= NOW() + INTERVAL '2 hours')                                            AS sla_at_risk
+			FROM helpdesk_tickets t
+			JOIN o3c_users u ON u.id = t.assigned_to
+			WHERE t.channel='email'
+			GROUP BY u.id, u.full_name
+			ORDER BY open DESC, u.full_name`)
+
+		unassignedList, _ := db.PGQuery(ctx, `
+			SELECT id, ticket_ref, subject, NULLIF(customer_name,'') AS customer_name,
+			       created_at, COALESCE(updated_at, created_at) AS last_at, priority
+			FROM helpdesk_tickets
+			WHERE channel='email' AND status NOT IN ('resolved','closed') AND assigned_to IS NULL
+			ORDER BY created_at ASC LIMIT 25`)
+
+		if agents == nil {
+			agents = []core.Row{}
+		}
+		if unassignedList == nil {
+			unassignedList = []core.Row{}
+		}
+		respond(w, map[string]any{
+			"open":               open,
+			"unassigned":         unassigned,
+			"awaiting_reply":     awaiting,
+			"resolved_today":     resolvedToday,
+			"sla_at_risk":        slaAtRisk,
+			"agents":             agents,
+			"unassigned_tickets": unassignedList,
+		}, "care")
+	}
 }
 
 // hdCustomerHistory returns a customer's other tickets (matched by CIF or email)
