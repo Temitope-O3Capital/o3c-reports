@@ -196,6 +196,7 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Post("/tickets/{id}/merge", hdMergeTicket(db))
 		r.Get("/canned-responses", hdListCanned(db))
 		r.Post("/canned-responses", hdCreateCanned(db))
+		r.Post("/canned-responses/{id}/use", hdUseCanned(db))
 		r.Put("/canned-responses/{id}", hdUpdateCanned(db))
 		r.Delete("/canned-responses/{id}", hdDeleteCanned(db))
 		r.Get("/sla-policies", hdListSLA(db))
@@ -1161,8 +1162,24 @@ func hdMergeTicket(db *core.DB) http.HandlerFunc {
 
 // ── Canned Responses ──────────────────────────────────────────────────────────
 
+func ensureCannedSchema(ctx context.Context, db *core.DB) {
+	db.PGExec(ctx, `ALTER TABLE helpdesk_canned_responses ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ`) //nolint:errcheck
+}
+
+// hdUseCanned bumps last_used_at so the most-used templates surface (called when
+// an agent inserts a canned response into a reply).
+func hdUseCanned(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ensureCannedSchema(r.Context(), db)
+		id := chi.URLParam(r, "id")
+		db.PGExec(r.Context(), `UPDATE helpdesk_canned_responses SET last_used_at=NOW() WHERE id=$1`, id) //nolint:errcheck
+		w.WriteHeader(204)
+	}
+}
+
 func hdListCanned(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ensureCannedSchema(r.Context(), db)
 		where := "1=1"
 		var args []any
 		n := 1
@@ -2417,6 +2434,21 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 
 // ── Knowledge Base ─────────────────────────────────────────────────────────────
 
+// kbCanonicalStatus normalises a display status ("Live", "Pending Approval", …)
+// to the value stored in kb_status.
+func kbCanonicalStatus(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "live", "published":
+		return "live"
+	case "pending", "pending approval":
+		return "pending"
+	case "archived":
+		return "archived"
+	default:
+		return "draft"
+	}
+}
+
 func ensureKBSchema(ctx context.Context, db *core.DB) error {
 	_, err := db.PGExec(ctx, `
 		CREATE TABLE IF NOT EXISTS helpdesk_knowledge_base (
@@ -2452,7 +2484,11 @@ func hdKBList(db *core.DB) http.HandlerFunc {
 		search := r.URL.Query().Get("search")
 
 		q := `SELECT kb.id, kb.title, kb.category,
-		             CASE WHEN kb.is_public THEN 'Live' ELSE 'Draft' END AS status,
+		             CASE kb.kb_status
+		                  WHEN 'pending'  THEN 'Pending Approval'
+		                  WHEN 'live'     THEN 'Live'
+		                  WHEN 'archived' THEN 'Archived'
+		                  ELSE 'Draft' END AS status,
 		             CASE WHEN (kb.helpful_count + kb.not_helpful_count) > 0
 		                  THEN ROUND(100.0 * kb.helpful_count / (kb.helpful_count + kb.not_helpful_count))
 		                  ELSE NULL END AS helpful_pct,
@@ -2513,8 +2549,10 @@ func hdKBCreate(db *core.DB) http.HandlerFunc {
 		if b.BodyText == "" && b.Body != "" {
 			b.BodyText = b.Body
 		}
-		// Accept status as alias for is_public
-		if b.Status == "Live" {
+		// Status drives the approval lifecycle; only 'live' is publicly visible.
+		kbStatus := kbCanonicalStatus(b.Status)
+		if b.IsPublic || kbStatus == "live" {
+			kbStatus = "live"
 			b.IsPublic = true
 		}
 		if b.Slug == "" {
@@ -2532,10 +2570,10 @@ func hdKBCreate(db *core.DB) http.HandlerFunc {
 		}()
 		ctx := r.Context()
 		rows, err := db.PGQuery(ctx, `
-			INSERT INTO helpdesk_knowledge_base (title, slug, category, body_html, body_text, tags, is_public, created_by, updated_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
-			RETURNING id, title, slug, category, tags, is_public, view_count, created_at, updated_at`,
-			b.Title, b.Slug, b.Category, b.BodyHTML, b.BodyText, tags, b.IsPublic, uid)
+			INSERT INTO helpdesk_knowledge_base (title, slug, category, body_html, body_text, tags, is_public, kb_status, created_by, updated_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+			RETURNING id, title, slug, category, tags, is_public, kb_status, view_count, created_at, updated_at`,
+			b.Title, b.Slug, b.Category, b.BodyHTML, b.BodyText, tags, b.IsPublic, kbStatus, uid)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return
@@ -2628,10 +2666,16 @@ func hdKBUpdate(db *core.DB) http.HandlerFunc {
 		if b.BodyText == nil && b.Body != nil {
 			b.BodyText = b.Body
 		}
-		// Accept status as alias for is_public
-		if b.IsPublic == nil && b.Status != nil {
-			pub := *b.Status == "Live"
-			b.IsPublic = &pub
+		// Status drives the approval lifecycle; keep is_public in sync (only 'live'
+		// is publicly visible) unless the caller set is_public explicitly.
+		var kbStatus *string
+		if b.Status != nil {
+			c := kbCanonicalStatus(*b.Status)
+			kbStatus = &c
+			if b.IsPublic == nil {
+				pub := c == "live"
+				b.IsPublic = &pub
+			}
 		}
 		uid := func() int64 {
 			if u := core.UserFromCtx(r.Context()); u != nil {
@@ -2665,6 +2709,9 @@ func hdKBUpdate(db *core.DB) http.HandlerFunc {
 		}
 		if b.IsPublic != nil {
 			add("is_public", *b.IsPublic)
+		}
+		if kbStatus != nil {
+			add("kb_status", *kbStatus)
 		}
 		if n == 2 {
 			respondErr(w, 400, "nothing to update")
@@ -2708,10 +2755,11 @@ func hdKBSetStatus(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "status required")
 			return
 		}
-		isPublic := b.Status == "Live"
+		kbStatus := kbCanonicalStatus(b.Status)
+		isPublic := kbStatus == "live"
 		if _, err := db.PGExec(r.Context(),
-			`UPDATE helpdesk_knowledge_base SET is_public=$1, updated_at=NOW() WHERE id=$2`,
-			isPublic, id); err != nil {
+			`UPDATE helpdesk_knowledge_base SET kb_status=$1, is_public=$2, updated_at=NOW() WHERE id=$3`,
+			kbStatus, isPublic, id); err != nil {
 			respondErr(w, 500, err.Error())
 			return
 		}

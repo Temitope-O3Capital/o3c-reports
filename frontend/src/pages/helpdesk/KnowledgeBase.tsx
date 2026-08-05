@@ -277,9 +277,9 @@ export default function KnowledgeBase() {
   // Toggle publish/unpublish
   async function handleToggleStatus(a: KBArticle, e: React.MouseEvent) {
     e.stopPropagation()
-    const newStatus = a.status === 'Live' ? 'Archived' : 'Live'
+    const newStatus = a.status === 'Live' ? 'Draft' : 'Live'
     try {
-      await apiPut(`/api/helpdesk/kb/${a.id}/status`, { status: newStatus === 'Archived' ? 'Draft' : newStatus })
+      await apiPut(`/api/helpdesk/kb/${a.id}/status`, { status: newStatus })
       toast.success(`Article ${newStatus === 'Live' ? 'published' : 'unpublished'}`)
       load()
     } catch (e: any) {
@@ -292,7 +292,7 @@ export default function KnowledgeBase() {
     if (!archiveArticle) return
     setArchiving(true)
     try {
-      await apiPut(`/api/helpdesk/kb/${archiveArticle.id}/status`, { status: 'Draft' })
+      await apiPut(`/api/helpdesk/kb/${archiveArticle.id}/status`, { status: 'Archived' })
       toast.success('Article archived')
       setArchiveArticle(null)
       load()

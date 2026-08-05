@@ -39,6 +39,15 @@ interface DetailResp {
   messages: Message[]
 }
 
+interface CannedResponse {
+  id: number
+  title?: string
+  name?: string
+  category?: string
+  body?: string
+  body_text?: string
+}
+
 const STATUS_FILTERS = ['open', 'pending', 'resolved', 'closed'] as const
 
 function initials(name?: string) {
@@ -52,6 +61,31 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
   const [loading, setLoading] = useState(true)
   const [reply, setReply] = useState('')
   const [sending, setSending] = useState(false)
+  const [cannedOpen, setCannedOpen] = useState(false)
+  const [canned, setCanned] = useState<CannedResponse[]>([])
+  const [cannedLoaded, setCannedLoaded] = useState(false)
+
+  function toggleCanned() {
+    setCannedOpen(o => !o)
+    if (!cannedLoaded) {
+      apiFetch<any>('/api/helpdesk/canned-responses')
+        .then(r => setCanned((Array.isArray(r) ? r : (r?.data ?? [])) as CannedResponse[]))
+        .catch(() => setCanned([]))
+        .finally(() => setCannedLoaded(true))
+    }
+  }
+  function insertCanned(c: CannedResponse) {
+    let text = c.body || c.body_text || ''
+    const tk = data?.ticket
+    if (tk) {
+      text = text
+        .replace(/\{\{\s*customer_name\s*\}\}/gi, tk.customer_name || 'there')
+        .replace(/\{\{\s*ticket_ref\s*\}\}/gi, tk.ticket_ref || '')
+    }
+    setReply(prev => (prev.trim() ? prev.trimEnd() + '\n\n' + text : text))
+    setCannedOpen(false)
+    apiPost(`/api/helpdesk/canned-responses/${c.id}/use`, {}).catch(() => {}) // best-effort usage tracking
+  }
 
   const load = useCallback(() => {
     setLoading(true)
@@ -144,7 +178,29 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
       </div>
 
       {/* Reply */}
-      <div style={{ borderTop: '1px solid var(--bdr)', padding: '12px 22px', background: 'var(--card)', flexShrink: 0 }}>
+      <div style={{ borderTop: '1px solid var(--bdr)', padding: '12px 22px', background: 'var(--card)', flexShrink: 0, position: 'relative' }}>
+        {/* Canned response picker */}
+        {cannedOpen && (
+          <div style={{ position: 'absolute', bottom: 'calc(100% - 6px)', left: 22, right: 22, zIndex: 20, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, boxShadow: '0 -8px 30px rgba(0,0,0,0.16)', maxHeight: 260, overflowY: 'auto' }}>
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--bdr)', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Canned Responses</div>
+            {!cannedLoaded ? (
+              <div style={{ padding: 16, textAlign: 'center' }}><Spinner size={14} /></div>
+            ) : canned.length === 0 ? (
+              <div style={{ padding: '12px', fontSize: TEXT.sm, color: 'var(--txt3)' }}>None yet — add them in Call Center → Canned Responses.</div>
+            ) : canned.map(c => (
+              <button key={c.id} type="button" onClick={() => insertCanned(c)}
+                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', borderBottom: '1px solid var(--bdr)', background: 'transparent', cursor: 'pointer' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{c.title || c.name}</span>
+                  {c.category && <span style={{ fontSize: TEXT['2xs'], color: BLUE, background: `${BLUE}14`, padding: '1px 6px', borderRadius: RADIUS.xl }}>{c.category}</span>}
+                </div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>{c.body || c.body_text}</div>
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           spellCheck={false}
           value={reply}
@@ -154,7 +210,12 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
           placeholder={`Reply to ${t.customer_name || 'customer'} by email…  (Cmd/Ctrl+Enter to send)`}
           style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.5 }}
         />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+          <button onClick={toggleCanned} type="button"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: cannedOpen ? `${NAVY}12` : 'transparent', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>bolt</span>
+            Canned
+          </button>
           <button onClick={send} disabled={sending || !reply.trim()}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.bold, cursor: sending || !reply.trim() ? 'not-allowed' : 'pointer', opacity: sending || !reply.trim() ? 0.6 : 1, fontFamily: SORA }}>
             {sending ? <Spinner size={13} color="#fff" /> : <span className="material-symbols-rounded" style={{ fontSize: 16 }}>send</span>}

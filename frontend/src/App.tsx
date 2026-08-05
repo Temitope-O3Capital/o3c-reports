@@ -42,7 +42,6 @@ const ExecFinance     = lazy(() => import('./pages/executive/Finance'))
 const ExecSales       = lazy(() => import('./pages/executive/Sales'))
 const ExecCollections = lazy(() => import('./pages/executive/Collections'))
 const ExecRisk        = lazy(() => import('./pages/executive/Risk'))
-const ExecHR          = lazy(() => import('./pages/executive/HR'))
 const ExecSettlements = lazy(() => import('./pages/executive/Settlements'))
 const ExecFixedDeposits = lazy(() => import('./pages/executive/FixedDeposits'))
 const Interswitch          = lazy(() => import('./pages/cards/Interswitch'))
@@ -241,15 +240,6 @@ const ComplianceCreditBureau  = lazy(() => import('./pages/compliance/CreditBure
 const ComplianceBreach        = lazy(() => import('./pages/compliance/BreachIncidents'))
 
 // HR
-const HREmployees    = lazy(() => import('./pages/hr/Employees'))
-const HRLeave        = lazy(() => import('./pages/hr/Leave'))
-const HRPerformance  = lazy(() => import('./pages/hr/Performance'))
-const HRDisciplinary = lazy(() => import('./pages/hr/Disciplinary'))
-const HRTraining     = lazy(() => import('./pages/hr/Training'))
-const HRRecruitment  = lazy(() => import('./pages/hr/Recruitment'))
-const HROrgChart     = lazy(() => import('./pages/hr/OrgChart'))
-const HROnboarding   = lazy(() => import('./pages/hr/Onboarding'))
-const HROffboarding  = lazy(() => import('./pages/hr/Offboarding'))
 const CoreBanking       = lazy(() => import('./pages/core-banking/CoreBanking'))
 const CCStatements      = lazy(() => import('./pages/statements/CCStatements'))
 const CCStatementNew    = lazy(() => import('./pages/statements/CCStatementNew'))
@@ -271,7 +261,6 @@ function homeFor(role: string): string {
     recovery_agent: '/recovery',   recovery_head: '/recovery',
     head_recovery: '/recovery',
     call_center_agent: '/helpdesk', call_center_head: '/helpdesk',
-    hr_officer: '/hr',             hr_manager: '/hr',
     compliance_officer: '/compliance', compliance_head: '/compliance',
     internal_control_head: '/compliance',
     it_admin: '/admin/overview',
@@ -364,8 +353,6 @@ const MODULE_TITLES: [string, string, string][] = [
   ['/finance',         'Finance',           'Finance'],
   ['/settlements',     'Finance',           'Settlements'],
   ['/compliance',      'Compliance',        'Compliance'],
-  ['/hr',              'People',            'HR'],
-  ['/payroll',         'People',            'Payroll'],
   ['/reports',         'Analytics',         'Reports & BI'],
   ['/bi',              'Analytics',         'Reports & BI'],
   ['/statements',      'Analytics',         'Statements'],
@@ -945,7 +932,6 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/executive/sales"        element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecSales /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/collections"  element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecCollections /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/risk"         element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecRisk /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/executive/hr"           element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecHR /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/settlements"  element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecSettlements /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/fixed-deposits" element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecFixedDeposits /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/interswitch"           element={<RequireAccess page="settlements" user={user}><PageErrorBoundary><Interswitch /></PageErrorBoundary></RequireAccess>} />
@@ -1017,7 +1003,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/helpdesk/stats"          element={<RequireAccess page="helpdesk_stats" user={user}><PageErrorBoundary><HelpdeskStats /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/knowledge-base" element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskKB /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/canned"         element={<RequireAccess page="helpdesk_canned" user={user}><PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/helpdesk/cbn-report"     element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskCBNReport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/cbn-report"      element={<RequireAccess page="reports" user={user}><PageErrorBoundary><HelpdeskCBNReport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/:id"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTicketDetail /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Cards */}
@@ -1124,16 +1110,6 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/board-pack"      element={<RequireAccess page="compliance_all" user={user}><PageErrorBoundary><ComplianceBoardPack /></PageErrorBoundary></RequireAccess>} />
 
                   {/* People */}
-                  <Route path="/hr"               element={<RequireAccess page="hr_employees" user={user}><Navigate to="/hr/employees" replace /></RequireAccess>} />
-                  <Route path="/hr/employees"     element={<RequireAccess page="hr_employees" user={user}><PageErrorBoundary><HREmployees /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/hr/leave"         element={<RequireAccess page="hr_leave" user={user}><PageErrorBoundary><HRLeave /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/hr/performance"   element={<RequireAccess page="hr_performance" user={user}><PageErrorBoundary><HRPerformance /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/hr/disciplinary"  element={<RequireAccess page="hr_disciplinary" user={user}><PageErrorBoundary><HRDisciplinary /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/hr/training"      element={<RequireAccess page="hr_training" user={user}><PageErrorBoundary><HRTraining /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/hr/recruitment"   element={<RequireAccess page="hr_employees" user={user}><PageErrorBoundary><HRRecruitment /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/hr/org-chart"     element={<RequireAccess page="hr_employees" user={user}><PageErrorBoundary><HROrgChart /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/hr/employees/:id/onboarding"  element={<RequireAccess page="hr_employees" user={user}><PageErrorBoundary><HROnboarding /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/hr/employees/:id/offboarding" element={<RequireAccess page="hr_employees" user={user}><PageErrorBoundary><HROffboarding /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/payroll"                          element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayrollOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/payroll/runs/:id"                 element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayrollRunDetail /></PageErrorBoundary></RequireAccess>} />

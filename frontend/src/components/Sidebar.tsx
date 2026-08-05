@@ -273,29 +273,6 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    key: 'people',
-    header: 'People',
-    items: [
-      {
-        icon: 'badge', label: 'HR', to: '/hr',
-        vis: ['hr_officer','hr_manager'],
-        subs: [
-          { label: 'Employees',    to: '/hr/employees' },
-          { label: 'Leave',        to: '/hr/leave' },
-          { label: 'Performance',  to: '/hr/performance' },
-          { label: 'Disciplinary', to: '/hr/disciplinary' },
-          { label: 'Training',     to: '/hr/training' },
-          { label: 'Recruitment',  to: '/hr/recruitment' },
-          { label: 'Org Chart',    to: '/hr/org-chart' },
-        ],
-      },
-      {
-        icon: 'payments', label: 'Payroll', to: '/payroll',
-        vis: ['hr_manager','payroll_officer','payroll_manager'],
-      },
-    ],
-  },
-  {
     key: 'analytics',
     header: 'Analytics',
     items: [
