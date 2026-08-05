@@ -267,7 +267,49 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 
 		// Care module dashboard — KPIs scoped to the email (mail) channel.
 		r.Get("/care-dashboard", hdCareDashboard(db))
+
+		// Customer history — a customer's other tickets + calls (read-only context
+		// so Care knows the customer before replying to their mail).
+		r.Get("/customer-history", hdCustomerHistory(db))
 	})
+}
+
+// hdCustomerHistory returns a customer's other tickets (matched by CIF or email)
+// and recent calls, for the read-only context panel in the Care Inbox.
+func hdCustomerHistory(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		cif := qstr(r, "cif")
+		email := qstr(r, "email")
+		exclude := qstr(r, "exclude")
+		if cif == "" && email == "" {
+			respond(w, map[string]any{"tickets": []any{}, "calls": []any{}}, "history")
+			return
+		}
+		tickets, _ := db.PGQuery(ctx, `
+			SELECT t.id, t.ticket_ref, t.channel, t.status, t.priority, t.subject,
+			       t.created_at, COALESCE(t.updated_at, t.created_at) AS last_at,
+			       u.full_name AS assigned_to_name
+			FROM helpdesk_tickets t
+			LEFT JOIN o3c_users u ON u.id = t.assigned_to
+			WHERE (($1 <> '' AND t.customer_cif = $1)
+			    OR ($2 <> '' AND lower(t.customer_email) = lower($2)))
+			  AND ($3 = '' OR t.id::text <> $3)
+			ORDER BY COALESCE(t.updated_at, t.created_at) DESC LIMIT 30`, cif, email, exclude)
+		var calls []core.Row
+		if cif != "" {
+			calls, _ = db.PGQuery(ctx, `
+				SELECT id, direction, outcome, duration_sec, agent_name, customer_name, started_at
+				FROM helpdesk_calls WHERE customer_cif=$1 ORDER BY started_at DESC LIMIT 15`, cif)
+		}
+		if tickets == nil {
+			tickets = []core.Row{}
+		}
+		if calls == nil {
+			calls = []core.Row{}
+		}
+		respond(w, map[string]any{"tickets": tickets, "calls": calls}, "history")
+	}
 }
 
 // hdCareDashboard returns mail-workload KPIs for the Care module (email-channel

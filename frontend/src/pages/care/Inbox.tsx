@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Page, Spinner, ErrBanner, TblSearch, StatusBadge } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, AMBER, GREEN, BLUE, FW, RADIUS, SP, TEXT, SORA } from '../../lib/design'
+import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, FW, RADIUS, SP, TEXT, SORA } from '../../lib/design'
 import { toast } from 'sonner'
 
 // Care = customer mail. These are helpdesk tickets on the 'email' channel, shown
@@ -54,6 +54,153 @@ function initials(name?: string) {
   return (name || '?').split(' ').filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 2)
 }
 
+// ── Customer history (read-only context + internal notes) ─────────────────────
+
+interface HistTicket {
+  id: number; ticket_ref: string; channel: string; status: string; priority?: string
+  subject: string; created_at: string; last_at?: string; assigned_to_name?: string
+}
+interface HistCall {
+  id: number; direction: string; outcome: string; duration_sec: number
+  agent_name?: string; customer_name?: string; started_at: string
+}
+
+const CHANNEL_ICON: Record<string, string> = {
+  call: 'call', email: 'mail', sms: 'sms', whatsapp: 'chat', social: 'groups', web: 'language',
+}
+
+// One prior ticket — read-only thread, expandable, with an internal-note box.
+function HistoryTicket({ t }: { t: HistTicket }) {
+  const [open, setOpen] = useState(false)
+  const [msgs, setMsgs] = useState<Message[] | null>(null)
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  function toggle() {
+    setOpen(o => !o)
+    if (msgs === null) {
+      apiFetch<DetailResp>(`/api/helpdesk/tickets/${t.id}`)
+        .then(d => setMsgs(d.messages ?? []))
+        .catch(() => setMsgs([]))
+    }
+  }
+  async function saveNote() {
+    if (!note.trim()) return
+    setSaving(true)
+    try {
+      await apiPost(`/api/helpdesk/tickets/${t.id}/messages`, { body_text: note.trim(), is_internal_note: true })
+      toast.success('Note added')
+      setNote('')
+      setMsgs(null); if (open) { apiFetch<DetailResp>(`/api/helpdesk/tickets/${t.id}`).then(d => setMsgs(d.messages ?? [])).catch(() => {}) }
+    } catch (e: any) { toast.error(e.message ?? 'Failed to add note') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.md, marginBottom: 8, overflow: 'hidden' }}>
+      <button type="button" onClick={toggle}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer' }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)' }}>{CHANNEL_ICON[t.channel] ?? 'confirmation_number'}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.subject || '(no subject)'}</div>
+          <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{t.channel} · {t.assigned_to_name || 'unassigned'} · {fmtDate(t.last_at || t.created_at)}</div>
+        </div>
+        <StatusBadge status={t.status} size="sm" />
+      </button>
+      {open && (
+        <div style={{ borderTop: '1px solid var(--bdr)', padding: '8px 10px', background: 'var(--th-bg)' }}>
+          {msgs === null ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 10 }}><Spinner size={13} /></div>
+          ) : msgs.length === 0 ? (
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', padding: '4px 0' }}>No messages.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto', marginBottom: 8 }}>
+              {msgs.map(m => (
+                <div key={m.id} style={{ fontSize: TEXT.xs, color: 'var(--txt2)', paddingLeft: 8, borderLeft: `2px solid ${m.is_internal_note ? AMBER : m.direction === 'outbound' ? NAVY : 'var(--bdr)'}` }}>
+                  <span style={{ fontWeight: FW.semibold, color: 'var(--txt)' }}>{m.is_internal_note ? 'Note' : m.direction === 'outbound' ? (m.author_user_name || m.author_name || 'Agent') : 'Customer'}</span>
+                  <span style={{ color: 'var(--txt3)' }}> · {fmtDatetime(m.created_at)}</span>
+                  <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 1 }}>{m.body_text}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="Add internal note…"
+              onKeyDown={e => { if (e.key === 'Enter') saveNote() }}
+              style={{ flex: 1, height: 30, padding: '0 8px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.sm, fontSize: TEXT.xs, background: 'var(--input-bg)', color: 'var(--txt)' }} />
+            <button type="button" onClick={saveNote} disabled={saving || !note.trim()}
+              style={{ padding: '0 10px', border: 'none', borderRadius: RADIUS.sm, background: NAVY, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.bold, cursor: saving || !note.trim() ? 'not-allowed' : 'pointer', opacity: saving || !note.trim() ? 0.6 : 1 }}>Note</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CustomerHistory({ cif, email, excludeId }: { cif?: string; email?: string; excludeId: number }) {
+  const [data, setData] = useState<{ tickets: HistTicket[]; calls: HistCall[] } | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    const p = new URLSearchParams()
+    if (cif) p.set('cif', cif)
+    if (email) p.set('email', email)
+    p.set('exclude', String(excludeId))
+    apiFetch<any>(`/api/helpdesk/customer-history?${p}`)
+      .then(r => setData((r?.data ?? r) as { tickets: HistTicket[]; calls: HistCall[] }))
+      .catch(() => setData({ tickets: [], calls: [] }))
+      .finally(() => setLoading(false))
+  }, [cif, email, excludeId])
+
+  return (
+    <div style={{ width: 340, minWidth: 300, borderLeft: '1px solid var(--bdr)', background: 'var(--card)', display: 'flex', flexDirection: 'column', flexShrink: 0, overflowY: 'auto' }}>
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>Customer History</div>
+        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>Read-only · add internal notes</div>
+      </div>
+      <div style={{ padding: '12px 14px' }}>
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 30 }}><Spinner size={16} /></div>
+        ) : !cif && !email ? (
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>No CIF or email on this mail — can't match prior history.</div>
+        ) : (
+          <>
+            <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+              Other Tickets ({data?.tickets.length ?? 0})
+            </div>
+            {(data?.tickets.length ?? 0) === 0 ? (
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 14 }}>No other tickets.</div>
+            ) : (
+              <div style={{ marginBottom: 14 }}>{data!.tickets.map(t => <HistoryTicket key={t.id} t={t} />)}</div>
+            )}
+
+            <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+              Recent Calls ({data?.calls.length ?? 0})
+            </div>
+            {(data?.calls.length ?? 0) === 0 ? (
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>No calls on record.</div>
+            ) : data!.calls.map(c => {
+              const inbound = c.direction === 'inbound'
+              const dur = c.duration_sec > 0 ? `${Math.floor(c.duration_sec / 60)}m ${c.duration_sec % 60}s` : '—'
+              return (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--bdr)' }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: inbound ? BLUE : PURPLE }}>{inbound ? 'call_received' : 'call_made'}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt)', fontWeight: FW.medium }}>{c.agent_name || 'Agent'} · {c.outcome}</div>
+                    <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtDatetime(c.started_at)}</div>
+                  </div>
+                  <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{dur}</span>
+                </div>
+              )
+            })}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Reading pane ──────────────────────────────────────────────────────────────
 function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () => void }) {
   const navigate = useNavigate()
@@ -61,6 +208,7 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
   const [loading, setLoading] = useState(true)
   const [reply, setReply] = useState('')
   const [sending, setSending] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(true)
   const [cannedOpen, setCannedOpen] = useState(false)
   const [canned, setCanned] = useState<CannedResponse[]>([])
   const [cannedLoaded, setCannedLoaded] = useState(false)
@@ -154,6 +302,10 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
                 <span className="material-symbols-rounded" style={{ fontSize: 14 }}>person</span>Customer 360
               </button>
             )}
+            <button onClick={() => setHistoryOpen(o => !o)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: historyOpen ? NAVY : 'var(--txt2)', background: historyOpen ? `${NAVY}12` : 'none', border: `1px solid ${historyOpen ? NAVY + '30' : 'var(--bdr)'}`, borderRadius: RADIUS.md, padding: '4px 9px', cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>history</span>Context
+            </button>
             <button onClick={() => navigate(`/helpdesk/${t.id}`)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', background: 'none', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '4px 9px', cursor: 'pointer' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>Ticket
@@ -187,6 +339,9 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
         </div>
       </div>
 
+      {/* Body: conversation + reply on the left, customer history rail on the right */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
       {/* Conversation */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {msgs.length === 0 && <div style={{ color: 'var(--txt3)', textAlign: 'center', padding: 40 }}>No messages on this mail yet.</div>}
@@ -264,6 +419,9 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
           </button>
         </div>
       </div>
+        </div>
+        {historyOpen && <CustomerHistory cif={t.customer_cif} email={t.customer_email} excludeId={t.id} />}
+      </div>
     </div>
   )
 }
@@ -276,6 +434,7 @@ export default function CareInbox() {
   const [err, setErr] = useState<string | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [status, setStatus] = useState('open')
+  const [owner, setOwner] = useState<'all' | 'mine' | 'unassigned'>('all')
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
 
@@ -284,13 +443,15 @@ export default function CareInbox() {
     try {
       const params = new URLSearchParams({ channel: 'email', per_page: '100' })
       if (status) params.set('status', status)
+      if (owner === 'mine') params.set('assigned_to', 'me')
+      else if (owner === 'unassigned') params.set('assigned_to', 'unassigned')
       if (debounced) params.set('search', debounced)
       const resp = await apiFetch<{ tickets: MailTicket[]; total: number }>(`/api/helpdesk/tickets?${params}`)
       setItems(resp.tickets ?? [])
       setTotal(resp.total ?? 0)
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [status, debounced])
+  }, [status, owner, debounced])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['tickets'] })
@@ -310,6 +471,18 @@ export default function CareInbox() {
               <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{total} mail{total !== 1 ? 's' : ''}</span>
             </div>
             <TblSearch value={search} onChange={setSearch} placeholder="Search sender, subject, ref…" width={0} style={{ marginBottom: SP[2] }} />
+            {/* Owner filter */}
+            <div style={{ display: 'flex', gap: SP[1], marginBottom: SP[2] }}>
+              {(['all', 'mine', 'unassigned'] as const).map(o => {
+                const on = owner === o
+                return (
+                  <button key={o} onClick={() => setOwner(o)}
+                    style={{ flex: 1, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '4px 0', borderRadius: RADIUS.md, textTransform: 'capitalize', border: `1px solid ${on ? NAVY : 'var(--bdr)'}`, background: on ? NAVY : 'transparent', color: on ? '#fff' : 'var(--txt2)', cursor: 'pointer' }}>
+                    {o === 'all' ? 'All' : o === 'mine' ? 'Mine' : 'Unassigned'}
+                  </button>
+                )
+              })}
+            </div>
             <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
               {STATUS_FILTERS.map(s => {
                 const on = status === s
