@@ -110,7 +110,6 @@ const SECTIONS: Section[] = [
           { label: 'Dialer Campaigns', to: '/telemarketing/dialer',       vis: ['call_center_head','telemarketing_head'] },
           { label: 'Performance',      to: '/telemarketing/performance',  vis: ['call_center_head','telemarketing_head'] },
           { label: 'Supervisor View',  to: '/helpdesk/supervisor',        vis: ['telemarketing_head'] },
-          { label: 'CBN Report',       to: '/helpdesk/cbn-report',        vis: ['call_center_head'] },
           // shared resources
           { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
           { label: 'Canned Responses', to: '/helpdesk/canned' },
@@ -160,7 +159,7 @@ const SECTIONS: Section[] = [
   },
   {
     key: 'lending',
-    header: 'Credit Management',
+    header: 'Operations',
     items: [
       {
         icon: 'shield', label: 'Risk', to: '/operations/risk',
@@ -200,7 +199,7 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        icon: 'compare_arrows', label: 'Operations', to: '/settlements',
+        icon: 'compare_arrows', label: 'Settlement & Reconciliation', to: '/settlements',
         vis: ['settlement_officer','finance_head','head_of_reconciliation'],
         subs: [
           { label: 'Batches',                  to: '/settlements/batches' },
@@ -304,6 +303,7 @@ const SECTIONS: Section[] = [
         subs: [
           { label: 'KPI Tracker',         to: '/reports/kpi' },
           { label: 'Analytics Dashboard', to: '/reports' },
+          { label: 'CBN Complaints Report', to: '/reports/cbn-report' },
           { label: 'Data Export',         to: '/reports/export' },
           { label: 'Report Builder',      to: '/bi/builder' },
           { label: 'Saved Reports',       to: '/bi' },
