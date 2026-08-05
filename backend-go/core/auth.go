@@ -333,6 +333,43 @@ func RequirePages(pages ...string) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireManagement gates a route to the executive/management tier only
+// (mirrors the frontend '/' General-Overview gate). No page fallback.
+func RequireManagement(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := UserFromCtx(r.Context())
+		if user == nil {
+			authErr(w, 401, "Unauthorized")
+			return
+		}
+		if IsManagement(user.Role) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		authErr(w, 403, "This dashboard is restricted to management.")
+	})
+}
+
+// RequireManagementOrPage allows the management tier OR any user holding the
+// given page permission — mirroring the frontend RequireAccess (MGMT bypass or
+// page grant). Used for executive drill-downs that a department head may hold.
+func RequireManagementOrPage(page string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := UserFromCtx(r.Context())
+			if user == nil {
+				authErr(w, 401, "Unauthorized")
+				return
+			}
+			if IsManagement(user.Role) || user.HasPage(page) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			authErr(w, 403, fmt.Sprintf("Role '%s' cannot access this resource", user.Role))
+		})
+	}
+}
+
 // ParsePages normalizes role page payloads returned from Postgres JSON/JSONB,
 // array columns, or decoded request bodies into a clean string slice.
 func ParsePages(raw any) []string {
@@ -423,7 +460,6 @@ var RolePages = map[string][]string{
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
 		"campaigns", "contact_lists", "message_templates", "statements",
 		"los", "los_all", "los_assign", "customer360",
-		"hr_employees", "hr_leave", "hr_performance", "hr_disciplinary", "hr_payroll", "hr_training",
 		"compliance_all", "compliance_checklists", "cbn_reports", "audit_trail", "audit_export",
 		"sars", "watch_list", "audit_findings",
 		"kpi_dashboard", "reports", "approvals", "statements", "admin_users", "settings", "sync_status",
@@ -446,7 +482,6 @@ var RolePages = map[string][]string{
 		"los_finance", "customer360",
 		"cbn_reports", "audit_trail", "audit_export",
 		"kpi_dashboard", "reports", "statements",
-		"payroll", "payroll_manager",
 	},
 	"executive": {
 		"overview", "executive", "kpi_dashboard", "reports", "statements",
@@ -539,15 +574,6 @@ var RolePages = map[string][]string{
 		"helpdesk", "helpdesk_stats", "helpdesk_canned",
 	},
 
-	// ── HR ─────────────────────────────────────────────────────────────────────
-	"hr_officer": {
-		"overview", "hr_employees", "hr_leave", "hr_training", "uploads",
-	},
-	"hr_manager": {
-		"overview", "hr_employees", "hr_leave", "hr_performance",
-		"hr_training", "hr_disciplinary", "hr_payroll", "uploads",
-		"kpi_dashboard", "statements",
-	},
 
 	// ── Compliance ─────────────────────────────────────────────────────────────
 	"compliance_officer": {
@@ -573,7 +599,6 @@ var RolePages = map[string][]string{
 		"fixed_deposit", "settlement", "los", "los_all", "customer360",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
 		"campaigns", "contact_lists", "message_templates", "statements",
-		"hr_employees", "hr_leave", "hr_performance", "hr_disciplinary",
 		"compliance_checklists", "audit_trail", "watch_list",
 		"kpi_dashboard", "reports", "statements", "settings", "sync_status",
 	},
@@ -588,14 +613,13 @@ var RolePages = map[string][]string{
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
 		"campaigns", "contact_lists", "message_templates", "statements",
 		"los", "los_all", "los_assign", "customer360",
-		"hr_employees", "hr_leave", "hr_performance", "hr_disciplinary", "hr_payroll", "hr_training",
 		"compliance_all", "compliance_checklists", "cbn_reports", "audit_trail", "audit_export",
 		"sars", "watch_list", "audit_findings",
 		"collections_assign", "collections_payment", "collections_payment_approve",
 		"recovery_assign", "recovery_write_off",
 		"kpi_dashboard", "reports", "statements", "admin_users", "admin_api_keys", "settings", "sync_status",
 		"active_loan_book", "telemarketing", "telemarketing_stats", "bd", "bd_employers", "bd_pipeline",
-		"helpdesk_kb", "payroll", "payroll_manager",
+		"helpdesk_kb",
 	},
 	"management": {
 		"overview", "executive", "transactions", "income", "eod", "uploads",
@@ -625,7 +649,7 @@ var RolePages = map[string][]string{
 		"fixed_deposit", "settlement", "risk_all",
 		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
 		"campaigns", "contact_lists", "message_templates", "statements",
-		"hr_employees", "hr_leave", "compliance_checklists", "audit_trail", "watch_list",
+		"compliance_checklists", "audit_trail", "watch_list",
 		"kpi_dashboard", "reports", "statements", "settings", "sync_status", "los", "los_all", "customer360",
 	},
 	"head_of_reconciliation": {
@@ -640,7 +664,6 @@ var RolePages = map[string][]string{
 	"recovery":         {"recovery", "collections", "eod", "uploads", "loans", "crm_pipeline", "crm_contacts", "crm_tasks"},
 	"cards_ops":        {"cards", "card_trends", "transactions", "overview", "eod", "uploads"},
 	"call_centre":      {"overview", "transactions", "call_center", "customer_service", "crm_contacts", "uploads"},
-	"head_hr":          {"overview", "hr_employees", "hr_leave", "hr_performance", "hr_disciplinary", "hr_payroll", "hr_training", "uploads", "kpi_dashboard"},
 	"cmo":              {"overview", "sales", "cohort", "executive", "uploads", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
 	"head_sales":       {"sales", "overview", "uploads", "executive", "loans", "credit_portfolio", "bd", "bd_employers", "bd_pipeline", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
 	"head_collections": {"collections", "recovery", "overview", "eod", "uploads", "executive", "reconciliation", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
@@ -667,13 +690,6 @@ var RolePages = map[string][]string{
 		"campaigns", "contact_lists", "message_templates", "mail",
 	},
 
-	// ── Payroll ───────────────────────────────────────────────────────────────
-	"payroll_officer": {
-		"overview", "payroll",
-	},
-	"payroll_manager": {
-		"overview", "payroll", "payroll_manager", "hr_employees", "kpi_dashboard",
-	},
 
 	// ── BI / Analytics ────────────────────────────────────────────────────────
 	"bi_analyst": {

@@ -28,7 +28,9 @@ const SECTIONS: Section[] = [
   {
     key: 'root',
     items: [
-      { icon: 'space_dashboard', label: 'Overview', to: '/', vis: 'all' },
+      // General Overview is the executive dashboard — management staff only.
+      // (canSee also short-circuits MGMT roles, but list them for intent.)
+      { icon: 'space_dashboard', label: 'Overview', to: '/', vis: [...MGMT] },
     ],
   },
   {

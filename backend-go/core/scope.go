@@ -47,3 +47,24 @@ func DataScopeForRole(role string) DataScope {
 // SeesAllRows is the common two-tier convenience: true when the role is not
 // restricted to its own rows.
 func SeesAllRows(role string) bool { return DataScopeForRole(role) == ScopeAll }
+
+// managementRoles is the cross-company executive tier permitted to view the
+// General Overview and executive dashboards. This is a NARROWER concept than
+// SeesAllRows: a sales_head sees all sales rows but is not management. Kept in
+// sync with the frontend MGMT set (lib/roles.ts).
+var managementRoles = map[string]bool{
+	"admin":      true,
+	"md":         true,
+	"coo":        true,
+	"cfo":        true,
+	"cmo":        true,
+	"executive":  true,
+	"management": true,
+	"head_ops":   true,
+	"head_it":    true,
+	"head_hr":    true,
+}
+
+// IsManagement reports whether a role belongs to the executive/management tier
+// that may access company-wide overview dashboards.
+func IsManagement(role string) bool { return managementRoles[role] }
