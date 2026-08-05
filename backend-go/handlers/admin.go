@@ -138,7 +138,7 @@ func createUser(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if b.Role == "" {
-			b.Role = "call_centre"
+			b.Role = "call_center_agent"
 		}
 		if !validRole(db, r, b.Role) {
 			respondErr(w, 422, "Unknown role: "+b.Role)

@@ -467,10 +467,10 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 
-		// Row-level scope: leaf agents see only their own tickets plus the
-		// unassigned pool they can claim; senior/head roles see everything.
+		// Row-level scope: leaf agents see their own tickets (any status) plus the
+		// still-open unassigned pool they can claim; senior/head roles see all.
 		if u := core.UserFromCtx(r.Context()); u != nil && !core.SeesAllRows(u.Role) {
-			where += fmt.Sprintf(" AND (t.assigned_to=$%d OR t.assigned_to IS NULL)", n)
+			where += fmt.Sprintf(" AND (t.assigned_to=$%d OR (t.assigned_to IS NULL AND t.status NOT IN ('resolved','closed')))", n)
 			args = append(args, u.ID)
 			n++
 		}
