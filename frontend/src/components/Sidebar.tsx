@@ -4,7 +4,7 @@ import { useLocation, Link, useNavigate } from 'react-router-dom'
 import { roleLabel, MGMT } from '../lib/roles'
 import { SORA, PLEX, MONO } from '../lib/design'
 import { NAV_ICONS, IcoSearch } from '../lib/icons'
-import type { AuthUser } from '../hooks/useAuth'
+import { allRoles, type AuthUser } from '../hooks/useAuth'
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 
@@ -702,7 +702,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
               <NavRow
                 key={item.to}
                 item={item}
-                role={user.role as string}
+                roles={allRoles(user)}
                 isActive={item.to === '/' ? pathname === '/' : item.subs?.length ? pathname === item.to : pathname.startsWith(item.to)}
                 hasActiveSub={item.subs?.some(s => s.to !== '/' && pathname.startsWith(s.to)) ?? false}
                 collapsed={collapsed}

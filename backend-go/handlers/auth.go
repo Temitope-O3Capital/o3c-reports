@@ -451,6 +451,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 				"first_name":           str(u["first_name"]),
 				"last_name":            str(u["last_name"]),
 				"role":                 role,
+				"extra_roles":          extraRoles,
 				"department":           str(u["department"]),
 				"pages":                pages,
 				"must_change_password": mustChange,

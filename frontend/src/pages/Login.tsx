@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { AuthUser } from '../hooks/useAuth'
+import { parseToken, type AuthUser } from '../hooks/useAuth'
 import { API, storeCsrfToken } from '../lib/api'
 import { TEXT, FW, RADIUS, SP } from '../lib/design'
 
@@ -547,11 +547,15 @@ export default function Login({ onLogin }: LoginProps) {
 
   function finalise(data: any) {
     if (data.csrf_token) storeCsrfToken(data.csrf_token)
+    // extra_roles: prefer the response field; fall back to the JWT claim so this
+    // works even before the backend response change is deployed.
+    const claims = parseToken(data.access_token)
     const user: AuthUser = {
       id:                   data.user.id,
       name:                 data.user.name,
       email:                data.user.email,
       role:                 data.user.role,
+      extra_roles:          data.user.extra_roles ?? (claims?.extra_roles as string[] | undefined) ?? [],
       pages:                data.user.pages ?? [],
       must_change_password: data.user.must_change_password ?? false,
     }
