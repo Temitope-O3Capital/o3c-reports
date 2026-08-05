@@ -17,6 +17,7 @@ interface User {
   first_name: string
   last_name: string
   role: string
+  extra_roles?: string[]
   department: string
   is_active: boolean
   must_change_password: boolean
@@ -57,6 +58,40 @@ function RoleSelect({ value, onChange, style }: { value: string; onChange: (v: s
   )
 }
 
+// Multi-select for secondary (multi-team) roles: shows chosen roles as removable
+// chips plus a grouped "add" dropdown. Excludes the primary role and duplicates.
+function MultiRoleSelect({ value, exclude, onChange, style }: {
+  value: string[]; exclude: string; onChange: (v: string[]) => void; style?: React.CSSProperties
+}) {
+  return (
+    <div>
+      {value.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+          {value.map(r => (
+            <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: TEXT.xs, fontWeight: FW.semibold, background: `${NAVY}12`, color: NAVY, borderRadius: RADIUS.lg, padding: '2px 4px 2px 9px' }}>
+              {roleLabel(r)}
+              <span className="material-symbols-rounded" onClick={() => onChange(value.filter(x => x !== r))}
+                style={{ fontSize: 15, cursor: 'pointer', opacity: 0.7 }} title="Remove">close</span>
+            </span>
+          ))}
+        </div>
+      )}
+      <select value="" onChange={e => { const v = e.target.value; if (v && v !== exclude && !value.includes(v)) onChange([...value, v]) }} style={style}>
+        <option value="">+ Add another team…</option>
+        {ROLE_GROUPS.map(g => {
+          const opts = g.roles.filter(r => r !== exclude && !value.includes(r))
+          if (opts.length === 0) return null
+          return (
+            <optgroup key={g.label} label={g.label}>
+              {opts.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
+            </optgroup>
+          )
+        })}
+      </select>
+    </div>
+  )
+}
+
 
 function RolePill({ role }: { role: string }) {
   const colorFor = (r: string) => {
@@ -83,6 +118,7 @@ function InviteModal({ onClose, onSaved }: {
 }) {
   const EMAIL_DOMAIN = '@o3cards.com'
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', role: 'call_center_agent', department: 'Operations' })
+  const [extraRoles, setExtraRoles] = useState<string[]>([])
   const [emailEdited, setEmailEdited] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -110,7 +146,7 @@ function InviteModal({ onClose, onSaved }: {
     setSaving(true)
     try {
       const res = await apiFetch<{ full_name: string; temp_password?: string; temporary_password?: string }>(
-        '/api/admin/users', { method: 'POST', body: JSON.stringify(form) }
+        '/api/admin/users', { method: 'POST', body: JSON.stringify({ ...form, extra_roles: extraRoles }) }
       )
       const pw = res.temp_password ?? res.temporary_password ?? '(check email)'
       onSaved(pw, res.full_name)
@@ -171,6 +207,13 @@ function InviteModal({ onClose, onSaved }: {
             </div>
           </div>
 
+          <div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Additional teams <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(optional — for staff on more than one team)</span></div>
+            <MultiRoleSelect value={extraRoles} exclude={form.role} onChange={setExtraRoles}
+              style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+            />
+          </div>
+
           <div style={{ background: 'rgba(14,40,65,.07)', borderRadius: RADIUS.md, padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt2)' }}>
             A temporary password will be generated and sent to the user's email. They must change it on first login.
           </div>
@@ -197,6 +240,7 @@ function EditUserModal({ user, onClose, onSaved }: {
     department: user.department,
     is_active:  user.is_active,
   })
+  const [extraRoles, setExtraRoles] = useState<string[]>(user.extra_roles ?? [])
   const [saving,          setSaving]          = useState(false)
   const [resettingPw,     setResettingPw]     = useState(false)
   const [newTempPw,       setNewTempPw]       = useState<string | null>(null)
@@ -207,7 +251,7 @@ function EditUserModal({ user, onClose, onSaved }: {
   async function save() {
     setSaving(true)
     try {
-      await apiFetch(`/api/admin/users/${user.id}`, { method: 'PUT', body: JSON.stringify(form) })
+      await apiFetch(`/api/admin/users/${user.id}`, { method: 'PUT', body: JSON.stringify({ ...form, extra_roles: extraRoles }) })
       toast.success('User updated')
       onSaved()
       onClose()
@@ -279,6 +323,13 @@ function EditUserModal({ user, onClose, onSaved }: {
                 {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
               </select>
             </div>
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Additional teams <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(for staff on more than one team)</span></div>
+            <MultiRoleSelect value={extraRoles} exclude={form.role} onChange={setExtraRoles}
+              style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+            />
           </div>
 
           {/* Meta info */}
@@ -451,7 +502,12 @@ export default function AdminUsers() {
 
   const COLS: TableCol<User>[] = [
     { key: 'full_name', label: 'Name', render: u => <NameCell name={u.full_name} sub={u.email} /> },
-    { key: 'role', label: 'Role', render: u => <RolePill role={u.role} /> },
+    { key: 'role', label: 'Role', render: u => (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+        <RolePill role={u.role} />
+        {u.extra_roles?.map(r => <RolePill key={r} role={r} />)}
+      </div>
+    ) },
     { key: 'department', label: 'Dept', render: u => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{u.department || '—'}</span> },
     { key: 'is_active', label: 'Status', render: u => <StatusBadge status={u.is_active ? 'Active' : (!u.last_login ? 'Pending' : 'Inactive')} /> },
     { key: 'last_login', label: 'Last Login', sortable: true,
