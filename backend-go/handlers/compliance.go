@@ -1729,7 +1729,6 @@ func complianceRetentionSchedule(_ *core.DB) http.HandlerFunc {
 		{"category": "Transaction Records",    "table": "financial_transactions","retention_years": 7,  "basis": "CBN & CAMA"},
 		{"category": "Customer PII",           "table": "customers",            "retention_years": 7,  "basis": "NDPR Art. 2.1(1)(b)"},
 		{"category": "Audit Logs",             "table": "audit_logs",           "retention_years": 5,  "basis": "CBN Guidelines"},
-		{"category": "Staff Records",          "table": "employees",            "retention_years": 7,  "basis": "Labour Act"},
 		{"category": "Compliance Findings",    "table": "compliance_findings",  "retention_years": 10, "basis": "CBN Examination"},
 		{"category": "SAR Records",            "table": "sars",                 "retention_years": 10, "basis": "EFCC Act"},
 		{"category": "Helpdesk Tickets",       "table": "helpdesk_tickets",     "retention_years": 3,  "basis": "NDPR proportionality"},

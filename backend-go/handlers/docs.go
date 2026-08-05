@@ -735,44 +735,6 @@ const openapiSpec = `{
         }
       }
     },
-    "/api/hr/employees": {
-      "get": {
-        "tags": ["HR"],
-        "summary": "List employees",
-        "parameters": [
-          { "name": "department", "in": "query", "schema": { "type": "string" } },
-          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["active","on_leave","exited"] } },
-          { "name": "q", "in": "query", "schema": { "type": "string" } },
-          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } }
-        ],
-        "responses": { "200": { "description": "Employee list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Envelope" } } } } }
-      }
-    },
-    "/api/hr/recruitment/jobs": {
-      "get": {
-        "tags": ["HR"],
-        "summary": "List open job postings",
-        "responses": { "200": { "description": "Job list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Envelope" } } } } }
-      },
-      "post": {
-        "tags": ["HR"],
-        "summary": "Create job posting",
-        "requestBody": {
-          "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["title","department"],
-            "properties": {
-              "title": { "type": "string" },
-              "department": { "type": "string" },
-              "description": { "type": "string" },
-              "closing_date": { "type": "string", "format": "date" }
-            }
-          }}}
-        },
-        "responses": { "201": { "description": "Job created" } }
-      }
-    },
     "/api/compliance/regulatory-calendar": {
       "get": {
         "tags": ["Compliance"],

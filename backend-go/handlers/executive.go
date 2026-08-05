@@ -18,7 +18,6 @@ func RegisterExecutive(r chi.Router, db *core.DB) {
 	r.Get("/sales",       execSalesHandler(db))
 	r.Get("/collections", execCollectionsHandler(db))
 	r.Get("/risk",        execRiskHandler(db))
-	r.Get("/hr",          execHRHandler(db))
 	r.Get("/settlements", execSettlementsHandler(db))
 	r.Get("/fixed-deposits", execFixedDepositsHandler(db))
 }
@@ -468,73 +467,6 @@ func execRiskHandler(db *core.DB) http.HandlerFunc {
 			"dpd_trend":                 dpdTrend,
 			"product_concentration":     productConc,
 			"vintage_performance":       []any{},
-		}, "pg")
-	}
-}
-
-// execHRHandler returns the HR drilldown shape. The employees / leave_applications
-// tables are currently empty (HR not yet integrated), so these come back zero/empty —
-// the queries use the real column names so numbers appear automatically once data lands.
-// Returns both the rich drilldown fields and the thin fields the Overview HR tile reads.
-func execHRHandler(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		cs, ce, _, _ := execRange(r)
-		ctx := r.Context()
-
-		var totalEmployees, activeEmployees, newHires, payrollKobo int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT
-				COUNT(*)                                                       AS total_employees,
-				COUNT(*) FILTER (WHERE status = 'active')                      AS active_employees,
-				COUNT(*) FILTER (WHERE employment_date BETWEEN $1 AND $2)       AS new_hires,
-				COALESCE(SUM(salary_kobo) FILTER (WHERE status = 'active'), 0)  AS payroll_kobo
-			FROM employees`, d(cs), d(ce)); e == nil && len(rows) > 0 {
-			totalEmployees = toInt64(rows[0]["total_employees"])
-			activeEmployees = toInt64(rows[0]["active_employees"])
-			newHires = toInt64(rows[0]["new_hires"])
-			payrollKobo = toInt64(rows[0]["payroll_kobo"])
-		}
-
-		var leavesPending, leavesActive int64
-		if rows, e := db.PGQuery(ctx, `
-			SELECT
-				COUNT(*) FILTER (WHERE status = 'pending')                                                       AS pending,
-				COUNT(*) FILTER (WHERE status = 'approved' AND CURRENT_DATE BETWEEN start_date AND end_date)      AS active
-			FROM leave_applications`); e == nil && len(rows) > 0 {
-			leavesPending = toInt64(rows[0]["pending"])
-			leavesActive = toInt64(rows[0]["active"])
-		}
-
-		deptBreakdown := make([]map[string]any, 0)
-		if rows, e := db.PGQuery(ctx, `
-			SELECT COALESCE(dp.name, 'Unassigned') AS dept, COUNT(*) AS count
-			FROM employees e LEFT JOIN departments dp ON dp.id = e.department_id
-			WHERE e.status = 'active'
-			GROUP BY dp.name ORDER BY count DESC`); e == nil {
-			for _, row := range rows {
-				deptBreakdown = append(deptBreakdown, map[string]any{
-					"dept": str(row["dept"]), "count": toInt64(row["count"]),
-				})
-			}
-		}
-
-		respond(w, map[string]any{
-			"period":                 map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
-			"headcount":              activeEmployees,
-			"headcount_change":       0,
-			"new_hires_mtd":          newHires,
-			"departures_mtd":         0,
-			"attrition_rate_pct":     0,
-			"payroll_cost_kobo":      payrollKobo,
-			"payroll_change_pct":     0,
-			"headcount_trend":        []any{},
-			"dept_breakdown":         deptBreakdown,
-			"leaves_pending":         leavesPending,
-			"leaves_active":          leavesActive,
-			"total_employees":        totalEmployees,
-			"active_employees":       activeEmployees,
-			"new_hires_period":       newHires,
-			"pending_leave_requests": leavesPending,
 		}, "pg")
 	}
 }

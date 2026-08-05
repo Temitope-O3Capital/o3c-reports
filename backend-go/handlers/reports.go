@@ -933,11 +933,6 @@ func runBIReportRows(r *http.Request, db *core.DB, b biReportReq) ([]core.Row, e
 			FROM collection_assignments
 			ORDER BY outstanding_kobo DESC LIMIT 1000`)
 
-	case "employees":
-		return db.PGQuery(r.Context(), `
-			SELECT id, employee_id, full_name, department, position, status, created_at
-			FROM employees ORDER BY full_name LIMIT 1000`)
-
 	case "transactions":
 		where := "WHERE 1=1"
 		var args []any

@@ -5,7 +5,7 @@ const CACHE_KEY = 'o3c_enabled_modules'
 
 // All module keys that exist in module_config.
 // root and admin are always shown and not stored in the DB.
-const ALL_MODULE_KEYS = ['sales', 'contact', 'cards', 'lending', 'finance', 'compliance', 'people', 'analytics']
+const ALL_MODULE_KEYS = ['sales', 'contact', 'cards', 'lending', 'finance', 'compliance', 'analytics']
 
 function readCache(): Set<string> {
   try {

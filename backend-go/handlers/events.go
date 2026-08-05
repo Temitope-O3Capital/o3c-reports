@@ -35,8 +35,6 @@ var liveTopics = []struct{ Name, SQL string }{
 	{"campaigns", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM campaigns`},
 	{"compliance", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM audit_findings`},
 	{"finance", `SELECT COUNT(*)||':'||COALESCE(MAX(created_at)::text,'') FROM gl_journal_entries`},
-	{"hr", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM leave_applications`},
-	{"payroll", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM payroll_runs`},
 	{"users", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM o3c_users`},
 }
 

@@ -38,7 +38,7 @@ func approvalsBatch(db *core.DB) http.HandlerFunc {
 	approverRoles := map[string]bool{
 		"admin": true, "md": true, "cfo": true,
 		"finance_head": true, "los_head": true, "compliance_head": true,
-		"hr_manager": true, "collections_head": true, "recovery_head": true,
+		"collections_head": true, "recovery_head": true,
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
@@ -82,11 +82,6 @@ func approvalsBatch(db *core.DB) http.HandlerFunc {
 				}
 				_, err = db.PGExec(ctx, `UPDATE loan_applications SET stage=$1, updated_at=NOW(), updated_by=$2 WHERE id=$3`,
 					toStage, user.ID, item.ItemID)
-			case "Leave":
-				newStatus := "approved"
-				if req.Action == "reject" { newStatus = "rejected" }
-				_, err = db.PGExec(ctx, `UPDATE leave_applications SET status=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3`,
-					newStatus, user.ID, item.ItemID)
 			case "Write-off":
 				newStatus := "approved"
 				if req.Action == "reject" { newStatus = "rejected" }
@@ -250,42 +245,6 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// ── Leave requests ────────────────────────────────────────────────────
-		if user.Role == "hr_manager" || user.Role == "hr_officer" {
-			rows, err := db.PGQuery(ctx, `
-				SELECT
-					lr.id,
-					lr.id::text                                  AS reference,
-					e.first_name || ' ' || e.last_name          AS title,
-					lt.name || ' — ' || lr.start_date::text || ' to ' || lr.end_date::text AS description,
-					EXTRACT(DAY FROM NOW() - lr.created_at)::int AS waiting_days
-				FROM leave_applications lr
-				JOIN employees e ON e.id = lr.employee_id
-				JOIN leave_types lt ON lt.id = lr.leave_type_id
-				WHERE lr.status = 'pending'
-				  AND ($1 IS NULL OR lr.created_at::date >= $1::date)
-				  AND ($2 IS NULL OR lr.created_at::date <= $2::date)
-				ORDER BY lr.created_at ASC
-				LIMIT 50`, nullStr(from), nullStr(to))
-			if err == nil {
-				for _, row := range rows {
-					days := toInt64(row["waiting_days"])
-					items = append(items, item{
-						Module:      "Leave",
-						ItemID:      toInt64(row["id"]),
-						Reference:   "LV-" + str(row["reference"]),
-						Title:       str(row["title"]),
-						Description: str(row["description"]),
-						Stage:       "pending",
-						RequestedBy: str(row["title"]),
-						WaitingDays: days,
-						Priority:    "normal",
-					})
-				}
-			}
-		}
-
-		// ── Compliance findings needing acknowledgment ────────────────────────
 		if user.Role == "internal_control_head" || user.Role == "compliance_head" {
 			rows, err := db.PGQuery(ctx, `
 				SELECT
@@ -382,13 +341,6 @@ func approvalsSummary(db *core.DB) http.HandlerFunc {
 		if wofLevel, ok := wofMap[user.Role]; ok {
 			if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM recovery_write_off_approvals WHERE status=$1`, wofLevel); err == nil && len(rows) > 0 {
 				summary["write_offs"] = toInt64(rows[0]["c"])
-			}
-		}
-
-		// Leave count
-		if user.Role == "hr_manager" || user.Role == "hr_officer" {
-			if rows, err := db.PGQuery(ctx, `SELECT COUNT(*) AS c FROM leave_applications WHERE status='pending'`); err == nil && len(rows) > 0 {
-				summary["leave"] = toInt64(rows[0]["c"])
 			}
 		}
 

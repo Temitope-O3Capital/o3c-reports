@@ -265,16 +265,6 @@ func biQueryForReport(r *http.Request, def map[string]any) (string, []any, error
 			WHERE transaction_date::date BETWEEN %s AND %s
 			GROUP BY 1, 2 ORDER BY 1 DESC`, dateFrom, dateTo)
 
-	case "HR":
-		q = fmt.Sprintf(`
-			SELECT date_trunc('month', employment_date)::date AS date,
-			       department_id::text                        AS dimension,
-			       COUNT(*)                                   AS headcount
-			FROM employees
-			WHERE employment_date::date BETWEEN %s AND %s
-			AND status='active'
-			GROUP BY 1, 2 ORDER BY 1 DESC`, dateFrom, dateTo)
-
 	case "Helpdesk":
 		q = fmt.Sprintf(`
 			SELECT date_trunc('day', created_at)::date AS date,

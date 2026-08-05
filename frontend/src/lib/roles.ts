@@ -14,7 +14,6 @@ export const ROLE_LABELS: Record<string, string> = {
   head_ops:                 'Head of Operations',
   head_it:                  'Head of IT',
   head_of_reconciliation:   'Head of Reconciliation',
-  head_hr:                  'Head of HR',
   head_sales:               'Head of Sales',
   head_collections:         'Head of Collections',
   head_recovery:            'Head of Recovery',
@@ -52,9 +51,6 @@ export const ROLE_LABELS: Record<string, string> = {
   call_center_head:         'Head of Call Centre',
   call_centre:              'Call Centre',
 
-  // HR
-  hr_officer:               'HR Officer',
-  hr_manager:               'HR Manager',
 
   // Compliance
   compliance_officer:       'Compliance Officer',
@@ -76,9 +72,6 @@ export const ROLE_LABELS: Record<string, string> = {
   bd_officer:               'BD Officer',
   bd_head:                  'Head of Business Development',
 
-  // Payroll
-  payroll_officer:          'Payroll Officer',
-  payroll_manager:          'Payroll Manager',
 }
 
 export function roleLabel(role: string): string {
@@ -86,5 +79,5 @@ export function roleLabel(role: string): string {
 }
 
 export const MGMT = new Set([
-  'md','coo','cfo','cmo','executive','admin','management','head_ops','head_it','head_hr',
+  'md','coo','cfo','cmo','executive','admin','management','head_ops','head_it',
 ])

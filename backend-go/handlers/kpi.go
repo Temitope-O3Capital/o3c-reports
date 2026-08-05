@@ -147,24 +147,6 @@ func kpiDashboard(db *core.DB) http.HandlerFunc {
 				out["pending_sars"] = sarRows[0]["val"]
 			}
 
-		case "hr_manager":
-			// On-leave, pending leave, open disciplinary
-			onLeaveRows, _ := db.PGQuery(ctx,
-				`SELECT COUNT(*) AS val FROM leave_applications
-				 WHERE status='approved' AND CURRENT_DATE BETWEEN start_date AND end_date`)
-			if len(onLeaveRows) > 0 {
-				out["on_leave_count"] = onLeaveRows[0]["val"]
-			}
-			pendLeaveRows, _ := db.PGQuery(ctx,
-				`SELECT COUNT(*) AS val FROM leave_applications WHERE status='pending'`)
-			if len(pendLeaveRows) > 0 {
-				out["pending_leave_count"] = pendLeaveRows[0]["val"]
-			}
-			discRows, _ := db.PGQuery(ctx,
-				`SELECT COUNT(*) AS val FROM disciplinary_cases WHERE status NOT IN ('closed','resolved')`)
-			if len(discRows) > 0 {
-				out["open_disciplinary"] = discRows[0]["val"]
-			}
 		}
 
 		out["role"] = user.Role

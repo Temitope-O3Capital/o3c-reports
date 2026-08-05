@@ -357,6 +357,7 @@ func main() {
 		r.Use(activityLogger(activityCh, auditCh))
 
 		r.Route("/api/overview", func(r chi.Router) {
+			r.Use(core.RequireManagement) // General Overview — management only
 			handlers.RegisterOverview(r, db)
 		})
 		r.Route("/api/collections", func(r chi.Router) {
@@ -397,6 +398,7 @@ func main() {
 			handlers.RegisterContactProfile(r, db)
 		})
 		r.Route("/api/executive", func(r chi.Router) {
+			r.Use(core.RequireManagementOrPage("executive")) // exec drill-downs
 			handlers.RegisterExecutive(r, db)
 		})
 		r.Route("/api/cards/interswitch", func(r chi.Router) {
@@ -468,9 +470,6 @@ func main() {
 		r.Route("/api/customer360", func(r chi.Router) {
 			handlers.RegisterCustomer360(r, db)
 		})
-		r.Route("/api/hr", func(r chi.Router) {
-			handlers.RegisterHR(r, db)
-		})
 		r.Route("/api/compliance", func(r chi.Router) {
 			handlers.RegisterCompliance(r, db)
 		})
@@ -512,9 +511,6 @@ func main() {
 		})
 		r.Route("/api/bd", func(r chi.Router) {
 			handlers.RegisterBusinessDev(r, db)
-		})
-		r.Route("/api/payroll", func(r chi.Router) {
-			handlers.RegisterPayroll(r, db)
 		})
 		r.Get("/api/search", handlers.GlobalSearch(db))
 		r.Route("/api/bi", func(r chi.Router) {

@@ -1,5 +1,5 @@
 export type Role =
-  | 'md' | 'coo' | 'cfo' | 'head_it' | 'head_hr' | 'cmo'
+  | 'md' | 'coo' | 'cfo' | 'head_it' | 'cmo'
   | 'head_ops' | 'head_sales' | 'head_collections' | 'head_recovery' | 'head_of_reconciliation'
   | 'admin' | 'management' | 'sales' | 'collections' | 'recovery'
   | 'cards_ops' | 'call_centre'
@@ -7,11 +7,10 @@ export type Role =
   | 'executive' | 'sales_officer' | 'sales_head' | 'risk_officer' | 'risk_head'
   | 'finance_officer' | 'finance_head' | 'cards_ops_officer' | 'cards_ops_head'
   | 'collections_agent' | 'collections_head' | 'recovery_agent' | 'recovery_head'
-  | 'call_center_agent' | 'call_center_head' | 'hr_officer' | 'hr_manager'
+  | 'call_center_agent' | 'call_center_head'
   | 'compliance_officer' | 'compliance_head' | 'internal_control_head' | 'it_admin'
   | 'telemarketing_agent' | 'telemarketing_head'
   | 'bd_officer' | 'bd_head'
-  | 'payroll_officer' | 'payroll_manager'
   | 'settlement_officer'
   | 'bi_analyst' | 'bi_head'
 
@@ -33,7 +32,6 @@ const OPERATIONS = ['credit_portfolio','fixed_deposit','settlement','mobile_app'
 const FINANCE_PAGES     = ['income','transactions','fixed_deposit','eod','fx_rates']
 const COLLECTIONS_PAGES = ['collections','recovery','credit_portfolio']
 const RECOVERY_PAGES    = ['recovery','collections','credit_portfolio']
-const HR_PAGES          = ['hr_employees','hr_leave','hr_performance','hr_disciplinary','hr_training']
 const COMPLIANCE_PAGES  = ['compliance_checklists','watch_list','sars','cbn_reports','audit_findings','audit_trail']
 const ADMIN_PAGES       = ['admin_users','admin_api_keys','settings','sync_status']
 
@@ -43,7 +41,6 @@ export const ROLE_PAGES: Record<string, string[]> = {
   coo:              ['overview','transactions','collections','recovery','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans',          ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
   cfo:              ['overview','income','collections','recovery','executive','transactions','eod','uploads','reconciliation','loans','credit_portfolio','fixed_deposit','settlement','statements', ...FINANCE_PAGES],
   head_it:          ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, 'mobile_app','blink_card', ...ADMIN_PAGES, ...HELPDESK],
-  head_hr:          ['overview','sales','uploads', ...HR_PAGES],
   cmo:              ['overview','sales','cohort','executive','uploads', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
   head_ops:         ['overview','transactions','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','credit_portfolio','fixed_deposit','settlement', ...CRM, ...HELPDESK],
   head_sales:       ['sales','overview','uploads','executive','loans','credit_portfolio','bd','bd_employers','bd_pipeline', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
@@ -73,8 +70,6 @@ export const ROLE_PAGES: Record<string, string[]> = {
   recovery_head:         [...RECOVERY_PAGES, 'eod','uploads','reports','statements', ...HELPDESK],
   call_center_agent:     ['call_center','overview','transactions','crm_requests','crm_contacts','customer360', ...HELPDESK],
   call_center_head:      ['call_center','overview','transactions','crm_requests','crm_contacts','customer360','reports','statements', ...HELPDESK],
-  hr_officer:            [...HR_PAGES],
-  hr_manager:            [...HR_PAGES, 'reports','statements'],
   compliance_officer:    [...COMPLIANCE_PAGES],
   compliance_head:       [...COMPLIANCE_PAGES, 'reports','statements'],
   internal_control_head: [...COMPLIANCE_PAGES, 'reports','statements','audit_trail'],
@@ -88,9 +83,6 @@ export const ROLE_PAGES: Record<string, string[]> = {
   bd_officer:            ['overview','bd','bd_employers','bd_pipeline','customer360','crm_contacts','campaigns','contact_lists','message_templates'],
   bd_head:               ['overview','bd','bd_employers','bd_pipeline','customer360','crm_contacts','kpi_dashboard','statements','campaigns','contact_lists','message_templates'],
 
-  // Payroll
-  payroll_officer:       ['overview','payroll'],
-  payroll_manager:       ['overview','payroll','payroll_manager','hr_employees','kpi_dashboard'],
 
   // Finance ops
   head_of_reconciliation: ['overview','income','eod','transactions','uploads','reconciliation','credit_portfolio','fixed_deposit','settlement','kpi_dashboard','reports','statements'],

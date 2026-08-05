@@ -66,7 +66,6 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.Delete("/workflow-templates/{id}", deleteWorkflowTemplate(db))
 
 	// One-time data migration: encrypt existing plaintext bank details
-	r.With(adminOnly).Post("/employees/reencrypt-bank-details", adminReencryptEmployeeBankDetails(db))
 }
 
 // RegisterActivityLog is mounted outside the admin guard (any authenticated user can log).
@@ -663,7 +662,6 @@ var allowedActivityPages = map[string]bool{
 	"sales": true, "cohort": true, "crm_pipeline": true, "crm_contacts": true, "crm_tasks": true, "crm_reports": true,
 	"cards": true, "card_trends": true, "call_center": true, "customer_service": true, "customer360": true,
 	"campaigns": true, "contact_lists": true, "message_templates": true,
-	"hr_employees": true, "hr_leave": true, "hr_performance": true, "hr_disciplinary": true, "hr_payroll": true, "hr_training": true,
 	"compliance_all": true, "compliance_checklists": true, "cbn_reports": true,
 	"audit_trail": true, "audit_export": true, "sars": true, "watch_list": true, "audit_findings": true,
 	"income": true, "eod": true, "transactions": true, "reconciliation": true,
@@ -1528,82 +1526,3 @@ func deleteWorkflowTemplate(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// adminReencryptEmployeeBankDetails is a one-time data migration endpoint.
-// It reads every employee row, and for any bank_name / account_number that is not
-// already AES-GCM encrypted (decryptValue returns an error), it re-encrypts the
-// plaintext value in place. Safe to call multiple times — already-encrypted rows
-// are left untouched.
-func adminReencryptEmployeeBankDetails(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		rows, err := db.PGQuery(ctx, `SELECT id, bank_name, account_number FROM employees WHERE bank_name IS NOT NULL OR account_number IS NOT NULL`)
-		if err != nil {
-			respondErr(w, 500, "Query failed: "+err.Error())
-			return
-		}
-
-		var total, reencrypted, skipped int
-		for _, row := range rows {
-			total++
-			id := toInt64(row["id"])
-			bankName := str(row["bank_name"])
-			accountNumber := str(row["account_number"])
-
-			// isPlaintext returns true when decryptValue cannot parse the stored value
-			// as AES-GCM, meaning it was written before encryption was enabled.
-			isPlaintext := func(v string) bool {
-				if v == "" {
-					return false
-				}
-				_, decErr := decryptValue(v)
-				return decErr != nil
-			}
-
-			needsBank := isPlaintext(bankName)
-			needsAccount := isPlaintext(accountNumber)
-			if !needsBank && !needsAccount {
-				skipped++
-				continue
-			}
-
-			q := `UPDATE employees SET updated_at=NOW()`
-			args := []any{}
-			n := 1
-			if needsBank {
-				enc, encErr := encryptValue(bankName)
-				if encErr != nil {
-					respondErr(w, 500, "Encryption failed for employee "+str(id)+": "+encErr.Error())
-					return
-				}
-				q += fmt.Sprintf(", bank_name=$%d", n)
-				args = append(args, enc)
-				n++
-			}
-			if needsAccount {
-				enc, encErr := encryptValue(accountNumber)
-				if encErr != nil {
-					respondErr(w, 500, "Encryption failed for employee "+str(id)+": "+encErr.Error())
-					return
-				}
-				q += fmt.Sprintf(", account_number=$%d", n)
-				args = append(args, enc)
-				n++
-			}
-			args = append(args, id)
-			q += fmt.Sprintf(" WHERE id=$%d", n)
-
-			if _, err := db.PGExec(ctx, q, args...); err != nil {
-				respondErr(w, 500, "Update failed for employee "+str(id)+": "+err.Error())
-				return
-			}
-			reencrypted++
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"total":       total,
-			"reencrypted": reencrypted,
-			"skipped":     skipped,
-		})
-	}
-}
