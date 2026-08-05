@@ -935,9 +935,12 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/executive/risk"         element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecRisk /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/settlements"  element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecSettlements /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/fixed-deposits" element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecFixedDeposits /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/interswitch"           element={<RequireAccess page="settlements" user={user}><PageErrorBoundary><Interswitch /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/interswitch/half-year" element={<RequireAccess page="settlements" user={user}><PageErrorBoundary><InterswitchReport /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/interswitch/import"    element={<RequireAccess page="settlements" user={user}><PageErrorBoundary><InterswitchImport /></PageErrorBoundary></RequireAccess>} />
+                  {/* Page key is 'settlement' (singular) — 'settlements' matches no role and
+                      bounced settlement_officer / head_of_reconciliation / finance_head home.
+                      'cards' is accepted too since the feed is card activity. */}
+                  <Route path="/settlements/interswitch"           element={<RequireAccess page={['settlement','cards']} user={user}><PageErrorBoundary><Interswitch /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/interswitch/half-year" element={<RequireAccess page={['settlement','cards']} user={user}><PageErrorBoundary><InterswitchReport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/settlements/interswitch/import"    element={<RequireAccess page={['settlement','cards']} user={user}><PageErrorBoundary><InterswitchImport /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/approvals" element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
 
@@ -1004,6 +1007,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/helpdesk/stats"          element={<RequireAccess page="helpdesk_stats" user={user}><PageErrorBoundary><HelpdeskStats /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/knowledge-base" element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskKB /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/canned"         element={<RequireAccess page="helpdesk_canned" user={user}><PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/care/canned"             element={<RequireAccess page="helpdesk_canned" user={user}><PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/cbn-report"      element={<RequireAccess page="reports" user={user}><PageErrorBoundary><HelpdeskCBNReport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/:id"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTicketDetail /></PageErrorBoundary></RequireAccess>} />
 

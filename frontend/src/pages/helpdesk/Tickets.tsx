@@ -558,6 +558,7 @@ export default function Tickets() {
       if (statusFilter) params.set('status', statusFilter)
       if (priorityFilter) params.set('priority', priorityFilter)
       if (debouncedSearch) params.set('search', debouncedSearch)
+      params.set('exclude_channel', 'email') // Call Center queue = non-email (Care owns mail)
       params.set('page', String(page))
       params.set('per_page', String(PER_PAGE))
       const resp = await apiFetch<TicketsResp>(`/api/helpdesk/tickets?${params}`)

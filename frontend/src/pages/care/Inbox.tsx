@@ -68,7 +68,7 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
   function toggleCanned() {
     setCannedOpen(o => !o)
     if (!cannedLoaded) {
-      apiFetch<any>('/api/helpdesk/canned-responses')
+      apiFetch<any>('/api/helpdesk/canned-responses?channel=email')
         .then(r => setCanned((Array.isArray(r) ? r : (r?.data ?? [])) as CannedResponse[]))
         .catch(() => setCanned([]))
         .finally(() => setCannedLoaded(true))

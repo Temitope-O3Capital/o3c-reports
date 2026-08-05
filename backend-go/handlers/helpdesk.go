@@ -548,6 +548,12 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			args = append(args, v)
 			n++
 		}
+		// Call Center queue excludes email (Care owns the mail Inbox).
+		if v := normalizeHelpdeskFilter(qstr(r, "exclude_channel")); v != "" {
+			where += fmt.Sprintf(" AND (t.channel IS NULL OR t.channel <> $%d)", n)
+			args = append(args, v)
+			n++
+		}
 		if v := normalizeHelpdeskFilter(qstr(r, "department")); v != "" {
 			where += fmt.Sprintf(" AND t.department=$%d", n)
 			args = append(args, v)

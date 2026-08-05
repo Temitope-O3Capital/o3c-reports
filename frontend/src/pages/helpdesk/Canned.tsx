@@ -1,5 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Modal, ConfirmModal, Spinner, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
@@ -96,11 +97,16 @@ export default function Canned() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // Module-scoped: Care manages email templates, Call Center manages call scripts.
+  const isCare = useLocation().pathname.startsWith('/care')
+  const channel = isCare ? 'email' : 'call'
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const params = new URLSearchParams()
+      params.set('channel', channel)
       if (dateFrom) params.set('from', dateFrom)
       if (dateTo)   params.set('to', dateTo)
       const data = await apiFetch<CannedResponse[]>(`/api/helpdesk/canned-responses?${params}`)
@@ -110,7 +116,7 @@ export default function Canned() {
     } finally {
       setLoading(false)
     }
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, channel])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['tickets'] })
@@ -132,7 +138,7 @@ export default function Canned() {
     }
     setSaving(true)
     try {
-      await apiPost('/api/helpdesk/canned-responses', { name: form.title, category: form.category, body_text: form.body, channel: 'both' })
+      await apiPost('/api/helpdesk/canned-responses', { name: form.title, category: form.category, body_text: form.body, channel })
       toast.success('Canned response created')
       setNewOpen(false)
       load()
@@ -257,8 +263,8 @@ export default function Canned() {
 
   return (
     <Page
-      title="Canned Responses"
-      subtitle="Saved replies for common queries"
+      title={isCare ? 'Email Templates' : 'Call Scripts'}
+      subtitle={isCare ? 'Canned email replies for Care' : 'Canned call talk-tracks for Call Center'}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

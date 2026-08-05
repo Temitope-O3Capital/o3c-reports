@@ -114,7 +114,7 @@ const SECTIONS: Section[] = [
           { label: 'Supervisor View',  to: '/helpdesk/supervisor',        vis: ['telemarketing_head'] },
           // shared resources
           { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
-          { label: 'Canned Responses', to: '/helpdesk/canned' },
+          { label: 'Call Scripts',     to: '/helpdesk/canned' },
         ],
       },
       {
@@ -124,11 +124,10 @@ const SECTIONS: Section[] = [
           // Care handles customer mail — email-channel tickets shown as an inbox
           { label: 'Dashboard',          to: '/care' },
           { label: 'Care Inbox',         to: '/care/inbox' },
-          // shared history + resources (read a customer's prior call/ticket issues)
+          // shared history + resources (customer's cross-channel history via Customer 360)
           { label: 'Customer Directory', to: '/customers' },
-          { label: 'Ticket Queue',       to: '/helpdesk/tickets' },
           { label: 'Knowledge Base',     to: '/helpdesk/knowledge-base' },
-          { label: 'Canned Responses',   to: '/helpdesk/canned' },
+          { label: 'Email Templates',    to: '/care/canned' },
         ],
       },
     ],
