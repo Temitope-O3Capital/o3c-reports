@@ -78,6 +78,7 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Post("/import-calls", zohoImportDeskCalls(db))
 	r.Post("/import-contacts", zohoImportContacts(db))
 	r.Post("/backfill-assignees", zohoBackfillAssignees(db))
+	r.Post("/relink-assignees", zohoRelinkAssignees(db))
 	r.Post("/onboard-agents", zohoOnboardAgents(db))
 
 	// Voice routes require call_center page permission — these initiate or import live calls.
@@ -105,6 +106,7 @@ func RegisterZohoAdmin(r chi.Router, db *core.DB, adminSecret string) {
 	r.With(guard).Post("/admin/import-calls", zohoImportDeskCalls(db))
 	r.With(guard).Post("/admin/import-contacts", zohoImportContacts(db))
 	r.With(guard).Post("/admin/backfill-assignees", zohoBackfillAssignees(db))
+	r.With(guard).Post("/admin/relink-assignees", zohoRelinkAssignees(db))
 	r.With(guard).Post("/admin/onboard-agents", zohoOnboardAgents(db))
 }
 
@@ -910,6 +912,58 @@ func zohoBackfillAssignees(db *core.DB) http.HandlerFunc {
 			"by_agent":           byAgent,
 			"rows_updated":       updated,
 			"linked_to_users":    linked,
+		})
+	}
+}
+
+// zohoRelinkAssignees links helpdesk_tickets.assigned_to to the workspace user
+// whose email matches the captured zoho_assignee_email. Pure set-based UPDATE —
+// no Zoho paging — so it completes in one shot over every already-captured
+// ticket. Idempotent; only fills unlinked rows. ?dry_run=true reports the count
+// that would link without writing.
+func zohoRelinkAssignees(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		dryRun := r.URL.Query().Get("dry_run") == "true"
+
+		if dryRun {
+			var n int64
+			rows, _ := db.PGQuery(ctx, `
+				SELECT COUNT(*) AS n
+				FROM helpdesk_tickets t
+				JOIN o3c_users u ON lower(t.zoho_assignee_email) = lower(u.email)
+				WHERE u.deleted_at IS NULL AND u.is_active = TRUE
+				  AND t.assigned_to IS NULL
+				  AND t.zoho_assignee_email IS NOT NULL`)
+			if len(rows) > 0 {
+				n = toInt64(rows[0]["n"])
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"dry_run": true, "would_link": n}) //nolint:errcheck
+			return
+		}
+
+		res, err := db.PGExec(ctx, `
+			UPDATE helpdesk_tickets t
+			SET assigned_to = u.id, updated_at = NOW()
+			FROM o3c_users u
+			WHERE lower(t.zoho_assignee_email) = lower(u.email)
+			  AND u.deleted_at IS NULL AND u.is_active = TRUE
+			  AND t.assigned_to IS NULL
+			  AND t.zoho_assignee_email IS NOT NULL`)
+		if err != nil {
+			respondErr(w, 500, "relink failed: "+err.Error())
+			return
+		}
+		linked, _ := res.RowsAffected()
+		var totalLinked int64
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE assigned_to IS NOT NULL`); len(rows) > 0 {
+			totalLinked = toInt64(rows[0]["n"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"linked_now":         linked,
+			"total_linked_after": totalLinked,
 		})
 	}
 }
