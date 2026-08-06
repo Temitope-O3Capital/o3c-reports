@@ -31,7 +31,7 @@ func txnKPIs(db *core.DB) http.HandlerFunc {
 		}
 
 		var f Filter
-		f.Date("Transaction_Date", `"Transaction Date"`, dateFrom, dateTo)
+		f.Date("Transaction_Date", "txn_date", dateFrom, dateTo)
 
 		ctx := r.Context()
 		kpis := map[string]any{}
@@ -43,13 +43,13 @@ func txnKPIs(db *core.DB) http.HandlerFunc {
 		for _, s := range []spec{
 			{"total_volume",
 				fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing WHERE 1=1%s", f.MS()),
-				fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Transactions" WHERE 1=1%s`, f.PG())},
+				fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) AS val FROM app.transactions WHERE 1=1%s`, f.PG())},
 			{"transaction_count",
 				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Transaction_Listing WHERE 1=1%s", f.MS()),
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Transactions" WHERE 1=1%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.transactions WHERE 1=1%s`, f.PG())},
 			{"unique_merchants",
 				fmt.Sprintf("SELECT COUNT(DISTINCT Merchant_Name) AS val FROM dbo.Transaction_Listing WHERE 1=1%s", f.MS()),
-				fmt.Sprintf(`SELECT COUNT(DISTINCT "Merchant_Name") AS val FROM "Transactions" WHERE 1=1%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(DISTINCT merchant_name) AS val FROM app.transactions WHERE 1=1%s`, f.PG())},
 		} {
 			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg, f.Args()...)
 			if err != nil {
@@ -63,7 +63,7 @@ func txnKPIs(db *core.DB) http.HandlerFunc {
 		// MTD is always current month regardless of date filter
 		mtd, src, _ := db.DualScalar(ctx, "val",
 			"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing WHERE MONTH(Transaction_Date)=MONTH(GETDATE()) AND YEAR(Transaction_Date)=YEAR(GETDATE())",
-			`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Transactions" WHERE DATE_TRUNC('month',"Transaction Date")=DATE_TRUNC('month',CURRENT_DATE)`)
+			`SELECT COALESCE(SUM(amount),0) AS val FROM app.transactions WHERE DATE_TRUNC('month',txn_date)=DATE_TRUNC('month',CURRENT_DATE)`)
 		kpis["volume_mtd"] = mtd
 		sources = append(sources, src)
 
@@ -89,11 +89,11 @@ func txnMonthlyTrend(db *core.DB) http.HandlerFunc {
 			 GROUP BY DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1),
 			          FORMAT(Transaction_Date,'MMM yyyy')
 			 ORDER BY month_sort`,
-			`SELECT TO_CHAR(DATE_TRUNC('month',"Transaction Date"),'Mon YYYY') AS month,
-			        DATE_TRUNC('month',"Transaction Date") AS month_sort,
-			        COALESCE(SUM("Amount"),0) AS volume, COUNT(*) AS count
-			 FROM "Transactions" WHERE "Transaction Date" IS NOT NULL
-			 GROUP BY DATE_TRUNC('month',"Transaction Date") ORDER BY month_sort`)
+			`SELECT TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YYYY') AS month,
+			        DATE_TRUNC('month',txn_date) AS month_sort,
+			        COALESCE(SUM(amount),0) AS volume, COUNT(*) AS count
+			 FROM app.transactions WHERE txn_date IS NOT NULL
+			 GROUP BY DATE_TRUNC('month',txn_date) ORDER BY month_sort`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -115,14 +115,14 @@ func txnTopMerchants(db *core.DB) http.HandlerFunc {
 			return
 		}
 		var f Filter
-		f.Date("Transaction_Date", `"Transaction Date"`, dateFrom, dateTo)
+		f.Date("Transaction_Date", "txn_date", dateFrom, dateTo)
 		data, src, err := db.DualQuery(r.Context(),
 			fmt.Sprintf(`SELECT TOP 10 Merchant_Name, ISNULL(SUM(Amount),0) AS volume, COUNT(*) AS count
 			  FROM dbo.Transaction_Listing WHERE Merchant_Name IS NOT NULL AND Merchant_Name!=''%s
 			  GROUP BY Merchant_Name ORDER BY volume DESC`, f.MS()),
-			fmt.Sprintf(`SELECT "Merchant_Name", COALESCE(SUM("Amount"),0) AS volume, COUNT(*) AS count
-			  FROM "Transactions" WHERE "Merchant_Name" IS NOT NULL AND "Merchant_Name"!=''%s
-			  GROUP BY "Merchant_Name" ORDER BY volume DESC LIMIT 10`, f.PG()),
+			fmt.Sprintf(`SELECT merchant_name AS "Merchant_Name", COALESCE(SUM(amount),0) AS volume, COUNT(*) AS count
+			  FROM app.transactions WHERE merchant_name IS NOT NULL AND merchant_name!=''%s
+			  GROUP BY merchant_name ORDER BY volume DESC LIMIT 10`, f.PG()),
 			f.Args()...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
@@ -145,14 +145,14 @@ func txnByType(db *core.DB) http.HandlerFunc {
 			return
 		}
 		var f Filter
-		f.Date("Transaction_Date", `"Transaction Date"`, dateFrom, dateTo)
+		f.Date("Transaction_Date", "txn_date", dateFrom, dateTo)
 		data, src, err := db.DualQuery(r.Context(),
 			fmt.Sprintf(`SELECT Description, ISNULL(SUM(Amount),0) AS volume, COUNT(*) AS count
 			  FROM dbo.Transaction_Listing WHERE Description IS NOT NULL%s
 			  GROUP BY Description ORDER BY volume DESC`, f.MS()),
-			fmt.Sprintf(`SELECT "Description", COALESCE(SUM("Amount"),0) AS volume, COUNT(*) AS count
-			  FROM "Transactions" WHERE "Description" IS NOT NULL%s
-			  GROUP BY "Description" ORDER BY volume DESC`, f.PG()),
+			fmt.Sprintf(`SELECT description AS "Description", COALESCE(SUM(amount),0) AS volume, COUNT(*) AS count
+			  FROM app.transactions WHERE description IS NOT NULL%s
+			  GROUP BY description ORDER BY volume DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
@@ -175,12 +175,12 @@ func txnExport(db *core.DB) http.HandlerFunc {
 			return
 		}
 		var f Filter
-		f.Date("Transaction_Date", `"Transaction Date"`, dateFrom, dateTo)
+		f.Date("Transaction_Date", "txn_date", dateFrom, dateTo)
 		data, _, err := db.DualQuery(r.Context(),
 			fmt.Sprintf(`SELECT TOP 5000 Transaction_Date, CIF, Merchant_Name, Description, Amount
 			  FROM dbo.Transaction_Listing WHERE 1=1%s ORDER BY Transaction_Date DESC`, f.MS()),
-			fmt.Sprintf(`SELECT "Transaction Date","CIF Number","Merchant_Name","Description","Amount"
-			  FROM "Transactions" WHERE 1=1%s ORDER BY "Transaction Date" DESC LIMIT 5000`, f.PG()),
+			fmt.Sprintf(`SELECT txn_date AS "Transaction Date", cif AS "CIF Number", merchant_name AS "Merchant_Name", description AS "Description", amount AS "Amount"
+			  FROM app.transactions WHERE 1=1%s ORDER BY txn_date DESC LIMIT 5000`, f.PG()),
 			f.Args()...)
 		if err != nil {
 			respondErr(w, 500, "Export failed")

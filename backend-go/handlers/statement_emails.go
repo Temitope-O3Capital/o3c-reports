@@ -563,9 +563,9 @@ func loadCustomerStatement(ctx context.Context, db *core.DB, cif, dateFrom, date
 	acctRows, acctSrc, err := db.DualQuery(ctx,
 		`SELECT TOP 1 CIF_Number, First_Name, Last_Name, Email, Phone, Job_Title, State, City
 		 FROM dbo.Contact WHERE CIF_Number=@p1`,
-		`SELECT "CIF Number", "First Name", "Last Name", "Email", "Phone",
-		        "Job Title", "State", "City"
-		 FROM "Accounts" WHERE "CIF Number"=$1`,
+		`SELECT cif AS "CIF Number", first_name AS "First Name", last_name AS "Last Name", email AS "Email", phone AS "Phone",
+		        job_title AS "Job Title", state AS "State", city AS "City"
+		 FROM app.customers WHERE cif=$1`,
 		cif)
 	if err != nil {
 		return customerStatementData{}, fmt.Errorf("account lookup failed")
@@ -577,18 +577,18 @@ func loadCustomerStatement(ctx context.Context, db *core.DB, cif, dateFrom, date
 	prodRows, _, _ := db.DualQuery(ctx,
 		`SELECT Product_Name, Account_Status, Name_On_Card, Account_Manager
 		 FROM dbo.Account WHERE CIF_Number=@p1`,
-		`SELECT "Product Name", "Account Status", "Name On Card", "Account Manager"
-		 FROM "Products" WHERE "CIF Number"=$1`,
+		`SELECT product_name AS "Product Name", status AS "Account Status", name_on_card AS "Name On Card", NULL AS "Account Manager"
+		 FROM app.accounts WHERE cif=$1`,
 		cif)
 	txnRows, txnSrc, _ := db.DualQuery(ctx,
 		`SELECT TOP 500 Transaction_Date, Amount, Description, Merchant_Name
 		 FROM dbo.Transaction_Listing
 		 WHERE CIF_Number=@p1 AND CAST(Transaction_Date AS DATE) BETWEEN @p2 AND @p3
 		 ORDER BY Transaction_Date DESC`,
-		`SELECT "Transaction Date", "Amount", "Description", "Merchant_Name"
-		 FROM "Transactions"
-		 WHERE "CIF Number"=$1 AND "Transaction Date"::date BETWEEN $2 AND $3
-		 ORDER BY "Transaction Date" DESC LIMIT 500`,
+		`SELECT txn_date AS "Transaction Date", amount AS "Amount", description AS "Description", merchant_name AS "Merchant_Name"
+		 FROM app.transactions
+		 WHERE cif=$1 AND txn_date::date BETWEEN $2 AND $3
+		 ORDER BY txn_date DESC LIMIT 500`,
 		cif, dateFrom, dateTo)
 	if prodRows == nil {
 		prodRows = []core.Row{}
@@ -608,10 +608,10 @@ func eligibleStatementRecipients(ctx context.Context, db *core.DB, limit int) ([
 			FROM dbo.Contact
 			WHERE Email IS NOT NULL AND Email <> '' AND CIF_Number IS NOT NULL AND CIF_Number <> ''
 			ORDER BY CIF_Number`,
-		`SELECT DISTINCT ON ("CIF Number") "CIF Number", "First Name", "Last Name", "Email"
-			FROM "Accounts"
-			WHERE "Email" IS NOT NULL AND "Email" <> '' AND "CIF Number" IS NOT NULL AND "CIF Number" <> ''
-			ORDER BY "CIF Number"
+		`SELECT DISTINCT ON (cif) cif AS "CIF Number", first_name AS "First Name", last_name AS "Last Name", email AS "Email"
+			FROM app.customers
+			WHERE email IS NOT NULL AND email <> '' AND cif IS NOT NULL AND cif <> ''
+			ORDER BY cif
 			LIMIT $1`,
 		limit)
 }
@@ -621,9 +621,9 @@ func eligibleStatementRecipientCount(ctx context.Context, db *core.DB) (int, str
 		`SELECT COUNT(*) AS n
 			FROM dbo.Contact
 			WHERE Email IS NOT NULL AND Email <> '' AND CIF_Number IS NOT NULL AND CIF_Number <> ''`,
-		`SELECT COUNT(DISTINCT "CIF Number") AS n
-			FROM "Accounts"
-			WHERE "Email" IS NOT NULL AND "Email" <> '' AND "CIF Number" IS NOT NULL AND "CIF Number" <> ''`)
+		`SELECT COUNT(DISTINCT cif) AS n
+			FROM app.customers
+			WHERE email IS NOT NULL AND email <> '' AND cif IS NOT NULL AND cif <> ''`)
 	if err != nil || len(rows) == 0 {
 		return 0, src
 	}

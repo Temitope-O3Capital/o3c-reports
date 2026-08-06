@@ -43,17 +43,17 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 
 		// ── Identity from the customer master ("Accounts" — Sage snapshot) ─────
 		acctRows, _ := db.PGQuery(ctx, `
-			SELECT TRIM(CONCAT("First Name", ' ', "Last Name")) AS name,
-			       "Phone Number" AS phone, "Email" AS email,
-			       "State" AS state, "City" AS city, "Job Title" AS job_title,
-			       "Birthday"::text AS date_of_birth
-			FROM "Accounts" WHERE "CIF Number" = $1 LIMIT 1`, cif)
+			SELECT TRIM(CONCAT(first_name, ' ', last_name)) AS name,
+			       phone AS phone, email AS email,
+			       state AS state, city AS city, job_title AS job_title,
+			       birthday::text AS date_of_birth
+			FROM app.customers WHERE cif = $1 LIMIT 1`, cif)
 
 		// ── Cards / accounts from the "Products" view ─────────────────────────
 		prodRows, _ := db.PGQuery(ctx, `
-			SELECT "Product Name" AS product_name, "Account Status" AS status,
-			       "Name On Card" AS name_on_card, "Card Product" AS scheme
-			FROM "Products" WHERE "CIF Number" = $1`, cif)
+			SELECT product_name AS product_name, status AS status,
+			       name_on_card AS name_on_card, COALESCE(card_product,card_program) AS scheme
+			FROM app.accounts WHERE cif = $1`, cif)
 
 		// ── Loans from the CBS/Udara book ─────────────────────────────────────
 		cbsLoans, _ := db.PGQuery(ctx, `

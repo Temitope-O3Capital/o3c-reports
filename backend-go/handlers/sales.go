@@ -288,22 +288,22 @@ func salesKPIs(db *core.DB) http.HandlerFunc {
 		for _, s := range []spec{
 			{"total_customers",
 				"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Accounts"`},
+				`SELECT COUNT(DISTINCT cif) AS val FROM app.customers`},
 			{"new_mtd",
 				"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact WHERE MONTH(Account_Created)=MONTH(GETDATE()) AND YEAR(Account_Created)=YEAR(GETDATE())",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Accounts" WHERE DATE_TRUNC('month',"Account Created Date")=DATE_TRUNC('month',CURRENT_DATE)`},
+				`SELECT COUNT(DISTINCT cif) AS val FROM app.customers WHERE DATE_TRUNC('month',account_created)=DATE_TRUNC('month',CURRENT_DATE)`},
 			{"ytd_new",
 				"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact WHERE YEAR(Account_Created)=YEAR(GETDATE())",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Accounts" WHERE EXTRACT(year FROM "Account Created Date")=EXTRACT(year FROM CURRENT_DATE)`},
+				`SELECT COUNT(DISTINCT cif) AS val FROM app.customers WHERE EXTRACT(year FROM account_created)=EXTRACT(year FROM CURRENT_DATE)`},
 			{"active_cards",
 				"SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account WHERE Status IN ('Open','Active')",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Products" WHERE "Account Status" IN ('Open','Active')`},
+				`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts WHERE status IN ('Open','Active')`},
 			{"total_cards",
 				"SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Products"`},
+				`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts`},
 			{"states_reached",
 				"SELECT COUNT(DISTINCT State_) AS val FROM dbo.Contact WHERE State_ IS NOT NULL AND State_ != ''",
-				`SELECT COUNT(DISTINCT "State") AS val FROM "Accounts" WHERE "State" IS NOT NULL AND "State" != ''`},
+				`SELECT COUNT(DISTINCT state) AS val FROM app.customers WHERE state IS NOT NULL AND state != ''`},
 		} {
 			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg)
 			if err != nil {
@@ -316,7 +316,7 @@ func salesKPIs(db *core.DB) http.HandlerFunc {
 
 		prev, _, _ := db.DualScalar(ctx, "val",
 			"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact WHERE MONTH(Account_Created)=MONTH(DATEADD(month,-1,GETDATE())) AND YEAR(Account_Created)=YEAR(DATEADD(month,-1,GETDATE()))",
-			`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Accounts" WHERE DATE_TRUNC('month',"Account Created Date")=DATE_TRUNC('month',CURRENT_DATE-INTERVAL '1 month')`)
+			`SELECT COUNT(DISTINCT cif) AS val FROM app.customers WHERE DATE_TRUNC('month',account_created)=DATE_TRUNC('month',CURRENT_DATE-INTERVAL '1 month')`)
 		prevN := toFloat(prev)
 		newMTD := toFloat(kpis["new_mtd"])
 		if prevN > 0 {
@@ -345,16 +345,16 @@ func salesFunnel(db *core.DB) http.HandlerFunc {
 		for _, s := range []struct{ key, ms, pg string }{
 			{"registered",
 				"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Accounts"`},
+				`SELECT COUNT(DISTINCT cif) AS val FROM app.customers`},
 			{"card_issued",
 				"SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Products"`},
+				`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts`},
 			{"card_active",
 				"SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account WHERE Status IN ('Open','Active')",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Products" WHERE "Account Status" IN ('Open','Active')`},
+				`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts WHERE status IN ('Open','Active')`},
 			{"transacting",
 				"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Transaction_Listing",
-				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Transactions"`},
+				`SELECT COUNT(DISTINCT cif) AS val FROM app.transactions`},
 		} {
 			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg)
 			if err != nil {
@@ -377,14 +377,14 @@ func salesAccountsTrend(db *core.DB) http.HandlerFunc {
 			return
 		}
 		msWhere := "Account_Created IS NOT NULL"
-		pgWhere := `"Account Created Date" IS NOT NULL`
+		pgWhere := `account_created IS NOT NULL`
 		if from != "" {
 			msWhere += fmt.Sprintf(" AND Account_Created >= '%s'", from)
-			pgWhere += fmt.Sprintf(` AND "Account Created Date" >= '%s'`, from)
+			pgWhere += fmt.Sprintf(` AND account_created >= '%s'`, from)
 		}
 		if to != "" {
 			msWhere += fmt.Sprintf(" AND Account_Created <= '%s'", to)
-			pgWhere += fmt.Sprintf(` AND "Account Created Date" <= '%s'`, to)
+			pgWhere += fmt.Sprintf(` AND account_created <= '%s'`, to)
 		}
 		data, src, err := db.DualQuery(r.Context(),
 			fmt.Sprintf(`SELECT FORMAT(Account_Created,'MMM yyyy') AS month,
@@ -394,11 +394,11 @@ func salesAccountsTrend(db *core.DB) http.HandlerFunc {
 			 GROUP BY DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1),
 			          FORMAT(Account_Created,'MMM yyyy')
 			 ORDER BY month_sort`, msWhere),
-			fmt.Sprintf(`SELECT TO_CHAR(DATE_TRUNC('month',"Account Created Date"),'Mon YYYY') AS month,
-			        DATE_TRUNC('month',"Account Created Date") AS month_sort,
-			        COUNT(DISTINCT "CIF Number") AS new_accounts
-			 FROM "Accounts" WHERE %s
-			 GROUP BY DATE_TRUNC('month',"Account Created Date") ORDER BY month_sort`, pgWhere))
+			fmt.Sprintf(`SELECT TO_CHAR(DATE_TRUNC('month',account_created),'Mon YYYY') AS month,
+			        DATE_TRUNC('month',account_created) AS month_sort,
+			        COUNT(DISTINCT cif) AS new_accounts
+			 FROM app.customers WHERE %s
+			 GROUP BY DATE_TRUNC('month',account_created) ORDER BY month_sort`, pgWhere))
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -412,8 +412,8 @@ func salesByState(db *core.DB) http.HandlerFunc {
 		data, src, err := db.DualQuery(r.Context(),
 			`SELECT State_, COUNT(DISTINCT CIF) AS count FROM dbo.Contact
 			 WHERE State_ IS NOT NULL AND State_!='' GROUP BY State_ ORDER BY count DESC`,
-			`SELECT "State", COUNT(DISTINCT "CIF Number") AS count FROM "Accounts"
-			 WHERE "State" IS NOT NULL AND "State"!='' GROUP BY "State" ORDER BY count DESC`)
+			`SELECT state AS "State", COUNT(DISTINCT cif) AS count FROM app.customers
+			 WHERE state IS NOT NULL AND state!='' GROUP BY state ORDER BY count DESC`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -427,8 +427,8 @@ func salesByCity(db *core.DB) http.HandlerFunc {
 		data, src, err := db.DualQuery(r.Context(),
 			`SELECT TOP 20 City, State_, COUNT(DISTINCT CIF) AS count FROM dbo.Contact
 			 WHERE City IS NOT NULL AND City!='' GROUP BY City, State_ ORDER BY count DESC`,
-			`SELECT "City", "State", COUNT(DISTINCT "CIF Number") AS count FROM "Accounts"
-			 WHERE "City" IS NOT NULL AND "City"!='' GROUP BY "City","State" ORDER BY count DESC LIMIT 20`)
+			`SELECT city AS "City", state AS "State", COUNT(DISTINCT cif) AS count FROM app.customers
+			 WHERE city IS NOT NULL AND city!='' GROUP BY city,state ORDER BY count DESC LIMIT 20`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -447,12 +447,9 @@ func salesManagerPerformance(db *core.DB) http.HandlerFunc {
 			        ROUND(100.0*SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
 			 FROM dbo.Account WHERE Account_Manager_txt IS NOT NULL AND Account_Manager_txt NOT IN ('','Unassigned')
 			 GROUP BY Account_Manager_txt ORDER BY total_accounts DESC`,
-			`SELECT "Account Manager",
-			        COUNT(*) AS total_accounts,
-			        SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) AS active_accounts,
-			        ROUND(100.0*SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
-			 FROM "Products" WHERE "Account Manager" IS NOT NULL AND "Account Manager" NOT IN ('','Unassigned')
-			 GROUP BY "Account Manager" ORDER BY total_accounts DESC LIMIT 20`)
+			`SELECT NULL::text AS "Account Manager", 0::bigint AS total_accounts,
+			        0::bigint AS active_accounts, 0::numeric AS activation_rate
+			 WHERE false`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -467,9 +464,9 @@ func salesProductMix(db *core.DB) http.HandlerFunc {
 			`SELECT Product_Name, COUNT(*) AS total,
 			        SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS active
 			 FROM dbo.Account WHERE Product_Name IS NOT NULL GROUP BY Product_Name ORDER BY total DESC`,
-			`SELECT "Product Name", COUNT(*) AS total,
-			        SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) AS active
-			 FROM "Products" WHERE "Product Name" IS NOT NULL GROUP BY "Product Name" ORDER BY total DESC`)
+			`SELECT product_name AS "Product Name", COUNT(*) AS total,
+			        SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END) AS active
+			 FROM app.accounts WHERE product_name IS NOT NULL GROUP BY product_name ORDER BY total DESC`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -493,16 +490,16 @@ func salesCustomers(db *core.DB) http.HandlerFunc {
 			     SELECT TOP 1 Product_Name, Status, Account_Manager_txt FROM dbo.Account
 			     WHERE CIF_Number=c.CIF ORDER BY CASE WHEN Status IN ('Open','Active') THEN 0 ELSE 1 END
 			 ) p ORDER BY c.Account_Created DESC`, limit),
-			fmt.Sprintf(`SELECT a."CIF Number", a."First Name", a."Last Name",
-			        a."State", a."City", a."Job Title", a."Account Created Date",
-			        p."Product Name", p."Account Status", p."Account Manager"
-			 FROM "Accounts" a
+			fmt.Sprintf(`SELECT a.cif, a.first_name AS "First Name", a.last_name AS "Last Name",
+			        a.state AS "State", a.city AS "City", a.job_title AS "Job Title", a.account_created,
+			        p."Product Name", p.status, p."Account Manager"
+			 FROM app.customers a
 			 LEFT JOIN LATERAL (
-			     SELECT "Product Name","Account Status","Account Manager" FROM "Products"
-			     WHERE "CIF Number"=a."CIF Number"
-			     ORDER BY CASE WHEN "Account Status" IN ('Open','Active') THEN 0 ELSE 1 END LIMIT 1
+			     SELECT product_name AS "Product Name", status, NULL AS "Account Manager" FROM app.accounts
+			     WHERE cif=a.cif
+			     ORDER BY CASE WHEN status IN ('Open','Active') THEN 0 ELSE 1 END LIMIT 1
 			 ) p ON true
-			 ORDER BY a."Account Created Date" DESC LIMIT %d`, limit))
+			 ORDER BY a.account_created DESC LIMIT %d`, limit))
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -671,7 +668,7 @@ func salesCampaignAttribution(db *core.DB) http.HandlerFunc {
 		to := qstr(r, "to")
 		// Multi-signal attribution: a campaign recipient is a "conversion" if they
 		// can be resolved to a customer (by CIF, else phone, else email via the
-		// "Accounts" master) who took a CBS loan within 90 days AFTER the send.
+		// app.customers master) who took a CBS loan within 90 days AFTER the send.
 		// Each conversion is tagged with the matching basis. If the customer master
 		// is absent, degrade gracefully to CIF-only resolution.
 		where, args := "WHERE 1=1", []any{}
@@ -680,7 +677,7 @@ func salesCampaignAttribution(db *core.DB) http.HandlerFunc {
 
 		hasMaster := false
 		var reg *string
-		if err := db.PG.QueryRowContext(r.Context(), `SELECT to_regclass('"Accounts"')`).Scan(&reg); err == nil && reg != nil && *reg != "" {
+		if err := db.PG.QueryRowContext(r.Context(), `SELECT to_regclass('app.customers')`).Scan(&reg); err == nil && reg != nil && *reg != "" {
 			hasMaster = true
 		}
 
@@ -692,12 +689,12 @@ func salesCampaignAttribution(db *core.DB) http.HandlerFunc {
 			acctCTE = `
 			acct_phone AS (
 				SELECT p10, MIN(cif) AS cif FROM (
-					SELECT right(regexp_replace("Phone Number",'\D','','g'),10) AS p10, "CIF Number" AS cif
-					FROM "Accounts" WHERE length(regexp_replace(COALESCE("Phone Number",''),'\D','','g')) >= 10
+					SELECT right(regexp_replace(phone,'\D','','g'),10) AS p10, cif AS cif
+					FROM app.customers WHERE length(regexp_replace(COALESCE(phone,''),'\D','','g')) >= 10
 				) x GROUP BY p10 HAVING count(DISTINCT cif) = 1),
 			acct_email AS (
 				SELECT em, MIN(cif) AS cif FROM (
-					SELECT lower("Email") AS em, "CIF Number" AS cif FROM "Accounts" WHERE COALESCE("Email",'') <> ''
+					SELECT lower(email) AS em, cif AS cif FROM app.customers WHERE COALESCE(email,'') <> ''
 				) x GROUP BY em HAVING count(DISTINCT cif) = 1),`
 			resolvedCTE = `resolved AS (
 				SELECT cc.campaign_id,

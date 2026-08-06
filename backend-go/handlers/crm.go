@@ -477,15 +477,20 @@ func customer360(db *core.DB) http.HandlerFunc {
 		var txns, colls []core.Row
 		if cif := str(contact["cif_number"]); cif != "" {
 			if ar, _ := db.PGQuery(r.Context(), `
-				SELECT a.*, p."Product Name", p."Account Status", p."Account Manager"
-				FROM "Accounts" a
-				LEFT JOIN "Products" p ON p."CIF Number"=a."CIF Number"
-				WHERE a."CIF Number"=$1 LIMIT 1`, cif); len(ar) > 0 {
+				SELECT a.cif AS "CIF Number", a.account_created AS "Account Created Date",
+				       a.first_name AS "First Name", a.last_name AS "Last Name",
+				       a.full_address AS "Full Address", a.birthday AS "Birthday",
+				       a.email AS "Email", a.phone AS "Phone Number", a.job_title AS "Job Title",
+				       a.state AS "State", a.city AS "City",
+				       p.product_name AS "Product Name", p.status AS "Account Status", NULL AS "Account Manager"
+				FROM app.customers a
+				LEFT JOIN app.accounts p ON p.cif=a.cif
+				WHERE a.cif=$1 LIMIT 1`, cif); len(ar) > 0 {
 				accountInfo = ar[0]
 			}
 			txns, _ = db.PGQuery(r.Context(), `
-				SELECT "Transaction Date","Amount","Description","Merchant_Name"
-				FROM "Transactions" WHERE "CIF Number"=$1 ORDER BY "Transaction Date" DESC LIMIT 30`, cif)
+				SELECT txn_date AS "Transaction Date", amount AS "Amount", description AS "Description", merchant_name AS "Merchant_Name"
+				FROM app.transactions WHERE cif=$1 ORDER BY txn_date DESC LIMIT 30`, cif)
 			colls, _ = db.PGQuery(r.Context(), `
 				SELECT "Date","Amount","Mode Of Payment","Agent","Payment Receipt"
 				FROM "Collections Log" WHERE "CIF"=$1 ORDER BY "Date" DESC LIMIT 20`, cif)

@@ -27,7 +27,7 @@ func settlementSummary(db *core.DB) http.HandlerFunc {
 		}
 
 		var f Filter
-		f.Date("Transaction_Date", `"Transaction Date"`, dateFrom, dateTo)
+		f.Date("Transaction_Date", "txn_date", dateFrom, dateTo)
 
 		ctx := r.Context()
 
@@ -44,14 +44,14 @@ func settlementSummary(db *core.DB) http.HandlerFunc {
 			GROUP BY CAST(Transaction_Date AS DATE)
 			ORDER BY settlement_date DESC`,
 			`SELECT
-			  "Transaction Date"::date  AS settlement_date,
+			  txn_date::date            AS settlement_date,
 			  COUNT(*)                  AS txn_count,
-			  COALESCE(SUM(CASE WHEN "Amount">0 THEN "Amount" ELSE 0 END),0) AS credits,
-			  COALESCE(SUM(CASE WHEN "Amount"<0 THEN ABS("Amount") ELSE 0 END),0) AS debits,
-			  COALESCE(SUM("Amount"),0) AS net_position
-			FROM "Transactions"
+			  COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) AS credits,
+			  COALESCE(SUM(CASE WHEN amount<0 THEN ABS(amount) ELSE 0 END),0) AS debits,
+			  COALESCE(SUM(amount),0)   AS net_position
+			FROM app.transactions
 			WHERE 1=1`+f.PG()+`
-			GROUP BY "Transaction Date"::date
+			GROUP BY txn_date::date
 			ORDER BY settlement_date DESC`,
 			f.Args()...)
 		if err != nil {
@@ -82,7 +82,7 @@ func mobileAppSummary(db *core.DB) http.HandlerFunc {
 		}
 
 		var f Filter
-		f.Date("Transaction_Date", `"Transaction Date"`, dateFrom, dateTo)
+		f.Date("Transaction_Date", "txn_date", dateFrom, dateTo)
 
 		ctx := r.Context()
 
@@ -96,11 +96,11 @@ func mobileAppSummary(db *core.DB) http.HandlerFunc {
 			FROM dbo.Transaction_Listing
 			WHERE 1=1`+f.MS(),
 			`SELECT
-			  COUNT(DISTINCT "CIF Number") AS active_users,
+			  COUNT(DISTINCT cif)          AS active_users,
 			  COUNT(*)                     AS txn_count,
-			  COALESCE(SUM("Amount"),0)    AS total_volume,
-			  COALESCE(AVG("Amount"),0)    AS avg_txn_size
-			FROM "Transactions"
+			  COALESCE(SUM(amount),0)      AS total_volume,
+			  COALESCE(AVG(amount),0)      AS avg_txn_size
+			FROM app.transactions
 			WHERE 1=1`+f.PG(),
 			f.Args()...)
 		if err != nil {
@@ -120,12 +120,12 @@ func mobileAppSummary(db *core.DB) http.HandlerFunc {
 			         FORMAT(Transaction_Date,'MMM yyyy')
 			ORDER BY month_sort DESC`,
 			`SELECT
-			  TO_CHAR(DATE_TRUNC('month',"Transaction Date"),'Mon YYYY') AS month,
-			  DATE_TRUNC('month',"Transaction Date") AS month_sort,
-			  COUNT(DISTINCT "CIF Number") AS active_users,
+			  TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YYYY') AS month,
+			  DATE_TRUNC('month',txn_date) AS month_sort,
+			  COUNT(DISTINCT cif) AS active_users,
 			  COUNT(*) AS txn_count
-			FROM "Transactions"
-			GROUP BY DATE_TRUNC('month',"Transaction Date")
+			FROM app.transactions
+			GROUP BY DATE_TRUNC('month',txn_date)
 			ORDER BY month_sort DESC
 			LIMIT 12`)
 		if err2 != nil {
@@ -155,17 +155,17 @@ func blinkCardSummary(db *core.DB) http.HandlerFunc {
 		// so match both the brand name and the product name. If nothing matches we return
 		// an empty breakdown (honest) rather than dumping ALL products mislabeled as Blink.
 		const blinkMS = `(Product_Name LIKE '%Blink%' OR Product_Name LIKE '%blink%' OR Product_Name LIKE '%PREP Temporary Virtual%')`
-		const blinkPG = `("Product Name" ILIKE '%blink%' OR "Product Name" ILIKE '%PREP Temporary Virtual%')`
+		const blinkPG = `(product_name ILIKE '%blink%' OR product_name ILIKE '%PREP Temporary Virtual%')`
 		statusRows, src, err := db.DualQuery(ctx,
 			`SELECT Account_Status AS status, COUNT(*) AS count
 			 FROM dbo.Account
 			 WHERE `+blinkMS+`
 			 GROUP BY Account_Status
 			 ORDER BY count DESC`,
-			`SELECT "Account Status" AS status, COUNT(*) AS count
-			 FROM "Products"
+			`SELECT status, COUNT(*) AS count
+			 FROM app.accounts
 			 WHERE `+blinkPG+`
-			 GROUP BY "Account Status"
+			 GROUP BY status
 			 ORDER BY count DESC`)
 		if err != nil {
 			respondErr(w, 500, "Blink card query failed")
@@ -187,12 +187,12 @@ func blinkCardSummary(db *core.DB) http.HandlerFunc {
 			         FORMAT(Account_Created,'MMM yyyy')
 			ORDER BY month_sort DESC`,
 			`SELECT
-			  TO_CHAR(DATE_TRUNC('month',"Account Created Date"),'Mon YYYY') AS month,
-			  DATE_TRUNC('month',"Account Created Date") AS month_sort,
+			  TO_CHAR(DATE_TRUNC('month',opened_date),'Mon YYYY') AS month,
+			  DATE_TRUNC('month',opened_date) AS month_sort,
 			  COUNT(*) AS issued
-			FROM "Products"
-			WHERE "Account Created Date" IS NOT NULL AND `+blinkPG+`
-			GROUP BY DATE_TRUNC('month',"Account Created Date")
+			FROM app.accounts
+			WHERE opened_date IS NOT NULL AND `+blinkPG+`
+			GROUP BY DATE_TRUNC('month',opened_date)
 			ORDER BY month_sort DESC
 			LIMIT 60`)
 		if trend == nil {

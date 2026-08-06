@@ -23,17 +23,17 @@ func cohortKPIs(db *core.DB) http.HandlerFunc {
 	queries := []spec{
 		{
 			"SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account WHERE Account_Created_Date IS NOT NULL",
-			`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Products" WHERE "Account Created Date" IS NOT NULL`,
+			`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts WHERE opened_date IS NOT NULL`,
 			"cohort_size",
 		},
 		{
 			"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Transaction_Listing WHERE CIF IS NOT NULL",
-			`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Transactions" WHERE "CIF Number" IS NOT NULL`,
+			`SELECT COUNT(DISTINCT cif) AS val FROM app.transactions WHERE cif IS NOT NULL`,
 			"activated_cohort",
 		},
 		{
 			`SELECT COUNT(*) AS val FROM (SELECT CIF FROM dbo.Transaction_Listing WHERE CIF IS NOT NULL GROUP BY CIF HAVING COUNT(*) >= 5) x`,
-			`SELECT COUNT(*) AS val FROM (SELECT "CIF Number" FROM "Transactions" WHERE "CIF Number" IS NOT NULL GROUP BY "CIF Number" HAVING COUNT(*) >= 5) x`,
+			`SELECT COUNT(*) AS val FROM (SELECT cif FROM app.transactions WHERE cif IS NOT NULL GROUP BY cif HAVING COUNT(*) >= 5) x`,
 			"power_users",
 		},
 	}
@@ -89,28 +89,28 @@ func cohortHeatmap(db *core.DB) http.HandlerFunc {
 			GROUP BY c.Cohort_Label, DATEDIFF(month,c.Cohort_Date,ma.ActivityMonth)
 			ORDER BY c.Cohort_Label, age_months`,
 			`WITH cohorts AS (
-			    SELECT "CIF Number",
-			           DATE_TRUNC('month',"Account Created Date") AS cohort_date,
-			           TO_CHAR(DATE_TRUNC('month',"Account Created Date"),'Mon YYYY') AS cohort_label
-			    FROM "Products"
-			    WHERE "Account Created Date" IS NOT NULL
-			      AND "Account Created Date" >= CURRENT_DATE - INTERVAL '2 years'
+			    SELECT cif,
+			           DATE_TRUNC('month',opened_date) AS cohort_date,
+			           TO_CHAR(DATE_TRUNC('month',opened_date),'Mon YYYY') AS cohort_label
+			    FROM app.accounts
+			    WHERE opened_date IS NOT NULL
+			      AND opened_date >= CURRENT_DATE - INTERVAL '2 years'
 			),
 			monthly_act AS (
-			    SELECT "CIF Number",
-			           DATE_TRUNC('month',"Transaction Date") AS activity_month,
+			    SELECT cif,
+			           DATE_TRUNC('month',txn_date) AS activity_month,
 			           COUNT(*) AS txn_count
-			    FROM "Transactions"
-			    WHERE "Transaction Date" IS NOT NULL
-			    GROUP BY "CIF Number", DATE_TRUNC('month',"Transaction Date")
+			    FROM app.transactions
+			    WHERE txn_date IS NOT NULL
+			    GROUP BY cif, DATE_TRUNC('month',txn_date)
 			)
 			SELECT c.cohort_label,
 			       DATE_PART('year',AGE(ma.activity_month,c.cohort_date))*12
 			       + DATE_PART('month',AGE(ma.activity_month,c.cohort_date)) AS age_months,
-			       COUNT(DISTINCT ma."CIF Number") AS active_users,
-			       COUNT(DISTINCT c."CIF Number") AS cohort_size
+			       COUNT(DISTINCT ma.cif) AS active_users,
+			       COUNT(DISTINCT c.cif) AS cohort_size
 			FROM cohorts c
-			LEFT JOIN monthly_act ma ON c."CIF Number"=ma."CIF Number"
+			LEFT JOIN monthly_act ma ON c.cif=ma.cif
 			    AND ma.txn_count>0 AND ma.activity_month>=c.cohort_date
 			WHERE c.cohort_label IS NOT NULL
 			GROUP BY c.cohort_label, age_months
@@ -153,15 +153,15 @@ func cohortMonthlyActivity(db *core.DB) http.HandlerFunc {
 			GROUP BY DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1),
 			         FORMAT(Transaction_Date,'MMM yyyy')
 			ORDER BY month_sort`,
-			`SELECT TO_CHAR(DATE_TRUNC('month',"Transaction Date"),'Mon YYYY') AS month,
-			        DATE_TRUNC('month',"Transaction Date") AS month_sort,
-			        COUNT(DISTINCT "CIF Number") AS active_users,
-			        COALESCE(SUM("Amount"),0) AS total_spend,
-			        CASE WHEN COUNT(DISTINCT "CIF Number")=0 THEN 0
-			             ELSE COALESCE(SUM("Amount"),0)/COUNT(DISTINCT "CIF Number") END AS avg_spend
-			FROM "Transactions"
-			WHERE "Transaction Date" IS NOT NULL
-			GROUP BY DATE_TRUNC('month',"Transaction Date")
+			`SELECT TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YYYY') AS month,
+			        DATE_TRUNC('month',txn_date) AS month_sort,
+			        COUNT(DISTINCT cif) AS active_users,
+			        COALESCE(SUM(amount),0) AS total_spend,
+			        CASE WHEN COUNT(DISTINCT cif)=0 THEN 0
+			             ELSE COALESCE(SUM(amount),0)/COUNT(DISTINCT cif) END AS avg_spend
+			FROM app.transactions
+			WHERE txn_date IS NOT NULL
+			GROUP BY DATE_TRUNC('month',txn_date)
 			ORDER BY month_sort`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")

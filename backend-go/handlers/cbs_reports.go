@@ -13,7 +13,7 @@ import (
 // RegisterCBSReports mounts read-only reporting endpoints over the CBS snapshot
 // tables (populated by the sync worker). All amounts are in kobo. Mounted under
 // /api/cbs, so already behind AuthMiddleware. Customer names are resolved from the
-// Sage customer master ("Accounts") by CIF (Udara's cbs_customer_id == "CIF Number").
+// customer master (app.customers) by CIF (Udara's cbs_customer_id == cif).
 func RegisterCBSReports(r chi.Router, db *core.DB) {
 	r.Get("/reports/loan-book", cbsLoanBook(db))
 	r.Get("/reports/fd-book", cbsFDBook(db))
@@ -24,8 +24,8 @@ func RegisterCBSReports(r chi.Router, db *core.DB) {
 // by CIF when available, otherwise the name embedded in the CBS record.
 func custName(master bool, alias string) string {
 	if master {
-		return `COALESCE((SELECT NULLIF(trim(a."First Name"||' '||COALESCE(a."Last Name",'')),'')
-		         FROM "Accounts" a WHERE a."CIF Number" = ` + alias + `.cbs_customer_id LIMIT 1),
+		return `COALESCE((SELECT NULLIF(trim(a.first_name||' '||COALESCE(a.last_name,'')),'')
+		         FROM app.customers a WHERE a.cif =` + alias + `.cbs_customer_id LIMIT 1),
 		         ` + alias + `.raw->>'name') AS customer_name`
 	}
 	return alias + `.raw->>'name' AS customer_name`
@@ -120,8 +120,8 @@ func cbsReconciliation(db *core.DB) http.HandlerFunc {
 		matchedLoan := "false"
 		matchedFD := "false"
 		if master {
-			matchedLoan = `cbs_customer_id <> '' AND EXISTS (SELECT 1 FROM "Accounts" a WHERE a."CIF Number" = cbs_loans.cbs_customer_id)`
-			matchedFD = `cbs_customer_id <> '' AND EXISTS (SELECT 1 FROM "Accounts" a WHERE a."CIF Number" = cbs_fixed_deposits.cbs_customer_id)`
+			matchedLoan = `cbs_customer_id <> '' AND EXISTS (SELECT 1 FROM app.customers a WHERE a.cif =cbs_loans.cbs_customer_id)`
+			matchedFD = `cbs_customer_id <> '' AND EXISTS (SELECT 1 FROM app.customers a WHERE a.cif =cbs_fixed_deposits.cbs_customer_id)`
 		}
 
 		loanStats := queryRows(ctx, db, `
@@ -136,8 +136,8 @@ func cbsReconciliation(db *core.DB) http.HandlerFunc {
 		unmatchedLoanWhere := "true"
 		unmatchedFDWhere := "true"
 		if master {
-			unmatchedLoanWhere = `cl.cbs_customer_id = '' OR NOT EXISTS (SELECT 1 FROM "Accounts" a WHERE a."CIF Number" = cl.cbs_customer_id)`
-			unmatchedFDWhere = `cf.cbs_customer_id = '' OR NOT EXISTS (SELECT 1 FROM "Accounts" a WHERE a."CIF Number" = cf.cbs_customer_id)`
+			unmatchedLoanWhere = `cl.cbs_customer_id = '' OR NOT EXISTS (SELECT 1 FROM app.customers a WHERE a.cif =cl.cbs_customer_id)`
+			unmatchedFDWhere = `cf.cbs_customer_id = '' OR NOT EXISTS (SELECT 1 FROM app.customers a WHERE a.cif =cf.cbs_customer_id)`
 		}
 		unmatchedLoans := queryRows(ctx, db, `
 			SELECT cl.cbs_account_number, cl.cbs_customer_id, cl.raw->>'name' AS customer_name,

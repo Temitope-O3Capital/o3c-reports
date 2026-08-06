@@ -30,28 +30,28 @@ func c360Directory(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if q := qstr(r, "q"); q != "" {
-			where += fmt.Sprintf(` AND ("CIF Number" ILIKE $%d OR "First Name" ILIKE $%d OR "Last Name" ILIKE $%d OR "Phone Number" ILIKE $%d OR "Email" ILIKE $%d)`, n, n, n, n, n)
+			where += fmt.Sprintf(` AND (cif ILIKE $%d OR first_name ILIKE $%d OR last_name ILIKE $%d OR phone ILIKE $%d OR email ILIKE $%d)`, n, n, n, n, n)
 			args = append(args, "%"+q+"%")
 			n++
 		}
 		if v := qstr(r, "state"); v != "" {
-			where += fmt.Sprintf(` AND "State" = $%d`, n)
+			where += fmt.Sprintf(` AND state = $%d`, n)
 			args = append(args, v)
 			n++
 		}
 
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT "CIF Number"           AS cif,
-			       "First Name"           AS first_name,
-			       "Last Name"            AS last_name,
-			       "Phone Number"         AS phone,
-			       "Email"                AS email,
-			       "State"                AS state,
-			       "City"                 AS city,
-			       "Account Created Date" AS created_at
-			FROM "Accounts"
+			SELECT cif                     AS cif,
+			       first_name              AS first_name,
+			       last_name               AS last_name,
+			       phone                   AS phone,
+			       email                   AS email,
+			       state                   AS state,
+			       city                    AS city,
+			       account_created         AS created_at
+			FROM app.customers
 			WHERE %s
-			ORDER BY "First Name", "Last Name"
+			ORDER BY first_name, last_name
 			LIMIT $%d OFFSET $%d`, where, n, n+1), append(args, limit, offset)...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
@@ -60,7 +60,7 @@ func c360Directory(db *core.DB) http.HandlerFunc {
 
 		total := 0
 		if tr, e := db.PGQuery(r.Context(),
-			fmt.Sprintf(`SELECT COUNT(*) AS n FROM "Accounts" WHERE %s`, where), args...); e == nil && len(tr) > 0 {
+			fmt.Sprintf(`SELECT COUNT(*) AS n FROM app.customers WHERE %s`, where), args...); e == nil && len(tr) > 0 {
 			total = int(toInt64(tr[0]["n"]))
 		}
 
@@ -89,12 +89,12 @@ func c360Search(db *core.DB) http.HandlerFunc {
 			 FROM dbo.Contact
 			 WHERE CIF_Number LIKE @p1 OR First_Name LIKE @p1 OR Last_Name LIKE @p1 OR Phone LIKE @p1
 			 ORDER BY CIF_Number`,
-			`SELECT "CIF Number" AS cif,
-			        TRIM(CONCAT("First Name", ' ', "Last Name")) AS name,
-			        "Phone Number" AS phone, "Email" AS email, "State" AS state
-			 FROM "Accounts"
-			 WHERE "CIF Number" ILIKE $1 OR "First Name" ILIKE $1 OR "Last Name" ILIKE $1
-			 ORDER BY "CIF Number"
+			`SELECT cif AS cif,
+			        TRIM(CONCAT(first_name, ' ', last_name)) AS name,
+			        phone AS phone, email AS email, state AS state
+			 FROM app.customers
+			 WHERE cif ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1
+			 ORDER BY cif
 			 LIMIT $2`,
 			like, limit)
 		if err != nil {
@@ -117,26 +117,26 @@ func c360Profile(db *core.DB) http.HandlerFunc {
 		accounts, acctSrc, _ := db.DualQuery(ctx,
 			`SELECT CIF_Number, First_Name, Last_Name, Email, Phone, Birthday, State, City, Job_Title
 			 FROM dbo.Contact WHERE CIF_Number = @p1`,
-			`SELECT "CIF Number", "First Name", "Last Name", "Email", "Phone Number",
-			        "Birthday", "State", "City", "Job Title"
-			 FROM "Accounts" WHERE "CIF Number" = $1`,
+			`SELECT cif AS "CIF Number", first_name AS "First Name", last_name AS "Last Name", email AS "Email", phone AS "Phone Number",
+			        birthday AS "Birthday", state AS "State", city AS "City", job_title AS "Job Title"
+			 FROM app.customers WHERE cif = $1`,
 			cif)
 
 		// Products (MSSQL+PG)
 		products, _, _ := db.DualQuery(ctx,
 			`SELECT Product_Name, Account_Status, Name_On_Card, Account_Manager
 			 FROM dbo.Account WHERE CIF_Number = @p1`,
-			`SELECT "Product Name", "Account Status", "Name On Card", "Account Manager"
-			 FROM "Products" WHERE "CIF Number" = $1`,
+			`SELECT product_name AS "Product Name", status AS "Account Status", name_on_card AS "Name On Card", NULL AS "Account Manager"
+			 FROM app.accounts WHERE cif = $1`,
 			cif)
 
 		// Recent 20 transactions (MSSQL+PG)
 		transactions, txSrc, _ := db.DualQuery(ctx,
 			`SELECT TOP 20 Transaction_Date, Amount, Description, Merchant_Name
 			 FROM dbo.Transaction_Listing WHERE CIF = @p1 ORDER BY Transaction_Date DESC`,
-			`SELECT "Transaction Date", "Amount", "Description", "Merchant_Name"
-			 FROM "Transactions" WHERE "CIF Number" = $1
-			 ORDER BY "Transaction Date" DESC LIMIT 20`,
+			`SELECT txn_date AS "Transaction Date", amount AS "Amount", description AS "Description", merchant_name AS "Merchant_Name"
+			 FROM app.transactions WHERE cif = $1
+			 ORDER BY txn_date DESC LIMIT 20`,
 			cif)
 
 		// Loan applications (PG only)
@@ -240,9 +240,9 @@ func c360Transactions(db *core.DB) http.HandlerFunc {
 			 FROM dbo.Transaction_Listing WHERE CIF = @p1
 			 ORDER BY Transaction_Date DESC
 			 OFFSET @p2 ROWS FETCH NEXT @p3 ROWS ONLY`,
-			`SELECT "Transaction Date", "Amount", "Description", "Merchant_Name"
-			 FROM "Transactions" WHERE "CIF Number" = $1
-			 ORDER BY "Transaction Date" DESC
+			`SELECT txn_date AS "Transaction Date", amount AS "Amount", description AS "Description", merchant_name AS "Merchant_Name"
+			 FROM app.transactions WHERE cif = $1
+			 ORDER BY txn_date DESC
 			 LIMIT $2 OFFSET $3`,
 			cif, offset, limit)
 		if err != nil {

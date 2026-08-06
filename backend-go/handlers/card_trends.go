@@ -20,7 +20,7 @@ func RegisterCardTrends(r chi.Router, db *core.DB) {
 }
 
 // buildTrendsFilter builds the WHERE filter for card trend endpoints.
-// Account_Created_Date / "Account Created Date" is the date column.
+// Account_Created_Date / opened_date is the date column.
 func buildTrendsFilter(r *http.Request) (*Filter, error) {
 	dateFrom, err := validDate(r, "date_from")
 	if err != nil {
@@ -34,9 +34,9 @@ func buildTrendsFilter(r *http.Request) (*Filter, error) {
 	cardProgram := qstr(r, "card_program")
 
 	var f Filter
-	f.Date("Account_Created_Date", `"Account Created Date"`, dateFrom, dateTo)
-	f.Eq(" AND Product_Name=?", ` AND "Product Name"=?`, product)
-	f.Eq(" AND Card_Product=?", ` AND "Card Product"=?`, cardProgram)
+	f.Date("Account_Created_Date", `opened_date`, dateFrom, dateTo)
+	f.Eq(" AND Product_Name=?", ` AND product_name=?`, product)
+	f.Eq(" AND Card_Product=?", ` AND COALESCE(card_product,card_program)=?`, cardProgram)
 	return &f, nil
 }
 
@@ -56,19 +56,19 @@ func cardTrendsKPIs(db *core.DB) http.HandlerFunc {
 		for _, s := range []spec{
 			{"total_issued",
 				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1%s", f.MS()),
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Products" WHERE 1=1%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, f.PG())},
 			{"active",
 				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('Open','Active')%s", f.MS()),
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status" IN ('Open','Active')%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')%s`, f.PG())},
 			{"inactive",
 				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE Status NOT IN ('Open','Active')%s", f.MS()),
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status" NOT IN ('Open','Active')%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status NOT IN ('Open','Active')%s`, f.PG())},
 			{"terminated",
 				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE Status='TERMINATED'%s", f.MS()),
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status"='TERMINATED'%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status='TERMINATED'%s`, f.PG())},
 			{"legal_suspended",
 				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('LEGAL ACTI','SUSPENDED')%s", f.MS()),
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status" IN ('LEGAL ACTI','SUSPENDED')%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('LEGAL ACTI','SUSPENDED')%s`, f.PG())},
 		} {
 			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg, f.Args()...)
 			if err != nil {
@@ -82,7 +82,7 @@ func cardTrendsKPIs(db *core.DB) http.HandlerFunc {
 		// MTD always uses current month
 		mtd, src, _ := db.DualScalar(ctx, "val",
 			"SELECT COUNT(*) AS val FROM dbo.Account WHERE MONTH(Account_Created_Date)=MONTH(GETDATE()) AND YEAR(Account_Created_Date)=YEAR(GETDATE())",
-			`SELECT COUNT(*) AS val FROM "Products" WHERE DATE_TRUNC('month',"Account Created Date")=DATE_TRUNC('month',CURRENT_DATE)`)
+			`SELECT COUNT(*) AS val FROM app.accounts WHERE DATE_TRUNC('month',opened_date)=DATE_TRUNC('month',CURRENT_DATE)`)
 		kpis["issued_mtd"] = mtd
 		sources = append(sources, src)
 
@@ -111,10 +111,10 @@ func cardTrendsIssuance(db *core.DB) http.HandlerFunc {
 			 FROM dbo.Account WHERE Account_Created_Date IS NOT NULL%s
 			 GROUP BY DATEFROMPARTS(YEAR(Account_Created_Date),MONTH(Account_Created_Date),1),
 			          FORMAT(Account_Created_Date,'MMM yyyy') ORDER BY month_sort`, f.MS()),
-			fmt.Sprintf(`SELECT TO_CHAR(DATE_TRUNC('month',"Account Created Date"),'Mon YYYY') AS month,
-			        DATE_TRUNC('month',"Account Created Date") AS month_sort, COUNT(*) AS issued
-			 FROM "Products" WHERE "Account Created Date" IS NOT NULL%s
-			 GROUP BY DATE_TRUNC('month',"Account Created Date") ORDER BY month_sort`, f.PG()),
+			fmt.Sprintf(`SELECT TO_CHAR(DATE_TRUNC('month',opened_date),'Mon YYYY') AS month,
+			        DATE_TRUNC('month',opened_date) AS month_sort, COUNT(*) AS issued
+			 FROM app.accounts WHERE opened_date IS NOT NULL%s
+			 GROUP BY DATE_TRUNC('month',opened_date) ORDER BY month_sort`, f.PG()),
 			f.Args()...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
@@ -140,13 +140,13 @@ func cardTrendsPortfolioHealth(db *core.DB) http.HandlerFunc {
 			 FROM dbo.Account WHERE Account_Created_Date IS NOT NULL%s
 			 GROUP BY DATEFROMPARTS(YEAR(Account_Created_Date),MONTH(Account_Created_Date),1),
 			          FORMAT(Account_Created_Date,'MMM yyyy') ORDER BY month_sort`, f.MS()),
-			fmt.Sprintf(`SELECT TO_CHAR(DATE_TRUNC('month',"Account Created Date"),'Mon YYYY') AS month,
-			        DATE_TRUNC('month',"Account Created Date") AS month_sort,
-			        SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
-			        SUM(CASE WHEN "Account Status" NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
+			fmt.Sprintf(`SELECT TO_CHAR(DATE_TRUNC('month',opened_date),'Mon YYYY') AS month,
+			        DATE_TRUNC('month',opened_date) AS month_sort,
+			        SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
+			        SUM(CASE WHEN status NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
 			        COUNT(*) AS total
-			 FROM "Products" WHERE "Account Created Date" IS NOT NULL%s
-			 GROUP BY DATE_TRUNC('month',"Account Created Date") ORDER BY month_sort`, f.PG()),
+			 FROM app.accounts WHERE opened_date IS NOT NULL%s
+			 GROUP BY DATE_TRUNC('month',opened_date) ORDER BY month_sort`, f.PG()),
 			f.Args()...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
@@ -165,7 +165,7 @@ func cardTrendsStatusDist(db *core.DB) http.HandlerFunc {
 		}
 		data, src, err := db.DualQuery(r.Context(),
 			fmt.Sprintf("SELECT Status AS status, COUNT(*) AS count FROM dbo.Account WHERE 1=1%s GROUP BY Status ORDER BY count DESC", f.MS()),
-			fmt.Sprintf(`SELECT "Account Status" AS status, COUNT(*) AS count FROM "Products" WHERE 1=1%s GROUP BY "Account Status" ORDER BY count DESC`, f.PG()),
+			fmt.Sprintf(`SELECT status AS status, COUNT(*) AS count FROM app.accounts WHERE 1=1%s GROUP BY status ORDER BY count DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
@@ -180,7 +180,7 @@ func cardTrendsByProgram(db *core.DB) http.HandlerFunc {
 		dateFrom, _ := validDate(r, "date_from")
 		dateTo, _ := validDate(r, "date_to")
 		var f Filter
-		f.Date("Account_Created_Date", `"Account Created Date"`, dateFrom, dateTo)
+		f.Date("Account_Created_Date", `opened_date`, dateFrom, dateTo)
 		data, src, err := db.DualQuery(r.Context(),
 			fmt.Sprintf(`SELECT Card_Product AS program, COUNT(*) AS total,
 			        SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
@@ -188,12 +188,12 @@ func cardTrendsByProgram(db *core.DB) http.HandlerFunc {
 			        ROUND(100.0*SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
 			 FROM dbo.Account WHERE Card_Product IS NOT NULL AND Card_Product!=''%s
 			 GROUP BY Card_Product ORDER BY total DESC`, f.MS()),
-			fmt.Sprintf(`SELECT "Card Product" AS program, COUNT(*) AS total,
-			        SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
-			        SUM(CASE WHEN "Account Status" NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
-			        ROUND(100.0*SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
-			 FROM "Products" WHERE "Card Product" IS NOT NULL AND "Card Product"!=''%s
-			 GROUP BY "Card Product" ORDER BY total DESC`, f.PG()),
+			fmt.Sprintf(`SELECT COALESCE(card_product,card_program) AS program, COUNT(*) AS total,
+			        SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
+			        SUM(CASE WHEN status NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
+			        ROUND(100.0*SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
+			 FROM app.accounts WHERE COALESCE(card_product,card_program) IS NOT NULL AND COALESCE(card_product,card_program)!=''%s
+			 GROUP BY COALESCE(card_product,card_program) ORDER BY total DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {
 			data = []core.Row{} // non-fatal — column may not exist on all tenants
@@ -217,12 +217,12 @@ func cardTrendsByProduct(db *core.DB) http.HandlerFunc {
 			        ROUND(100.0*SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
 			 FROM dbo.Account WHERE Product_Name IS NOT NULL%s
 			 GROUP BY Product_Name ORDER BY total DESC`, f.MS()),
-			fmt.Sprintf(`SELECT "Product Name", COUNT(*) AS total,
-			        SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
-			        SUM(CASE WHEN "Account Status" NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
-			        ROUND(100.0*SUM(CASE WHEN "Account Status" IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
-			 FROM "Products" WHERE "Product Name" IS NOT NULL%s
-			 GROUP BY "Product Name" ORDER BY total DESC`, f.PG()),
+			fmt.Sprintf(`SELECT product_name, COUNT(*) AS total,
+			        SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
+			        SUM(CASE WHEN status NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
+			        ROUND(100.0*SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
+			 FROM app.accounts WHERE product_name IS NOT NULL%s
+			 GROUP BY product_name ORDER BY total DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
@@ -237,8 +237,8 @@ func cardTrendsPrograms(db *core.DB) http.HandlerFunc {
 		data, src, err := db.DualQuery(r.Context(),
 			`SELECT DISTINCT Card_Product AS program FROM dbo.Account
 			 WHERE Card_Product IS NOT NULL AND Card_Product!='' ORDER BY Card_Product`,
-			`SELECT DISTINCT "Card Product" AS program FROM "Products"
-			 WHERE "Card Product" IS NOT NULL AND "Card Product"!='' ORDER BY "Card Product"`)
+			`SELECT DISTINCT COALESCE(card_product,card_program) AS program FROM app.accounts
+			 WHERE COALESCE(card_product,card_program) IS NOT NULL AND COALESCE(card_product,card_program)!='' ORDER BY COALESCE(card_product,card_program)`)
 		if err != nil {
 			respond(w, []string{}, "supabase_snapshot")
 			return

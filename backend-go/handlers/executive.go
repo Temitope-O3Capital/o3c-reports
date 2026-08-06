@@ -144,8 +144,7 @@ func execRange(r *http.Request) (cs, ce, ps, pe time.Time) {
 }
 
 // execCardsHandler returns the Cards drilldown shape. Real card counts come from the
-// live card book (MSSQL dbo.Account, or the synced Postgres "Products" view when MSSQL
-// is not configured). No card-transaction / dispute / merchant ledger is synced yet,
+// live card book (app.accounts). No card-transaction / dispute / merchant ledger is synced yet,
 // so those series are returned empty rather than fabricated.
 func execCardsHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -159,9 +158,9 @@ func execCardsHandler(db *core.DB) http.HandlerFunc {
 			   COUNT(*) AS total_cards
 			 FROM dbo.Account`,
 			`SELECT
-			   COUNT(*) FILTER (WHERE "Account Status" IN ('Open','Active')) AS active_cards,
+			   COUNT(*) FILTER (WHERE status IN ('Open','Active')) AS active_cards,
 			   COUNT(*) AS total_cards
-			 FROM "Products"`); e == nil && len(rows) > 0 {
+			 FROM app.accounts`); e == nil && len(rows) > 0 {
 			activeCards = toInt64(rows[0]["active_cards"])
 			totalCards = toInt64(rows[0]["total_cards"])
 		}
@@ -676,16 +675,16 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 		// ── Transactions ──────────────────────────────────────────────────────
 		txnVolCurr := sc(
 			fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '%s' AND '%s'", d(cs), d(ce)),
-			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Transactions" WHERE "Transaction Date" BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
+			fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
 		txnVolPrev := sc(
 			fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '%s' AND '%s'", d(ps), d(pe)),
-			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Transactions" WHERE "Transaction Date" BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
+			fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
 		txnCntCurr := sc(
 			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '%s' AND '%s'", d(cs), d(ce)),
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Transactions" WHERE "Transaction Date" BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
+			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
 		txnCntPrev := sc(
 			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '%s' AND '%s'", d(ps), d(pe)),
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Transactions" WHERE "Transaction Date" BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
+			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
 		var avgTxn float64
 		if txnCntCurr > 0 {
 			avgTxn = round1(txnVolCurr / txnCntCurr)
@@ -694,19 +693,19 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 		// ── Customer acquisition ──────────────────────────────────────────────
 		newCurr := sc(
 			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Contact WHERE Account_Created BETWEEN '%s' AND '%s'", d(cs), d(ce)),
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Accounts" WHERE "Account Created Date" BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
+			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.customers WHERE account_created BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
 		newPrev := sc(
 			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Contact WHERE Account_Created BETWEEN '%s' AND '%s'", d(ps), d(pe)),
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Accounts" WHERE "Account Created Date" BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
+			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.customers WHERE account_created BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
 		totalCustomers := sc(
 			"SELECT COUNT(*) AS val FROM dbo.Contact",
-			`SELECT COUNT(*) AS val FROM "Accounts"`)
+			`SELECT COUNT(*) AS val FROM app.customers`)
 		activeCards := sc(
 			"SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('Open','Active')",
-			`SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status" IN ('Open','Active')`)
+			`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')`)
 		totalCards := sc(
 			"SELECT COUNT(*) AS val FROM dbo.Account",
-			`SELECT COUNT(*) AS val FROM "Products"`)
+			`SELECT COUNT(*) AS val FROM app.accounts`)
 		var activationRate float64
 		if totalCards > 0 {
 			activationRate = round1(activeCards / totalCards * 100)
@@ -726,7 +725,7 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 
 		statesCount := sc(
 			"SELECT COUNT(DISTINCT State_) AS val FROM dbo.Contact WHERE State_ IS NOT NULL AND State_!=''",
-			`SELECT COUNT(DISTINCT "State") AS val FROM "Accounts" WHERE "State" IS NOT NULL AND "State"!=''`)
+			`SELECT COUNT(DISTINCT state) AS val FROM app.customers WHERE state IS NOT NULL AND state!=''`)
 
 		// ── Trends (last 12 months) ───────────────────────────────────────────
 		collTrend := qh(
@@ -737,18 +736,18 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 			`SELECT TO_CHAR(DATE_TRUNC('month',"Recovery Date"),'Mon YYYY') AS month, DATE_TRUNC('month',"Recovery Date") AS sort_key, COALESCE(SUM("Recovery Amount"),0) AS recovery FROM "Recovery Master Sheet" WHERE "Recovery Date" >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',"Recovery Date") ORDER BY sort_key`)
 		txnTrend := qh(
 			`SELECT FORMAT(Transaction_Date,'MMM yyyy') AS month, DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1) AS sort_key, ISNULL(SUM(Amount),0) AS volume, COUNT(*) AS txn_count FROM dbo.Transaction_Listing WHERE Transaction_Date >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1), FORMAT(Transaction_Date,'MMM yyyy') ORDER BY sort_key`,
-			`SELECT TO_CHAR(DATE_TRUNC('month',"Transaction Date"),'Mon YYYY') AS month, DATE_TRUNC('month',"Transaction Date") AS sort_key, COALESCE(SUM("Amount"),0) AS volume, COUNT(*) AS txn_count FROM "Transactions" WHERE "Transaction Date" >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',"Transaction Date") ORDER BY sort_key`)
+			`SELECT TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YYYY') AS month, DATE_TRUNC('month',txn_date) AS sort_key, COALESCE(SUM(amount),0) AS volume, COUNT(*) AS txn_count FROM app.transactions WHERE txn_date >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',txn_date) ORDER BY sort_key`)
 		acqTrend := qh(
 			`SELECT FORMAT(Account_Created,'MMM yyyy') AS month, DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1) AS sort_key, COUNT(*) AS new_accounts FROM dbo.Contact WHERE Account_Created >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1), FORMAT(Account_Created,'MMM yyyy') ORDER BY sort_key`,
-			`SELECT TO_CHAR(DATE_TRUNC('month',"Account Created Date"),'Mon YYYY') AS month, DATE_TRUNC('month',"Account Created Date") AS sort_key, COUNT(*) AS new_accounts FROM "Accounts" WHERE "Account Created Date" >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',"Account Created Date") ORDER BY sort_key`)
+			`SELECT TO_CHAR(DATE_TRUNC('month',account_created),'Mon YYYY') AS month, DATE_TRUNC('month',account_created) AS sort_key, COUNT(*) AS new_accounts FROM app.customers WHERE account_created >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',account_created) ORDER BY sort_key`)
 
 		// ── Breakdowns ────────────────────────────────────────────────────────
 		topStates := qh(
 			"SELECT TOP 10 State_, COUNT(*) AS count FROM dbo.Contact WHERE State_ IS NOT NULL AND State_!='' GROUP BY State_ ORDER BY count DESC",
-			`SELECT "State", COUNT(*) AS count FROM "Accounts" WHERE "State" IS NOT NULL AND "State"!='' GROUP BY "State" ORDER BY count DESC LIMIT 10`)
+			`SELECT state AS "State", COUNT(*) AS count FROM app.customers WHERE state IS NOT NULL AND state!='' GROUP BY state ORDER BY count DESC LIMIT 10`)
 		productMix := qh(
 			"SELECT Product_Name, COUNT(*) AS count FROM dbo.Account WHERE Product_Name IS NOT NULL GROUP BY Product_Name ORDER BY count DESC",
-			`SELECT "Product Name", COUNT(*) AS count FROM "Products" WHERE "Product Name" IS NOT NULL GROUP BY "Product Name" ORDER BY count DESC`)
+			`SELECT product_name AS "Product Name", COUNT(*) AS count FROM app.accounts WHERE product_name IS NOT NULL GROUP BY product_name ORDER BY count DESC`)
 		topAgents := qh(
 			fmt.Sprintf("SELECT TOP 10 Rn_Create_User AS Agent, ISNULL(SUM(Amount),0) AS total, COUNT(*) AS count FROM dbo.o3_loan_Repayment WHERE Repayment_Date BETWEEN '%s' AND '%s' AND Rn_Create_User IS NOT NULL AND Rn_Create_User!='' GROUP BY Rn_Create_User ORDER BY total DESC", d(cs), d(ce)),
 			fmt.Sprintf(`SELECT "Agent", COALESCE(SUM("Amount"),0) AS total, COUNT(*) AS count FROM "Collections Log" WHERE "Date" BETWEEN '%s' AND '%s' AND "Agent" IS NOT NULL AND "Agent"!='' GROUP BY "Agent" ORDER BY total DESC LIMIT 10`, d(cs), d(ce)))

@@ -98,11 +98,10 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 			out["fd_book_kobo"] = toInt64(rows[0]["fd_book_kobo"])
 		}
 
-		// KPI 3 (Active Cards) — from the live card book (MSSQL dbo.Account or the
-		// synced Postgres "Products" view when MSSQL is not configured).
+		// KPI 3 (Active Cards) — from the live card book (app.accounts).
 		if rows, _, err := db.DualQuery(ctx,
 			`SELECT SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS n FROM dbo.Account`,
-			`SELECT COUNT(*) FILTER (WHERE "Account Status" IN ('Open','Active')) AS n FROM "Products"`,
+			`SELECT COUNT(*) FILTER (WHERE status IN ('Open','Active')) AS n FROM app.accounts`,
 		); err == nil && len(rows) > 0 {
 			out["active_cards"] = toInt64(rows[0]["n"])
 		}
@@ -222,7 +221,7 @@ func overviewProductMix(db *core.DB) http.HandlerFunc {
 				(SELECT COALESCE(SUM(principal_kobo),0) FROM cbs_fixed_deposits WHERE status='Active')
 			UNION ALL
 			SELECT 'Cards',
-				(SELECT COUNT(*) FROM "Products" WHERE "Account Status" IN ('Open','Active')),
+				(SELECT COUNT(*) FROM app.accounts WHERE status IN ('Open','Active')),
 				0
 			ORDER BY volume_kobo DESC`)
 		if err != nil {
@@ -382,7 +381,7 @@ func overviewCCStages(db *core.DB) http.HandlerFunc {
 		// active card count from live card data
 		activeRows, _, _ := db.DualQuery(ctx,
 			`SELECT COUNT(*) AS n FROM dbo.Account WHERE Status IN ('Open','Active')`,
-			`SELECT COUNT(*) AS n FROM "Products" WHERE "Account Status" IN ('Open','Active')`)
+			`SELECT COUNT(*) AS n FROM app.accounts WHERE status IN ('Open','Active')`)
 		active := int64(0)
 		if len(activeRows) > 0 {
 			active = toInt64(activeRows[0]["n"])
@@ -459,14 +458,14 @@ func overviewCardsSummary(db *core.DB) http.HandlerFunc {
 				      OR LOWER(ISNULL(Product_Name,'')) LIKE '%credit%'        THEN 1 ELSE 0 END) AS credit_ngn_count
 			FROM dbo.Account WHERE Status IN ('Open','Active')`,
 			`SELECT
-				SUM(CASE WHEN LOWER(COALESCE("Card Product",'')) LIKE '%green%'    THEN 1 ELSE 0 END) AS green_count,
-				SUM(CASE WHEN LOWER(COALESCE("Card Product",'')) LIKE '%gold%'     THEN 1 ELSE 0 END) AS gold_count,
-				SUM(CASE WHEN LOWER(COALESCE("Card Product",'')) LIKE '%platinum%' THEN 1 ELSE 0 END) AS platinum_count,
-				SUM(CASE WHEN LOWER(COALESCE("Product Name",'')) LIKE '%prep%'     THEN 1 ELSE 0 END) AS prepaid_ngn_count,
-				SUM(CASE WHEN LOWER(COALESCE("Product Name",'')) LIKE '%usd%'      THEN 1 ELSE 0 END) AS prepaid_usd_count,
-				SUM(CASE WHEN LOWER(COALESCE("Product Name",'')) LIKE '%classic%'
-				      OR LOWER(COALESCE("Product Name",'')) LIKE '%credit%'        THEN 1 ELSE 0 END) AS credit_ngn_count
-			FROM "Products" WHERE "Account Status" IN ('Open','Active')`)
+				SUM(CASE WHEN LOWER(COALESCE(card_product, card_program,'')) LIKE '%green%'    THEN 1 ELSE 0 END) AS green_count,
+				SUM(CASE WHEN LOWER(COALESCE(card_product, card_program,'')) LIKE '%gold%'     THEN 1 ELSE 0 END) AS gold_count,
+				SUM(CASE WHEN LOWER(COALESCE(card_product, card_program,'')) LIKE '%platinum%' THEN 1 ELSE 0 END) AS platinum_count,
+				SUM(CASE WHEN LOWER(COALESCE(product_name,'')) LIKE '%prep%'     THEN 1 ELSE 0 END) AS prepaid_ngn_count,
+				SUM(CASE WHEN LOWER(COALESCE(product_name,'')) LIKE '%usd%'      THEN 1 ELSE 0 END) AS prepaid_usd_count,
+				SUM(CASE WHEN LOWER(COALESCE(product_name,'')) LIKE '%classic%'
+				      OR LOWER(COALESCE(product_name,'')) LIKE '%credit%'        THEN 1 ELSE 0 END) AS credit_ngn_count
+			FROM app.accounts WHERE status IN ('Open','Active')`)
 		if err != nil || len(rows) == 0 {
 			respond(w, empty, "pg")
 			return
