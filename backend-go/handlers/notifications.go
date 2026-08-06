@@ -316,8 +316,21 @@ func sendNotification(ctx context.Context, db *core.DB, userID int64, notifType,
 	return err
 }
 
+// eventEmailEnabled reports whether email is enabled for an event in the
+// admin-managed notification_event_config (Admin → Notification Settings).
+// Defaults to true when the event has no explicit row, matching the Notify path.
+func eventEmailEnabled(ctx context.Context, db *core.DB, eventType string) bool {
+	rows, _ := db.PGQuery(ctx, `SELECT enabled FROM notification_event_config WHERE event_type=$1 AND channel='email'`, eventType)
+	if len(rows) == 0 {
+		return true
+	}
+	return rows[0]["enabled"] == true
+}
+
 func sendNotificationEmail(ctx context.Context, db *core.DB, userID int64, notifType, title, body, entityType string, entityID int64) {
-	if !notificationEmailEnabled(ctx, db) {
+	// Global kill-switch, then the admin's per-event email toggle — so this path
+	// honours Notification Settings the same way the channel-aware Notify does.
+	if !notificationEmailEnabled(ctx, db) || !eventEmailEnabled(ctx, db, notifType) {
 		return
 	}
 	rows, err := db.PGQuery(ctx, `
