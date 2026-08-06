@@ -131,9 +131,10 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 	//   2. notification_event_config(event_type, channel, enabled)             — admin global per-channel
 	//   3. notification_preferences(user_id, event_type, channels jsonb)       — per-user override
 	// Precedence: role defaults → admin config → user prefs (later wins).
-	// Default when nothing is configured: in_app ON, email/sms OFF (matches the schema's
-	// channels default) — so notifications are never silently dropped for unconfigured events.
-	inApp, email := true, false
+	// Default when nothing is configured: in_app AND email both ON, so every event
+	// reaches people on both channels unless an admin explicitly mutes one in
+	// notification_event_config (Admin → Notification Settings).
+	inApp, email := true, true
 
 	// Layer 1: role defaults (channels jsonb), gated by is_enabled.
 	if rows, _ := db.PGQuery(ctx,

@@ -1004,6 +1004,22 @@ func bulkAssignTasks(db *core.DB) http.HandlerFunc {
 		if err != nil {
 			respondErr(w, 500, "Update failed"); return
 		}
+		// Notify the assignee — bulk-assign targets a single user, like single
+		// assignment. (nil assigned_to = unassign, so nobody to notify.)
+		if b.AssignedTo != nil && *b.AssignedTo > 0 {
+			n := len(b.TaskIDs)
+			word := "task has"
+			if n != 1 {
+				word = "tasks have"
+			}
+			go Notify(context.Background(), db, NotifPayload{
+				EventType: "task_assigned",
+				UserID:    *b.AssignedTo,
+				Title:     "Tasks assigned to you",
+				Body:      fmt.Sprintf("%d %s been assigned to you.", n, word),
+				ActionURL: "/crm/tasks",
+			})
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TaskIDs)}) //nolint:errcheck
 	}
@@ -1430,7 +1446,7 @@ func crmReportAgentPerformance(db *core.DB) http.HandlerFunc {
 			LEFT JOIN crm_pipeline_stages s ON s.id=d.stage_id
 			LEFT JOIN crm_tasks           t ON t.assigned_to=u.id
 			LEFT JOIN crm_contacts        c ON c.assigned_to=u.id
-			WHERE u.role IN ('sales','management','admin','collections','call_centre')
+			WHERE u.role IN ('sales','management','admin','collections','call_center_agent','call_center_head')
 			GROUP BY u.id,u.full_name,u.role
 			ORDER BY activities DESC NULLS LAST`, days, from, to)
 		if err != nil {

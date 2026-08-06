@@ -1702,6 +1702,14 @@ func collectionsOpsBulkReassign(db *core.DB) http.HandlerFunc {
 		logCreditEvent(ctx, db, r, "collections", "assignment", fmt.Sprintf("%d", len(b.AssignmentIDs)), "", "bulk_reassigned",
 			fmt.Sprintf("Bulk reassigned %d accounts to agent %d", len(b.AssignmentIDs), b.AgentUserID),
 			nil, map[string]any{"agent_user_id": b.AgentUserID, "count": len(b.AssignmentIDs)})
+		// Notify the agent the accounts were reassigned to (both channels).
+		go Notify(context.Background(), db, NotifPayload{
+			EventType: "collections_assigned",
+			UserID:    b.AgentUserID,
+			Title:     "Collection accounts assigned to you",
+			Body:      fmt.Sprintf("%d collection account(s) have been assigned to you.", len(b.AssignmentIDs)),
+			ActionURL: "/collections/ops",
+		})
 		respond(w, map[string]any{"updated": len(b.AssignmentIDs)}, "json")
 	}
 }
