@@ -389,10 +389,10 @@ func collectionsLog(db *core.DB) http.HandlerFunc {
 			 LEFT JOIN dbo.Contact c ON a.CIF_Number=c.CIF
 			 WHERE 1=1%s ORDER BY r.Repayment_Date DESC`, limit, f.MS()),
 			fmt.Sprintf(`SELECT cl."Date", cl."CIF",
-			        a."First Name", a."Last Name",
+			        a.first_name AS "First Name", a.last_name AS "Last Name",
 			        cl."Agent", cl."Amount", cl."Mode Of Payment", cl."Payment Receipt"
 			 FROM "Collections Log" cl
-			 LEFT JOIN "Accounts" a ON cl."CIF"=a."CIF Number"
+			 LEFT JOIN app.customers a ON cl."CIF"=a.cif
 			 WHERE 1=1%s ORDER BY cl."Date" DESC LIMIT %d`, f.PG(), limit),
 			f.Args()...)
 		if err != nil {
@@ -430,10 +430,10 @@ func collectionsExport(db *core.DB) http.HandlerFunc {
 			 LEFT JOIN dbo.Contact c ON a.CIF_Number=c.CIF
 			 WHERE 1=1%s ORDER BY r.Repayment_Date DESC`, f.MS()),
 			fmt.Sprintf(`SELECT cl."Date", cl."CIF",
-			        a."First Name", a."Last Name",
+			        a.first_name AS "First Name", a.last_name AS "Last Name",
 			        cl."Agent", cl."Amount", cl."Payment Receipt"
 			 FROM "Collections Log" cl
-			 LEFT JOIN "Accounts" a ON cl."CIF"=a."CIF Number"
+			 LEFT JOIN app.customers a ON cl."CIF"=a.cif
 			 WHERE 1=1%s ORDER BY cl."Date" DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {

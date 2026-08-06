@@ -182,11 +182,11 @@ func recoveryCases(db *core.DB) http.HandlerFunc {
 			 FROM dbo.RecoveryMasterSheet r
 			 LEFT JOIN dbo.Contact a ON r.[CIF Number]=a.CIF
 			 WHERE 1=1%s ORDER BY r.[Recovery Date] DESC`, limit, f.MS()),
-			fmt.Sprintf(`SELECT r."CIF Number", a."First Name", a."Last Name",
+			fmt.Sprintf(`SELECT r."CIF Number", a.first_name AS "First Name", a.last_name AS "Last Name",
 			        r."Recovery Amount", r."Recovery Method", r."Legal Stage",
 			        r."Agent", r."Status", r."Recovery Date"
 			 FROM "Recovery Master Sheet" r
-			 LEFT JOIN "Accounts" a ON r."CIF Number"=a."CIF Number"
+			 LEFT JOIN app.customers a ON r."CIF Number"=a.cif
 			 WHERE 1=1%s ORDER BY r."Recovery Date" DESC LIMIT %d`, f.PG(), limit),
 			f.Args()...)
 		if err != nil {
@@ -218,11 +218,11 @@ func recoveryExport(db *core.DB) http.HandlerFunc {
 			 FROM dbo.RecoveryMasterSheet r
 			 LEFT JOIN dbo.Contact a ON r.[CIF Number]=a.CIF
 			 WHERE 1=1%s ORDER BY r.[Recovery Date] DESC`, f.MS()),
-			fmt.Sprintf(`SELECT r."CIF Number", a."First Name", a."Last Name",
+			fmt.Sprintf(`SELECT r."CIF Number", a.first_name AS "First Name", a.last_name AS "Last Name",
 			        r."Recovery Amount", r."Recovery Method", r."Legal Stage",
 			        r."Agent", r."Status", r."Recovery Date"
 			 FROM "Recovery Master Sheet" r
-			 LEFT JOIN "Accounts" a ON r."CIF Number"=a."CIF Number"
+			 LEFT JOIN app.customers a ON r."CIF Number"=a.cif
 			 WHERE 1=1%s ORDER BY r."Recovery Date" DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {

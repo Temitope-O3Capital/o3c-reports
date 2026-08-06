@@ -698,13 +698,13 @@ func ccFromDB(db *core.DB) http.HandlerFunc {
 			ORDER BY Transaction_Date`, cifFilter, req.DateFrom, req.DateTo)
 
 		pgSQL := fmt.Sprintf(`
-			SELECT "Transaction Date" AS txn_date, "Transaction Date" AS posting_date,
-			       '' AS trace_no, "Description" AS description,
-			       CASE WHEN "Amount" > 0 THEN "Amount" ELSE 0 END AS debit,
-			       CASE WHEN "Amount" < 0 THEN ABS("Amount") ELSE 0 END AS credit
-			FROM "Transactions"
-			WHERE "CIF Number" = '%s' AND "Transaction Date" BETWEEN '%s' AND '%s'
-			ORDER BY "Transaction Date"`, cifFilter, req.DateFrom, req.DateTo)
+			SELECT txn_date AS txn_date, txn_date AS posting_date,
+			       '' AS trace_no, description AS description,
+			       CASE WHEN amount > 0 THEN amount ELSE 0 END AS debit,
+			       CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END AS credit
+			FROM app.transactions
+			WHERE cif = '%s' AND txn_date BETWEEN '%s' AND '%s'
+			ORDER BY txn_date`, cifFilter, req.DateFrom, req.DateTo)
 
 		rows, _, err := db.DualQuery(ctx, msSQL, pgSQL)
 		if err != nil {

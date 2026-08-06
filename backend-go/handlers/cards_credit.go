@@ -233,7 +233,7 @@ func ccAtRisk(db *core.DB) http.HandlerFunc {
 
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT d.account_number, d.cif,
-				TRIM(CONCAT(a."First Name", ' ', a."Last Name")) AS customer_name,
+				TRIM(CONCAT(a.first_name, ' ', a.last_name)) AS customer_name,
 				COALESCE(NULLIF(p.product_name,''), d.product_code) AS product,
 				d.outstanding_balance_kobo, d.credit_limit_kobo, d.overdue_amount_kobo,
 				d.minimum_payment_kobo, d.total_interest_kobo,
@@ -244,7 +244,7 @@ func ccAtRisk(db *core.DB) http.HandlerFunc {
 				(d.overdue_amount_kobo > 0) AS overdue
 			FROM card_cycle_data d
 			JOIN card_products p ON p.product_code = d.product_code AND p.category='credit'
-			LEFT JOIN "Accounts" a ON a."CIF Number" = d.cif
+			LEFT JOIN app.customers a ON a.cif = d.cif
 			WHERE d.cycle_date = `+ccLatestCycle+` AND `+riskClause+`
 			ORDER BY d.overdue_amount_kobo DESC,
 			         (CASE WHEN d.credit_limit_kobo > 0 THEN d.outstanding_balance_kobo::numeric / d.credit_limit_kobo ELSE 0 END) DESC

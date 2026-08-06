@@ -222,7 +222,7 @@ func incAccountQuery(cycleID int64, product, currency string, hasOverdue, hasInt
 	}
 	if q != "" {
 		filters = append(filters, fmt.Sprintf(
-			`(ii.cif ILIKE $%d OR ic.first_name ILIKE $%d OR ic.last_name ILIKE $%d OR a."First Name" ILIKE $%d OR a."Last Name" ILIKE $%d)`,
+			`(ii.cif ILIKE $%d OR ic.first_name ILIKE $%d OR ic.last_name ILIKE $%d OR a.first_name ILIKE $%d OR a.last_name ILIKE $%d)`,
 			n, n, n, n, n))
 		args = append(args, "%"+q+"%")
 		n++
@@ -232,8 +232,8 @@ func incAccountQuery(cycleID int64, product, currency string, hasOverdue, hasInt
 	qSQL := fmt.Sprintf(`
 		SELECT
 			ii.cif,
-			COALESCE(a."First Name", ic.first_name, '') AS first_name,
-			COALESCE(a."Last Name",  ic.last_name,  '') AS last_name,
+			COALESCE(a.first_name, ic.first_name, '') AS first_name,
+			COALESCE(a.last_name,  ic.last_name,  '') AS last_name,
 			ii.account, ii.product_code, ii.product_name, ii.currency,
 			COALESCE(ii.interest,        0) AS interest,
 			COALESCE(ich.fees,           0) AS fees,
@@ -253,7 +253,7 @@ func incAccountQuery(cycleID int64, product, currency string, hasOverdue, hasInt
 		LEFT JOIN income_balances ib  ON ib.cif =ii.cif AND ib.cycle_id =ii.cycle_id AND ib.account =ii.account
 		LEFT JOIN income_loc      il  ON il.cif =ii.cif AND il.cycle_id =ii.cycle_id AND il.account =ii.account
 		LEFT JOIN income_customers ic ON ic.cif =ii.cif AND ic.cycle_id =ii.cycle_id
-		LEFT JOIN "Accounts"       a  ON a."CIF Number" = ii.cif
+		LEFT JOIN app.customers    a  ON a.cif = ii.cif
 		WHERE %s`, where)
 
 	return qSQL, args, n

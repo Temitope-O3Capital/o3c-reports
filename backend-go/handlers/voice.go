@@ -214,8 +214,8 @@ func VoiceATInbound(db *core.DB) http.HandlerFunc {
 		// Look up customer by phone number
 		var custName, custCIF string
 		if rows, err := db.PGQuery(ctx,
-			`SELECT COALESCE("Full Name",'') AS name, COALESCE("CIF Number",'') AS cif
-			   FROM "Accounts" WHERE "Phone"=$1 LIMIT 1`, callerNumber,
+			`SELECT COALESCE(full_name,'') AS name, COALESCE(cif,'') AS cif
+			   FROM app.customers WHERE phone=$1 LIMIT 1`, callerNumber,
 		); err == nil && len(rows) > 0 {
 			custName, _ = rows[0]["name"].(string)
 			custCIF, _ = rows[0]["cif"].(string)

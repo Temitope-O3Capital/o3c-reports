@@ -1040,12 +1040,12 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 				COALESCE(BVN,'') AS bvn,
 				COALESCE(KYC_Status,'unknown') AS kyc_status
 			 FROM dbo.Contact WHERE CIF_Number = @p1`,
-			`SELECT "CIF Number" AS cif,
-				COALESCE("First Name",'') || ' ' || COALESCE("Last Name",'') AS full_name,
-				COALESCE("Phone Number",'') AS phone,
+			`SELECT cif,
+				COALESCE(first_name,'') || ' ' || COALESCE(last_name,'') AS full_name,
+				COALESCE(phone,'') AS phone,
 				'' AS bvn,
 				'unknown' AS kyc_status
-			 FROM "Accounts" WHERE "CIF Number" = $1 LIMIT 1`,
+			 FROM app.customers WHERE cif = $1 LIMIT 1`,
 			cif)
 
 		custName, phone, bvn, kycStatus := cif, "", "", "unknown"

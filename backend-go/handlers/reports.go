@@ -102,10 +102,10 @@ func reportMonthlyBusiness(db *core.DB) http.HandlerFunc {
 			 FROM dbo.Account
 			 WHERE CAST(Account_Created AS DATE) BETWEEN @p1 AND @p2
 			 GROUP BY Product_Name ORDER BY new_accounts DESC`),
-			fmt.Sprintf(`SELECT "Product Name" AS product_type, COUNT(DISTINCT "CIF Number") AS new_accounts
-			 FROM "Products"
-			 WHERE "Account Created Date"::date BETWEEN $1 AND $2
-			 GROUP BY "Product Name" ORDER BY new_accounts DESC`),
+			fmt.Sprintf(`SELECT product_name AS product_type, COUNT(DISTINCT cif) AS new_accounts
+			 FROM app.accounts
+			 WHERE opened_date::date BETWEEN $1 AND $2
+			 GROUP BY product_name ORDER BY new_accounts DESC`),
 			dateFrom, dateTo)
 
 		// Disbursements from LOS
@@ -810,7 +810,7 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 		// Active cards (dual DB: MSSQL live / PG mirror)
 		activeCards, _, _ := db.DualScalar(ctx, "val",
 			`SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('Open','Active')`,
-			`SELECT COUNT(*) AS val FROM "Products" WHERE "Account Status" IN ('Open','Active')`)
+			`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')`)
 		out["active_cards"] = activeCards
 
 		// Revenue (fee income for period)

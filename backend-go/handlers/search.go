@@ -109,17 +109,17 @@ func GlobalSearch(db *core.DB) http.HandlerFunc {
 			})
 		}
 
-		// ── 5. Card customer base (the "Accounts" reporting view) ────────────
+		// ── 5. Card customer base (app.customers) ────────────────────────────
 		// The card portfolio's customers live here, not in loan_applications, so
 		// search them directly by name / CIF / email.
 		custRows, _ := db.PGQuery(ctx,
-			`SELECT "CIF Number" AS cif,
-			        TRIM(COALESCE("First Name",'') || ' ' || COALESCE("Last Name",'')) AS name,
-			        COALESCE("Email",'')        AS email,
-			        COALESCE("Phone Number",'') AS phone
-			 FROM "Accounts"
-			 WHERE "First Name" ILIKE $1 OR "Last Name" ILIKE $1
-			    OR "CIF Number" ILIKE $1 OR "Email" ILIKE $1
+			`SELECT cif,
+			        TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')) AS name,
+			        COALESCE(email,'')        AS email,
+			        COALESCE(phone,'') AS phone
+			 FROM app.customers
+			 WHERE first_name ILIKE $1 OR last_name ILIKE $1
+			    OR cif ILIKE $1 OR email ILIKE $1
 			 LIMIT 5`,
 			like)
 		for _, row := range custRows {

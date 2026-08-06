@@ -659,10 +659,10 @@ func cardGenerateBilling(db *core.DB) http.HandlerFunc {
 
 		for _, product := range []string{"PREP", "Amex Naira", "Amex USD", "Classic Accounts"} {
 			var f Filter
-			f.Eq(" AND Product_Name=?", ` AND "Product Name"=?`, product)
+			f.Eq(" AND Product_Name=?", ` AND product_name=?`, product)
 			count, _, _ := db.DualScalar(r.Context(), "val",
 				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1%s", f.MS()),
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Products" WHERE 1=1%s`, f.PG()),
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, f.PG()),
 				f.Args()...)
 
 			_, err := db.PGExec(r.Context(), `
