@@ -56,36 +56,40 @@ const SECTIONS: Section[] = [
           { label: 'Inbox',     to: '/mail/inbox' },
           { label: 'Sent Mail', to: '/mail/sent' },
           { label: 'Drafts',    to: '/mail/drafts' },
-          { label: 'Signature', to: '/mail/signature' },
+          // Signature lives in Settings → Email Signature. It is a per-user preference
+          // like the rest of that page, not a mail destination, and having it in both
+          // places left two editors where only one was kept working.
         ],
       },
       {
         icon: 'campaign', label: 'Campaigns & Marketing', to: '/marketing/overview',
-        vis: ['sales_head','head_sales','bd_officer','bd_head','telemarketing_head'],
+        vis: ['sales_head','head_sales','bd_officer','bd_head','call_center_head'],
         subs: [
           { label: 'Overview',           to: '/marketing/overview' },
           { label: 'All Campaigns',      to: '/campaigns' },
           { label: 'Templates',          to: '/campaigns/templates' },
           { label: 'Contact Lists',      to: '/campaigns/lists' },
           { label: 'Contact Segments',   to: '/contact-segments' },
-          { label: 'Campaign Analytics', to: '/campaigns/analytics' },
-          { label: 'Attribution Report', to: '/marketing/attribution' },
-          { label: 'Acquisition Funnel', to: '/marketing/funnel' },
+          { label: 'Marketing Analytics', to: '/marketing/analytics' },
         ],
       },
       {
+        // Sales officers are also account officers, so the menu follows that shape:
+        // the book you own, the leads you are working, the applications you have
+        // raised, then reporting. 'My Accounts' and the old contact list were two
+        // routes onto the same idea and are now one — My Book — and 'Cohort Analysis'
+        // moved under Reports rather than standing alone.
         icon: 'trending_up', label: 'Sales & CRM', to: '/sales/overview',
         vis: ['sales_officer','sales_head','head_sales'],
         subs: [
-          { label: 'My Dashboard',     to: '/sales/my-dashboard',  vis: ['sales_officer'] },
-          { label: 'My Accounts',      to: '/sales/accounts' },
-          { label: 'Leads',            to: '/sales/customers' },
+          { label: 'Overview',         to: '/sales/overview' },
+          { label: 'My Book',          to: '/sales/book' },
+          { label: 'Leads',            to: '/sales/leads' },
           { label: 'Pipeline',         to: '/sales/crm' },
           { label: 'Tasks',            to: '/sales/tasks' },
-          { label: 'Cohort Analysis',  to: '/sales/cohort' },
+          { label: 'Applications',     to: '/sales/applications' },
           { label: 'Targets',          to: '/sales/targets' },
           { label: 'Reports',          to: '/sales/reports' },
-          { label: 'All Applications', to: '/sales/applications' },
         ],
       },
     ],
@@ -96,38 +100,35 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'headset_mic', label: 'Call Center', to: '/helpdesk',
-        vis: ['call_center_agent','call_center_head','telemarketing_agent','telemarketing_head'],
+        vis: ['call_center_agent','call_center_head'],
         subs: [
-          // agent dashboards — each role sees only their own
-          { label: 'My Dashboard',     to: '/helpdesk/my-dashboard',      vis: ['call_center_agent'] },
-          { label: 'My Dashboard',     to: '/telemarketing/dialer/agent',  vis: ['telemarketing_agent'] },
-          // shared operational tools (both teams)
+          { label: 'My Dashboard',     to: '/helpdesk/my-dashboard' },
           { label: 'Customer Directory', to: '/customers' },
           { label: 'Ticket Queue',     to: '/helpdesk/tickets' },
           { label: 'Call Log',         to: '/helpdesk/calls' },
-          { label: 'Outbound Queue',   to: '/telemarketing/queue' },
-          { label: 'Marketing Leads',  to: '/telemarketing/leads' },
-          { label: 'DNC List',         to: '/telemarketing/dnc' },
-          // leadership — supervisor manages day-to-day for both teams
-          { label: 'Dialer Campaigns', to: '/telemarketing/dialer',       vis: ['call_center_head','telemarketing_head'] },
-          { label: 'Performance',      to: '/telemarketing/performance',  vis: ['call_center_head','telemarketing_head'] },
-          { label: 'Supervisor View',  to: '/helpdesk/supervisor',        vis: ['telemarketing_head'] },
-          // shared resources
+          { label: 'Outbound Queue',   to: '/call-center/queue' },
+          { label: 'Leads',            to: '/call-center/leads' },
+          { label: 'DNC List',         to: '/call-center/dnc' },
+          // leadership
+          { label: 'Performance',      to: '/call-center/performance',  vis: ['call_center_head'] },
+          { label: 'Supervisor View',  to: '/helpdesk/supervisor',      vis: ['call_center_head'] },
+          // resources
           { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
           { label: 'Call Scripts',     to: '/helpdesk/canned' },
         ],
       },
       {
         icon: 'mark_email_unread', label: 'Care', to: '/care',
-        vis: ['call_center_agent','call_center_head','telemarketing_agent','telemarketing_head'],
+        vis: ['call_center_agent','call_center_head'],
         subs: [
           // Care handles customer mail — email-channel tickets shown as an inbox
           { label: 'Dashboard',          to: '/care' },
           { label: 'Care Inbox',         to: '/care/inbox' },
-          { label: 'Supervisor',         to: '/care/supervisor',  vis: ['call_center_head','telemarketing_head'] },
-          // shared history + resources (customer's cross-channel history via Customer 360)
-          { label: 'Customer Directory', to: '/customers' },
-          { label: 'Knowledge Base',     to: '/helpdesk/knowledge-base' },
+          { label: 'Supervisor',         to: '/care/supervisor',  vis: ['call_center_head'] },
+          // shared history + resources (customer's cross-channel history via Customer 360).
+          // Care-scoped paths (same pages) so the sidebar highlights Care, not Call Center.
+          { label: 'Customer Directory', to: '/care/customers' },
+          { label: 'Knowledge Base',     to: '/care/knowledge-base' },
           { label: 'Email Templates',    to: '/care/canned' },
         ],
       },
@@ -204,12 +205,20 @@ const SECTIONS: Section[] = [
       {
         icon: 'compare_arrows', label: 'Settlement & Reconciliation', to: '/settlements',
         vis: ['settlement_officer','finance_head','head_of_reconciliation'],
+        // The module serves two jobs: OPERATIONS (do the day's work) and REPORTING
+        // (see the position). Entries are grouped in that order.
+        //
+        // Removed: 'NIP Reconciliation' and 'NIP Batch Exceptions' (no NIBSS feed
+        // exists — those pages could never show anything, and NIP activity that IS
+        // visible arrives via Paystack), and 'Failed Transactions' / 'Batches',
+        // both folded into Exceptions and the run log. Their routes still resolve
+        // for anyone holding a bookmark.
         subs: [
-          { label: 'Batches',                  to: '/settlements/batches' },
-          { label: 'NIP Reconciliation',       to: '/settlements/nip' },
-          { label: 'NIP Batch Exceptions',     to: '/settlements/nip-recon' },
+          { label: 'Recon Workbench',          to: '/settlements/workbench' },
+          { label: 'Exceptions & Failures',    to: '/settlements/exceptions' },
+          { label: 'Settlement Position',      to: '/settlements/position' },
+          { label: 'Runs & Imports',           to: '/settlements/runs' },
           { label: 'Processor Reconciliation', to: '/settlements/reconciliation' },
-          { label: 'Failed Transactions',      to: '/settlements/failed' },
           { label: 'Manual Postings',          to: '/settlements/manual-postings' },
           { label: 'Interswitch',              to: '/settlements/interswitch' },
           { label: 'Transaction Report',       to: '/settlements/interswitch/half-year' },
@@ -229,15 +238,7 @@ const SECTIONS: Section[] = [
           { label: 'Transactions',      to: '/finance/transactions' },
           { label: 'Income',            to: '/finance/income' },
           { label: 'Fixed Deposits',    to: '/deposits' },
-          { label: 'FD — Deposit Book', to: '/finance/fixed-deposit' },
-          { label: 'FD — Maturity',     to: '/finance/fd-maturity' },
-          { label: 'FD — Accrual',      to: '/finance/fd-accrual' },
           { label: 'EOD / EOB',         to: '/finance/eod' },
-          { label: 'P&L',               to: '/finance/pnl' },
-          { label: 'Manual Postings',   to: '/finance/manual-postings' },
-          { label: 'Chart of Accounts', to: '/finance/gl-accounts' },
-          { label: 'Cost Tracking',     to: '/finance/costs' },
-          { label: 'Budget',            to: '/finance/budget' },
           { label: 'FX Parallel Rates', to: '/finance/fx-rates' },
         ],
       },
@@ -522,8 +523,8 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
 
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('o3c_sb') === '1')
 
-  // M4: Poll /api/health every 60 s to reflect actual MSSQL connection status.
-  const [mssqlStatus, setMssqlStatus] = useState<'online' | 'offline' | 'not_configured' | null>(null)
+  // Poll /api/health every 60 s to reflect the datastore (PostgreSQL) status.
+  const [dbStatus, setDbStatus] = useState<'online' | 'offline' | null>(null)
   useEffect(() => {
     let cancelled = false
     async function poll() {
@@ -531,8 +532,8 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
         const token = localStorage.getItem('o3c_token')
         const res = await fetch('/api/health', token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
         const json = await res.json()
-        if (!cancelled) setMssqlStatus(json.mssql ?? 'not_configured')
-      } catch { if (!cancelled) setMssqlStatus('offline') }
+        if (!cancelled) setDbStatus(res.ok && json.status === 'ok' ? 'online' : 'offline')
+      } catch { if (!cancelled) setDbStatus('offline') }
     }
     poll()
     const id = setInterval(poll, 60_000)
@@ -794,11 +795,11 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
           }}>
             <span style={{
               width: 6, height: 6, minWidth: 6, borderRadius: '50%',
-              background: mssqlStatus === 'online' ? '#2FB673' : mssqlStatus === 'offline' ? '#C00000' : '#888',
-              boxShadow: mssqlStatus === 'online' ? '0 0 0 3px rgba(47,182,115,.2)' : undefined,
+              background: dbStatus === 'online' ? '#2FB673' : dbStatus === 'offline' ? '#C00000' : '#888',
+              boxShadow: dbStatus === 'online' ? '0 0 0 3px rgba(47,182,115,.2)' : undefined,
               display: 'inline-block', flexShrink: 0,
             }} />
-            {mssqlStatus === 'online' ? 'MSSQL · live' : mssqlStatus === 'offline' ? 'MSSQL · offline' : mssqlStatus === 'not_configured' ? 'MSSQL · not configured' : 'MSSQL · checking…'}
+            {dbStatus === 'online' ? 'Database · live' : dbStatus === 'offline' ? 'Database · offline' : 'Database · checking…'}
           </div>
         )}
       </div>

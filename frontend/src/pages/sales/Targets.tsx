@@ -2,12 +2,13 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, ErrBanner, Spinner, Modal, DataTable, DateFilter,
-  NameCell, ActionRow, ExpandableFilterBar,
+  NameCell, ExpandableFilterBar,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { GREEN, AMBER, RED, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { monthStart, today } from '../../lib/fmt'
+import { currentUser, isSalesHead } from '../../hooks/useAuth'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -69,6 +70,12 @@ function RagBar({ actual, target }: { actual: number; target: number }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SalesTargets() {
+  // A target is set for you, not by you. Heads get the editing controls; everyone
+  // else gets the same numbers read-only, plus their own row pulled out at the top
+  // — an officer opening this page wants their figure first, not to hunt the table.
+  const me      = currentUser()
+  const canEdit = isSalesHead(me)
+
   const [actuals,  setActuals]  = useState<Actual[]>([])
   const [targets,  setTargets]  = useState<SalesTarget[]>([])
   const [users,    setUsers]    = useState<User[]>([])
@@ -91,19 +98,23 @@ export default function SalesTargets() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const [act, tgt, usr] = await Promise.all([
+      const [act, tgt] = await Promise.all([
         apiFetch<{ data: Actual[] }>(`/api/sales/targets/actuals?period=${period}&from=${dateFrom}&to=${dateTo}`),
         apiFetch<{ data: SalesTarget[] }>(`/api/sales/targets?period=${period}&from=${dateFrom}&to=${dateTo}`),
-        apiFetch<{ data: User[] }>('/api/admin/users'),
       ])
       setActuals(act?.data ?? [])
       setTargets(tgt?.data ?? [])
-      setUsers((Array.isArray(usr) ? usr : (usr?.data ?? [])).filter((u: User) =>
-        ['sales_officer','sales_head','bd_officer','bd_head'].includes(u.role)
-      ))
+      // Only a head needs the assignable-officer list, and /api/admin/users is
+      // admin-scoped — fetching it as an officer just 403s and blanks the page.
+      // The sales officers endpoint is the right source anyway: it lists who can
+      // actually hold a book rather than filtering on a role label that nobody carries.
+      if (canEdit) {
+        const usr = await apiFetch<{ data: User[] }>('/api/sales/book/officers')
+        setUsers(Array.isArray(usr) ? usr : (usr?.data ?? []))
+      }
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [period, dateFrom, dateTo])
+  }, [period, dateFrom, dateTo, canEdit])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['deals','crm'] })
@@ -130,6 +141,11 @@ export default function SalesTargets() {
     const t = targets.find(t => t.user_id === a.user_id)
     return { ...a, target_loans: t?.loan_count ?? a.target_loans, target_kobo: t?.disbursement_kobo ?? a.target_kobo }
   })
+
+  const myRow = useMemo(
+    () => (me ? leaderboard.find(r => Number(r.user_id) === Number(me.id)) ?? null : null),
+    [leaderboard, me],
+  )
 
   const filteredBoard = useMemo(() => {
     if (!search) return leaderboard
@@ -177,12 +193,6 @@ export default function SalesTargets() {
         </span>
       ),
     },
-    {
-      key: '_actions', label: '', sortable: false,
-      render: r => <ActionRow actions={[
-        { icon: 'bar_chart', label: 'View Performance', onClick: () => {} },
-      ]} />,
-    },
   ]
 
   return (
@@ -194,15 +204,47 @@ export default function SalesTargets() {
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <input type="month" value={period} onChange={e => setPeriod(e.target.value)}
             style={{ padding: '7px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: INTER }} />
-          <button onClick={() => setShowForm(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-            Set Target
-          </button>
+          {canEdit && (
+            <button onClick={() => setShowForm(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
+              Set Target
+            </button>
+          )}
         </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />
+
+      {/* An officer's own number, first. Without this they have to find themselves in
+          a league table sorted by performance — which is exactly the row they are
+          least motivated to scroll to when they are behind. */}
+      {!canEdit && myRow && (
+        <div style={{ background: 'var(--card)', border: `1px solid ${BLUE}33`, borderLeft: `3px solid ${BLUE}`, borderRadius: RADIUS.xl, padding: '16px 18px', marginBottom: SP[5] }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 10 }}>
+            My target — {period}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <div>
+              <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
+                {myRow.actual_loans} / {myRow.target_loans} loans
+              </div>
+              <RagBar actual={Number(myRow.actual_loans)} target={Number(myRow.target_loans)} />
+            </div>
+            <div>
+              <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
+                {fmtNaira(Number(myRow.actual_kobo))} / {fmtNaira(Number(myRow.target_kobo))}
+              </div>
+              <RagBar actual={Number(myRow.actual_kobo)} target={Number(myRow.target_kobo)} />
+            </div>
+          </div>
+        </div>
+      )}
+      {!canEdit && !loading && !myRow && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 18px', marginBottom: SP[5], fontSize: TEXT.base, color: 'var(--txt2)' }}>
+          No target has been set for you for {period}. Your team lead sets these.
+        </div>
+      )}
 
       {/* Summary strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>

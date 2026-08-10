@@ -18,7 +18,7 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("collections"))
 	r.Get("/kpis", collectionsKPIs(db))
 	r.Get("/portfolio-kpis", collectionsPortfolioKPIs(db))
-	r.Get("/dpd-trend",      collectionsDPDTrend(db))
+	r.Get("/dpd-trend", collectionsDPDTrend(db))
 	r.Get("/by-agent", collectionsByAgent(db))
 	r.Get("/by-mode", collectionsByMode(db))
 	r.Get("/monthly-trend", collectionsMonthlyTrend(db))
@@ -105,28 +105,29 @@ func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
 func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
-		// CBN PAR definition: PAR30 = all accounts with DPD > 30 (cumulative, not per-bucket).
+		to := r.URL.Query().Get("to")
+		// Live Udara/CBS credit book. DPD = days past maturity_date; PAR30 = cumulative
+		// DPD>30 (CBN definition). The workspace has no separate delinquency ledger, so the
+		// collections portfolio is the open loan book (status NOT IN Closed/Revoked).
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-				COALESCE(SUM(CASE WHEN dpd_bucket IN ('31-60','61-90','91-180','181-360','360+')
-				                  THEN outstanding_kobo END), 0)                 AS par30_kobo,
-				COALESCE(SUM(CASE WHEN dpd_bucket IN ('61-90','91-180','181-360','360+')
-				                  THEN outstanding_kobo END), 0)                 AS par60_kobo,
-				COALESCE(SUM(CASE WHEN dpd_bucket IN ('91-180','181-360','360+')
-				                  THEN outstanding_kobo END), 0)                 AS par90_kobo,
-				COALESCE(SUM(outstanding_kobo), 0)                              AS total_outstanding_kobo,
-				COUNT(*)                                                         AS total_accounts,
-				COUNT(CASE WHEN dpd_bucket != '0' THEN 1 END)                   AS delinquent_accounts,
+				COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 30), 0) AS par30_kobo,
+				COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 60), 0) AS par60_kobo,
+				COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 90), 0) AS par90_kobo,
+				COALESCE(SUM(outstanding_kobo), 0)                        AS total_outstanding_kobo,
+				COUNT(*)                                                  AS total_accounts,
+				COUNT(*) FILTER (WHERE dpd > 0)                           AS delinquent_accounts,
 				CASE WHEN COUNT(*) = 0 THEN 0::numeric
-				     ELSE ROUND(
-				       COUNT(CASE WHEN dpd_bucket = '0' THEN 1 END)::numeric
-				       / COUNT(*)::numeric * 100, 1
-				     )
-				END                                                              AS current_rate_pct
-			FROM collection_assignments
-			WHERE ($1 = '' OR created_at::date >= $1::date)
-			  AND ($2 = '' OR created_at::date <= $2::date)`, from, to)
+				     ELSE ROUND(COUNT(*) FILTER (WHERE dpd = 0)::numeric / COUNT(*)::numeric * 100, 1)
+				END                                                       AS current_rate_pct
+			FROM (
+				SELECT outstanding_principal_kobo AS outstanding_kobo,
+				       GREATEST(0, (CURRENT_DATE - maturity_date::date))::int AS dpd
+				FROM cbs_loans
+				WHERE status NOT IN ('Closed','Revoked')
+				  AND ($1 = '' OR start_date::date >= $1::date)
+				  AND ($2 = '' OR start_date::date <= $2::date)
+			) ca`, from, to)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"par30_kobo": int64(0), "par60_kobo": int64(0), "par90_kobo": int64(0),
@@ -143,7 +144,7 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 func collectionsDPDTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 		rows, err := db.PGQuery(r.Context(), `
 			WITH months AS (
 				SELECT generate_series(
@@ -184,7 +185,7 @@ func collectionsRollRate(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 
 		// Current DPD distribution
 		current, err := db.PGQuery(ctx, `
@@ -222,8 +223,10 @@ func collectionsRollRate(db *core.DB) http.HandlerFunc {
 
 		respond(w, map[string]any{
 			"current_distribution": current,
-			"cured_this_month":     func() any {
-				if len(cures) > 0 { return cures[0]["cured_count"] }
+			"cured_this_month": func() any {
+				if len(cures) > 0 {
+					return cures[0]["cured_count"]
+				}
 				return 0
 			}(),
 		}, "pg")
@@ -252,22 +255,18 @@ func collectionsKPIs(db *core.DB) http.HandlerFunc {
 		kpis := map[string]any{}
 		var sources []string
 
-		type spec struct{ key, ms, pg string }
+		type spec struct{ key, pg string }
 		for _, s := range []spec{
 			{"total_collected",
-				fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE 1=1%s", f.MS()),
 				fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE 1=1%s`, f.PG())},
 			{"collection_count",
-				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.o3_loan_Repayment WHERE 1=1%s", f.MS()),
 				fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Collections Log" WHERE 1=1%s`, f.PG())},
 			{"paid_collections",
-				fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE Paid=1%s", f.MS()),
 				fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE "Mode Of Payment" IS NOT NULL%s`, f.PG())},
 			{"pending_collections",
-				fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE (Paid IS NULL OR Paid=0)%s", f.MS()),
 				fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE "Mode Of Payment" IS NULL%s`, f.PG())},
 		} {
-			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg, f.Args()...)
+			val, src, err := db.DualScalar(ctx, "val", s.pg, f.Args()...)
 			if err != nil {
 				respondErr(w, 500, "Query failed: "+s.key)
 				return
@@ -280,7 +279,6 @@ func collectionsKPIs(db *core.DB) http.HandlerFunc {
 		var af Filter
 		af.Eq(" AND Rn_Create_User=?", ` AND "Agent"=?`, agent)
 		mtd, src, _ := db.DualScalar(ctx, "val",
-			fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE MONTH(Repayment_Date)=MONTH(GETDATE()) AND YEAR(Repayment_Date)=YEAR(GETDATE())%s", af.MS()),
 			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE DATE_TRUNC('month',"Date")=DATE_TRUNC('month',CURRENT_DATE)%s`, af.PG()),
 			af.Args()...)
 		kpis["collections_mtd"] = mtd
@@ -305,9 +303,6 @@ func collectionsByAgent(db *core.DB) http.HandlerFunc {
 		var f Filter
 		f.Date("Repayment_Date", `"Date"`, dateFrom, dateTo)
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT TOP 15 Rn_Create_User AS Agent, ISNULL(SUM(Amount),0) AS total, COUNT(*) AS count
-			  FROM dbo.o3_loan_Repayment WHERE Rn_Create_User IS NOT NULL AND Rn_Create_User!=''%s
-			  GROUP BY Rn_Create_User ORDER BY total DESC`, f.MS()),
 			fmt.Sprintf(`SELECT "Agent", COALESCE(SUM("Amount"),0) AS total, COUNT(*) AS count
 			  FROM "Collections Log" WHERE "Agent" IS NOT NULL AND "Agent"!=''%s
 			  GROUP BY "Agent" ORDER BY total DESC LIMIT 15`, f.PG()),
@@ -323,9 +318,6 @@ func collectionsByAgent(db *core.DB) http.HandlerFunc {
 func collectionsByMode(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT CASE WHEN Paid=1 THEN 'Paid' ELSE 'Pending' END AS payment_status,
-			        ISNULL(SUM(Amount),0) AS total, COUNT(*) AS count
-			 FROM dbo.o3_loan_Repayment GROUP BY Paid ORDER BY total DESC`,
 			`SELECT COALESCE("Mode Of Payment",'Pending') AS payment_status,
 			        COALESCE(SUM("Amount"),0) AS total, COUNT(*) AS count
 			 FROM "Collections Log" GROUP BY "Mode Of Payment" ORDER BY total DESC`)
@@ -340,12 +332,6 @@ func collectionsByMode(db *core.DB) http.HandlerFunc {
 func collectionsMonthlyTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT FORMAT(Repayment_Date,'MMM yyyy') AS month,
-			        DATEFROMPARTS(YEAR(Repayment_Date),MONTH(Repayment_Date),1) AS month_sort,
-			        ISNULL(SUM(Amount),0) AS total
-			 FROM dbo.o3_loan_Repayment WHERE Repayment_Date IS NOT NULL
-			 GROUP BY DATEFROMPARTS(YEAR(Repayment_Date),MONTH(Repayment_Date),1),
-			          FORMAT(Repayment_Date,'MMM yyyy') ORDER BY month_sort`,
 			`SELECT TO_CHAR(DATE_TRUNC('month',"Date"),'Mon YYYY') AS month,
 			        DATE_TRUNC('month',"Date") AS month_sort,
 			        COALESCE(SUM("Amount"),0) AS total
@@ -379,15 +365,6 @@ func collectionsLog(db *core.DB) http.HandlerFunc {
 		f.Eq(" AND r.Rn_Create_User=?", ` AND cl."Agent"=?`, agent)
 
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT TOP %d
-			        r.Repayment_Date AS [Date], a.CIF_Number AS CIF,
-			        c.First_Name AS [First Name], c.Last_Name AS [Last Name],
-			        r.Rn_Create_User AS Agent, r.Amount,
-			        NULL AS [Mode Of Payment], r.Comments AS [Payment Receipt]
-			 FROM dbo.o3_loan_Repayment r
-			 LEFT JOIN dbo.Account a ON r.Loan_Account=a.Account_Id
-			 LEFT JOIN dbo.Contact c ON a.CIF_Number=c.CIF
-			 WHERE 1=1%s ORDER BY r.Repayment_Date DESC`, limit, f.MS()),
 			fmt.Sprintf(`SELECT cl."Date", cl."CIF",
 			        a.first_name AS "First Name", a.last_name AS "Last Name",
 			        cl."Agent", cl."Amount", cl."Mode Of Payment", cl."Payment Receipt"
@@ -422,13 +399,6 @@ func collectionsExport(db *core.DB) http.HandlerFunc {
 		f.Eq(" AND r.Rn_Create_User=?", ` AND cl."Agent"=?`, agent)
 
 		data, _, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT r.Repayment_Date AS [Date], a.CIF_Number AS CIF,
-			        c.First_Name AS [First Name], c.Last_Name AS [Last Name],
-			        r.Rn_Create_User AS Agent, r.Amount, r.Comments AS Notes
-			 FROM dbo.o3_loan_Repayment r
-			 LEFT JOIN dbo.Account a ON r.Loan_Account=a.Account_Id
-			 LEFT JOIN dbo.Contact c ON a.CIF_Number=c.CIF
-			 WHERE 1=1%s ORDER BY r.Repayment_Date DESC`, f.MS()),
 			fmt.Sprintf(`SELECT cl."Date", cl."CIF",
 			        a.first_name AS "First Name", a.last_name AS "Last Name",
 			        cl."Agent", cl."Amount", cl."Payment Receipt"
@@ -449,7 +419,7 @@ func collectionsExport(db *core.DB) http.HandlerFunc {
 func collectionsPromiseKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(*)                                                      AS total,
@@ -473,7 +443,7 @@ func collectionsPromiseKPIs(db *core.DB) http.HandlerFunc {
 func collectionsRepaymentKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(*) FILTER (WHERE status = 'Active')                         AS active,
@@ -509,7 +479,7 @@ func collectionsRepaymentKPIs(db *core.DB) http.HandlerFunc {
 func collectionsWriteoffKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(*)                                                          AS total,
@@ -541,50 +511,55 @@ func collectionsPortfolioAccounts(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		search := strings.TrimSpace(qstr(r, "q"))
-		territory := qstr(r, "territory") // "collections" | "recovery" | ""
+		territory := qstr(r, "territory")   // "collections" | "recovery" | ""
 		onWatchlist := qstr(r, "watchlist") // "true" | ""
 
+		// Live Udara/CBS credit book is the base; workspace collection overlay (assignments,
+		// agent, watchlist) is LEFT-JOINed by CIF. DPD (and its bucket) derive from maturity.
 		query := `
 			SELECT
-			    la.id                                                AS loan_id,
-			    la.applicant_cif,
-			    la.status                                            AS loan_status,
-			    ca.dpd_bucket,
-			    CAST(
-			        COALESCE(
-			            NULLIF(REGEXP_REPLACE(SPLIT_PART(COALESCE(ca.dpd_bucket,'0'),'-',1), '[^0-9]','','g'), ''),
-			            '0'
-			        ) AS INT
-			    )                                                    AS dpd_lower,
-			    COALESCE(ca.outstanding_kobo, la.disbursement_amount_kobo, 0) AS outstanding_kobo,
+			    cl.cbs_id                                            AS loan_id,
+			    cl.cbs_customer_id                                   AS applicant_cif,
+			    cl.status                                            AS loan_status,
+			    COALESCE(ca.dpd_bucket, CASE
+			        WHEN d.dpd = 0   THEN '0'
+			        WHEN d.dpd <= 30 THEN '1-30'
+			        WHEN d.dpd <= 60 THEN '31-60'
+			        WHEN d.dpd <= 90 THEN '61-90'
+			        WHEN d.dpd <= 180 THEN '91-180'
+			        WHEN d.dpd <= 360 THEN '181-360'
+			        ELSE '360+' END)                                 AS dpd_bucket,
+			    d.dpd                                                AS dpd_lower,
+			    COALESCE(ca.outstanding_kobo, cl.outstanding_principal_kobo, 0) AS outstanding_kobo,
 			    ca.current_stage,
 			    u.full_name                                          AS agent_name,
 			    cw.id                                                AS watchlist_id,
 			    cw.scenario                                          AS watchlist_scenario
-			FROM loan_applications la
-			LEFT JOIN collection_assignments ca ON ca.account_cif = la.applicant_cif
+			FROM cbs_loans cl
+			CROSS JOIN LATERAL (SELECT GREATEST(0, (CURRENT_DATE - cl.maturity_date::date))::int AS dpd) d
+			LEFT JOIN collection_assignments ca ON ca.account_cif = cl.cbs_customer_id
 			LEFT JOIN o3c_users u ON u.id = ca.agent_user_id
 			LEFT JOIN LATERAL (
 			    SELECT id, scenario FROM collections_watchlist
-			    WHERE account_cif = la.applicant_cif AND status = 'active'
+			    WHERE account_cif = cl.cbs_customer_id AND status = 'active'
 			    LIMIT 1
 			) cw ON TRUE
-			WHERE la.status IN ('active','booked')`
+			WHERE cl.status NOT IN ('Closed','Revoked')`
 		args := []any{}
 		n := 1
 
 		if search != "" {
-			query += fmt.Sprintf(" AND la.applicant_cif ILIKE $%d", n)
+			query += fmt.Sprintf(" AND cl.cbs_customer_id ILIKE $%d", n)
 			args = append(args, "%"+search+"%")
 			n++
 		}
 		if territory == "collections" {
-			query += ` AND CAST(COALESCE(NULLIF(REGEXP_REPLACE(SPLIT_PART(COALESCE(ca.dpd_bucket,'0'),'-',1),'[^0-9]','','g'),''),'0') AS INT) <= 90`
+			query += ` AND GREATEST(0, (CURRENT_DATE - cl.maturity_date::date)) <= 90`
 		} else if territory == "recovery" {
-			query += ` AND CAST(COALESCE(NULLIF(REGEXP_REPLACE(SPLIT_PART(COALESCE(ca.dpd_bucket,'0'),'-',1),'[^0-9]','','g'),''),'0') AS INT) > 90`
+			query += ` AND GREATEST(0, (CURRENT_DATE - cl.maturity_date::date)) > 90`
 		}
 		if onWatchlist == "true" {
-			query += " AND EXISTS (SELECT 1 FROM collections_watchlist cw WHERE cw.account_cif = la.applicant_cif AND cw.status = 'active')"
+			query += " AND EXISTS (SELECT 1 FROM collections_watchlist cw WHERE cw.account_cif = cl.cbs_customer_id AND cw.status = 'active')"
 		}
 		_ = n
 
@@ -712,28 +687,34 @@ func collectionsWatchlistResolve(db *core.DB) http.HandlerFunc {
 
 func creditActivityFeed(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx   := r.Context()
-		page  := qint(r, "page", 1, 1, 500)
-		size  := qint(r, "size", 50, 1, 200)
-		from  := r.URL.Query().Get("from")
-		to    := r.URL.Query().Get("to")
-		mod   := r.URL.Query().Get("module")
-		act   := r.URL.Query().Get("action")
+		ctx := r.Context()
+		page := qint(r, "page", 1, 1, 500)
+		size := qint(r, "size", 50, 1, 200)
+		from := r.URL.Query().Get("from")
+		to := r.URL.Query().Get("to")
+		mod := r.URL.Query().Get("module")
+		act := r.URL.Query().Get("action")
 		etype := r.URL.Query().Get("entity_type")
-		cif   := r.URL.Query().Get("cif")
+		cif := r.URL.Query().Get("cif")
 		actor := r.URL.Query().Get("actor_id")
 
 		where := " WHERE 1=1"
-		args  := []any{}
+		args := []any{}
 
 		addFilter := func(col, val string) {
 			if val != "" {
-				args  = append(args, val)
+				args = append(args, val)
 				where += fmt.Sprintf(" AND %s = $%d", col, len(args))
 			}
 		}
-		if from != "" { args = append(args, from); where += fmt.Sprintf(" AND ts >= $%d::date", len(args)) }
-		if to   != "" { args = append(args, to);   where += fmt.Sprintf(" AND ts <  $%d::date + INTERVAL '1 day'", len(args)) }
+		if from != "" {
+			args = append(args, from)
+			where += fmt.Sprintf(" AND ts >= $%d::date", len(args))
+		}
+		if to != "" {
+			args = append(args, to)
+			where += fmt.Sprintf(" AND ts <  $%d::date + INTERVAL '1 day'", len(args))
+		}
 		addFilter("module", mod)
 		addFilter("action", act)
 		addFilter("entity_type", etype)
@@ -753,8 +734,13 @@ func creditActivityFeed(db *core.DB) http.HandlerFunc {
 			        cal.entity_type, cal.entity_id, cal.account_cif, cal.action, cal.description,
 			        cal.previous_state, cal.new_state, cal.ip_address
 			 FROM credit_activity_log cal`+where+limitClause, args...)
-		if err != nil { respondErr(w, 500, err.Error()); return }
-		if rows == nil { rows = []core.Row{} }
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
 
 		var total int
 		_ = db.PG.QueryRowContext(ctx, "SELECT COUNT(*) FROM credit_activity_log"+where, countArgs...).Scan(&total)
@@ -767,7 +753,10 @@ func creditActivityByCIF(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		cif := chi.URLParam(r, "cif")
-		if cif == "" { respondErr(w, 400, "cif required"); return }
+		if cif == "" {
+			respondErr(w, 400, "cif required")
+			return
+		}
 
 		rows, err := db.PGQuery(ctx, `
 			SELECT id, ts, module, actor_id, actor_name, actor_role,
@@ -777,8 +766,13 @@ func creditActivityByCIF(db *core.DB) http.HandlerFunc {
 			WHERE account_cif = $1
 			ORDER BY ts DESC
 			LIMIT 200`, cif)
-		if err != nil { respondErr(w, 500, err.Error()); return }
-		if rows == nil { rows = []core.Row{} }
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
 
 		respond(w, map[string]any{"data": rows}, "credit_activity_cif")
 	}

@@ -2,12 +2,12 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
-  ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger, DateFilter, KpiCard,
+  ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger, KpiCard,
   NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
+import { fmtDate, fmtNum } from '../../lib/fmt'
 import { INTER, NAVY, NUM, GREEN, AMBER, RED, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -38,12 +38,10 @@ const fieldStyle: React.CSSProperties = {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function TelemarketingDNC() {
+export default function CallCenterDNC() {
   const [rows, setRows] = useState<DNCEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo, setDateTo] = useState(today())
   const [kpis, setKpis] = useState<DncKPIs | null>(null)
   const [kpiLoading, setKpiLoading] = useState(true)
 
@@ -67,24 +65,22 @@ export default function TelemarketingDNC() {
     setLoading(true)
     setErr(null)
     const params = new URLSearchParams({ limit: '200' })
-    if (dateFrom) params.set('date_from', dateFrom)
-    if (dateTo) params.set('date_to', dateTo)
     try {
-      const res = await apiFetch<{ data: DNCEntry[] }>(`/api/telemarketing/dnc?${params}`)
+      const res = await apiFetch<{ data: DNCEntry[] }>(`/api/call-center/dnc?${params}`)
       setRows(Array.isArray(res) ? res : (res?.data ?? []))
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load DNC list')
     } finally {
       setLoading(false)
     }
-  }, [dateFrom, dateTo])
+  }, [])
 
   useEffect(() => { load() }, [load])
   useLiveData(load)
 
   useEffect(() => {
     setKpiLoading(true)
-    apiFetch<{ data: DncKPIs }>('/api/telemarketing/dnc-kpis')
+    apiFetch<{ data: DncKPIs }>('/api/call-center/dnc-kpis')
       .then(r => setKpis((r as any)?.data ?? r))
       .catch(() => {})
       .finally(() => setKpiLoading(false))
@@ -95,7 +91,7 @@ export default function TelemarketingDNC() {
     setAddLoading(true)
     setAddErr(null)
     try {
-      await apiPost('/api/telemarketing/dnc', { phone: addPhone.trim(), reason: addReason.trim() })
+      await apiPost('/api/call-center/dnc', { phone: addPhone.trim(), reason: addReason.trim() })
       toast.success('Number added to DNC list')
       setAddPhone('')
       setAddReason('')
@@ -114,7 +110,7 @@ export default function TelemarketingDNC() {
       const phones = rows
         .filter(r => selectedIds.has(r.id))
         .map(r => r.phone)
-      await apiPost('/api/telemarketing/dnc/bulk-remove', { phones })
+      await apiPost('/api/call-center/dnc/bulk-remove', { phones })
       toast.success(`${phones.length} number(s) removed from DNC`)
       setSelectedIds(new Set())
       setRemoveConfirm(false)
@@ -215,7 +211,7 @@ export default function TelemarketingDNC() {
   return (
     <Page
       title="Do Not Call List"
-      subtitle="Manage numbers excluded from outbound telemarketing"
+      subtitle="Manage numbers excluded from outbound calls"
       actions={
         <button onClick={() => setAddOpen(true)} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
@@ -224,11 +220,6 @@ export default function TelemarketingDNC() {
       }
     >
       <ErrBanner error={err} onRetry={load} />
-
-      {/* Page-level filter */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[5] }}>
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-      </div>
 
       {/* KPI cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: SP[5] }}>

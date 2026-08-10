@@ -244,12 +244,15 @@ func zohoTrackDateRange(t time.Time, minAt, maxAt *time.Time) {
 
 // ── Register ──────────────────────────────────────────────────────────────────
 
+// RegisterCallCenter adds the Zoho-desk summary routes to the /api/call-center
+// group (gating is applied by the group in main.go). The outbound queue/leads/DNC
+// routes are added alongside by RegisterCallCenterOutbound; /agents is owned there,
+// so the desk agent list is exposed as /desk-agents to avoid a collision.
 func RegisterCallCenter(r chi.Router, db *core.DB) {
-	access := core.RequirePages("call_center")
-	r.With(access).Get("/summary", ccSummary(db))
-	r.With(access).Get("/tickets", ccTickets(db))
-	r.With(access).Get("/agents", ccAgents(db))
-	r.With(access).Get("/by-channel", ccByChannel(db))
+	r.Get("/summary", ccSummary(db))
+	r.Get("/tickets", ccTickets(db))
+	r.Get("/desk-agents", ccAgents(db))
+	r.Get("/by-channel", ccByChannel(db))
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

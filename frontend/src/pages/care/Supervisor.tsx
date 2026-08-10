@@ -1,7 +1,8 @@
 import { useLiveData } from '../../hooks/useRealtime'
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, Spinner, ErrBanner } from '../../components/UI'
+import { toast } from 'sonner'
+import { Page, SectionCard, Spinner, ErrBanner, ConfirmModal } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, FW, RADIUS, SP, TEXT, NUM } from '../../lib/design'
@@ -55,6 +56,9 @@ export default function CareSupervisor() {
   const [d, setD] = useState<CareSup | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  const [distOpen, setDistOpen] = useState(false)
+  const [distBusy, setDistBusy] = useState(false)
+  const [batch, setBatch] = useState(200)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -65,6 +69,26 @@ export default function CareSupervisor() {
     finally { setLoading(false) }
   }, [])
 
+  const distribute = useCallback(async () => {
+    setDistBusy(true)
+    try {
+      const r = await apiFetch<any>('/api/helpdesk/care-distribute', {
+        method: 'POST',
+        body: JSON.stringify({ max: batch }),
+      })
+      const res = (r?.data ?? r) as { assigned: number; agents: number }
+      toast.success(
+        res.assigned > 0
+          ? `Assigned ${res.assigned} mail${res.assigned === 1 ? '' : 's'} across ${res.agents} agent${res.agents === 1 ? '' : 's'}.`
+          : 'Nothing to distribute — the pool is empty.'
+      )
+      setDistOpen(false)
+      await load()
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not distribute mail.')
+    } finally { setDistBusy(false) }
+  }, [batch, load])
+
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['tickets'] })
 
@@ -73,10 +97,16 @@ export default function CareSupervisor() {
       title="Care Supervisor"
       subtitle="Team mail load & SLA"
       actions={
-        <button onClick={() => navigate('/care/inbox')}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 18 }}>mail</span>Open Inbox
-        </button>
+        <div style={{ display: 'inline-flex', gap: 10 }}>
+          <button onClick={() => setDistOpen(true)} disabled={!d || d.unassigned === 0}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'var(--card)', color: (!d || d.unassigned === 0) ? 'var(--txt3)' : NAVY, border: '1px solid var(--card-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (!d || d.unassigned === 0) ? 'default' : 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>groups</span>Distribute
+          </button>
+          <button onClick={() => navigate('/care/inbox')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>mail</span>Open Inbox
+          </button>
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />
@@ -155,6 +185,31 @@ export default function CareSupervisor() {
           </div>
         </>
       )}
+
+      <ConfirmModal
+        open={distOpen}
+        title="Distribute unassigned mail"
+        confirmLabel={distBusy ? 'Distributing…' : 'Distribute'}
+        loading={distBusy}
+        onConfirm={distribute}
+        onClose={() => { if (!distBusy) setDistOpen(false) }}
+      >
+        <p style={{ margin: '0 0 14px', fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.55 }}>
+          The oldest unassigned mail will be shared out evenly (round-robin) across active Care
+          agents. {d && <>There {d.unassigned === 1 ? 'is' : 'are'} <strong style={{ color: 'var(--txt)' }}>{fmtNum(d.unassigned)}</strong> unassigned mail{d.unassigned === 1 ? '' : 's'} in total.</>}
+        </p>
+        <label style={{ display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+          Batch size (this pass)
+        </label>
+        <input
+          type="number" min={1} max={1000} value={batch}
+          onChange={e => setBatch(Math.max(1, Math.min(1000, parseInt(e.target.value || '0', 10) || 0)))}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base }}
+        />
+        <p style={{ margin: '8px 0 0', fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+          Up to 1,000 per pass — run it again to keep clearing the backlog.
+        </p>
+      </ConfirmModal>
     </Page>
   )
 }

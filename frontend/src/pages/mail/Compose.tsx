@@ -4,7 +4,7 @@ import DOMPurify from 'dompurify'
 import { Page, ErrBanner, btnPrimary, btnSecondary } from '../../components/UI'
 import MailRichEditor from '../../components/MailRichEditor'
 import { apiFetch, apiPost, apiDelete } from '../../lib/api'
-import { NAVY, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { NAVY, RED, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,23 @@ interface Prefill {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function parseAddresses(raw: string): MailAddress[] {
-  return raw.split(',').map(s => s.trim()).filter(Boolean).map(s => ({ Email: s, Name: '' }))
+  return splitAddresses(raw).map(s => ({ Email: s, Name: '' }))
+}
+
+// Semicolons as well as commas — Outlook separates with semicolons, and pasting a
+// list from there produced one "address" containing everybody, which the API then
+// rejected with an unhelpful error.
+function splitAddresses(raw: string): string[] {
+  return raw.split(/[,;]/).map(s => s.trim()).filter(Boolean)
+}
+
+// Deliberately permissive. The purpose is to catch a typo or a stray paste before the
+// send round-trips and fails, not to adjudicate RFC 5322 — over-strict client-side
+// validation rejects addresses that are actually deliverable.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function invalidAddresses(raw: string): string[] {
+  return splitAddresses(raw).filter(a => !EMAIL_RE.test(a))
 }
 
 function htmlToText(html: string): string {
@@ -137,6 +153,15 @@ export default function MailCompose() {
     finally { setSending(false) }
   }
 
+  // Discard is destructive and sits next to Save Draft, so it confirms whenever there
+  // is anything to lose. It stays silent on an untouched composer — a confirm dialog
+  // for discarding nothing is the kind of prompt people learn to click through.
+  function discard() {
+    const hasContent = to.trim() || cc.trim() || bcc.trim() || subject.trim() || htmlToText(body) !== ''
+    if (hasContent && !window.confirm('Discard this message? Anything not saved as a draft will be lost.')) return
+    navigate(-1)
+  }
+
   async function saveDraft() {
     setSavingDraft(true); setErr(null)
     try {
@@ -175,19 +200,42 @@ export default function MailCompose() {
     )
   }
 
-  const canSend = to.trim() && subject.trim() && htmlToText(body) !== ''
+  // Say WHY Send is unavailable. A greyed-out button with no explanation is the most
+  // common complaint about compose screens, and the reason is always knowable here.
+  const badTo   = invalidAddresses(to)
+  const badCc   = invalidAddresses(cc)
+  const badBcc  = invalidAddresses(bcc)
+  const bodyEmpty = htmlToText(body) === '' && !/<img\s/i.test(body)
+
+  const blockedReason =
+    !to.trim()          ? 'Add at least one recipient'
+    : badTo.length      ? `Not a valid address: ${badTo[0]}`
+    : badCc.length      ? `Not a valid Cc address: ${badCc[0]}`
+    : badBcc.length     ? `Not a valid Bcc address: ${badBcc[0]}`
+    : !subject.trim()   ? 'Add a subject'
+    : bodyEmpty         ? 'Write a message'
+    : null
+
+  const canSend = !blockedReason
 
   return (
     <Page
       title="Compose"
       subtitle={modeLabel}
       actions={
-        <div style={{ display: 'flex', gap: SP[2] }}>
-          <button onClick={() => navigate(-1)} style={btnSecondary}>Discard</button>
+        <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
+          {blockedReason && (
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginRight: SP[1] }}>{blockedReason}</span>
+          )}
+          <button onClick={discard} style={btnSecondary}>Discard</button>
           <button onClick={saveDraft} disabled={savingDraft} style={btnSecondary}>
             {savingDraft ? 'Saving…' : 'Save Draft'}
           </button>
-          <button onClick={send} disabled={sending || !canSend} style={{ ...btnPrimary, opacity: sending || !canSend ? 0.6 : 1 }}>
+          <button
+            onClick={send}
+            disabled={sending || !canSend}
+            title={blockedReason ?? 'Send'}
+            style={{ ...btnPrimary, opacity: sending || !canSend ? 0.6 : 1, cursor: canSend && !sending ? 'pointer' : 'default' }}>
             {sending ? 'Sending…' : 'Send'}
           </button>
         </div>
@@ -195,13 +243,17 @@ export default function MailCompose() {
     >
       <ErrBanner error={err} />
 
-      <div style={{ maxWidth: 820, display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+      {/* Centred, not left-hugging. `maxWidth` alone pins a block to the left edge of
+          the page container, which left the composer stranded against the sidebar with
+          a wide empty gutter to its right. `margin: 0 auto` is what actually centres it.
+          960 is wide enough that a signature or a pasted table is not cramped. */}
+      <div style={{ maxWidth: 960, margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: SP[3] }}>
         {/* Header card: recipients + subject */}
         <div style={{ background: 'var(--card)', borderRadius: RADIUS.xl, border: '1px solid var(--bdr)', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--bdr)', padding: '10px 16px', gap: SP[3] }}>
             <span style={{ ...labelStyle(), marginBottom: 0, paddingTop: 3, minWidth: 36 }}>To</span>
             <input value={to} onChange={e => setTo(e.target.value)} placeholder="recipient@example.com, another@example.com"
-              style={{ flex: 1, border: 'none', background: 'transparent', padding: '2px 0', fontSize: TEXT.base, color: 'var(--txt)', outline: 'none', fontFamily: INTER }} />
+              style={{ flex: 1, border: 'none', background: 'transparent', padding: '2px 0', fontSize: TEXT.base, color: badTo.length ? RED : 'var(--txt)', outline: 'none', fontFamily: INTER }} />
             <div style={{ display: 'flex', gap: SP[2], paddingTop: 2 }}>
               {!showCc  && <button onClick={() => setShowCc(true)}  style={ccBtn}>Cc</button>}
               {!showBcc && <button onClick={() => setShowBcc(true)} style={ccBtn}>Bcc</button>}

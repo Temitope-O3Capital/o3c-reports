@@ -9,15 +9,30 @@ import (
 	"github.com/o3c/reports/core"
 )
 
+// salesOfficerPredicate decides who counts as a sales/account officer, as a SQL
+// fragment over an `o3c_users u`.
+//
+// It is deliberately not a bare `u.role IN (...)` list. Role literals were the
+// reason every per-officer view rendered empty: nobody in o3c_users carries a
+// sales_* role, yet people are demonstrably doing the job. Holding a book or
+// carrying a target is evidence of the role regardless of the label on the
+// account, so the predicate treats those as qualifying too. That way an officer
+// shows up the moment they are given customers, without waiting on an admin to
+// re-label them.
+const salesOfficerPredicate = `
+	u.role IN ('sales_officer','sales_head','head_sales','bd_officer','bd_head')
+	OR EXISTS (SELECT 1 FROM customer_officers co WHERE co.officer_id = u.id)
+	OR EXISTS (SELECT 1 FROM sales_targets st WHERE st.user_id = u.id)`
+
 func RegisterSales(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("sales"))
 	r.Get("/kpis", salesKPIs(db))
-	r.Get("/loan-kpis",            salesLoanKPIs(db))            // loan-platform KPIs for Sales Overview
+	r.Get("/loan-kpis", salesLoanKPIs(db))                         // loan-platform KPIs for Sales Overview
 	r.Get("/monthly-disbursements", salesMonthlyDisbursements(db)) // 12-month disbursements trend
-	r.Get("/recent-applications",   salesRecentApplications(db))   // recent LOS applications
-	r.Get("/top-performers",        salesTopPerformers(db))         // top officers by disbursements
-	r.Get("/contact-kpis",         salesContactKPIs(db))           // CRM contact KPIs
-	r.Get("/task-kpis",            salesTaskKPIs(db))              // CRM task KPIs
+	r.Get("/recent-applications", salesRecentApplications(db))     // recent LOS applications
+	r.Get("/top-performers", salesTopPerformers(db))               // top officers by disbursements
+	r.Get("/contact-kpis", salesContactKPIs(db))                   // CRM contact KPIs
+	r.Get("/task-kpis", salesTaskKPIs(db))                         // CRM task KPIs
 	r.Get("/funnel", salesFunnel(db))
 	r.Get("/accounts-trend", salesAccountsTrend(db))
 	r.Get("/by-state", salesByState(db))
@@ -27,14 +42,24 @@ func RegisterSales(r chi.Router, db *core.DB) {
 	r.Get("/customers", salesCustomers(db))
 
 	// Sales Targets (Wave 5G)
-	r.Get("/targets",         salesTargetList(db))
-	r.Post("/targets",        salesTargetCreate(db))
-	r.Patch("/targets/{id}",  salesTargetUpdate(db))
-	r.Delete("/targets/{id}", salesTargetDelete(db))
+	//
+	// Reading a target is open to the team — an officer must be able to see the
+	// number they are held to, and the league table is deliberately visible to
+	// everyone. Writing is not: a target is set for you by your supervisor, never
+	// by yourself. Until now every write here was reachable by any user holding
+	// the `sales` page, so an officer could raise, lower or delete their own
+	// target — and the actuals they are measured against came from the same page.
+	r.Get("/targets", salesTargetList(db))
 	r.Get("/targets/actuals", salesTargetActuals(db))
+	r.Group(func(r chi.Router) {
+		r.Use(requireSalesHead)
+		r.Post("/targets", salesTargetCreate(db))
+		r.Patch("/targets/{id}", salesTargetUpdate(db))
+		r.Delete("/targets/{id}", salesTargetDelete(db))
+	})
 
 	// Marketing analytics (Wave 5G)
-	r.Get("/by-lead-source",       salesByLeadSource(db))
+	r.Get("/by-lead-source", salesByLeadSource(db))
 	r.Get("/campaign-attribution", salesCampaignAttribution(db))
 
 	// Cohort heatmap
@@ -93,7 +118,7 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 func salesLoanKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(CASE WHEN ($1='' OR created_at::date >= $1::date)
@@ -134,7 +159,7 @@ func salesLoanKPIs(db *core.DB) http.HandlerFunc {
 func salesMonthlyDisbursements(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			WITH months AS (
 				SELECT generate_series(
@@ -166,29 +191,37 @@ func salesRecentApplications(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		// H13: use o3c_users (not legacy users table) and full_name column
+		// loan_applications has no `officer_id`. The credited officer is
+		// sales_officer_id, falling back to created_by for rows keyed before that
+		// column existed. Selecting the missing name made every one of these
+		// queries fail — and the handler swallows the error and returns [], so the
+		// page rendered empty instead of reporting the fault.
 		q := `SELECT la.id, la.stage, la.status, la.amount_requested_kobo,
 		             la.amount_approved_kobo, la.created_at, la.updated_at,
 		             la.applicant_name, la.product_type,
-		             la.officer_id, u.full_name AS officer_name
+		             COALESCE(la.sales_officer_id, la.created_by) AS officer_id,
+		             u.full_name AS officer_name
 		      FROM loan_applications la
-		      LEFT JOIN o3c_users u ON u.id = la.officer_id
+		      LEFT JOIN o3c_users u ON u.id = COALESCE(la.sales_officer_id, la.created_by)
 		      WHERE 1=1`
 		args := []any{}
 		n := 1
 		if !user.HasPage("los_all") {
-			q += fmt.Sprintf(" AND la.officer_id = $%d", n)
+			q += fmt.Sprintf(" AND COALESCE(la.sales_officer_id, la.created_by) = $%d", n)
 			args = append(args, user.ID)
 			n++
 		}
 		if from != "" {
 			q += fmt.Sprintf(" AND la.created_at::date >= $%d::date", n)
-			args = append(args, from); n++
+			args = append(args, from)
+			n++
 		}
 		if to != "" {
 			q += fmt.Sprintf(" AND la.created_at::date <= $%d::date", n)
-			args = append(args, to); n++
+			args = append(args, to)
+			n++
 		}
 		q += " ORDER BY la.updated_at DESC LIMIT 20"
 		_ = n
@@ -205,14 +238,14 @@ func salesRecentApplications(db *core.DB) http.HandlerFunc {
 func salesTopPerformers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		// H13: use o3c_users (not legacy users table) and full_name column
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT u.full_name, u.role,
 			       COALESCE(SUM(la.amount_approved_kobo), 0) AS amount_kobo,
 			       COUNT(la.id) AS count
 			FROM loan_applications la
-			JOIN o3c_users u ON u.id = la.officer_id
+			JOIN o3c_users u ON u.id = COALESCE(la.sales_officer_id, la.created_by)
 			WHERE la.stage = 'active'
 			  AND ($1 = '' OR la.updated_at::date >= $1::date)
 			  AND ($2 = '' OR la.updated_at::date <= $2::date)
@@ -230,7 +263,7 @@ func salesTopPerformers(db *core.DB) http.HandlerFunc {
 func salesContactKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(*)                                                                      AS total,
@@ -257,7 +290,7 @@ func salesContactKPIs(db *core.DB) http.HandlerFunc {
 func salesTaskKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(*)                                                                      AS total,
@@ -284,28 +317,22 @@ func salesKPIs(db *core.DB) http.HandlerFunc {
 		kpis := map[string]any{}
 		var sources []string
 
-		type spec struct{ key, ms, pg string }
+		type spec struct{ key, pg string }
 		for _, s := range []spec{
 			{"total_customers",
-				"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact",
-				`SELECT COUNT(DISTINCT cif) AS val FROM app.customers`},
+				`SELECT COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS val FROM app.customers`},
 			{"new_mtd",
-				"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact WHERE MONTH(Account_Created)=MONTH(GETDATE()) AND YEAR(Account_Created)=YEAR(GETDATE())",
-				`SELECT COUNT(DISTINCT cif) AS val FROM app.customers WHERE DATE_TRUNC('month',account_created)=DATE_TRUNC('month',CURRENT_DATE)`},
+				`SELECT COUNT(*) AS val FROM (SELECT MIN(account_created) fc FROM app.customers GROUP BY COALESCE('p'||party_id,'c'||contact_id)) f WHERE DATE_TRUNC('month',f.fc)=DATE_TRUNC('month',CURRENT_DATE)`},
 			{"ytd_new",
-				"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact WHERE YEAR(Account_Created)=YEAR(GETDATE())",
-				`SELECT COUNT(DISTINCT cif) AS val FROM app.customers WHERE EXTRACT(year FROM account_created)=EXTRACT(year FROM CURRENT_DATE)`},
+				`SELECT COUNT(*) AS val FROM (SELECT MIN(account_created) fc FROM app.customers GROUP BY COALESCE('p'||party_id,'c'||contact_id)) f WHERE EXTRACT(year FROM f.fc)=EXTRACT(year FROM CURRENT_DATE)`},
 			{"active_cards",
-				"SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account WHERE Status IN ('Open','Active')",
 				`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts WHERE status IN ('Open','Active')`},
 			{"total_cards",
-				"SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account",
 				`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts`},
 			{"states_reached",
-				"SELECT COUNT(DISTINCT State_) AS val FROM dbo.Contact WHERE State_ IS NOT NULL AND State_ != ''",
 				`SELECT COUNT(DISTINCT state) AS val FROM app.customers WHERE state IS NOT NULL AND state != ''`},
 		} {
-			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg)
+			val, src, err := db.DualScalar(ctx, "val", s.pg)
 			if err != nil {
 				respondErr(w, 500, "Query failed: "+s.key)
 				return
@@ -315,8 +342,7 @@ func salesKPIs(db *core.DB) http.HandlerFunc {
 		}
 
 		prev, _, _ := db.DualScalar(ctx, "val",
-			"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact WHERE MONTH(Account_Created)=MONTH(DATEADD(month,-1,GETDATE())) AND YEAR(Account_Created)=YEAR(DATEADD(month,-1,GETDATE()))",
-			`SELECT COUNT(DISTINCT cif) AS val FROM app.customers WHERE DATE_TRUNC('month',account_created)=DATE_TRUNC('month',CURRENT_DATE-INTERVAL '1 month')`)
+			`SELECT COUNT(*) AS val FROM (SELECT MIN(account_created) fc FROM app.customers GROUP BY COALESCE('p'||party_id,'c'||contact_id)) f WHERE DATE_TRUNC('month',f.fc)=DATE_TRUNC('month',CURRENT_DATE-INTERVAL '1 month')`)
 		prevN := toFloat(prev)
 		newMTD := toFloat(kpis["new_mtd"])
 		if prevN > 0 {
@@ -342,21 +368,17 @@ func salesFunnel(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		stages := map[string]any{}
 		var sources []string
-		for _, s := range []struct{ key, ms, pg string }{
+		for _, s := range []struct{ key, pg string }{
 			{"registered",
-				"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Contact",
-				`SELECT COUNT(DISTINCT cif) AS val FROM app.customers`},
+				`SELECT COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS val FROM app.customers`},
 			{"card_issued",
-				"SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account",
 				`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts`},
 			{"card_active",
-				"SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account WHERE Status IN ('Open','Active')",
 				`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts WHERE status IN ('Open','Active')`},
 			{"transacting",
-				"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Transaction_Listing",
 				`SELECT COUNT(DISTINCT cif) AS val FROM app.transactions`},
 		} {
-			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg)
+			val, src, err := db.DualScalar(ctx, "val", s.pg)
 			if err != nil {
 				respondErr(w, 500, "Query failed: "+s.key)
 				return
@@ -371,7 +393,7 @@ func salesFunnel(db *core.DB) http.HandlerFunc {
 func salesAccountsTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from, err1 := validDate(r, "from")
-		to, err2   := validDate(r, "to")
+		to, err2 := validDate(r, "to")
 		if err1 != nil || err2 != nil {
 			respondErr(w, 400, "from and to must be YYYY-MM-DD dates")
 			return
@@ -387,20 +409,15 @@ func salesAccountsTrend(db *core.DB) http.HandlerFunc {
 			pgWhere += fmt.Sprintf(` AND account_created <= '%s'`, to)
 		}
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT FORMAT(Account_Created,'MMM yyyy') AS month,
-			        DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1) AS month_sort,
-			        COUNT(DISTINCT CIF) AS new_accounts
-			 FROM dbo.Contact WHERE %s
-			 GROUP BY DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1),
-			          FORMAT(Account_Created,'MMM yyyy')
-			 ORDER BY month_sort`, msWhere),
 			fmt.Sprintf(`SELECT TO_CHAR(DATE_TRUNC('month',account_created),'Mon YYYY') AS month,
 			        DATE_TRUNC('month',account_created) AS month_sort,
-			        COUNT(DISTINCT cif) AS new_accounts
-			 FROM app.customers WHERE %s
+			        COUNT(*) AS new_accounts
+			 FROM (SELECT COALESCE('p'||party_id,'c'||contact_id) pk, MIN(account_created) AS account_created
+			       FROM app.customers GROUP BY 1) f
+			 WHERE %s
 			 GROUP BY DATE_TRUNC('month',account_created) ORDER BY month_sort`, pgWhere))
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -410,12 +427,10 @@ func salesAccountsTrend(db *core.DB) http.HandlerFunc {
 func salesByState(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT State_, COUNT(DISTINCT CIF) AS count FROM dbo.Contact
-			 WHERE State_ IS NOT NULL AND State_!='' GROUP BY State_ ORDER BY count DESC`,
-			`SELECT state AS "State", COUNT(DISTINCT cif) AS count FROM app.customers
+			`SELECT state AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers
 			 WHERE state IS NOT NULL AND state!='' GROUP BY state ORDER BY count DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -425,12 +440,10 @@ func salesByState(db *core.DB) http.HandlerFunc {
 func salesByCity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT TOP 20 City, State_, COUNT(DISTINCT CIF) AS count FROM dbo.Contact
-			 WHERE City IS NOT NULL AND City!='' GROUP BY City, State_ ORDER BY count DESC`,
-			`SELECT city AS "City", state AS "State", COUNT(DISTINCT cif) AS count FROM app.customers
+			`SELECT city AS "City", state AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers
 			 WHERE city IS NOT NULL AND city!='' GROUP BY city,state ORDER BY count DESC LIMIT 20`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -440,18 +453,11 @@ func salesByCity(db *core.DB) http.HandlerFunc {
 func salesManagerPerformance(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT TOP 20
-			        Account_Manager_txt AS [Account Manager],
-			        COUNT(*) AS total_accounts,
-			        SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS active_accounts,
-			        ROUND(100.0*SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
-			 FROM dbo.Account WHERE Account_Manager_txt IS NOT NULL AND Account_Manager_txt NOT IN ('','Unassigned')
-			 GROUP BY Account_Manager_txt ORDER BY total_accounts DESC`,
 			`SELECT NULL::text AS "Account Manager", 0::bigint AS total_accounts,
 			        0::bigint AS active_accounts, 0::numeric AS activation_rate
 			 WHERE false`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -461,14 +467,11 @@ func salesManagerPerformance(db *core.DB) http.HandlerFunc {
 func salesProductMix(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT Product_Name, COUNT(*) AS total,
-			        SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS active
-			 FROM dbo.Account WHERE Product_Name IS NOT NULL GROUP BY Product_Name ORDER BY total DESC`,
 			`SELECT product_name AS "Product Name", COUNT(*) AS total,
 			        SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END) AS active
 			 FROM app.accounts WHERE product_name IS NOT NULL GROUP BY product_name ORDER BY total DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -479,17 +482,6 @@ func salesCustomers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit := qint(r, "limit", 200, 1, 500)
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT TOP %d
-			        c.CIF AS [CIF Number], c.First_Name AS [First Name], c.Last_Name AS [Last Name],
-			        c.State_ AS [State], c.City, c.Job_Title AS [Job Title],
-			        c.Account_Created AS [Account Created Date],
-			        p.Product_Name AS [Product Name], p.Status AS [Account Status],
-			        p.Account_Manager_txt AS [Account Manager]
-			 FROM dbo.Contact c
-			 OUTER APPLY (
-			     SELECT TOP 1 Product_Name, Status, Account_Manager_txt FROM dbo.Account
-			     WHERE CIF_Number=c.CIF ORDER BY CASE WHEN Status IN ('Open','Active') THEN 0 ELSE 1 END
-			 ) p ORDER BY c.Account_Created DESC`, limit),
 			fmt.Sprintf(`SELECT a.cif, a.first_name AS "First Name", a.last_name AS "Last Name",
 			        a.state AS "State", a.city AS "City", a.job_title AS "Job Title", a.account_created,
 			        p."Product Name", p.status, p."Account Manager"
@@ -501,7 +493,7 @@ func salesCustomers(db *core.DB) http.HandlerFunc {
 			 ) p ON true
 			 ORDER BY a.account_created DESC LIMIT %d`, limit))
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -513,8 +505,8 @@ func salesCustomers(db *core.DB) http.HandlerFunc {
 func salesTargetList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		period := qstr(r, "period")
-		from   := qstr(r, "from")
-		to     := qstr(r, "to")
+		from := qstr(r, "from")
+		to := qstr(r, "to")
 		where, args := "WHERE 1=1", []any{}
 		if period != "" {
 			where += fmt.Sprintf(" AND st.period=$%d", len(args)+1)
@@ -535,9 +527,12 @@ func salesTargetList(db *core.DB) http.HandlerFunc {
 			JOIN o3c_users u ON u.id = st.user_id
 			%s ORDER BY st.period DESC, u.full_name`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "DB error"); return
+			respondErrLog(w, 500, "DB error", err)
+			return
 		}
-		if rows == nil { rows = []core.Row{} }
+		if rows == nil {
+			rows = []core.Row{}
+		}
 		respond(w, rows, "pg")
 	}
 }
@@ -552,7 +547,8 @@ func salesTargetCreate(db *core.DB) http.HandlerFunc {
 			Notes            string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(),
@@ -563,7 +559,8 @@ func salesTargetCreate(db *core.DB) http.HandlerFunc {
 			 RETURNING *`,
 			body.UserID, body.Period, body.LoanCount, body.DisbursementKobo, body.Notes, user.ID)
 		if err != nil {
-			respondErr(w, 500, "DB error"); return
+			respondErrLog(w, 500, "DB error", err)
+			return
 		}
 		if len(rows) > 0 {
 			respond(w, rows[0], "pg")
@@ -582,13 +579,17 @@ func salesTargetUpdate(db *core.DB) http.HandlerFunc {
 			Notes            string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		rows, err := db.PGQuery(r.Context(),
 			`UPDATE sales_targets SET loan_count=$1, disbursement_kobo=$2, notes=$3, updated_at=NOW()
 			 WHERE id=$4 RETURNING *`,
 			body.LoanCount, body.DisbursementKobo, body.Notes, id)
-		if err != nil || len(rows) == 0 { respondErr(w, 404, "Not found"); return }
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Not found")
+			return
+		}
 		respond(w, rows[0], "pg")
 	}
 }
@@ -604,8 +605,8 @@ func salesTargetDelete(db *core.DB) http.HandlerFunc {
 func salesTargetActuals(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		period := qstr(r, "period")
-		from   := qstr(r, "from")
-		to     := qstr(r, "to")
+		from := qstr(r, "from")
+		to := qstr(r, "to")
 		periodExpr := "DATE_TRUNC('month', NOW())"
 		if period != "" && period != "current" {
 			if !periodRE.MatchString(period) {
@@ -624,17 +625,21 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			LEFT JOIN sales_targets t
 			    ON t.user_id=u.id AND DATE_TRUNC('month',(t.period||'-01')::date)=%s
 			LEFT JOIN loan_applications a
-			    ON a.created_by_user_id=u.id
+			    ON COALESCE(a.sales_officer_id, a.created_by)=u.id
 			    AND DATE_TRUNC('month',a.created_at)=%s
 			    AND ($1 = '' OR a.created_at::date >= $1::date)
 			    AND ($2 = '' OR a.created_at::date <= $2::date)
 			    AND a.stage NOT IN ('withdrawn')
-			WHERE u.role IN ('sales_officer','sales_head','bd_officer','bd_head')
-			  AND u.deleted_at IS NULL
+			WHERE u.deleted_at IS NULL AND (`+salesOfficerPredicate+`)
 			GROUP BY u.id, u.full_name, t.loan_count, t.disbursement_kobo
 			ORDER BY actual_kobo DESC`, periodExpr, periodExpr), from, to)
-		if err != nil { respondErr(w, 500, "DB error"); return }
-		if rows == nil { rows = []core.Row{} }
+		if err != nil {
+			respondErrLog(w, 500, "DB error", err)
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
 		respond(w, rows, "pg")
 	}
 }
@@ -644,8 +649,14 @@ func salesByLeadSource(db *core.DB) http.HandlerFunc {
 		from := qstr(r, "from")
 		to := qstr(r, "to")
 		where, args := "WHERE 1=1", []any{}
-		if from != "" { where += fmt.Sprintf(" AND created_at::date >= $%d", len(args)+1); args = append(args, from) }
-		if to != "" { where += fmt.Sprintf(" AND created_at::date <= $%d", len(args)+1); args = append(args, to) }
+		if from != "" {
+			where += fmt.Sprintf(" AND created_at::date >= $%d", len(args)+1)
+			args = append(args, from)
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND created_at::date <= $%d", len(args)+1)
+			args = append(args, to)
+		}
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 			    COALESCE(lead_source,'unknown') AS lead_source,
@@ -656,8 +667,13 @@ func salesByLeadSource(db *core.DB) http.HandlerFunc {
 			%s
 			GROUP BY COALESCE(lead_source,'unknown')
 			ORDER BY total_applications DESC`, where), args...)
-		if err != nil { respondErr(w, 500, "Query failed"); return }
-		if rows == nil { rows = []core.Row{} }
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
 		respond(w, rows, "pg")
 	}
 }
@@ -672,8 +688,20 @@ func salesCampaignAttribution(db *core.DB) http.HandlerFunc {
 		// Each conversion is tagged with the matching basis. If the customer master
 		// is absent, degrade gracefully to CIF-only resolution.
 		where, args := "WHERE 1=1", []any{}
-		if from != "" { where += fmt.Sprintf(" AND c.created_at::date >= $%d", len(args)+1); args = append(args, from) }
-		if to != "" { where += fmt.Sprintf(" AND c.created_at::date <= $%d", len(args)+1); args = append(args, to) }
+		if from != "" {
+			where += fmt.Sprintf(" AND c.created_at::date >= $%d", len(args)+1)
+			args = append(args, from)
+		}
+		if to != "" {
+			where += fmt.Sprintf(" AND c.created_at::date <= $%d", len(args)+1)
+			args = append(args, to)
+		}
+		// Optional single-campaign scope — powers the per-campaign attribution
+		// block on the campaign Results page.
+		if cid := qstr(r, "campaign_id"); cid != "" {
+			where += fmt.Sprintf(" AND c.id = $%d", len(args)+1)
+			args = append(args, cid)
+		}
 
 		hasMaster := false
 		var reg *string
@@ -738,8 +766,13 @@ func salesCampaignAttribution(db *core.DB) http.HandlerFunc {
 			ORDER BY conversions DESC, contacts_reached DESC`
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
-		if err != nil { respondErr(w, 500, "Query failed"); return }
-		if rows == nil { rows = []core.Row{} }
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
 		respond(w, rows, "pg")
 	}
 }
@@ -760,11 +793,13 @@ func salesCohortMatrix(db *core.DB) http.HandlerFunc {
 		n := 1
 		if from != "" {
 			dateWhere += fmt.Sprintf(" AND DATE_TRUNC('month', created_at) >= DATE_TRUNC('month', $%d::date)", n)
-			args = append(args, from); n++
+			args = append(args, from)
+			n++
 		}
 		if to != "" {
 			dateWhere += fmt.Sprintf(" AND DATE_TRUNC('month', created_at) <= DATE_TRUNC('month', $%d::date)", n)
-			args = append(args, to); n++
+			args = append(args, to)
+			n++
 		}
 		_ = n
 
@@ -865,11 +900,11 @@ func salesCohortDetail(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, map[string]any{
-			"cohort":              cohort,
-			"data":                rows,
-			"count":               len(rows),
-			"total_outstanding":   totalOutstanding,
-			"par30_count":         par30Count,
+			"cohort":            cohort,
+			"data":              rows,
+			"count":             len(rows),
+			"total_outstanding": totalOutstanding,
+			"par30_count":       par30Count,
 		}, "pg")
 	}
 }

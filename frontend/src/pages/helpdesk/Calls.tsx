@@ -2,8 +2,9 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
+  AreaChart, Area, CartesianGrid,
 } from 'recharts'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
@@ -11,9 +12,14 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDatetime, today } from '../../lib/fmt'
+import { fmtDatetime, fmtDate, today } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import QAEvaluation from './QAEvaluation'
+import { BAND_COLOR } from '../../lib/qa'
 import { toast } from 'sonner'
+
+function myRole(): string { try { return String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '') } catch { return '' } }
+const CAN_EVALUATE = /head|admin|super|manager|lead|supervisor/i.test(myRole())
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,10 +36,31 @@ interface CallLog {
   ticket_ref: string | null
   called_at: string
   notes: string | null
+  customer_cif: string | null
+  recording_url: string | null
+  qa_evaluation_id: number | null
+  qa_score: number | null
+  qa_band: string | null
+  qa_passed: boolean | null
 }
 
 interface CallScriptStep { order: number; prompt: string; options?: string[] }
 interface CallScript { id: number; ticket_type: string; name: string; steps: CallScriptStep[]; is_active: boolean }
+
+// Server-side aggregates over the FULL filtered dataset (not just the loaded page).
+interface CallStats {
+  summary: {
+    total: number; inbound: number; outbound: number
+    missed: number; connected: number
+    inbound_connected: number; outbound_connected: number; resolved: number
+    total_talk_sec: number; agents: number
+    avg_duration_sec: number | null; avg_inbound_sec: number | null; avg_outbound_sec: number | null
+  }
+  by_outcome: { outcome: string; count: number }[]
+  by_day: { day: string; total: number; inbound: number; outbound: number }[]
+  by_hour: { hour: number; total: number; inbound: number; outbound: number }[]
+}
+const num = (v: any): number => Number(v ?? 0) || 0
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -43,20 +70,29 @@ const TICKET_TYPES_CALL = [
   'Complaint (CBN reportable)',
 ]
 
-const OUTCOME_CFG: Record<string, { bg: string; txt: string; label: string }> = {
-  completed:   { bg: `${GREEN}18`,  txt: GREEN,  label: 'Completed'   },
-  missed:      { bg: `${RED}12`,    txt: RED,    label: 'Missed'      },
-  transferred: { bg: `${AMBER}18`,  txt: AMBER,  label: 'Transferred' },
-  escalated:   { bg: `${RED}12`,    txt: RED,    label: 'Escalated'   },
+// Zoho-sourced calls only carry `completed` (connected) and `missed` (no answer);
+// the other values exist for the live AT flow. "Connected" reads truer than
+// "Completed" for a dialer-heavy operation.
+const OUTCOME_CFG: Record<string, { bg: string; txt: string; label: string; chart: string }> = {
+  completed:   { bg: `${GREEN}18`, txt: GREEN, label: 'Connected',   chart: GREEN },
+  connected:   { bg: `${GREEN}18`, txt: GREEN, label: 'Connected',   chart: GREEN },
+  resolved:    { bg: `${GREEN}18`, txt: GREEN, label: 'Resolved',    chart: GREEN },
+  missed:      { bg: `${RED}12`,   txt: RED,   label: 'No Answer',   chart: RED   },
+  no_answer:   { bg: `${RED}12`,   txt: RED,   label: 'No Answer',   chart: RED   },
+  voicemail:   { bg: `${AMBER}18`, txt: AMBER, label: 'Voicemail',   chart: AMBER },
+  transferred: { bg: `${AMBER}18`, txt: AMBER, label: 'Transferred', chart: AMBER },
+  escalated:   { bg: `${RED}12`,   txt: RED,   label: 'Escalated',   chart: '#7C3AED' },
 }
 
-const OUTCOME_CHART_COLORS = [GREEN, RED, AMBER, '#7C3AED']
+const OUTCOME_CHART_FALLBACK = ['#7C3AED', BLUE, AMBER, GREEN, RED]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDuration(s: number | null | undefined): string {
   if (!s || s <= 0) return '—'
-  const m = Math.floor(s / 60)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h > 0) return `${h}h ${m}m`
   return m > 0 ? `${m}m ${s % 60}s` : `${s}s`
 }
 
@@ -71,10 +107,6 @@ function relativeTime(iso: string): string {
   if (d === 1) return 'Yesterday'
   if (d < 7) return `${d}d ago`
   return fmtDatetime(iso)
-}
-
-function dayKey(iso: string): string {
-  return iso.slice(0, 10)
 }
 
 // ── Direction badge ───────────────────────────────────────────────────────────
@@ -97,8 +129,9 @@ function DirectionBadge({ direction }: { direction: string }) {
 
 // ── Outcome pill ──────────────────────────────────────────────────────────────
 
-function OutcomePill({ outcome }: { outcome: string }) {
-  const cfg = OUTCOME_CFG[outcome.toLowerCase()] ?? { bg: 'var(--chip-bg)', txt: 'var(--txt2)', label: outcome }
+function OutcomePill({ outcome }: { outcome: string | null }) {
+  const o = (outcome ?? '').toLowerCase()
+  const cfg = OUTCOME_CFG[o] ?? { bg: 'var(--chip-bg)', txt: 'var(--txt2)', label: outcome || '—' }
   return (
     <span style={{
       fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 9px', borderRadius: RADIUS['2xl'],
@@ -127,54 +160,52 @@ function DurationCell({ seconds, max }: { seconds: number; max: number }) {
 
 // ── Charts ────────────────────────────────────────────────────────────────────
 
-function CallsByDayChart({ rows }: { rows: CallLog[] }) {
-  const data = useMemo(() => {
-    const map: Record<string, { date: string; Inbound: number; Outbound: number }> = {}
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10)
-      map[d] = { date: d.slice(5), Inbound: 0, Outbound: 0 }
-    }
-    rows.forEach(r => {
-      const k = dayKey(r.called_at)
-      if (map[k]) map[k][r.direction as 'Inbound' | 'Outbound']++
-    })
-    return Object.values(map)
-  }, [rows])
+function CallVolumeChart({ series }: { series: CallStats['by_day'] }) {
+  const data = useMemo(() => series.map(d => ({
+    date: d.day,
+    Inbound: num(d.inbound),
+    Outbound: num(d.outbound),
+  })), [series])
 
   return (
-    <ResponsiveContainer width="100%" height={160}>
-      <BarChart data={data} barSize={14} margin={{ top: 4, right: 0, bottom: 0, left: -20 }}>
-        <XAxis dataKey="date" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt3)' }} tickLine={false} axisLine={false} interval={1} />
-        <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt3)' }} tickLine={false} axisLine={false} allowDecimals={false} />
+    <ResponsiveContainer width="100%" height={180}>
+      <AreaChart data={data} margin={{ top: 6, right: 6, bottom: 0, left: -20 }}>
+        <defs>
+          <linearGradient id="gOut" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={PURPLE} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={PURPLE} stopOpacity={0.02} />
+          </linearGradient>
+          <linearGradient id="gIn" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={BLUE} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={BLUE} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
+        <XAxis dataKey="date" tickFormatter={(v: string) => fmtDate(v, { month: 'short', day: 'numeric' })} tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt3)' }} tickLine={false} axisLine={false} minTickGap={44} />
+        <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt3)' }} tickLine={false} axisLine={false} allowDecimals={false} width={44} />
         <Tooltip
           contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }}
           labelStyle={{ color: 'var(--txt)', fontWeight: FW.semibold }}
+          labelFormatter={(v: string) => fmtDate(v)}
         />
-        <Bar dataKey="Inbound"  fill={BLUE}   radius={[3,3,0,0]} stackId="a" />
-        <Bar dataKey="Outbound" fill={PURPLE} radius={[3,3,0,0]} stackId="a" />
-      </BarChart>
+        <Area type="monotone" dataKey="Outbound" stackId="1" stroke={PURPLE} fill="url(#gOut)" strokeWidth={2} />
+        <Area type="monotone" dataKey="Inbound"  stackId="1" stroke={BLUE}   fill="url(#gIn)"  strokeWidth={2} />
+      </AreaChart>
     </ResponsiveContainer>
   )
 }
 
-function OutcomeDonut({ rows }: { rows: CallLog[] }) {
-  const data = useMemo(() => {
-    const counts: Record<string, number> = {}
-    rows.forEach(r => {
-      const k = r.outcome.toLowerCase()
-      counts[k] = (counts[k] ?? 0) + 1
-    })
-    return Object.entries(counts).map(([outcome, count]) => ({
-      name: OUTCOME_CFG[outcome]?.label ?? outcome,
-      value: count,
-    }))
-  }, [rows])
+function OutcomeDonut({ series }: { series: CallStats['by_outcome'] }) {
+  const data = useMemo(() => series.map(o => {
+    const cfg = OUTCOME_CFG[(o.outcome || '').toLowerCase()]
+    return { name: cfg?.label ?? (o.outcome || 'Unknown'), value: num(o.count), color: cfg?.chart }
+  }), [series])
 
   return (
-    <ResponsiveContainer width="100%" height={160}>
+    <ResponsiveContainer width="100%" height={180}>
       <PieChart>
-        <Pie data={data} dataKey="value" innerRadius={42} outerRadius={62} paddingAngle={2} stroke="none">
-          {data.map((_, i) => <Cell key={i} fill={OUTCOME_CHART_COLORS[i % OUTCOME_CHART_COLORS.length]} />)}
+        <Pie data={data} dataKey="value" innerRadius={46} outerRadius={66} paddingAngle={2} stroke="none">
+          {data.map((d, i) => <Cell key={i} fill={d.color ?? OUTCOME_CHART_FALLBACK[i % OUTCOME_CHART_FALLBACK.length]} />)}
         </Pie>
         <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs }} />
         <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }} />
@@ -209,7 +240,7 @@ function ZohoSyncBar({ onSynced }: { onSynced: () => void }) {
       const res = await apiPost<{ imported: number; skipped: number; failed: number }>(
         '/api/zoho/voice/import-logs', {}
       )
-      toast.success(`Synced ${res.imported} new call${res.imported !== 1 ? 's' : ''} from Zoho Voice`)
+      toast.success(`Synced ${res.imported} new call${res.imported !== 1 ? 's' : ''} from Zoho Desk`)
       fetchStatus()
       onSynced()
     } catch (e: any) {
@@ -227,7 +258,7 @@ function ZohoSyncBar({ onSynced }: { onSynced: () => void }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: GREEN, flexShrink: 0 }} />
-        <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Zoho Voice</span>
+        <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Zoho Desk</span>
       </div>
       <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
         {status.total_imported.toLocaleString()} calls imported
@@ -238,20 +269,7 @@ function ZohoSyncBar({ onSynced }: { onSynced: () => void }) {
         </span>
       )}
       <div style={{ flex: 1 }} />
-      <button onClick={handleSync} disabled={syncing}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 5,
-          padding: '6px 13px', background: `${NAVY}0D`,
-          color: NAVY, border: `1px solid ${NAVY}20`, borderRadius: RADIUS.md,
-          fontSize: TEXT.sm, fontWeight: FW.semibold,
-          cursor: syncing ? 'wait' : 'pointer', opacity: syncing ? 0.7 : 1,
-        }}>
-        {syncing
-          ? <Spinner size={13} />
-          : <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>sync</span>
-        }
-        {syncing ? 'Syncing…' : 'Sync Now'}
-      </button>
+      <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Managed in Admin → Sync &amp; Workers</span>
     </div>
   )
 }
@@ -261,6 +279,7 @@ function ZohoSyncBar({ onSynced }: { onSynced: () => void }) {
 export default function Calls() {
   const navigate = useNavigate()
   const [rows, setRows]     = useState<CallLog[]>([])
+  const [stats, setStats]   = useState<CallStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState<string | null>(null)
   // Filters
@@ -271,6 +290,9 @@ export default function Calls() {
   // so a "this month" default would show nothing.
   const [dateFrom,    setDateFrom]    = useState(new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10))
   const [dateTo,      setDateTo]      = useState(today())
+
+  // QA evaluation modal (opened from a call's Evaluate action)
+  const [evalCall, setEvalCall] = useState<CallLog | null>(null)
 
   // Log Call modal
   const [logOpen, setLogOpen] = useState(false)
@@ -284,15 +306,15 @@ export default function Calls() {
 
   const abortRef = useRef<AbortController | null>(null)
 
-  const buildQS = useCallback(() => {
+  // Shared filter — the log table, KPI strip and charts all move together.
+  const filterQS = useCallback(() => {
     const p = new URLSearchParams()
     if (agentFilter) p.set('agent', agentFilter)
     if (fDirs.size)     p.set('direction', [...fDirs].join(','))
     if (fOutcomes.size) p.set('outcome', [...fOutcomes].join(','))
     p.set('date_from', dateFrom)
     p.set('date_to', dateTo)
-    p.set('limit', '200')
-    return p.toString()
+    return p
   }, [agentFilter, fDirs, fOutcomes, dateFrom, dateTo])
 
   const load = useCallback(async () => {
@@ -300,36 +322,68 @@ export default function Calls() {
     abortRef.current = new AbortController()
     setLoading(true); setError(null)
     try {
-      const data = await apiFetch<CallLog[]>(`/api/helpdesk/calls?${buildQS()}`, { signal: abortRef.current.signal })
+      const p = filterQS(); p.set('limit', '200')
+      const data = await apiFetch<CallLog[]>(`/api/helpdesk/calls?${p}`, { signal: abortRef.current.signal })
       setRows(Array.isArray(data) ? data : [])
     } catch (e: any) {
       if (e.name !== 'AbortError') setError(e.message)
     } finally { setLoading(false) }
-  }, [buildQS])
+  }, [filterQS])
 
-  useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  // KPIs + charts come from a server-side aggregate over the FULL filtered set —
+  // never from the 200-row table page (which would badly under-count 98k calls).
+  const loadStats = useCallback(async () => {
+    try {
+      const raw = await apiFetch<any>(`/api/helpdesk/calls/stats?${filterQS()}`)
+      setStats((raw?.data ?? raw) as CallStats)
+    } catch { /* non-fatal — KPI cards fall back to dashes */ }
+  }, [filterQS])
+
+  useEffect(() => { load(); loadStats() }, [load, loadStats])
+  useLiveData(() => { load(); loadStats() }, { topics: ['tickets'] })
 
   useEffect(() => {
     if (!logOpen || !logForm.ticket_type) { setCallScript(null); return }
-    apiFetch<CallScript | null>(`/api/helpdesk/call-scripts/by-type?ticket_type=${encodeURIComponent(logForm.ticket_type)}`)
-      .then(r => { setCallScript(r && (r as any).id ? r : null); setScriptExpanded(true) })
+    apiFetch<any>(`/api/helpdesk/call-scripts/by-type?ticket_type=${encodeURIComponent(logForm.ticket_type)}`)
+      .then(r => { const s = r?.data ?? r; setCallScript(s?.id ? s : null); setScriptExpanded(true) })
       .catch(() => setCallScript(null))
   }, [logOpen, logForm.ticket_type])
 
   // ── KPIs computed from loaded rows ────────────────────────────────────────
 
   const kpis = useMemo(() => {
-    const total     = rows.length
-    const completed = rows.filter(r => r.outcome === 'completed').length
-    const missed    = rows.filter(r => r.outcome === 'missed').length
-    const withDur   = rows.filter(r => r.duration_seconds > 0)
-    const avgDur    = withDur.length ? Math.round(withDur.reduce((s, r) => s + r.duration_seconds, 0) / withDur.length) : 0
-    const transferred = rows.filter(r => r.outcome === 'transferred').length
-    return { total, completed, missed, avgDur, transferRate: total > 0 ? (transferred / total) * 100 : 0 }
-  }, [rows])
+    const s = stats?.summary
+    const total     = num(s?.total)
+    const connected = num(s?.connected)
+    const missed    = num(s?.missed)
+    const outbound  = num(s?.outbound)
+    const inbound   = num(s?.inbound)
+    const talkSec   = num(s?.total_talk_sec)
+    // Average talk time over calls that actually connected (missed calls carry 0s
+    // duration and would otherwise drag the mean toward zero).
+    const avgTalk   = connected > 0 ? Math.round(talkSec / connected) : 0
+    return {
+      total, connected, missed, outbound, inbound, avgTalk,
+      connectRate: total > 0 ? (connected / total) * 100 : 0,
+      missRate:    total > 0 ? (missed / total) * 100 : 0,
+      outboundPct: total > 0 ? (outbound / total) * 100 : 0,
+      agents: num(s?.agents),
+    }
+  }, [stats])
 
-  const maxDuration = useMemo(() => Math.max(...rows.map(r => r.duration_seconds), 1), [rows])
+  // Cap the bar scale so one corrupt long-duration call can't flatten every bar.
+  const maxDuration = useMemo(() => Math.min(Math.max(...rows.map(r => r.duration_seconds), 1), 1800), [rows])
+
+  // Outcome filter options come from the actual data (deduped by label), so we
+  // never show duplicate ("Connected"×2) or non-existent ("Voicemail") choices.
+  const outcomeOpts = useMemo(() => {
+    const seen = new Set<string>()
+    return (stats?.by_outcome ?? []).map(o => {
+      const key = (o.outcome ?? '').toLowerCase()
+      const cfg = OUTCOME_CFG[key]
+      return { value: key, label: cfg?.label ?? (o.outcome || 'Unknown'), color: cfg?.txt ?? 'var(--txt2)' }
+    }).filter(o => o.value && !seen.has(o.label) && !!seen.add(o.label))
+  }, [stats])
 
   // ── Log Call ──────────────────────────────────────────────────────────────
 
@@ -350,7 +404,7 @@ export default function Calls() {
       setLogOpen(false)
       setLogForm({ customer_name: '', phone: '', direction: 'Inbound', outcome_val: 'completed', duration_seconds: '', ticket_type: '', notes: '' })
       setCallScript(null)
-      load()
+      load(); loadStats()
     } catch (e: any) {
       toast.error(e.message ?? 'Failed to log call')
     } finally { setLogSaving(false) }
@@ -399,6 +453,17 @@ export default function Calls() {
       render: r => <OutcomePill outcome={r.outcome} />,
     },
     {
+      key: 'qa_score' as any,
+      label: 'QA',
+      align: 'center',
+      render: r => r.qa_score != null ? (
+        <span title={`${r.qa_band ?? ''} · ${r.qa_passed ? 'Pass' : 'Fail'}`}
+          style={{ ...NUM, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: TEXT.sm, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${BAND_COLOR[r.qa_band ?? ''] ?? NAVY}18`, color: BAND_COLOR[r.qa_band ?? ''] ?? NAVY }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{r.qa_passed ? 'verified' : 'error' }</span>{r.qa_score}%
+        </span>
+      ) : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>,
+    },
+    {
       key: 'ticket_id',
       label: 'Ticket',
       render: r => r.ticket_id && r.ticket_ref ? (
@@ -437,8 +502,26 @@ export default function Calls() {
       width: 64,
       render: r => (
         <ActionRow actions={[
-          { icon: 'play_circle', label: 'View Recording', onClick: () => toast.info('No recording available for this call') },
-          { icon: 'add_comment', label: 'Create Ticket', onClick: () => navigate(`/helpdesk/tickets`) },
+          // Evaluators can score the call against the QA rubric.
+          ...(CAN_EVALUATE ? [{
+            icon: 'grade', label: r.qa_evaluation_id ? 'Re-evaluate call (QA)' : 'Evaluate call (QA)',
+            onClick: () => setEvalCall(r),
+          }] : []),
+          // Only offer a recording when one actually exists on the call.
+          ...(r.recording_url ? [{
+            icon: 'play_circle', label: 'View Recording',
+            onClick: () => window.open(r.recording_url as string, '_blank', 'noopener'),
+          }] : []),
+          {
+            icon: 'add_comment', label: 'Create Ticket',
+            onClick: () => {
+              const q = new URLSearchParams()
+              if (r.customer_cif) q.set('cif', r.customer_cif)
+              if (r.customer_name) q.set('name', r.customer_name)
+              if (r.phone) q.set('phone', r.phone)
+              navigate(`/helpdesk/new?${q.toString()}`)
+            },
+          },
         ]} />
       ),
     },
@@ -479,31 +562,41 @@ export default function Calls() {
       {/* Zoho sync bar — only renders when Zoho credentials are configured */}
       <ZohoSyncBar onSynced={load} />
 
-      {/* KPI strip */}
+      {/* KPI strip — over the full filtered dataset, not the loaded page */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[3], marginBottom: SP[4] }}>
-        <KpiCard label="Total Calls"    value={kpis.total}     icon="call"          accent={NAVY}  loading={loading} />
-        <KpiCard label="Completed"      value={kpis.completed} icon="check_circle"  accent={GREEN} loading={loading}
-          sub={kpis.total ? `${((kpis.completed/kpis.total)*100).toFixed(0)}% answer rate` : undefined} />
-        <KpiCard label="Missed"         value={kpis.missed}    icon="call_missed"   accent={RED}   loading={loading}
-          sub={kpis.total ? `${((kpis.missed/kpis.total)*100).toFixed(0)}% miss rate` : undefined} />
-        <KpiCard label="Avg Duration"   value={fmtDuration(kpis.avgDur)} icon="timer" accent={BLUE} loading={loading} />
-        <KpiCard label="Transfer Rate"  value={`${kpis.transferRate.toFixed(1)}%`} icon="call_split" accent={AMBER} loading={loading} />
+        <KpiCard label="Total Calls"    value={kpis.total.toLocaleString()} icon="call" accent={NAVY} loading={loading}
+          sub={`${kpis.agents} agent${kpis.agents !== 1 ? 's' : ''}`} />
+        <KpiCard label="Connect Rate"   value={`${kpis.connectRate.toFixed(0)}%`} icon="check_circle" accent={GREEN} loading={loading}
+          sub={`${kpis.connected.toLocaleString()} connected`} />
+        <KpiCard label="No Answer"      value={`${kpis.missRate.toFixed(0)}%`} icon="call_missed" accent={RED} loading={loading}
+          sub={`${kpis.missed.toLocaleString()} calls`} />
+        <KpiCard label="Outbound Share" value={`${kpis.outboundPct.toFixed(0)}%`} icon="call_made" accent={PURPLE} loading={loading}
+          sub={`${kpis.outbound.toLocaleString()} out · ${kpis.inbound.toLocaleString()} in`} />
+        <KpiCard label="Avg Talk Time"  value={fmtDuration(kpis.avgTalk)} icon="timer" accent={BLUE} loading={loading}
+          sub="per connected call" />
       </div>
 
-      {/* Charts row */}
-      {!loading && rows.length > 0 && (
+      {/* Charts row — gated on stats (not the table load), with a skeleton so they
+          don't pop in blank after a delay. */}
+      {!stats ? (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 14, marginBottom: SP[4] }}>
-          <SectionCard title="Calls by Day" subtitle="Last 14 days — Inbound vs Outbound">
-            <CallsByDayChart rows={rows} />
+          <SectionCard title="Call Volume"><div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner size={20} /></div></SectionCard>
+          <SectionCard title="By Outcome"><div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner size={20} /></div></SectionCard>
+        </div>
+      ) : kpis.total > 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 14, marginBottom: SP[4] }}>
+          <SectionCard title="Call Volume" subtitle="Inbound vs Outbound over the selected range">
+            <CallVolumeChart series={stats?.by_day ?? []} />
           </SectionCard>
           <SectionCard title="By Outcome">
-            <OutcomeDonut rows={rows} />
+            <OutcomeDonut series={stats?.by_outcome ?? []} />
           </SectionCard>
         </div>
-      )}
+      ) : null}
 
       {/* Table */}
-      <SectionCard padding={false} badge={rows.length}>
+      <SectionCard padding={false} title="Call Records"
+        subtitle={kpis.total > rows.length ? `Most recent ${rows.length} shown · KPIs & charts cover all ${kpis.total.toLocaleString()}` : `${rows.length} call${rows.length !== 1 ? 's' : ''}`}>
         <ExpandableFilterBar
           search={agentFilter}
           onSearch={setAgentFilter}
@@ -521,7 +614,7 @@ export default function Calls() {
             {
               key: 'outcome',
               label: 'Outcome',
-              options: Object.entries(OUTCOME_CFG).map(([v, c]) => ({ value: v, label: c.label, color: c.txt })),
+              options: outcomeOpts,
               selected: fOutcomes,
               onChange: setFOutcomes,
             },
@@ -529,7 +622,7 @@ export default function Calls() {
           onReset={() => { setAgentFilter(''); setFDirs(new Set()); setFOutcomes(new Set()) }}
           onApply={load}
           resultCount={rows.length}
-          totalCount={rows.length}
+          totalCount={Math.max(kpis.total, rows.length)}
           placeholder="Search by agent name…"
         />
 
@@ -658,6 +751,14 @@ export default function Calls() {
           )}
         </div>
       </Modal>
+
+      {evalCall && (
+        <QAEvaluation
+          call={{ id: evalCall.id, agent_name: evalCall.agent_name, customer_name: evalCall.customer_name, phone: evalCall.phone, direction: evalCall.direction, called_at: evalCall.called_at, duration_seconds: evalCall.duration_seconds }}
+          onClose={() => setEvalCall(null)}
+          onSaved={() => { load(); loadStats() }}
+        />
+      )}
     </Page>
   )
 }

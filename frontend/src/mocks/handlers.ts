@@ -26,7 +26,7 @@ const LAST  = ['Adeyemi','Okonkwo','Eze','Olawale','Ibrahim','Adeleke','Nwosu','
 const BANKS = ['Access Bank','GTBank','FirstBank','Zenith Bank','UBA','Stanbic IBTC','Fidelity Bank']
 const STATES = ['Lagos','Abuja','Rivers','Ogun','Kano','Delta','Anambra','Oyo','Kaduna']
 const DEPTS  = ['Sales','Collections','Recovery','Finance','Cards Ops','Risk','HR','Compliance',
-                'IT','Call Centre','Business Development','Telemarketing']
+                'IT','Call Centre','Business Development','Call Center']
 const LOS_STAGES = ['draft','submitted','document_collection','risk_review','risk_head_review',
                     'pending_conditions','finance_approval','booking']
 const LOS_PRODUCTS = ['Payday Loan','Salary Advance','Business Loan','Education Loan','Auto Loan']
@@ -62,7 +62,6 @@ const AUTH = [
 const APPROVALS_DATA = [
   { id: 1, module: 'los',         title: 'Loan disbursement — Maker-Checker',   entity_name: 'Greenfield Pharma Ltd',       amount_kobo: 732_000_000, maker_name: 'Kehinde Adebayo', url: '/los',                     created_at: isoDate(0.3) },
   { id: 2, module: 'collections', title: 'PAR 90 write-off recommendation',     entity_name: 'Chiamaka Eze',                amount_kobo: 110_475_000, maker_name: 'Doris Nwosu',      url: '/collections',             created_at: isoDate(1.1) },
-  { id: 3, module: 'finance',     title: 'Manual GL posting approval',           entity_name: 'EOD interbank settlement',    amount_kobo: 250_000_000, maker_name: 'Emeka Obi',         url: '/finance/manual-postings', created_at: isoDate(0.8) },
 ]
 
 const NOTIF_ITEMS = [
@@ -792,46 +791,10 @@ const FINANCE = [
   http.get(u('/api/finance/transaction-kpis'), () => wd({ total_count: 18420, total_credits_kobo: 3_120_000_000_00, total_debits_kobo: 2_840_000_000_00, net_position_kobo: 280_000_000_00 })),
   http.get(u('/api/finance/fd-kpis'), () => wd({ total_fds: 84, total_principal_kobo: 1_180_000_000_00, avg_rate_pct: 10.2, maturing_this_month: 11 })),
 
-  // Finance GL / postings / income / treasury
-  http.get(u('/api/finance/gl-accounts'), () => ok(
-    Array.from({ length: 20 }, (_, i) => ({
-      id: i+1, code: String(1000+i),
-      name: pick(['Loan Portfolio','Interest Receivable','Card Suspense','Deposit Liabilities','Fee Income','Salaries Payable']),
-      type: pick(['asset','liability','income','expense']), balance_kobo: rng(100,5000)*1_000_000_00,
-    }))
-  )),
-  http.post(u('/api/finance/gl-accounts'), () => ok({ id: 99 })),
-  http.put(u('/api/finance/gl-accounts/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/finance/manual-postings'), () => ok({
-    data: Array.from({ length: 8 }, (_, i) => ({
-      id: i+1, reference: `MP-2026-${i+100}`, debit_account: `GL-${1000+i}`,
-      credit_account: `GL-${2000+i}`, amount_kobo: rng(5,50)*1_000_000_00,
-      narration: 'Manual adjustment', posted_by: name(), posted_at: isoDate(rng(0,14)),
-      status: pick(['posted','pending_approval']),
-    })),
-    total: 8,
-  })),
-  http.post(u('/api/finance/manual-postings'), () => ok({ id: 99 })),
-  http.patch(u('/api/finance/manual-postings/:id/approve'), () => new HttpResponse(null, { status: 204 })),
-  http.patch(u('/api/finance/manual-postings/:id/reject'),  () => new HttpResponse(null, { status: 204 })),
+  // Finance income / treasury
   http.get(u('/api/finance/treasury'), () => ok({
     cash_position: 2_840_000_000_00, fd_liabilities: 1_240_000_000_00, net_liquidity: 1_600_000_000_00,
   })),
-  http.get(u('/api/finance/costs'), () => ok(
-    Array.from({ length: 12 }, (_, i) => ({
-      id: i+1, category: pick(['Salaries','Technology','Marketing','Operations','Facilities']),
-      amount_kobo: rng(5,80)*1_000_000_00, budget_kobo: rng(60,100)*1_000_000_00,
-      month: MONTHS_ISO[i % 7] ?? MONTHS_ISO[0], status: pick(['approved','pending']),
-    }))
-  )),
-  http.post(u('/api/finance/costs'), () => ok({ id: 99 })),
-  http.get(u('/api/finance/budget'), () => ok(
-    Array.from({ length: 10 }, (_, i) => ({
-      id: i+1, category: pick(['Salaries','Technology','Marketing','Operations']),
-      budgeted_kobo: rng(80,200)*1_000_000_00, actual_kobo: rng(60,190)*1_000_000_00,
-      variance_kobo: rng(-20,20)*1_000_000_00, period: '2026',
-    }))
-  )),
   http.get(u('/api/finance/income/summary'), () => ok({
     loan_disbursed_kobo: 1_840_000_000_00, active_loans: 3214,
     fee_type_income_kobo: 28_000_000_00,
@@ -878,16 +841,6 @@ const FINANCE = [
       { fee_type: 'Late Payment Fee', loan_ref: 'LA-2026-0101', amount_kobo: 45_000_00, date: dateStr(1) },
       { fee_type: 'Management Fee', loan_ref: 'LA-2026-0102', amount_kobo: 18_000_00, date: dateStr(0) },
     ],
-  })),
-  http.get(u('/api/finance/pnl'), () => ok({
-    lines: [
-      { product:'Loans',    total_revenue: 142_000_000_00, total_cost: 68_000_000_00, net_income: 74_000_000_00 },
-      { product:'Cards',    total_revenue: 12_400_000_00,  total_cost: 4_200_000_00,  net_income: 8_200_000_00  },
-      { product:'Deposits', total_revenue: 18_000_000_00,  total_cost: 12_000_000_00, net_income: 6_000_000_00  },
-      { product:'Other',    total_revenue: 11_600_000_00,  total_cost: 3_800_000_00,  net_income: 7_800_000_00  },
-    ],
-    total_revenue: 184_000_000_00, total_cost: 88_000_000_00, net_income: 96_000_000_00,
-    data_available: true,
   })),
 ]
 
@@ -1421,7 +1374,7 @@ const BD = [
   http.get(u('/api/bd/pipeline-kpis'), () => wd({ total_leads: 117, this_month: 24, conversion_rate_pct: 11.97, avg_deal_kobo: 148_000_000_00 })),
 ]
 
-// ── Campaigns / Telemarketing ─────────────────────────────────────────────────
+// ── Campaigns / Call Center ─────────────────────────────────────────────────
 
 const CAMPAIGNS_LIST = Array.from({ length: 12 }, (_, i) => ({
   id: i+1, name: pick(['June Loan Drive','Salary Earner Push','Card Upgrade Campaign','Q3 Retention']),
@@ -1533,20 +1486,20 @@ const CAMPAIGNS = [
   http.put(u('/api/message-templates/:id'), () => new HttpResponse(null, { status: 204 })),
   http.delete(u('/api/message-templates/:id'), () => new HttpResponse(null, { status: 204 })),
 
-  // Telemarketing
-  http.get(u('/api/telemarketing/campaigns'), () => ok(
+  // Call Center
+  http.get(u('/api/call-center/campaigns'), () => ok(
     Array.from({ length: 5 }, (_, i) => ({
       id: i+1, name: `TM Campaign ${i+1}`, status: pick(['active','paused','completed']),
       total_leads: rng(200,2000), called: rng(100,1800), converted: rng(20,200),
     }))
   )),
-  http.post(u('/api/telemarketing/campaigns'), () => ok({ id: 99 })),
-  http.put(u('/api/telemarketing/campaigns/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.delete(u('/api/telemarketing/campaigns/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/telemarketing/campaigns/:id/stats'), () => ok({
+  http.post(u('/api/call-center/campaigns'), () => ok({ id: 99 })),
+  http.put(u('/api/call-center/campaigns/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.delete(u('/api/call-center/campaigns/:id'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/call-center/campaigns/:id/stats'), () => ok({
     total_leads: 500, called: 342, converted: 48, pending: 158, conversion_rate_pct: 14.0,
   })),
-  http.get(u('/api/telemarketing/leads'), () => ok(
+  http.get(u('/api/call-center/leads'), () => ok(
     Array.from({ length: 30 }, (_, i) => ({
       id: i+1, customer_name: name(), phone: `080${rng(10000000,99999999)}`,
       product: pick(['Payday Loan','Salary Advance']), amount_kobo: rng(5,50)*1_000_000_00,
@@ -1555,10 +1508,10 @@ const CAMPAIGNS = [
       campaign_id: rng(1,5),
     }))
   )),
-  http.post(u('/api/telemarketing/leads'), () => ok({ id: 99 })),
-  http.post(u('/api/telemarketing/leads/:id/call'), () => ok({ status: 'called' })),
-  http.post(u('/api/telemarketing/leads/:id/skip'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/telemarketing/queue'), () => wd(
+  http.post(u('/api/call-center/leads'), () => ok({ id: 99 })),
+  http.post(u('/api/call-center/leads/:id/call'), () => ok({ status: 'called' })),
+  http.post(u('/api/call-center/leads/:id/skip'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/call-center/queue'), () => wd(
     Array.from({ length: 30 }, (_, i) => ({
       id: i+1, customer_name: name(), phone: `080${rng(10000000,99999999)}`,
       outstanding_kobo: rng(5,50)*1_000_000_00, dpd: rng(1,120),
@@ -1566,31 +1519,31 @@ const CAMPAIGNS = [
       status: pick(['pending','called','skipped','converted']), assigned_to: name(),
     }))
   )),
-  http.post(u('/api/telemarketing/queue/bulk-skip'), () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/telemarketing/queue/:id/call'), () => ok({ status: 'called' })),
-  http.post(u('/api/telemarketing/queue/:id/skip'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/telemarketing/dnc'), () => wd(
+  http.post(u('/api/call-center/queue/bulk-skip'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/call-center/queue/:id/call'), () => ok({ status: 'called' })),
+  http.post(u('/api/call-center/queue/:id/skip'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/call-center/dnc'), () => wd(
     Array.from({ length: 12 }, (_, i) => ({
       id: i+1, phone: `080${rng(10000000,99999999)}`, reason: pick(['Customer Request','Complaint','Legal']),
       added_by: name(), added_at: isoDate(rng(0,180)),
     }))
   )),
-  http.post(u('/api/telemarketing/dnc'), () => ok({ id: 99 })),
-  http.post(u('/api/telemarketing/dnc/bulk-remove'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/telemarketing/dnc-kpis'), () => wd({
+  http.post(u('/api/call-center/dnc'), () => ok({ id: 99 })),
+  http.post(u('/api/call-center/dnc/bulk-remove'), () => new HttpResponse(null, { status: 204 })),
+  http.get(u('/api/call-center/dnc-kpis'), () => wd({
     total_dnc: 1842, added_this_month: 47, bulk_removes: 8,
   })),
-  http.get(u('/api/telemarketing/performance-kpis'), () => wd({
+  http.get(u('/api/call-center/performance-kpis'), () => wd({
     total_calls: rng(200,400), connected: rng(140,280), ptp_count: rng(30,80), conversion_rate_pct: rng(10,25),
   })),
-  http.get(u('/api/telemarketing/by-disposition'), () => wd([
+  http.get(u('/api/call-center/by-disposition'), () => wd([
     { disposition:'converted', count: 312 }, { disposition:'not_interested', count: 840 },
     { disposition:'callback', count: 420 }, { disposition:'no_answer', count: 980 }, { disposition:'skipped', count: 288 },
   ])),
-  http.get(u('/api/telemarketing/hourly-volume'), () => wd(
+  http.get(u('/api/call-center/hourly-volume'), () => wd(
     Array.from({ length: 10 }, (_, h) => ({ hour: h + 8, count: rng(10,80) }))
   )),
-  http.get(u('/api/telemarketing/agent-performance'), () => wd(
+  http.get(u('/api/call-center/agent-performance'), () => wd(
     Array.from({ length: 6 }, () => ({
       agent_name: name(), calls: rng(20,80), connected: rng(12,60), ptp_count: rng(3,20),
       conversion_pct: rng(8,25), avg_handle_seconds: rng(120,420),
@@ -2502,7 +2455,7 @@ const SALES_EXTRA = [
     { lead_source:'Online',      total_applications: 280, approved: 184, disbursement_kobo: 368_000_000_00 },
     { lead_source:'Campaign',    total_applications: 198, approved: 124, disbursement_kobo: 248_000_000_00 },
     { lead_source:'BD',          total_applications: 142, approved:  98, disbursement_kobo: 196_000_000_00 },
-    { lead_source:'Telemarketing',total_applications: 88, approved:  52, disbursement_kobo: 104_000_000_00 },
+    { lead_source:'Call Center',total_applications: 88, approved:  52, disbursement_kobo: 104_000_000_00 },
   ])),
   http.get(u('/api/sales/campaign-attribution'), () => ok(
     Array.from({ length: 6 }, (_, i) => ({
@@ -2540,18 +2493,18 @@ const DIALER_EXTRA = [
   http.post(u('/api/dialer/calls/:id/disposition'), () => new HttpResponse(null, { status: 204 })),
 ]
 
-// ── Telemarketing — Extra ─────────────────────────────────────────────────────
+// ── Call Center — Extra ─────────────────────────────────────────────────────
 
-const TELEMARKETING_EXTRA = [
-  http.get(u('/api/telemarketing/contacts/:id/calls'), () => ok({ data: Array.from({ length: 5 }, (_, i) => ({
+const CALL_CENTER_EXTRA = [
+  http.get(u('/api/call-center/contacts/:id/calls'), () => ok({ data: Array.from({ length: 5 }, (_, i) => ({
     id: i+1, contacted_at: isoDate(rng(0,14)),
     outcome: pick(['reached','not_reached','ptp','broken_ptp']),
     notes: pick(['Called twice, no answer','Promised to pay Friday','Wrong number']),
     duration_seconds: pick([null, rng(60,600)]),
     officer_name: name(),
   }))})),
-  http.post(u('/api/telemarketing/contacts/:id/log-call'), () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/telemarketing/queue/export'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/call-center/contacts/:id/log-call'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/call-center/queue/export'), () => new HttpResponse(null, { status: 204 })),
 ]
 
 // ── Marketing — Extra ─────────────────────────────────────────────────────────
@@ -3019,8 +2972,8 @@ const GAP_FILL = [
     { pair: 'XAU/USD', rate: 2418.00, bid: 2416.00, ask: 2420.00, change_pct:  0.8, source: 'LBMA', as_of: new Date().toISOString() },
   ])),
 
-  // ── Campaigns — push to telemarketing ─────────────────────────────────────────
-  http.post(u('/api/campaigns/:id/push-to-telemarketing'), () => ok({ queued: rng(80, 400) })),
+  // ── Campaigns — push to call-center ─────────────────────────────────────────
+  http.post(u('/api/campaigns/:id/push-to-call-center'), () => ok({ queued: rng(80, 400) })),
 
   // ── Collections-ops — per-case actions ───────────────────────────────────────
   http.post(u('/api/collections-ops/:id/send-to-recovery'), () => ok({ case_ref: `RC-2026-${String(rng(100,999)).padStart(4,'0')}` })),
@@ -3109,8 +3062,8 @@ const GAP_FILL = [
     })
   }),
 
-  // ── Telemarketing — agents, lead disposition, bulk-assign ────────────────────
-  http.get(u('/api/telemarketing/agents'), () => ok(
+  // ── Call Center — agents, lead disposition, bulk-assign ────────────────────
+  http.get(u('/api/call-center/agents'), () => ok(
     Array.from({ length: 12 }, (_, i) => ({
       id: i+1, name: name(), status: pick(['online','offline','on_call']),
       leads_assigned: rng(5,30), leads_converted: rng(0,8),
@@ -3118,8 +3071,8 @@ const GAP_FILL = [
       last_active: isoDate(0),
     }))
   )),
-  http.put(u('/api/telemarketing/leads/:id/disposition'), () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/telemarketing/leads/bulk-assign'),    () => ok({ assigned: rng(10,200) })),
+  http.put(u('/api/call-center/leads/:id/disposition'), () => new HttpResponse(null, { status: 204 })),
+  http.post(u('/api/call-center/leads/bulk-assign'),    () => ok({ assigned: rng(10,200) })),
 
   // ── LOS — missing action endpoints ───────────────────────────────────────────
   http.put(u('/api/los/:id/credit-assessment'), () => new HttpResponse(null, { status: 204 })),
@@ -3984,7 +3937,7 @@ export const handlers = [
   ...SALES_EXTRA,
   ...REPORTS_EXTRA,
   ...DIALER_EXTRA,
-  ...TELEMARKETING_EXTRA,
+  ...CALL_CENTER_EXTRA,
   ...MARKETING_EXTRA,
   ...USER_MISC,
   ...CONTACTS_EXTRA,

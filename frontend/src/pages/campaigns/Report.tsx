@@ -1,16 +1,16 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Page, SectionCard, KpiCard, ErrBanner, Modal,
   btnPrimary, btnSecondary, filterInputStyle, Spinner,
 } from '../../components/UI'
 import { apiFetch, apiPost, unwrap } from '../../lib/api'
-import { fmtNum, fmtPct, fmtDatetime, fmtDate } from '../../lib/fmt'
+import { fmtNum, fmtPct, fmtKobo, fmtDatetime, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
 import EmailBlockEditor, { exportToHtml, parseBlocks } from '../../components/EmailBlockEditor'
 import type { EmailBlock, EmailSettings } from '../../components/EmailBlockEditor'
@@ -112,7 +112,22 @@ function StepResults({ campaignId }: { campaignId: string }) {
     </SectionCard>
   )
 }
-interface ReportResp { campaign: any; metrics: Metrics; channels?: ChannelMetric[]; timeline: TimelinePoint[]; top_links: { url: string; clicks: number }[]; contact_stats: ContactStats }
+interface Benchmarks { peer_count: number; avg_open_rate: number; avg_click_rate: number; avg_delivery_rate: number }
+interface Insights {
+  opens_by_hour: { hour: number; opens: number }[]
+  peak_open_hour: number | null
+  total_opens: number
+  unique_openers: number
+  repeat_opens: number
+  avg_hours_to_open: number
+  device: { mobile: number; desktop: number }
+}
+interface CampaignAttr {
+  contacts_reached: number; conversions: number
+  matched_cif: number; matched_phone: number; matched_email: number
+  attributed_disbursement_kobo: number
+}
+interface ReportResp { campaign: any; metrics: Metrics; channels?: ChannelMetric[]; timeline: TimelinePoint[]; top_links: { url: string; clicks: number }[]; contact_stats: ContactStats; benchmarks?: Benchmarks; insights?: Insights }
 interface EditorValue { blocks: EmailBlock[]; settings?: EmailSettings }
 interface PreflightResp { total: number; with_email: number; with_phone: number; suppressed: number; duplicates: number; invalid: number; usable: number; warnings: string[] }
 interface ContactListItem { id: number; name: string; total?: number }
@@ -122,6 +137,49 @@ interface CampaignContact { id: number; first_name?: string; last_name?: string;
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function toN(v: any): number { return Number(v) || 0 }
+
+// ── Results-tab insight helpers ──────────────────────────────────────────────
+
+function fmtHour(h: number): string { const ap = h < 12 ? 'am' : 'pm'; const hr = ((h + 11) % 12) + 1; return `${hr}${ap}` }
+function fmtDuration(hours: number): string {
+  if (hours < 1) return `${Math.round(hours * 60)} min`
+  if (hours < 24) return `${hours.toFixed(1)} hrs`
+  return `${(hours / 24).toFixed(1)} days`
+}
+function deviceLabel(d: { mobile: number; desktop: number }): string {
+  const total = d.mobile + d.desktop
+  if (total === 0) return '—'
+  return `${Math.round(d.mobile / total * 100)}% mobile`
+}
+function hourSeries(rows: { hour: number; opens: number }[]): { label: string; opens: number }[] {
+  const m = new Map(rows.map(r => [r.hour, r.opens]))
+  return Array.from({ length: 24 }, (_, h) => ({ label: fmtHour(h), opens: m.get(h) ?? 0 }))
+}
+
+function BenchCard({ label, mine, avg, accent }: { label: string; mine: number; avg: number; accent: string }) {
+  const delta = mine - avg
+  const up = delta >= 0
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: '12px 14px' }}>
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: accent, ...NUM }}>{fmtPct(mine)}</span>
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: up ? GREEN : RED, ...NUM }}>{up ? '▲' : '▼'} {fmtPct(Math.abs(delta))}</span>
+      </div>
+      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2, ...NUM }}>vs {fmtPct(avg)} avg</div>
+    </div>
+  )
+}
+
+function InsightTile({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+  return (
+    <div style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '12px 14px' }}>
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: FW.extrabold, color: accent ?? 'var(--txt)', marginTop: 4, ...NUM }}>{value}</div>
+      {sub && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  )
+}
 
 function toDatetimeLocal(iso: string): string {
   if (!iso) return ''
@@ -662,9 +720,9 @@ const SEGMENTS = [
   { value: 'sms_delivered', label: 'SMS delivered only' },
 ]
 
-function PushToTelemarketingModal({ campaignId, open, onClose }: { campaignId: string; open: boolean; onClose: () => void }) {
-  const [tmCampaigns, setTmCampaigns] = useState<{ id: number; name: string }[]>([])
-  const [selectedTmId, setSelectedTmId] = useState('')
+function PushToCallCenterModal({ campaignId, open, onClose }: { campaignId: string; open: boolean; onClose: () => void }) {
+  const [ccCampaigns, setCcCampaigns] = useState<{ id: number; name: string }[]>([])
+  const [selectedCampaignId, setSelectedCampaignId] = useState('')
   const [newCampaignName, setNewCampaignName] = useState('')
   const [segment, setSegment] = useState('all')
   const [assignedTo, setAssignedTo] = useState('')
@@ -674,28 +732,28 @@ function PushToTelemarketingModal({ campaignId, open, onClose }: { campaignId: s
 
   useEffect(() => {
     if (!open) return
-    apiFetch<{ data: any[] }>('/api/telemarketing/campaigns').then(r => setTmCampaigns(r.data ?? [])).catch(() => {})
-    apiFetch<{ data: any[] }>('/api/admin/users?role=telemarketing_agent&limit=100').then(r => setAgents(r.data ?? [])).catch(() => {})
+    apiFetch<{ data: any[] }>('/api/call-center/campaigns').then(r => setCcCampaigns(r.data ?? [])).catch(() => {})
+    apiFetch<{ data: any[] }>('/api/admin/users?role=call_center_agent&limit=100').then(r => setAgents(r.data ?? [])).catch(() => {})
   }, [open])
 
   async function push() {
     setPushing(true); setPushErr(null)
     try {
       const body: Record<string, any> = { segment }
-      if (selectedTmId === 'new') body.new_campaign_name = newCampaignName || undefined
-      else if (selectedTmId)      body.telemarketing_campaign_id = Number(selectedTmId)
+      if (selectedCampaignId === 'new') body.new_campaign_name = newCampaignName || undefined
+      else if (selectedCampaignId)      body.call_center_campaign_id = Number(selectedCampaignId)
       if (assignedTo) body.assigned_to = Number(assignedTo)
-      const res = await apiPost<{ created: number; skipped_dnc: number }>(`/api/campaigns/${campaignId}/push-to-telemarketing`, body)
+      const res = await apiPost<{ created: number; skipped_dnc: number }>(`/api/campaigns/${campaignId}/push-to-call-center`, body)
       toast.success(`${res.created} lead${res.created !== 1 ? 's' : ''} pushed${res.skipped_dnc > 0 ? ` · ${res.skipped_dnc} skipped (DNC)` : ''}`)
       onClose()
     } catch (ex: any) { setPushErr(ex.message) }
     finally { setPushing(false) }
   }
 
-  function close() { setSelectedTmId(''); setNewCampaignName(''); setSegment('all'); setAssignedTo(''); setPushErr(null); onClose() }
+  function close() { setSelectedCampaignId(''); setNewCampaignName(''); setSegment('all'); setAssignedTo(''); setPushErr(null); onClose() }
 
   return (
-    <Modal open={open} onClose={close} title="Push to Telemarketers" width={460}
+    <Modal open={open} onClose={close} title="Push to Call Center" width={460}
       footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button onClick={close} style={btnSecondary}>Cancel</button>
         <button onClick={push} disabled={pushing} style={{ ...btnPrimary, background: '#7C3AED' }}>{pushing ? 'Pushing…' : 'Push Contacts'}</button>
@@ -711,14 +769,14 @@ function PushToTelemarketingModal({ campaignId, open, onClose }: { campaignId: s
           <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>DNC numbers are excluded automatically.</p>
         </div>
         <div>
-          <label style={lbl}>Telemarketing Campaign</label>
-          <select value={selectedTmId} onChange={e => setSelectedTmId(e.target.value)} style={fld}>
+          <label style={lbl}>Call Center Campaign</label>
+          <select value={selectedCampaignId} onChange={e => setSelectedCampaignId(e.target.value)} style={fld}>
             <option value="">Auto-create from campaign name</option>
             <option value="new">Create new…</option>
-            {tmCampaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+            {ccCampaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
           </select>
         </div>
-        {selectedTmId === 'new' && (
+        {selectedCampaignId === 'new' && (
           <div>
             <label style={lbl}>New Campaign Name</label>
             <input value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} placeholder="e.g. Q3 Follow-up Calls" style={fld} />
@@ -846,7 +904,12 @@ export default function CampaignDetail() {
   const [contactLists, setContactLists] = useState<ContactListItem[]>([])
 
   // ui
-  const [tab,          setTab]          = useState<TabKey>('setup')
+  const [searchParams] = useSearchParams()
+  const [tab,          setTab]          = useState<TabKey>(() => {
+    const t = searchParams.get('tab')
+    return (['setup', 'content', 'sequence', 'review', 'results'] as const).includes(t as any) ? (t as TabKey) : 'setup'
+  })
+  const [attribution,  setAttribution]  = useState<CampaignAttr | null>(null)
   const [saving,       setSaving]       = useState(false)
   const [lastSaved,    setLastSaved]    = useState<Date | null>(null)
   const [starting,     setStarting]     = useState(false)
@@ -881,12 +944,15 @@ export default function CampaignDetail() {
     if (!id) return
     setLoading(true); setErr(null)
     try {
-      const [camp, rpt] = await Promise.all([
+      const [camp, rpt, attr] = await Promise.all([
         apiFetch<Campaign>(`/api/campaigns/${id}`),
         apiFetch<ReportResp>(`/api/campaigns/${id}/analytics`).catch(() => null),
+        apiFetch<any>(`/api/sales/campaign-attribution?campaign_id=${id}`).catch(() => null),
       ])
       const isFirst = initialLoadRef.current
       setCampaign(camp); setReport(rpt)
+      const attrRows: CampaignAttr[] = Array.isArray(attr) ? attr : (attr?.data ?? [])
+      setAttribution(attrRows[0] ?? null)
       // Only (re)hydrate the editable content from the server on the FIRST load,
       // or for read-only campaigns. Live refreshes (realtime/focus) must keep
       // updating status/analytics but MUST NOT clobber content the user is
@@ -910,7 +976,9 @@ export default function CampaignDetail() {
         }
         setEmailBlocks({ blocks, settings })
       }
-      if (['active', 'paused', 'completed', 'cancelled'].includes(camp.status)) setTab('results')
+      // Auto-open Results for launched campaigns, but only on first load and only
+      // when the URL didn't explicitly request a tab (?tab=…) — respects deep-links.
+      if (isFirst && !searchParams.get('tab') && ['active', 'paused', 'completed', 'cancelled'].includes(camp.status)) setTab('results')
       initialLoadRef.current = false
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
@@ -1192,7 +1260,7 @@ export default function CampaignDetail() {
           {campaign.status !== 'completed' && campaign.status !== 'cancelled' && (
             <button onClick={() => setPushOpen(true)} style={{ ...btnPrimary, background: '#7C3AED', borderColor: '#7C3AED', gap: 6 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>call</span>
-              Push to TM
+              Push to Call Center
             </button>
           )}
           {campaign.status !== 'completed' && campaign.status !== 'cancelled' && (
@@ -1724,6 +1792,17 @@ export default function CampaignDetail() {
                   accent={(toN(m.bounced) + toN(m.failed)) > 0 ? RED : undefined} />
               </div>
 
+              {/* Benchmarks — this campaign vs the average of similar campaigns */}
+              {report?.benchmarks && report.benchmarks.peer_count > 0 && (
+                <SectionCard title="Benchmarks" subtitle={`vs the average of ${report.benchmarks.peer_count} similar campaign${report.benchmarks.peer_count === 1 ? '' : 's'}`} padding>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+                    <BenchCard label="Delivery" mine={toN(m.delivery_rate)} avg={report.benchmarks.avg_delivery_rate} accent={GREEN} />
+                    {isEmail && <BenchCard label="Open Rate" mine={toN(m.open_rate)} avg={report.benchmarks.avg_open_rate} accent={BLUE} />}
+                    {isEmail && <BenchCard label="Click Rate" mine={toN(m.click_rate)} avg={report.benchmarks.avg_click_rate} accent={PURPLE} />}
+                  </div>
+                </SectionCard>
+              )}
+
               {/* Per-channel breakdown */}
               {(report?.channels?.length ?? 0) > 1 && (
                 <SectionCard title="By channel" subtitle="Performance for each channel in this campaign" padding>
@@ -1805,6 +1884,44 @@ export default function CampaignDetail() {
               )}
             </>
           )}
+          {/* Per-campaign attribution — loans booked by recipients after the send */}
+          {attribution && (attribution.conversions > 0 || attribution.attributed_disbursement_kobo > 0) && (
+            <SectionCard title="Attribution" subtitle="Recipients who took a loan within 90 days of this campaign" padding>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+                <InsightTile label="Conversions" value={fmtNum(attribution.conversions)} sub="recipients who borrowed" accent={GREEN} />
+                <InsightTile label="Conversion Rate" value={fmtPct(attribution.contacts_reached > 0 ? attribution.conversions / attribution.contacts_reached * 100 : 0)} accent={AMBER} />
+                <InsightTile label="Attributed ₦" value={fmtKobo(attribution.attributed_disbursement_kobo)} sub="originated value" accent={NAVY} />
+                <InsightTile label="Matched by" value={`${attribution.matched_cif} CIF · ${attribution.matched_phone} ph · ${attribution.matched_email} em`} />
+              </div>
+              <div style={{ marginTop: 10, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5 }}>
+                Estimated attribution — a correlation (matched by CIF, phone or email), not proven causation.
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Engagement insights — when & how recipients opened (email tracking) */}
+          {report?.insights && report.insights.total_opens > 0 && (
+            <SectionCard title="Engagement Insights" subtitle="When and how recipients opened" padding>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
+                <InsightTile label="Peak Open Hour" value={report.insights.peak_open_hour != null ? fmtHour(report.insights.peak_open_hour) : '—'} accent={BLUE} />
+                <InsightTile label="Avg Time to Open" value={report.insights.avg_hours_to_open > 0 ? fmtDuration(report.insights.avg_hours_to_open) : '—'} accent={AMBER} />
+                <InsightTile label="Unique Openers" value={fmtNum(report.insights.unique_openers)} sub={`${fmtNum(report.insights.repeat_opens)} repeat opens`} accent={NAVY} />
+                <InsightTile label="Device" value={deviceLabel(report.insights.device)} sub={`${fmtNum(report.insights.device.mobile)} mobile · ${fmtNum(report.insights.device.desktop)} desktop`} accent={PURPLE} />
+              </div>
+              {report.insights.opens_by_hour.length > 0 && (
+                <ResponsiveContainer width="100%" height={170}>
+                  <BarChart data={hourSeries(report.insights.opens_by_hour)} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 9.5, fill: 'var(--txt2)' }} interval={2} />
+                    <YAxis tick={{ fontSize: 9, fill: 'var(--txt2)' }} allowDecimals={false} />
+                    <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} cursor={{ fill: 'var(--row-hvr)' }} />
+                    <Bar dataKey="opens" fill={BLUE} radius={[3, 3, 0, 0]} name="Opens" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </SectionCard>
+          )}
+
           <StepResults campaignId={id!} />
           <ContactsSection campaignId={id!} />
         </div>
@@ -1818,7 +1935,7 @@ export default function CampaignDetail() {
         campaignType={campaign.type}
       />
       <TemplatePickerModal open={tplOpen} onClose={() => setTplOpen(false)} onApply={applyTemplate} channel={tplFor} />
-      <PushToTelemarketingModal campaignId={id!} open={pushOpen} onClose={() => setPushOpen(false)} />
+      <PushToCallCenterModal campaignId={id!} open={pushOpen} onClose={() => setPushOpen(false)} />
     </Page>
   )
 }

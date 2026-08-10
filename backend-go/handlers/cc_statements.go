@@ -25,7 +25,7 @@ func RegisterCCStatements(r chi.Router, db *core.DB) {
 	r.With(access).Post("/upload", ccUpload(db))
 	r.With(access).Post("/bulk", ccBulk(db))
 	r.With(access).Post("/from-db", ccFromDB(db))
-	registerCCTemplateRoutes(r, db)   // /{id}/render, /{id}/send
+	registerCCTemplateRoutes(r, db) // /{id}/render, /{id}/send
 	r.With(access).Get("/{id}", ccDetail(db))
 }
 
@@ -362,7 +362,12 @@ func parseStatementText(text string) (ccHeader, []ccTxn, error) {
 
 // ── DB save helpers ───────────────────────────────────────────────────────────
 
-func saveCCStatement(ctx interface{ Deadline() (time.Time, bool); Done() <-chan struct{}; Err() error; Value(interface{}) interface{} },
+func saveCCStatement(ctx interface {
+	Deadline() (time.Time, bool)
+	Done() <-chan struct{}
+	Err() error
+	Value(interface{}) interface{}
+},
 	db *core.DB, h ccHeader, txns []ccTxn, source, filename string, userID int64) (int64, error) {
 
 	rows, err := db.PGQuery(ctx, `
@@ -660,14 +665,14 @@ func ccFromDB(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 
 		var req struct {
-			CIF               string `json:"cif"`
-			AccountNumber     string `json:"account_number"`
-			CustomerName      string `json:"customer_name"`
-			DateFrom          string `json:"date_from"`
-			DateTo            string `json:"date_to"`
-			LineOfCreditKobo  int64  `json:"line_of_credit_kobo"`
-			OpeningBalKobo    int64  `json:"opening_balance_kobo"`
-			PaymentDueDate    string `json:"payment_due_date"`
+			CIF              string `json:"cif"`
+			AccountNumber    string `json:"account_number"`
+			CustomerName     string `json:"customer_name"`
+			DateFrom         string `json:"date_from"`
+			DateTo           string `json:"date_to"`
+			LineOfCreditKobo int64  `json:"line_of_credit_kobo"`
+			OpeningBalKobo   int64  `json:"opening_balance_kobo"`
+			PaymentDueDate   string `json:"payment_due_date"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondErr(w, 400, "invalid JSON")
@@ -682,20 +687,10 @@ func ccFromDB(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Query existing transaction tables (dual-source: MSSQL + PG)
 		cifFilter := req.CIF
 		if cifFilter == "" {
 			cifFilter = req.AccountNumber
 		}
-
-		msSQL := fmt.Sprintf(`
-			SELECT Transaction_Date AS txn_date, Transaction_Date AS posting_date,
-			       '' AS trace_no, Description AS description,
-			       CASE WHEN Amount > 0 THEN Amount ELSE 0 END AS debit,
-			       CASE WHEN Amount < 0 THEN ABS(Amount) ELSE 0 END AS credit
-			FROM dbo.Transaction_Listing
-			WHERE CIF = '%s' AND Transaction_Date BETWEEN '%s' AND '%s'
-			ORDER BY Transaction_Date`, cifFilter, req.DateFrom, req.DateTo)
 
 		pgSQL := fmt.Sprintf(`
 			SELECT txn_date AS txn_date, txn_date AS posting_date,
@@ -706,7 +701,7 @@ func ccFromDB(db *core.DB) http.HandlerFunc {
 			WHERE cif = '%s' AND txn_date BETWEEN '%s' AND '%s'
 			ORDER BY txn_date`, cifFilter, req.DateFrom, req.DateTo)
 
-		rows, _, err := db.DualQuery(ctx, msSQL, pgSQL)
+		rows, _, err := db.DualQuery(ctx, pgSQL)
 		if err != nil {
 			respondErr(w, 500, "query failed: "+err.Error())
 			return

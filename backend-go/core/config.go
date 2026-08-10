@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"strings"
 
@@ -15,12 +14,11 @@ type Config struct {
 	EncryptionKey    string
 	PGURL            string
 	DirectPGURL      string // non-pooler URL for LISTEN/NOTIFY; falls back to PGURL
-	MSSQLConnStr     string // empty = MSSQL disabled
 	AllowedOrigins   []string
 	Port             string
-	ResetAdminSecret  string // from RESET_ADMIN_SECRET env var
-	EnableResetAdmin  bool   // from ENABLE_RESET_ADMIN env var
-	ZohoImportSecret  string // from ZOHO_IMPORT_SECRET env var (separate from ResetAdminSecret)
+	ResetAdminSecret string // from RESET_ADMIN_SECRET env var
+	EnableResetAdmin bool   // from ENABLE_RESET_ADMIN env var
+	ZohoImportSecret string // from ZOHO_IMPORT_SECRET env var (separate from ResetAdminSecret)
 	TermiiAPIKey     string // empty = SMS disabled
 	TermiiSenderID   string
 }
@@ -78,38 +76,8 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("BOOTSTRAP_SECRET must be set in production (RAILWAY_ENVIRONMENT is set); generate with: openssl rand -hex 32")
 	}
 
-	srv := os.Getenv("MSSQL_SERVER")
-	db := os.Getenv("MSSQL_DB")
-	// Accept MSSQL_DATABASE as an alias: the deployed Railway environment set that
-	// name, which this code never read, so MSSQL stayed silently disabled there.
-	if db == "" {
-		db = os.Getenv("MSSQL_DATABASE")
-	}
-	if srv != "" && db != "" {
-		// Older SQL Server (Production_ED is 2014 / v12) negotiates TLS 1.0, which
-		// Go 1.22+ rejects by default ("server selected unsupported protocol
-		// version 301"). tlsmin lets the operator opt back down; default to 1.0 for
-		// these legacy on-prem servers, overridable via MSSQL_TLS_MIN.
-		tlsMin := os.Getenv("MSSQL_TLS_MIN")
-		if tlsMin == "" {
-			tlsMin = "1.2" // M29: default to TLS 1.2; set MSSQL_TLS_MIN=1.0 for legacy servers
-		}
-		if tlsMin == "1.0" {
-			slog.Warn("MSSQL TLS 1.0 active — upgrade server or set MSSQL_TLS_MIN=1.2 when possible", "MSSQL_TLS_MIN", tlsMin)
-		}
-		if os.Getenv("MSSQL_TRUSTED") == "yes" {
-			c.MSSQLConnStr = fmt.Sprintf(
-				"sqlserver://%s?database=%s&trusted_connection=yes&tlsmin=%s", srv, db, tlsMin)
-		} else {
-			u := url.QueryEscape(os.Getenv("MSSQL_USER"))
-			p := url.QueryEscape(os.Getenv("MSSQL_PASSWORD"))
-			c.MSSQLConnStr = fmt.Sprintf(
-				"sqlserver://%s:%s@%s?database=%s&tlsmin=%s", u, p, srv, db, tlsMin)
-		}
-		slog.Info("MSSQL configured", "server", srv, "database", db, "tlsmin", tlsMin)
-	} else {
-		slog.Info("MSSQL not configured — Supabase-only mode")
-	}
+	// MSSQL/Sage support was removed once the card system's data was ported into
+	// Postgres (feed.* — see docs/DATA_FEED_INGESTION.md). Postgres is the sole datastore.
 
 	rawOrigins := os.Getenv("ALLOWED_ORIGINS")
 	if rawOrigins == "" {

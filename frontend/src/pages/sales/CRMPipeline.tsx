@@ -3,12 +3,12 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
-  Page, SectionCard, DataTable, Modal, ErrBanner, btnPrimary, btnSecondary, filterInputStyle, Spinner, DateFilter,
+  Page, SectionCard, DataTable, Modal, ErrBanner, btnPrimary, btnSecondary, filterInputStyle, Spinner,
   NameCell, ActionRow, StatusBadge, ExpandableFilterBar,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
+import { fmtKobo, fmtDate, fmtDatetime } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -244,8 +244,6 @@ export default function CRMPipeline() {
   const [view, setView]         = useState<'table' | 'kanban'>('table')
   const [selected, setSelected] = useState<Deal | null>(null)
   const [newDealOpen, setNewDealOpen] = useState(false)
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
   const dragDealId  = useRef<number | null>(null)
   const [dragOverStage, setDragOverStage] = useState<number | null>(null)
   const [editing,     setEditing]     = useState<Deal | null>(null)
@@ -255,18 +253,25 @@ export default function CRMPipeline() {
   const [fStages,     setFStages]     = useState<Set<string>>(new Set())
   const [fAssignees,  setFAssignees]  = useState<Set<string>>(new Set())
 
+  // No date filter here, deliberately. The endpoint filters on the deal's
+  // created_at, and the board used to default to the current month — so a deal
+  // opened in June and still sitting in Negotiation simply vanished, and the stage
+  // counts and pipeline value understated the book by however much was carried over.
+  // A pipeline is a snapshot of what is open right now; a created-date window is the
+  // wrong question to ask of it. Period comparisons belong on closed/won reporting,
+  // which lives in Reports.
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
       const [p, d] = await Promise.all([
-        apiFetch<PipelineResponse>(`/api/crm/pipeline?from=${dateFrom}&to=${dateTo}`),
-        apiFetch<Deal[]>(`/api/crm/deals?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<PipelineResponse>('/api/crm/pipeline'),
+        apiFetch<Deal[]>('/api/crm/deals'),
       ])
       setPipeline(p)
       setAllDeals(Array.isArray(d) ? d : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [dateFrom, dateTo])
+  }, [])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['deals','crm'] })
@@ -343,7 +348,6 @@ export default function CRMPipeline() {
       subtitle="Deal management and sales pipeline"
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <button
             onClick={() => setNewDealOpen(true)}
             style={{ ...btnPrimary, display: 'inline-flex', alignItems: 'center', gap: 6 }}

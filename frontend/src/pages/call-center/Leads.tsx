@@ -29,8 +29,8 @@ interface Lead {
   last_outcome:    string | null
 }
 
-interface TMCampaign { id: number; name: string }
-interface TMAgent    { id: number; full_name: string }
+interface CCCampaign { id: number; name: string }
+interface CCAgent    { id: number; full_name: string }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -91,7 +91,7 @@ function DispositionForm({ lead, onDone }: { lead: Lead; onDone: () => void }) {
       const body: Record<string, any> = { outcome, notes: notes || undefined }
       if (duration) body.duration_sec = Number(duration)
       if (isCallback && callbackAt) body.callback_at = callbackAt
-      await apiPost(`/api/telemarketing/leads/${lead.id}/disposition`, body)
+      await apiPost(`/api/call-center/leads/${lead.id}/disposition`, body)
       toast.success('Disposition logged')
       setNotes(''); setDuration(''); setCallbackAt('')
       onDone()
@@ -198,10 +198,10 @@ function DetailPanel({ lead, onRefresh }: { lead: Lead; onRefresh: () => void })
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function TelemarketingLeads() {
+export default function CallCenterLeads() {
   const [leads, setLeads]         = useState<Lead[]>([])
-  const [campaigns, setCampaigns] = useState<TMCampaign[]>([])
-  const [agents, setAgents]       = useState<TMAgent[]>([])
+  const [campaigns, setCampaigns] = useState<CCCampaign[]>([])
+  const [agents, setAgents]       = useState<CCAgent[]>([])
   const [loading, setLoading]     = useState(true)
   const [err, setErr]             = useState<string | null>(null)
   const [selected, setSelected]   = useState<Lead | null>(null)
@@ -231,7 +231,7 @@ export default function TelemarketingLeads() {
     if (dateFrom)   p.set('from', dateFrom)
     if (dateTo)     p.set('to', dateTo)
     try {
-      const res = await apiFetch<Lead[]>(`/api/telemarketing/leads?${p}`)
+      const res = await apiFetch<Lead[]>(`/api/call-center/leads?${p}`)
       const fresh = Array.isArray(res) ? res : []
       setLeads(fresh)
       if (refreshSelected !== undefined) {
@@ -246,9 +246,9 @@ export default function TelemarketingLeads() {
   useLiveData(load)
 
   useEffect(() => {
-    apiFetch<TMCampaign[]>('/api/telemarketing/campaigns')
+    apiFetch<CCCampaign[]>('/api/call-center/campaigns')
       .then(r => setCampaigns(Array.isArray(r) ? r : [])).catch(() => {})
-    apiFetch<TMAgent[]>('/api/telemarketing/agents')
+    apiFetch<CCAgent[]>('/api/call-center/agents')
       .then(r => setAgents(Array.isArray(r) ? r : [])).catch(() => {})
   }, [])
 
@@ -274,7 +274,7 @@ export default function TelemarketingLeads() {
     if (!assignAgentId || checkedIds.size === 0) return
     setAssigning(true)
     try {
-      const res = await apiPost<{ assigned: number }>('/api/telemarketing/leads/bulk-assign', {
+      const res = await apiPost<{ assigned: number }>('/api/call-center/leads/bulk-assign', {
         lead_ids: [...checkedIds],
         agent_id: Number(assignAgentId),
       })
@@ -296,7 +296,7 @@ export default function TelemarketingLeads() {
       const body: Record<string, any> = {}
       if (campaignId) body.campaign_id = Number(campaignId)
       const res = await apiPost<{ distributed: number; breakdown: { agent_name: string; count: number }[] }>(
-        '/api/telemarketing/leads/distribute', body
+        '/api/call-center/leads/distribute', body
       )
       if (res.distributed === 0) {
         toast.info('No unassigned pending leads to distribute')
@@ -320,7 +320,7 @@ export default function TelemarketingLeads() {
   const selectedCampaignName = campaigns.find(c => String(c.id) === campaignId)?.name ?? 'All Campaigns'
 
   return (
-    <Page title="Marketing Leads" subtitle="Contacts pushed from email & SMS campaigns" noPad
+    <Page title="Leads" subtitle="Contacts pushed from email & SMS campaigns" noPad
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
@@ -547,7 +547,7 @@ export default function TelemarketingLeads() {
       <ConfirmModal
         open={distributeConfirm}
         title="Distribute Leads Round-Robin"
-        body={`Assign all ${unassigned} unassigned pending lead(s) from "${selectedCampaignName}" evenly across your telemarketing agents?`}
+        body={`Assign all ${unassigned} unassigned pending lead(s) from "${selectedCampaignName}" evenly across your call center agents?`}
         confirmLabel="Distribute"
         loading={distributing}
         onConfirm={handleDistribute}

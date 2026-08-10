@@ -12,12 +12,12 @@ import (
 
 func RegisterExecutive(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("executive"))
-	r.Get("/summary",     executiveSummary(db))
-	r.Get("/cards",       execCardsHandler(db))
-	r.Get("/finance",     execFinanceHandler(db))
-	r.Get("/sales",       execSalesHandler(db))
+	r.Get("/summary", executiveSummary(db))
+	r.Get("/cards", execCardsHandler(db))
+	r.Get("/finance", execFinanceHandler(db))
+	r.Get("/sales", execSalesHandler(db))
 	r.Get("/collections", execCollectionsHandler(db))
-	r.Get("/risk",        execRiskHandler(db))
+	r.Get("/risk", execRiskHandler(db))
 	r.Get("/settlements", execSettlementsHandler(db))
 	r.Get("/fixed-deposits", execFixedDepositsHandler(db))
 }
@@ -95,7 +95,7 @@ func pctChange(curr, prev float64) any {
 	if prev == 0 {
 		return nil
 	}
-	return round1((curr-prev)/abs64(prev)*100)
+	return round1((curr - prev) / abs64(prev) * 100)
 }
 
 func abs64(f float64) float64 {
@@ -154,10 +154,6 @@ func execCardsHandler(db *core.DB) http.HandlerFunc {
 		var activeCards, totalCards int64
 		if rows, _, e := db.DualQuery(ctx,
 			`SELECT
-			   SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS active_cards,
-			   COUNT(*) AS total_cards
-			 FROM dbo.Account`,
-			`SELECT
 			   COUNT(*) FILTER (WHERE status IN ('Open','Active')) AS active_cards,
 			   COUNT(*) AS total_cards
 			 FROM app.accounts`); e == nil && len(rows) > 0 {
@@ -170,19 +166,19 @@ func execCardsHandler(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, map[string]any{
-			"period":               map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
-			"active_cards":         activeCards,
-			"total_cards":          totalCards,
-			"activation_rate_pct":  activation,
-			"txn_volume_kobo":      0,
-			"txn_change_pct":       0,
-			"txn_count":            0,
-			"credit_book_kobo":     0,
-			"disputes_open":        0,
+			"period":                map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"active_cards":          activeCards,
+			"total_cards":           totalCards,
+			"activation_rate_pct":   activation,
+			"txn_volume_kobo":       0,
+			"txn_change_pct":        0,
+			"txn_count":             0,
+			"credit_book_kobo":      0,
+			"disputes_open":         0,
 			"disputes_resolved_mtd": 0,
-			"channel_mix":          []any{},
-			"monthly_trend":        []any{},
-			"top_merchants":        []any{},
+			"channel_mix":           []any{},
+			"monthly_trend":         []any{},
+			"top_merchants":         []any{},
 		}, "pg")
 	}
 }
@@ -317,16 +313,16 @@ func execSalesHandler(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, map[string]any{
-			"period":              map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
-			"pipeline_value_kobo": pipelineValueKobo,
-			"pipeline_count":      pipelineCount,
-			"conversions_mtd":     conversionsMtd,
-			"conversion_rate_pct": 0,
+			"period":               map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"pipeline_value_kobo":  pipelineValueKobo,
+			"pipeline_count":       pipelineCount,
+			"conversions_mtd":      conversionsMtd,
+			"conversion_rate_pct":  0,
 			"targets_achieved_pct": 0,
-			"meetings_held_mtd":   0,
-			"pipeline_stages":     pipelineStages,
-			"top_performers":      topPerformers,
-			"monthly_trend":       monthlyTrend,
+			"meetings_held_mtd":    0,
+			"pipeline_stages":      pipelineStages,
+			"top_performers":       topPerformers,
+			"monthly_trend":        monthlyTrend,
 		}, "pg")
 	}
 }
@@ -375,22 +371,22 @@ func execCollectionsHandler(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, map[string]any{
-			"period":              map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
-			"collected_mtd_kobo":  0,
+			"period":               map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"collected_mtd_kobo":   0,
 			"collected_change_pct": 0,
-			"collection_rate_pct": 0,
-			"promise_rate_pct":    0,
-			"par30_value_kobo":    v30,
-			"par30_count":         c30,
-			"par60_value_kobo":    v60,
-			"par60_count":         c60,
-			"par90_value_kobo":    v90p,
-			"par90_count":         c90p,
-			"recovery_rate_pct":   0,
-			"writeoff_mtd_kobo":   0,
-			"dpd_breakdown":       dpdBreakdown,
-			"monthly_trend":       []any{},
-			"top_agents":          []any{},
+			"collection_rate_pct":  0,
+			"promise_rate_pct":     0,
+			"par30_value_kobo":     v30,
+			"par30_count":          c30,
+			"par60_value_kobo":     v60,
+			"par60_count":          c60,
+			"par90_value_kobo":     v90p,
+			"par90_count":          c90p,
+			"recovery_rate_pct":    0,
+			"writeoff_mtd_kobo":    0,
+			"dpd_breakdown":        dpdBreakdown,
+			"monthly_trend":        []any{},
+			"top_agents":           []any{},
 		}, "pg")
 	}
 }
@@ -458,14 +454,14 @@ func execRiskHandler(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, map[string]any{
-			"period":                    map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
+			"period":                     map[string]any{"type": qstr(r, "period"), "start": d(cs), "end": d(ce)},
 			"portfolio_outstanding_kobo": portfolioKobo,
-			"npl_rate_pct":              nplPct,
-			"concentration_top10_pct":   concTop10,
-			"avg_loan_size_kobo":        avgLoanKobo,
-			"dpd_trend":                 dpdTrend,
-			"product_concentration":     productConc,
-			"vintage_performance":       []any{},
+			"npl_rate_pct":               nplPct,
+			"concentration_top10_pct":    concTop10,
+			"avg_loan_size_kobo":         avgLoanKobo,
+			"dpd_trend":                  dpdTrend,
+			"product_concentration":      productConc,
+			"vintage_performance":        []any{},
 		}, "pg")
 	}
 }
@@ -635,8 +631,8 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 
 		var sources []string
 		// scalar helper
-		sc := func(msQ, pgQ string) float64 {
-			val, src, e := db.DualScalar(r.Context(), "val", msQ, pgQ)
+		sc := func(pgQ string) float64 {
+			val, src, e := db.DualScalar(r.Context(), "val", pgQ)
 			if e == nil {
 				sources = append(sources, src)
 				return toFloat(val)
@@ -644,8 +640,8 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 			return 0
 		}
 		// query helper
-		qh := func(msQ, pgQ string) []core.Row {
-			rows, src, e := db.DualQuery(r.Context(), msQ, pgQ)
+		qh := func(pgQ string) []core.Row {
+			rows, src, e := db.DualQuery(r.Context(), pgQ)
 			if e == nil {
 				sources = append(sources, src)
 				return rows
@@ -655,35 +651,26 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 
 		// ── Collections ───────────────────────────────────────────────────────
 		collCurr := sc(
-			fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE Repayment_Date BETWEEN '%s' AND '%s'", d(cs), d(ce)),
 			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE "Date" BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
 		collPrev := sc(
-			fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE Repayment_Date BETWEEN '%s' AND '%s'", d(ps), d(pe)),
 			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE "Date" BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
 		collCountCurr := sc(
-			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.o3_loan_Repayment WHERE Repayment_Date BETWEEN '%s' AND '%s'", d(cs), d(ce)),
 			fmt.Sprintf(`SELECT COUNT(*) AS val FROM "Collections Log" WHERE "Date" BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
 
 		// ── Recovery ─────────────────────────────────────────────────────────
 		recCurr := sc(
-			fmt.Sprintf("SELECT ISNULL(SUM([Recovery Amount]),0) AS val FROM dbo.RecoveryMasterSheet WHERE [Recovery Date] BETWEEN '%s' AND '%s'", d(cs), d(ce)),
 			fmt.Sprintf(`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE "Recovery Date" BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
 		recPrev := sc(
-			fmt.Sprintf("SELECT ISNULL(SUM([Recovery Amount]),0) AS val FROM dbo.RecoveryMasterSheet WHERE [Recovery Date] BETWEEN '%s' AND '%s'", d(ps), d(pe)),
 			fmt.Sprintf(`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE "Recovery Date" BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
 
 		// ── Transactions ──────────────────────────────────────────────────────
 		txnVolCurr := sc(
-			fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '%s' AND '%s'", d(cs), d(ce)),
 			fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
 		txnVolPrev := sc(
-			fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '%s' AND '%s'", d(ps), d(pe)),
 			fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
 		txnCntCurr := sc(
-			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '%s' AND '%s'", d(cs), d(ce)),
 			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
 		txnCntPrev := sc(
-			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Transaction_Listing WHERE Transaction_Date BETWEEN '%s' AND '%s'", d(ps), d(pe)),
 			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.transactions WHERE txn_date BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
 		var avgTxn float64
 		if txnCntCurr > 0 {
@@ -692,19 +679,14 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 
 		// ── Customer acquisition ──────────────────────────────────────────────
 		newCurr := sc(
-			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Contact WHERE Account_Created BETWEEN '%s' AND '%s'", d(cs), d(ce)),
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.customers WHERE account_created BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
+			fmt.Sprintf(`SELECT COUNT(*) AS val FROM (SELECT MIN(account_created) fc FROM app.customers GROUP BY COALESCE('p'||party_id,'c'||contact_id)) f WHERE f.fc BETWEEN '%s' AND '%s'`, d(cs), d(ce)))
 		newPrev := sc(
-			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Contact WHERE Account_Created BETWEEN '%s' AND '%s'", d(ps), d(pe)),
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.customers WHERE account_created BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
+			fmt.Sprintf(`SELECT COUNT(*) AS val FROM (SELECT MIN(account_created) fc FROM app.customers GROUP BY COALESCE('p'||party_id,'c'||contact_id)) f WHERE f.fc BETWEEN '%s' AND '%s'`, d(ps), d(pe)))
 		totalCustomers := sc(
-			"SELECT COUNT(*) AS val FROM dbo.Contact",
-			`SELECT COUNT(*) AS val FROM app.customers`)
+			`SELECT COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS val FROM app.customers`)
 		activeCards := sc(
-			"SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('Open','Active')",
 			`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')`)
 		totalCards := sc(
-			"SELECT COUNT(*) AS val FROM dbo.Account",
 			`SELECT COUNT(*) AS val FROM app.accounts`)
 		var activationRate float64
 		if totalCards > 0 {
@@ -713,10 +695,8 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 
 		// ── All-time recovery rate ─────────────────────────────────────────────
 		totalRecoveredAll := sc(
-			"SELECT ISNULL(SUM([Recovery Amount]),0) AS val FROM dbo.RecoveryMasterSheet",
 			`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet"`)
 		totalCollectedAll := sc(
-			"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment",
 			`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log"`)
 		var recoveryRatePct float64
 		if totalCollectedAll > 0 {
@@ -724,32 +704,24 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 		}
 
 		statesCount := sc(
-			"SELECT COUNT(DISTINCT State_) AS val FROM dbo.Contact WHERE State_ IS NOT NULL AND State_!=''",
 			`SELECT COUNT(DISTINCT state) AS val FROM app.customers WHERE state IS NOT NULL AND state!=''`)
 
 		// ── Trends (last 12 months) ───────────────────────────────────────────
 		collTrend := qh(
-			`SELECT FORMAT(Repayment_Date,'MMM yyyy') AS month, DATEFROMPARTS(YEAR(Repayment_Date),MONTH(Repayment_Date),1) AS sort_key, ISNULL(SUM(Amount),0) AS collections, COUNT(*) AS count FROM dbo.o3_loan_Repayment WHERE Repayment_Date >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR(Repayment_Date),MONTH(Repayment_Date),1), FORMAT(Repayment_Date,'MMM yyyy') ORDER BY sort_key`,
 			`SELECT TO_CHAR(DATE_TRUNC('month',"Date"),'Mon YYYY') AS month, DATE_TRUNC('month',"Date") AS sort_key, COALESCE(SUM("Amount"),0) AS collections, COUNT(*) AS count FROM "Collections Log" WHERE "Date" >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',"Date") ORDER BY sort_key`)
 		recTrend := qh(
-			`SELECT FORMAT([Recovery Date],'MMM yyyy') AS month, DATEFROMPARTS(YEAR([Recovery Date]),MONTH([Recovery Date]),1) AS sort_key, ISNULL(SUM([Recovery Amount]),0) AS recovery FROM dbo.RecoveryMasterSheet WHERE [Recovery Date] >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR([Recovery Date]),MONTH([Recovery Date]),1), FORMAT([Recovery Date],'MMM yyyy') ORDER BY sort_key`,
 			`SELECT TO_CHAR(DATE_TRUNC('month',"Recovery Date"),'Mon YYYY') AS month, DATE_TRUNC('month',"Recovery Date") AS sort_key, COALESCE(SUM("Recovery Amount"),0) AS recovery FROM "Recovery Master Sheet" WHERE "Recovery Date" >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',"Recovery Date") ORDER BY sort_key`)
 		txnTrend := qh(
-			`SELECT FORMAT(Transaction_Date,'MMM yyyy') AS month, DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1) AS sort_key, ISNULL(SUM(Amount),0) AS volume, COUNT(*) AS txn_count FROM dbo.Transaction_Listing WHERE Transaction_Date >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1), FORMAT(Transaction_Date,'MMM yyyy') ORDER BY sort_key`,
 			`SELECT TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YYYY') AS month, DATE_TRUNC('month',txn_date) AS sort_key, COALESCE(SUM(amount),0) AS volume, COUNT(*) AS txn_count FROM app.transactions WHERE txn_date >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',txn_date) ORDER BY sort_key`)
 		acqTrend := qh(
-			`SELECT FORMAT(Account_Created,'MMM yyyy') AS month, DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1) AS sort_key, COUNT(*) AS new_accounts FROM dbo.Contact WHERE Account_Created >= DATEADD(MONTH,-11,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)) GROUP BY DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1), FORMAT(Account_Created,'MMM yyyy') ORDER BY sort_key`,
-			`SELECT TO_CHAR(DATE_TRUNC('month',account_created),'Mon YYYY') AS month, DATE_TRUNC('month',account_created) AS sort_key, COUNT(*) AS new_accounts FROM app.customers WHERE account_created >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',account_created) ORDER BY sort_key`)
+			`SELECT TO_CHAR(DATE_TRUNC('month',account_created),'Mon YYYY') AS month, DATE_TRUNC('month',account_created) AS sort_key, COUNT(*) AS new_accounts FROM (SELECT COALESCE('p'||party_id,'c'||contact_id) pk, MIN(account_created) AS account_created FROM app.customers GROUP BY 1) f WHERE account_created >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months' GROUP BY DATE_TRUNC('month',account_created) ORDER BY sort_key`)
 
 		// ── Breakdowns ────────────────────────────────────────────────────────
 		topStates := qh(
-			"SELECT TOP 10 State_, COUNT(*) AS count FROM dbo.Contact WHERE State_ IS NOT NULL AND State_!='' GROUP BY State_ ORDER BY count DESC",
-			`SELECT state AS "State", COUNT(*) AS count FROM app.customers WHERE state IS NOT NULL AND state!='' GROUP BY state ORDER BY count DESC LIMIT 10`)
+			`SELECT state AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers WHERE state IS NOT NULL AND state!='' GROUP BY state ORDER BY count DESC LIMIT 10`)
 		productMix := qh(
-			"SELECT Product_Name, COUNT(*) AS count FROM dbo.Account WHERE Product_Name IS NOT NULL GROUP BY Product_Name ORDER BY count DESC",
 			`SELECT product_name AS "Product Name", COUNT(*) AS count FROM app.accounts WHERE product_name IS NOT NULL GROUP BY product_name ORDER BY count DESC`)
 		topAgents := qh(
-			fmt.Sprintf("SELECT TOP 10 Rn_Create_User AS Agent, ISNULL(SUM(Amount),0) AS total, COUNT(*) AS count FROM dbo.o3_loan_Repayment WHERE Repayment_Date BETWEEN '%s' AND '%s' AND Rn_Create_User IS NOT NULL AND Rn_Create_User!='' GROUP BY Rn_Create_User ORDER BY total DESC", d(cs), d(ce)),
 			fmt.Sprintf(`SELECT "Agent", COALESCE(SUM("Amount"),0) AS total, COUNT(*) AS count FROM "Collections Log" WHERE "Date" BETWEEN '%s' AND '%s' AND "Agent" IS NOT NULL AND "Agent"!='' GROUP BY "Agent" ORDER BY total DESC LIMIT 10`, d(cs), d(ce)))
 
 		// ── Merge trends by month ─────────────────────────────────────────────
@@ -830,23 +802,23 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 				"prev_end":   d(pe),
 			},
 			"financial": map[string]any{
-				"collections":          collCurr,
-				"collections_prev":     collPrev,
-				"collections_change":   pctChange(collCurr, collPrev),
-				"collections_count":    int(collCountCurr),
-				"recovery":             recCurr,
-				"recovery_prev":        recPrev,
-				"recovery_change":      pctChange(recCurr, recPrev),
-				"txn_volume":           txnVolCurr,
-				"txn_volume_prev":      txnVolPrev,
-				"txn_volume_change":    pctChange(txnVolCurr, txnVolPrev),
-				"txn_count":            int(txnCntCurr),
-				"txn_count_prev":       int(txnCntPrev),
-				"txn_count_change":     pctChange(txnCntCurr, txnCntPrev),
-				"avg_txn_value":        avgTxn,
-				"recovery_rate":        recoveryRatePct,
-				"total_collected_all":  totalCollectedAll,
-				"total_recovered_all":  totalRecoveredAll,
+				"collections":         collCurr,
+				"collections_prev":    collPrev,
+				"collections_change":  pctChange(collCurr, collPrev),
+				"collections_count":   int(collCountCurr),
+				"recovery":            recCurr,
+				"recovery_prev":       recPrev,
+				"recovery_change":     pctChange(recCurr, recPrev),
+				"txn_volume":          txnVolCurr,
+				"txn_volume_prev":     txnVolPrev,
+				"txn_volume_change":   pctChange(txnVolCurr, txnVolPrev),
+				"txn_count":           int(txnCntCurr),
+				"txn_count_prev":      int(txnCntPrev),
+				"txn_count_change":    pctChange(txnCntCurr, txnCntPrev),
+				"avg_txn_value":       avgTxn,
+				"recovery_rate":       recoveryRatePct,
+				"total_collected_all": totalCollectedAll,
+				"total_recovered_all": totalRecoveredAll,
 			},
 			"growth": map[string]any{
 				"new_customers":        int(newCurr),

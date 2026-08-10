@@ -74,6 +74,9 @@ func RegisterCRM(r chi.Router, db *core.DB) {
 	r.With(crmAccess).Get("/tasks", listTasks(db))
 	r.With(crmAccess).Post("/tasks", createTask(db))
 	r.With(crmAccess).Post("/tasks/bulk-assign", bulkAssignTasks(db))
+	// Single task — what the ?task=<id> modal fetches. It has to be its own endpoint
+	// because the modal opens over pages that never load the task list at all.
+	r.With(crmAccess).Get("/tasks/{id}", getTask(db))
 	r.With(crmAccess).Put("/tasks/{id}", updateTask(db))
 	r.With(crmAccess).Delete("/tasks/{id}", deleteTask(db))
 	r.With(crmAccess).Get("/tasks/{id}/comments", listTaskComments(db))
@@ -884,14 +887,8 @@ func createTask(db *core.DB) http.HandlerFunc {
 		created := rows[0]
 		// Notify the assignee (if different from creator)
 		if b.AssignedTo != nil && *b.AssignedTo != user.ID {
-			go Notify(context.Background(), db, NotifPayload{
-				EventType: EvtTaskAssigned,
-				UserID:    *b.AssignedTo,
-				Title:     "Task assigned to you",
-				Body:      fmt.Sprintf(`"%s" has been assigned to you`, b.Title),
-				ActionURL: "/crm/tasks",
-				EntityRef: fmt.Sprintf("task:%v", created["id"]),
-			})
+			go notifyTaskAssigned(context.Background(), db,
+				toInt64(created["id"]), *b.AssignedTo, b.Title)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -924,14 +921,8 @@ func updateTask(db *core.DB) http.HandlerFunc {
 			actor := core.UserFromCtx(r.Context())
 			if uid, ok2 := newAssignee.(float64); ok2 && int64(uid) != actor.ID {
 				titleVal, _ := updated["title"].(string)
-				go Notify(context.Background(), db, NotifPayload{
-					EventType: EvtTaskAssigned,
-					UserID:    int64(uid),
-					Title:     "Task assigned to you",
-					Body:      fmt.Sprintf(`"%s" has been assigned to you`, titleVal),
-					ActionURL: "/crm/tasks",
-					EntityRef: fmt.Sprintf("task:%v", updated["id"]),
-				})
+				go notifyTaskAssigned(context.Background(), db,
+					toInt64(updated["id"]), int64(uid), titleVal)
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1022,7 +1013,9 @@ func bulkAssignTasks(db *core.DB) http.HandlerFunc {
 				UserID:    *b.AssignedTo,
 				Title:     "Tasks assigned to you",
 				Body:      fmt.Sprintf("%d %s been assigned to you.", n, word),
-				ActionURL: "/crm/tasks",
+				// A bulk assignment covers many tasks, so there is no single record to
+				// land on — the list is the right destination here.
+				ActionURL: "/sales/tasks",
 			})
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1072,7 +1065,7 @@ func sendTaskNotifications(db *core.DB) {
 				UserID:    uid,
 				Title:     "Task due tomorrow",
 				Body:      fmt.Sprintf(`"%s" is due tomorrow`, str(row["title"])),
-				ActionURL: "/crm/tasks",
+				ActionURL: taskNotifyURL(ctx, db, toInt64(row["id"])),
 				EntityRef: "task:" + str(row["id"]),
 			})
 		}
@@ -1097,7 +1090,7 @@ func sendTaskNotifications(db *core.DB) {
 				UserID:    uid,
 				Title:     "Task overdue",
 				Body:      fmt.Sprintf(`"%s" is overdue`, str(row["title"])),
-				ActionURL: "/crm/tasks",
+				ActionURL: taskNotifyURL(ctx, db, toInt64(row["id"])),
 				EntityRef: "task:" + str(row["id"]),
 			})
 		}

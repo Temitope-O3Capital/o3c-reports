@@ -34,16 +34,6 @@ func settlementSummary(db *core.DB) http.HandlerFunc {
 		// Totals breakdown: credit vs debit settlement volumes
 		rows, src, err := db.DualQuery(ctx,
 			`SELECT
-			  CAST(Transaction_Date AS DATE)          AS settlement_date,
-			  COUNT(*)                                AS txn_count,
-			  ISNULL(SUM(CASE WHEN Amount>0 THEN Amount ELSE 0 END),0) AS credits,
-			  ISNULL(SUM(CASE WHEN Amount<0 THEN ABS(Amount) ELSE 0 END),0) AS debits,
-			  ISNULL(SUM(Amount),0)                   AS net_position
-			FROM dbo.Transaction_Listing
-			WHERE 1=1`+f.MS()+`
-			GROUP BY CAST(Transaction_Date AS DATE)
-			ORDER BY settlement_date DESC`,
-			`SELECT
 			  txn_date::date            AS settlement_date,
 			  COUNT(*)                  AS txn_count,
 			  COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) AS credits,
@@ -89,13 +79,6 @@ func mobileAppSummary(db *core.DB) http.HandlerFunc {
 		// Monthly activity: distinct active users + transaction count
 		rows, src, err := db.DualQuery(ctx,
 			`SELECT
-			  COUNT(DISTINCT CIF_Number) AS active_users,
-			  COUNT(*)                   AS txn_count,
-			  ISNULL(SUM(Amount),0)      AS total_volume,
-			  ISNULL(AVG(CAST(Amount AS FLOAT)),0) AS avg_txn_size
-			FROM dbo.Transaction_Listing
-			WHERE 1=1`+f.MS(),
-			`SELECT
 			  COUNT(DISTINCT cif)          AS active_users,
 			  COUNT(*)                     AS txn_count,
 			  COALESCE(SUM(amount),0)      AS total_volume,
@@ -110,15 +93,6 @@ func mobileAppSummary(db *core.DB) http.HandlerFunc {
 
 		// Monthly trend
 		trend, tSrc, err2 := db.DualQuery(ctx,
-			`SELECT
-			  FORMAT(Transaction_Date,'MMM yyyy') AS month,
-			  DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1) AS month_sort,
-			  COUNT(DISTINCT CIF_Number) AS active_users,
-			  COUNT(*) AS txn_count
-			FROM dbo.Transaction_Listing
-			GROUP BY DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1),
-			         FORMAT(Transaction_Date,'MMM yyyy')
-			ORDER BY month_sort DESC`,
 			`SELECT
 			  TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YYYY') AS month,
 			  DATE_TRUNC('month',txn_date) AS month_sort,
@@ -157,11 +131,6 @@ func blinkCardSummary(db *core.DB) http.HandlerFunc {
 		const blinkMS = `(Product_Name LIKE '%Blink%' OR Product_Name LIKE '%blink%' OR Product_Name LIKE '%PREP Temporary Virtual%')`
 		const blinkPG = `(product_name ILIKE '%blink%' OR product_name ILIKE '%PREP Temporary Virtual%')`
 		statusRows, src, err := db.DualQuery(ctx,
-			`SELECT Account_Status AS status, COUNT(*) AS count
-			 FROM dbo.Account
-			 WHERE `+blinkMS+`
-			 GROUP BY Account_Status
-			 ORDER BY count DESC`,
 			`SELECT status, COUNT(*) AS count
 			 FROM app.accounts
 			 WHERE `+blinkPG+`
@@ -177,15 +146,6 @@ func blinkCardSummary(db *core.DB) http.HandlerFunc {
 
 		// Monthly issuance trend — Blink product only.
 		trend, tSrc, _ := db.DualQuery(ctx,
-			`SELECT
-			  FORMAT(Account_Created,'MMM yyyy') AS month,
-			  DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1) AS month_sort,
-			  COUNT(*) AS issued
-			FROM dbo.Account
-			WHERE Account_Created IS NOT NULL AND `+blinkMS+`
-			GROUP BY DATEFROMPARTS(YEAR(Account_Created),MONTH(Account_Created),1),
-			         FORMAT(Account_Created,'MMM yyyy')
-			ORDER BY month_sort DESC`,
 			`SELECT
 			  TO_CHAR(DATE_TRUNC('month',opened_date),'Mon YYYY') AS month,
 			  DATE_TRUNC('month',opened_date) AS month_sort,

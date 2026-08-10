@@ -600,6 +600,7 @@ export function ExpandableFilterBar({
   groups, onReset, onApply,
   resultCount, totalCount,
   placeholder = 'Search…',
+  maxCols = 3,
 }: {
   search: string
   onSearch: (v: string) => void
@@ -609,10 +610,14 @@ export function ExpandableFilterBar({
   resultCount: number
   totalCount: number
   placeholder?: string
+  maxCols?: number      // how many filter groups sit side-by-side in the panel (default 3)
 }) {
   const [open, setOpen] = useState(false)
+  // Per-group search text — lets long option lists (e.g. 30+ states) stay compact.
+  const [optQuery, setOptQuery] = useState<Record<string, string>>({})
   const activeCount = groups.reduce((s, g) => s + g.selected.size, 0)
-  const cols = Math.max(1, Math.min(groups.length, 3))
+  const cols = Math.max(1, Math.min(groups.length, maxCols))
+  const LONG_LIST = 8  // groups with more options than this get a search box + scroll
 
   return (
     <>
@@ -670,12 +675,37 @@ export function ExpandableFilterBar({
                   fontFamily: "'Inter', sans-serif",
                 }}>{group.label}</div>
 
-                {group.options.length === 0 ? (
-                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>None available</span>
-                ) : group.options.map(opt => {
-                  const label = opt.label ?? opt.value
-                  const checked = group.selected.has(opt.value)
+                {(() => {
+                  const isLong = group.options.length > LONG_LIST
+                  const gq = (optQuery[group.key] ?? '').toLowerCase().trim()
+                  const visible = gq
+                    ? group.options.filter(o => (o.label ?? o.value).toLowerCase().includes(gq))
+                    : group.options
                   return (
+                    <>
+                      {isLong && (
+                        <input
+                          value={optQuery[group.key] ?? ''}
+                          onChange={e => setOptQuery(q => ({ ...q, [group.key]: e.target.value }))}
+                          placeholder={`Search ${group.label.toLowerCase()}…`}
+                          spellCheck={false}
+                          style={{
+                            width: '100%', boxSizing: 'border-box', marginBottom: 10,
+                            padding: '5px 9px', fontSize: TEXT.xs, fontFamily: "'Inter', sans-serif",
+                            border: '1px solid var(--input-bdr)', borderRadius: RADIUS.sm,
+                            background: 'var(--input-bg)', color: 'var(--txt)',
+                          }}
+                        />
+                      )}
+                      <div style={isLong ? { maxHeight: 208, overflowY: 'auto', paddingRight: 6, marginRight: -6 } : undefined}>
+                        {group.options.length === 0 ? (
+                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>None available</span>
+                        ) : visible.length === 0 ? (
+                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No matches</span>
+                        ) : visible.map(opt => {
+                          const label = opt.label ?? opt.value
+                          const checked = group.selected.has(opt.value)
+                          return (
                     <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9, cursor: 'pointer' }}>
                       <input
                         type="checkbox"
@@ -712,8 +742,12 @@ export function ExpandableFilterBar({
                         </span>
                       )}
                     </label>
+                          )
+                        })}
+                      </div>
+                    </>
                   )
-                })}
+                })()}
               </div>
             ))}
           </div>
@@ -892,6 +926,39 @@ function _PgBtn({ children, active, disabled, onClick, icon }: {
         ? <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span>
         : children}
     </button>
+  )
+}
+
+// Shared numbered pagination (chevrons + windowed page numbers) — the house
+// standard used by DataTable, exposed for server-paginated lists/tables too.
+export function Pagination({ page, pages, total, pageSize, onPage, showRange = true, maxButtons = 7 }: {
+  page: number; pages: number; total?: number; pageSize?: number
+  onPage: (p: number) => void; showRange?: boolean; maxButtons?: number
+}) {
+  if (pages <= 1) return null
+  const safe = Math.min(Math.max(1, page), pages)
+  const win = Math.min(pages, Math.max(3, maxButtons))
+  const label = (total != null && pageSize)
+    ? `Showing ${(safe - 1) * pageSize + 1}–${Math.min(safe * pageSize, total)} of ${total.toLocaleString()}`
+    : `Page ${safe} of ${pages}`
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>
+      {showRange
+        ? <span style={{ fontSize: 12, color: 'var(--txt2)', fontFamily: INTER }}>{label}</span>
+        : <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: INTER }}>{safe} / {pages}</span>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <_PgBtn icon="chevron_left" disabled={safe === 1} onClick={() => onPage(safe - 1)} />
+        {Array.from({ length: win }, (_, i) => {
+          let pg: number
+          if (pages <= win) pg = i + 1
+          else if (safe <= Math.ceil(win / 2)) pg = i + 1
+          else if (safe >= pages - Math.floor(win / 2)) pg = pages - win + 1 + i
+          else pg = safe - Math.floor(win / 2) + i
+          return <_PgBtn key={pg} active={pg === safe} onClick={() => onPage(pg)}>{pg}</_PgBtn>
+        })}
+        <_PgBtn icon="chevron_right" disabled={safe === pages} onClick={() => onPage(safe + 1)} />
+      </div>
+    </div>
   )
 }
 

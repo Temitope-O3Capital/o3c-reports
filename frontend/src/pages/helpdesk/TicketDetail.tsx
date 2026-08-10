@@ -3,10 +3,36 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, StatusBadge, Tabs, Modal, ConfirmModal, Spinner, ErrBanner, Avatar,
 } from '../../components/UI'
+import { Conversation } from './Conversation'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, fmtKobo } from '../../lib/fmt'
-import { RED, GREEN, AMBER, BLUE, NAVY, FW, RADIUS, SP, TEXT, MONO } from '../../lib/design'
+import { RED, GREEN, AMBER, BLUE, PURPLE, NAVY, FW, RADIUS, SP, TEXT, MONO, SHADOW } from '../../lib/design'
 import { toast } from 'sonner'
+
+// ── "Alive & connected" visual layer ────────────────────────────────────────────
+// One injected stylesheet powers the motion (messages animate in, cards lift on
+// hover, the live dot pulses) shared across the ticket surfaces.
+const HD_STYLE = `
+@keyframes hdMsgIn { from { opacity: 0; transform: translateY(10px) scale(.99); } to { opacity: 1; transform: none; } }
+@keyframes hdPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.8); } }
+@keyframes hdFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.hd-msg { animation: hdMsgIn .28s cubic-bezier(.22,1,.36,1) both; }
+.hd-lift { transition: transform .18s cubic-bezier(.22,1,.36,1), box-shadow .18s, border-color .18s; }
+.hd-lift:hover { transform: translateY(-2px); box-shadow: ${'var(--shadow-md)'}; }
+.hd-press { transition: transform .1s ease, filter .15s ease; }
+.hd-press:active { transform: scale(.96); }
+.hd-press:hover { filter: brightness(1.06); }
+.hd-live { width: 7px; height: 7px; border-radius: 50%; animation: hdPulse 1.8s ease-in-out infinite; }
+.hd-fade { animation: hdFadeIn .4s ease both; }
+`
+
+// Each channel gets a signature accent that threads through the header bar, the
+// avatar ring and the badges — visually tying a conversation to its source.
+const CHANNEL_ACCENT: Record<string, string> = {
+  web: BLUE, chat: BLUE, portal: BLUE, social: PURPLE, whatsapp: GREEN,
+  email: AMBER, phone: GREEN, voice: GREEN, sms: '#0891B2', zoho: NAVY,
+}
+const channelAccent = (c?: string) => CHANNEL_ACCENT[(c ?? '').toLowerCase()] ?? NAVY
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,9 +46,11 @@ interface Message {
   channel: string
   author_name?: string
   author_user_name?: string
+  sender_name?: string
   body_text: string
   is_internal_note?: boolean
   created_at: string
+  _opening?: boolean
 }
 
 interface Ticket {
@@ -33,6 +61,7 @@ interface Ticket {
   priority: string
   channel: string
   ticket_type?: string
+  description?: string
   customer_name?: string
   customer_email?: string
   customer_phone?: string
@@ -164,44 +193,8 @@ function MetaItem({ icon, label, children }: { icon: string; label: string; chil
 
 // ── Message bubble ────────────────────────────────────────────────────────────
 
-function MessageBubble({ msg }: { msg: Message }) {
-  const isAgent = msg.direction === 'outbound'
-  const isNote = msg.is_internal_note
-  const sender = msg.author_user_name || msg.author_name || (isAgent ? 'Agent' : 'Customer')
-  return (
-    <div style={{ display: 'flex', flexDirection: isAgent ? 'row-reverse' : 'row', gap: SP[2], marginBottom: 14 }}>
-      <div style={{
-        width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-        background: isAgent ? NAVY : 'var(--chip-bg)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: TEXT.xs, fontWeight: FW.bold, color: isAgent ? '#fff' : 'var(--txt2)',
-      }}>
-        {sender.charAt(0).toUpperCase()}
-      </div>
-      <div style={{ maxWidth: '70%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexDirection: isAgent ? 'row-reverse' : 'row', marginBottom: 3 }}>
-          <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{sender}</span>
-          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDatetime(msg.created_at)}</span>
-          {isNote && (
-            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 6px', borderRadius: RADIUS.lg, background: `${AMBER}18`, color: AMBER }}>
-              Internal Note
-            </span>
-          )}
-        </div>
-        <div style={{
-          padding: '10px 14px', borderRadius: RADIUS.lg,
-          borderTopLeftRadius: isAgent ? 10 : 2,
-          borderTopRightRadius: isAgent ? 2 : 10,
-          background: isNote ? `${AMBER}10` : (isAgent ? 'var(--card)' : 'var(--th-bg)'),
-          border: `1px solid ${isNote ? `${AMBER}30` : 'var(--bdr)'}`,
-          fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        }}>
-          {msg.body_text}
-        </div>
-      </div>
-    </div>
-  )
-}
+// Message rendering (opening request + bubbles + inline media) is shared with the
+// Ticket Queue side-preview via ./Conversation.
 
 // ── Detail row helper ─────────────────────────────────────────────────────────
 
@@ -305,6 +298,7 @@ export default function TicketDetail() {
   const [merging, setMerging] = useState(false)
 
   const threadEndRef = useRef<HTMLDivElement>(null)
+  const threadRef = useRef<HTMLDivElement>(null)
 
   async function load() {
     setLoading(true)
@@ -319,10 +313,10 @@ export default function TicketDetail() {
     }
   }
 
-  async function loadContext(cif: string) {
-    if (!cif) return
+  async function loadContext() {
     setCtxLoading(true)
     try {
+      // The endpoint resolves a CIF from phone/email when the ticket has none.
       const enriched = await apiFetch<EnrichedContext>(`/api/helpdesk/tickets/${id}/context`)
       setCtx(enriched)
     } catch {
@@ -334,15 +328,16 @@ export default function TicketDetail() {
 
   useEffect(() => { load() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Scroll only the thread container to its latest message — never the page
+  // (scrollIntoView would drag the whole page down and open it mid-scroll).
   useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = threadRef.current
+    if (el) el.scrollTop = el.scrollHeight
   }, [data?.messages])
 
   useEffect(() => {
-    if (data?.ticket?.customer_cif) {
-      loadContext(data.ticket.customer_cif)
-    }
-  }, [data?.ticket?.customer_cif]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (data?.ticket) loadContext()
+  }, [data?.ticket?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if ((transferOpen || escalateOpen) && agents.length === 0) {
@@ -508,26 +503,23 @@ export default function TicketDetail() {
         body_text: `[Promise Logged] Amount: ₦${ptpAmount} — Date: ${ptpDate}`,
         is_internal_note: true,
       })
-      // Also create a real promise in Collections if CIF is available
+      // Also record a real promise in the Collections book when we have a CIF.
+      let reachedCollections = false
       if (cif) {
         try {
-          await apiPost('/api/collections/promises', {
-            cif_number: cif,
-            customer_name: data?.ticket?.customer_name ?? '',
-            promise_amount_kobo: Math.round(parseFloat(ptpAmount) * 100),
+          await apiPost(`/api/helpdesk/tickets/${id}/promise`, {
+            amount_kobo: Math.round(parseFloat(ptpAmount) * 100),
             promise_date: ptpDate,
-            source: 'helpdesk',
-            source_ticket_id: Number(id),
-            notes: `Logged from ticket #${data?.ticket?.ticket_ref ?? id}`,
           })
+          reachedCollections = true
         } catch {
-          // Collections promise creation is best-effort — ticket note already posted
+          // Best-effort — the ticket note is already posted either way.
         }
       }
       setPtpOpen(false)
       setPtpAmount('')
       setPtpDate('')
-      toast.success('Promise logged')
+      toast.success(reachedCollections ? 'Promise logged & sent to Collections' : 'Promise logged on ticket')
       await load()
     } catch (e: any) {
       toast.error(e.message)
@@ -633,6 +625,11 @@ export default function TicketDetail() {
   const sla = slaLabel(ticket.sla_due_at)
   const priority = priorityMeta(ticket.priority)
   const terminal = isTerminal(ticket.status)
+  const accent = channelAccent(ticket.channel)
+  // CIF may be resolved from phone/email by the context endpoint even when the
+  // ticket has none stored — use it for the profile link and context.
+  const linkedCif = ticket.customer_cif || ctx?.cif || ''
+  const cifResolved = !ticket.customer_cif && !!ctx?.cif
 
   // ── Modal footer helper ──────────────────────────────────────────────────────
   const ModalFooter = ({ onConfirm, label, disabled, danger }: { onConfirm: () => void; label: string; disabled?: boolean; danger?: boolean }) => (
@@ -641,8 +638,8 @@ export default function TicketDetail() {
         style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
         Cancel
       </button>
-      <button onClick={onConfirm} disabled={disabled || actionLoading}
-        style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: danger ? RED : NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', opacity: (disabled || actionLoading) ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: SP[2] }}>
+      <button className="hd-press" onClick={onConfirm} disabled={disabled || actionLoading}
+        style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: danger ? RED : NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', opacity: (disabled || actionLoading) ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: SP[2], boxShadow: SHADOW.sm }}>
         {actionLoading && <Spinner size={14} color="#fff" />}
         {label}
       </button>
@@ -666,17 +663,23 @@ export default function TicketDetail() {
         </button>
       }
     >
+      <style>{HD_STYLE}</style>
       <ErrBanner error={err} onRetry={load} />
 
-      <div style={{ display: 'flex', gap: SP[4], height: '100%', minHeight: 0 }}>
+      <div className="hd-fade" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: SP[4], alignItems: 'start' }}>
 
         {/* ── Left: Conversation ───────────────────────────────────────────── */}
-        <div style={{ flex: '0 0 58%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <SectionCard padding={false} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            {/* Ticket header */}
-            <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
+        <div style={{ minWidth: 0 }}>
+          <SectionCard padding={false} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Ticket header — channel-accented hero */}
+            <div style={{
+              padding: '16px 18px', borderBottom: '1px solid var(--bdr)', flexShrink: 0,
+              borderTop: `3px solid ${accent}`,
+              background: `linear-gradient(180deg, ${accent}0C 0%, transparent 70%)`,
+            }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', fontFamily: MONO, background: 'var(--chip-bg)', padding: '2px 8px', borderRadius: RADIUS.md }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.bold, color: accent, fontFamily: MONO, background: `${accent}16`, padding: '2px 9px', borderRadius: RADIUS.md }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{channelIcon(ticket.channel)}</span>
                   #{ticket.ticket_ref || ticket.id}
                 </span>
                 {ticket.ticket_type && (
@@ -698,9 +701,6 @@ export default function TicketDetail() {
                   {sla.label}
                 </span>
               </div>
-              <h2 style={{ margin: '10px 0 0', fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', lineHeight: 1.3 }}>
-                {ticket.subject}
-              </h2>
 
               {/* Meta strip — who / when / how */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
@@ -717,15 +717,15 @@ export default function TicketDetail() {
               {/* Action buttons */}
               <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
                 {terminal ? (
-                  <button onClick={handleReopen} disabled={actionLoading}
-                    style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, opacity: actionLoading ? 0.6 : 1 }}>
+                  <button className="hd-press" onClick={handleReopen} disabled={actionLoading}
+                    style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, opacity: actionLoading ? 0.6 : 1, boxShadow: SHADOW.sm }}>
                     <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>lock_open</span>
                     Reopen
                   </button>
                 ) : (
                   <>
-                    <button onClick={() => setResolveOpen(true)}
-                      style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <button className="hd-press" onClick={() => setResolveOpen(true)}
+                      style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, boxShadow: SHADOW.sm }}>
                       <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>check_circle</span>
                       Resolve
                     </button>
@@ -754,19 +754,9 @@ export default function TicketDetail() {
               </div>
             </div>
 
-            {/* Message thread */}
-            <div style={{ flex: 1, overflow: 'auto', padding: '16px 18px' }}>
-              {messages.length === 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '48px 20px', textAlign: 'center' }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 40, color: 'var(--txt3)' }}>forum</span>
-                  <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>No messages yet</div>
-                  <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', maxWidth: 260 }}>
-                    Start the conversation below, or add an internal note for your team.
-                  </div>
-                </div>
-              ) : (
-                messages.map(m => <MessageBubble key={m.id} msg={m} />)
-              )}
+            {/* Message thread — a distinct canvas so bubbles read as a conversation */}
+            <div ref={threadRef} style={{ maxHeight: '56vh', minHeight: 220, overflowY: 'auto', padding: '18px', background: 'var(--th-bg)' }}>
+              <Conversation ticket={ticket} messages={messages} />
               <div ref={threadEndRef} />
             </div>
 
@@ -820,14 +810,15 @@ export default function TicketDetail() {
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: SP[2] }}>
                 <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>⌘/Ctrl + ↵ to send</span>
-                <button onClick={sendReply} disabled={!replyText.trim() || sending}
+                <button className="hd-press" onClick={sendReply} disabled={!replyText.trim() || sending}
                   style={{
                     padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none',
-                    background: replyNote ? AMBER : NAVY, color: '#fff',
+                    background: replyNote ? AMBER : NAVY, color: '#fff', boxShadow: SHADOW.sm,
                     fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (!replyText.trim() || sending) ? 'not-allowed' : 'pointer',
                     opacity: (!replyText.trim() || sending) ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: SP[2],
                   }}>
                   {sending && <Spinner size={14} color="#fff" />}
+                  <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{replyNote ? 'lock' : 'send'}</span>
                   {replyNote ? 'Add Note' : 'Send Reply'}
                 </button>
               </div>
@@ -836,30 +827,32 @@ export default function TicketDetail() {
         </div>
 
         {/* ── Right: Context + Actions ─────────────────────────────────────── */}
-        <div style={{ flex: '0 0 42%', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
 
           {/* Customer context */}
           <SectionCard title="Context" padding={false}>
-            {(ticket.customer_name || ticket.customer_cif) && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 18px 14px', margin: '-2px 0 12px', borderBottom: '1px solid var(--bdr)' }}>
-                <Avatar name={ticket.customer_name || 'Customer'} size={38} />
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {ticket.customer_name || 'Unknown customer'}
-                  </div>
-                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: MONO }}>
-                    {ticket.customer_cif ? `CIF ${ticket.customer_cif}` : 'No CIF linked'}
-                  </div>
-                </div>
-                {ticket.customer_cif && (
-                  <button onClick={() => navigate(`/contacts/${ticket.customer_cif}`)} title="Open full profile"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}25`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', flexShrink: 0 }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: 15 }}>open_in_new</span>
-                    Profile
-                  </button>
-                )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '14px 18px', margin: 0, borderBottom: '1px solid var(--bdr)' }}>
+              <div style={{ boxShadow: `0 0 0 3px ${accent}22`, borderRadius: '50%', flexShrink: 0 }}>
+                <Avatar name={ticket.customer_name || 'Customer'} size={42} />
               </div>
-            )}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {ticket.customer_name || 'Unknown customer'}
+                </div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: MONO, marginTop: 2 }}>
+                  {linkedCif
+                    ? <>CIF {linkedCif}{cifResolved && <span style={{ color: GREEN, fontFamily: 'inherit' }}> · matched</span>}</>
+                    : 'No CIF linked'}
+                </div>
+              </div>
+              {linkedCif && (
+                <button className="hd-press" onClick={() => navigate(`/customers/${encodeURIComponent(linkedCif)}`)} title="Open full customer profile"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 11px', borderRadius: RADIUS.md, border: `1px solid ${NAVY}25`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', flexShrink: 0 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>open_in_new</span>
+                  Profile
+                </button>
+              )}
+            </div>
             <div style={{ padding: '0 18px 4px' }}>
               <Tabs
                 tabs={[
@@ -906,7 +899,7 @@ export default function TicketDetail() {
                       {ticket.customer_cif ? 'No active loans for this customer.' : 'No CIF — loan data unavailable.'}
                     </p>
                   ) : ctx.loans.map((l, i) => (
-                    <div key={i} style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div key={i} className="hd-lift" style={{ background: 'var(--th-bg)', border: '1px solid var(--bdr)', boxShadow: 'var(--shadow-xs)', borderRadius: RADIUS.md, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY, fontFamily: 'Inter, monospace' }}>{l.loan_ref ?? 'Loan'}</span>
                         <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.lg, background: `${BLUE}15`, color: BLUE }}>{l.status}</span>
@@ -934,7 +927,7 @@ export default function TicketDetail() {
                       {ticket.customer_cif ? 'No fixed deposits for this customer.' : 'No CIF — FD data unavailable.'}
                     </p>
                   ) : ctx.fixed_deposits.map((fd, i) => (
-                    <div key={i} style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div key={i} className="hd-lift" style={{ background: 'var(--th-bg)', border: '1px solid var(--bdr)', boxShadow: 'var(--shadow-xs)', borderRadius: RADIUS.md, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>{fmtKobo(fd.principal_kobo ?? 0)}</span>
                         <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.lg, background: `${GREEN}15`, color: GREEN }}>{fd.status}</span>
@@ -997,7 +990,7 @@ export default function TicketDetail() {
                       {ticket.customer_cif ? 'No card products for this customer.' : 'No CIF — card data unavailable.'}
                     </p>
                   ) : ctx.cards.map((c, i) => (
-                    <div key={i} style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <div key={i} className="hd-lift" style={{ background: 'var(--th-bg)', border: '1px solid var(--bdr)', boxShadow: 'var(--shadow-xs)', borderRadius: RADIUS.md, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>{c.product_name ?? 'Card'}</span>
                         {c.account_status && (
@@ -1039,13 +1032,15 @@ export default function TicketDetail() {
                 { label: 'Create New Application', icon: 'add_circle', color: GREEN, onClick: () => setNewAppOpen(true) },
                 { label: 'Escalate to Head', icon: 'supervisor_account', color: RED, onClick: () => setEscalateHeadOpen(true) },
               ].map(a => (
-                <button key={a.label} onClick={a.onClick}
+                <button key={a.label} className="hd-lift hd-press" onClick={a.onClick}
                   style={{
-                    width: '100%', padding: '8px 14px', border: `1px solid ${a.color}20`,
-                    borderRadius: RADIUS.md, background: `${a.color}06`, color: 'var(--txt)',
+                    width: '100%', padding: '9px 14px', border: `1px solid ${a.color}25`,
+                    borderRadius: RADIUS.md, background: `${a.color}0A`, color: 'var(--txt)',
                     fontSize: TEXT.base, fontWeight: FW.medium, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: SP[2], textAlign: 'left',
                   }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: a.color }}>{a.icon}</span>
+                  <span style={{ width: 26, height: 26, borderRadius: 7, background: `${a.color}18`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 16, color: a.color }}>{a.icon}</span>
+                  </span>
                   {a.label}
                 </button>
               ))}

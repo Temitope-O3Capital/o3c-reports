@@ -1,5 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
   Modal, ErrBanner, Spinner, btnPrimary, KpiCard, DateFilter,
@@ -64,6 +65,12 @@ const inputStyle: React.CSSProperties = {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function CRMTasks() {
+  // Row click opens the shared ?task= modal (mounted in App.tsx) rather than a local
+  // one, so the same task detail — and the same complete/snooze/reassign actions —
+  // appear whether you arrived from this list, from a customer, or from the bell.
+  const [params, setParams] = useSearchParams()
+  const openTask = params.get('task')
+
   const [tasks, setTasks]     = useState<Task[]>([])
   const [users, setUsers]     = useState<CRMUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -105,6 +112,14 @@ export default function CRMTasks() {
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['deals','crm'] })
+
+  // The modal completes, snoozes and reassigns without this page knowing, so refresh
+  // the list once it closes — otherwise a task just marked done sits there looking open.
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (wasOpen.current && !openTask) load()
+    wasOpen.current = !!openTask
+  }, [openTask, load])
 
   const filteredTasks = useMemo(() => tasks.filter(t => {
     if (fStatuses.size) {
@@ -312,6 +327,7 @@ export default function CRMTasks() {
           cols={cols}
           rows={filteredTasks}
           keyFn={r => r.id}
+          onRowClick={r => setParams(p => { p.set('task', String(r.id)); return p }, { replace: false })}
           selectable
           selectedIds={selected}
           onSelect={setSelected}

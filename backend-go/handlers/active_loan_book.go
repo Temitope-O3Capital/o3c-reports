@@ -19,51 +19,62 @@ func RegisterActiveLoanBook(r chi.Router, db *core.DB) {
 	r.Post("/{id}/repayment", albRecordRepayment(db))
 }
 
+// The active loan book is the LIVE Udara/CBS credit book (app owns no origination).
+// cbs_loans has no instalment schedule, so DPD = days past maturity_date; the "active"
+// book is every open loan (status NOT IN Closed/Revoked). Customer name/phone come from
+// the Sage master by CIF (cbs_customer_id == cif), falling back to the CBS record's name.
+const cbsLoanName = `COALESCE((SELECT NULLIF(trim(a.first_name||' '||COALESCE(a.last_name,'')),'')
+	         FROM app.customers a WHERE a.cif = cl.cbs_customer_id LIMIT 1), cl.raw->>'name')`
+const cbsLoanDPD = `GREATEST(0, (CURRENT_DATE - cl.maturity_date::date))::int`
+
 func albList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		dpd := qstr(r, "dpd_bucket")   // current, 1-30, 31-60, 61-90, 90plus
+		dpd := qstr(r, "dpd_bucket") // current, 1-30, 31-60, 61-90, 90plus
 		product := qstr(r, "product")
 		search := qstr(r, "search")
 		limit := qint(r, "limit", 100, 1, 500)
 
-		q := `SELECT la.id, la.reference, la.applicant_cif, la.applicant_name,
-		             la.applicant_phone, la.product_type, la.loan_product,
-		             la.amount_approved_kobo, la.disbursed_amount_kobo,
-		             la.outstanding_kobo, la.dpd, la.next_due_date,
-		             la.monthly_repayment_kobo, la.maturity_date,
-		             la.disbursed_at, la.created_at,
-		             u.full_name AS officer_name
-		      FROM loan_applications la
-		      LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
-		      WHERE la.disbursed_at IS NOT NULL`
+		q := `SELECT * FROM (
+		      SELECT cl.cbs_id AS id, cl.cbs_account_number AS reference,
+		             cl.cbs_customer_id AS applicant_cif, ` + cbsLoanName + ` AS applicant_name,
+		             (SELECT a.phone FROM app.customers a WHERE a.cif = cl.cbs_customer_id LIMIT 1) AS applicant_phone,
+		             cl.product_name AS product_type, cl.product_name AS loan_product,
+		             cl.loan_amount_kobo AS amount_approved_kobo, cl.loan_amount_kobo AS disbursed_amount_kobo,
+		             cl.outstanding_principal_kobo AS outstanding_kobo, ` + cbsLoanDPD + ` AS dpd,
+		             cl.maturity_date AS next_due_date, cl.installment_amount_kobo AS monthly_repayment_kobo,
+		             cl.maturity_date, cl.start_date AS disbursed_at, cl.start_date AS created_at,
+		             cl.officer_name, cl.status
+		      FROM cbs_loans cl
+		      WHERE cl.status NOT IN ('Closed','Revoked')
+		      ) x WHERE 1=1`
 		var args []any
 		n := 1
 
 		switch dpd {
 		case "current":
-			q += " AND (la.dpd IS NULL OR la.dpd = 0)"
+			q += " AND dpd = 0"
 		case "1-30":
-			q += " AND la.dpd BETWEEN 1 AND 30"
+			q += " AND dpd BETWEEN 1 AND 30"
 		case "31-60":
-			q += " AND la.dpd BETWEEN 31 AND 60"
+			q += " AND dpd BETWEEN 31 AND 60"
 		case "61-90":
-			q += " AND la.dpd BETWEEN 61 AND 90"
+			q += " AND dpd BETWEEN 61 AND 90"
 		case "90plus":
-			q += " AND la.dpd > 90"
+			q += " AND dpd > 90"
 		}
 
 		if product != "" {
-			q += fmt.Sprintf(" AND la.product_type=$%d", n)
+			q += fmt.Sprintf(" AND product_type=$%d", n)
 			args = append(args, product)
 			n++
 		}
 		if search != "" {
-			q += fmt.Sprintf(" AND (la.applicant_name ILIKE $%d OR la.applicant_cif ILIKE $%d OR la.reference ILIKE $%d)", n, n, n)
+			q += fmt.Sprintf(" AND (applicant_name ILIKE $%d OR applicant_cif ILIKE $%d OR reference ILIKE $%d)", n, n, n)
 			args = append(args, "%"+search+"%")
 			n++
 		}
 		args = append(args, limit)
-		q += fmt.Sprintf(" ORDER BY la.dpd DESC NULLS LAST, la.disbursed_at DESC LIMIT $%d", n)
+		q += fmt.Sprintf(" ORDER BY dpd DESC NULLS LAST, disbursed_at DESC LIMIT $%d", n)
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
@@ -79,24 +90,25 @@ func albStats(db *core.DB) http.HandlerFunc {
 		stats, _ := db.PGQuery(r.Context(), `
 			SELECT
 			  COUNT(*)                                               AS total_loans,
-			  COALESCE(SUM(outstanding_kobo), 0)                    AS total_outstanding_kobo,
-			  COALESCE(SUM(disbursed_amount_kobo), 0)               AS total_disbursed_kobo,
-			  COUNT(*) FILTER (WHERE dpd IS NULL OR dpd = 0)        AS current_count,
+			  COALESCE(SUM(outstanding_principal_kobo), 0)          AS total_outstanding_kobo,
+			  COALESCE(SUM(loan_amount_kobo), 0)                    AS total_disbursed_kobo,
+			  COUNT(*) FILTER (WHERE dpd = 0)                       AS current_count,
 			  COUNT(*) FILTER (WHERE dpd BETWEEN 1 AND 30)          AS dpd_1_30,
 			  COUNT(*) FILTER (WHERE dpd BETWEEN 31 AND 60)         AS dpd_31_60,
 			  COUNT(*) FILTER (WHERE dpd BETWEEN 61 AND 90)         AS dpd_61_90,
 			  COUNT(*) FILTER (WHERE dpd > 90)                      AS dpd_90plus,
-			  COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 0), 0) AS npl_outstanding_kobo
-			FROM loan_applications
-			WHERE disbursed_at IS NOT NULL`)
+			  COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE dpd > 0), 0) AS npl_outstanding_kobo
+			FROM (SELECT outstanding_principal_kobo, loan_amount_kobo,
+			             GREATEST(0,(CURRENT_DATE - maturity_date::date))::int AS dpd
+			      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) x`)
 
 		byProduct, _ := db.PGQuery(r.Context(), `
-			SELECT COALESCE(product_type, 'Other') AS product,
+			SELECT COALESCE(NULLIF(product_name,''), 'Other') AS product,
 			       COUNT(*) AS count,
-			       COALESCE(SUM(outstanding_kobo), 0) AS outstanding_kobo
-			FROM loan_applications
-			WHERE disbursed_at IS NOT NULL
-			GROUP BY product_type
+			       COALESCE(SUM(outstanding_principal_kobo), 0) AS outstanding_kobo
+			FROM cbs_loans
+			WHERE status NOT IN ('Closed','Revoked')
+			GROUP BY product_name
 			ORDER BY outstanding_kobo DESC`)
 
 		statsRow := map[string]any{}
@@ -119,10 +131,19 @@ func albGet(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT la.*, u.full_name AS officer_name
-			FROM loan_applications la
-			LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
-			WHERE la.id=$1 AND la.disbursed_at IS NOT NULL`, id)
+			SELECT cl.cbs_id AS id, cl.cbs_account_number AS reference,
+			       cl.cbs_customer_id AS applicant_cif, `+cbsLoanName+` AS applicant_name,
+			       (SELECT a.phone FROM app.customers a WHERE a.cif = cl.cbs_customer_id LIMIT 1) AS applicant_phone,
+			       cl.product_name AS product_type, cl.product_name AS loan_product,
+			       cl.loan_amount_kobo AS amount_approved_kobo, cl.loan_amount_kobo AS disbursed_amount_kobo,
+			       cl.outstanding_principal_kobo AS outstanding_kobo,
+			       cl.outstanding_interest_kobo, cl.outstanding_fee_kobo,
+			       `+cbsLoanDPD+` AS dpd, cl.maturity_date AS next_due_date,
+			       cl.interest_rate, cl.tenor_days, cl.maturity_date,
+			       cl.start_date AS disbursed_at, cl.start_date AS created_at,
+			       cl.status, cl.officer_name
+			FROM cbs_loans cl
+			WHERE cl.cbs_id=$1`, id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Active loan not found")
 			return

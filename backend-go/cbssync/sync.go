@@ -270,8 +270,10 @@ func refreshLoans(ctx context.Context, tx *sql.Tx, rows []map[string]any) error 
 	const q = `INSERT INTO cbs_loans
 	    (cbs_id, cbs_account_number, cbs_customer_id, linked_account, product_code, product_name, status,
 	     loan_amount_kobo, outstanding_principal_kobo, outstanding_interest_kobo, outstanding_fee_kobo,
-	     interest_rate, tenor_days, start_date, maturity_date, officer_name, raw, synced_at)
-	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb, NOW())
+	     interest_rate, tenor_days, start_date, maturity_date, officer_name,
+	     economic_sector, branch_name, reference_number, installment_amount_kobo, approved_date,
+	     raw, synced_at)
+	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb, NOW())
 	    ON CONFLICT (cbs_id) DO UPDATE SET
 	        cbs_account_number = EXCLUDED.cbs_account_number,
 	        cbs_customer_id = EXCLUDED.cbs_customer_id, linked_account = EXCLUDED.linked_account,
@@ -280,7 +282,11 @@ func refreshLoans(ctx context.Context, tx *sql.Tx, rows []map[string]any) error 
 	        outstanding_interest_kobo = EXCLUDED.outstanding_interest_kobo, outstanding_fee_kobo = EXCLUDED.outstanding_fee_kobo,
 	        interest_rate = EXCLUDED.interest_rate, tenor_days = EXCLUDED.tenor_days,
 	        start_date = EXCLUDED.start_date, maturity_date = EXCLUDED.maturity_date,
-	        officer_name = EXCLUDED.officer_name, raw = EXCLUDED.raw, synced_at = NOW()`
+	        officer_name = EXCLUDED.officer_name,
+	        economic_sector = EXCLUDED.economic_sector, branch_name = EXCLUDED.branch_name,
+	        reference_number = EXCLUDED.reference_number, installment_amount_kobo = EXCLUDED.installment_amount_kobo,
+	        approved_date = EXCLUDED.approved_date,
+	        raw = EXCLUDED.raw, synced_at = NOW()`
 	for _, m := range rows {
 		id := gstr(m, "id")
 		if id == "" {
@@ -292,7 +298,9 @@ func refreshLoans(ctx context.Context, tx *sql.Tx, rows []map[string]any) error 
 			gkobo(m, "loanAmount"), gkobo(m, "outstandingLoanPrincipal"),
 			gkobo(m, "outstandingLoanInterest"), gkobo(m, "outstandingLoanFee"),
 			gnum(m, "applicableInterestRate"), gint(m, "tenure"),
-			gts(m, "startDate"), gts(m, "maturityDate"), gstr(m, "accountOfficerName"), rawOf(m),
+			gts(m, "startDate"), gts(m, "maturityDate"), gstr(m, "accountOfficerName"),
+			gstr(m, "economicSector"), gstr(m, "branchName"), gstr(m, "referenceNumber"),
+			gkobo(m, "installmentAmount"), gts(m, "approvedDate"), rawOf(m),
 		); err != nil {
 			return fmt.Errorf("cbs refresh loans: insert %s: %w", id, err)
 		}
@@ -307,8 +315,10 @@ func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
 	const q = `INSERT INTO cbs_fixed_deposits
 	    (cbs_id, cbs_account_number, cbs_customer_id, product_code, product_name, status,
 	     principal_kobo, accrued_interest_kobo, ledger_balance_kobo, interest_rate, tenor_days,
-	     commencement_date, maturity_date, liquidation_account, raw, synced_at)
-	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb, NOW())
+	     commencement_date, maturity_date, liquidation_account,
+	     reference_number, branch_name, rollover_count,
+	     raw, synced_at)
+	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb, NOW())
 	    ON CONFLICT (cbs_id) DO UPDATE SET
 	        cbs_account_number = EXCLUDED.cbs_account_number, cbs_customer_id = EXCLUDED.cbs_customer_id,
 	        product_code = EXCLUDED.product_code, product_name = EXCLUDED.product_name, status = EXCLUDED.status,
@@ -316,6 +326,8 @@ func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
 	        ledger_balance_kobo = EXCLUDED.ledger_balance_kobo, interest_rate = EXCLUDED.interest_rate,
 	        tenor_days = EXCLUDED.tenor_days, commencement_date = EXCLUDED.commencement_date,
 	        maturity_date = EXCLUDED.maturity_date, liquidation_account = EXCLUDED.liquidation_account,
+	        reference_number = EXCLUDED.reference_number, branch_name = EXCLUDED.branch_name,
+	        rollover_count = EXCLUDED.rollover_count,
 	        raw = EXCLUDED.raw, synced_at = NOW()`
 	for _, m := range rows {
 		id := gstr(m, "id")
@@ -326,7 +338,8 @@ func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
 			id, gstr(m, "accountNumber"), gstr(m, "customerID"), gstr(m, "productCode"), gstr(m, "productName"),
 			gstr(m, "accountStatus"), gkobo(m, "principalAmount"), gkobo(m, "accruedInterest"),
 			gkobo(m, "ledgerBalance"), gnum(m, "applicableInterestRate"), gint(m, "tenure"),
-			gts(m, "commencementDate"), gts(m, "maturityDate"), gstr(m, "liquidationAccount"), rawOf(m),
+			gts(m, "commencementDate"), gts(m, "maturityDate"), gstr(m, "liquidationAccount"),
+			gstr(m, "referenceNumber"), gstr(m, "branchName"), gint(m, "rolloverCount"), rawOf(m),
 		); err != nil {
 			return fmt.Errorf("cbs refresh fds: insert %s: %w", id, err)
 		}

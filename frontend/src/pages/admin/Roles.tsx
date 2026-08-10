@@ -29,7 +29,7 @@ const PAGE_GROUPS: { label: string; pages: string[] }[] = [
   { label: 'Collections',  pages: ['collections','recovery'] },
   { label: 'Cards',        pages: ['cards','card_trends','blink_card','mobile_app'] },
   { label: 'Finance',      pages: ['income','transactions','fixed_deposit','eod','settlement','reconciliation'] },
-  { label: 'Contact Centre', pages: ['call_center','helpdesk','helpdesk_stats','helpdesk_canned'] },
+  { label: 'Contact Centre', pages: ['call_center','call_center_stats','helpdesk','helpdesk_stats','helpdesk_canned'] },
   { label: 'HR',           pages: ['hr_employees','hr_leave','hr_performance','hr_disciplinary','hr_training'] },
   { label: 'Compliance',   pages: ['compliance_checklists','watch_list','sars','cbn_reports','audit_findings','audit_trail'] },
   { label: 'Campaigns',    pages: ['campaigns','campaign_analytics','contact_lists','message_templates'] },

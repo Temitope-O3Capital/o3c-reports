@@ -15,11 +15,11 @@ import (
 // DB table (managed via Admin → KPI Alerts) and override these at runtime.
 // To change defaults, update this struct and re-seed the alert_rules table.
 var kpiThresholds = map[string]float64{
-	"npl_ratio":            5.0,  // CBN max NPL ratio: 5%
-	"car":                  10.0, // CBN min Capital Adequacy Ratio: 10%
-	"liquidity_ratio":      30.0, // CBN min liquidity ratio: 30%
-	"par30_pct":            10.0, // internal PAR-30 warning: 10%
-	"sar_aging_hours":      48.0, // SAR must be filed within 48 hours of detection
+	"npl_ratio":       5.0,  // CBN max NPL ratio: 5%
+	"car":             10.0, // CBN min Capital Adequacy Ratio: 10%
+	"liquidity_ratio": 30.0, // CBN min liquidity ratio: 30%
+	"par30_pct":       10.0, // internal PAR-30 warning: 10%
+	"sar_aging_hours": 48.0, // SAR must be filed within 48 hours of detection
 }
 
 func RegisterKPI(r chi.Router, db *core.DB) {
@@ -54,7 +54,6 @@ func kpiDashboard(db *core.DB) http.HandlerFunc {
 
 		// Today's collections (from collections_daily_kpi for today across all agents)
 		todayColl, src1, _ := db.DualScalar(ctx, "val",
-			"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE CAST(Repayment_Date AS DATE)=CAST(GETDATE() AS DATE)",
 			`SELECT COALESCE(SUM(amount_collected_kobo),0) AS val FROM collections_daily_kpi WHERE kpi_date=CURRENT_DATE`)
 		out["today_collections_kobo"] = todayColl
 		sources = append(sources, src1)
@@ -68,10 +67,8 @@ func kpiDashboard(db *core.DB) http.HandlerFunc {
 			out["open_los_count"] = 0
 		}
 
-		// Latest portfolio outstanding from snapshot
-		snapRows, _ := db.PGQuery(ctx,
-			`SELECT total_outstanding_kobo, npl_ratio_bps, par30_kobo, snapshot_date
-			 FROM portfolio_daily_snapshot ORDER BY snapshot_date DESC LIMIT 1`)
+		// Latest portfolio outstanding — computed live off the Udara/CBS book.
+		snapRows, _ := db.PGQuery(ctx, cbsSnapshotLiveSQL)
 		if len(snapRows) > 0 {
 			out["portfolio_outstanding_kobo"] = snapRows[0]["total_outstanding_kobo"]
 			out["portfolio_snapshot_date"] = snapRows[0]["snapshot_date"]
@@ -121,12 +118,8 @@ func kpiDashboard(db *core.DB) http.HandlerFunc {
 				out["npl_ratio_bps"] = snapRows[0]["npl_ratio_bps"]
 				out["par30_kobo"] = snapRows[0]["par30_kobo"]
 			}
-			// DPD bucket breakdown from most recent loan_dpd_daily_snapshot
-			dpdRows, _ := db.PGQuery(ctx,
-				`SELECT dpd_bucket, COUNT(*) AS loan_count, COALESCE(SUM(outstanding_kobo),0) AS total_kobo
-				 FROM loan_dpd_daily_snapshot
-				 WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM loan_dpd_daily_snapshot)
-				 GROUP BY dpd_bucket ORDER BY dpd_bucket`)
+			// DPD bucket breakdown — live off the CBS book.
+			dpdRows, _ := db.PGQuery(ctx, cbsDPDBucketsSQL)
 			out["dpd_buckets"] = dpdRows
 
 		case "compliance_head":
@@ -154,16 +147,43 @@ func kpiDashboard(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// cbsSnapshotLiveSQL returns a single row in the portfolio_daily_snapshot shape,
+// computed LIVE off the Udara/CBS book (DPD = days past maturity; NPL = Defaulting/
+// Expired). new_disbursements/repayments need history the mirror lacks → 0.
+const cbsSnapshotLiveSQL = `
+	SELECT CURRENT_DATE AS snapshot_date,
+	       COUNT(*)::bigint AS total_loans,
+	       COALESCE(SUM(op),0)::bigint AS total_outstanding_kobo,
+	       COALESCE(SUM(op) FILTER (WHERE status IN ('Defaulting','Expired')),0)::bigint AS total_npls_kobo,
+	       CASE WHEN COALESCE(SUM(op),0) > 0
+	            THEN ROUND(10000.0 * COALESCE(SUM(op) FILTER (WHERE status IN ('Defaulting','Expired')),0) / SUM(op))::bigint
+	            ELSE 0 END AS npl_ratio_bps,
+	       COALESCE(SUM(op) FILTER (WHERE dpd > 30),0)::bigint AS par30_kobo,
+	       COALESCE(SUM(op) FILTER (WHERE dpd > 60),0)::bigint AS par60_kobo,
+	       COALESCE(SUM(op) FILTER (WHERE dpd > 90),0)::bigint AS par90_kobo,
+	       0::bigint AS new_disbursements_kobo, 0::bigint AS repayments_kobo
+	FROM (SELECT status, outstanding_principal_kobo AS op,
+	             GREATEST(0,(CURRENT_DATE - maturity_date::date))::int AS dpd
+	      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) x`
+
+// cbsDPDBucketsSQL returns DPD-bucket loan counts/exposure live off the CBS book.
+const cbsDPDBucketsSQL = `
+	SELECT dpd_bucket, COUNT(*)::bigint AS loan_count, COALESCE(SUM(op),0)::bigint AS total_kobo
+	FROM (SELECT outstanding_principal_kobo AS op, CASE
+	         WHEN dpd = 0   THEN '0'      WHEN dpd <= 30  THEN '1-30'
+	         WHEN dpd <= 60 THEN '31-60'  WHEN dpd <= 90  THEN '61-90'
+	         WHEN dpd <= 180 THEN '91-180' WHEN dpd <= 360 THEN '181-360' ELSE '360+' END AS dpd_bucket
+	      FROM (SELECT outstanding_principal_kobo,
+	                   GREATEST(0,(CURRENT_DATE - maturity_date::date))::int AS dpd
+	            FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) a) b
+	GROUP BY dpd_bucket ORDER BY dpd_bucket`
+
 // kpiPortfolio returns the latest portfolio snapshot plus DPD bucket breakdown.
 func kpiPortfolio(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		snapRows, err := db.PGQuery(ctx,
-			`SELECT snapshot_date, total_loans, total_outstanding_kobo, total_npls_kobo,
-			        npl_ratio_bps, par30_kobo, par60_kobo, par90_kobo,
-			        new_disbursements_kobo, repayments_kobo
-			 FROM portfolio_daily_snapshot ORDER BY snapshot_date DESC LIMIT 1`)
+		snapRows, err := db.PGQuery(ctx, cbsSnapshotLiveSQL)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -174,11 +194,7 @@ func kpiPortfolio(db *core.DB) http.HandlerFunc {
 			snapshot = snapRows[0]
 		}
 
-		dpdRows, _ := db.PGQuery(ctx,
-			`SELECT dpd_bucket, COUNT(*) AS loan_count, COALESCE(SUM(outstanding_kobo),0) AS total_kobo
-			 FROM loan_dpd_daily_snapshot
-			 WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM loan_dpd_daily_snapshot)
-			 GROUP BY dpd_bucket ORDER BY dpd_bucket`)
+		dpdRows, _ := db.PGQuery(ctx, cbsDPDBucketsSQL)
 
 		respond(w, map[string]any{
 			"snapshot":    snapshot,
@@ -190,11 +206,18 @@ func kpiPortfolio(db *core.DB) http.HandlerFunc {
 // kpiPortfolioTrend returns the last 30 rows from portfolio_daily_snapshot.
 func kpiPortfolioTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Trend from the daily CBS portfolio snapshot (batchCBSPortfolioSnapshot), mapped
+		// to the legacy shape. par buckets aren't snapshotted → 0.
 		rows, err := db.PGQuery(r.Context(),
-			`SELECT snapshot_date, total_loans, total_outstanding_kobo, total_npls_kobo,
-			        npl_ratio_bps, par30_kobo, par60_kobo, par90_kobo,
-			        new_disbursements_kobo, repayments_kobo
-			 FROM portfolio_daily_snapshot
+			`SELECT snapshot_date,
+			        loans_active AS total_loans,
+			        outstanding_principal_kobo AS total_outstanding_kobo,
+			        npl_kobo AS total_npls_kobo,
+			        CASE WHEN outstanding_principal_kobo > 0
+			             THEN ROUND(10000.0 * npl_kobo / outstanding_principal_kobo)::bigint ELSE 0 END AS npl_ratio_bps,
+			        0::bigint AS par30_kobo, 0::bigint AS par60_kobo, 0::bigint AS par90_kobo,
+			        0::bigint AS new_disbursements_kobo, 0::bigint AS repayments_kobo
+			 FROM cbs_portfolio_snapshot
 			 ORDER BY snapshot_date DESC LIMIT 30`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")

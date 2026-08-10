@@ -38,20 +38,17 @@ func txnKPIs(db *core.DB) http.HandlerFunc {
 		var sources []string
 
 		type spec struct {
-			key, ms, pg string
+			key, pg string
 		}
 		for _, s := range []spec{
 			{"total_volume",
-				fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing WHERE 1=1%s", f.MS()),
 				fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) AS val FROM app.transactions WHERE 1=1%s`, f.PG())},
 			{"transaction_count",
-				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Transaction_Listing WHERE 1=1%s", f.MS()),
 				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.transactions WHERE 1=1%s`, f.PG())},
 			{"unique_merchants",
-				fmt.Sprintf("SELECT COUNT(DISTINCT Merchant_Name) AS val FROM dbo.Transaction_Listing WHERE 1=1%s", f.MS()),
 				fmt.Sprintf(`SELECT COUNT(DISTINCT merchant_name) AS val FROM app.transactions WHERE 1=1%s`, f.PG())},
 		} {
-			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg, f.Args()...)
+			val, src, err := db.DualScalar(ctx, "val", s.pg, f.Args()...)
 			if err != nil {
 				respondErr(w, 500, "Query failed: "+s.key)
 				return
@@ -62,7 +59,6 @@ func txnKPIs(db *core.DB) http.HandlerFunc {
 
 		// MTD is always current month regardless of date filter
 		mtd, src, _ := db.DualScalar(ctx, "val",
-			"SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.Transaction_Listing WHERE MONTH(Transaction_Date)=MONTH(GETDATE()) AND YEAR(Transaction_Date)=YEAR(GETDATE())",
 			`SELECT COALESCE(SUM(amount),0) AS val FROM app.transactions WHERE DATE_TRUNC('month',txn_date)=DATE_TRUNC('month',CURRENT_DATE)`)
 		kpis["volume_mtd"] = mtd
 		sources = append(sources, src)
@@ -82,13 +78,6 @@ func txnKPIs(db *core.DB) http.HandlerFunc {
 func txnMonthlyTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT FORMAT(Transaction_Date,'MMM yyyy') AS month,
-			        DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1) AS month_sort,
-			        ISNULL(SUM(Amount),0) AS volume, COUNT(*) AS count
-			 FROM dbo.Transaction_Listing WHERE Transaction_Date IS NOT NULL
-			 GROUP BY DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1),
-			          FORMAT(Transaction_Date,'MMM yyyy')
-			 ORDER BY month_sort`,
 			`SELECT TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YYYY') AS month,
 			        DATE_TRUNC('month',txn_date) AS month_sort,
 			        COALESCE(SUM(amount),0) AS volume, COUNT(*) AS count
@@ -117,9 +106,6 @@ func txnTopMerchants(db *core.DB) http.HandlerFunc {
 		var f Filter
 		f.Date("Transaction_Date", "txn_date", dateFrom, dateTo)
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT TOP 10 Merchant_Name, ISNULL(SUM(Amount),0) AS volume, COUNT(*) AS count
-			  FROM dbo.Transaction_Listing WHERE Merchant_Name IS NOT NULL AND Merchant_Name!=''%s
-			  GROUP BY Merchant_Name ORDER BY volume DESC`, f.MS()),
 			fmt.Sprintf(`SELECT merchant_name AS "Merchant_Name", COALESCE(SUM(amount),0) AS volume, COUNT(*) AS count
 			  FROM app.transactions WHERE merchant_name IS NOT NULL AND merchant_name!=''%s
 			  GROUP BY merchant_name ORDER BY volume DESC LIMIT 10`, f.PG()),
@@ -147,9 +133,6 @@ func txnByType(db *core.DB) http.HandlerFunc {
 		var f Filter
 		f.Date("Transaction_Date", "txn_date", dateFrom, dateTo)
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT Description, ISNULL(SUM(Amount),0) AS volume, COUNT(*) AS count
-			  FROM dbo.Transaction_Listing WHERE Description IS NOT NULL%s
-			  GROUP BY Description ORDER BY volume DESC`, f.MS()),
 			fmt.Sprintf(`SELECT description AS "Description", COALESCE(SUM(amount),0) AS volume, COUNT(*) AS count
 			  FROM app.transactions WHERE description IS NOT NULL%s
 			  GROUP BY description ORDER BY volume DESC`, f.PG()),
@@ -177,8 +160,6 @@ func txnExport(db *core.DB) http.HandlerFunc {
 		var f Filter
 		f.Date("Transaction_Date", "txn_date", dateFrom, dateTo)
 		data, _, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT TOP 5000 Transaction_Date, CIF, Merchant_Name, Description, Amount
-			  FROM dbo.Transaction_Listing WHERE 1=1%s ORDER BY Transaction_Date DESC`, f.MS()),
 			fmt.Sprintf(`SELECT txn_date AS "Transaction Date", cif AS "CIF Number", merchant_name AS "Merchant_Name", description AS "Description", amount AS "Amount"
 			  FROM app.transactions WHERE 1=1%s ORDER BY txn_date DESC LIMIT 5000`, f.PG()),
 			f.Args()...)

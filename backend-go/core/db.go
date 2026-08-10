@@ -3,79 +3,49 @@ package core
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/microsoft/go-mssqldb"
 )
 
-// isTableMissing returns true when the error is a PostgreSQL "relation does not exist"
-// (SQLSTATE 42P01). Used to return empty results for tables that haven't been created yet.
+// isTableMissing reports whether err is PostgreSQL's "relation does not exist"
+// (SQLSTATE 42P01).
+//
+// It matches on the SQLSTATE code alone, deliberately. The old test also accepted any
+// error whose text contained "does not exist", which swallowed `column "x" does not
+// exist` (42703) and `type ... does not exist` — so a typo in a column name surfaced as
+// an empty table rather than a failure. Callers use this to distinguish "not built yet"
+// from "broken", and that distinction only holds if it means exactly one thing.
 func isTableMissing(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "does not exist") ||
-		strings.Contains(msg, "42P01") ||
-		strings.Contains(msg, "undefined table")
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "42P01"
+	}
+	// Fallback for drivers that flatten the error: match the code, never the prose.
+	return strings.Contains(err.Error(), "SQLSTATE 42P01")
 }
 
 // Row is a single result row as a string-keyed map.
 type Row = map[string]any
 
-const (
-	mssqlTimeout = 30 * time.Second
-	pgTimeout    = 15 * time.Second
-	cbThreshold  = 3               // failures before circuit opens
-	cbResetAfter = 60 * time.Second // time before circuit attempts reset
-)
+const pgTimeout = 15 * time.Second
 
-// circuitBreaker prevents hammering a broken MSSQL connection.
-type circuitBreaker struct {
-	mu         sync.Mutex
-	failures   int
-	lastFailed time.Time
-}
-
-func (cb *circuitBreaker) isOpen() bool {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	if cb.failures < cbThreshold {
-		return false
-	}
-	if time.Since(cb.lastFailed) > cbResetAfter {
-		cb.failures = 0
-		return false
-	}
-	return true
-}
-
-func (cb *circuitBreaker) recordSuccess() {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	cb.failures = 0
-}
-
-func (cb *circuitBreaker) recordFailure() {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	cb.failures++
-	cb.lastFailed = time.Now()
-}
-
-// DB holds both database connections and the MSSQL circuit breaker.
+// DB holds the PostgreSQL connection. MSSQL/Sage support was removed once the card
+// system's data was ported into Postgres (feed.* — see docs/DATA_FEED_INGESTION.md);
+// Postgres is now the sole datastore.
 type DB struct {
-	MS          *sql.DB // nil if MSSQL not configured
 	PG          *sql.DB
 	PGURL       string // stored for regular pool URL
 	DirectPGURL string // non-pooler URL for LISTEN/NOTIFY (bypasses PgBouncer)
-	cb          circuitBreaker
 	log         *slog.Logger
 }
 
@@ -86,7 +56,7 @@ func (d *DB) ListenConn(ctx context.Context) (*pgx.Conn, error) {
 	return pgx.Connect(ctx, d.DirectPGURL)
 }
 
-// Open connects to PG (required) and optionally MSSQL.
+// Open connects to PostgreSQL (the sole datastore).
 func Open(cfg *Config) (*DB, error) {
 	pg, err := sql.Open("pgx", cfg.PGURL)
 	if err != nil {
@@ -104,66 +74,63 @@ func Open(cfg *Config) (*DB, error) {
 	}
 	slog.Info("PostgreSQL connected")
 
-	d := &DB{PG: pg, PGURL: cfg.PGURL, DirectPGURL: cfg.DirectPGURL, log: slog.Default()}
-
-	if cfg.MSSQLConnStr != "" {
-		ms, err := sql.Open("sqlserver", cfg.MSSQLConnStr)
-		if err != nil {
-			slog.Warn("MSSQL open failed — continuing without live data", "err", err)
-		} else {
-			ms.SetMaxOpenConns(10)
-			ms.SetMaxIdleConns(3)
-			ms.SetConnMaxLifetime(5 * time.Minute)
-			msCtx, c2 := context.WithTimeout(context.Background(), 8*time.Second)
-			defer c2()
-			if err := ms.PingContext(msCtx); err != nil {
-				slog.Warn("MSSQL unreachable at startup — will retry on requests", "err", err)
-				d.cb.recordFailure()
-			} else {
-				slog.Info("MSSQL connected")
-			}
-			d.MS = ms
-		}
-	}
-	return d, nil
+	return &DB{PG: pg, PGURL: cfg.PGURL, DirectPGURL: cfg.DirectPGURL, log: slog.Default()}, nil
 }
 
-// DualQuery tries MSSQL first, falls back to PostgreSQL.
-// Both queries receive the same args — just the placeholder syntax differs
-// (@p1 for MSSQL, $1 for PG). Build args in the same order as the placeholders.
-func (d *DB) DualQuery(ctx context.Context, msQ, pgQ string, args ...any) ([]Row, string, error) {
-	if d.MS != nil && !d.cb.isOpen() {
-		msCtx, cancel := context.WithTimeout(ctx, mssqlTimeout)
-		defer cancel()
-		rows, err := queryRows(msCtx, d.MS, msQ, args)
-		if err == nil {
-			d.cb.recordSuccess()
-			return rows, "mssql_live", nil
-		}
-		d.cb.recordFailure()
-		d.log.Warn("MSSQL query failed — falling back to Supabase", "err", err)
-	}
-
+// DualQuery runs a query and reports which source answered it.
+//
+// The name is historical: this once tried MSSQL/Sage first and fell back to Postgres.
+// That path is gone — Postgres is the sole datastore (see docs/DATA_FEED_INGESTION.md)
+// — and the dead MSSQL argument has been removed from every call site rather than left
+// in place discarded, which made a severed connection read as live code.
+//
+// A missing table yields an empty result rather than an error, so a module whose schema
+// is still being built shows a clean empty state. Any other failure is returned.
+func (d *DB) DualQuery(ctx context.Context, pgQ string, args ...any) ([]Row, string, error) {
 	pgCtx, cancel := context.WithTimeout(ctx, pgTimeout)
 	defer cancel()
 	rows, err := queryRows(pgCtx, d.PG, pgQ, args)
 	if err != nil {
 		if isTableMissing(err) {
-			d.log.Warn("DualQuery: PG table not found — returning empty result", "err", err)
-			return []Row{}, "supabase_empty", nil
+			d.logger().Warn("DualQuery: relation does not exist — returning empty result",
+				"err", err, "query", truncQuery(pgQ))
+			return []Row{}, "pg_empty", nil
 		}
 		return nil, "", err
 	}
-	return rows, "supabase_snapshot", nil
+	return rows, "pg", nil
 }
 
 // DualScalar returns the first column named col from the first result row.
-func (d *DB) DualScalar(ctx context.Context, col, msQ, pgQ string, args ...any) (any, string, error) {
-	rows, src, err := d.DualQuery(ctx, msQ, pgQ, args...)
+func (d *DB) DualScalar(ctx context.Context, col, pgQ string, args ...any) (any, string, error) {
+	rows, src, err := d.DualQuery(ctx, pgQ, args...)
 	if err != nil || len(rows) == 0 {
 		return nil, src, err
 	}
 	return rows[0][col], src, nil
+}
+
+// logger returns the DB's logger, falling back to the default.
+//
+// Open() always sets one, but tests construct a DB directly as &core.DB{PG: pg} — the
+// established convention in this repo — which leaves the field nil. Calling a method on
+// a nil *slog.Logger panics, so every log site goes through here rather than touching
+// d.log and turning a missing table in a test into a crash.
+func (d *DB) logger() *slog.Logger {
+	if d.log == nil {
+		return slog.Default()
+	}
+	return d.log
+}
+
+// truncQuery shortens a query for log output so a failing 40-line report SQL does not
+// dominate the log line. Whitespace is collapsed so multi-line SQL stays on one line.
+func truncQuery(q string) string {
+	q = strings.Join(strings.Fields(q), " ")
+	if len(q) > 160 {
+		return q[:160] + "…"
+	}
+	return q
 }
 
 // PGQuery runs a query directly against PostgreSQL (for PG-only data like CRM, loans).
@@ -174,7 +141,7 @@ func (d *DB) PGQuery(ctx context.Context, q string, args ...any) ([]Row, error) 
 	defer cancel()
 	rows, err := queryRows(pgCtx, d.PG, q, args)
 	if isTableMissing(err) {
-		d.log.Warn("PGQuery: table not found — returning empty result", "err", err)
+		d.logger().Warn("PGQuery: table not found — returning empty result", "err", err)
 		return []Row{}, nil
 	}
 	return rows, err
@@ -233,31 +200,20 @@ func normalizeVal(v any) any {
 	}
 }
 
-// HealthReport describes the connection status of each database.
+// HealthReport describes the connection status of the datastore.
 type HealthReport struct {
-	MSSQL  string `json:"mssql"`
+	MSSQL  string `json:"mssql"` // always "removed" — retained for API compatibility
 	PG     string `json:"pg"`
 	Active string `json:"active_source"`
 }
 
 func (d *DB) Health(ctx context.Context) HealthReport {
-	r := HealthReport{MSSQL: "not_configured", PG: "offline", Active: "supabase_snapshot"}
+	r := HealthReport{MSSQL: "removed", PG: "offline", Active: "postgres"}
 
 	pgCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := d.PG.PingContext(pgCtx); err == nil {
 		r.PG = "online"
-	}
-
-	if d.MS != nil {
-		msCtx, cancel2 := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel2()
-		if err := d.MS.PingContext(msCtx); err == nil {
-			r.MSSQL = "online"
-			r.Active = "mssql_live"
-		} else {
-			r.MSSQL = "offline"
-		}
 	}
 	return r
 }

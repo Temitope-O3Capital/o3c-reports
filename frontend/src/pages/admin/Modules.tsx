@@ -16,7 +16,7 @@ interface Module {
 
 const MODULE_DESCRIPTIONS: Record<string, string> = {
   sales:      'Business development, sales pipeline, CRM, mail, and campaign tools',
-  contact:    'Telemarketing queue, customer service tickets, and call centre tools',
+  contact:    'Outbound queue, customer service tickets, and call center tools',
   cards:      'Card issuance, cardholder management, disputes, and billing cycles',
   lending:    'Risk review, collections queue, recovery cases, and loan management',
   finance:    'P&L, EOD, fixed deposits, settlements, and reconciliation',

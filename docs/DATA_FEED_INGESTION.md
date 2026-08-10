@@ -337,6 +337,39 @@ emit the keys it already has.
 
 ---
 
+## 10b. repo → app.* loader — spec (post-consolidation, verified 2026-08-10)
+
+The old external `raw→src→core` ingest is retired (its `src`/`raw` targets were dropped and
+`core.transaction` is now a bridge view). It is currently **idle, not erroring** (no live drops
+right now), so nothing is on fire — but `app.*` won't update until this loader is built.
+
+**Target tables & keys (verified):**
+- `app.customers` PK = `contact_id` (Sage surrogate). Feed has `cif`, not `contact_id`.
+  `cif` is **not unique**: 19,577 distinct / 19,614 rows, 36 null, 1 dup (`00032142`).
+- `app.accounts` PK = `account_id` (surrogate). Feed has `account_no` (`Number_`). `account_no`
+  19,996 distinct / 19,999 rows → 3 dups, 0 null.
+- `app.transactions` PK = `txn_id`; **`row_hash` has a partial UNIQUE index** → dedup-ready.
+
+**Prerequisites before the loader (one-time production DB change):**
+1. Dedup the 1 `cif` dup + 3 `account_no` dups (keep the richer row).
+2. Add `UNIQUE(cif) WHERE cif<>''` on `app.customers` and `UNIQUE(account_no)` on `app.accounts`
+   so the loader can `INSERT … ON CONFLICT (cif|account_no) DO UPDATE`. New feed-only rows get a
+   synthetic surrogate id (`contact_id='feed:'||cif`, `account_id='feed:'||account_no`,
+   `txn_id='feed:'||row_hash`).
+
+**Loader (custom parser required — headerless/unquoted/embedded-comma CSVs):**
+- Parse each stream positionally (§3 maps); validate field count per row; quarantine shifted
+  rows (address-comma hazard, §8). Stage → transform (DD/MM/YYYY, naira→kobo, `-1`→bool) →
+  upsert on `cif` / `account_no` / `row_hash`. `txn_file` links to a customer via
+  `account_no → app.accounts.account_no → cif`.
+
+**Open decision (yours):** where do **live drops** land going forward (still `Desktop\Data Dump`
+or a server share?), and is the loader a **Go worker in the backend** (wired into `main.go`,
+15-min ticker) or a **standalone scheduled job**? That choice sets where this gets built. Until
+then `app.*` holds the Sage baseline (through Sep 2025) — accurate, just not live.
+
+---
+
 ## 11. Proposed build order (once signed off)
 
 1. Create `feed.*` schema + `stg_*` staging + `feed.ingestions` (migration, idempotent).

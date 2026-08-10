@@ -14,13 +14,13 @@ import (
 // reportExportAllowed returns true if the caller's role may export report data.
 // H12: Exports contain sensitive financial data; restrict to finance/compliance leadership.
 var reportExportRoles = map[string]bool{
-	"admin":            true,
-	"finance_head":     true,
-	"cfo":              true,
-	"coo":              true,
-	"md":               true,
-	"compliance_head":  true,
-	"it_admin":         true,
+	"admin":           true,
+	"finance_head":    true,
+	"cfo":             true,
+	"coo":             true,
+	"md":              true,
+	"compliance_head": true,
+	"it_admin":        true,
 }
 
 func reportExportAllowed(r *http.Request) bool {
@@ -43,16 +43,16 @@ func RegisterReports(r chi.Router, db *core.DB) {
 	r.With(read).Get("/customer-statement/emails", listStatementEmails(db))
 	r.With(read).Get("/npl-return", reportNPLReturn(db))
 	r.With(audit).Get("/audit-trail-export", reportAuditTrailExport(db))
-	r.With(read).Get("/kpis",        reportKPIsHandler(db))
+	r.With(read).Get("/kpis", reportKPIsHandler(db))
 	r.With(read).Get("/kpi-history", reportKPIHistoryHandler(db))
 
 	// BI report builder (reports/BI.tsx)
-	r.With(read).Post("/run",          reportsBIRun(db))
-	r.With(read).Post("/export",       reportsBIExport(db))
-	r.With(read).Post("/saved",        reportsSavedCreate(db))
-	r.With(read).Get("/saved",         reportsSavedList(db))
-	r.With(read).Post("/schedules",    reportsScheduleCreate(db))
-	r.With(read).Get("/export-log",    reportsExportLog(db))
+	r.With(read).Post("/run", reportsBIRun(db))
+	r.With(read).Post("/export", reportsBIExport(db))
+	r.With(read).Post("/saved", reportsSavedCreate(db))
+	r.With(read).Get("/saved", reportsSavedList(db))
+	r.With(read).Post("/schedules", reportsScheduleCreate(db))
+	r.With(read).Get("/export-log", reportsExportLog(db))
 }
 
 // reportsList returns metadata for all available report types.
@@ -98,10 +98,6 @@ func reportMonthlyBusiness(db *core.DB) http.HandlerFunc {
 
 		// New accounts (from MSSQL or PG)
 		newAccounts, src1, _ := db.DualQuery(ctx,
-			fmt.Sprintf(`SELECT Product_Name AS product_type, COUNT(DISTINCT CIF_Number) AS new_accounts
-			 FROM dbo.Account
-			 WHERE CAST(Account_Created AS DATE) BETWEEN @p1 AND @p2
-			 GROUP BY Product_Name ORDER BY new_accounts DESC`),
 			fmt.Sprintf(`SELECT product_name AS product_type, COUNT(DISTINCT cif) AS new_accounts
 			 FROM app.accounts
 			 WHERE opened_date::date BETWEEN $1 AND $2
@@ -132,7 +128,6 @@ func reportMonthlyBusiness(db *core.DB) http.HandlerFunc {
 		var f Filter
 		f.Date("Date", `"Date"`, dateFrom, dateTo)
 		collTotal, src2, _ := db.DualScalar(ctx, "val",
-			fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE 1=1%s", f.MS()),
 			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE 1=1%s`, f.PG()),
 			f.Args()...)
 
@@ -140,14 +135,12 @@ func reportMonthlyBusiness(db *core.DB) http.HandlerFunc {
 		var rf Filter
 		rf.Date("[Recovery Date]", `"Recovery Date"`, dateFrom, dateTo)
 		recovTotal, src3, _ := db.DualScalar(ctx, "val",
-			fmt.Sprintf("SELECT ISNULL(SUM([Recovery Amount]),0) AS val FROM dbo.RecoveryMasterSheet WHERE 1=1%s", rf.MS()),
 			fmt.Sprintf(`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE 1=1%s`, rf.PG()),
 			rf.Args()...)
 
 		// Active loans and NPL count from snapshot
 		nplRows, _ := db.PGQuery(ctx,
-			`SELECT total_loans, total_npls_kobo, total_outstanding_kobo, npl_ratio_bps
-			 FROM portfolio_daily_snapshot ORDER BY snapshot_date DESC LIMIT 1`)
+			`SELECT total_loans, total_npls_kobo, total_outstanding_kobo, npl_ratio_bps FROM (`+cbsSnapshotLiveSQL+`) s`)
 
 		result := map[string]any{
 			"date_from":         dateFrom,
@@ -375,11 +368,6 @@ func reportSettlementRecon(db *core.DB) http.HandlerFunc {
 		var f Filter
 		f.Date("Repayment_Date", `"Date"`, dateFrom, dateTo)
 		collRows, collSrc, _ := db.DualQuery(ctx,
-			fmt.Sprintf(`SELECT Rn_Create_User AS agent,
-			        ISNULL(SUM(Amount),0) AS collected_total,
-			        COUNT(*) AS payment_count
-			 FROM dbo.o3_loan_Repayment WHERE 1=1%s
-			 GROUP BY Rn_Create_User ORDER BY collected_total DESC`, f.MS()),
 			fmt.Sprintf(`SELECT "Agent",
 			        COALESCE(SUM("Amount"),0) AS collected_total,
 			        COUNT(*) AS payment_count
@@ -396,7 +384,6 @@ func reportSettlementRecon(db *core.DB) http.HandlerFunc {
 			dateFrom, dateTo)
 
 		collTotal, _, _ := db.DualScalar(ctx, "val",
-			fmt.Sprintf("SELECT ISNULL(SUM(Amount),0) AS val FROM dbo.o3_loan_Repayment WHERE 1=1%s", f.MS()),
 			fmt.Sprintf(`SELECT COALESCE(SUM("Amount"),0) AS val FROM "Collections Log" WHERE 1=1%s`, f.PG()),
 			f.Args()...)
 
@@ -609,8 +596,7 @@ func reportNPLReturn(db *core.DB) http.HandlerFunc {
 		// Latest portfolio snapshot
 		snapRows, err := db.PGQuery(ctx,
 			`SELECT snapshot_date, total_loans, total_outstanding_kobo, total_npls_kobo,
-			        npl_ratio_bps, par30_kobo, par60_kobo, par90_kobo
-			 FROM portfolio_daily_snapshot ORDER BY snapshot_date DESC LIMIT 1`)
+			        npl_ratio_bps, par30_kobo, par60_kobo, par90_kobo FROM (`+cbsSnapshotLiveSQL+`) s`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -725,19 +711,27 @@ func reportPeriodRange(period string) (dateFrom, dateTo string) {
 
 func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx    := r.Context()
+		ctx := r.Context()
 		period := qstr(r, "period")
-		if period == "" { period = "this_month" }
+		if period == "" {
+			period = "this_month"
+		}
 		dateFrom, dateTo := reportPeriodRange(period)
-		if v := r.URL.Query().Get("from"); v != "" { dateFrom = v }
-		if v := r.URL.Query().Get("to");   v != "" { dateTo   = v }
+		if v := r.URL.Query().Get("from"); v != "" {
+			dateFrom = v
+		}
+		if v := r.URL.Query().Get("to"); v != "" {
+			dateTo = v
+		}
 
 		out := map[string]any{}
 
 		// Active loans
 		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS val FROM loan_accounts WHERE status='active'`); len(rows) > 0 {
 			out["active_loans"] = rows[0]["val"]
-		} else { out["active_loans"] = 0 }
+		} else {
+			out["active_loans"] = 0
+		}
 
 		// Total disbursed in period
 		if rows, _ := db.PGQuery(ctx,
@@ -747,14 +741,15 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 			   AND disbursed_at::date BETWEEN $1::date AND $2::date`,
 			dateFrom, dateTo); len(rows) > 0 {
 			out["total_disbursed_kobo"] = rows[0]["val"]
-		} else { out["total_disbursed_kobo"] = 0 }
+		} else {
+			out["total_disbursed_kobo"] = 0
+		}
 
 		// NPL ratio and PAR30 from latest portfolio snapshot
 		out["npl_ratio_pct"] = 0.0
 		out["par30_pct"] = 0.0
 		if rows, _ := db.PGQuery(ctx,
-			`SELECT npl_ratio_bps, par30_kobo, total_outstanding_kobo
-			 FROM portfolio_daily_snapshot ORDER BY snapshot_date DESC LIMIT 1`); len(rows) > 0 {
+			`SELECT npl_ratio_bps, par30_kobo, total_outstanding_kobo FROM (`+cbsSnapshotLiveSQL+`) s`); len(rows) > 0 {
 			out["npl_ratio_pct"] = round1(toFloat(rows[0]["npl_ratio_bps"]) / 100.0)
 			total := toFloat(rows[0]["total_outstanding_kobo"])
 			if total > 0 {
@@ -809,7 +804,6 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 
 		// Active cards (dual DB: MSSQL live / PG mirror)
 		activeCards, _, _ := db.DualScalar(ctx, "val",
-			`SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('Open','Active')`,
 			`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')`)
 		out["active_cards"] = activeCards
 
@@ -838,7 +832,9 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 			"disbursed_kobo", "active_loans", "npl_pct", "par30_pct",
 			"collection_pct", "recovery_pct", "csat", "new_customers", "active_cards", "revenue_kobo",
 		} {
-			if _, ok := out["target_"+k]; !ok { out["target_"+k] = 0 }
+			if _, ok := out["target_"+k]; !ok {
+				out["target_"+k] = 0
+			}
 		}
 
 		respond(w, out, "pg")
@@ -867,8 +863,9 @@ func reportKPIHistoryHandler(db *core.DB) http.HandlerFunc {
 			),
 			npl AS (
 			  SELECT DATE_TRUNC('month', snapshot_date)::date AS m,
-			    ROUND(AVG(npl_ratio_bps)/100.0, 2) AS ratio
-			  FROM portfolio_daily_snapshot GROUP BY 1
+			    ROUND(AVG(CASE WHEN outstanding_principal_kobo > 0
+			                   THEN 100.0 * npl_kobo / outstanding_principal_kobo ELSE 0 END), 2) AS ratio
+			  FROM cbs_portfolio_snapshot GROUP BY 1
 			),
 			revenue AS (
 			  SELECT DATE_TRUNC('month', fee_date)::date AS m, COALESCE(SUM(amount),0) AS total

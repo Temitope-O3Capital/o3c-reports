@@ -27,7 +27,7 @@ const MODULE_METRICS: Record<string, string[]> = {
   HR: ['Headcount', 'Attrition Rate', 'Avg Salary ₦', 'Leave Days'],
   Compliance: ['Open Findings', 'SARs Filed', 'Watchlist Hits'],
   Cards: ['Active Cards', 'Transactions ₦', 'Open Disputes'],
-  Telemarketing: ['Calls Made', 'PTPs', 'Conversion Rate'],
+  'Call Center': ['Calls Made', 'Connected', 'Conversion Rate'],
 }
 
 const MODULES = Object.keys(MODULE_METRICS)

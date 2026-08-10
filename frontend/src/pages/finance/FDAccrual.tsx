@@ -1,6 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, Spinner } from '../../components/UI'
+import { SectionCard, DataTable, ErrBanner, Spinner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, today } from '../../lib/fmt'
@@ -112,27 +112,23 @@ export default function FDAccrual() {
   ]
 
   return (
-    <Page
-      title="FD Interest Accrual"
-      subtitle="Accrued and daily interest across all active fixed deposits"
-      actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>
-            As of
-          </label>
-          <input
-            type="date"
-            value={asOf}
-            onChange={e => setAsOf(e.target.value)}
-            style={{
-              padding: '5px 10px', borderRadius: RADIUS.md,
-              border: '1px solid var(--input-bdr)', background: 'var(--input-bg)',
-              color: 'var(--txt)', fontSize: TEXT.sm, cursor: 'pointer',
-            }}
-          />
-        </div>
-      }
-    >
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginBottom: SP[4] }}>
+        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>
+          As of
+        </label>
+        <input
+          type="date"
+          value={asOf}
+          onChange={e => setAsOf(e.target.value)}
+          style={{
+            padding: '5px 10px', borderRadius: RADIUS.md,
+            border: '1px solid var(--input-bdr)', background: 'var(--input-bg)',
+            color: 'var(--txt)', fontSize: TEXT.sm, cursor: 'pointer',
+          }}
+        />
+      </div>
+
       <ErrBanner error={error} onRetry={load} />
 
       <div style={{ display: 'flex', gap: SP[3], marginBottom: SP[4], flexWrap: 'wrap' }}>
@@ -174,6 +170,6 @@ export default function FDAccrual() {
           />
         )}
       </SectionCard>
-    </Page>
+    </>
   )
 }

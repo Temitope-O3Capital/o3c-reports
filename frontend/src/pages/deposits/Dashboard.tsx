@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Cell,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, ErrBanner, Spinner } from '../../components/UI'
+import { KpiCard, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
 import { NAVY, BLUE, AMBER, GREEN, RED, PURPLE, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -84,7 +84,7 @@ export default function DepositsDashboard() {
   const totalProdPrincipal = products.reduce((s, p) => s + p.principal_kobo, 0) || 1
 
   return (
-    <Page title="Fixed Deposits" subtitle="Deposit book, maturities and cost of funds — live from core banking (Udara)">
+    <>
       <ErrBanner error={error} onRetry={load} />
 
       {loading && !kpis ? (
@@ -196,7 +196,7 @@ export default function DepositsDashboard() {
           </div>
         </>
       )}
-    </Page>
+    </>
   )
 }
 

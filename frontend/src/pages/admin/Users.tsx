@@ -50,10 +50,9 @@ const ROLE_GROUPS = [
   { label: 'Recovery',              roles: ['recovery_agent','recovery_head'] },
   { label: 'Risk & Credit',         roles: ['risk_officer','risk_head'] },
   { label: 'Sales & Business Dev',  roles: ['sales_officer','sales_head','bd_officer','bd_head'] },
-  { label: 'Call Centre',           roles: ['call_center_agent','call_center_head'] },
+  { label: 'Call Center',           roles: ['call_center_agent','call_center_head'] },
   { label: 'Human Resources',       roles: ['hr_officer','hr_manager','payroll_officer','payroll_manager'] },
   { label: 'Compliance & Control',  roles: ['compliance_officer','compliance_head','internal_control_head'] },
-  { label: 'Marketing',             roles: ['telemarketing_agent','telemarketing_head'] },
 ].map(g => ({ ...g, roles: g.roles.filter(r => r in ROLE_LABELS) }))
 
 function RoleSelect({ value, onChange, style }: { value: string; onChange: (v: string) => void; style?: React.CSSProperties }) {

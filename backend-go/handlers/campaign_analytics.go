@@ -532,6 +532,89 @@ func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 			contactStats["failed"] = toInt64(cs["failed"])
 		}
 
+		// Benchmarks: how this campaign's rates compare to the average of other
+		// launched campaigns on the same channel (with sends). Lets a rate read as
+		// good/bad at a glance rather than as a bare number.
+		benchmarks := map[string]any{"peer_count": int64(0), "avg_open_rate": float64(0), "avg_click_rate": float64(0), "avg_delivery_rate": float64(0)}
+		benchRows, _ := db.PGQuery(r.Context(), `
+			SELECT
+			    COUNT(*) AS peer_count,
+			    COALESCE(AVG(CASE WHEN (emails_sent+sms_sent+whatsapp_sent) > 0
+			        THEN (emails_delivered+sms_delivered+whatsapp_delivered)::float/(emails_sent+sms_sent+whatsapp_sent)*100 END),0) AS avg_delivery_rate,
+			    COALESCE(AVG(CASE WHEN emails_sent > 0 THEN emails_opened::float/emails_sent*100 END),0)  AS avg_open_rate,
+			    COALESCE(AVG(CASE WHEN emails_sent > 0 THEN emails_clicked::float/emails_sent*100 END),0) AS avg_click_rate
+			FROM campaigns
+			WHERE type=$1 AND id<>$2 AND (emails_sent+sms_sent+whatsapp_sent) > 0`, channel, id)
+		if len(benchRows) > 0 {
+			b := benchRows[0]
+			benchmarks["peer_count"] = toInt64(b["peer_count"])
+			benchmarks["avg_delivery_rate"] = roundPct(toFloat(b["avg_delivery_rate"]))
+			benchmarks["avg_open_rate"] = roundPct(toFloat(b["avg_open_rate"]))
+			benchmarks["avg_click_rate"] = roundPct(toFloat(b["avg_click_rate"]))
+		}
+
+		// Engagement insights from the raw event stream (opens with timestamps).
+		insights := map[string]any{
+			"opens_by_hour":     []map[string]any{},
+			"peak_open_hour":    nil,
+			"total_opens":       int64(0),
+			"unique_openers":    int64(0),
+			"repeat_opens":      int64(0),
+			"avg_hours_to_open": float64(0),
+			"device":            map[string]any{"mobile": int64(0), "desktop": int64(0)},
+		}
+		hodRows, _ := db.PGQuery(r.Context(), `
+			SELECT EXTRACT(hour FROM ts)::int AS hod, COUNT(*) AS opens
+			FROM campaign_events WHERE campaign_id=$1 AND event_type='opened'
+			GROUP BY 1 ORDER BY 1`, id)
+		opensByHour := make([]map[string]any, 0, len(hodRows))
+		var peakHour, peakOpens int64 = -1, -1
+		for _, row := range hodRows {
+			h := toInt64(row["hod"])
+			o := toInt64(row["opens"])
+			opensByHour = append(opensByHour, map[string]any{"hour": h, "opens": o})
+			if o > peakOpens {
+				peakOpens = o
+				peakHour = h
+			}
+		}
+		insights["opens_by_hour"] = opensByHour
+		if peakHour >= 0 {
+			insights["peak_open_hour"] = peakHour
+		}
+		repeatRows, _ := db.PGQuery(r.Context(), `
+			SELECT COUNT(*) AS total_opens, COUNT(DISTINCT contact_id) AS unique_openers
+			FROM campaign_events WHERE campaign_id=$1 AND event_type='opened'`, id)
+		if len(repeatRows) > 0 {
+			total := toInt64(repeatRows[0]["total_opens"])
+			uniq := toInt64(repeatRows[0]["unique_openers"])
+			insights["total_opens"] = total
+			insights["unique_openers"] = uniq
+			if total > uniq {
+				insights["repeat_opens"] = total - uniq
+			}
+		}
+		ttoRows, _ := db.PGQuery(r.Context(), `
+			SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (fo.first_open - COALESCE(c.started_at, c.created_at)))/3600.0),0) AS avg_hours
+			FROM (SELECT contact_id, MIN(ts) AS first_open FROM campaign_events
+			      WHERE campaign_id=$1 AND event_type='opened' AND contact_id IS NOT NULL
+			      GROUP BY contact_id) fo
+			CROSS JOIN campaigns c WHERE c.id=$1`, id)
+		if len(ttoRows) > 0 {
+			h := toFloat(ttoRows[0]["avg_hours"])
+			if h > 0 {
+				insights["avg_hours_to_open"] = float64(int64(h*10+0.5)) / 10
+			}
+		}
+		devRows, _ := db.PGQuery(r.Context(), `
+			SELECT
+			    COUNT(*) FILTER (WHERE user_agent ILIKE '%Mobi%') AS mobile,
+			    COUNT(*) FILTER (WHERE user_agent IS NOT NULL AND user_agent NOT ILIKE '%Mobi%') AS desktop
+			FROM campaign_events WHERE campaign_id=$1 AND event_type='opened'`, id)
+		if len(devRows) > 0 {
+			insights["device"] = map[string]any{"mobile": toInt64(devRows[0]["mobile"]), "desktop": toInt64(devRows[0]["desktop"])}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"campaign": map[string]any{
@@ -548,6 +631,8 @@ func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 			"timeline":      timeline,
 			"top_links":     topLinks,
 			"contact_stats": contactStats,
+			"benchmarks":    benchmarks,
+			"insights":      insights,
 		})
 	}
 }

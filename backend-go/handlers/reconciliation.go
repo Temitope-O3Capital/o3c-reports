@@ -195,7 +195,11 @@ type eodTotals struct {
 	TotalVol   float64 `json:"total_volume"`
 }
 
-func eodTotalsForPeriod(ctx context.Context, db *core.DB, dateFrom, dateTo string) eodTotals {
+// eodTotalsForPeriod returns the internal EOD ledger totals, and ok=false when
+// that ledger is unavailable. The eod_transactions table does not exist in this
+// deployment, so callers MUST check ok — reporting a zero ledger as if it were
+// real makes the whole uploaded volume look like a discrepancy.
+func eodTotalsForPeriod(ctx context.Context, db *core.DB, dateFrom, dateTo string) (eodTotals, bool) {
 	rows, err := db.PGQuery(ctx, `
 		SELECT
 			COUNT(*)                                              AS txn_count,
@@ -206,7 +210,7 @@ func eodTotalsForPeriod(ctx context.Context, db *core.DB, dateFrom, dateTo strin
 		WHERE txn_date >= $1::date AND txn_date <= $2::date`,
 		dateFrom, dateTo)
 	if err != nil || len(rows) == 0 {
-		return eodTotals{}
+		return eodTotals{}, false
 	}
 	r := rows[0]
 	return eodTotals{
@@ -214,7 +218,7 @@ func eodTotalsForPeriod(ctx context.Context, db *core.DB, dateFrom, dateTo strin
 		TotalDR:  toFloat64(r["total_dr"]),
 		TotalCR:  toFloat64(r["total_cr"]),
 		TotalVol: toFloat64(r["total_volume"]),
-	}
+	}, true
 }
 
 func toFloat64(v any) float64 {
@@ -411,9 +415,14 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 					placeholders += fmt.Sprintf("$%d", i+1)
 					args[i] = ref
 				}
+				// Match against the live Udara/CBS book by its loan referenceNumber.
 				rows, _ := db.PGQuery(ctx,
-					`SELECT reference, applicant_name, applicant_cif
-					 FROM loan_applications WHERE reference IN (`+placeholders+`)`,
+					`SELECT reference_number AS reference,
+					        COALESCE((SELECT NULLIF(trim(a.first_name||' '||COALESCE(a.last_name,'')),'')
+					                  FROM app.customers a WHERE a.cif = cbs_loans.cbs_customer_id LIMIT 1),
+					                 cbs_loans.raw->>'name') AS applicant_name,
+					        cbs_customer_id AS applicant_cif
+					 FROM cbs_loans WHERE reference_number IN (`+placeholders+`)`,
 					args...)
 				for _, row := range rows {
 					ref := zohoStr(row["reference"])
@@ -536,8 +545,8 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 			"from": {psFrom}, "to": {psTo}, "status": {"failed"}, "perPage": {"1"}, "page": {"1"},
 		})
 
-		// EOD totals from our database
-		eod := eodTotalsForPeriod(ctx, db, dateFrom, dateTo)
+		// EOD totals from our database (ledgerOK=false when the EOD ledger is absent)
+		eod, ledgerOK := eodTotalsForPeriod(ctx, db, dateFrom, dateTo)
 
 		type psSummary struct {
 			Configured       bool    `json:"configured"`
@@ -577,17 +586,19 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 		ps.Success = metaInt64(psSuccess, "total")
 		ps.Failed = metaInt64(psFailed, "total")
 
-		// Delta: EOD uses NGN amounts (not kobo), compare volumes
-		volDelta := ps.TotalVolumeNGN - eod.TotalVol
-		cntDelta := ps.TotalCount - eod.TxnCount
-
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"data_source": "paystack",
-			"configured":  true,
-			"fetched_at":  time.Now().UTC().Format(time.RFC3339),
-			"period":      map[string]string{"from": dateFrom, "to": dateTo},
-			"paystack":    ps,
-			"eod": map[string]any{
+		// Delta: EOD uses NGN amounts (not kobo), compare volumes.
+		// Only meaningful when the internal ledger actually exists — otherwise the
+		// "delta" is just the Paystack volume restated, which reads as a discrepancy.
+		out := map[string]any{
+			"data_source":      "paystack",
+			"configured":       true,
+			"fetched_at":       time.Now().UTC().Format(time.RFC3339),
+			"period":           map[string]string{"from": dateFrom, "to": dateTo},
+			"paystack":         ps,
+			"ledger_available": ledgerOK,
+		}
+		if ledgerOK {
+			out["eod"] = map[string]any{
 				"txn_count":     eod.TxnCount,
 				"total_dr_ngn":  eod.TotalDR,
 				"total_cr_ngn":  eod.TotalCR,
@@ -595,12 +606,17 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 				// Frontend compares against paystack.total_volume_kobo (kobo), so
 				// expose the ledger volume in kobo too.
 				"total_vol_kobo": int64(math.Round(eod.TotalVol * 100)),
-			},
-			"delta": map[string]any{
-				"txn_count_diff":  cntDelta,
-				"volume_ngn_diff": math.Round(volDelta*100) / 100,
-			},
-		})
+			}
+			out["delta"] = map[string]any{
+				"txn_count_diff":  ps.TotalCount - eod.TxnCount,
+				"volume_ngn_diff": math.Round((ps.TotalVolumeNGN-eod.TotalVol)*100) / 100,
+			}
+		} else {
+			out["eod"] = nil
+			out["delta"] = nil
+			out["ledger_note"] = "No internal EOD ledger for this period — nothing to reconcile against yet."
+		}
+		json.NewEncoder(w).Encode(out) //nolint:errcheck
 	}
 }
 
@@ -713,10 +729,9 @@ func iswReconSummary(db *core.DB) http.HandlerFunc {
 		}
 
 		// Internal EOD ledger totals for the same period (amount is in NGN → kobo).
-		eod := eodTotalsForPeriod(ctx, db, dateFrom, dateTo)
-		eodVolKobo := int64(math.Round(eod.TotalVol * 100))
+		eod, ledgerOK := eodTotalsForPeriod(ctx, db, dateFrom, dateTo)
 
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		out := map[string]any{
 			"data_source": "interswitch",
 			"source":      "uploaded_eod",
 			"has_data":    iswCount > 0,
@@ -726,15 +741,26 @@ func iswReconSummary(db *core.DB) http.HandlerFunc {
 				"txn_count":         iswCount,
 				"total_volume_kobo": iswVolKobo,
 			},
-			"eod": map[string]any{
+			"ledger_available": ledgerOK,
+		}
+		if ledgerOK {
+			eodVolKobo := int64(math.Round(eod.TotalVol * 100))
+			out["eod"] = map[string]any{
 				"txn_count":      eod.TxnCount,
 				"total_vol_kobo": eodVolKobo,
-			},
-			"delta": map[string]any{
+			}
+			out["delta"] = map[string]any{
 				"txn_count_diff":   iswCount - eod.TxnCount,
 				"volume_kobo_diff": iswVolKobo - eodVolKobo,
-			},
-		})
+			}
+		} else {
+			// Without a ledger side, a "delta" equal to the whole uploaded volume
+			// reads as a ₦6bn discrepancy. Report the absence instead.
+			out["eod"] = nil
+			out["delta"] = nil
+			out["ledger_note"] = "No internal EOD ledger for this period — nothing to reconcile against yet."
+		}
+		json.NewEncoder(w).Encode(out) //nolint:errcheck
 	}
 }
 

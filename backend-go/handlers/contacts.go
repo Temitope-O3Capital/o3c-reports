@@ -41,6 +41,15 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		cif := chi.URLParam(r, "cif")
 		ctx := r.Context()
 
+		// A CIF is a card, and one PERSON holds many CIFs. Resolve every CIF that
+		// belongs to the same person (party) as the one opened, so Cards and
+		// Transactions show the whole person — not just this one card. Falls back to
+		// the single CIF when the row isn't linked to a party yet.
+		personCIFs := `(SELECT c2.cif FROM app.customers c2
+		    WHERE c2.party_id = (SELECT party_id FROM app.customers WHERE cif = $1 LIMIT 1)
+		      AND c2.party_id IS NOT NULL
+		    UNION SELECT $1)`
+
 		// ── Identity from the customer master ("Accounts" — Sage snapshot) ─────
 		acctRows, _ := db.PGQuery(ctx, `
 			SELECT TRIM(CONCAT(first_name, ' ', last_name)) AS name,
@@ -49,18 +58,18 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			       birthday::text AS date_of_birth
 			FROM app.customers WHERE cif = $1 LIMIT 1`, cif)
 
-		// ── Cards / accounts from the "Products" view ─────────────────────────
+		// ── Cards / accounts — ALL of the person's cards across their CIFs ─────
 		prodRows, _ := db.PGQuery(ctx, `
 			SELECT product_name AS product_name, status AS status,
 			       name_on_card AS name_on_card, COALESCE(card_product,card_program) AS scheme
-			FROM app.accounts WHERE cif = $1`, cif)
+			FROM app.accounts WHERE cif IN `+personCIFs, cif)
 
 		// ── Loans from the CBS/Udara book ─────────────────────────────────────
 		cbsLoans, _ := db.PGQuery(ctx, `
 			SELECT cbs_account_number, product_name, status,
 			       outstanding_principal_kobo, loan_amount_kobo, interest_rate,
 			       start_date, maturity_date
-			FROM cbs_loans WHERE cbs_customer_id = $1
+			FROM cbs_loans WHERE cbs_customer_id IN `+personCIFs+`
 			ORDER BY start_date DESC`, cif)
 
 		// ── Fixed deposits from the CBS/Udara register ────────────────────────
@@ -68,7 +77,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			SELECT cbs_account_number, product_name, status,
 			       principal_kobo, accrued_interest_kobo, interest_rate,
 			       commencement_date, maturity_date
-			FROM cbs_fixed_deposits WHERE cbs_customer_id = $1
+			FROM cbs_fixed_deposits WHERE cbs_customer_id IN `+personCIFs+`
 			ORDER BY commencement_date DESC`, cif)
 
 		// ── Recent account transactions (naira). Read the base table so we get
@@ -77,10 +86,10 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		txnRows, _ := db.PGQuery(ctx, `
 			SELECT txn_date::text AS date, amount::float8 AS amount, money_in,
 			       description, merchant_name AS merchant
-			FROM transaction WHERE cif = $1
+			FROM transaction WHERE cif IN `+personCIFs+`
 			ORDER BY txn_date DESC LIMIT 40`, cif)
 		var txnTotal int64
-		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM transaction WHERE cif = $1`, cif); len(rows) > 0 {
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM transaction WHERE cif IN `+personCIFs, cif); len(rows) > 0 {
 			txnTotal = toInt64(rows[0]["n"])
 		}
 
@@ -89,7 +98,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			SELECT id, first_name, last_name, phone, email,
 			       id_type, id_number, address, state, employer,
 			       income_range, date_of_birth, gender, status, created_at
-			FROM crm_contacts WHERE cif_number = $1 LIMIT 1`, cif)
+			FROM crm_contacts WHERE cif_number IN `+personCIFs+` LIMIT 1`, cif)
 
 		// ── Loan applications (applications list + active loans) ───────────────
 		apps, _ := db.PGQuery(ctx, `
@@ -98,7 +107,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			       disbursed_amount_kobo, outstanding_kobo, dpd, next_due_date,
 			       stage, disbursed_at, created_at
 			FROM loan_applications
-			WHERE applicant_cif = $1
+			WHERE applicant_cif IN `+personCIFs+`
 			ORDER BY created_at DESC LIMIT 20`, cif)
 
 		// ── Collections assignment (most recent) ───────────────────────────────
@@ -112,7 +121,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			        ORDER BY cp.created_at DESC LIMIT 1) AS ptp_date
 			FROM collection_assignments ca
 			LEFT JOIN o3c_users u ON u.id = ca.agent_user_id
-			WHERE ca.account_cif = $1
+			WHERE ca.account_cif IN `+personCIFs+`
 			ORDER BY ca.updated_at DESC LIMIT 1`, cif)
 
 		// ── Recovery case (most recent) ────────────────────────────────────────
@@ -123,14 +132,14 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			       rc.legal_stage, u.full_name AS agent_name, rc.opened_at
 			FROM recovery_cases rc
 			LEFT JOIN o3c_users u ON u.id = rc.agent_user_id
-			WHERE rc.account_cif = $1
+			WHERE rc.account_cif IN `+personCIFs+`
 			ORDER BY rc.opened_at DESC LIMIT 1`, cif)
 
 		// ── Helpdesk tickets ───────────────────────────────────────────────────
 		tickets, _ := db.PGQuery(ctx, `
 			SELECT id, ticket_ref, subject, status, priority, created_at
 			FROM helpdesk_tickets
-			WHERE customer_cif = $1
+			WHERE customer_cif IN `+personCIFs+`
 			ORDER BY created_at DESC LIMIT 20`, cif)
 
 		// ── Activity log (UNION across all modules) ────────────────────────────
@@ -147,7 +156,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 				       '' AS meta
 				FROM crm_activities a
 				LEFT JOIN o3c_users u ON u.id = a.created_by
-				WHERE a.contact_id = (SELECT id FROM crm_contacts WHERE cif_number = $1 LIMIT 1)
+				WHERE a.contact_id IN (SELECT id FROM crm_contacts WHERE cif_number IN `+personCIFs+`)
 
 				UNION ALL
 
@@ -166,7 +175,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 				FROM application_events ae
 				JOIN loan_applications la ON la.id = ae.application_id
 				LEFT JOIN o3c_users u ON u.id = ae.actor_user_id
-				WHERE la.applicant_cif = $1
+				WHERE la.applicant_cif IN `+personCIFs+`
 
 				UNION ALL
 
@@ -180,7 +189,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 				       CONCAT_WS(' · ', NULLIF(cc.contact_type,''), NULLIF(cc.outcome,'')) AS meta
 				FROM collection_contacts cc
 				LEFT JOIN o3c_users u ON u.id = cc.agent_user_id
-				WHERE cc.cif_number = $1
+				WHERE cc.cif_number IN `+personCIFs+`
 
 				UNION ALL
 
@@ -193,7 +202,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 				       COALESCE(t.ticket_ref,'') AS ref,
 				       CONCAT_WS(' · ', NULLIF(t.priority,''), NULLIF(t.status,'')) AS meta
 				FROM helpdesk_tickets t
-				WHERE t.customer_cif = $1
+				WHERE t.customer_cif IN `+personCIFs+`
 			) sub
 			ORDER BY created_at DESC
 			LIMIT 30`, cif)

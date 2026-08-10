@@ -1,166 +1,245 @@
-import { useLiveData } from "../../hooks/useRealtime"
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter } from '../../components/UI'
-import type { TableCol, FilterGroupDef } from '../../components/UI'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { Page } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtDatetime, fmtNum, monthStart, today } from '../../lib/fmt'
+import { fmtDatetime } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, NUM, INTER, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface SyncRun {
-  id: number
-  started_at: string
-  finished_at: string
-  status: string
-  rows_synced: number
-  error_msg?: string
-  created_at: string
+interface Worker {
+  key: string
+  name: string
+  category: string
+  cadence: string
+  description: string
+  status: string            // ok | error | running | scheduled | idle
+  last_run_at: string | null
+  last_ok_at: string | null
+  last_error: string | null
+  detail: string | null
+  manual: boolean
+  trigger: string
 }
 
-// ── Status badge ──────────────────────────────────────────────────────────────
-
-const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
-  success:  { bg: 'rgba(22,163,74,.1)',  txt: GREEN },
-  error:    { bg: 'rgba(192,0,0,.1)',    txt: RED },
-  running:  { bg: 'rgba(37,99,235,.1)', txt: '#2563EB' },
-  partial:  { bg: 'rgba(217,119,6,.12)', txt: AMBER },
+const CATEGORY_ORDER = ['Data Sync', 'Integration', 'Scheduled Job', 'Worker Pool']
+const CATEGORY_ICON: Record<string, string> = {
+  'Data Sync': 'sync', 'Integration': 'hub', 'Scheduled Job': 'schedule', 'Worker Pool': 'conveyor_belt',
 }
 
-function StatusPill({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
+// status → colour/label. 'scheduled' = known cadence, no recent run recorded yet.
+const S: Record<string, { c: string; label: string; dot: string }> = {
+  ok:        { c: GREEN, label: 'Healthy',   dot: GREEN },
+  running:   { c: '#2563EB', label: 'Running', dot: '#2563EB' },
+  error:     { c: RED,   label: 'Error',     dot: RED },
+  scheduled: { c: '#64748B', label: 'Idle',   dot: '#94A3B8' },
+  idle:      { c: '#64748B', label: 'Idle',   dot: '#94A3B8' },
+}
+const sInfo = (s: string) => S[s] ?? S.scheduled
+
+function relTime(iso?: string | null): string {
+  if (!iso) return 'never run'
+  const ms = Date.now() - new Date(iso).getTime()
+  const m = Math.floor(ms / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
+
+// ── Status LED (pulses while running) ─────────────────────────────────────────
+
+function LED({ status }: { status: string }) {
+  const { dot } = sInfo(status)
+  const running = status === 'running'
   return (
-    <span style={{
-      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
-      background: c.bg, color: c.txt, whiteSpace: 'nowrap', textTransform: 'capitalize',
-    }}>{status}</span>
+    <span style={{ position: 'relative', display: 'inline-flex', width: 12, height: 12, flexShrink: 0 }}>
+      {running && (
+        <span style={{
+          position: 'absolute', inset: -3, borderRadius: '50%', background: dot, opacity: .35,
+          animation: 'syncpulse 1.4s ease-out infinite',
+        }} />
+      )}
+      <span style={{ width: 12, height: 12, borderRadius: '50%', background: dot, boxShadow: `0 0 0 3px ${dot}22` }} />
+    </span>
   )
 }
 
-function durationStr(start: string, end: string): string {
-  if (!start || !end) return '—'
-  const ms = new Date(end).getTime() - new Date(start).getTime()
-  if (ms < 0) return '—'
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  return `${Math.round(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`
+// ── Worker card ───────────────────────────────────────────────────────────────
+
+function WorkerCard({ w, onRun, busy }: { w: Worker; onRun: (w: Worker) => void; busy: boolean }) {
+  const info = sInfo(w.status)
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px',
+      background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl,
+      borderLeft: `3px solid ${info.c}`,
+    }}>
+      <div style={{ paddingTop: 4 }}><LED status={w.status} /></div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>{w.name}</span>
+          <span style={{
+            fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', padding: '1px 8px',
+            borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', whiteSpace: 'nowrap',
+          }}>{w.cadence}</span>
+        </div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 4, lineHeight: 1.5 }}>{w.description}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: info.c }}>{info.label}</span>
+          <span style={{ color: 'var(--txt3)' }}>·</span>
+          <span title={w.last_run_at ? fmtDatetime(w.last_run_at) : ''} style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{relTime(w.last_run_at)}</span>
+          {w.detail && (<><span style={{ color: 'var(--txt3)' }}>·</span>
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{w.detail}</span></>)}
+        </div>
+        {w.last_error && (
+          <div style={{ fontSize: TEXT.xs, color: RED, fontFamily: 'monospace', marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {w.last_error.slice(0, 160)}
+          </div>
+        )}
+      </div>
+
+      {w.manual && (
+        <button onClick={() => onRun(w)} disabled={busy} style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: RADIUS.md,
+          border: '1px solid var(--card-bdr)', background: busy ? 'var(--chip-bg)' : 'var(--card)',
+          color: busy ? 'var(--txt3)' : NAVY, fontSize: TEXT.sm, fontWeight: FW.bold,
+          cursor: busy ? 'default' : 'pointer', fontFamily: INTER, whiteSpace: 'nowrap', flexShrink: 0,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, ...(busy ? { animation: 'syncspin 1s linear infinite' } : {}) }}>sync</span>
+          {busy ? 'Syncing…' : 'Sync now'}
+        </button>
+      )}
+    </div>
+  )
 }
-
-// ── Columns ───────────────────────────────────────────────────────────────────
-
-const COLS: TableCol<SyncRun>[] = [
-  { key: 'created_at', label: 'Run Time', sortable: true,
-    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDatetime(r.created_at)}</span> },
-  { key: 'status', label: 'Status', render: r => <StatusPill status={r.status} /> },
-  { key: 'rows_synced', label: 'Rows Synced', align: 'right',
-    render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.rows_synced)}</span> },
-  { key: '_duration', label: 'Duration', align: 'right',
-    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{durationStr(r.started_at, r.finished_at)}</span> },
-  { key: 'error_msg', label: 'Error',
-    render: r => r.error_msg ? (
-      <span style={{ fontSize: TEXT.sm, color: RED, fontFamily: 'monospace' }}>{r.error_msg.slice(0, 80)}</span>
-    ) : <span style={{ color: 'var(--txt3)' }}>—</span> },
-]
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminSyncStatus() {
-  const [rows,    setRows]    = useState<SyncRun[]>([])
+  const [workers, setWorkers] = useState<Worker[]>([])
   const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
+  const [busy, setBusy]       = useState<Set<string>>(new Set())
+  const [lastLoad, setLastLoad] = useState<Date | null>(null)
+  const timer = useRef<number | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
     try {
-      const data = await apiFetch<{ data: SyncRun[] }>(`/api/settings/sync-status?from=${dateFrom}&to=${dateTo}`)
-      setRows(Array.isArray(data?.data) ? data.data : [])
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [dateFrom, dateTo])
+      // respond() wraps the payload as { data: { workers, generated_at } }.
+      const r = await apiFetch<{ data?: { workers?: Worker[] }; workers?: Worker[] }>('/api/admin/workers')
+      const list = r?.data?.workers ?? r?.workers ?? []
+      setWorkers(Array.isArray(list) ? list : [])
+      setLastLoad(new Date())
+    } catch { /* keep last view */ } finally { setLoading(false) }
+  }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useEffect(() => {
+    timer.current = window.setInterval(load, 15000)   // live control-centre feel
+    return () => { if (timer.current) window.clearInterval(timer.current) }
+  }, [load])
 
-  const [fStatuses, setFStatuses] = useState(new Set<string>())
-
-  const displayedRows = useMemo(() =>
-    fStatuses.size ? rows.filter(r => fStatuses.has(r.status)) : rows
-  , [rows, fStatuses])
-
-  async function triggerSync() {
+  async function run(w: Worker) {
+    setBusy(prev => new Set(prev).add(w.key))
     try {
-      await apiFetch('/api/settings/sync-status', {
-        method: 'POST',
-        body: JSON.stringify({ status: 'running', rows_synced: 0 }),
-      })
-      toast.success('Sync run registered')
-      load()
+      let path = w.trigger
+      if (path.includes('/zoho/import-calls')) {   // Zoho needs a date window
+        const to = new Date().toISOString().slice(0, 10)
+        const from = new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10)
+        path = `${path}?from_date=${from}&to_date=${to}`
+      }
+      await apiFetch(path, { method: 'POST' })
+      toast.success(`${w.name} — sync started`)
+      setTimeout(load, 2500)
     } catch (e: any) {
-      toast.error(e.message)
+      toast.error(e?.message || `Could not start ${w.name}`)
+    } finally {
+      setBusy(prev => { const n = new Set(prev); n.delete(w.key); return n })
     }
   }
 
-  const lastRun = rows[0]
-  const successRate = rows.length > 0
-    ? Math.round((rows.filter(r => r.status === 'success').length / rows.length) * 100)
-    : 0
+  const stats = useMemo(() => ({
+    total:   workers.length,
+    healthy: workers.filter(w => w.status === 'ok').length,
+    running: workers.filter(w => w.status === 'running').length,
+    errors:  workers.filter(w => w.status === 'error').length,
+  }), [workers])
+
+  const grouped = useMemo(() => {
+    const g: Record<string, Worker[]> = {}
+    for (const w of workers) (g[w.category] ??= []).push(w)
+    return g
+  }, [workers])
+
+  const fleetColor = stats.errors ? RED : stats.running ? '#2563EB' : GREEN
 
   return (
     <Page
       back={{ label: 'Admin', to: '/admin' }}
-      title="Sync Status"
-      subtitle="MSSQL → PostgreSQL sync run history"
+      title="Sync & Workers"
+      subtitle="Every background sync, integration and worker — status and controls in one place"
       actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          <button onClick={triggerSync} style={{
-            display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
-            border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
-          }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>sync</span>
-            Log Sync Run
-          </button>
-        </div>
+        <button onClick={load} style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: RADIUS.md,
+          border: '1px solid var(--card-bdr)', background: 'var(--card)', color: NAVY, fontSize: TEXT.sm,
+          fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>refresh</span>Refresh
+        </button>
       }
     >
-      <ErrBanner error={error} onRetry={load} />
+      <style>{`
+        @keyframes syncpulse { 0% { transform: scale(.6); opacity:.5 } 100% { transform: scale(1.9); opacity:0 } }
+        @keyframes syncspin { to { transform: rotate(360deg) } }
+      `}</style>
 
-      {/* Stats strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 20 }}>
+      {/* Fleet health band */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr', gap: SP[3], marginBottom: 24,
+        background: `linear-gradient(135deg, ${NAVY} 0%, #14385a 100%)`, borderRadius: RADIUS.xl, padding: '22px 26px',
+      }}>
+        <div>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'rgba(255,255,255,.6)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Fleet Status</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+            <span style={{ width: 14, height: 14, borderRadius: '50%', background: fleetColor, boxShadow: `0 0 0 4px ${fleetColor}33` }} />
+            <span style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: '#fff' }}>
+              {stats.errors ? `${stats.errors} need attention` : stats.running ? 'Syncing' : 'All systems healthy'}
+            </span>
+          </div>
+          <div style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.55)', marginTop: 8, ...NUM }}>
+            {lastLoad ? `Live · updated ${relTime(lastLoad.toISOString())}` : 'Loading…'}
+          </div>
+        </div>
         {[
-          { label: 'Total Runs', value: rows.length },
-          { label: 'Last Status', value: lastRun?.status ?? '—', color: lastRun ? STATUS_COLORS[lastRun.status]?.txt : 'var(--txt)' },
-          { label: 'Success Rate', value: `${successRate}%`, color: successRate >= 80 ? GREEN : successRate >= 50 ? AMBER : RED },
-          { label: 'Last Rows', value: lastRun ? fmtNum(lastRun.rows_synced) : '—' },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
-            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 6 }}>{label}</div>
-            <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: color ?? 'var(--txt)' }}>{value}</div>
+          { label: 'Total', value: stats.total, c: '#fff' },
+          { label: 'Healthy', value: stats.healthy, c: '#5EE9A6' },
+          { label: 'Errors', value: stats.errors, c: stats.errors ? '#FF8A8A' : 'rgba(255,255,255,.85)' },
+        ].map(k => (
+          <div key={k.label} style={{ borderLeft: '1px solid rgba(255,255,255,.12)', paddingLeft: 22 }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'rgba(255,255,255,.6)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{k.label}</div>
+            <div style={{ ...NUM, fontSize: 34, fontWeight: FW.bold, color: k.c, marginTop: 4, lineHeight: 1 }}>{k.value}</div>
           </div>
         ))}
       </div>
 
-      <SectionCard title="Run History" badge={displayedRows.length} padding={false}>
-        <ExpandableFilterBar
-          search=""
-          onSearch={() => {}}
-          groups={[
-            { key: 'status', label: 'Status', options: Object.keys(STATUS_COLORS).map(v => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1), color: STATUS_COLORS[v].txt })), selected: fStatuses, onChange: setFStatuses },
-          ] as FilterGroupDef[]}
-          onReset={() => setFStatuses(new Set())}
-          resultCount={displayedRows.length}
-          totalCount={rows.length}
-          placeholder="Filter by status…"
-        />
-        <DataTable cols={COLS} rows={displayedRows} keyFn={r => r.id} loading={loading} emptyText="No sync runs recorded" />
-      </SectionCard>
+      {loading && workers.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 60, color: 'var(--txt3)' }}>Loading workers…</div>
+      )}
+
+      {CATEGORY_ORDER.filter(c => grouped[c]?.length).map(cat => (
+        <div key={cat} style={{ marginBottom: 26 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 20, color: NAVY }}>{CATEGORY_ICON[cat] ?? 'settings'}</span>
+            <h3 style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', margin: 0 }}>{cat}</h3>
+            <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', padding: '1px 8px', borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)' }}>{grouped[cat].length}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 480px), 1fr))', gap: SP[3] }}>
+            {grouped[cat].map(w => <WorkerCard key={w.key} w={w} onRun={run} busy={busy.has(w.key)} />)}
+          </div>
+        </div>
+      ))}
     </Page>
   )
 }

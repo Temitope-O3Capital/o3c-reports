@@ -476,7 +476,7 @@ var RolePages = map[string][]string{
 		"compliance_all", "compliance_checklists", "cbn_reports", "audit_trail", "audit_export",
 		"sars", "watch_list", "audit_findings",
 		"kpi_dashboard", "reports", "approvals", "statements", "admin_users", "settings", "sync_status",
-		"active_loan_book", "telemarketing", "telemarketing_stats", "bd", "bd_employers", "bd_pipeline",
+		"active_loan_book", "call_center", "call_center_stats", "bd", "bd_employers", "bd_pipeline",
 		"helpdesk_kb",
 	},
 	"coo": {
@@ -576,15 +576,20 @@ var RolePages = map[string][]string{
 	},
 
 	// ── Call Center ────────────────────────────────────────────────────────────
+	// Call Center — one team for calls, call tickets, inbound/outbound, collection
+	// calls and outbound campaigns. The `call_center` page-key gates the whole
+	// module (queue, leads, DNC, dialer, tickets); `call_center_stats` is the
+	// head-only performance/supervisor view.
 	"call_center_agent": {
 		"overview", "call_center", "customer360", "transactions",
 		"crm_contacts", "uploads",
 		"helpdesk", "helpdesk_stats", "helpdesk_canned",
 	},
 	"call_center_head": {
-		"overview", "call_center", "customer360", "transactions",
+		"overview", "call_center", "call_center_stats", "customer360", "transactions",
 		"crm_contacts", "uploads", "kpi_dashboard", "statements", "helpdesk_kb",
 		"helpdesk", "helpdesk_stats", "helpdesk_canned",
+		"campaigns", "contact_lists", "message_templates",
 	},
 
 
@@ -631,7 +636,7 @@ var RolePages = map[string][]string{
 		"collections_assign", "collections_payment", "collections_payment_approve",
 		"recovery_assign", "recovery_write_off",
 		"kpi_dashboard", "reports", "statements", "admin_users", "admin_api_keys", "settings", "sync_status",
-		"active_loan_book", "telemarketing", "telemarketing_stats", "bd", "bd_employers", "bd_pipeline",
+		"active_loan_book", "call_center", "call_center_stats", "bd", "bd_employers", "bd_pipeline",
 		"helpdesk_kb",
 	},
 	"management": {
@@ -676,20 +681,10 @@ var RolePages = map[string][]string{
 	"collections":      {"collections", "recovery", "eod", "uploads", "reconciliation", "crm_pipeline", "crm_contacts", "crm_tasks"},
 	"recovery":         {"recovery", "collections", "eod", "uploads", "loans", "crm_pipeline", "crm_contacts", "crm_tasks"},
 	"cards_ops":        {"cards", "card_trends", "transactions", "overview", "eod", "uploads"},
-	"call_centre":      {"overview", "transactions", "call_center", "customer_service", "crm_contacts", "uploads"},
 	"cmo":              {"overview", "sales", "cohort", "executive", "uploads", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
 	"head_sales":       {"sales", "overview", "uploads", "executive", "loans", "credit_portfolio", "bd", "bd_employers", "bd_pipeline", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
 	"head_collections": {"collections", "recovery", "overview", "eod", "uploads", "executive", "reconciliation", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
 	"head_recovery":    {"recovery", "collections", "overview", "eod", "uploads", "executive", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
-
-	// ── Telemarketing ─────────────────────────────────────────────────────────
-	"telemarketing_agent": {
-		"overview", "telemarketing", "customer360",
-	},
-	"telemarketing_head": {
-		"overview", "telemarketing", "telemarketing_stats", "customer360",
-		"kpi_dashboard", "campaigns", "contact_lists", "message_templates",
-	},
 
 	// ── Business Development ──────────────────────────────────────────────────
 	"bd_officer": {

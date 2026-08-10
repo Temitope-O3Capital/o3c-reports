@@ -17,11 +17,13 @@ import (
 	"github.com/o3c/reports/core"
 )
 
-// RegisterInterswitch adds /api/cards/interswitch routes.
+// RegisterInterswitch adds /api/cards/interswitch routes. The parent router
+// already requires the settlement/cards page; ingest is restricted further —
+// importing an EOD file rewrites the card transaction feed.
 func RegisterInterswitch(r chi.Router, db *core.DB) {
 	r.Get("/summary",   interswitchSummary(db))
 	r.Get("/half-year", interswitchReport(db))
-	r.Post("/import",   interswitchImport(db))
+	r.With(core.RequirePages("uploads", "settlement")).Post("/import", interswitchImport(db))
 }
 
 // ── Summary ────────────────────────────────────────────────────────────────────

@@ -1,853 +1,479 @@
-import { useLiveData } from "../../hooks/useRealtime"
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useLiveData } from '../../hooks/useRealtime'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { StatusBadge, Modal, Spinner, ErrBanner, TblSearch, ActionRow } from '../../components/UI'
+import { StatusBadge, Modal, Spinner, ErrBanner, TblSearch, Avatar, Pagination } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, BLUE, NAVY, GREEN, PURPLE, MONO, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import { Conversation, ConvMessage } from './Conversation'
 import NewTicketForm from './NewTicket'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-const TICKET_TYPES = [
-  'Card Dispute', 'Loan Query', 'Account Freeze', 'Transfer Issue',
-  'POS Complaint', 'App Issue', 'General Inquiry', 'Complaint', 'Other',
-]
-
-const PRIORITY_COLOR: Record<string, string> = {
-  urgent: RED, high: AMBER, medium: BLUE, low: 'var(--chart-lbl)', normal: 'var(--chart-lbl)',
-}
-
 interface Ticket {
-  id: number
-  ticket_ref: string
-  subject: string
-  status: string
-  priority: string
-  channel: string
-  ticket_type?: string
-  customer_name?: string
-  customer_cif?: string
-  customer_phone?: string
-  assigned_to_name?: string
-  sla_breached?: boolean
-  sla_due_at?: string
-  last_message_at?: string
-  created_at: string
+  id: number; ticket_ref: string; subject: string; status: string; priority: string; channel: string
+  customer_name?: string; customer_cif?: string; customer_phone?: string
+  assigned_to?: number | null; assigned_to_name?: string; sla_breached?: boolean
+  message_count?: number; last_message_preview?: string; last_message_at?: string
+  last_message_direction?: 'inbound' | 'outbound' | null; created_at: string; description?: string
 }
-
 interface TicketsResp { tickets: Ticket[]; total: number; pages?: number }
-
-interface Message {
-  id: number
-  direction: 'inbound' | 'outbound'
-  channel: string
-  author_name?: string
-  author_user_name?: string
-  body_text: string
-  is_internal_note?: boolean
-  created_at: string
-}
-
-interface TicketDetailResp {
-  ticket: Ticket
-  messages: Message[]
-  events?: any[]
-}
-
+interface QueueSummary { open: number; unassigned: number; mine: number; awaiting_us: number; awaiting_customer: number; overdue: number }
 interface Agent { id: number; full_name: string }
+interface DetailResp { ticket: Ticket; messages: ConvMessage[] }
+
+// ── Motion + accent language (shared with the full ticket view) ──────────────────
+const HD_STYLE = `
+@keyframes hdRowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes hdMsgIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes hdPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .3; transform: scale(.7); } }
+.hd-row { animation: hdRowIn .22s ease both; transition: background .13s ease; }
+.hd-msg { animation: hdMsgIn .26s cubic-bezier(.22,1,.36,1) both; }
+.hd-card { transition: transform .16s cubic-bezier(.22,1,.36,1), box-shadow .16s, border-color .16s; }
+.hd-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.hd-press { transition: transform .1s ease, filter .15s ease; }
+.hd-press:active { transform: scale(.97); }
+.hd-press:hover { filter: brightness(1.05); }
+.hd-livedot { width: 7px; height: 7px; border-radius: 50%; background: ${GREEN}; animation: hdPulse 1.8s ease-in-out infinite; display: inline-block; }
+`
+const CHANNEL_ACCENT: Record<string, string> = { web: BLUE, chat: BLUE, social: PURPLE, whatsapp: GREEN, email: AMBER, phone: GREEN, sms: '#0891B2' }
+const channelAccent = (c?: string) => CHANNEL_ACCENT[(c ?? '').toLowerCase()] ?? NAVY
+const CHANNEL_ICON: Record<string, string> = { web: 'language', chat: 'forum', social: 'public', whatsapp: 'chat', email: 'mail', phone: 'call', sms: 'sms' }
+const channelIcon = (c?: string) => CHANNEL_ICON[(c ?? '').toLowerCase()] ?? 'confirmation_number'
+
+// Card shell for the split panels — a real flex column so inner lists/threads
+// scroll (SectionCard wraps children in a non-flex div, breaking the height chain).
+const panelStyle: React.CSSProperties = {
+  background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)',
+  borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0,
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function ticketDisplayRef(t: Ticket): string {
-  if (t.ticket_ref?.startsWith('ZOHO-'))
-    return `#${t.ticket_ref.replace('ZOHO-', '').slice(-8)}`
-  return `#${t.ticket_ref || t.id}`
+function myUserId(): number { try { return Number(JSON.parse(localStorage.getItem('o3c_user') || '{}').id) || 0 } catch { return 0 } }
+function myRole(): string { try { return String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '') } catch { return '' } }
+function isPrivileged(role: string): boolean { return /head|admin|super|manager|lead|supervisor/i.test(role) }
+function ago(iso?: string | null): string {
+  if (!iso) return '—'
+  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
+function fullName(t: Ticket): string { return (t.customer_name || '').trim() || 'Unknown customer' }
+function messageLine(t: Ticket): string {
+  const s = (t.subject || '').trim()
+  if (s && s.toLowerCase() !== 'ticket information') return s
+  return (t.last_message_preview || '').trim() || s || '(no message)'
 }
 
-// ── Small shared components ───────────────────────────────────────────────────
-
-function PriorityDot({ priority }: { priority: string }) {
-  const color = PRIORITY_COLOR[priority?.toLowerCase()] ?? 'var(--chart-lbl)'
-  return (
-    <span style={{
-      display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-      background: color, flexShrink: 0,
-    }} title={priority} />
-  )
-}
-
-function TypePill({ type }: { type?: string }) {
-  if (!type) return null
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center',
-      fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS['2xl'],
-      background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap',
-    }}>{type}</span>
-  )
-}
-
-// ── Filter chips ──────────────────────────────────────────────────────────────
-
-const STATUS_CHIPS = [
-  { value: 'open',        label: 'Open' },
-  { value: 'pending',     label: 'Pending' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'resolved',    label: 'Resolved' },
-  { value: 'closed',      label: 'Closed' },
+const STATUS_CHIPS = [{ value: 'open', label: 'Open' }, { value: 'pending', label: 'Pending' }, { value: 'in_progress', label: 'In Progress' }]
+const CHANNEL_CHIPS = [{ value: '', label: 'All' }, { value: 'web', label: 'Web' }, { value: 'social', label: 'Social' }]
+const SORT_OPTS = [
+  { value: 'waiting', label: 'Longest waiting on us' }, { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' }, { value: 'updated', label: 'Recently updated' },
 ]
 
-const PRIORITY_CHIPS = [
-  { value: 'urgent', color: RED },
-  { value: 'high',   color: AMBER },
-  { value: 'normal', color: 'var(--chart-lbl)' },
-  { value: 'low',    color: 'var(--chart-lbl)' },
-]
-
-// ── Compact ticket row (left panel) ──────────────────────────────────────────
-
-function TicketRow({
-  ticket, isSelected, isChecked, onSelect, onCheck, onViewFull, onAssign, onClose,
-}: {
-  ticket: Ticket
-  isSelected: boolean
-  isChecked: boolean
-  onSelect: () => void
-  onCheck: (e: React.MouseEvent) => void
-  onViewFull: () => void
-  onAssign: () => void
-  onClose: () => void
+// ── Triage KPI card (clickable filter) ───────────────────────────────────────────
+function TriageCard({ icon, label, value, color, active, onClick }: {
+  icon: string; label: string; value: number | undefined; color: string; active: boolean; onClick: () => void
 }) {
-  const slaMs = ticket.sla_due_at && !ticket.sla_breached
-    ? new Date(ticket.sla_due_at).getTime() - Date.now() : -1
-  const slaWarnLabel = slaMs > 0 && slaMs < 2 * 3600 * 1000
-    ? (() => { const m = Math.floor(slaMs / 60_000); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m` })()
-    : null
-
-  // Lead with the person; show the subject (e.g. a call-list name like "IK List")
-  // as a tag. When there's no customer name, the subject becomes the primary line.
-  const hasName = Boolean(ticket.customer_name && ticket.customer_name.trim())
-  const primaryLine = hasName ? ticket.customer_name!.trim() : (ticket.subject || '—')
-  const subjectTag = hasName ? ticket.subject : ''
-
   return (
-    <div
-      onClick={onSelect}
+    <button className="hd-card hd-press" onClick={onClick}
       style={{
-        padding: '10px 12px', borderBottom: '1px solid var(--bdr)',
-        cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: SP[2],
-        background: isSelected ? `${NAVY}08` : undefined,
-        borderLeft: `3px solid ${isSelected ? NAVY : 'transparent'}`,
-      }}
-      onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
-      onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '' }}
-    >
-      <input
-        type="checkbox" checked={isChecked} onChange={() => {}}
-        onClick={onCheck}
-        style={{ marginTop: 3, cursor: 'pointer', accentColor: RED, flexShrink: 0 }}
-      />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <PriorityDot priority={ticket.priority} />
-            {slaWarnLabel && (
-              <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 4px', borderRadius: 3, background: `${AMBER}15`, color: AMBER }}>
-                {slaWarnLabel}
-              </span>
-            )}
-            {ticket.sla_breached && (
-              <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 4px', borderRadius: 3, background: `${RED}15`, color: RED }}>
-                Overdue
-              </span>
-            )}
-          </div>
-          <StatusBadge status={ticket.status} size="sm" />
-        </div>
-        {/* Primary: the person */}
-        <div style={{
-          fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: SP[1],
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {primaryLine}
-        </div>
-        {/* Tags: ticket type + subject/list shown as a chip */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
-          <TypePill type={ticket.ticket_type} />
-          {subjectTag && (
-            <span
-              title={subjectTag}
-              style={{
-                maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 8px', borderRadius: RADIUS.xl,
-                background: 'var(--chip-bg)', color: 'var(--chip-txt)', border: '1px solid var(--bdr)',
-              }}
-            >
-              {subjectTag}
-            </span>
-          )}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT['2xs'], color: 'var(--txt3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {ticket.ticket_ref}
-          </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-            <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
-              {fmtDatetime(ticket.last_message_at || ticket.created_at)}
-            </span>
-            <ActionRow actions={[
-              { icon: 'visibility', label: 'View', onClick: onViewFull },
-              { icon: 'person_add', label: 'Assign', onClick: onAssign },
-              { icon: 'close', label: 'Close', onClick: onClose },
-            ]} />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Message bubble (right panel) ─────────────────────────────────────────────
-
-function MessageBubble({ msg }: { msg: Message }) {
-  const isAgent = msg.direction === 'outbound'
-  const isNote  = msg.is_internal_note
-  const sender  = msg.author_user_name || msg.author_name || (isAgent ? 'Agent' : 'Customer')
-  return (
-    <div style={{ display: 'flex', flexDirection: isAgent ? 'row-reverse' : 'row', gap: SP[2], marginBottom: 14 }}>
-      <div style={{
-        width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-        background: isAgent ? NAVY : 'var(--chip-bg)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: TEXT.xs, fontWeight: FW.bold, color: isAgent ? '#fff' : 'var(--txt2)',
+        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 15px', borderRadius: RADIUS.lg, textAlign: 'left',
+        border: `1.5px solid ${active ? color : 'var(--card-bdr)'}`, background: active ? `${color}0E` : 'var(--card)',
+        boxShadow: active ? `0 0 0 3px ${color}1c` : 'var(--card-shadow)', cursor: 'pointer', fontFamily: SORA, flex: 1, minWidth: 0,
       }}>
-        {sender.charAt(0).toUpperCase()}
+      <span style={{ width: 36, height: 36, borderRadius: 10, background: `${color}18`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 19, color }}>{icon}</span>
+      </span>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: 'block', fontFamily: MONO, fontSize: 21, fontWeight: FW.extrabold, color: 'var(--txt)', lineHeight: 1.1 }}>{value ?? '—'}</span>
+        <span style={{ display: 'block', fontSize: TEXT.xs, color: 'var(--txt2)', fontWeight: FW.semibold, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+      </span>
+    </button>
+  )
+}
+
+function WaitingBadge({ t }: { t: Ticket }) {
+  if (['resolved', 'closed'].includes(t.status)) return null
+  if (t.last_message_direction === 'outbound') {
+    return <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 7px', borderRadius: RADIUS.full, background: 'var(--chip-bg)', color: 'var(--txt3)' }}>Replied</span>
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '2px 7px', borderRadius: RADIUS.full, background: `${RED}15`, color: RED }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 12 }}>mark_chat_unread</span>Awaiting
+    </span>
+  )
+}
+
+// ── Ticket row (compact — feeds the side preview) ─────────────────────────────────
+function TicketRow({ t, myId, selected, checked, onCheck, onSelect, onClaim }: {
+  t: Ticket; myId: number; selected: boolean; checked: boolean; onCheck: (e: React.MouseEvent) => void; onSelect: () => void; onClaim: () => void
+}) {
+  const accent = channelAccent(t.channel)
+  const name = fullName(t)
+  const isOpen = !['resolved', 'closed'].includes(t.status)
+  const unassigned = t.assigned_to == null
+  const mine = t.assigned_to != null && t.assigned_to === myId
+  return (
+    <div className="hd-row" onClick={onSelect}
+      style={{ display: 'flex', alignItems: 'stretch', cursor: 'pointer', borderBottom: '1px solid var(--bdr)', background: selected ? `${NAVY}0C` : undefined }}
+      onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'var(--row-hvr)' }}
+      onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'transparent' }}>
+      <div style={{ width: 3, background: selected ? NAVY : accent, flexShrink: 0 }} />
+      <div style={{ display: 'flex', alignItems: 'flex-start', padding: '12px 8px 0 11px', flexShrink: 0 }}>
+        <input type="checkbox" checked={checked} onChange={() => {}} onClick={onCheck} style={{ cursor: 'pointer', accentColor: RED }} />
       </div>
-      <div style={{ maxWidth: '72%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexDirection: isAgent ? 'row-reverse' : 'row', marginBottom: 3 }}>
-          <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt)' }}>{sender}</span>
-          <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtDatetime(msg.created_at)}</span>
-          {isNote && (
-            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 6px', borderRadius: RADIUS.lg, background: `${AMBER}18`, color: AMBER }}>
-              Note
-            </span>
-          )}
+      <div style={{ padding: '11px 9px 11px 3px', flexShrink: 0 }}><Avatar name={name} size={30} /></div>
+      <div style={{ flex: 1, minWidth: 0, padding: '11px 12px 11px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 2 }}>
+          <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 150 }}>{name}</span>
+          <WaitingBadge t={t} />
+          <span style={{ marginLeft: 'auto', flexShrink: 0 }}><StatusBadge status={t.status} size="sm" /></span>
         </div>
-        <div style={{
-          padding: '9px 13px', borderRadius: RADIUS.lg,
-          borderTopLeftRadius: isAgent ? 10 : 2, borderTopRightRadius: isAgent ? 2 : 10,
-          background: isNote ? `${AMBER}10` : (isAgent ? 'var(--card)' : 'var(--th-bg)'),
-          border: `1px solid ${isNote ? `${AMBER}30` : 'var(--bdr)'}`,
-          fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        }}>
-          {msg.body_text}
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>{messageLine(t)}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, textTransform: 'capitalize' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 13, color: accent }}>{channelIcon(t.channel)}</span>{t.channel || 'web'}
+          </span>
+          <span>{ago(t.last_message_at || t.created_at)}</span>
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {unassigned && isOpen ? (
+              <button onClick={e => { e.stopPropagation(); onClaim() }}
+                style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 9px', borderRadius: RADIUS.full, border: `1px solid ${NAVY}40`, background: `${NAVY}0D`, color: NAVY, cursor: 'pointer', fontFamily: SORA }}>Claim</button>
+            ) : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: mine ? NAVY : 'var(--txt3)', fontWeight: mine ? FW.semibold : FW.normal }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 13 }}>support_agent</span>{mine ? 'You' : (t.assigned_to_name || '—')}
+              </span>
+            )}
+          </span>
         </div>
       </div>
     </div>
   )
 }
 
-// ── Right panel — ticket detail ───────────────────────────────────────────────
-
-function TicketPanel({
-  ticketId, onUpdate, onOpenFull,
-}: {
-  ticketId: number
-  onUpdate: () => void
-  onOpenFull: () => void
-}) {
-  const [data,    setData]    = useState<TicketDetailResp | null>(null)
+// ── Side preview panel (live conversation) ───────────────────────────────────────
+function TicketPreview({ ticketId, onChanged, onFull }: { ticketId: number; onChanged: () => void; onFull: () => void }) {
+  const [data, setData] = useState<DetailResp | null>(null)
   const [loading, setLoading] = useState(true)
-  const [err,     setErr]     = useState<string | null>(null)
-
-  const [replyText, setReplyText] = useState('')
-  const [isNote,    setIsNote]    = useState(false)
-  const [sending,   setSending]   = useState(false)
-  const [replyErr,  setReplyErr]  = useState<string | null>(null)
-
-  const [actionLoading,  setActionLoading]  = useState(false)
-  const [transferOpen,   setTransferOpen]   = useState(false)
-  const [agents,         setAgents]         = useState<Agent[]>([])
-  const [transferTarget, setTransferTarget] = useState('')
-
-  const threadEndRef = useRef<HTMLDivElement>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [reply, setReply] = useState('')
+  const [isNote, setIsNote] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const threadRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
-    try {
-      const resp = await apiFetch<TicketDetailResp>(`/api/helpdesk/tickets/${ticketId}`)
-      setData(resp)
-    } catch (e: any) { setErr(e.message) }
-    finally { setLoading(false) }
+    try { setData(await apiFetch<DetailResp>(`/api/helpdesk/tickets/${ticketId}`)) }
+    catch (e: any) { setErr(e.message) } finally { setLoading(false) }
   }, [ticketId])
-
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['tickets'] })
+  useEffect(() => { const el = threadRef.current; if (el) el.scrollTop = el.scrollHeight }, [data?.messages])
 
-  useEffect(() => {
-    if (data?.messages?.length) {
-      setTimeout(() => threadEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
-    }
-  }, [data?.messages?.length])
-
-  useEffect(() => {
-    if (transferOpen && agents.length === 0) {
-      apiFetch<any>('/api/helpdesk/agents')
-        .then(r => setAgents(Array.isArray(r) ? r : []))
-        .catch(() => setAgents([]))
-    }
-  }, [transferOpen, agents.length])
-
-  async function sendReply() {
-    if (!replyText.trim()) return
-    setSending(true); setReplyErr(null)
-    try {
-      await apiPost(`/api/helpdesk/tickets/${ticketId}/messages`, {
-        body_text: replyText, is_internal_note: isNote,
-      })
-      setReplyText(''); setIsNote(false)
-      await load(); onUpdate()
-    } catch (e: any) { setReplyErr(e.message) }
-    finally { setSending(false) }
+  async function send() {
+    if (!reply.trim()) return
+    setSending(true)
+    try { await apiPost(`/api/helpdesk/tickets/${ticketId}/messages`, { body_text: reply, is_internal_note: isNote }); setReply(''); setIsNote(false); await load(); onChanged() }
+    catch (e: any) { toast.error(e.message ?? 'Failed to send') } finally { setSending(false) }
+  }
+  async function resolve() {
+    setBusy(true)
+    try { await apiFetch(`/api/helpdesk/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ status: 'resolved' }) }); toast.success('Resolved'); await load(); onChanged() }
+    catch (e: any) { toast.error(e.message ?? 'Failed') } finally { setBusy(false) }
+  }
+  async function callback() {
+    setBusy(true)
+    try { await apiPost('/api/call-center/queue/add-callback', { ticket_id: ticketId }); toast.success('Queued a call-back in the Support queue') }
+    catch (e: any) { toast.error(e.message ?? 'Could not queue call-back') } finally { setBusy(false) }
   }
 
-  async function updateStatus(status: string) {
-    setActionLoading(true)
-    try {
-      await apiFetch(`/api/helpdesk/tickets/${ticketId}`, {
-        method: 'PATCH', body: JSON.stringify({ status }),
-      })
-      toast.success(`Ticket marked as ${status}`)
-      await load(); onUpdate()
-    } catch (e: any) { toast.error(e.message ?? 'Action failed') }
-    finally { setActionLoading(false) }
-  }
+  if (loading && !data) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: 'var(--txt2)' }}><Spinner size={18} color={NAVY} /> Loading…</div>
+  if (err || !data) return <div style={{ padding: SP[5] }}><ErrBanner error={err ?? 'Not found'} onRetry={load} /></div>
 
-  async function handleTransfer() {
-    if (!transferTarget) return
-    setActionLoading(true)
-    try {
-      await apiFetch(`/api/helpdesk/tickets/${ticketId}`, {
-        method: 'PATCH', body: JSON.stringify({ assigned_to: Number(transferTarget) }),
-      })
-      setTransferOpen(false); setTransferTarget('')
-      toast.success('Ticket transferred')
-      await load(); onUpdate()
-    } catch (e: any) { toast.error(e.message ?? 'Transfer failed') }
-    finally { setActionLoading(false) }
-  }
-
-  if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
-      <Spinner size={18} color={NAVY} /> Loading ticket…
-    </div>
-  )
-
-  if (err || !data) return (
-    <div style={{ padding: SP[6] }}>
-      <ErrBanner error={err ?? 'Ticket not found'} onRetry={load} />
-    </div>
-  )
-
-  const { ticket, messages = [] } = data
-  const canResolve = !['resolved', 'closed'].includes(ticket.status)
-
-  const sla = (() => {
-    if (!ticket.sla_due_at) return null
-    const diff = new Date(ticket.sla_due_at).getTime() - Date.now()
-    const mins = Math.round(diff / 60_000)
-    if (diff < 0) return { label: `Overdue by ${Math.abs(mins)}m`, color: RED }
-    if (mins < 60) return { label: `${mins}m remaining`, color: AMBER }
-    const hrs = Math.round(mins / 60)
-    return { label: `${hrs}h remaining`, color: hrs < 4 ? AMBER : GREEN }
-  })()
-
-  const fieldStyle: React.CSSProperties = {
-    width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
-    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-    fontFamily: SORA, outline: 'none', boxSizing: 'border-box', resize: 'vertical' as const,
-  }
+  const t = data.ticket
+  const accent = channelAccent(t.channel)
+  const canResolve = !['resolved', 'closed'].includes(t.status)
+  const fieldStyle: React.CSSProperties = { width: '100%', padding: '9px 11px', border: `1px solid ${isNote ? `${AMBER}55` : 'var(--input-bdr)'}`, borderRadius: RADIUS.md, fontSize: TEXT.base, background: isNote ? `${AMBER}08` : 'var(--input-bg)', color: 'var(--txt)', fontFamily: SORA, outline: 'none', boxSizing: 'border-box', resize: 'vertical' }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', fontFamily: SORA }}>
-
-      {/* ── Header ── */}
-      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--bdr)', flexShrink: 0, background: 'var(--card)' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: SP[1], flexWrap: 'wrap' }}>
-              <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', fontFamily: MONO }}>
-                {ticketDisplayRef(ticket)}
-              </span>
-              <StatusBadge status={ticket.status} />
-              <PriorityDot priority={ticket.priority} />
-              {ticket.sla_breached && (
-                <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.xs, background: `${RED}15`, color: RED }}>SLA Overdue</span>
-              )}
-              {sla && !ticket.sla_breached && (
-                <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.xs, background: `${sla.color}15`, color: sla.color }}>{sla.label}</span>
-              )}
-            </div>
-            <div style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)', lineHeight: 1.3 }}>
-              {ticket.subject}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'flex-start' }}>
-            {canResolve && (
-              <button
-                onClick={() => updateStatus('resolved')} disabled={actionLoading}
-                style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, opacity: actionLoading ? 0.7 : 1 }}
-              >
-                Resolve
-              </button>
-            )}
-            <button
-              onClick={onOpenFull}
-              style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'none', color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: SP[1] }}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>open_in_full</span>
-              Full View
-            </button>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Header */}
+      <div style={{ padding: '13px 18px', borderTop: `3px solid ${accent}`, borderBottom: '1px solid var(--bdr)', background: `linear-gradient(180deg, ${accent}0C, transparent 80%)`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.bold, color: accent, fontFamily: MONO, background: `${accent}16`, padding: '2px 9px', borderRadius: RADIUS.md }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{channelIcon(t.channel)}</span>{t.ticket_ref}
+          </span>
+          <StatusBadge status={t.status} />
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            {canResolve && <button className="hd-press" onClick={resolve} disabled={busy} style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}>Resolve</button>}
+            {t.customer_phone && <button className="hd-press" onClick={callback} disabled={busy} title="Add to outbound Support queue" style={{ padding: '5px 11px', borderRadius: RADIUS.md, border: `1px solid ${GREEN}40`, background: 'none', color: GREEN, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'inline-flex', alignItems: 'center', gap: 4 }}><span className="material-symbols-rounded" style={{ fontSize: 15 }}>phone_forwarded</span></button>}
+            <button className="hd-press" onClick={onFull} title="Open full page" style={{ padding: '5px 11px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'inline-flex', alignItems: 'center', gap: 4 }}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>open_in_full</span>Full page</button>
           </div>
         </div>
-
-        {/* Metadata strip */}
-        <div style={{ display: 'flex', gap: SP[4], marginTop: 10, flexWrap: 'wrap' }}>
-          {[
-            { icon: 'person',        val: ticket.customer_name || '—' },
-            { icon: 'support_agent', val: ticket.assigned_to_name || 'Unassigned' },
-            { icon: 'category',      val: ticket.ticket_type || ticket.channel || '—' },
-            { icon: 'schedule',      val: fmtDatetime(ticket.created_at) },
-          ].map(({ icon, val }) => (
-            <span key={icon} style={{ display: 'inline-flex', alignItems: 'center', gap: SP[1], fontSize: TEXT.xs, color: 'var(--txt2)' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, color: 'var(--txt3)' }}>{icon}</span>
-              {val}
-            </span>
-          ))}
-          <button
-            onClick={() => setTransferOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: SP[1], fontSize: TEXT.xs, color: NAVY, fontWeight: FW.semibold, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '2px 8px', cursor: 'pointer', fontFamily: SORA }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>swap_horiz</span>
-            Transfer
-          </button>
-          {!canResolve && ticket.status === 'resolved' && (
-            <button
-              onClick={() => updateStatus('closed')} disabled={actionLoading}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: SP[1], fontSize: TEXT.xs, color: RED, fontWeight: FW.semibold, background: 'none', border: `1px solid ${RED}30`, borderRadius: RADIUS.sm, padding: '2px 8px', cursor: 'pointer', fontFamily: SORA }}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>check_circle</span>
-              Close
-            </button>
-          )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span className="material-symbols-rounded" style={{ fontSize: 15, color: 'var(--txt3)' }}>person</span>{t.customer_name || 'Unknown customer'}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span className="material-symbols-rounded" style={{ fontSize: 15, color: 'var(--txt3)' }}>support_agent</span>{t.assigned_to_name || 'Unassigned'}</span>
         </div>
       </div>
-
-      {/* ── Message thread ── */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: `${SP[4]} ${SP[5]}` }}>
-        {messages.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt3)', fontSize: TEXT.base }}>
-            No messages yet.
-          </div>
-        ) : (
-          messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)
-        )}
-        <div ref={threadEndRef} />
+      {/* Thread */}
+      <div ref={threadRef} style={{ flex: 1, overflowY: 'auto', padding: '16px', background: 'var(--th-bg)' }}>
+        <Conversation ticket={t} messages={data.messages} dense />
       </div>
-
-      {/* ── Reply composer ── */}
-      <div style={{ padding: `${SP[3]} ${SP[4]}`, borderTop: '1px solid var(--bdr)', flexShrink: 0, background: 'var(--card)' }}>
-        {replyErr && <ErrBanner error={replyErr} />}
-        <div style={{ display: 'flex', gap: 2, marginBottom: SP[2] }}>
-          {(['Reply', 'Note'] as const).map(label => (
-            <button
-              key={label}
-              onClick={() => setIsNote(label === 'Note')}
-              style={{
-                padding: '4px 10px', fontSize: TEXT.sm, fontWeight: (isNote ? label === 'Note' : label === 'Reply') ? 600 : 500,
-                color: (isNote ? label === 'Note' : label === 'Reply') ? NAVY : 'var(--txt2)',
-                border: 'none', background: 'none', cursor: 'pointer',
-                borderBottom: `2px solid ${(isNote ? label === 'Note' : label === 'Reply') ? NAVY : 'transparent'}`,
-                marginBottom: -1, fontFamily: SORA,
-              }}
-            >
-              {label}
-            </button>
-          ))}
+      {/* Composer */}
+      <div style={{ borderTop: '1px solid var(--bdr)', padding: '12px 16px', flexShrink: 0, background: 'var(--card)' }}>
+        <div style={{ display: 'flex', gap: 2, marginBottom: 8 }}>
+          {(['Reply', 'Note'] as const).map(l => {
+            const on = isNote ? l === 'Note' : l === 'Reply'
+            return <button key={l} onClick={() => setIsNote(l === 'Note')} style={{ padding: '4px 11px', fontSize: TEXT.sm, fontWeight: on ? FW.bold : FW.medium, color: on ? (l === 'Note' ? AMBER : NAVY) : 'var(--txt3)', border: 'none', background: 'none', cursor: 'pointer', borderBottom: `2px solid ${on ? (l === 'Note' ? AMBER : NAVY) : 'transparent'}`, marginBottom: -1, fontFamily: SORA }}>{l}</button>
+          })}
         </div>
-        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-          value={replyText} onChange={e => setReplyText(e.target.value)}
-          rows={3} placeholder={isNote ? 'Add an internal note…' : 'Type your reply…'}
-          style={{ ...fieldStyle, marginBottom: SP[2] }}
-          onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) sendReply() }}
-        />
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button
-            onClick={sendReply} disabled={!replyText.trim() || sending}
-            style={{
-              padding: '7px 16px', borderRadius: RADIUS.md, border: 'none',
-              background: isNote ? AMBER : NAVY, color: '#fff',
-              fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: sending || !replyText.trim() ? 'not-allowed' : 'pointer',
-              opacity: !replyText.trim() ? 0.5 : 1, fontFamily: SORA,
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}
-          >
-            {sending && <Spinner size={13} color="#fff" />}
+        <textarea value={reply} onChange={e => setReply(e.target.value)} rows={2} spellCheck={false}
+          placeholder={isNote ? 'Add an internal note…' : 'Type your reply…'} style={fieldStyle}
+          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send() }} />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+          <button className="hd-press" onClick={send} disabled={!reply.trim() || sending}
+            style={{ padding: '7px 16px', borderRadius: RADIUS.md, border: 'none', background: isNote ? AMBER : NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: (!reply.trim() || sending) ? 'not-allowed' : 'pointer', opacity: !reply.trim() ? 0.5 : 1, fontFamily: SORA, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {sending ? <Spinner size={13} color="#fff" /> : <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{isNote ? 'lock' : 'send'}</span>}
             {isNote ? 'Add Note' : 'Send Reply'}
           </button>
         </div>
       </div>
-
-      {/* Transfer modal */}
-      <Modal open={transferOpen} onClose={() => { setTransferOpen(false); setTransferTarget('') }} title="Transfer Ticket" width={380}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Assign to agent</label>
-            <select value={transferTarget} onChange={e => setTransferTarget(e.target.value)} style={{ ...fieldStyle, height: 36, resize: 'none' }}>
-              <option value="">Select agent…</option>
-              {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-            </select>
-          </div>
-          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
-            <button onClick={() => { setTransferOpen(false); setTransferTarget('') }} style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'none', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer', fontFamily: SORA }}>Cancel</button>
-            <button onClick={handleTransfer} disabled={!transferTarget || actionLoading} style={{ padding: '7px 16px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', opacity: !transferTarget ? 0.5 : 1, fontFamily: SORA, display: 'flex', alignItems: 'center', gap: 6 }}>
-              {actionLoading && <Spinner size={13} color="#fff" />}
-              Transfer
-            </button>
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
-
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function Tickets() {
   const navigate = useNavigate()
+  const myId = useMemo(myUserId, [])
+  const role = useMemo(myRole, [])
+  const privileged = useMemo(() => isPrivileged(role), [role])
 
-  const [tickets,  setTickets]  = useState<Ticket[]>([])
-  const [total,    setTotal]    = useState(0)
-  const [pages,    setPages]    = useState(1)
-  const [page,     setPage]     = useState(1)
-  const [loading,  setLoading]  = useState(true)
-  const [err,      setErr]      = useState<string | null>(null)
+  const [tickets, setTickets] = useState<Ticket[]>([])
+  const [total, setTotal] = useState(0)
+  const [pages, setPages] = useState(1)
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
   const [lastLoaded, setLastLoaded] = useState<Date | null>(null)
+  const [summary, setSummary] = useState<QueueSummary | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const PER_PAGE = 40
 
-  const PER_PAGE = 50
-
-  const [search,      setSearch]      = useState('')
+  const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
-  const [priorityFilter, setPriorityFilter] = useState('')
+  const [channelFilter, setChannelFilter] = useState('')
+  const [view, setView] = useState<'all' | 'unassigned' | 'mine'>('all')
+  const [agentFilter, setAgentFilter] = useState('')
+  const [bucket, setBucket] = useState('')
+  const [sort, setSort] = useState('waiting')
 
-  const [selectedId,   setSelectedId]   = useState<number | null>(null)
-  const [checkedIds,   setCheckedIds]   = useState<Set<number>>(new Set())
-  const [newOpen,      setNewOpen]      = useState(false)
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
+  const [newOpen, setNewOpen] = useState(false)
   const [reassignOpen, setReassignOpen] = useState(false)
-  const [agents,       setAgents]       = useState<Agent[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
   const [reassignTarget, setReassignTarget] = useState('')
-  const [actionLoading,  setActionLoading]  = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const params = new URLSearchParams()
-      if (statusFilter) params.set('status', statusFilter)
-      if (priorityFilter) params.set('priority', priorityFilter)
-      if (debouncedSearch) params.set('search', debouncedSearch)
-      params.set('exclude_channel', 'email') // Call Center queue = non-email (Care owns mail)
-      params.set('page', String(page))
-      params.set('per_page', String(PER_PAGE))
-      const resp = await apiFetch<TicketsResp>(`/api/helpdesk/tickets?${params}`)
-      setTickets(resp.tickets ?? [])
-      setTotal(resp.total ?? 0)
-      setPages(resp.pages ?? 1)
-      setLastLoaded(new Date())
-    } catch (e: any) { setErr(e.message) }
-    finally { setLoading(false) }
-  }, [statusFilter, priorityFilter, page, PER_PAGE, debouncedSearch])
+      const p = new URLSearchParams()
+      if (statusFilter) p.set('status', statusFilter)
+      if (channelFilter) p.set('channel', channelFilter)
+      if (debouncedSearch) p.set('search', debouncedSearch)
+      if (agentFilter) p.set('assigned_to', agentFilter)
+      else if (view === 'unassigned') p.set('assigned_to', 'unassigned')
+      else if (view === 'mine') p.set('assigned_to', 'me')
+      if (bucket) p.set('bucket', bucket)
+      if (sort) p.set('sort', sort)
+      p.set('exclude_channel', 'email,call'); p.set('page', String(page)); p.set('per_page', String(PER_PAGE))
+      const res = await apiFetch<TicketsResp>(`/api/helpdesk/tickets?${p}`)
+      const list = res.tickets ?? []
+      setTickets(list); setTotal(res.total ?? 0); setPages(res.pages ?? 1); setLastLoaded(new Date())
+      setSelectedId(prev => (prev && list.some(t => t.id === prev)) ? prev : (list[0]?.id ?? null))
+    } catch (e: any) { setErr(e.message) } finally { setLoading(false) }
+  }, [statusFilter, channelFilter, debouncedSearch, view, agentFilter, bucket, sort, page])
 
+  const loadSummary = useCallback(async () => {
+    try {
+      const p = new URLSearchParams({ exclude_channel: 'email,call' })
+      if (channelFilter) p.set('channel', channelFilter)
+      const raw = await apiFetch<any>(`/api/helpdesk/tickets/summary?${p}`)
+      setSummary((raw?.data ?? raw) as QueueSummary)
+    } catch { /* strip degrades to dashes */ }
+  }, [channelFilter])
+
+  const refreshAll = useCallback(() => { load(); loadSummary() }, [load, loadSummary])
   useEffect(() => { load() }, [load])
+  useEffect(() => { loadSummary() }, [loadSummary])
+  useLiveData(refreshAll, { topics: ['tickets'] })
 
-  // Debounce the search box into a server query (the backend searches subject,
-  // customer name, CIF and ref across ALL tickets — not just the loaded page).
+  const searchRef = useRef(search); searchRef.current = search
+  useEffect(() => { const t = setTimeout(() => { setDebouncedSearch(searchRef.current.trim()); setPage(1) }, 350); return () => clearTimeout(t) }, [search])
   useEffect(() => {
-    const t = setTimeout(() => { setDebouncedSearch(search.trim()); setPage(1) }, 350)
-    return () => clearTimeout(t)
-  }, [search])
-
-  useEffect(() => {
-    if (reassignOpen && agents.length === 0) {
-      apiFetch<Agent[]>('/api/helpdesk/agents')
-        .then(r => { const list = Array.isArray(r) ? r : []; setAgents(list) })
-        .catch(() => setAgents([]))
+    if ((reassignOpen || privileged) && agents.length === 0) {
+      apiFetch<Agent[]>('/api/helpdesk/agents').then(r => setAgents(Array.isArray(r) ? r : [])).catch(() => setAgents([]))
     }
-  }, [reassignOpen, agents.length])
+  }, [reassignOpen, privileged, agents.length])
 
-  function toggleCheck(id: number, e: React.MouseEvent) {
-    e.stopPropagation()
-    setCheckedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  function pickView(v: 'all' | 'unassigned' | 'mine') { setView(v); setAgentFilter(''); setBucket(''); setPage(1) }
+  function pickBucket(b: string) { setBucket(prev => prev === b ? '' : b); setView('all'); setAgentFilter(''); setPage(1) }
+  function toggleCheck(id: number, e: React.MouseEvent) { e.stopPropagation(); setCheckedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
+
+  async function handleClaim(id: number) {
+    try { await apiPost(`/api/helpdesk/tickets/${id}/claim`, {}); toast.success('Ticket claimed — it’s yours'); refreshAll() }
+    catch (e: any) { toast.error(e.message ?? 'Claim failed') }
   }
-
   async function handleBulkClose() {
-    if (checkedIds.size === 0) return
+    if (!checkedIds.size) return
     setActionLoading(true)
-    try {
-      await apiPost('/api/helpdesk/tickets/bulk-close', { ticket_ids: Array.from(checkedIds) })
-      setCheckedIds(new Set()); load()
-      toast.success(`${checkedIds.size} ticket${checkedIds.size !== 1 ? 's' : ''} closed`)
-    } catch (e: any) { setErr(e.message) }
-    finally { setActionLoading(false) }
+    try { await apiPost('/api/helpdesk/tickets/bulk-close', { ticket_ids: [...checkedIds] }); toast.success(`${checkedIds.size} closed`); setCheckedIds(new Set()); refreshAll() }
+    catch (e: any) { setErr(e.message) } finally { setActionLoading(false) }
   }
-
-  async function handleClose(id: number) {
-    try {
-      await apiPost('/api/helpdesk/tickets/bulk-close', { ticket_ids: [id] })
-      toast.success('Ticket closed')
-      if (selectedId === id) setSelectedId(null)
-      load()
-    } catch (e: any) { toast.error(e.message ?? 'Failed to close ticket') }
-  }
-
   async function handleBulkReassign() {
-    if (!reassignTarget || checkedIds.size === 0) return
+    if (!reassignTarget || !checkedIds.size) return
     setActionLoading(true)
-    try {
-      await apiPost('/api/helpdesk/tickets/bulk-assign', { ticket_ids: Array.from(checkedIds), agent_id: Number(reassignTarget) })
-      setCheckedIds(new Set()); setReassignOpen(false); setReassignTarget(''); load()
-      toast.success('Tickets reassigned')
-    } catch (e: any) { setErr(e.message) }
-    finally { setActionLoading(false) }
+    try { await apiPost('/api/helpdesk/tickets/bulk-assign', { ticket_ids: [...checkedIds], agent_id: Number(reassignTarget) }); toast.success('Reassigned'); setCheckedIds(new Set()); setReassignOpen(false); setReassignTarget(''); refreshAll() }
+    catch (e: any) { setErr(e.message) } finally { setActionLoading(false) }
   }
 
-  // Search is applied server-side (across all tickets), so the loaded page is
-  // already the filtered result — no client-side re-filtering.
-  const filtered = tickets
+  const hasFilters = Boolean(statusFilter || channelFilter || search || bucket || view !== 'all' || agentFilter)
+  function clearAll() { setStatusFilter(''); setChannelFilter(''); setSearch(''); setBucket(''); setView('all'); setAgentFilter(''); setPage(1) }
 
-  const fieldStyle: React.CSSProperties = {
-    padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
-    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-    fontFamily: SORA, outline: 'none', boxSizing: 'border-box' as const,
+  const selCss: React.CSSProperties = {
+    height: 34, padding: '0 28px 0 11px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm,
+    background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: 'inherit', cursor: 'pointer', appearance: 'none',
+    backgroundImage: 'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%239aa5b1\' stroke-width=\'2.5\'><path d=\'M6 9l6 6 6-6\'/></svg>")',
+    backgroundRepeat: 'no-repeat', backgroundPosition: 'right 9px center',
   }
+  const chip = (on: boolean, color: string): React.CSSProperties => ({
+    fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '4px 11px', borderRadius: RADIUS.full, cursor: 'pointer', fontFamily: SORA,
+    border: `1px solid ${on ? color : 'var(--bdr)'}`, background: on ? `${color}14` : 'transparent', color: on ? color : 'var(--txt3)',
+  })
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, fontFamily: SORA }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg)', fontFamily: SORA }}>
+      <style>{HD_STYLE}</style>
 
-      {/* ── Page header ── */}
-      <div style={{
-        padding: '12px 20px', borderBottom: '1px solid var(--bdr)', flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card)',
-      }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '18px 24px 0', flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)', letterSpacing: '-.02em' }}>Tickets</div>
-          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 1 }}>{total} ticket{total !== 1 ? 's' : ''}</div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.5px' }}>Ticket Queue</h1>
+          <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--txt2)' }}>Customer-raised web &amp; social support · email → Care · calls → Call Activity</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-          {lastLoaded && (
-            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-              {(() => { const m = Math.floor((Date.now() - lastLoaded.getTime()) / 60_000); return m === 0 ? 'Just loaded' : `${m}m ago` })()}
-            </span>
-          )}
-          <button onClick={load} title="Refresh" style={{ width: 32, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>refresh</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {lastLoaded && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt3)' }} title="Live — auto-refreshes"><span className="hd-livedot" />Live · {ago(lastLoaded.toISOString())}</span>}
+          <button className="hd-press" onClick={refreshAll} title="Refresh" style={{ width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 19 }}>refresh</span>
           </button>
-          <button
-            onClick={() => setNewOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-            New Ticket
+          <button className="hd-press" onClick={() => setNewOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>add</span>New Ticket
           </button>
         </div>
       </div>
 
-      {/* ── Split panel ── */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: SP[3], padding: '16px 24px 0', flexShrink: 0 }}>
+        <TriageCard icon="inbox" label="Open" value={summary?.open} color={NAVY} active={!bucket && view === 'all' && !agentFilter} onClick={() => pickView('all')} />
+        <TriageCard icon="mark_chat_unread" label="Awaiting us" value={summary?.awaiting_us} color={RED} active={bucket === 'awaiting_us'} onClick={() => pickBucket('awaiting_us')} />
+        <TriageCard icon="schedule_send" label="Awaiting customer" value={summary?.awaiting_customer} color={BLUE} active={bucket === 'awaiting_customer'} onClick={() => pickBucket('awaiting_customer')} />
+        <TriageCard icon="person_off" label="Unassigned" value={summary?.unassigned} color={AMBER} active={view === 'unassigned'} onClick={() => pickView(view === 'unassigned' ? 'all' : 'unassigned')} />
+        <TriageCard icon="assignment_ind" label="Assigned to me" value={summary?.mine} color={PURPLE} active={view === 'mine'} onClick={() => pickView(view === 'mine' ? 'all' : 'mine')} />
+      </div>
 
-        {/* Left panel */}
-        <div style={{
-          width: 360, minWidth: 300, maxWidth: 400, flexShrink: 0,
-          borderRight: '1px solid var(--bdr)',
-          display: 'flex', flexDirection: 'column',
-          background: 'var(--card)',
-        }}>
+      <div style={{ padding: '0 24px 16px', flexShrink: 0 }}><ErrBanner error={err} onRetry={load} /></div>
 
-          {/* Search + filter chips */}
-          <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
-            <TblSearch
-              value={search} onChange={setSearch}
-              placeholder="Search subject, customer, ref…"
-              width={0} style={{ marginBottom: SP[2] }}
-            />
-
-            {/* Status chips */}
-            <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap', marginBottom: 6 }}>
-              {STATUS_CHIPS.map(({ value, label }) => {
-                const on = statusFilter === value
-                return (
-                  <button key={value} onClick={() => { setStatusFilter(on ? '' : value); setPage(1) }} style={{
-                    fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full,
-                    border: `1px solid ${on ? NAVY : 'var(--bdr)'}`,
-                    background: on ? `${NAVY}12` : 'transparent',
-                    color: on ? NAVY : 'var(--txt3)',
-                    cursor: 'pointer', fontFamily: SORA,
-                  }}>
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Priority chips */}
-            <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
-              {PRIORITY_CHIPS.map(({ value, color }) => {
-                const on = priorityFilter === value
-                return (
-                  <button key={value} onClick={() => { setPriorityFilter(on ? '' : value); setPage(1) }} style={{
-                    fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full,
-                    border: `1px solid ${on ? color : 'var(--bdr)'}`,
-                    background: on ? `${color}18` : 'transparent',
-                    color: on ? color : 'var(--txt3)',
-                    cursor: 'pointer', fontFamily: SORA, textTransform: 'capitalize',
-                  }}>
-                    {value}
-                  </button>
-                )
-              })}
-              {(statusFilter || priorityFilter || search) && (
-                <button onClick={() => { setStatusFilter(''); setPriorityFilter(''); setSearch(''); setPage(1) }} style={{
-                  fontSize: TEXT['2xs'], fontWeight: FW.medium, padding: '2px 8px', borderRadius: RADIUS.full,
-                  border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt3)', cursor: 'pointer', fontFamily: SORA,
-                }}>Clear</button>
-              )}
-            </div>
+      {/* Split: list + preview */}
+      <div style={{ flex: 1, display: 'flex', minHeight: 0, gap: SP[4], padding: '0 24px 24px' }}>
+        {/* List */}
+        <div style={{ ...panelStyle, width: 440, minWidth: 380, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '11px 13px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
+            <div style={{ flex: '1 1 100%' }}><TblSearch value={search} onChange={setSearch} placeholder="Search subject, customer, ref…" width={0} /></div>
+            {CHANNEL_CHIPS.map(c => <button key={c.label} onClick={() => { setChannelFilter(c.value); setPage(1) }} style={chip(channelFilter === c.value, PURPLE)}>{c.label}</button>)}
+            {STATUS_CHIPS.map(s => <button key={s.value} onClick={() => { setStatusFilter(statusFilter === s.value ? '' : s.value); setPage(1) }} style={chip(statusFilter === s.value, NAVY)}>{s.label}</button>)}
+            <select value={sort} onChange={e => { setSort(e.target.value); setPage(1) }} style={{ ...selCss, marginLeft: 'auto' }} title="Sort">
+              {SORT_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            {privileged && (
+              <select value={agentFilter} onChange={e => { setAgentFilter(e.target.value); setView('all'); setPage(1) }} style={{ ...selCss, maxWidth: 150, textOverflow: 'ellipsis' }} title="Filter by agent">
+                <option value="">Everyone’s tickets</option>
+                {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+              </select>
+            )}
+            {hasFilters && <button onClick={clearAll} style={{ ...chip(false, NAVY), display: 'inline-flex', alignItems: 'center', gap: 3 }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>Clear</button>}
           </div>
 
-          {/* Bulk bar */}
           {checkedIds.size > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], padding: '7px 12px', background: '#F0F4FF', borderBottom: '1px solid var(--bdr)', flexShrink: 0, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 13px', background: `${NAVY}0A`, borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
               <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{checkedIds.size} selected</span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                <button onClick={() => setReassignOpen(true)} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer', fontFamily: SORA }}>
-                  Reassign
-                </button>
-                <button onClick={handleBulkClose} disabled={actionLoading} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: '#fff', background: RED, border: 'none', borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer', fontFamily: SORA, display: 'flex', alignItems: 'center', gap: SP[1] }}>
-                  {actionLoading ? <Spinner size={11} color="#fff" /> : null} Close
-                </button>
-                <button onClick={() => setCheckedIds(new Set())} style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%', fontSize: TEXT.md }}>✕</button>
+                <button className="hd-press" onClick={() => setReassignOpen(true)} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '4px 10px', cursor: 'pointer', fontFamily: SORA }}>Reassign</button>
+                <button className="hd-press" onClick={handleBulkClose} disabled={actionLoading} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: '#fff', background: RED, border: 'none', borderRadius: RADIUS.sm, padding: '4px 10px', cursor: 'pointer', fontFamily: SORA }}>Close</button>
+                <button onClick={() => setCheckedIds(new Set())} style={{ width: 24, height: 24, borderRadius: '50%', border: 'none', background: 'none', color: 'var(--txt2)', cursor: 'pointer' }}>✕</button>
               </div>
             </div>
           )}
 
-          {/* Count bar */}
-          <div style={{ padding: '5px 12px', borderBottom: '1px solid var(--bdr)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.08em', fontFamily: MONO }}>
-              {statusFilter || priorityFilter || search ? 'Filtered' : 'All tickets'}
-            </span>
-            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: MONO }}>{filtered.length} of {tickets.length}</span>
+          <div style={{ padding: '6px 13px', borderBottom: '1px solid var(--bdr)', flexShrink: 0, display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.08em', fontFamily: MONO }}>{hasFilters ? 'Filtered' : 'All tickets'}</span>
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: MONO }}>{tickets.length} of {total}</span>
           </div>
 
-          {err && <div style={{ padding: '10px 12px' }}><ErrBanner error={err} onRetry={load} /></div>}
-
-          {/* List */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
-                <Spinner size={16} color={NAVY} /> Loading…
+            {loading && tickets.length === 0 ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '50px 0', color: 'var(--txt2)' }}><Spinner size={18} color={NAVY} /> Loading…</div>
+            ) : tickets.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--txt2)' }}>
+                {view === 'unassigned' ? 'No unassigned tickets.' : view === 'mine' ? 'Nothing assigned to you.' : 'No tickets match these filters.'}
               </div>
-            ) : filtered.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: TEXT.base }}>
-                No tickets match the current filters.
-              </div>
-            ) : filtered.map(ticket => (
-              <TicketRow
-                key={ticket.id}
-                ticket={ticket}
-                isSelected={selectedId === ticket.id}
-                isChecked={checkedIds.has(ticket.id)}
-                onSelect={() => setSelectedId(ticket.id)}
-                onCheck={e => toggleCheck(ticket.id, e)}
-                onViewFull={() => navigate(`/helpdesk/${ticket.id}`)}
-                onAssign={() => { setCheckedIds(new Set([ticket.id])); setReassignOpen(true) }}
-                onClose={() => handleClose(ticket.id)}
-              />
+            ) : tickets.map(t => (
+              <TicketRow key={t.id} t={t} myId={myId} selected={selectedId === t.id} checked={checkedIds.has(t.id)}
+                onCheck={e => toggleCheck(t.id, e)} onSelect={() => setSelectedId(t.id)} onClaim={() => handleClaim(t.id)} />
             ))}
           </div>
 
-          {/* Pagination */}
-          {!loading && pages > 1 && (
-            <div style={{ flexShrink: 0, borderTop: '1px solid var(--bdr)', padding: `${SP[2]} ${SP[3]}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card)' }}>
-              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: SORA }}>
-                {(() => {
-                  const start = (page - 1) * PER_PAGE + 1
-                  const end = Math.min(page * PER_PAGE, total)
-                  return `Showing ${start}–${end} of ${total} tickets`
-                })()}
-              </span>
-              <div style={{ display: 'flex', gap: SP[1] }}>
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page <= 1}
-                  style={{ fontSize: TEXT.sm, padding: '3px 10px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: page <= 1 ? 'var(--txt3)' : 'var(--txt)', cursor: page <= 1 ? 'not-allowed' : 'pointer', fontFamily: SORA }}
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setPage(p => Math.min(pages, p + 1))}
-                  disabled={page >= pages}
-                  style={{ fontSize: TEXT.sm, padding: '3px 10px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: page >= pages ? 'var(--txt3)' : 'var(--txt)', cursor: page >= pages ? 'not-allowed' : 'pointer', fontFamily: SORA }}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
+          <div style={{ flexShrink: 0 }}>
+            <Pagination page={page} pages={pages} onPage={setPage} showRange={false} maxButtons={5} />
+          </div>
         </div>
 
-        {/* Right panel */}
-        <div style={{ flex: 1, minWidth: 0, background: 'var(--bg)', overflow: 'hidden' }}>
+        {/* Preview */}
+        <div style={{ ...panelStyle, flex: 1, minWidth: 0 }}>
           {selectedId ? (
-            <TicketPanel
-              key={selectedId}
-              ticketId={selectedId}
-              onUpdate={load}
-              onOpenFull={() => navigate(`/helpdesk/${selectedId}`)}
-            />
+            <TicketPreview key={selectedId} ticketId={selectedId} onChanged={refreshAll} onFull={() => navigate(`/helpdesk/${selectedId}`)} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: 'var(--txt3)' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 36, opacity: 0.3 }}>confirmation_number</span>
+              <span className="material-symbols-rounded" style={{ fontSize: 40, opacity: 0.3 }}>forum</span>
               <span style={{ fontSize: TEXT.base }}>Select a ticket to view the conversation</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* New ticket modal */}
+      {/* New ticket */}
       <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New Ticket" width={640} maxHeight="78vh">
-        <NewTicketForm stickyFooter onClose={() => setNewOpen(false)} onCreated={id => { setNewOpen(false); setSelectedId(id); load() }} />
+        <NewTicketForm stickyFooter onClose={() => setNewOpen(false)} onCreated={(id: number) => { setNewOpen(false); refreshAll(); setSelectedId(id) }} />
       </Modal>
 
-      {/* Bulk reassign modal */}
-      <Modal
-        open={reassignOpen}
-        onClose={() => { setReassignOpen(false); setReassignTarget('') }}
-        title={`Reassign ${checkedIds.size} ticket${checkedIds.size !== 1 ? 's' : ''}`}
-        width={400}
+      {/* Bulk reassign */}
+      <Modal open={reassignOpen} onClose={() => { setReassignOpen(false); setReassignTarget('') }} title={`Reassign ${checkedIds.size} ticket${checkedIds.size !== 1 ? 's' : ''}`} width={400}
         footer={
           <>
-            <button onClick={() => { setReassignOpen(false); setReassignTarget('') }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer', fontFamily: SORA }}>Cancel</button>
-            <button onClick={handleBulkReassign} disabled={!reassignTarget || actionLoading} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', opacity: (!reassignTarget || actionLoading) ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: SP[2], fontFamily: SORA }}>
-              {actionLoading && <Spinner size={14} color="#fff" />}
-              Reassign
+            <button onClick={() => { setReassignOpen(false); setReassignTarget('') }} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer', fontFamily: SORA }}>Cancel</button>
+            <button className="hd-press" onClick={handleBulkReassign} disabled={!reassignTarget || actionLoading} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', opacity: (!reassignTarget || actionLoading) ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: SORA }}>
+              {actionLoading && <Spinner size={13} color="#fff" />}Reassign
             </button>
           </>
-        }
-      >
+        }>
         <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginTop: 0 }}>Select the agent to assign the selected tickets to.</p>
-        <select value={reassignTarget} onChange={e => setReassignTarget(e.target.value)} style={{ ...fieldStyle, width: '100%', height: 38 }}>
+        <select value={reassignTarget} onChange={e => setReassignTarget(e.target.value)} style={{ ...selCss, width: '100%', height: 38 }}>
           <option value="">— Select agent —</option>
           {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
         </select>

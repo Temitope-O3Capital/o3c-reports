@@ -8,11 +8,13 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strings"
 	"time"
@@ -56,6 +58,97 @@ func careMailbox(ctx context.Context, db *core.DB) string {
 		return v
 	}
 	return "care@o3cards.com"
+}
+
+// CareInboundWebhook receives inbound care@ mail relayed by SendGrid Inbound
+// Parse (a multipart/form-data POST) and threads it through the same
+// ingestInboundEmail pipeline the Graph poller uses. It is the no-Azure-app path
+// to care@ inbound: Microsoft redirects care@o3cards.com to a parse subdomain,
+// SendGrid receives it over SMTP and POSTs here.
+//
+// Public route (no JWT — SendGrid can't send bearer tokens), so it authenticates
+// on a shared secret carried in the URL as ?key=… (CARE_INBOUND_SECRET, set via
+// env or the encrypted api_credentials table). Fails closed if unset.
+func CareInboundWebhook(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		secret := resolveCredKey(ctx, db, "CARE_INBOUND_SECRET")
+		if secret == "" {
+			// Not configured — refuse rather than run as an open ingestion endpoint.
+			respondErr(w, 503, "care inbound not configured")
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("key")), []byte(secret)) != 1 {
+			respondErr(w, 403, "forbidden")
+			return
+		}
+
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
+			// Fall back to a plain form parse (some relays don't use multipart).
+			if err := r.ParseForm(); err != nil {
+				respondErr(w, 400, "could not parse inbound payload")
+				return
+			}
+		}
+
+		// Real emails can carry bytes mislabelled as UTF-8 (wrong Content-Type
+		// charset). Postgres rejects invalid UTF-8, so scrub every free-text field
+		// before it reaches the shared ingest path.
+		clean := func(s string) string { return strings.ToValidUTF8(s, "") }
+		fromRaw := clean(strings.TrimSpace(r.FormValue("from")))
+		toAddr := clean(strings.TrimSpace(r.FormValue("to")))
+		subject := clean(strings.TrimSpace(r.FormValue("subject")))
+		bodyText := clean(r.FormValue("text"))
+		bodyHTML := clean(r.FormValue("html"))
+		headersRaw := clean(r.FormValue("headers"))
+
+		senderEmail, senderName := parseFromHeader(fromRaw)
+		if senderEmail == "" {
+			// No usable sender — ack so SendGrid doesn't retry a hopeless payload.
+			slog.Warn("care inbound webhook: no sender", "from", fromRaw, "subject", subject)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		msgID, inReplyTo := extractThreadingHeaders(headersRaw)
+
+		if _, err := ingestInboundEmail(ctx, db, senderEmail, senderName, toAddr,
+			subject, bodyText, bodyHTML, msgID, inReplyTo); err != nil {
+			slog.Warn("care inbound webhook: ingest", "msg_id", msgID, "err", err)
+			respondErr(w, 500, "ingest failed") // 5xx → SendGrid retries later
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// parseFromHeader turns a raw From header ("Jane Doe <jane@x.com>" or "jane@x.com")
+// into (email, name).
+func parseFromHeader(raw string) (email, name string) {
+	if raw == "" {
+		return "", ""
+	}
+	if a, err := mail.ParseAddress(raw); err == nil {
+		return strings.TrimSpace(a.Address), strings.TrimSpace(a.Name)
+	}
+	if strings.Contains(raw, "@") {
+		return strings.Trim(raw, "<> "), ""
+	}
+	return "", ""
+}
+
+// extractThreadingHeaders pulls Message-Id and In-Reply-To from a raw header
+// block (SendGrid's `headers` field), keeping the same bracketed form the Graph
+// poller stores so replies thread across either channel.
+func extractThreadingHeaders(headersRaw string) (msgID, inReplyTo string) {
+	if strings.TrimSpace(headersRaw) == "" {
+		return "", ""
+	}
+	if msg, err := mail.ReadMessage(strings.NewReader(headersRaw + "\r\n\r\n")); err == nil {
+		return strings.TrimSpace(msg.Header.Get("Message-Id")), strings.TrimSpace(msg.Header.Get("In-Reply-To"))
+	}
+	return "", ""
 }
 
 // StartCareMailPoller runs a background loop that ingests new care@ mail every
@@ -224,7 +317,7 @@ func ingestInboundEmail(ctx context.Context, db *core.DB, senderEmail, senderNam
 	// 4. New ticket
 	if ticketID == 0 {
 		customerCIF := ""
-		if rows, _ := db.PGQuery(ctx, `SELECT "CIF Number" AS cif FROM "CIF Table" WHERE Email=$1 LIMIT 1`, senderEmail); len(rows) > 0 {
+		if rows, _ := db.PGQuery(ctx, `SELECT cif FROM app.customers WHERE email=$1 LIMIT 1`, senderEmail); len(rows) > 0 {
 			customerCIF = str(rows[0]["cif"])
 		}
 		sub := subject

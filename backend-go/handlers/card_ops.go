@@ -107,7 +107,9 @@ func cardBlockCardholder(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "schema init failed")
 			return
 		}
-		var req struct{ Reason string `json:"reason"` }
+		var req struct {
+			Reason string `json:"reason"`
+		}
 		json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck
 		user := core.UserFromCtx(r.Context())
 		_, err := db.PGExec(r.Context(),
@@ -148,22 +150,28 @@ func cardListIssuance(db *core.DB) http.HandlerFunc {
 			return
 		}
 		status := qstr(r, "status")
-		from   := qstr(r, "from")
-		to     := qstr(r, "to")
-		limit  := qint(r, "limit", 100, 1, 500)
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+		limit := qint(r, "limit", 100, 1, 500)
 
 		where := "1=1"
-		args  := []any{}
-		n     := 1
+		args := []any{}
+		n := 1
 
 		if status != "" {
-			where += fmt.Sprintf(" AND status=$%d", n); args = append(args, status); n++
+			where += fmt.Sprintf(" AND status=$%d", n)
+			args = append(args, status)
+			n++
 		}
 		if from != "" {
-			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n); args = append(args, from); n++
+			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
 		}
 		if to != "" {
-			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n); args = append(args, to); n++
+			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
 		}
 		args = append(args, limit)
 
@@ -236,7 +244,9 @@ func cardAdvanceIssuance(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "schema init failed")
 			return
 		}
-		var req struct{ Status string `json:"status"` }
+		var req struct {
+			Status string `json:"status"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondErr(w, 400, "invalid JSON")
 			return
@@ -268,22 +278,28 @@ func cardListDisputes(db *core.DB) http.HandlerFunc {
 			return
 		}
 		status := qstr(r, "status")
-		from   := qstr(r, "from")
-		to     := qstr(r, "to")
-		limit  := qint(r, "limit", 100, 1, 500)
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+		limit := qint(r, "limit", 100, 1, 500)
 
 		where := "1=1"
-		args  := []any{}
-		n     := 1
+		args := []any{}
+		n := 1
 
 		if status != "" {
-			where += fmt.Sprintf(" AND status=$%d", n); args = append(args, status); n++
+			where += fmt.Sprintf(" AND status=$%d", n)
+			args = append(args, status)
+			n++
 		}
 		if from != "" {
-			where += fmt.Sprintf(" AND filed_at::date >= $%d::date", n); args = append(args, from); n++
+			where += fmt.Sprintf(" AND filed_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
 		}
 		if to != "" {
-			where += fmt.Sprintf(" AND filed_at::date <= $%d::date", n); args = append(args, to); n++
+			where += fmt.Sprintf(" AND filed_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
 		}
 		args = append(args, limit)
 
@@ -382,7 +398,9 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "schema init failed")
 			return
 		}
-		var req struct{ Status string `json:"status"` }
+		var req struct {
+			Status string `json:"status"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondErr(w, 400, "invalid JSON")
 			return
@@ -453,22 +471,28 @@ func cardListCreditLimits(db *core.DB) http.HandlerFunc {
 			return
 		}
 		status := qstr(r, "status")
-		from   := qstr(r, "from")
-		to     := qstr(r, "to")
-		limit  := qint(r, "limit", 100, 1, 500)
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+		limit := qint(r, "limit", 100, 1, 500)
 
 		where := "1=1"
-		args  := []any{}
-		n     := 1
+		args := []any{}
+		n := 1
 
 		if status != "" {
-			where += fmt.Sprintf(" AND status=$%d", n); args = append(args, status); n++
+			where += fmt.Sprintf(" AND status=$%d", n)
+			args = append(args, status)
+			n++
 		}
 		if from != "" {
-			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n); args = append(args, from); n++
+			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n)
+			args = append(args, from)
+			n++
 		}
 		if to != "" {
-			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n); args = append(args, to); n++
+			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n)
+			args = append(args, to)
+			n++
 		}
 		args = append(args, limit)
 
@@ -554,7 +578,9 @@ func cardDecideCreditLimit(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "schema init failed")
 			return
 		}
-		var req struct{ Decision string `json:"decision"` }
+		var req struct {
+			Decision string `json:"decision"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondErr(w, 400, "invalid JSON")
 			return
@@ -600,17 +626,21 @@ func cardListBilling(db *core.DB) http.HandlerFunc {
 			return
 		}
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 
 		where := "1=1"
-		args  := []any{}
-		n     := 1
+		args := []any{}
+		n := 1
 
 		if from != "" {
-			where += fmt.Sprintf(" AND cycle_start >= $%d::date", n); args = append(args, from); n++
+			where += fmt.Sprintf(" AND cycle_start >= $%d::date", n)
+			args = append(args, from)
+			n++
 		}
 		if to != "" {
-			where += fmt.Sprintf(" AND cycle_start <= $%d::date", n); args = append(args, to); n++
+			where += fmt.Sprintf(" AND cycle_start <= $%d::date", n)
+			args = append(args, to)
+			n++
 		}
 		args = append(args, 60)
 
@@ -661,7 +691,6 @@ func cardGenerateBilling(db *core.DB) http.HandlerFunc {
 			var f Filter
 			f.Eq(" AND Product_Name=?", ` AND product_name=?`, product)
 			count, _, _ := db.DualScalar(r.Context(), "val",
-				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1%s", f.MS()),
 				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, f.PG()),
 				f.Args()...)
 

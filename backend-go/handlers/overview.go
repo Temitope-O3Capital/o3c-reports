@@ -27,17 +27,17 @@ func overviewRange(r *http.Request) (cs, ce, ps, pe time.Time) {
 
 func RegisterOverview(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("overview"))
-	r.Get("/kpis",               overviewKPIs(db))
-	r.Get("/monthly-volume",     overviewMonthlyVolume(db))
-	r.Get("/product-mix",        overviewProductMix(db))
-	r.Get("/dpd-trend",          overviewDPDTrend(db))
+	r.Get("/kpis", overviewKPIs(db))
+	r.Get("/monthly-volume", overviewMonthlyVolume(db))
+	r.Get("/product-mix", overviewProductMix(db))
+	r.Get("/dpd-trend", overviewDPDTrend(db))
 	r.Get("/acquisition-funnel", overviewAcquisitionFunnel(db))
-	r.Get("/top-performers",     overviewTopPerformers(db))
-	r.Get("/los-stages",         overviewLOSStages(db))
-	r.Get("/cc-stages",          overviewCCStages(db))
-	r.Get("/fd-summary",         overviewFDSummary(db))
-	r.Get("/cards-summary",      overviewCardsSummary(db))
-	r.Get("/contact-center",     overviewContactCenter(db))
+	r.Get("/top-performers", overviewTopPerformers(db))
+	r.Get("/los-stages", overviewLOSStages(db))
+	r.Get("/cc-stages", overviewCCStages(db))
+	r.Get("/fd-summary", overviewFDSummary(db))
+	r.Get("/cards-summary", overviewCardsSummary(db))
+	r.Get("/contact-center", overviewContactCenter(db))
 }
 
 // overviewKPIs returns the executive KPIs from the real Udara/CBS loan book.
@@ -100,7 +100,6 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 
 		// KPI 3 (Active Cards) — from the live card book (app.accounts).
 		if rows, _, err := db.DualQuery(ctx,
-			`SELECT SUM(CASE WHEN Status IN ('Open','Active') THEN 1 ELSE 0 END) AS n FROM dbo.Account`,
 			`SELECT COUNT(*) FILTER (WHERE status IN ('Open','Active')) AS n FROM app.accounts`,
 		); err == nil && len(rows) > 0 {
 			out["active_cards"] = toInt64(rows[0]["n"])
@@ -380,7 +379,6 @@ func overviewCCStages(db *core.DB) http.HandlerFunc {
 
 		// active card count from live card data
 		activeRows, _, _ := db.DualQuery(ctx,
-			`SELECT COUNT(*) AS n FROM dbo.Account WHERE Status IN ('Open','Active')`,
 			`SELECT COUNT(*) AS n FROM app.accounts WHERE status IN ('Open','Active')`)
 		active := int64(0)
 		if len(activeRows) > 0 {
@@ -437,26 +435,17 @@ func overviewCardsSummary(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 
 		empty := map[string]any{
-			"disputes_open":            0,
-			"green_count":              0, "green_outstanding_kobo":    0,
-			"gold_count":               0, "gold_outstanding_kobo":     0,
-			"platinum_count":           0, "platinum_outstanding_kobo": 0,
-			"prepaid_ngn_count":        0, "prepaid_ngn_balance_kobo":  0,
-			"prepaid_usd_count":        0, "prepaid_usd_balance_cents": 0,
-			"credit_ngn_count":         0, "credit_ngn_balance_kobo":   0,
+			"disputes_open": 0,
+			"green_count":   0, "green_outstanding_kobo": 0,
+			"gold_count": 0, "gold_outstanding_kobo": 0,
+			"platinum_count": 0, "platinum_outstanding_kobo": 0,
+			"prepaid_ngn_count": 0, "prepaid_ngn_balance_kobo": 0,
+			"prepaid_usd_count": 0, "prepaid_usd_balance_cents": 0,
+			"credit_ngn_count": 0, "credit_ngn_balance_kobo": 0,
 		}
 
 		// Counts by card product / tier from live card data
 		rows, _, err := db.DualQuery(ctx,
-			`SELECT
-				SUM(CASE WHEN LOWER(ISNULL(Card_Product,'')) LIKE '%green%'    THEN 1 ELSE 0 END) AS green_count,
-				SUM(CASE WHEN LOWER(ISNULL(Card_Product,'')) LIKE '%gold%'     THEN 1 ELSE 0 END) AS gold_count,
-				SUM(CASE WHEN LOWER(ISNULL(Card_Product,'')) LIKE '%platinum%' THEN 1 ELSE 0 END) AS platinum_count,
-				SUM(CASE WHEN LOWER(ISNULL(Product_Name,'')) LIKE '%prep%'     THEN 1 ELSE 0 END) AS prepaid_ngn_count,
-				SUM(CASE WHEN LOWER(ISNULL(Product_Name,'')) LIKE '%usd%'      THEN 1 ELSE 0 END) AS prepaid_usd_count,
-				SUM(CASE WHEN LOWER(ISNULL(Product_Name,'')) LIKE '%classic%'
-				      OR LOWER(ISNULL(Product_Name,'')) LIKE '%credit%'        THEN 1 ELSE 0 END) AS credit_ngn_count
-			FROM dbo.Account WHERE Status IN ('Open','Active')`,
 			`SELECT
 				SUM(CASE WHEN LOWER(COALESCE(card_product, card_program,'')) LIKE '%green%'    THEN 1 ELSE 0 END) AS green_count,
 				SUM(CASE WHEN LOWER(COALESCE(card_product, card_program,'')) LIKE '%gold%'     THEN 1 ELSE 0 END) AS gold_count,

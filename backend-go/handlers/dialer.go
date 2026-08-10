@@ -49,7 +49,7 @@ func RegisterDialer(r chi.Router, db *core.DB) {
 	ensureDialerSchema(context.Background(), db)
 
 	r.Group(func(r chi.Router) {
-		r.Use(core.RequirePages("telemarketing"))
+		r.Use(core.RequirePages("call_center"))
 
 		// Campaign CRUD
 		r.Get("/campaigns", dlListCampaigns(db))

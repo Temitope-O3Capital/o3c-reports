@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, filterInputStyle, ExpandableFilterBar, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, filterInputStyle, ExpandableFilterBar, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, today, monthStart } from '../../lib/fmt'
@@ -337,29 +337,25 @@ export default function FinanceFixedDeposit() {
   const kpiLoading = loading && !fdKpis
 
   return (
-    <Page
-      title="Fixed Deposits"
-      subtitle={summary ? `${summary.inflow_count} active · ${summary.liquidation_count} liquidated` : undefined}
-      actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[4] }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>Txn Date:</span>
-            <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>Maturity:</span>
-            <DateFilter from={matFrom} to={matTo} onChange={(f, t) => { setMatFrom(f); setMatTo(t) }} align="right" />
-          </div>
-          <button onClick={() => setShowNew(true)} style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '6px 14px', borderRadius: RADIUS.md, border: 'none',
-            background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
-          }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>New FD
-          </button>
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: SP[4], marginBottom: SP[4], flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>Txn Date:</span>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
         </div>
-      }
-    >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>Maturity:</span>
+          <DateFilter from={matFrom} to={matTo} onChange={(f, t) => { setMatFrom(f); setMatTo(t) }} align="right" />
+        </div>
+        <button onClick={() => setShowNew(true)} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '6px 14px', borderRadius: RADIUS.md, border: 'none',
+          background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span>New FD
+        </button>
+      </div>
+
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}
@@ -398,7 +394,7 @@ export default function FinanceFixedDeposit() {
         )}
       </SectionCard>
 
-      <SectionCard title="FD Records" badge={filtered.length} padding={false} actions={
+      <SectionCard title="FD Records" subtitle={summary ? `${summary.inflow_count} active · ${summary.liquidation_count} liquidated` : undefined} badge={filtered.length} padding={false} actions={
         <button onClick={() => exportFDRecordsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
           Export CSV
@@ -470,6 +466,6 @@ export default function FinanceFixedDeposit() {
       </SectionCard>
 
       {showNew && <NewFDDialog onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load() }} />}
-    </Page>
+    </>
   )
 }

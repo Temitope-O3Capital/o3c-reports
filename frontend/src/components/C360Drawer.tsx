@@ -32,6 +32,37 @@ interface Profile {
   financial_summary?: { dpd_bucket?: string | null }
 }
 
+// Paystack funding attempts for this customer. Surfaced here because "I paid and
+// it didn't reflect" is a Customer 360 / helpdesk question, not a settlement one —
+// and more than half of all funding attempts never complete.
+interface PsFunding {
+  id: number
+  reference: string
+  status: string
+  channel: string
+  amount_kobo: number
+  created_at_ps: string
+  gateway_response: string
+  auth_bank: string
+}
+
+interface PsActivity {
+  summary: {
+    matched_on: string
+    // 'ambiguous' when the customer's email is shared across several CIFs — the
+    // API returns no rows in that case rather than risk showing another
+    // customer's money here.
+    identity: 'unique' | 'ambiguous'
+    shared_cifs?: number
+    note?: string
+    funding_n: number
+    funding_success: number
+    funding_failed: number
+    funded_kobo: number
+  }
+  fundings: PsFunding[]
+}
+
 interface ActivityEvent {
   id: number
   ts: string
@@ -111,6 +142,8 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
   const [events,    setEvents]    = useState<ActivityEvent[]>([])
   const [loading,   setLoading]   = useState(false)
   const [evtLoading,setEvtLoading]= useState(false)
+  const [payments,  setPayments]  = useState<PsActivity | null>(null)
+  const [payLoading,setPayLoading]= useState(false)
 
   const loadProfile = useCallback(() => {
     if (!initialCustomer) return
@@ -142,14 +175,25 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
       .finally(() => setEvtLoading(false))
   }, [initialCustomer])
 
+  const loadPayments = useCallback(() => {
+    if (!initialCustomer?.cif) return
+    setPayLoading(true)
+    apiFetch<PsActivity>(`/api/paystack/customer?cif=${encodeURIComponent(initialCustomer.cif)}`)
+      .then(r => setPayments(r))
+      // A customer with no Paystack identity is normal, not an error.
+      .catch(() => setPayments(null))
+      .finally(() => setPayLoading(false))
+  }, [initialCustomer])
+
   useEffect(() => {
     if (!open || !initialCustomer) {
-      if (!open) { setProfile(null); setEvents([]) }
+      if (!open) { setProfile(null); setEvents([]); setPayments(null) }
       return
     }
     loadProfile()
     loadEvents()
-  }, [open, initialCustomer, loadProfile, loadEvents])
+    loadPayments()
+  }, [open, initialCustomer, loadProfile, loadEvents, loadPayments])
 
   const dpdBucket   = profile?.financial_summary?.dpd_bucket ?? 'Current'
   const activeLoans = (profile?.loan_apps ?? []).filter(l => !REJECTED.has(l.stage ?? ''))
@@ -282,6 +326,92 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* App payments (Paystack) */}
+              {(payLoading || (payments && (payments.summary.funding_n > 0 || payments.summary.identity === 'ambiguous'))) && (
+                <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bdr)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+                    <div style={{ ...SEC_TITLE, marginBottom: 0 }}>App Payments</div>
+                    {payments && (
+                      <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--txt3)', fontFamily: MONO }}>
+                        matched on {payments.summary.matched_on}
+                      </span>
+                    )}
+                  </div>
+
+                  {payLoading && (
+                    <div style={{ padding: '16px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: 12 }}>
+                      Loading payments…
+                    </div>
+                  )}
+
+                  {!payLoading && payments?.summary.identity === 'ambiguous' && (
+                    <div style={{
+                      display: 'flex', gap: 8, padding: '10px 12px', borderRadius: RADIUS.md,
+                      background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.18)',
+                    }}>
+                      <span style={{ color: AMBER, fontSize: 14, lineHeight: 1.2 }}>!</span>
+                      <span style={{ fontSize: 11.5, color: 'var(--txt2)', lineHeight: 1.5 }}>
+                        {payments.summary.note ?? 'Payment history cannot be attributed to this customer.'}
+                      </span>
+                    </div>
+                  )}
+
+                  {!payLoading && payments && payments.summary.identity !== 'ambiguous' && (
+                    <>
+                      <div style={{ display: 'flex', gap: 18, marginBottom: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 10.5, color: 'var(--txt3)' }}>Funded</div>
+                          <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
+                            {fmtKobo(payments.summary.funded_kobo)}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10.5, color: 'var(--txt3)' }}>Successful</div>
+                          <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: GREEN }}>
+                            {payments.summary.funding_success}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10.5, color: 'var(--txt3)' }}>Failed / abandoned</div>
+                          <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: payments.summary.funding_failed > 0 ? AMBER : 'var(--txt2)' }}>
+                            {payments.summary.funding_failed}
+                          </div>
+                        </div>
+                      </div>
+
+                      {payments.fundings.slice(0, 6).map((f, i) => {
+                        const ok = f.status === 'success'
+                        const color = ok ? GREEN : f.status === 'failed' ? RED : AMBER
+                        return (
+                          <div key={f.id} style={{
+                            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0',
+                            borderBottom: i < Math.min(payments.fundings.length, 6) - 1 ? '1px solid var(--bdr)' : 'none',
+                          }}>
+                            <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, color: 'var(--txt)' }}>
+                                {f.channel?.replace(/_/g, ' ') || 'payment'}
+                                <span style={{ color: 'var(--txt3)', marginLeft: 6, fontFamily: MONO, fontSize: 10.5 }}>
+                                  {fmtDate(f.created_at_ps)}
+                                </span>
+                              </div>
+                              {!ok && f.gateway_response && (
+                                <div style={{ fontSize: 10.5, color: 'var(--txt3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {f.gateway_response}
+                                </div>
+                              )}
+                            </div>
+                            <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: ok ? 'var(--txt)' : 'var(--txt3)' }}>
+                              {fmtKobo(f.amount_kobo)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </>
+                  )}
                 </div>
               )}
 

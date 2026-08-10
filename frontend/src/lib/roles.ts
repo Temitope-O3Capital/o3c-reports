@@ -46,10 +46,9 @@ export const ROLE_LABELS: Record<string, string> = {
   recovery_head:            'Head of Recovery',
   recovery:                 'Recovery',
 
-  // Call Centre
-  call_center_agent:        'Call Centre Agent',
-  call_center_head:         'Head of Call Centre',
-  call_centre:              'Call Centre',
+  // Call Center
+  call_center_agent:        'Call Center Agent',
+  call_center_head:         'Head of Call Center',
 
 
   // Compliance
@@ -63,10 +62,6 @@ export const ROLE_LABELS: Record<string, string> = {
   // Settlements / Treasury
   settlement_officer:       'Settlement Officer',
   treasury_officer:         'Treasury Officer',
-
-  // Telemarketing
-  telemarketing_agent:      'Telemarketing Agent',
-  telemarketing_head:       'Head of Telemarketing',
 
   // Business Development
   bd_officer:               'BD Officer',

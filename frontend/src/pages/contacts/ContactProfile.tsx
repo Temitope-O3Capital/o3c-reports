@@ -646,10 +646,114 @@ function fmtStage(s: string) {
   return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
-function ActivityTab({ profile }: { profile: ContactProfileData }) {
-  if (profile.activity_log.length === 0) return (
-    <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No activity recorded yet.</div>
+// ── Live interaction timeline (calls / tickets / collections) ─────────────────
+interface TimelineItem {
+  kind: string; ts: string; direction?: string | null; purpose?: string | null
+  outcome?: string | null; status?: string | null; agent_name?: string | null
+  detail?: string | null; title?: string | null; duration_sec?: number | null; ref?: string | null
+}
+
+const PURPOSE_STYLE: Record<string, { label: string; colour: string }> = {
+  collections: { label: 'Collections', colour: AMBER },
+  marketing:   { label: 'Marketing',   colour: BLUE },
+  support:     { label: 'Support',      colour: '#0891B2' },
+  retention:   { label: 'Retention',    colour: GREEN },
+  other:       { label: 'Other',        colour: 'var(--txt3)' },
+}
+const KIND_ICON: Record<string, string> = { call: 'call', ticket: 'confirmation_number', collection: 'phone_in_talk' }
+
+function fmtDur(s?: number | null): string {
+  if (!s || s <= 0) return ''
+  const m = Math.floor(s / 60), ss = s % 60
+  return `${m}:${String(ss).padStart(2, '0')}`
+}
+
+function InteractionTimeline({ cif }: { cif: string }) {
+  const [items, setItems] = useState<TimelineItem[] | null>(null)
+  const [err, setErr]     = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    ;(async () => {
+      try {
+        const d = await apiFetch<any>(`/api/customer360/${cif}/activity?limit=200`)
+        const rows = (d?.data ?? d) as TimelineItem[]
+        if (live) setItems(Array.isArray(rows) ? rows : [])
+      } catch (e: any) { if (live) setErr(e.message) }
+    })()
+    return () => { live = false }
+  }, [cif])
+
+  if (err) return (
+    <SectionCard title="Calls & Interactions">
+      <div style={{ fontSize: TEXT.sm, color: RED }}>Couldn’t load interactions: {err}</div>
+    </SectionCard>
   )
+  if (!items) return (
+    <SectionCard title="Calls & Interactions">
+      <div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}><Spinner size={20} /></div>
+    </SectionCard>
+  )
+  if (items.length === 0) return (
+    <SectionCard title="Calls & Interactions">
+      <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No calls, tickets, or collections touches on record.</div>
+    </SectionCard>
+  )
+
+  return (
+    <SectionCard title="Calls & Interactions" subtitle={`${items.length} most recent`}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        {items.map((it, i) => {
+          const isLast  = i === items.length - 1
+          const icon    = KIND_ICON[it.kind] ?? 'history'
+          const ps      = PURPOSE_STYLE[it.purpose ?? ''] ?? null
+          const dirIcon = it.direction === 'inbound' ? 'call_received'
+                        : it.direction === 'outbound' ? 'call_made' : null
+          const result  = it.outcome || it.status || ''
+          const dur     = fmtDur(it.duration_sec)
+          return (
+            <div key={`${it.kind}-${it.ref}-${i}`} style={{ display: 'flex', gap: 12, paddingBottom: isLast ? 0 : 12, position: 'relative' }}>
+              {!isLast && <div style={{ position: 'absolute', left: 15, top: 40, bottom: 0, width: 1, background: 'var(--bdr)' }} />}
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', flexShrink: 0, marginTop: 10,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: ps ? `${ps.colour}15` : 'var(--chip-bg)', border: `1px solid ${ps ? ps.colour + '30' : 'var(--bdr)'}`, zIndex: 1,
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 16, color: ps?.colour ?? 'var(--txt2)' }}>{icon}</span>
+              </div>
+              <div style={{ flex: 1, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: '10px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+                  {dirIcon && <span className="material-symbols-rounded" style={{ fontSize: 15, color: 'var(--txt2)' }}>{dirIcon}</span>}
+                  <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{it.title || it.kind}</span>
+                  {ps && (
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: RADIUS.xl, background: `${ps.colour}15`, color: ps.colour, border: `1px solid ${ps.colour}30` }}>{ps.label}</span>
+                  )}
+                  {result && <Badge label={result} colour={statusColour(result)} />}
+                  {dur && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--txt2)' }}>{dur}</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--txt2)' }}>
+                  {fmtDatetime(it.ts)}{it.agent_name && ` · ${it.agent_name}`}
+                </div>
+                {it.detail && <div style={{ fontSize: 12.5, color: 'var(--txt)', marginTop: 6, whiteSpace: 'pre-wrap' }}>{it.detail}</div>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </SectionCard>
+  )
+}
+
+function ActivityTab({ profile, cif }: { profile: ContactProfileData; cif: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <InteractionTimeline cif={cif} />
+      {profile.activity_log.length > 0 && <SystemActivityList profile={profile} />}
+    </div>
+  )
+}
+
+function SystemActivityList({ profile }: { profile: ContactProfileData }) {
+  if (profile.activity_log.length === 0) return null
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {profile.activity_log.map((a, i) => {
@@ -887,7 +991,7 @@ export default function ContactProfile() {
       {tab === 'collections' && <CollectionsTab profile={profile} />}
       {tab === 'recovery'    && <RecoveryTab    profile={profile} />}
       {tab === 'helpdesk'    && <HelpdeskTab    profile={profile} />}
-      {tab === 'activity'    && <ActivityTab    profile={profile} />}
+      {tab === 'activity'    && <ActivityTab    profile={profile} cif={profile.cif} />}
     </Page>
   )
 }

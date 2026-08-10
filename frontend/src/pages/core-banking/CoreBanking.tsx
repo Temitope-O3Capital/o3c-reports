@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  Page, KpiCard, SectionCard, Tabs, DataTable, Badge, Button, ErrBanner, EmptyState,
+  Page, KpiCard, SectionCard, Tabs, DataTable, Badge, ErrBanner, EmptyState,
   type TableCol,
 } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -61,7 +61,6 @@ export default function CoreBanking() {
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [syncing, setSyncing] = useState(false)
 
   // load pulls all report data. Pass silent=true for the background auto-refresh so
   // the view updates in place without flashing skeletons or surfacing transient errors.
@@ -87,18 +86,6 @@ export default function CoreBanking() {
   useEffect(() => { load() }, [])
   useLiveData(() => load(true), { topics: ['cbs'] })
 
-  async function runSync() {
-    setSyncing(true); setErr(null)
-    try {
-      await apiFetch('/api/cbs/sync', { method: 'POST' })
-      await load()
-    } catch (e: any) {
-      setErr(e?.message || 'Sync failed (admin only)')
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   const last = sync?.last_run
   const lastLabel = last?.finished_at
     ? `Live · synced ${fmtDatetime(last.finished_at)}`
@@ -116,10 +103,7 @@ export default function CoreBanking() {
       title="Core Banking"
       subtitle="Live view of the Udara360 book — loans, fixed deposits, and reconciliation"
       actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
-          <Badge variant={last?.status === 'ok' ? 'success' : 'default'} dot>{lastLabel}</Badge>
-          <Button variant="secondary" icon="sync" loading={syncing} onClick={runSync}>Sync now</Button>
-        </div>
+        <Badge variant={last?.status === 'ok' ? 'success' : 'default'} dot>{lastLabel}</Badge>
       }
     >
       <ErrBanner error={err} onRetry={load} />

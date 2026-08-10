@@ -185,6 +185,7 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Post("/tickets", hdCreateTicket(db))
 		r.Get("/tickets", hdListTickets(db))
 		r.Get("/tickets/search", hdSearchTickets(db))
+		r.Get("/tickets/summary", hdQueueSummary(db))
 		// Bulk actions — must be before /{id} so chi resolves them first
 		r.Post("/tickets/bulk-assign", hdBulkAssignTickets(db))
 		r.Post("/tickets/bulk-close", hdBulkCloseTickets(db))
@@ -193,6 +194,7 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Get("/tickets/{id}", hdGetTicket(db))
 		r.Patch("/tickets/{id}", hdUpdateTicket(db))
 		r.Post("/tickets/{id}/messages", hdSendMessage(db))
+		r.Post("/tickets/{id}/promise", hdTicketPromise(db))
 		r.Post("/tickets/{id}/merge", hdMergeTicket(db))
 		r.Get("/canned-responses", hdListCanned(db))
 		r.Post("/canned-responses", hdCreateCanned(db))
@@ -243,6 +245,10 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		// Agent helpdesk status (Available / On Call / Break / Offline)
 		r.Put("/agents/{id}/status", hdSetAgentStatus(db))
 
+		// Call Center settings (e.g. daily call target) — supervisors set them.
+		r.Get("/cc-settings", hdCCSettings(db))
+		r.Put("/cc-settings", hdSetCCSettings(db))
+
 		// Routing rules CRUD
 		r.Get("/routing-rules", hdListRoutingRules(db))
 		r.Post("/routing-rules", hdCreateRoutingRule(db))
@@ -272,8 +278,15 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		// so Care knows the customer before replying to their mail).
 		r.Get("/customer-history", hdCustomerHistory(db))
 
+		// Caller lookup — phone number → caller 360 (identity + open tickets +
+		// recent calls) for an in-app screen pop. Matched on last 10 digits.
+		r.Get("/caller-lookup", hdCallerLookup(db))
+
 		// Care supervisor — team mail load, unassigned pool, per-agent stats.
 		r.Get("/care-supervisor", hdCareSupervisor(db))
+
+		// Care backlog — round-robin distribute the unassigned mail pool to agents.
+		r.Post("/care-distribute", hdCareDistribute(db))
 	})
 }
 
@@ -334,6 +347,182 @@ func hdCareSupervisor(db *core.DB) http.HandlerFunc {
 			"agents":             agents,
 			"unassigned_tickets": unassignedList,
 		}, "care")
+	}
+}
+
+// hdCareDistribute round-robins the unassigned open email backlog across a set of
+// Care agents so a supervisor can clear the queue in one action. Oldest mail is
+// assigned first. If no agent_ids are supplied it falls back to every active
+// call-centre agent/head. Head/admin only.
+func hdCareDistribute(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		caller := core.UserFromCtx(ctx)
+		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+			respondErr(w, 403, "insufficient role")
+			return
+		}
+		var b struct {
+			AgentIDs []int64 `json:"agent_ids"`
+			Max      int     `json:"max"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+
+		// Resolve the agent pool (validated, active). Default: all active CC agents/heads.
+		type agent struct {
+			id   int64
+			name string
+		}
+		var pool []agent
+		if len(b.AgentIDs) > 0 {
+			ph := make([]string, len(b.AgentIDs))
+			args := make([]any, len(b.AgentIDs))
+			for i, id := range b.AgentIDs {
+				ph[i] = fmt.Sprintf("$%d", i+1)
+				args[i] = id
+			}
+			rows, _ := db.PGQuery(ctx, fmt.Sprintf(
+				`SELECT id, full_name FROM o3c_users WHERE is_active=TRUE AND deleted_at IS NULL AND id IN (%s) ORDER BY id`,
+				strings.Join(ph, ",")), args...)
+			for _, row := range rows {
+				pool = append(pool, agent{toInt64(row["id"]), fmt.Sprint(row["full_name"])})
+			}
+		} else {
+			rows, _ := db.PGQuery(ctx,
+				`SELECT id, full_name FROM o3c_users WHERE is_active=TRUE AND deleted_at IS NULL
+				   AND role IN ('call_center_agent','call_center_head') ORDER BY id`)
+			for _, row := range rows {
+				pool = append(pool, agent{toInt64(row["id"]), fmt.Sprint(row["full_name"])})
+			}
+		}
+		if len(pool) == 0 {
+			respondErr(w, 422, "no active agents available to distribute to")
+			return
+		}
+
+		max := b.Max
+		if max <= 0 || max > 1000 {
+			max = 200
+		}
+		// Oldest unassigned open email first — these have waited longest.
+		rows, err := db.PGQuery(ctx,
+			`SELECT id FROM helpdesk_tickets
+			   WHERE channel='email' AND status NOT IN ('resolved','closed') AND assigned_to IS NULL
+			   ORDER BY created_at ASC LIMIT $1`, max)
+		if err != nil {
+			respondErr(w, 500, "failed to read backlog")
+			return
+		}
+
+		perAgent := make(map[string]int, len(pool))
+		assigned := 0
+		for i, row := range rows {
+			a := pool[i%len(pool)]
+			if _, err := db.PGExec(ctx,
+				`UPDATE helpdesk_tickets SET assigned_to=$1, updated_at=NOW()
+				   WHERE id=$2 AND assigned_to IS NULL`, a.id, toInt64(row["id"])); err == nil {
+				assigned++
+				perAgent[a.name]++
+			}
+		}
+		respond(w, map[string]any{
+			"assigned":  assigned,
+			"agents":    len(pool),
+			"per_agent": perAgent,
+		}, "care")
+	}
+}
+
+// lastNDigits keeps only the digits of s and returns the trailing n of them —
+// so "+234 802 387 6102" and "08023876102" both normalise to "8023876102".
+func lastNDigits(s string, n int) string {
+	d := make([]rune, 0, len(s))
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			d = append(d, c)
+		}
+	}
+	if len(d) > n {
+		d = d[len(d)-n:]
+	}
+	return string(d)
+}
+
+// hdCallerLookup resolves a phone number to the caller's 360 — identity (from the
+// Accounts source-of-truth, else CRM leads), their open support tickets, and
+// recent calls — for an in-app screen pop. Matched on the last 10 digits.
+func hdCallerLookup(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		raw := qstr(r, "phone")
+		norm := lastNDigits(raw, 10)
+		if norm == "" {
+			respondErr(w, 422, "phone is required")
+			return
+		}
+		var name, cif, email, phone string
+		found, existing := false, false
+
+		// 1. Accounts — identity source of truth (an existing customer).
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT first_name AS fn, last_name AS ln, cif, email, phone
+			FROM app.customers
+			WHERE right(regexp_replace(COALESCE(phone,''), '\D', '', 'g'), 10) = $1
+			LIMIT 1`, norm); len(rows) > 0 {
+			name = strings.TrimSpace(str(rows[0]["fn"]) + " " + str(rows[0]["ln"]))
+			cif, email, phone = str(rows[0]["cif"]), str(rows[0]["email"]), str(rows[0]["phone"])
+			found, existing = true, true
+		}
+		// 2. CRM leads fallback.
+		if !found {
+			if rows, _ := db.PGQuery(ctx, `
+				SELECT trim(concat(coalesce(first_name,''),' ',coalesce(last_name,''))) AS name,
+				       coalesce(cif_number,'') AS cif, coalesce(email,'') AS email, coalesce(phone,'') AS phone
+				FROM crm_contacts
+				WHERE right(regexp_replace(coalesce(phone,''), '\D', '', 'g'), 10) = $1
+				LIMIT 1`, norm); len(rows) > 0 {
+				name = strings.TrimSpace(str(rows[0]["name"]))
+				cif, email, phone = str(rows[0]["cif"]), str(rows[0]["email"]), str(rows[0]["phone"])
+				found = true
+			}
+		}
+		if phone == "" {
+			phone = raw
+		}
+
+		// Open support tickets (web/social) for this caller.
+		tickets, _ := db.PGQuery(ctx, `
+			SELECT id, ticket_ref, subject, status, priority, created_at
+			FROM helpdesk_tickets
+			WHERE status NOT IN ('closed','resolved')
+			  AND (channel IS NULL OR channel NOT IN ('email','call'))
+			  AND ( ($1 <> '' AND customer_cif = $1)
+			     OR right(regexp_replace(COALESCE(customer_phone,''), '\D', '', 'g'), 10) = $2 )
+			ORDER BY created_at DESC LIMIT 10`, cif, norm)
+
+		// Recent calls to/from this number.
+		calls, _ := db.PGQuery(ctx, `
+			SELECT id, INITCAP(direction) AS direction, outcome, duration_sec, started_at, agent_name
+			FROM helpdesk_calls
+			WHERE right(regexp_replace(COALESCE(customer_phone,''), '\D', '', 'g'), 10) = $1
+			ORDER BY started_at DESC LIMIT 10`, norm)
+
+		if tickets == nil {
+			tickets = []core.Row{}
+		}
+		if calls == nil {
+			calls = []core.Row{}
+		}
+		respond(w, map[string]any{
+			"found":                found,
+			"is_existing_customer": existing,
+			"name":                 name,
+			"cif":                  cif,
+			"email":                email,
+			"phone":                phone,
+			"open_tickets":         tickets,
+			"recent_calls":         calls,
+		}, "lookup")
 	}
 }
 
@@ -440,15 +629,16 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 				COUNT(CASE WHEN status NOT IN ('resolved','closed') AND sla_due_at IS NOT NULL AND sla_due_at < NOW() THEN 1 END)                 AS sla_breached,
 				COUNT(CASE WHEN status = 'resolved' AND updated_at::date = CURRENT_DATE THEN 1 END)                                               AS resolved_today,
 				COUNT(CASE WHEN created_at::date = CURRENT_DATE THEN 1 END)                                                                       AS tickets_today,
-				ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/60.0) FILTER (WHERE resolved_at IS NOT NULL))                            AS avg_handle_time_mins,
+				COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/60.0) FILTER (WHERE resolved_at IS NOT NULL)), 0)               AS avg_handle_time_mins,
 				ROUND(AVG(csat_score)::numeric FILTER (WHERE csat_score IS NOT NULL), 1)                                                          AS csat_score
 			FROM helpdesk_tickets
-			WHERE assigned_to = $1`, user.ID)
+			WHERE assigned_to = $1 AND (channel IS NULL OR channel NOT IN ('email','call'))`, user.ID)
 
 		recentRows, _ := db.PGQuery(ctx, `
 			SELECT id, ticket_ref, subject, customer_name, status, priority, created_at, sla_due_at
 			FROM helpdesk_tickets
-			WHERE assigned_to = $1
+			WHERE assigned_to = $1 AND status NOT IN ('closed','resolved')
+			  AND (channel IS NULL OR channel NOT IN ('email','call'))
 			ORDER BY created_at DESC
 			LIMIT 10`, user.ID)
 		if recentRows == nil {
@@ -480,6 +670,82 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			handleByType = []core.Row{}
 		}
 
+		// ── This agent's call activity (Zoho calls, matched by agent name) ────────
+		agentName := ""
+		if user != nil {
+			agentName = user.FullName
+		}
+		callToday, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(*)                                                                                  AS calls_today,
+			  COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected_today,
+			  COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail'))                     AS missed_today,
+			  COALESCE(ROUND(AVG(duration_sec)),0)::int                                                 AS avg_talk_sec
+			FROM helpdesk_calls
+			WHERE agent_name = $1 AND started_at::date = CURRENT_DATE`, agentName)
+
+		callByDay, _ := db.PGQuery(ctx, `
+			SELECT started_at::date AS day,
+			       COUNT(*)                                                              AS total,
+			       COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail')) AS missed
+			FROM helpdesk_calls
+			WHERE agent_name = $1 AND started_at >= CURRENT_DATE - INTERVAL '13 days'
+			GROUP BY day ORDER BY day`, agentName)
+		if callByDay == nil {
+			callByDay = []core.Row{}
+		}
+
+		recentCalls, _ := db.PGQuery(ctx, `
+			SELECT id, INITCAP(direction) AS direction,
+			       COALESCE(NULLIF(customer_name,''), NULLIF(customer_phone,''), 'Unknown') AS customer,
+			       outcome, duration_sec, started_at
+			FROM helpdesk_calls
+			WHERE agent_name = $1
+			ORDER BY started_at DESC LIMIT 15`, agentName)
+		if recentCalls == nil {
+			recentCalls = []core.Row{}
+		}
+
+		myCalls := map[string]any{"calls_today": int64(0), "connected_today": int64(0), "missed_today": int64(0), "avg_talk_sec": int64(0)}
+		if len(callToday) > 0 {
+			myCalls = callToday[0]
+		}
+
+		// Yesterday's calls up to the current time — a fair intraday "pace vs
+		// yesterday" comparison (not partial-today vs full-yesterday).
+		var callsYesterday int64
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS n FROM helpdesk_calls
+			WHERE agent_name=$1 AND started_at::date = CURRENT_DATE - 1
+			  AND started_at::time <= NOW()::time`, agentName); len(rows) > 0 {
+			callsYesterday = toInt64(rows[0]["n"])
+		}
+
+		// My rank today among agents by call volume (+ team size).
+		var rankToday, teamSize int64
+		if rows, _ := db.PGQuery(ctx, `
+			WITH t AS (
+			  SELECT agent_name, COUNT(*) AS c FROM helpdesk_calls
+			  WHERE started_at::date = CURRENT_DATE AND NULLIF(agent_name,'') IS NOT NULL
+			  GROUP BY agent_name)
+			SELECT COALESCE((SELECT rnk FROM (SELECT agent_name, RANK() OVER (ORDER BY c DESC) rnk FROM t) x WHERE agent_name=$1), 0) AS rank,
+			       (SELECT COUNT(*) FROM t) AS team`, agentName); len(rows) > 0 {
+			rankToday = toInt64(rows[0]["rank"])
+			teamSize = toInt64(rows[0]["team"])
+		}
+
+		// My calls by hour today (live activity strip).
+		byHourToday, _ := db.PGQuery(ctx, `
+			SELECT EXTRACT(HOUR FROM started_at)::int AS hour,
+			       COUNT(*)                                                              AS total,
+			       COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail')) AS missed
+			FROM helpdesk_calls
+			WHERE agent_name = $1 AND started_at::date = CURRENT_DATE
+			GROUP BY hour ORDER BY hour`, agentName)
+		if byHourToday == nil {
+			byHourToday = []core.Row{}
+		}
+
 		result := map[string]any{
 			"open_tickets":         int64(0),
 			"sla_breached":         int64(0),
@@ -490,14 +756,28 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			"recent_tickets":       recentRows,
 			"csat_trend":           csatTrend,
 			"handle_time_by_type":  handleByType,
+			"my_calls":             myCalls,
+			"call_by_day":          callByDay,
+			"recent_calls":         recentCalls,
+			"calls_yesterday":      callsYesterday,
+			"rank_today":           rankToday,
+			"team_size":            teamSize,
+			"by_hour_today":        byHourToday,
+			"daily_call_target":    ccSettingInt(ctx, db, "daily_call_target", 60),
+			"my_status":            "available",
+		}
+		if user != nil {
+			if rows, _ := db.PGQuery(ctx, `SELECT COALESCE(helpdesk_status,'available') AS s FROM o3c_users WHERE id=$1`, user.ID); len(rows) > 0 {
+				result["my_status"] = str(rows[0]["s"])
+			}
 		}
 		if len(statsRows) > 0 {
-			result["open_tickets"]         = statsRows[0]["open_tickets"]
-			result["sla_breached"]         = statsRows[0]["sla_breached"]
-			result["resolved_today"]       = statsRows[0]["resolved_today"]
-			result["tickets_today"]        = statsRows[0]["tickets_today"]
+			result["open_tickets"] = statsRows[0]["open_tickets"]
+			result["sla_breached"] = statsRows[0]["sla_breached"]
+			result["resolved_today"] = statsRows[0]["resolved_today"]
+			result["tickets_today"] = statsRows[0]["tickets_today"]
 			result["avg_handle_time_mins"] = statsRows[0]["avg_handle_time_mins"]
-			result["csat_score"]           = statsRows[0]["csat_score"]
+			result["csat_score"] = statsRows[0]["csat_score"]
 		}
 
 		respond(w, result, "pg")
@@ -653,12 +933,8 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			args = append(args, v)
 			n++
 		}
-		// Call Center queue excludes email (Care owns the mail Inbox).
-		if v := normalizeHelpdeskFilter(qstr(r, "exclude_channel")); v != "" {
-			where += fmt.Sprintf(" AND (t.channel IS NULL OR t.channel <> $%d)", n)
-			args = append(args, v)
-			n++
-		}
+		// Support queue excludes email (Care) and call (call activity, not tickets).
+		where += channelExcludeClause(qstr(r, "exclude_channel"), "t")
 		if v := normalizeHelpdeskFilter(qstr(r, "department")); v != "" {
 			where += fmt.Sprintf(" AND t.department=$%d", n)
 			args = append(args, v)
@@ -685,10 +961,19 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 				n++
 			}
 		}
-		if v := coalesce(qstr(r, "search"), qstr(r, "q")); v != "" {
-			where += fmt.Sprintf(` AND (t.subject ILIKE $%d OR t.customer_name ILIKE $%d OR t.customer_cif ILIKE $%d OR t.ticket_ref ILIKE $%d)`, n, n, n, n)
-			args = append(args, "%"+v+"%")
-			n++
+		// Tokenised search: each whitespace-separated word must match at least one
+		// field, so "Temitope Babatunde", "Babatunde Temitope" and "Temi Baba" all
+		// hit the same customer — word order, extra spaces and partials don't matter.
+		if v := coalesce(qstr(r, "search"), qstr(r, "q")); strings.TrimSpace(v) != "" {
+			toks := strings.Fields(v)
+			if len(toks) > 8 {
+				toks = toks[:8]
+			}
+			for _, tok := range toks {
+				where += fmt.Sprintf(` AND (t.subject ILIKE $%d OR t.customer_name ILIKE $%d OR t.customer_cif ILIKE $%d OR t.ticket_ref ILIKE $%d OR t.customer_phone ILIKE $%d OR t.customer_email ILIKE $%d)`, n, n, n, n, n, n)
+				args = append(args, "%"+tok+"%")
+				n++
+			}
 		}
 		if v := qstr(r, "date_from"); v != "" {
 			where += fmt.Sprintf(" AND t.created_at::date >= $%d", n)
@@ -705,12 +990,43 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			args = append(args, tt)
 			n++
 		}
+		// Health-strip buckets — static predicates (no user text reaches SQL) so the
+		// clickable queue metrics filter the list to exactly what they count.
+		switch normalizeHelpdeskFilter(qstr(r, "bucket")) {
+		case "open":
+			where += " AND t.status NOT IN ('resolved','closed')"
+		case "unassigned":
+			where += " AND t.assigned_to IS NULL AND t.status NOT IN ('resolved','closed')"
+		case "awaiting_us", "awaiting": // we haven't replied yet (customer spoke last, or brand-new with no reply)
+			where += " AND t.status NOT IN ('resolved','closed') AND COALESCE((SELECT m.direction FROM helpdesk_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1),'inbound') <> 'outbound'"
+		case "awaiting_customer": // we replied → waiting on the customer
+			where += " AND t.status NOT IN ('resolved','closed') AND (SELECT m.direction FROM helpdesk_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1) = 'outbound'"
+		case "overdue":
+			where += " AND t.sla_due_at IS NOT NULL AND t.sla_due_at < NOW() AND t.status NOT IN ('resolved','closed')"
+		}
 
 		filterArgs := append([]any(nil), args...)
 		total := 0
 		if tr, _ := db.PGQuery(r.Context(),
 			fmt.Sprintf("SELECT COUNT(*) AS n FROM helpdesk_tickets t WHERE %s", where), filterArgs...); len(tr) > 0 {
 			total = int(toInt64(tr[0]["n"]))
+		}
+
+		// Sort — fixed whitelist (no user text reaches SQL). Default: newest first.
+		// "sla" surfaces the most-at-risk open tickets; "priority" ranks by severity;
+		// "updated" floats the most recently active threads.
+		orderBy := "t.created_at DESC"
+		switch normalizeHelpdeskFilter(qstr(r, "sort")) {
+		case "oldest":
+			orderBy = "t.created_at ASC"
+		case "waiting": // awaiting-our-reply first, longest-waiting at the top
+			orderBy = "(COALESCE((SELECT m.direction FROM helpdesk_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1),'inbound') = 'outbound') ASC, COALESCE(msg.last_message_at, t.created_at) ASC"
+		case "sla":
+			orderBy = "(t.status IN ('resolved','closed')), (t.sla_due_at IS NULL), t.sla_due_at ASC, t.created_at DESC"
+		case "priority":
+			orderBy = "CASE lower(t.priority) WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'normal' THEN 3 WHEN 'low' THEN 4 ELSE 5 END, t.created_at DESC"
+		case "updated":
+			orderBy = "msg.last_message_at DESC NULLS LAST, t.created_at DESC"
 		}
 
 		args = append(args, perPage, offset)
@@ -720,19 +1036,20 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 				t.customer_name, t.customer_cif, t.assigned_to, t.department,
 				t.sla_due_at, t.created_at, t.first_response_at,
 				u.full_name AS assigned_to_name,
-				msg.message_count, msg.last_message_at, msg.last_message_preview,
+				msg.message_count, msg.last_message_at, msg.last_message_preview, msg.last_message_direction,
 				(t.sla_due_at IS NOT NULL AND t.sla_due_at < NOW() AND t.status NOT IN ('resolved','closed')) AS sla_breached
 			FROM helpdesk_tickets t
 			LEFT JOIN o3c_users u ON t.assigned_to=u.id
 			LEFT JOIN LATERAL (
 				SELECT COUNT(*) AS message_count,
 				       MAX(created_at) AS last_message_at,
-				       (SELECT LEFT(body_text,120) FROM helpdesk_messages WHERE ticket_id=t.id ORDER BY created_at DESC LIMIT 1) AS last_message_preview
+				       (SELECT LEFT(body_text,120) FROM helpdesk_messages WHERE ticket_id=t.id ORDER BY created_at DESC LIMIT 1) AS last_message_preview,
+				       (SELECT direction    FROM helpdesk_messages WHERE ticket_id=t.id ORDER BY created_at DESC LIMIT 1) AS last_message_direction
 				FROM helpdesk_messages WHERE ticket_id=t.id
 			) msg ON true
 			WHERE %s
-			ORDER BY t.created_at DESC
-			LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
+			ORDER BY %s
+			LIMIT $%d OFFSET $%d`, where, orderBy, n, n+1), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -756,15 +1073,151 @@ func normalizeHelpdeskFilter(v string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(v), "-", "_"))
 }
 
+// hdQueueSummary powers the Ticket Queue health strip: a single scan returning
+// the counts a queue actually triages on (open, unassigned, mine, SLA-at-risk,
+// awaiting first reply). It honours the same row-level scope and exclude_channel
+// filter as hdListTickets so the numbers always match the list below them.
+func hdQueueSummary(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		where := "1=1"
+		var args []any
+		n := 1
+
+		// Same leaf-agent scoping as the list: own tickets + claimable pool.
+		if u := core.UserFromCtx(r.Context()); u != nil && !u.CanSeeAllRows() {
+			where += fmt.Sprintf(" AND (t.assigned_to=$%d OR (t.assigned_to IS NULL AND t.status NOT IN ('resolved','closed')))", n)
+			args = append(args, u.ID)
+			n++
+		}
+		where += channelExcludeClause(qstr(r, "exclude_channel"), "t")
+		if v := normalizeHelpdeskFilter(qstr(r, "channel")); v != "" {
+			where += fmt.Sprintf(" AND t.channel=$%d", n)
+			args = append(args, v)
+			n++
+		}
+
+		// $me for the "mine" count — 0 when unauthenticated (route is protected, so
+		// this is just defensive).
+		var meID int64
+		if u := core.UserFromCtx(r.Context()); u != nil {
+			meID = u.ID
+		}
+		args = append(args, meID)
+		meArg := n
+
+		// Triage on who spoke last (populated) instead of SLA (almost never set on
+		// imported tickets). lm.last_dir = direction of each ticket's newest message.
+		open := "t.status NOT IN ('resolved','closed')"
+		q := fmt.Sprintf(`
+			SELECT
+				COUNT(*) FILTER (WHERE %[1]s) AS open,
+				COUNT(*) FILTER (WHERE t.assigned_to IS NULL AND %[1]s) AS unassigned,
+				COUNT(*) FILTER (WHERE t.assigned_to=$%[2]d AND %[1]s) AS mine,
+				COUNT(*) FILTER (WHERE COALESCE(lm.last_dir,'inbound') <> 'outbound' AND %[1]s) AS awaiting_us,
+				COUNT(*) FILTER (WHERE lm.last_dir = 'outbound' AND %[1]s) AS awaiting_customer,
+				COUNT(*) FILTER (WHERE t.sla_due_at IS NOT NULL AND t.sla_due_at < NOW() AND %[1]s) AS overdue
+			FROM helpdesk_tickets t
+			LEFT JOIN LATERAL (
+				SELECT m.direction AS last_dir FROM helpdesk_messages m
+				WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1
+			) lm ON true
+			WHERE %[3]s`, open, meArg, where)
+
+		rows, err := db.PGQuery(r.Context(), q, args...)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		row := rows[0]
+		respond(w, map[string]any{
+			"open":              toInt64(row["open"]),
+			"unassigned":        toInt64(row["unassigned"]),
+			"mine":              toInt64(row["mine"]),
+			"awaiting_us":       toInt64(row["awaiting_us"]),
+			"awaiting_customer": toInt64(row["awaiting_customer"]),
+			"overdue":           toInt64(row["overdue"]),
+		}, "helpdesk")
+	}
+}
+
+// channelExcludeClause builds a safe "exclude these channels" predicate from a
+// comma-separated list (e.g. "email,call"). Each value is strictly validated to
+// [a-z_] and then inlined — no free user text reaches SQL. alias is the table
+// alias ("" for a bare table, or e.g. "t"). Returns "" when nothing valid.
+func channelExcludeClause(raw, alias string) string {
+	if raw == "" {
+		return ""
+	}
+	var vals []string
+	for _, part := range strings.Split(raw, ",") {
+		ec := normalizeHelpdeskFilter(part)
+		if ec == "" {
+			continue
+		}
+		ok := true
+		for _, c := range ec {
+			if !((c >= 'a' && c <= 'z') || c == '_') {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			vals = append(vals, "'"+ec+"'")
+		}
+	}
+	if len(vals) == 0 {
+		return ""
+	}
+	col := "channel"
+	if alias != "" {
+		col = alias + ".channel"
+	}
+	return " AND (" + col + " IS NULL OR " + col + " NOT IN (" + strings.Join(vals, ",") + "))"
+}
+
+// sqlInLower builds a safe "lower(col) IN (...)" predicate from a comma-separated
+// list (e.g. "Inbound,Outbound" or "completed,missed"). Each value is lowercased
+// and strictly validated to [a-z_] before inlining — no free user text reaches
+// SQL. Returns "" when the list is empty or all-invalid (i.e. no filter).
+func sqlInLower(col, raw string) string {
+	if raw == "" {
+		return ""
+	}
+	var vals []string
+	for _, part := range strings.Split(raw, ",") {
+		v := strings.ToLower(strings.TrimSpace(part))
+		if v == "" {
+			continue
+		}
+		ok := true
+		for _, c := range v {
+			if !((c >= 'a' && c <= 'z') || c == '_') {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			vals = append(vals, "'"+v+"'")
+		}
+	}
+	if len(vals) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" AND lower(%s) IN (%s)", col, strings.Join(vals, ","))
+}
+
 // ── Bulk ticket actions ───────────────────────────────────────────────────────
 
 func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := core.UserFromCtx(r.Context())
-		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+		if caller == nil {
 			respondErr(w, 403, "insufficient role")
 			return
 		}
+		// Heads/admin can (re)assign any ticket; a regular agent may only act on
+		// tickets currently assigned to them (matches the detail-panel transfer).
+		priv := caller.Role == "call_center_head" || caller.Role == "admin"
 		var b struct {
 			TicketIDs []int64 `json:"ticket_ids"`
 			AgentID   *int64  `json:"agent_id"`
@@ -790,11 +1243,30 @@ func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
 			placeholders[i] = fmt.Sprintf("$%d", i+2)
 			args = append(args, id)
 		}
+		where := fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ","))
+		if !priv {
+			args = append(args, caller.ID)
+			where += fmt.Sprintf(" AND assigned_to = $%d", len(args))
+		}
 		if _, err := db.PGExec(r.Context(),
-			fmt.Sprintf("UPDATE helpdesk_tickets SET assigned_to=$1, updated_at=NOW() WHERE id IN (%s)",
-				strings.Join(placeholders, ",")), args...); err != nil {
+			"UPDATE helpdesk_tickets SET assigned_to=$1, updated_at=NOW() WHERE "+where, args...); err != nil {
 			respondErr(w, 500, "Update failed")
 			return
+		}
+		// Notify the agent the tickets were assigned to (both channels).
+		if b.AgentID != nil && *b.AgentID > 0 {
+			n := len(b.TicketIDs)
+			word := "ticket has"
+			if n != 1 {
+				word = "tickets have"
+			}
+			go Notify(context.Background(), db, NotifPayload{
+				EventType: "ticket_assigned",
+				UserID:    *b.AgentID,
+				Title:     "Tickets assigned to you",
+				Body:      fmt.Sprintf("%d %s been assigned to you.", n, word),
+				ActionURL: "/helpdesk/tickets",
+			})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
@@ -804,10 +1276,12 @@ func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
 func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := core.UserFromCtx(r.Context())
-		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+		if caller == nil {
 			respondErr(w, 403, "insufficient role")
 			return
 		}
+		// Agents may close their own tickets; heads/admin may close any.
+		priv := caller.Role == "call_center_head" || caller.Role == "admin"
 		var b struct {
 			TicketIDs []int64 `json:"ticket_ids"`
 		}
@@ -825,9 +1299,13 @@ func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
 			placeholders[i] = fmt.Sprintf("$%d", i+1)
 			args = append(args, id)
 		}
+		where := fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ","))
+		if !priv {
+			args = append(args, caller.ID)
+			where += fmt.Sprintf(" AND assigned_to = $%d", len(args))
+		}
 		if _, err := db.PGExec(r.Context(),
-			fmt.Sprintf("UPDATE helpdesk_tickets SET status='closed', closed_at=NOW(), updated_at=NOW() WHERE id IN (%s)",
-				strings.Join(placeholders, ",")), args...); err != nil {
+			"UPDATE helpdesk_tickets SET status='closed', closed_at=NOW(), updated_at=NOW() WHERE "+where, args...); err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
@@ -839,10 +1317,11 @@ func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
 func hdBulkPriorityTickets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		caller := core.UserFromCtx(r.Context())
-		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+		if caller == nil {
 			respondErr(w, 403, "insufficient role")
 			return
 		}
+		priv := caller.Role == "call_center_head" || caller.Role == "admin"
 		var b struct {
 			TicketIDs []int64 `json:"ticket_ids"`
 			Priority  string  `json:"priority"`
@@ -861,9 +1340,13 @@ func hdBulkPriorityTickets(db *core.DB) http.HandlerFunc {
 			placeholders[i] = fmt.Sprintf("$%d", i+2)
 			args = append(args, id)
 		}
+		where := fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ","))
+		if !priv {
+			args = append(args, caller.ID)
+			where += fmt.Sprintf(" AND assigned_to = $%d", len(args))
+		}
 		if _, err := db.PGExec(r.Context(),
-			fmt.Sprintf("UPDATE helpdesk_tickets SET priority=$1, updated_at=NOW() WHERE id IN (%s)",
-				strings.Join(placeholders, ",")), args...); err != nil {
+			"UPDATE helpdesk_tickets SET priority=$1, updated_at=NOW() WHERE "+where, args...); err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
@@ -1519,9 +2002,16 @@ func hdStats(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// Optional date range — defaults to last 30 days for time-bounded metrics
+		// Optional date range — accepts date_from/date_to or from/to (callers differ).
+		// Defaults to last 30 days for time-bounded metrics.
 		dateFrom := qstr(r, "date_from")
+		if dateFrom == "" {
+			dateFrom = qstr(r, "from")
+		}
 		dateTo := qstr(r, "date_to")
+		if dateTo == "" {
+			dateTo = qstr(r, "to")
+		}
 
 		// Predicate for date-range filtering; falls back to last 30 days when unset
 		var dateClause string
@@ -1534,11 +2024,17 @@ func hdStats(db *core.DB) http.HandlerFunc {
 			dateArgs = []any{}
 		}
 
+		// Optional channel exclusion — accepts a comma-separated list (e.g.
+		// exclude_channel=email,call) so the Call Center view drops Care's mail and
+		// the outbound-call "tickets" that are really call activity.
+		chanClause := channelExcludeClause(qstr(r, "exclude_channel"), "")
+		chanClauseT := channelExcludeClause(qstr(r, "exclude_channel"), "t")
+
 		counts := map[string]int64{}
 		if rows, _ := db.PGQuery(ctx, `
 			SELECT status, COUNT(*) AS n
 			FROM helpdesk_tickets
-			WHERE status NOT IN ('closed')
+			WHERE status NOT IN ('closed')`+chanClause+`
 			GROUP BY status`); rows != nil {
 			for _, row := range rows {
 				counts[str(row["status"])] = toInt64(row["n"])
@@ -1548,7 +2044,7 @@ func hdStats(db *core.DB) http.HandlerFunc {
 		resolvedToday := int64(0)
 		if rows, _ := db.PGQuery(ctx, `
 			SELECT COUNT(*) AS n FROM helpdesk_tickets
-			WHERE status='resolved' AND resolved_at::date=CURRENT_DATE`); len(rows) > 0 {
+			WHERE status='resolved' AND resolved_at::date=CURRENT_DATE`+chanClause); len(rows) > 0 {
 			resolvedToday = toInt64(rows[0]["n"])
 		}
 
@@ -1556,7 +2052,7 @@ func hdStats(db *core.DB) http.HandlerFunc {
 		if rows, _ := db.PGQuery(ctx, `
 			SELECT COUNT(*) AS n FROM helpdesk_tickets
 			WHERE sla_due_at IS NOT NULL AND sla_due_at < NOW()
-			  AND status NOT IN ('resolved','closed')`); len(rows) > 0 {
+			  AND status NOT IN ('resolved','closed')`+chanClause); len(rows) > 0 {
 			slaBreached = toInt64(rows[0]["n"])
 		}
 
@@ -1564,7 +2060,7 @@ func hdStats(db *core.DB) http.HandlerFunc {
 		if rows, _ := db.PGQuery(ctx,
 			`SELECT AVG(EXTRACT(EPOCH FROM (first_response_at - created_at))/3600) AS avg_hrs
 			 FROM helpdesk_tickets
-			 WHERE first_response_at IS NOT NULL `+dateClause, dateArgs...); len(rows) > 0 {
+			 WHERE first_response_at IS NOT NULL `+dateClause+chanClause, dateArgs...); len(rows) > 0 {
 			if v, ok := rows[0]["avg_hrs"].(float64); ok {
 				avgFirstResp = v
 			}
@@ -1574,7 +2070,7 @@ func hdStats(db *core.DB) http.HandlerFunc {
 		if rows, _ := db.PGQuery(ctx,
 			`SELECT AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/3600) AS avg_hrs
 			 FROM helpdesk_tickets
-			 WHERE resolved_at IS NOT NULL `+dateClause, dateArgs...); len(rows) > 0 {
+			 WHERE resolved_at IS NOT NULL `+dateClause+chanClause, dateArgs...); len(rows) > 0 {
 			if v, ok := rows[0]["avg_hrs"].(float64); ok {
 				avgResolution = v
 			}
@@ -1584,7 +2080,7 @@ func hdStats(db *core.DB) http.HandlerFunc {
 		if rows, _ := db.PGQuery(ctx,
 			`SELECT AVG(csat_score::float) AS avg
 			 FROM helpdesk_tickets
-			 WHERE csat_score IS NOT NULL `+dateClause, dateArgs...); len(rows) > 0 {
+			 WHERE csat_score IS NOT NULL `+dateClause+chanClause, dateArgs...); len(rows) > 0 {
 			if v, ok := rows[0]["avg"].(float64); ok {
 				avgCSAT = v
 			}
@@ -1594,7 +2090,7 @@ func hdStats(db *core.DB) http.HandlerFunc {
 		var byChannel []map[string]any
 		if rows, _ := db.PGQuery(ctx,
 			`SELECT channel, COUNT(*) AS n FROM helpdesk_tickets
-			 WHERE TRUE `+dateClause+` GROUP BY channel ORDER BY n DESC`, dateArgs...); rows != nil {
+			 WHERE TRUE `+dateClause+chanClause+` GROUP BY channel ORDER BY n DESC`, dateArgs...); rows != nil {
 			for _, row := range rows {
 				byChannel = append(byChannel, map[string]any{
 					"channel": str(row["channel"]),
@@ -1630,7 +2126,7 @@ func hdStats(db *core.DB) http.HandlerFunc {
 			        ))                                                                                AS escalations
 			 FROM helpdesk_tickets t
 			 JOIN o3c_users u ON t.assigned_to=u.id
-			 WHERE t.assigned_to IS NOT NULL `+dateClause+`
+			 WHERE t.assigned_to IS NOT NULL `+dateClause+chanClauseT+`
 			 GROUP BY u.id, u.full_name
 			 ORDER BY u.full_name`, dateArgs...)
 		if agents == nil {
@@ -1821,7 +2317,7 @@ func hdInboundEmail(db *core.DB) http.HandlerFunc {
 		if ticketID == 0 {
 			// Try to find CIF by email
 			customerCIF := ""
-			if rows, _ := db.PGQuery(ctx, `SELECT "CIF Number" AS cif FROM "CIF Table" WHERE Email=$1 LIMIT 1`, senderEmail); len(rows) > 0 {
+			if rows, _ := db.PGQuery(ctx, `SELECT cif FROM app.customers WHERE email=$1 LIMIT 1`, senderEmail); len(rows) > 0 {
 				customerCIF = str(rows[0]["cif"])
 			}
 
@@ -1920,7 +2416,7 @@ func hdInboundSMS(db *core.DB) http.HandlerFunc {
 		if ticketID == 0 {
 			customerCIF := ""
 			// Try MSSQL/Supabase lookup by phone (Accounts table)
-			if rows, _ := db.PGQuery(ctx, `SELECT "CIF Number" AS cif FROM "Accounts" WHERE Phone=$1 LIMIT 1`, phone); len(rows) > 0 {
+			if rows, _ := db.PGQuery(ctx, `SELECT cif FROM app.customers WHERE phone=$1 LIMIT 1`, phone); len(rows) > 0 {
 				customerCIF = str(rows[0]["cif"])
 			}
 			newRows, err := db.PGQuery(ctx, `
@@ -2033,8 +2529,8 @@ func hdCustomerContext(ctx context.Context, db *core.DB, cif string) map[string]
 
 	// Account info from Supabase snapshot
 	if rows, _ := db.PGQuery(ctx, `
-		SELECT "First Name", "Last Name", "Account Created Date"
-		FROM "Accounts" WHERE "CIF Number"=$1 LIMIT 1`, cif); len(rows) > 0 {
+		SELECT first_name AS "First Name", last_name AS "Last Name", account_created AS "Account Created Date"
+		FROM app.customers WHERE cif=$1 LIMIT 1`, cif); len(rows) > 0 {
 		firstName := str(rows[0]["First Name"])
 		lastName := str(rows[0]["Last Name"])
 		result["full_name"] = strings.TrimSpace(firstName + " " + lastName)
@@ -2042,8 +2538,8 @@ func hdCustomerContext(ctx context.Context, db *core.DB, cif string) map[string]
 
 	// Product/status info
 	if rows, _ := db.PGQuery(ctx, `
-		SELECT "Account Status", "Product Name"
-		FROM "Products" WHERE "CIF Number"=$1 LIMIT 1`, cif); len(rows) > 0 {
+		SELECT status AS "Account Status", product_name AS "Product Name"
+		FROM app.accounts WHERE cif=$1 LIMIT 1`, cif); len(rows) > 0 {
 		result["account_status"] = rows[0]["Account Status"]
 	}
 
@@ -2287,6 +2783,7 @@ func ensureCallLogSchema(ctx context.Context, db *core.DB) error {
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS customer_email TEXT NOT NULL DEFAULT ''`)
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS call_to TEXT`)
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS recording_url TEXT`)
+	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS ticket_type TEXT`)
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS transcript TEXT`)
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_call_id TEXT`)
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_voice_id TEXT`)
@@ -2298,15 +2795,17 @@ func ensureCallLogSchema(ctx context.Context, db *core.DB) error {
 
 func hdLogCall(db *core.DB) http.HandlerFunc {
 	type body struct {
-		CustomerName  string  `json:"customer_name"`
-		CustomerCIF   string  `json:"customer_cif"`
-		CustomerEmail string  `json:"customer_email"`
-		CustomerPhone string  `json:"customer_phone"`
-		Direction     string  `json:"direction"`
-		DurationSec   *int    `json:"duration_sec"`
-		Outcome       string  `json:"outcome"`
-		Notes         *string `json:"notes"`
-		TicketRef     string  `json:"ticket_ref"`
+		CustomerName    string  `json:"customer_name"`
+		CustomerCIF     string  `json:"customer_cif"`
+		CustomerEmail   string  `json:"customer_email"`
+		CustomerPhone   string  `json:"customer_phone"`
+		Direction       string  `json:"direction"`
+		DurationSec     *int    `json:"duration_sec"`
+		DurationSeconds *int    `json:"duration_seconds"` // client sends this name
+		Outcome         string  `json:"outcome"`
+		Notes           *string `json:"notes"`
+		TicketRef       string  `json:"ticket_ref"`
+		TicketType      string  `json:"ticket_type"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := ensureCallLogSchema(r.Context(), db); err != nil {
@@ -2323,9 +2822,16 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		if user != nil {
 			agentName = user.FullName
 		}
-		direction := b.Direction
+		// Client sends "Inbound"/"Outbound" (capitalised); normalise before the guard
+		// so an outbound call isn't silently filed as inbound.
+		direction := strings.ToLower(strings.TrimSpace(b.Direction))
 		if direction != "inbound" && direction != "outbound" {
 			direction = "inbound"
+		}
+		// Accept either duration field name (client sends duration_seconds).
+		durationSec := b.DurationSec
+		if durationSec == nil {
+			durationSec = b.DurationSeconds
 		}
 		outcome := b.Outcome
 		if outcome == "" {
@@ -2349,9 +2855,9 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		}
 		if strings.TrimSpace(b.CustomerName) == "" && strings.TrimSpace(b.CustomerCIF) != "" {
 			if rows, _ := db.PGQuery(r.Context(), `
-				SELECT "First Name", "Last Name", Phone, Email
-				FROM "Accounts"
-				WHERE "CIF Number"=$1 LIMIT 1`, b.CustomerCIF); len(rows) > 0 {
+				SELECT first_name AS "First Name", last_name AS "Last Name", phone, email
+				FROM app.customers
+				WHERE cif=$1 LIMIT 1`, b.CustomerCIF); len(rows) > 0 {
 				b.CustomerName = strings.TrimSpace(str(rows[0]["First Name"]) + " " + str(rows[0]["Last Name"]))
 				if b.CustomerPhone == "" {
 					b.CustomerPhone = str(rows[0]["Phone"])
@@ -2367,11 +2873,11 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO helpdesk_calls
-			  (agent_id, agent_name, customer_name, customer_cif, customer_email, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			  (agent_id, agent_name, customer_name, customer_cif, customer_email, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref, ticket_type)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 			RETURNING id`,
 			agentID, agentName, b.CustomerName, b.CustomerCIF, b.CustomerEmail, b.CustomerPhone,
-			direction, b.DurationSec, outcome, b.Notes, ticketID, ptrOrNilStr(b.TicketRef))
+			direction, durationSec, outcome, b.Notes, ticketID, ptrOrNilStr(b.TicketRef), ptrOrNilStr(b.TicketType))
 		if err != nil {
 			respondErr(w, 500, "Insert failed: "+err.Error())
 			return
@@ -2380,6 +2886,52 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 			db.PGExec(r.Context(), "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", *ticketID) //nolint:errcheck
 		}
 		jsonRows(w, rows)
+	}
+}
+
+// hdTicketPromise records a customer's promise-to-pay, logged from a helpdesk
+// ticket, into the Collections promise book (collection_promises) keyed by the
+// ticket's CIF — so the promise genuinely reaches the Collections team.
+func hdTicketPromise(db *core.DB) http.HandlerFunc {
+	type body struct {
+		AmountKobo  int64  `json:"amount_kobo"`
+		PromiseDate string `json:"promise_date"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.AmountKobo <= 0 || b.PromiseDate == "" {
+			respondErr(w, 422, "amount_kobo and promise_date are required")
+			return
+		}
+		rows, _ := db.PGQuery(r.Context(), `SELECT customer_cif FROM helpdesk_tickets WHERE id=$1`, id)
+		if len(rows) == 0 {
+			respondErr(w, 404, "Ticket not found")
+			return
+		}
+		cif := str(rows[0]["customer_cif"])
+		if cif == "" {
+			respondErr(w, 422, "Ticket has no customer CIF to attach a promise to")
+			return
+		}
+		var agentID *int64
+		if u := core.UserFromCtx(r.Context()); u != nil {
+			agentID = &u.ID
+		}
+		out, err := db.PGQuery(r.Context(), `
+			INSERT INTO collection_promises (cif_number, agent_user_id, promised_amount_kobo, promised_date, created_at)
+			VALUES ($1,$2,$3,$4,NOW())
+			RETURNING id, promised_date, promised_amount_kobo`,
+			cif, agentID, b.AmountKobo, b.PromiseDate)
+		if err != nil {
+			respondErr(w, 500, "Failed to record promise")
+			return
+		}
+		respond(w, out[0], "pg")
 	}
 }
 
@@ -2394,25 +2946,32 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 		customerCIF := r.URL.Query().Get("customer_cif")
 		agentFilter := r.URL.Query().Get("agent")
 		outcomeFilter := r.URL.Query().Get("outcome")
+		directionFilter := r.URL.Query().Get("direction")
 		limit := qint(r, "limit", 200, 1, 500)
 
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT id, agent_name, customer_name,
-			       customer_phone AS phone,
-			       customer_cif, customer_email,
-			       INITCAP(direction) AS direction,
-			       duration_sec AS duration_seconds,
-			       outcome, notes,
-			       ticket_id, ticket_ref,
-			       started_at AS called_at
-			FROM helpdesk_calls
-			WHERE ($1 = '' OR started_at::date >= $1::date)
+		// direction + outcome accept comma-separated multi-select (e.g. "Inbound,Outbound").
+		extra := sqlInLower("direction", directionFilter) + sqlInLower("outcome", outcomeFilter)
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT hc.id, hc.agent_name, hc.customer_name,
+			       hc.customer_phone AS phone,
+			       hc.customer_cif, hc.customer_email,
+			       INITCAP(hc.direction) AS direction,
+			       hc.duration_sec AS duration_seconds,
+			       hc.outcome, hc.notes,
+			       hc.ticket_id, hc.ticket_ref, hc.recording_url,
+			       hc.started_at AS called_at,
+			       qa.id AS qa_evaluation_id, qa.total_score AS qa_score, qa.rating_band AS qa_band, qa.passed AS qa_passed
+			FROM helpdesk_calls hc
+			LEFT JOIN LATERAL (
+			  SELECT id, total_score, rating_band, passed FROM qa_evaluations q
+			  WHERE q.call_id = hc.id ORDER BY q.created_at DESC LIMIT 1
+			) qa ON true
+			WHERE ($1 = '' OR hc.started_at::date >= $1::date)
 			  AND ($2 = '' OR started_at::date <= $2::date)
 			  AND ($3 = '' OR customer_cif = $3)
-			  AND ($4 = '' OR outcome = $4)
-			  AND ($5 = '' OR agent_name ILIKE '%' || $5 || '%')
+			  AND ($4 = '' OR agent_name ILIKE '%%' || $4 || '%%')%s
 			ORDER BY started_at DESC
-			LIMIT $6`, dateFrom, dateTo, customerCIF, outcomeFilter, agentFilter, limit)
+			LIMIT $5`, extra), dateFrom, dateTo, customerCIF, agentFilter, limit)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -2425,9 +2984,10 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 func hdSupervisor(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
 
+		// Queue depth / unassigned / active agents are live "right now" figures — they
+		// must reflect all currently-open tickets, not only those created in a date
+		// window (the date range drives the time-bounded stats via /helpdesk/stats).
 		totals, _ := db.PGQuery(ctx, `
 			SELECT
 			  COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved'))                               AS open,
@@ -2436,27 +2996,44 @@ func hdSupervisor(db *core.DB) http.HandlerFunc {
 			  COUNT(DISTINCT assigned_to) FILTER (WHERE status NOT IN ('closed','resolved')
 			    AND assigned_to IS NOT NULL)                                                             AS active_agents
 			FROM helpdesk_tickets
-			WHERE ($1 = '' OR created_at::date >= $1::date)
-			  AND ($2 = '' OR created_at::date <= $2::date)`, from, to)
+			WHERE channel IS NULL OR channel NOT IN ('email','call')`)
 
+		// The full live wallboard: every active call-center agent with today's call
+		// activity (matched by name) alongside their live ticket load + status.
 		agents, _ := db.PGQuery(ctx, `
 			SELECT
 			  u.id,
 			  u.full_name,
 			  COALESCE(u.helpdesk_status, 'available')                                   AS helpdesk_status,
-			  COUNT(t.id) FILTER (WHERE t.status NOT IN ('closed','resolved'))          AS open_tickets,
 			  COUNT(t.id) FILTER (WHERE t.status NOT IN ('closed','resolved')
+			    AND (t.channel IS NULL OR t.channel NOT IN ('email','call')))            AS open_tickets,
+			  COUNT(t.id) FILTER (WHERE t.status NOT IN ('closed','resolved')
+			    AND (t.channel IS NULL OR t.channel NOT IN ('email','call'))
 			    AND t.sla_due_at < NOW())                                                AS sla_breached,
-			  MAX(m.created_at)                                                          AS last_reply
+			  COALESCE(MAX(cc.calls_today), 0)                                           AS calls_today,
+			  COALESCE(MAX(cc.connected_today), 0)                                       AS connected_today,
+			  COALESCE(MAX(cc.avg_talk_sec), 0)                                          AS avg_talk_sec,
+			  MAX(m.created_at)                                                          AS last_reply,
+			  MAX(qa.avg_score)                                                          AS qa_avg_score,
+			  COALESCE(MAX(qa.evals), 0)                                                 AS qa_evals
 			FROM o3c_users u
 			LEFT JOIN helpdesk_tickets t  ON t.assigned_to = u.id
 			LEFT JOIN helpdesk_messages m ON m.ticket_id = t.id AND m.direction = 'outbound' AND m.author_user_id = u.id
+			LEFT JOIN (
+			  SELECT agent_name,
+			         COUNT(*)                                                                                  AS calls_today,
+			         COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected_today,
+			         ROUND(AVG(duration_sec))::int                                                             AS avg_talk_sec
+			  FROM helpdesk_calls WHERE started_at::date = CURRENT_DATE GROUP BY agent_name
+			) cc ON cc.agent_name = u.full_name
+			LEFT JOIN (
+			  SELECT agent_id, ROUND(AVG(total_score),1) AS avg_score, COUNT(*)::int AS evals
+			  FROM qa_evaluations WHERE agent_id IS NOT NULL GROUP BY agent_id
+			) qa ON qa.agent_id = u.id
 			WHERE u.deleted_at IS NULL AND u.is_active = TRUE
-			  AND (t.id IS NOT NULL OR EXISTS (
-			    SELECT 1 FROM helpdesk_tickets tt WHERE tt.assigned_to = u.id AND tt.status NOT IN ('closed','resolved')
-			  ))
+			  AND u.role IN ('call_center_agent','call_center_head')
 			GROUP BY u.id, u.full_name, u.helpdesk_status
-			ORDER BY open_tickets DESC, u.full_name`)
+			ORDER BY calls_today DESC, open_tickets DESC, u.full_name`)
 
 		queues, _ := db.PGQuery(ctx, `
 			SELECT
@@ -2537,65 +3114,110 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		dateFrom := r.URL.Query().Get("date_from")
 		dateTo := r.URL.Query().Get("date_to")
+		agentFilter := r.URL.Query().Get("agent")
+		directionFilter := r.URL.Query().Get("direction")
+		outcomeFilter := r.URL.Query().Get("outcome")
 
-		summary, _ := db.PGQuery(ctx, `
+		// Shared filter so the KPI strip, charts and the log table all move together.
+		// direction/outcome accept comma-separated multi-select; %-values in the
+		// ILIKE are literal (fmt.Sprintf only reads verbs in the template, not args).
+		filter := `($1 = '' OR started_at::date >= $1::date)
+			  AND ($2 = '' OR started_at::date <= $2::date)
+			  AND ($3 = '' OR agent_name ILIKE '%' || $3 || '%')` +
+			sqlInLower("direction", directionFilter) + sqlInLower("outcome", outcomeFilter)
+		fargs := []any{dateFrom, dateTo, agentFilter}
+
+		// Outcome vocabulary varies by source (Zoho uses missed/completed; the live
+		// AT flow used no_answer/voicemail/resolved). Treat any of the "no contact"
+		// outcomes as missed and everything else as connected.
+		summary, _ := db.PGQuery(ctx, fmt.Sprintf(`
 			SELECT
 			  COUNT(*)                                                       AS total,
 			  COUNT(*) FILTER (WHERE direction='inbound')                   AS inbound,
 			  COUNT(*) FILTER (WHERE direction='outbound')                  AS outbound,
-			  COUNT(*) FILTER (WHERE outcome IN ('no_answer','voicemail'))  AS missed,
-			  COUNT(*) FILTER (WHERE outcome='resolved')                    AS resolved,
-			  ROUND(AVG(duration_sec))::int                                 AS avg_duration_sec,
-			  ROUND(AVG(duration_sec) FILTER (WHERE direction='inbound'))::int  AS avg_inbound_sec,
-			  ROUND(AVG(duration_sec) FILTER (WHERE direction='outbound'))::int AS avg_outbound_sec
+			  COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail')) AS missed,
+			  COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected,
+			  COUNT(*) FILTER (WHERE direction='inbound'  AND COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS inbound_connected,
+			  COUNT(*) FILTER (WHERE direction='outbound' AND COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS outbound_connected,
+			  COUNT(*) FILTER (WHERE outcome IN ('resolved','completed'))   AS resolved,
+			  -- Talk time & averages over CONNECTED calls only, with a 4h sanity cap:
+			  -- a handful of imported calls carry corrupt durations (up to ~204 days)
+			  -- that otherwise blow up the average. connected+bounded keeps it real.
+			  COALESCE(SUM(duration_sec) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400),0)::bigint AS total_talk_sec,
+			  COUNT(DISTINCT NULLIF(agent_name,''))                         AS agents,
+			  ROUND(AVG(duration_sec) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400))::int AS avg_duration_sec,
+			  ROUND(AVG(duration_sec) FILTER (WHERE direction='inbound'  AND COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400))::int  AS avg_inbound_sec,
+			  ROUND(AVG(duration_sec) FILTER (WHERE direction='outbound' AND COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400))::int AS avg_outbound_sec,
+			  COUNT(DISTINCT NULLIF(customer_phone,''))::int AS unique_customers
 			FROM helpdesk_calls
-			WHERE ($1 = '' OR started_at::date >= $1::date)
-			  AND ($2 = '' OR started_at::date <= $2::date)`,
-			dateFrom, dateTo)
+			WHERE %s`, filter), fargs...)
 
-		byOutcome, _ := db.PGQuery(ctx, `
+		byOutcome, _ := db.PGQuery(ctx, fmt.Sprintf(`
 			SELECT outcome, COUNT(*) AS count
 			FROM helpdesk_calls
-			WHERE ($1 = '' OR started_at::date >= $1::date)
-			  AND ($2 = '' OR started_at::date <= $2::date)
-			GROUP BY outcome ORDER BY count DESC`,
-			dateFrom, dateTo)
+			WHERE %s
+			GROUP BY outcome ORDER BY count DESC`, filter), fargs...)
 
-		byDay, _ := db.PGQuery(ctx, `
+		byDay, _ := db.PGQuery(ctx, fmt.Sprintf(`
 			SELECT started_at::date AS day,
 			       COUNT(*) AS total,
 			       COUNT(*) FILTER (WHERE direction='inbound')  AS inbound,
-			       COUNT(*) FILTER (WHERE direction='outbound') AS outbound
+			       COUNT(*) FILTER (WHERE direction='outbound') AS outbound,
+			       COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected
 			FROM helpdesk_calls
-			WHERE ($1 = '' OR started_at::date >= $1::date)
-			  AND ($2 = '' OR started_at::date <= $2::date)
-			GROUP BY day ORDER BY day`,
-			dateFrom, dateTo)
+			WHERE %s
+			GROUP BY day ORDER BY day`, filter), fargs...)
 
-		byAgent, _ := db.PGQuery(ctx, `
+		byAgent, _ := db.PGQuery(ctx, fmt.Sprintf(`
 			SELECT agent_name,
 			       COUNT(*) AS total,
 			       COUNT(*) FILTER (WHERE direction='inbound')  AS inbound,
 			       COUNT(*) FILTER (WHERE direction='outbound') AS outbound,
-			       COUNT(*) FILTER (WHERE outcome='resolved')   AS resolved,
-			       ROUND(AVG(duration_sec))::int                AS avg_duration_sec
+			       COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected,
+			       COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail')) AS missed,
+			       ROUND(AVG(duration_sec) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400))::int AS avg_duration_sec,
+			       (SELECT ROUND(AVG(q.total_score),1) FROM qa_evaluations q WHERE q.agent_name = helpdesk_calls.agent_name) AS qa_avg,
+			       (SELECT COUNT(*) FROM qa_evaluations q WHERE q.agent_name = helpdesk_calls.agent_name)::int AS qa_evals
 			FROM helpdesk_calls
-			WHERE ($1 = '' OR started_at::date >= $1::date)
-			  AND ($2 = '' OR started_at::date <= $2::date)
-			GROUP BY agent_name ORDER BY total DESC`,
-			dateFrom, dateTo)
+			WHERE %s
+			GROUP BY agent_name ORDER BY total DESC`, filter), fargs...)
 
-		summaryRow := map[string]any{"total": 0, "inbound": 0, "outbound": 0, "missed": 0, "resolved": 0, "avg_duration_sec": nil, "avg_inbound_sec": nil, "avg_outbound_sec": nil}
+		byHour, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT EXTRACT(HOUR FROM started_at)::int AS hour,
+			       COUNT(*)                                     AS total,
+			       COUNT(*) FILTER (WHERE direction='inbound')  AS inbound,
+			       COUNT(*) FILTER (WHERE direction='outbound') AS outbound
+			FROM helpdesk_calls
+			WHERE %s
+			GROUP BY hour ORDER BY hour`, filter), fargs...)
+
+		// Talk-time distribution over connected calls — a call-length profile the
+		// Overview doesn't surface.
+		talkDist, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT bucket, COUNT(*) AS count FROM (
+			  SELECT CASE
+			    WHEN duration_sec < 30  THEN '<30s'
+			    WHEN duration_sec < 120 THEN '30s-2m'
+			    WHEN duration_sec < 300 THEN '2-5m'
+			    ELSE '5m+' END AS bucket,
+			    CASE WHEN duration_sec < 30 THEN 1 WHEN duration_sec < 120 THEN 2 WHEN duration_sec < 300 THEN 3 ELSE 4 END AS ord
+			  FROM helpdesk_calls
+			  WHERE %s AND COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400
+			) t GROUP BY bucket, ord ORDER BY ord`, filter), fargs...)
+
+		summaryRow := map[string]any{"total": 0, "inbound": 0, "outbound": 0, "missed": 0, "connected": 0, "inbound_connected": 0, "outbound_connected": 0, "resolved": 0, "total_talk_sec": 0, "agents": 0, "avg_duration_sec": nil, "avg_inbound_sec": nil, "avg_outbound_sec": nil, "unique_customers": 0}
 		if len(summary) > 0 {
 			summaryRow = summary[0]
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"summary":    summaryRow,
-			"by_outcome": byOutcome,
-			"by_day":     byDay,
-			"by_agent":   byAgent,
+			"summary":           summaryRow,
+			"by_outcome":        byOutcome,
+			"by_day":            byDay,
+			"by_agent":          byAgent,
+			"by_hour":           byHour,
+			"talk_distribution": talkDist,
 		})
 	}
 }
@@ -2925,6 +3547,20 @@ func hdKBSetStatus(db *core.DB) http.HandlerFunc {
 		}
 		kbStatus := kbCanonicalStatus(b.Status)
 		isPublic := kbStatus == "live"
+		// Publishing (live) or archiving is a privileged action — it puts content in
+		// front of customers. Agents may only move an article to draft/pending; going
+		// live must be approved by a head or compliance.
+		if kbStatus == "live" || kbStatus == "archived" {
+			caller := core.UserFromCtx(r.Context())
+			privileged := map[string]bool{
+				"call_center_head": true, "admin": true,
+				"compliance_officer": true, "compliance_head": true,
+			}
+			if caller == nil || !privileged[caller.Role] {
+				respondErr(w, 403, "Publishing requires a team head or compliance approval")
+				return
+			}
+		}
 		if _, err := db.PGExec(r.Context(),
 			`UPDATE helpdesk_knowledge_base SET kb_status=$1, is_public=$2, updated_at=NOW() WHERE id=$3`,
 			kbStatus, isPublic, id); err != nil {
@@ -3116,10 +3752,13 @@ func hdInboundCall(db *core.DB) http.HandlerFunc {
 		}
 		_ = agentName
 
+		// channel='call' (not 'phone') so inbound-call tickets match the Zoho ticket
+		// mapper (phone→call) and are routed as call activity — kept OUT of the
+		// written-support Ticket Queue, which excludes channel IN ('email','call').
 		rows, err := db.PGQuery(ctx, `
 			INSERT INTO helpdesk_tickets
 			  (subject, description, channel, status, priority, queue, ticket_type, assigned_to)
-			VALUES ($1, $2, 'phone', 'open', 'normal', $3, 'inbound_call', $4)
+			VALUES ($1, $2, 'call', 'open', 'normal', $3, 'inbound_call', $4)
 			RETURNING id, subject, status, queue, ticket_type, created_at`,
 			subject, body, queue, assignedTo)
 		if err != nil {
@@ -3177,12 +3816,37 @@ func hdTicketContext(db *core.DB) http.HandlerFunc {
 			return
 		}
 		cif := str(tickets[0]["customer_cif"])
+		phone := str(tickets[0]["customer_phone"])
+		email := str(tickets[0]["customer_email"])
+
+		// Most imported tickets carry no CIF. Resolve one from the phone (last 10
+		// digits) or email against the canonical customer base so the context tabs
+		// light up and can deep-link to the customer profile.
+		resolved := false
+		if cif == "" && phone != "" {
+			if rr, _ := db.PGQuery(ctx,
+				`SELECT cif FROM app.customers
+				 WHERE length(right(regexp_replace(COALESCE(phone,''),'\D','','g'),10))=10
+				   AND right(regexp_replace(COALESCE(phone,''),'\D','','g'),10) = right(regexp_replace($1,'\D','','g'),10)
+				 LIMIT 1`, phone); len(rr) > 0 {
+				cif = str(rr[0]["cif"])
+				resolved = cif != ""
+			}
+		}
+		if cif == "" && email != "" {
+			if rr, _ := db.PGQuery(ctx,
+				`SELECT cif FROM app.customers WHERE COALESCE(email,'')<>'' AND lower(email)=lower($1) LIMIT 1`, email); len(rr) > 0 {
+				cif = str(rr[0]["cif"])
+				resolved = cif != ""
+			}
+		}
 
 		out := map[string]any{
 			"customer_name":  tickets[0]["customer_name"],
-			"customer_email": tickets[0]["customer_email"],
-			"customer_phone": tickets[0]["customer_phone"],
+			"customer_email": email,
+			"customer_phone": phone,
 			"cif":            cif,
+			"cif_resolved":   resolved,
 		}
 
 		if cif == "" {
@@ -3245,8 +3909,7 @@ func hdTicketContext(db *core.DB) http.HandlerFunc {
 
 		// Cards / products (MSSQL preferred, PG fallback)
 		cards, _, _ := db.DualQuery(ctx,
-			`SELECT Product_Name, Account_Status, Name_On_Card, Account_Manager FROM dbo.Account WHERE CIF_Number = @p1`,
-			`SELECT "Product Name" AS product_name, "Account Status" AS account_status, "Name On Card" AS name_on_card, "Account Manager" AS account_manager FROM "Products" WHERE "CIF Number" = $1`,
+			`SELECT product_name AS product_name, status AS account_status, name_on_card AS name_on_card, NULL AS account_manager FROM app.accounts WHERE cif = $1`,
 			cif)
 		if cards == nil {
 			cards = []core.Row{}
@@ -3267,11 +3930,11 @@ func hdTicketContext(db *core.DB) http.HandlerFunc {
 // ── KB article feedback ───────────────────────────────────────────────────────
 
 func ensureKBFeedbackSchema(ctx context.Context, db *core.DB) {
-	db.PGExec(ctx, `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS helpful_count INT NOT NULL DEFAULT 0`)      //nolint:errcheck
+	db.PGExec(ctx, `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS helpful_count INT NOT NULL DEFAULT 0`)     //nolint:errcheck
 	db.PGExec(ctx, `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS not_helpful_count INT NOT NULL DEFAULT 0`) //nolint:errcheck
 	db.PGExec(ctx, `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS version INT NOT NULL DEFAULT 1`)           //nolint:errcheck
-	db.PGExec(ctx, `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS approved_by BIGINT`)                      //nolint:errcheck
-	db.PGExec(ctx, `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS kb_status TEXT NOT NULL DEFAULT 'draft'`) //nolint:errcheck
+	db.PGExec(ctx, `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS approved_by BIGINT`)                       //nolint:errcheck
+	db.PGExec(ctx, `ALTER TABLE helpdesk_knowledge_base ADD COLUMN IF NOT EXISTS kb_status TEXT NOT NULL DEFAULT 'draft'`)  //nolint:errcheck
 }
 
 func hdKBFeedback(db *core.DB) http.HandlerFunc {
@@ -3435,6 +4098,52 @@ func hdStatsChannelBreakdown(db *core.DB) http.HandlerFunc {
 }
 
 // ── Agent helpdesk status ─────────────────────────────────────────────────────
+
+// ── Call Center settings ──────────────────────────────────────────────────────
+
+func ensureCCSettings(ctx context.Context, db *core.DB) {
+	db.PGExec(ctx, `CREATE TABLE IF NOT EXISTS call_center_settings (key TEXT PRIMARY KEY, value TEXT)`) //nolint:errcheck
+}
+
+func ccSettingInt(ctx context.Context, db *core.DB, key string, def int) int {
+	ensureCCSettings(ctx, db)
+	if rows, _ := db.PGQuery(ctx, `SELECT value FROM call_center_settings WHERE key=$1`, key); len(rows) > 0 {
+		if n, err := strconv.Atoi(str(rows[0]["value"])); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+func hdCCSettings(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		respond(w, map[string]any{"daily_call_target": ccSettingInt(r.Context(), db, "daily_call_target", 60)}, "cc")
+	}
+}
+
+func hdSetCCSettings(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		caller := core.UserFromCtx(r.Context())
+		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+			respondErr(w, 403, "Only supervisors can change call center settings")
+			return
+		}
+		var b struct {
+			DailyCallTarget *int `json:"daily_call_target"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		ensureCCSettings(r.Context(), db)
+		if b.DailyCallTarget != nil && *b.DailyCallTarget > 0 {
+			db.PGExec(r.Context(), //nolint:errcheck
+				`INSERT INTO call_center_settings (key, value) VALUES ('daily_call_target', $1)
+				 ON CONFLICT (key) DO UPDATE SET value = $1`, fmt.Sprint(*b.DailyCallTarget))
+		}
+		respond(w, map[string]any{"daily_call_target": ccSettingInt(r.Context(), db, "daily_call_target", 60)}, "cc")
+	}
+}
 
 func hdSetAgentStatus(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

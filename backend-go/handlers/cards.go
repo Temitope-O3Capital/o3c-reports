@@ -9,7 +9,7 @@ import (
 )
 
 func RegisterCards(r chi.Router, db *core.DB) {
-	cards  := core.RequirePages("cards")
+	cards := core.RequirePages("cards")
 	income := core.RequirePages("cards", "income", "finance")
 
 	r.With(cards).Get("/kpis", cardsKPIs(db))
@@ -33,9 +33,9 @@ func RegisterCards(r chi.Router, db *core.DB) {
 	r.With(cards).Post("/billing/generate", cardGenerateBilling(db))
 
 	// Cycle data — also accessible to finance/income roles for the Income page
-	r.With(income).Get("/products",      cardProducts(db))
-	r.With(income).Get("/cycle-dates",   cardCycleDates(db))
-	r.With(income).Get("/cycle-data",    cardCycleData(db))
+	r.With(income).Get("/products", cardProducts(db))
+	r.With(income).Get("/cycle-dates", cardCycleDates(db))
+	r.With(income).Get("/cycle-data", cardCycleData(db))
 	r.With(income).Get("/cycle-summary", cardCycleSummary(db))
 
 	// Agent queue dashboard
@@ -77,9 +77,9 @@ func cardMyQueue(db *core.DB) http.HandlerFunc {
 		}
 
 		respond(w, map[string]any{
-			"issuance_queue":          issuance,
-			"open_disputes":           disputes,
-			"pending_credit_reviews":  creditReviews,
+			"issuance_queue":         issuance,
+			"open_disputes":          disputes,
+			"pending_credit_reviews": creditReviews,
 			"summary": map[string]any{
 				"issuance_count":       len(issuance),
 				"disputes_count":       len(disputes),
@@ -92,8 +92,8 @@ func cardMyQueue(db *core.DB) http.HandlerFunc {
 func cardsKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cardType := qstr(r, "card_type")
-		from     := qstr(r, "from")
-		to       := qstr(r, "to")
+		from := qstr(r, "from")
+		to := qstr(r, "to")
 		ctx := r.Context()
 		kpis := map[string]any{}
 		var sources []string
@@ -103,19 +103,16 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 		ctFilter.Eq(" AND Product_Name=?", ` AND product_name=?`, cardType)
 		ctFilter.Date("Account_Created_Date", `opened_date`, from, to)
 
-		type spec struct{ key, ms, pg string }
+		type spec struct{ key, pg string }
 		for _, s := range []spec{
 			{"total_issued",
-				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1%s", ctFilter.MS()),
 				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, ctFilter.PG())},
 			{"active",
-				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE Status IN ('Open','Active')%s", ctFilter.MS()),
 				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')%s`, ctFilter.PG())},
 			{"inactive",
-				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE Status NOT IN ('Open','Active')%s", ctFilter.MS()),
 				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status NOT IN ('Open','Active')%s`, ctFilter.PG())},
 		} {
-			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg, ctFilter.Args()...)
+			val, src, err := db.DualScalar(ctx, "val", s.pg, ctFilter.Args()...)
 			if err != nil {
 				respondErr(w, 500, "Query failed: "+s.key)
 				return
@@ -134,7 +131,6 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 			pf.Eq(" AND Product_Name=?", ` AND product_name=?`, product)
 			key := slugify(product)
 			val, src, err := db.DualScalar(ctx, "val",
-				fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1%s", pf.MS()),
 				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, pf.PG()),
 				pf.Args()...)
 			if err == nil {
@@ -154,9 +150,6 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 		var mf Filter
 		mf.Eq(" AND p.Product_Name=?", ` AND p.product_name=?`, cardType)
 		merchants, src, err := db.DualScalar(ctx, "val",
-			fmt.Sprintf(`SELECT COUNT(DISTINCT t.Merchant_Name) AS val
-			  FROM dbo.Transaction_Listing t JOIN dbo.Account p ON t.CIF=p.CIF_Number
-			  WHERE t.Merchant_Name IS NOT NULL AND t.Merchant_Name!=''%s`, mf.MS()),
 			fmt.Sprintf(`SELECT COUNT(DISTINCT t.merchant_name) AS val
 			  FROM app.transactions t JOIN app.accounts p ON t.cif=p.cif
 			  WHERE t.merchant_name IS NOT NULL AND t.merchant_name!=''%s`, mf.PG()),
@@ -173,8 +166,6 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 func cardsByProduct(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT Product_Name, COUNT(*) AS count FROM dbo.Account
-			 WHERE Product_Name IS NOT NULL GROUP BY Product_Name ORDER BY count DESC`,
 			`SELECT product_name AS product_name, COUNT(*) AS count FROM app.accounts
 			 WHERE product_name IS NOT NULL GROUP BY product_name ORDER BY count DESC`)
 		if err != nil {
@@ -188,7 +179,6 @@ func cardsByProduct(db *core.DB) http.HandlerFunc {
 func cardsByStatus(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT Status, COUNT(*) AS count FROM dbo.Account GROUP BY Status ORDER BY count DESC`,
 			`SELECT status AS status, COUNT(*) AS count FROM app.accounts GROUP BY status ORDER BY count DESC`)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
@@ -217,9 +207,6 @@ func cardsVolumeByType(db *core.DB) http.HandlerFunc {
 		f.Eq(" AND p.Product_Name=?", ` AND p.product_name=?`, cardType)
 
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT p.Product_Name, ISNULL(SUM(t.Amount),0) AS volume, COUNT(t.Amount) AS txn_count
-			  FROM dbo.Account p JOIN dbo.Transaction_Listing t ON p.CIF_Number=t.CIF
-			  WHERE 1=1%s GROUP BY p.Product_Name ORDER BY volume DESC`, f.MS()),
 			fmt.Sprintf(`SELECT p.product_name AS product_name, COALESCE(SUM(t.amount),0) AS volume, COUNT(t.amount) AS txn_count
 			  FROM app.accounts p JOIN app.transactions t ON p.cif=t.cif
 			  WHERE 1=1%s GROUP BY p.product_name ORDER BY volume DESC`, f.PG()),
@@ -234,12 +221,12 @@ func cardsVolumeByType(db *core.DB) http.HandlerFunc {
 
 func cardsCardholders(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		status   := qstr(r, "status")
+		status := qstr(r, "status")
 		cardType := qstr(r, "card_type")
-		from     := qstr(r, "from")
-		to       := qstr(r, "to")
-		limit    := qint(r, "limit",  50, 1, 200)
-		offset   := qint(r, "offset", 0,  0, 1<<30)
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+		limit := qint(r, "limit", 50, 1, 200)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		var f Filter
 		f.Eq(" AND Status=?", ` AND status=?`, status)
@@ -247,19 +234,10 @@ func cardsCardholders(db *core.DB) http.HandlerFunc {
 		f.Date("Account_Created_Date", `opened_date`, from, to)
 
 		total, _, _ := db.DualScalar(r.Context(), "val",
-			fmt.Sprintf("SELECT COUNT(*) AS val FROM dbo.Account WHERE 1=1%s", f.MS()),
 			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, f.PG()),
 			f.Args()...)
 
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT CIF_Number AS cif_number,
-				ISNULL(Product_Name,'') AS product_name,
-				ISNULL(Status,'') AS status,
-				ISNULL(Card_Product,'') AS card_product,
-				CONVERT(varchar(10), Account_Created_Date, 23) AS created_at
-			FROM dbo.Account WHERE 1=1%s
-			ORDER BY Account_Created_Date DESC
-			OFFSET %d ROWS FETCH NEXT %d ROWS ONLY`, f.MS(), offset, limit),
 			fmt.Sprintf(`SELECT cif AS cif_number,
 				COALESCE(product_name,'') AS product_name,
 				COALESCE(status,'') AS status,

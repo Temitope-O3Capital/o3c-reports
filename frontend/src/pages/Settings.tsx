@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import DOMPurify from 'dompurify'
 import { toast } from 'sonner'
 import { SectionCard, Spinner } from '../components/UI'
+import MailRichEditor from '../components/MailRichEditor'
 import { apiFetch, apiPost, apiPut } from '../lib/api'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, INTER, TEXT, FW, RADIUS, SP } from '../lib/design'
 import { roleLabel } from '../lib/roles'
@@ -690,23 +691,80 @@ function NotificationsTab() {
 
 // ── Email Signature Tab ────────────────────────────────────────────────────────
 
+// The one place a signature is edited. There used to be a second editor at
+// /mail/signature; having two meant only one of them got maintained, and it was not
+// this one.
+//
+// Three things were wrong here and are fixed below:
+//
+//  1. GET /api/mail/signature returns the signature object directly, not wrapped in
+//     {data:…} — this tab read `r.data.signature_html`, which is always undefined. So
+//     the fields loaded blank even when a signature existed, and pressing Save then
+//     overwrote the real one with empty strings. Anyone who opened this tab out of
+//     curiosity lost their signature.
+//  2. HTML and plain text were two independent textareas that drifted apart, so the
+//     plain-text half of every message could say something different from the HTML.
+//     Plain text is now derived from the HTML on save — it is a rendering of the same
+//     content, not a separate field to maintain.
+//  3. It asked people to hand-write HTML. It is now the same WYSIWYG editor used to
+//     write the mail itself, and the value is sanitised before it is stored rather
+//     than only when previewed.
+
+function htmlToText(html: string): string {
+  const d = document.createElement('div')
+  d.innerHTML = DOMPurify.sanitize(html)
+  return (d.textContent ?? '').trim()
+}
+
+// An "empty" editor is not an empty string — Tiptap's empty document is <p></p>, and
+// a signature that is only a logo has no text at all but is very much not empty. So
+// this asks whether there is any text OR any embedded media, not whether the HTML is
+// blank.
+function isSignatureEmpty(html: string): boolean {
+  const d = document.createElement('div')
+  d.innerHTML = DOMPurify.sanitize(html)
+  if (d.querySelector('img, hr, table')) return false
+  return (d.textContent ?? '').trim() === ''
+}
+
 function SignatureTab() {
-  const [html,    setHtml]    = useState('')
-  const [text,    setText]    = useState('')
+  const [html,    setHtml]    = useState('<p></p>')
   const [loading, setLoading] = useState(true)
   const [saving,  setSaving]  = useState(false)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
 
   useEffect(() => {
-    apiFetch<{ data: { signature_html: string; signature_text: string } }>('/api/mail/signature')
-      .then(r => { setHtml(r.data?.signature_html ?? ''); setText(r.data?.signature_text ?? '') })
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    let cancelled = false
+    apiFetch<{ signature_html: string | null; signature_text: string | null }>('/api/mail/signature')
+      .then(s => {
+        if (cancelled) return
+        if (s?.signature_html?.trim()) {
+          setHtml(s.signature_html)
+        } else if (s?.signature_text?.trim()) {
+          // Older signatures were stored as plain text only. Promote rather than
+          // discard, escaping first so a literal < in someone's job title cannot
+          // become markup.
+          const safe = s.signature_text
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/\n/g, '<br>')
+          setHtml(`<p>${safe}</p>`)
+        }
+      })
+      // Load failure must be visible. Silently showing an empty editor is how the
+      // overwrite-on-save bug did its damage.
+      .catch((e: any) => { if (!cancelled) setLoadErr(e?.message ?? 'Could not load your signature') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [])
 
   async function save() {
     setSaving(true)
     try {
-      await apiPut('/api/mail/signature', { signature_html: html, signature_text: text })
+      const clean = DOMPurify.sanitize(html)
+      await apiPut('/api/mail/signature', {
+        signature_html: clean,
+        signature_text: htmlToText(clean),
+      })
       toast.success('Signature saved')
     } catch (e: any) {
       toast.error(e.message ?? 'Failed to save signature')
@@ -715,50 +773,47 @@ function SignatureTab() {
 
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={22} /></div>
 
+  const isEmpty = isSignatureEmpty(html)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
-      <SectionCard title="Email Signature" subtitle="Appended to outbound messages you send from the Mail module">
+      {loadErr && (
+        <div style={{ background: `${RED}0F`, border: `1px solid ${RED}33`, borderRadius: RADIUS.lg, padding: '12px 14px', fontSize: TEXT.base, color: 'var(--txt)' }}>
+          <strong>{loadErr}</strong> — saving now would replace whatever is stored. Reload before editing.
+        </div>
+      )}
+
+      <SectionCard title="Email Signature" subtitle="Appended automatically to new messages, replies and forwards">
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+          <MailRichEditor value={html} onChange={setHtml} minHeight={170} placeholder="Your name, role, phone, links…" />
 
           <div>
-            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.4px' }}>HTML Signature</div>
-            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-              value={html}
-              onChange={e => setHtml(e.target.value)}
-              placeholder={'<p>Best regards,<br/><strong>Your Name</strong><br/>O3 Capital</p>'}
-              rows={6}
-              style={{ ...INPUT, height: 'auto', padding: '10px 12px', resize: 'vertical', fontFamily: 'monospace', fontSize: TEXT.sm, lineHeight: 1.5 }}
-            />
-          </div>
-
-          <div>
-            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.4px' }}>Plain Text Signature</div>
-            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-              value={text}
-              onChange={e => setText(e.target.value)}
-              placeholder={'Best regards,\nYour Name\nO3 Capital'}
-              rows={4}
-              style={{ ...INPUT, height: 'auto', padding: '10px 12px', resize: 'vertical', fontFamily: 'monospace', fontSize: TEXT.sm, lineHeight: 1.5 }}
-            />
-          </div>
-
-          {html.trim() && (
-            <div>
-              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.4px' }}>Preview</div>
-              <div
-                style={{ padding: '14px 16px', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, background: 'var(--th-bg)', fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.65 }}
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
-              />
-            </div>
-          )}
-
-          <div>
-            <button onClick={save} disabled={saving} style={{ ...BTN_PRIMARY, opacity: saving ? 0.7 : 1 }}>
+            <button onClick={save} disabled={saving || !!loadErr} style={{ ...BTN_PRIMARY, opacity: (saving || loadErr) ? 0.6 : 1 }}>
               {saving && <Spinner size={14} color="#fff" />}
               Save Signature
             </button>
           </div>
         </div>
+      </SectionCard>
+
+      <SectionCard title="Preview" subtitle="Rendered on white, the way a recipient's mail client will show it">
+        {isEmpty ? (
+          <div style={{ fontSize: TEXT.base, color: 'var(--txt3)', padding: '8px 0' }}>
+            Nothing to preview yet — your signature is empty.
+          </div>
+        ) : (
+          // Always white with dark text. The app theme is irrelevant here: a signature
+          // written in dark mode is still read on a white background, and a preview
+          // that follows the app theme hides exactly the problem it should catch —
+          // white text, or a logo with a dark background, that vanishes on arrival.
+          <div style={{
+            background: '#FFFFFF', color: '#202124',
+            border: '1px solid var(--bdr)', borderRadius: RADIUS.lg,
+            padding: '16px 18px', fontSize: 13.5, lineHeight: 1.7,
+          }}>
+            <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />
+          </div>
+        )}
       </SectionCard>
     </div>
   )
@@ -904,7 +959,7 @@ function VoiceTab() {
           {[
             { n: 1, text: 'Go to api-console.zoho.com and sign in with your Zoho account' },
             { n: 2, text: 'Click "Self Client" → "Create Now"' },
-            { n: 3, text: 'Add scopes: VoiceAPI.calls.ALL, VoiceAPI.logs.READ, Desk.calls.ALL' },
+            { n: 3, text: 'Add scopes — for call logging: Desk.calls.ALL (already covers read/write). For live CTI (ringing/answer events, click-to-call): add ZohoPhoneBridge.phone.ALL. Note: "VoiceAPI.*" is NOT a valid Zoho scope.' },
             { n: 4, text: 'Set the time to "10 minutes" and generate the code' },
             { n: 5, text: 'Exchange the code for a refresh token using the Generate Tokens tab' },
             { n: 6, text: 'Copy the refresh_token value and paste it above' },

@@ -1,335 +1,456 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, Cell,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, DataTable, DateFilter } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, Sk } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtPct, fmtNum, fmtDatetime, monthStart, today } from '../../lib/fmt'
+import { fmtKobo, fmtNum, fmtPct, fmtDate, fmtDatetime, n } from '../../lib/fmt'
 import { RED, GREEN, BLUE, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// The Sales Team Lead's dashboard.
+//
+// This replaces a credit-origination page that read loan_applications — a table with
+// zero rows — and said nothing about customer acquisition or the state of the team's
+// book. It answers the four questions a lead actually opens a dashboard for: are we
+// acquiring, how is each officer doing, what is in the pipeline, and what needs
+// fixing today.
 
-interface LoanKPIs {
-  submitted_mtd: number
-  disbursed_mtd_kobo: number
-  pipeline_kobo: number
-  win_rate_pct: number
+interface Summary {
+  customers: number; mtd: number; ytd: number; prev_month: number
+  unassigned: number; undated: number
+  open_leads: number; qualified: number; converted_mtd: number
+  overdue_actions: number; pipeline_value_kobo: number
+  submitted_mtd: number; active: number; approved_mtd_kobo: number
+  officers: number; mom_change_pct: number | null
+}
+interface AcqPoint { month: string; customers: number; confirmed: number; derived: number }
+interface Officer {
+  id: number; full_name: string; role: string; is_active: boolean
+  book_size: number; acquired_mtd: number; acquired_ytd: number
+  customers_in_arrears: number; open_leads: number; qualified_leads: number
+  converted_mtd: number; overdue_actions: number
+  pipeline_value_kobo: number; conversion_rate_pct: number | null
+}
+interface SourceRow {
+  source: string; label: string; leads: number
+  converted: number; disqualified: number; conversion_rate_pct: number | null
+}
+interface Attention {
+  unassigned_customers: { cif: string; full_name: string; acquired_on: string; state: string }[]
+  overdue_actions: { id: number; first_name: string; last_name: string; phone: string; lead_stage: string; next_action_at: string; owner_name: string }[]
+  unowned_leads: { id: number; first_name: string; last_name: string; phone: string; lead_source: string; created_at: string }[]
+  stalled_leads: { id: number; first_name: string; last_name: string; lead_stage: string; last_activity_at: string; owner_name: string }[]
+  feed: { status: string; started_at: string; finished_at: string; customers_inserted: number; customers_updated: number; files_failed: number } | null
 }
 
-interface MonthlyPoint { month: string; disbursements_kobo: number; count: number }
-interface TopPerformer  { name: string; role: string; amount_kobo: number; count: number }
-interface LeadSourceItem { lead_source: string; total_applications: number; approved: number; disbursement_kobo: number }
+// ── A banner for what the numbers cannot tell you ─────────────────────────────
+//
+// Acquisition dates for 1,210 customers could not be established from any source, and
+// no officer owns a customer until someone assigns them. Reporting those silently as
+// zero is how the previous dashboard came to understate 2024 by a factor of eleven.
 
-interface RecentApp {
-  id: number
-  stage: string
-  status: string
-  amount_requested_kobo: number
-  amount_approved_kobo: number
-  created_at: string
-  updated_at: string
-  officer_name: string
-  applicant_name?: string | null
-  product_type?: string | null
-}
-
-// ── Stage pill ────────────────────────────────────────────────────────────────
-
-const STAGE_COLORS: Record<string, { bg: string; txt: string }> = {
-  draft:               { bg: 'rgba(75,85,99,.1)',    txt: '#6B7280' },
-  submitted:           { bg: 'rgba(37,99,235,.1)',   txt: '#2563EB' },
-  document_collection: { bg: 'rgba(217,119,6,.1)',   txt: '#D97706' },
-  risk_review:         { bg: 'rgba(124,58,237,.1)',  txt: '#7C3AED' },
-  risk_head_review:    { bg: 'rgba(124,58,237,.1)',  txt: '#7C3AED' },
-  pending_conditions:  { bg: 'rgba(217,119,6,.1)',   txt: '#D97706' },
-  finance_approval:    { bg: 'rgba(37,99,235,.1)',   txt: '#2563EB' },
-  booking:             { bg: 'rgba(14,40,65,.1)',    txt: '#0E2841' },
-  active:              { bg: 'rgba(22,163,74,.1)',   txt: '#16A34A' },
-  declined:            { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
-}
-
-function StagePill({ stage }: { stage: string }) {
-  const c = STAGE_COLORS[stage] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
-  return (
-    <span style={{
-      fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
-      background: c.bg, color: c.txt, whiteSpace: 'nowrap', textTransform: 'capitalize',
-    }}>
-      {stage.replace(/_/g, ' ')}
-    </span>
-  )
-}
-
-// ── Chart tooltip ─────────────────────────────────────────────────────────────
-
-function ChartTooltip({ active, payload, label, kobo }: {
-  active?: boolean; payload?: any[]; label?: string; kobo?: boolean
-}) {
-  if (!active || !payload?.length) return null
+function Caveat({ icon, tone, children }: { icon: string; tone: string; children: React.ReactNode }) {
   return (
     <div style={{
-      background: 'var(--card)', border: '1px solid var(--bdr)',
-      borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, fontSize: TEXT.sm,
-      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+      display: 'flex', alignItems: 'flex-start', gap: 10,
+      padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.md,
+      background: `${tone}0F`, border: `1px solid ${tone}33`,
+      fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5,
     }}>
-      <p style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>{label}</p>
-      {payload.map((p: any, i: number) => (
-        <p key={i} style={{ color: p.color, marginBottom: 2 }}>
-          {p.name}: {kobo ? fmtKobo(p.value) : p.value}
-        </p>
-      ))}
+      <span className="material-symbols-rounded" style={{ fontSize: 18, color: tone, flexShrink: 0 }}>{icon}</span>
+      <div>{children}</div>
     </div>
   )
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-
-const LEAD_SOURCE_COLORS = [RED, NAVY, BLUE, AMBER, GREEN, '#8B5CF6', '#EC4899']
+function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) {
+  if (!active || !payload?.length) return null
+  const total = payload.reduce((s, p) => s + Number(p.value ?? 0), 0)
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md,
+      padding: `${SP[2]} ${SP[3]}`, fontSize: TEXT.sm, boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    }}>
+      <p style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>{label}</p>
+      {payload.map((p: any, i: number) => (
+        <p key={i} style={{ color: 'var(--txt2)', marginBottom: 2, display: 'flex', gap: 8 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, marginTop: 5 }} />
+          {p.name}: <strong style={{ color: 'var(--txt)' }}>{fmtNum(p.value)}</strong>
+        </p>
+      ))}
+      <p style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--bdr)', color: 'var(--txt)', fontWeight: FW.semibold }}>
+        Total: {fmtNum(total)}
+      </p>
+    </div>
+  )
+}
 
 export default function SalesOverview() {
   const navigate = useNavigate()
-  const [kpis,      setKpis]      = useState<LoanKPIs | null>(null)
-  const [monthly,   setMonthly]   = useState<MonthlyPoint[]>([])
-  const [perfs,     setPerfs]     = useState<TopPerformer[]>([])
-  const [apps,      setApps]      = useState<RecentApp[]>([])
-  const [leadSrc,   setLeadSrc]   = useState<LeadSourceItem[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [dateFrom,  setDateFrom]  = useState(monthStart())
-  const [dateTo,    setDateTo]    = useState(today())
+  const [summary, setSummary] = useState<Summary | null>(null)
+  const [acq, setAcq] = useState<AcqPoint[]>([])
+  const [officers, setOfficers] = useState<Officer[]>([])
+  const [sources, setSources] = useState<SourceRow[]>([])
+  const [attn, setAttn] = useState<Attention | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
 
-  async function load(from: string, to: string) {
-    setLoading(true)
-    try {
-      const [k, m, p, a, ls] = await Promise.all([
-        apiFetch<{data: LoanKPIs}>(`/api/sales/loan-kpis?from=${from}&to=${to}`),
-        apiFetch<{data: MonthlyPoint[]}>(`/api/sales/monthly-disbursements?from=${from}&to=${to}`),
-        apiFetch<{data: TopPerformer[]}>(`/api/sales/top-performers?from=${from}&to=${to}`),
-        apiFetch<{data: RecentApp[]}>(`/api/sales/recent-applications?from=${from}&to=${to}`),
-        apiFetch<{data: LeadSourceItem[]}>(`/api/sales/by-lead-source?from=${from}&to=${to}`),
-      ])
-      setKpis(k.data)
-      setMonthly(m.data ?? [])
-      setPerfs(p.data ?? [])
-      setApps(a.data ?? [])
-      setLeadSrc(ls.data ?? [])
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true); setErr(null)
+      try {
+        const [s, a, o, src, at] = await Promise.all([
+          apiFetch<{ data: Summary }>('/api/sales/overview/summary'),
+          apiFetch<{ data: AcqPoint[] }>('/api/sales/overview/acquisition?months=24'),
+          apiFetch<{ data: Officer[] }>('/api/sales/overview/officers'),
+          apiFetch<{ data: SourceRow[] }>('/api/sales/overview/sources'),
+          apiFetch<{ data: Attention }>('/api/sales/overview/attention'),
+        ])
+        if (cancelled) return
+        setSummary(s.data); setAcq(a.data ?? []); setOfficers(o.data ?? [])
+        setSources(src.data ?? []); setAttn(at.data)
+      } catch (e: any) {
+        if (!cancelled) setErr(e?.message ?? 'Could not load the sales overview')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
-  useEffect(() => { load(dateFrom, dateTo) }, [dateFrom, dateTo])
-
-  const appCols: TableCol<RecentApp>[] = [
+  const officerCols: TableCol<Officer>[] = [
     {
-      key: 'id', label: 'App#', sortable: false, width: 80,
-      render: row => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>APP-{row.id}</span>,
-    },
-    {
-      key: 'applicant_name', label: 'Applicant', sortable: true,
-      render: row => <span style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{row.applicant_name ?? '—'}</span>,
-    },
-    {
-      key: 'stage', label: 'Stage', sortable: true,
-      render: row => <StagePill stage={row.stage} />,
-    },
-    {
-      key: 'product_type', label: 'Product', sortable: true,
-      render: row => row.product_type
-        ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', color: 'var(--chip-txt)', whiteSpace: 'nowrap' }}>{row.product_type}</span>
-        : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>,
-    },
-    {
-      key: 'amount_requested_kobo', label: 'Amount', sortable: true, align: 'right',
-      render: row => <span style={NUM}>{fmtKobo(row.amount_requested_kobo)}</span>,
-    },
-    {
-      key: 'officer_name', label: 'Officer', sortable: true,
-      render: row => <span style={{ color: 'var(--txt2)' }}>{row.officer_name ?? '—'}</span>,
-    },
-    {
-      key: 'updated_at', label: 'Last Updated', sortable: true,
-      render: row => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>{fmtDatetime(row.updated_at)}</span>,
-    },
-  ]
-
-  const perfCols: TableCol<TopPerformer>[] = [
-    {
-      key: 'name', label: 'Officer', sortable: true,
-      render: row => (
+      key: 'full_name', label: 'Officer', sortable: true,
+      render: r => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <div style={{
-            width: 28, height: 28, borderRadius: RADIUS.full, flexShrink: 0,
-            background: `${NAVY}14`,
+            width: 28, height: 28, borderRadius: RADIUS.full, flexShrink: 0, background: `${NAVY}14`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: TEXT['2xs'], fontWeight: FW.bold, color: NAVY,
           }}>
-            {(row.name ?? '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+            {(r.full_name ?? '?').split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase()}
           </div>
-          <span style={{ fontSize: TEXT.base }}>{row.name}</span>
+          <div>
+            <div style={{ fontSize: TEXT.base }}>{r.full_name}</div>
+            {!r.is_active && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>inactive</div>}
+          </div>
         </div>
       ),
     },
-    {
-      key: 'amount_kobo', label: 'Disbursed MTD', sortable: true, align: 'right',
-      render: row => <span style={NUM}>{fmtKobo(row.amount_kobo)}</span>,
-    },
-    {
-      key: 'count', label: 'Loans', sortable: true, align: 'right',
-      render: row => <span style={NUM}>{row.count}</span>,
-    },
+    { key: 'book_size', label: 'Book', sortable: true, align: 'right',
+      render: r => <span style={NUM}>{fmtNum(r.book_size)}</span> },
+    { key: 'acquired_mtd', label: 'New MTD', sortable: true, align: 'right',
+      render: r => <span style={{ ...NUM, color: r.acquired_mtd > 0 ? GREEN : 'var(--txt3)' }}>{fmtNum(r.acquired_mtd)}</span> },
+    { key: 'acquired_ytd', label: 'New YTD', sortable: true, align: 'right',
+      render: r => <span style={NUM}>{fmtNum(r.acquired_ytd)}</span> },
+    { key: 'open_leads', label: 'Open leads', sortable: true, align: 'right',
+      render: r => <span style={NUM}>{fmtNum(r.open_leads)}</span> },
+    { key: 'conversion_rate_pct', label: 'Conversion', sortable: true, align: 'right',
+      render: r => r.conversion_rate_pct == null
+        ? <span style={{ color: 'var(--txt3)' }}>—</span>
+        : <span style={NUM}>{fmtPct(r.conversion_rate_pct)}</span> },
+    { key: 'overdue_actions', label: 'Overdue', sortable: true, align: 'right',
+      render: r => <span style={{ ...NUM, color: r.overdue_actions > 0 ? RED : 'var(--txt3)' }}>{fmtNum(r.overdue_actions)}</span> },
+    { key: 'customers_in_arrears', label: 'In arrears', sortable: true, align: 'right',
+      render: r => <span style={{ ...NUM, color: r.customers_in_arrears > 0 ? AMBER : 'var(--txt3)' }}>{fmtNum(r.customers_in_arrears)}</span> },
   ]
+
+  const derivedTotal = acq.reduce((s, p) => s + n(p.derived), 0)
+  const noTeam = !loading && officers.length === 0
 
   return (
     <Page
       title="Sales Overview"
-      subtitle="Credit origination performance"
+      subtitle="Customer acquisition, team performance and book health"
       actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          <button
-            onClick={() => navigate('/sales/applications/new')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 16px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
-              border: 'none', background: RED, color: '#fff', cursor: 'pointer',
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-            New Application
-          </button>
-        </div>
+        <button
+          onClick={() => navigate('/sales/leads')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px',
+            borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold,
+            border: 'none', background: RED, color: '#fff', cursor: 'pointer',
+          }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>person_add</span>
+          New Lead
+        </button>
       }
     >
+      {err && (
+        <div style={{ marginBottom: SP[4] }}>
+          <Caveat icon="error" tone={RED}>{err}</Caveat>
+        </div>
+      )}
+
+      {/* A team table with nobody in it reads as "the team sold nothing", which is a
+          different and much worse claim than "nobody has been given a book yet". The
+          note says which of the two it is. It is a setup step, not a fault — hence the
+          neutral tone rather than the red one it used to carry. */}
+      {(noTeam || n(summary?.unassigned) > 0) && !loading && (
+        <div style={{ display: 'grid', gap: 10, marginBottom: SP[4] }}>
+          {noTeam && (
+            <Caveat icon="group_add" tone={BLUE}>
+              <strong>Nobody holds a book yet.</strong> Officers appear here as soon as
+              they are given customers — you can assign to any active user, so this does
+              not wait on new accounts or role changes.{' '}
+              <button
+                onClick={() => navigate('/sales/book?officer_id=unassigned')}
+                style={{ background: 'none', border: 'none', color: BLUE, cursor: 'pointer', padding: 0, font: 'inherit', fontWeight: FW.semibold }}
+              >
+                Assign the book →
+              </button>
+            </Caveat>
+          )}
+          {n(summary?.unassigned) > 0 && (
+            <Caveat icon="assignment_late" tone={AMBER}>
+              <strong>{fmtNum(summary?.unassigned)} customers have no account officer.</strong>{' '}
+              Ownership used to live in the retired card system and was never carried
+              across, so the book starts unassigned.{' '}
+              <button
+                onClick={() => navigate('/sales/book?officer_id=unassigned')}
+                style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', padding: 0, font: 'inherit', fontWeight: FW.semibold }}
+              >
+                Assign them →
+              </button>
+            </Caveat>
+          )}
+        </div>
+      )}
+
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[4] }}>
-        <KpiCard label="Submitted MTD"   value={kpis ? fmtNum(kpis.submitted_mtd) : '—'}         icon="description"       accent={BLUE}  loading={loading} />
-        <KpiCard label="Disbursed MTD"   value={kpis ? fmtKobo(kpis.disbursed_mtd_kobo) : '—'}   icon="payments"          accent={RED}   loading={loading} />
-        <KpiCard label="Pipeline Value"  value={kpis ? fmtKobo(kpis.pipeline_kobo) : '—'}        icon="account_balance"   accent={NAVY}  loading={loading} />
-        <KpiCard label="Win Rate"        value={kpis ? fmtPct(kpis.win_rate_pct) : '—'}          icon="trophy"            accent={GREEN} loading={loading} />
+        <KpiCard label="New customers MTD" value={summary ? fmtNum(summary.mtd) : '—'}
+          sub={summary ? `${fmtNum(summary.prev_month)} last month` : undefined}
+          change={summary?.mom_change_pct ?? undefined}
+          icon="person_add" accent={GREEN} loading={loading} />
+        <KpiCard label="New customers YTD" value={summary ? fmtNum(summary.ytd) : '—'}
+          sub={summary ? `${fmtNum(summary.customers)} total in book` : undefined}
+          icon="groups" accent={NAVY} loading={loading} />
+        <KpiCard label="Open leads" value={summary ? fmtNum(summary.open_leads) : '—'}
+          sub={summary ? `${fmtNum(summary.qualified)} qualified` : undefined}
+          icon="filter_alt" accent={BLUE} loading={loading} />
+        <KpiCard label="Overdue actions" value={summary ? fmtNum(summary.overdue_actions) : '—'}
+          sub={summary ? `${fmtNum(summary.converted_mtd)} converted MTD` : undefined}
+          icon="schedule" accent={summary && summary.overdue_actions > 0 ? RED : NAVY} loading={loading} />
       </div>
 
-      {/* Charts row */}
+      {/* Acquisition trend */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
-        <SectionCard title="Monthly Disbursements" subtitle="Last 12 months">
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={monthly} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={RED} stopOpacity={0.16} />
-                  <stop offset="95%" stopColor={RED} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={72} />
-              <Tooltip content={<ChartTooltip kobo />} />
-              <Area type="monotone" dataKey="disbursements_kobo" name="Disbursements"
-                stroke={RED} strokeWidth={2} fill="url(#salesGrad)" />
-            </AreaChart>
-          </ResponsiveContainer>
+        <SectionCard
+          title="Customer acquisition"
+          subtitle="New customers per month, last 24 months"
+          badge={derivedTotal > 0 ? `${fmtNum(derivedTotal)} derived` : undefined}
+        >
+          {loading ? <Sk h={240} /> : acq.length === 0 ? (
+            <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
+              No acquisition data
+            </div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={240}>
+                {/* Stacked, not two lines: confirmed and derived are parts of one
+                    monthly total, and stacking keeps the total readable while showing
+                    how much of it rests on an inferred date. */}
+                <BarChart data={acq} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={44} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--row-hvr)' }} />
+                  <Legend wrapperStyle={{ fontSize: TEXT.xs, paddingTop: 8 }} />
+                  <Bar dataKey="confirmed" name="Confirmed date" stackId="a" fill={NAVY} />
+                  <Bar dataKey="derived" name="Derived date" stackId="a" fill={AMBER} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+              <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 8, lineHeight: 1.5 }}>
+                “Derived” means the customer record carried no creation date, so the date
+                their first account opened is used instead. 18% of the book is in this
+                position; without it these months would read as near-zero.
+              </p>
+            </>
+          )}
         </SectionCard>
 
-        <SectionCard title="Top Performers" subtitle="Disbursements MTD">
-          {perfs.length === 0 ? (
-            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>No data</div>
+        <SectionCard title="Lead sources" subtitle="Where leads originate">
+          {loading ? <Sk h={240} /> : sources.length === 0 ? (
+            <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
+              No leads yet
+            </div>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={perfs} layout="vertical" margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
-                <XAxis type="number" tickFormatter={v => fmtKobo(v)} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={80} />
-                <Tooltip content={<ChartTooltip kobo />} />
-                <Bar dataKey="amount_kobo" name="Disbursed" fill={AMBER} radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {sources.slice(0, 7).map(s => (
+                <div key={s.source}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: TEXT.sm, marginBottom: 3 }}>
+                    <span style={{ color: 'var(--txt)' }}>{s.label}</span>
+                    <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtNum(s.leads)}</span>
+                  </div>
+                  <div style={{ height: 6, background: 'var(--chip-bg)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', borderRadius: 3, background: BLUE,
+                      width: `${Math.max(2, (n(s.leads) / Math.max(1, n(sources[0]?.leads))) * 100)}%`,
+                    }} />
+                  </div>
+                  {s.conversion_rate_pct != null && (
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
+                      {fmtPct(s.conversion_rate_pct)} converted
+                    </div>
+                  )}
+                </div>
+              ))}
+              {sources.length === 1 && sources[0].source === 'unrecorded' && (
+                <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5, marginTop: 4 }}>
+                  Every contact predates lead-source tracking — they arrived in one Zoho
+                  import. Leads created from now on carry a source, so this fills in.
+                </p>
+              )}
+            </div>
           )}
         </SectionCard>
       </div>
 
-      {/* Lead source breakdown */}
-      {leadSrc.length > 0 && (
-        <SectionCard title="Origination by Lead Source" subtitle="Applications by acquisition channel" padding={false}
-          actions={<span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>All time</span>}
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={leadSrc} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-                <YAxis type="category" dataKey="lead_source" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} width={90} />
-                <Tooltip formatter={(v: any) => [fmtNum(v as number), 'Applications']} />
-                <Bar dataKey="total_applications" name="Applications" radius={[0, 4, 4, 0]}>
-                  {leadSrc.map((_, i) => <Cell key={i} fill={LEAD_SOURCE_COLORS[i % LEAD_SOURCE_COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
-                <thead>
-                  <tr>
-                    {['Source', 'Applications', 'Approved', 'Disbursed'].map(h => (
-                      <th key={h} style={{ textAlign: h === 'Source' ? 'left' : 'right', padding: `${SP[2]} ${SP[3]}`,
-                        fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '.4px',
-                        color: 'var(--txt2)', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {leadSrc.map((row, i) => (
-                    <tr key={row.lead_source}
-                      style={{ background: 'transparent' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      <td style={{ padding: `${SP[2]} ${SP[3]}`, borderBottom: '1px solid var(--bdr)' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ width: 10, height: 10, borderRadius: '50%', background: LEAD_SOURCE_COLORS[i % LEAD_SOURCE_COLORS.length], flexShrink: 0 }} />
-                          <span style={{ textTransform: 'capitalize' }}>{row.lead_source}</span>
-                        </span>
-                      </td>
-                      <td style={{ padding: `${SP[2]} ${SP[3]}`, textAlign: 'right', borderBottom: '1px solid var(--bdr)', ...NUM }}>{fmtNum(row.total_applications)}</td>
-                      <td style={{ padding: `${SP[2]} ${SP[3]}`, textAlign: 'right', borderBottom: '1px solid var(--bdr)', ...NUM, color: GREEN }}>{fmtNum(row.approved)}</td>
-                      <td style={{ padding: `${SP[2]} ${SP[3]}`, textAlign: 'right', borderBottom: '1px solid var(--bdr)', ...NUM }}>{fmtKobo(row.disbursement_kobo)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </SectionCard>
-      )}
-
-      {/* Recent applications table */}
+      {/* Team league table */}
       <SectionCard
-        title="Recent Applications"
-        subtitle="Latest activity"
+        title="Team performance"
+        subtitle="Book size, acquisition and pipeline by officer"
         actions={
-          <button
-            onClick={() => navigate('/sales/applications')}
-            style={{
-              fontSize: TEXT.sm, fontWeight: FW.medium, color: RED,
-              background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px',
-              display: 'flex', alignItems: 'center', gap: 4,
-            }}
-          >
-            View all
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_forward</span>
+          <button onClick={() => navigate('/sales/book')}
+            style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
+            Open the book <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_forward</span>
           </button>
         }
       >
-        <DataTable<RecentApp>
-          cols={appCols}
-          rows={apps}
+        <DataTable<Officer>
+          cols={officerCols}
+          rows={officers}
           loading={loading}
-          skeletonRows={5}
-          emptyText="No applications yet"
-          keyFn={(r) => r.id}
-          onRowClick={(row) => navigate(`/sales/applications/${row.id}`)}
+          skeletonRows={4}
+          emptyText="No sales officers are provisioned yet"
+          keyFn={r => r.id}
+          onRowClick={r => navigate(`/sales/book?officer_id=${r.id}`)}
         />
       </SectionCard>
+
+      {/* What needs attention */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+        <SectionCard title="Needs attention" subtitle="Leads that have stopped moving">
+          {loading ? <Sk h={160} /> : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <AttnBlock
+                label="Unowned leads" tone={RED} icon="person_off"
+                count={attn?.unowned_leads?.length ?? 0}
+                hint="Nobody can work these until they are assigned"
+                onClick={() => navigate('/sales/leads?owner_id=unassigned')}
+              />
+              <AttnBlock
+                label="Overdue follow-ups" tone={AMBER} icon="alarm"
+                count={attn?.overdue_actions?.length ?? 0}
+                hint="The next action date has passed"
+                onClick={() => navigate('/sales/leads?due=1')}
+              />
+              <AttnBlock
+                label="Stalled leads" tone={BLUE} icon="pause_circle"
+                count={attn?.stalled_leads?.length ?? 0}
+                hint="Contacted or qualified, untouched for 14 days"
+                onClick={() => navigate('/sales/leads?stage=qualified')}
+              />
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Customer feed" subtitle="Where new customers come from">
+          {loading ? <Sk h={160} /> : !attn?.feed ? (
+            <div style={{ padding: SP[4] }}>
+              <Caveat icon="cloud_off" tone={AMBER}>
+                The customer feed has never run. New customers arrive in the 15-minute
+                <code> cust_file</code> drops; until the ingest runs, the book cannot grow.
+              </Caveat>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <Row label="Last run" value={fmtDatetime(attn.feed.finished_at ?? attn.feed.started_at)} />
+              <Row label="Status" value={attn.feed.status} tone={attn.feed.status === 'ok' ? GREEN : RED} />
+              <Row label="Customers added" value={fmtNum(attn.feed.customers_inserted)} />
+              <Row label="Customers updated" value={fmtNum(attn.feed.customers_updated)} />
+              {n(attn.feed.files_failed) > 0 && (
+                <Row label="Files failed" value={fmtNum(attn.feed.files_failed)} tone={RED} />
+              )}
+              {n(summary?.undated) > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <Caveat icon="help" tone={AMBER}>
+                    {fmtNum(summary?.undated)} customers have no acquisition date from any
+                    source and are excluded from the trend above.
+                  </Caveat>
+                </div>
+              )}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Recently acquired, unassigned — the concrete worklist */}
+      {!loading && (attn?.unassigned_customers?.length ?? 0) > 0 && (
+        <SectionCard
+          title="Recently acquired, unassigned"
+          subtitle="New customers waiting for an account officer"
+          style={{ marginTop: 14 }}
+          actions={
+            <button onClick={() => navigate('/sales/book?officer_id=unassigned')}
+              style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>
+              Assign →
+            </button>
+          }
+        >
+          <DataTable
+            cols={[
+              { key: 'cif', label: 'CIF', render: (r: any) => <span style={{ ...NUM, fontSize: TEXT.sm }}>{r.cif}</span> },
+              { key: 'full_name', label: 'Customer' },
+              { key: 'state', label: 'State', render: (r: any) => r.state || '—' },
+              { key: 'acquired_on', label: 'Acquired', render: (r: any) => fmtDate(r.acquired_on) },
+            ] as TableCol<any>[]}
+            rows={attn!.unassigned_customers.slice(0, 10)}
+            keyFn={(r: any) => r.cif}
+            emptyText="None"
+            onRowClick={(r: any) => navigate(`/customers/${r.cif}`)}
+          />
+        </SectionCard>
+      )}
     </Page>
+  )
+}
+
+function AttnBlock({ label, count, hint, tone, icon, onClick }: {
+  label: string; count: number; hint: string; tone: string; icon: string; onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
+        padding: `${SP[3]} ${SP[3]}`, borderRadius: RADIUS.md, cursor: 'pointer',
+        background: 'transparent', border: '1px solid var(--bdr)',
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 20, color: count > 0 ? tone : 'var(--txt3)' }}>{icon}</span>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>{label}</div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{hint}</div>
+      </div>
+      <span style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: count > 0 ? tone : 'var(--txt3)' }}>
+        {fmtNum(count)}
+      </span>
+    </button>
+  )
+}
+
+function Row({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: TEXT.sm }}>
+      <span style={{ color: 'var(--txt2)' }}>{label}</span>
+      <span style={{ color: tone ?? 'var(--txt)', fontWeight: FW.medium }}>{value}</span>
+    </div>
   )
 }

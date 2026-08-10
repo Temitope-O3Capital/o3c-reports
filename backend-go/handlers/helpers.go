@@ -118,6 +118,19 @@ func respondPaginated(w http.ResponseWriter, data any, total any, source string)
 	})
 }
 
+// respondErrLog is respondErr with the underlying error kept in the server log.
+//
+// S11 strips detail from 5xx bodies, which is right for the client but meant a
+// failing query left only "DB error" behind — no SQLSTATE, no column name. A
+// missing column then cost a code read and a manual re-run to identify. The
+// client still sees nothing; the log now says what actually broke.
+func respondErrLog(w http.ResponseWriter, code int, msg string, err error) {
+	if err != nil {
+		slog.Error("request failed", "status", code, "detail", msg, "err", err)
+	}
+	respondErr(w, code, msg)
+}
+
 // respondErr writes a {detail, error_code} JSON error (A10).
 func respondErr(w http.ResponseWriter, code int, msg string) {
 	// S11: Strip internal error details from 5xx responses so DB errors, stack

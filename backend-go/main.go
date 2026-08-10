@@ -110,7 +110,7 @@ func main() {
 	// FX parallel-market rates — scrape NgnRates.com immediately then every hour.
 	go handlers.StartFXRatesScraper(db)
 
-	// Zoho Voice — import call logs every hour so the Calls page stays current.
+	// Zoho Desk — import call logs at startup then hourly so the Call Center stays current.
 	go handlers.StartZohoAutoSync(db)
 
 	// Zoho Desk — import the newest tickets every hour so the helpdesk queue stays fresh.
@@ -123,37 +123,21 @@ func main() {
 	// snapshot tables shortly after boot, then every CBS_SYNC_INTERVAL (default 1h).
 	go handlers.StartCBSSyncWorker(cbsClient, db)
 
+	// Customer feed — ingest the 15-minute cust_file drops into app.customers. This is
+	// where new customers come from; Udara holds only the loan and FD books. Without
+	// it the customer master stays frozen at the mssql_baseline snapshot and every
+	// acquisition figure in Sales & CRM understates reality.
+	go handlers.StartCustomerFeedWorker(db)
+
+	// Paystack — mirror the live account (funding in, transfers out, settlements,
+	// disputes) into the local snapshot tables every PAYSTACK_SYNC_INTERVAL
+	// (default 30m). Without this mirror there is no history to reconcile, age or
+	// report on; the settlement pages can only proxy the live API.
+	go handlers.StartPaystackSyncWorker(db)
+
 	// Mail bounce monitor — poll SendGrid every 30m and alert admins about
 	// recipients whose mail bounced (e.g. an @o3cards.com mailbox that doesn't exist).
 	handlers.StartBounceMonitor(db)
-
-	// D8: MSSQL tunnel health monitor — pings every 60s, notifies IT Admin + CTO on failure.
-	if db.MS != nil {
-		go func() {
-			ticker := time.NewTicker(60 * time.Second)
-			defer ticker.Stop()
-			wasDown := false
-			for range ticker.C {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				err := db.MS.PingContext(ctx)
-				cancel()
-				if err != nil {
-					if !wasDown {
-						slog.Error("MSSQL tunnel health check failed", "err", err)
-						handlers.NotifyRoles(context.Background(), db, []string{"it_admin", "cto"}, handlers.NotifPayload{
-							EventType: handlers.EvtSystemAlert,
-							Title:     "MSSQL Tunnel Offline",
-							Body:      "The on-site MSSQL connection has been unreachable for 60s. Card data may be unavailable.",
-							ActionURL: "/admin/integrations",
-						})
-					}
-					wasDown = true
-				} else {
-					wasDown = false
-				}
-			}
-		}()
-	}
 
 	// DB14: TTL enforcement — nightly cleanup of expired short-lived rows.
 	go func() {
@@ -161,11 +145,13 @@ func main() {
 		defer ticker.Stop()
 		for range ticker.C {
 			ctx := context.Background()
-			db.PGExec(ctx, `DELETE FROM sse_tokens WHERE expires_at < NOW()`)               //nolint:errcheck
-			db.PGExec(ctx, `DELETE FROM token_denylists WHERE expires_at < NOW()`)          //nolint:errcheck
-			db.PGExec(ctx, `DELETE FROM voice_oauth_states WHERE expires_at < NOW()`)       //nolint:errcheck
+			handlers.WorkerBeat(ctx, db, "ttl_cleanup", "running", "", "")
+			db.PGExec(ctx, `DELETE FROM sse_tokens WHERE expires_at < NOW()`)                         //nolint:errcheck
+			db.PGExec(ctx, `DELETE FROM token_denylists WHERE expires_at < NOW()`)                    //nolint:errcheck
+			db.PGExec(ctx, `DELETE FROM voice_oauth_states WHERE expires_at < NOW()`)                 //nolint:errcheck
 			db.PGExec(ctx, `DELETE FROM user_sessions WHERE created_at < NOW() - INTERVAL '90 days'`) //nolint:errcheck
-			db.PGExec(ctx, `DELETE FROM idempotency_keys WHERE expires_at < NOW()`)         //nolint:errcheck
+			db.PGExec(ctx, `DELETE FROM idempotency_keys WHERE expires_at < NOW()`)                   //nolint:errcheck
+			handlers.WorkerBeat(ctx, db, "ttl_cleanup", "ok", "expired rows purged", "")
 		}
 	}()
 
@@ -270,6 +256,10 @@ func main() {
 		handlers.RegisterCampaignWebhooks(r, db)
 	})
 
+	// Care inbound mail webhook — SendGrid Inbound Parse relays care@ mail here
+	// (no JWT; authenticated on ?key=CARE_INBOUND_SECRET). Dormant until configured.
+	r.Post("/api/care/inbound", handlers.CareInboundWebhook(db))
+
 	// Email open-pixel and click-redirect tracking (embedded in campaign emails — no JWT)
 	r.Get("/t/o/{tracking_id}", handlers.TrackOpen(db))
 	r.Get("/t/c/{tracking_id}", handlers.TrackClick(db))
@@ -368,6 +358,10 @@ func main() {
 		})
 		r.Route("/api/sales", func(r chi.Router) {
 			handlers.RegisterSales(r, db)
+			handlers.RegisterSalesBook(r, db)         // the account officer's book of customers
+			handlers.RegisterSalesLeads(r, db)        // lead capture and lifecycle
+			handlers.RegisterSalesOverview(r, db)     // the team lead's dashboard
+			handlers.RegisterSalesApplications(r, db) // raise loan/card applications for a customer
 		})
 		r.Route("/api/cards", func(r chi.Router) {
 			handlers.RegisterCards(r, db)
@@ -377,6 +371,7 @@ func main() {
 		})
 		r.Route("/api/admin", func(r chi.Router) {
 			handlers.RegisterAdmin(r, db)
+			r.Route("/workers", func(r chi.Router) { handlers.RegisterWorkers(r, db) })
 			handlers.RegisterNotificationSettings(r, db)
 			handlers.RegisterEmailSenders(r, db)
 			r.Route("/modules", func(r chi.Router) {
@@ -402,10 +397,21 @@ func main() {
 			handlers.RegisterExecutive(r, db)
 		})
 		r.Route("/api/cards/interswitch", func(r chi.Router) {
+			// Was unguarded: any authenticated user could read the card feed and POST
+			// an EOD import. Read is settlement/cards; import is gated further inside.
+			r.Use(core.RequirePages("settlement", "cards"))
 			handlers.RegisterInterswitch(r, db)
 		})
+		// Call Center — one unified module: outbound queue/leads/DNC/dialer + the
+		// desk summary. Gated once here so the sub-registrars just add routes.
 		r.Route("/api/call-center", func(r chi.Router) {
+			r.Use(core.RequirePages("call_center"))
+			handlers.RegisterCallCenterOutbound(r, db)
 			handlers.RegisterCallCenter(r, db)
+		})
+		r.Route("/api/qa", func(r chi.Router) {
+			r.Use(core.RequirePages("call_center"))
+			handlers.RegisterQA(r, db)
 		})
 		r.Route("/api/campaigns", func(r chi.Router) {
 			r.Use(bdReadOnly)
@@ -423,6 +429,18 @@ func main() {
 		})
 		r.Route("/api/reconciliation/paystack", func(r chi.Router) {
 			handlers.RegisterPaystackRecon(r, db)
+		})
+		r.Route("/api/paystack", func(r chi.Router) {
+			handlers.RegisterPaystackSync(r, db)
+			handlers.RegisterPaystackOps(r, db)
+		})
+		r.Route("/api/recon", func(r chi.Router) {
+			handlers.RegisterRecon(r, db)
+		})
+		// The real Interswitch settlement feed (uploaded reports). Distinct from
+		// /api/cards/interswitch, which serves CCS EODTXN data under a legacy name.
+		r.Route("/api/interswitch", func(r chi.Router) {
+			handlers.RegisterInterswitchSettle(r, db)
 		})
 		r.Route("/api/reconciliation/interswitch", func(r chi.Router) {
 			handlers.RegisterInterswitchRecon(r, db)
@@ -453,6 +471,7 @@ func main() {
 		})
 		r.Route("/api/settlements", func(r chi.Router) {
 			handlers.RegisterSettlementOps(r, db)
+			handlers.RegisterSettlementOverview(r, db)
 		})
 		r.Route("/api/mobile-app", func(r chi.Router) {
 			handlers.RegisterMobileApp(r, db)
@@ -503,9 +522,6 @@ func main() {
 		r.Route("/api/customer-service", func(r chi.Router) {
 			handlers.RegisterCustomerService(r, db)
 		})
-		r.Route("/api/telemarketing", func(r chi.Router) {
-			handlers.RegisterTelemarketing(r, db)
-		})
 		r.Route("/api/active-loans", func(r chi.Router) {
 			handlers.RegisterActiveLoanBook(r, db)
 		})
@@ -521,6 +537,9 @@ func main() {
 			handlers.RegisterCBSSync(r, cbsClient, db)
 			handlers.RegisterCBSReports(r, db)
 			handlers.RegisterCBSWrite(r, cbsClient, db)
+		})
+		r.Route("/api/customer-feed", func(r chi.Router) {
+			handlers.RegisterCustomerFeed(r, db)
 		})
 		r.Route("/api/cc-statements", func(r chi.Router) {
 			handlers.RegisterCCStatements(r, db)
@@ -608,7 +627,7 @@ func main() {
 // under DB slowdowns.
 
 type activityLogEntry struct {
-	userID int64
+	userID                             int64
 	page, action, ip, resource, method string
 }
 
@@ -888,17 +907,10 @@ func healthHandler(db *core.DB) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"status": "error", "detail": "database unreachable"}) //nolint:errcheck
 			return
 		}
-		// M4: Report MSSQL live status so the Sidebar can show a real indicator.
-		mssqlStatus := "not_configured"
-		if db.MS != nil {
-			if err := db.MS.PingContext(ctx); err != nil {
-				mssqlStatus = "offline"
-			} else {
-				mssqlStatus = "online"
-			}
-		}
+		// MSSQL/Sage removed — Postgres is the sole datastore. The "db" field reports
+		// Postgres reachability (the ping above); the Sidebar indicator reads it.
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "mssql": mssqlStatus}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "db": "online"}) //nolint:errcheck
 	}
 }
 

@@ -1,6 +1,6 @@
 // Package handlers — Campaigns module (~1700 lines)
 // Sections: Config · Providers (SendGrid/WhatsApp/SMS) · Background dispatch ·
-//           Route registration · Endpoints · Telemarketing handoff · Webhooks
+//           Route registration · Endpoints · Call Center handoff · Webhooks
 // See "// ── <Section>" dividers throughout.
 
 package handlers
@@ -617,7 +617,7 @@ func RegisterCampaigns(r chi.Router, db *core.DB) {
 	r.With(access).Get("/{id}/contacts", listCampaignContacts(db))
 	r.With(access).Post("/{id}/duplicate", duplicateCampaign(db))
 	r.With(access).Post("/{id}/restart", restartCampaign(db))
-	r.With(access).Post("/{id}/push-to-telemarketing", campaignPushToTelemarketing(db))
+	r.With(access).Post("/{id}/push-to-call-center", campaignPushToCallCenter(db))
 	r.With(access).Post("/{id}/test-send", testSendCampaign(db))
 	r.With(access).Get("/{id}/progress", campaignProgress(db))
 }
@@ -1315,11 +1315,11 @@ func duplicateCampaign(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// ── Campaign → Telemarketing handoff ──────────────────────────────────────────
+// ── Campaign → Call Center handoff ──────────────────────────────────────────
 
-func campaignPushToTelemarketing(db *core.DB) http.HandlerFunc {
+func campaignPushToCallCenter(db *core.DB) http.HandlerFunc {
 	type body struct {
-		TelemarketingCampaignID *int64  `json:"telemarketing_campaign_id"`
+		CallCenterCampaignID *int64  `json:"call_center_campaign_id"`
 		NewCampaignName         string  `json:"new_campaign_name"`
 		Segment                 string  `json:"segment"` // all | email_opened | email_clicked | sms_delivered
 		AssignedTo              *int64  `json:"assigned_to"`
@@ -1345,24 +1345,24 @@ func campaignPushToTelemarketing(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// ── 2. Resolve or create the telemarketing campaign ───────────────────
-		var tmCampaignID int64
-		if b.TelemarketingCampaignID != nil && *b.TelemarketingCampaignID > 0 {
-			tmCampaignID = *b.TelemarketingCampaignID
+		// ── 2. Resolve or create the call center campaign ───────────────────
+		var ccCampaignID int64
+		if b.CallCenterCampaignID != nil && *b.CallCenterCampaignID > 0 {
+			ccCampaignID = *b.CallCenterCampaignID
 		} else {
 			name := b.NewCampaignName
 			if name == "" {
 				name = "Campaign: " + str(campaigns[0]["name"])
 			}
 			rows, err := db.PGQuery(ctx,
-				`INSERT INTO telemarketing_campaigns (name, status, created_by)
+				`INSERT INTO call_center_campaigns (name, status, created_by)
 				 VALUES ($1, 'active', $2) RETURNING id`,
 				name, user.ID)
 			if err != nil || len(rows) == 0 {
-				respondErr(w, 500, "Failed to create telemarketing campaign")
+				respondErr(w, 500, "Failed to create call center campaign")
 				return
 			}
-			tmCampaignID = toInt64(rows[0]["id"])
+			ccCampaignID = toInt64(rows[0]["id"])
 		}
 
 		// ── 3. Build segment filter ───────────────────────────────────────────
@@ -1400,7 +1400,7 @@ func campaignPushToTelemarketing(db *core.DB) http.HandlerFunc {
 		}
 		skippedDNC := totalCount - int64(len(contacts))
 
-		// ── 6. Bulk insert into telemarketing_leads ───────────────────────────
+		// ── 6. Bulk insert into call_center_leads ───────────────────────────
 		created := int64(0)
 		for _, c := range contacts {
 			firstName := str(c["first_name"])
@@ -1417,19 +1417,19 @@ func campaignPushToTelemarketing(db *core.DB) http.HandlerFunc {
 			// RETURNING id so we can count only rows actually inserted;
 			// ON CONFLICT DO NOTHING returns nothing when a duplicate is skipped.
 			inserted, err := db.PGQuery(ctx,
-				`INSERT INTO telemarketing_leads
+				`INSERT INTO call_center_leads
 				   (campaign_id, customer_cif, customer_name, customer_phone, lead_score, assigned_to, status)
 				 VALUES ($1,$2,$3,$4,50,$5,'pending')
 				 ON CONFLICT DO NOTHING
 				 RETURNING id`,
-				tmCampaignID, cif, fullName, phone, b.AssignedTo)
+				ccCampaignID, cif, fullName, phone, b.AssignedTo)
 			if err == nil {
 				created += int64(len(inserted))
 			}
 		}
 
 		respond(w, map[string]any{
-			"telemarketing_campaign_id": tmCampaignID,
+			"call_center_campaign_id": ccCampaignID,
 			"created":                   created,
 			"skipped_dnc":               skippedDNC,
 		}, "pg")

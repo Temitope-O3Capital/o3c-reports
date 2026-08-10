@@ -1,6 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, filterInputStyle, DateFilter } from '../../components/UI'
+import { SectionCard, DataTable, ErrBanner, ExpandableFilterBar, filterInputStyle, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, today, monthStart } from '../../lib/fmt'
@@ -263,10 +263,9 @@ export default function FinanceFDMaturity() {
   }
 
   return (
-    <Page
-      title="FD Maturity Calendar"
-      subtitle={`${rows.length} FDs maturing · ${horizonLabel(horizon)} · Total: ${fmtKobo(totalPrincipal)}`}
-      actions={
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: SP[4], flexWrap: 'wrap' }}>
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{`${rows.length} FDs maturing · ${horizonLabel(horizon)} · Total: ${fmtKobo(totalPrincipal)}`}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <select value={horizon} onChange={e => setHorizon(e.target.value)} style={filterInputStyle}>
@@ -276,8 +275,8 @@ export default function FinanceFDMaturity() {
             <option value="0">All active</option>
           </select>
         </div>
-      }
-    >
+      </div>
+
       <ErrBanner error={error} onRetry={load} />
 
       {/* Summary strip */}
@@ -363,6 +362,6 @@ export default function FinanceFDMaturity() {
         </div>
 
       </SectionCard>
-    </Page>
+    </>
   )
 }

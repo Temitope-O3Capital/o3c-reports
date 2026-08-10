@@ -17,31 +17,35 @@ func RegisterCohort(r chi.Router, db *core.DB) {
 
 func cohortKPIs(db *core.DB) http.HandlerFunc {
 	type spec struct {
-		ms, pg string
-		key    string
-	}
-	queries := []spec{
-		{
-			"SELECT COUNT(DISTINCT CIF_Number) AS val FROM dbo.Account WHERE Account_Created_Date IS NOT NULL",
-			`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts WHERE opened_date IS NOT NULL`,
-			"cohort_size",
-		},
-		{
-			"SELECT COUNT(DISTINCT CIF) AS val FROM dbo.Transaction_Listing WHERE CIF IS NOT NULL",
-			`SELECT COUNT(DISTINCT cif) AS val FROM app.transactions WHERE cif IS NOT NULL`,
-			"activated_cohort",
-		},
-		{
-			`SELECT COUNT(*) AS val FROM (SELECT CIF FROM dbo.Transaction_Listing WHERE CIF IS NOT NULL GROUP BY CIF HAVING COUNT(*) >= 5) x`,
-			`SELECT COUNT(*) AS val FROM (SELECT cif FROM app.transactions WHERE cif IS NOT NULL GROUP BY cif HAVING COUNT(*) >= 5) x`,
-			"power_users",
-		},
+		pg  string
+		key string
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		kpis := map[string]any{}
+		// ?basis=person counts distinct PEOPLE (party); default counts cards (cif).
+		person := qstr(r, "basis") == "person"
+		var queries []spec
+		if person {
+			queries = []spec{
+				{`SELECT COUNT(DISTINCT COALESCE('p'||c.party_id,'c'||c.contact_id,'x'||a.cif)) AS val
+				  FROM app.accounts a LEFT JOIN app.customers c ON c.cif = a.cif WHERE a.opened_date IS NOT NULL`, "cohort_size"},
+				{`SELECT COUNT(DISTINCT COALESCE('p'||c.party_id,'c'||c.contact_id,'x'||t.cif)) AS val
+				  FROM app.transactions t LEFT JOIN app.customers c ON c.cif = t.cif WHERE t.cif IS NOT NULL`, "activated_cohort"},
+				{`SELECT COUNT(*) AS val FROM (
+				   SELECT COALESCE('p'||c.party_id,'c'||c.contact_id,'x'||t.cif) AS pk
+				   FROM app.transactions t LEFT JOIN app.customers c ON c.cif = t.cif
+				   WHERE t.cif IS NOT NULL GROUP BY pk HAVING COUNT(*) >= 5) x`, "power_users"},
+			}
+		} else {
+			queries = []spec{
+				{`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts WHERE opened_date IS NOT NULL`, "cohort_size"},
+				{`SELECT COUNT(DISTINCT cif) AS val FROM app.transactions WHERE cif IS NOT NULL`, "activated_cohort"},
+				{`SELECT COUNT(*) AS val FROM (SELECT cif FROM app.transactions WHERE cif IS NOT NULL GROUP BY cif HAVING COUNT(*) >= 5) x`, "power_users"},
+			}
+		}
+		kpis := map[string]any{"basis": map[bool]string{true: "person", false: "card"}[person]}
 		var sources []string
 		for _, q := range queries {
-			val, src, err := db.DualScalar(r.Context(), "val", q.ms, q.pg)
+			val, src, err := db.DualScalar(r.Context(), "val", q.pg)
 			if err == nil {
 				kpis[q.key] = toInt64(val)
 				sources = append(sources, src)
@@ -62,33 +66,9 @@ func cohortKPIs(db *core.DB) http.HandlerFunc {
 
 func cohortHeatmap(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, src, err := db.DualQuery(r.Context(),
-			`WITH Cohorts AS (
-			    SELECT CIF_Number,
-			           DATEFROMPARTS(YEAR(Account_Created_Date),MONTH(Account_Created_Date),1) AS Cohort_Date,
-			           FORMAT(Account_Created_Date,'MMM yyyy') AS Cohort_Label
-			    FROM dbo.Account
-			    WHERE Account_Created_Date IS NOT NULL
-			      AND Account_Created_Date >= DATEADD(year,-2,GETDATE())
-			),
-			MonthlyAct AS (
-			    SELECT CIF,
-			           DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1) AS ActivityMonth,
-			           COUNT(*) AS TxnCount
-			    FROM dbo.Transaction_Listing
-			    WHERE Transaction_Date IS NOT NULL
-			    GROUP BY CIF, DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1)
-			)
-			SELECT c.Cohort_Label,
-			       DATEDIFF(month,c.Cohort_Date,ma.ActivityMonth) AS age_months,
-			       COUNT(DISTINCT ma.CIF) AS active_users,
-			       COUNT(DISTINCT c.CIF_Number) AS cohort_size
-			FROM Cohorts c
-			LEFT JOIN MonthlyAct ma ON c.CIF_Number=ma.CIF AND ma.TxnCount>0 AND ma.ActivityMonth>=c.Cohort_Date
-			WHERE c.Cohort_Label IS NOT NULL
-			GROUP BY c.Cohort_Label, DATEDIFF(month,c.Cohort_Date,ma.ActivityMonth)
-			ORDER BY c.Cohort_Label, age_months`,
-			`WITH cohorts AS (
+		// ?basis=person builds cohorts by PERSON (party) — a person's cohort is the
+		// month of their FIRST card, activity is any card. Default is card-level (cif).
+		q := `WITH cohorts AS (
 			    SELECT cif,
 			           DATE_TRUNC('month',opened_date) AS cohort_date,
 			           TO_CHAR(DATE_TRUNC('month',opened_date),'Mon YYYY') AS cohort_label
@@ -114,7 +94,39 @@ func cohortHeatmap(db *core.DB) http.HandlerFunc {
 			    AND ma.txn_count>0 AND ma.activity_month>=c.cohort_date
 			WHERE c.cohort_label IS NOT NULL
 			GROUP BY c.cohort_label, age_months
-			ORDER BY c.cohort_label, age_months`)
+			ORDER BY c.cohort_label, age_months`
+		if qstr(r, "basis") == "person" {
+			q = `WITH cust AS (
+			        SELECT cif, COALESCE('p'||party_id,'c'||contact_id) AS pk
+			        FROM app.customers WHERE cif IS NOT NULL AND cif <> ''
+			    ),
+			    cohorts AS (
+			        SELECT cu.pk,
+			               DATE_TRUNC('month', MIN(a.opened_date)) AS cohort_date,
+			               TO_CHAR(DATE_TRUNC('month', MIN(a.opened_date)),'Mon YYYY') AS cohort_label
+			        FROM app.accounts a JOIN cust cu ON cu.cif = a.cif
+			        WHERE a.opened_date IS NOT NULL
+			        GROUP BY cu.pk
+			        HAVING DATE_TRUNC('month', MIN(a.opened_date)) >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '2 years')
+			    ),
+			    monthly_act AS (
+			        SELECT cu.pk, DATE_TRUNC('month',t.txn_date) AS activity_month, COUNT(*) AS txn_count
+			        FROM app.transactions t JOIN cust cu ON cu.cif = t.cif
+			        WHERE t.txn_date IS NOT NULL
+			        GROUP BY cu.pk, DATE_TRUNC('month',t.txn_date)
+			    )
+			    SELECT c.cohort_label,
+			           DATE_PART('year',AGE(ma.activity_month,c.cohort_date))*12
+			           + DATE_PART('month',AGE(ma.activity_month,c.cohort_date)) AS age_months,
+			           COUNT(DISTINCT ma.pk) AS active_users,
+			           COUNT(DISTINCT c.pk) AS cohort_size
+			    FROM cohorts c
+			    LEFT JOIN monthly_act ma ON c.pk=ma.pk AND ma.txn_count>0 AND ma.activity_month>=c.cohort_date
+			    WHERE c.cohort_label IS NOT NULL
+			    GROUP BY c.cohort_label, age_months
+			    ORDER BY c.cohort_label, age_months`
+		}
+		rows, src, err := db.DualQuery(r.Context(), q)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -141,19 +153,7 @@ func cohortHeatmap(db *core.DB) http.HandlerFunc {
 
 func cohortMonthlyActivity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, src, err := db.DualQuery(r.Context(),
-			`SELECT FORMAT(Transaction_Date,'MMM yyyy') AS month,
-			        DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1) AS month_sort,
-			        COUNT(DISTINCT CIF) AS active_users,
-			        ISNULL(SUM(Amount),0) AS total_spend,
-			        CASE WHEN COUNT(DISTINCT CIF)=0 THEN 0
-			             ELSE ISNULL(SUM(Amount),0)/COUNT(DISTINCT CIF) END AS avg_spend
-			FROM dbo.Transaction_Listing
-			WHERE Transaction_Date IS NOT NULL
-			GROUP BY DATEFROMPARTS(YEAR(Transaction_Date),MONTH(Transaction_Date),1),
-			         FORMAT(Transaction_Date,'MMM yyyy')
-			ORDER BY month_sort`,
-			`SELECT TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YYYY') AS month,
+		q := `SELECT TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YYYY') AS month,
 			        DATE_TRUNC('month',txn_date) AS month_sort,
 			        COUNT(DISTINCT cif) AS active_users,
 			        COALESCE(SUM(amount),0) AS total_spend,
@@ -162,7 +162,20 @@ func cohortMonthlyActivity(db *core.DB) http.HandlerFunc {
 			FROM app.transactions
 			WHERE txn_date IS NOT NULL
 			GROUP BY DATE_TRUNC('month',txn_date)
-			ORDER BY month_sort`)
+			ORDER BY month_sort`
+		if qstr(r, "basis") == "person" {
+			q = `SELECT TO_CHAR(DATE_TRUNC('month',t.txn_date),'Mon YYYY') AS month,
+			        DATE_TRUNC('month',t.txn_date) AS month_sort,
+			        COUNT(DISTINCT COALESCE('p'||c.party_id,'c'||c.contact_id,'x'||t.cif)) AS active_users,
+			        COALESCE(SUM(t.amount),0) AS total_spend,
+			        CASE WHEN COUNT(DISTINCT COALESCE('p'||c.party_id,'c'||c.contact_id,'x'||t.cif))=0 THEN 0
+			             ELSE COALESCE(SUM(t.amount),0)/COUNT(DISTINCT COALESCE('p'||c.party_id,'c'||c.contact_id,'x'||t.cif)) END AS avg_spend
+			FROM app.transactions t LEFT JOIN app.customers c ON c.cif = t.cif
+			WHERE t.txn_date IS NOT NULL
+			GROUP BY DATE_TRUNC('month',t.txn_date)
+			ORDER BY month_sort`
+		}
+		rows, src, err := db.DualQuery(r.Context(), q)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return

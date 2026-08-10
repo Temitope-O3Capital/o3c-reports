@@ -108,6 +108,8 @@ export type ThemeVars = React.CSSProperties & {
   '--chip-bg'?: string; '--chip-txt'?: string
   '--chart-grid'?: string; '--chart-lbl'?: string
   '--fp-bg'?: string; '--fp-bdr'?: string
+  // Categorical series slots — assigned in fixed order, never cycled.
+  '--sc-1'?: string; '--sc-2'?: string; '--sc-3'?: string
 }
 
 // ── Light theme ───────────────────────────────────────────────────────────────
@@ -135,6 +137,10 @@ export const LIGHT: ThemeVars = {
   '--chip-bg': '#EEF0F8', '--chip-txt': '#4A5270',
   '--chart-grid': '#E8EBF2', '--chart-lbl': '#9AA4B8',
   '--fp-bg': '#FFFFFF', '--fp-bdr': '#E8EBF2',
+  // Categorical series slots. Validated against the #FFFFFF card surface:
+  // lightness band, chroma floor, CVD separation, normal-vision floor and
+  // contrast all pass. Assign in order; never generate a 4th.
+  '--sc-1': '#2563EB', '--sc-2': '#16A34A', '--sc-3': '#7C3AED',
 }
 
 // ── Dark theme ────────────────────────────────────────────────────────────────
@@ -162,6 +168,10 @@ export const DARK: ThemeVars = {
   '--chip-bg': '#0F1A30', '--chip-txt': '#506898',
   '--chart-grid': '#0F1626', '--chart-lbl': '#242E44',
   '--fp-bg': '#0A0E1A', '--fp-bdr': '#121C30',
+  // Dark steps are chosen, not flipped: blue and green re-validate unchanged
+  // against the #131F2D card surface, but #7C3AED lands at 2.9:1 contrast there,
+  // so slot 3 lifts to #8B5CF6 to clear 3:1.
+  '--sc-1': '#2563EB', '--sc-2': '#16A34A', '--sc-3': '#8B5CF6',
 }
 
 // ── Status pill colours ───────────────────────────────────────────────────────

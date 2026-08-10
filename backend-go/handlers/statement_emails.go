@@ -418,7 +418,7 @@ func processStatementRun(ctx context.Context, db *core.DB, runID int64) {
 				res, sendErr := sendStatementToRecipient(ctx, db, toInt64(runSnap["created_by"]), input)
 				if sendErr != nil {
 					db.PGExec(ctx, `UPDATE customer_statement_run_recipients SET status='failed', last_error=$2, updated_at=NOW() WHERE id=$1`, rec["id"], sendErr.Error()) //nolint:errcheck
-					db.PGExec(ctx, `UPDATE customer_statement_runs SET failed_count=failed_count+1, last_error=$2, updated_at=NOW() WHERE id=$1`, runID, sendErr.Error())    //nolint:errcheck
+					db.PGExec(ctx, `UPDATE customer_statement_runs SET failed_count=failed_count+1, last_error=$2, updated_at=NOW() WHERE id=$1`, runID, sendErr.Error())   //nolint:errcheck
 				} else {
 					db.PGExec(ctx, `UPDATE customer_statement_run_recipients SET status='queued', statement_email_id=$2, updated_at=NOW() WHERE id=$1`, rec["id"], nullableID(toInt64(res["id"]))) //nolint:errcheck
 					db.PGExec(ctx, `UPDATE customer_statement_runs SET sent_count=sent_count+1, updated_at=NOW() WHERE id=$1`, runID)                                                              //nolint:errcheck
@@ -561,8 +561,6 @@ func normalizeStatementDates(from, to string) (string, string, error) {
 
 func loadCustomerStatement(ctx context.Context, db *core.DB, cif, dateFrom, dateTo string) (customerStatementData, error) {
 	acctRows, acctSrc, err := db.DualQuery(ctx,
-		`SELECT TOP 1 CIF_Number, First_Name, Last_Name, Email, Phone, Job_Title, State, City
-		 FROM dbo.Contact WHERE CIF_Number=@p1`,
 		`SELECT cif AS "CIF Number", first_name AS "First Name", last_name AS "Last Name", email AS "Email", phone AS "Phone",
 		        job_title AS "Job Title", state AS "State", city AS "City"
 		 FROM app.customers WHERE cif=$1`,
@@ -575,16 +573,10 @@ func loadCustomerStatement(ctx context.Context, db *core.DB, cif, dateFrom, date
 		acct = acctRows[0]
 	}
 	prodRows, _, _ := db.DualQuery(ctx,
-		`SELECT Product_Name, Account_Status, Name_On_Card, Account_Manager
-		 FROM dbo.Account WHERE CIF_Number=@p1`,
 		`SELECT product_name AS "Product Name", status AS "Account Status", name_on_card AS "Name On Card", NULL AS "Account Manager"
 		 FROM app.accounts WHERE cif=$1`,
 		cif)
 	txnRows, txnSrc, _ := db.DualQuery(ctx,
-		`SELECT TOP 500 Transaction_Date, Amount, Description, Merchant_Name
-		 FROM dbo.Transaction_Listing
-		 WHERE CIF_Number=@p1 AND CAST(Transaction_Date AS DATE) BETWEEN @p2 AND @p3
-		 ORDER BY Transaction_Date DESC`,
 		`SELECT txn_date AS "Transaction Date", amount AS "Amount", description AS "Description", merchant_name AS "Merchant_Name"
 		 FROM app.transactions
 		 WHERE cif=$1 AND txn_date::date BETWEEN $2 AND $3
@@ -604,10 +596,6 @@ func eligibleStatementRecipients(ctx context.Context, db *core.DB, limit int) ([
 		limit = 1000000
 	}
 	return db.DualQuery(ctx,
-		`SELECT TOP (@p1) CIF_Number, First_Name, Last_Name, Email
-			FROM dbo.Contact
-			WHERE Email IS NOT NULL AND Email <> '' AND CIF_Number IS NOT NULL AND CIF_Number <> ''
-			ORDER BY CIF_Number`,
 		`SELECT DISTINCT ON (cif) cif AS "CIF Number", first_name AS "First Name", last_name AS "Last Name", email AS "Email"
 			FROM app.customers
 			WHERE email IS NOT NULL AND email <> '' AND cif IS NOT NULL AND cif <> ''
@@ -618,9 +606,6 @@ func eligibleStatementRecipients(ctx context.Context, db *core.DB, limit int) ([
 
 func eligibleStatementRecipientCount(ctx context.Context, db *core.DB) (int, string) {
 	rows, src, err := db.DualQuery(ctx,
-		`SELECT COUNT(*) AS n
-			FROM dbo.Contact
-			WHERE Email IS NOT NULL AND Email <> '' AND CIF_Number IS NOT NULL AND CIF_Number <> ''`,
 		`SELECT COUNT(DISTINCT cif) AS n
 			FROM app.customers
 			WHERE email IS NOT NULL AND email <> '' AND cif IS NOT NULL AND cif <> ''`)

@@ -36,29 +36,25 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		var f Filter
 		f.Date("[Recovery Date]", `"Recovery Date"`, from, to)
 
 		kpis := map[string]any{}
 		var sources []string
 
-		type spec struct{ key, ms, pg string }
+		type spec struct{ key, pg string }
 		for _, s := range []spec{
 			{"total_recovered",
-				"SELECT ISNULL(SUM([Recovery Amount]),0) AS val FROM dbo.RecoveryMasterSheet WHERE 1=1" + f.MS(),
 				`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE 1=1` + f.PG()},
 			{"accounts_in_legal",
-				"SELECT COUNT(DISTINCT [CIF Number]) AS val FROM dbo.RecoveryMasterSheet WHERE [Legal Stage] IS NOT NULL" + f.MS(),
 				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Recovery Master Sheet" WHERE "Legal Stage" IS NOT NULL` + f.PG()},
 			{"recovery_mtd",
-				"SELECT ISNULL(SUM([Recovery Amount]),0) AS val FROM dbo.RecoveryMasterSheet WHERE MONTH([Recovery Date])=MONTH(GETDATE()) AND YEAR([Recovery Date])=YEAR(GETDATE())" + f.MS(),
 				`SELECT COALESCE(SUM("Recovery Amount"),0) AS val FROM "Recovery Master Sheet" WHERE DATE_TRUNC('month',"Recovery Date")=DATE_TRUNC('month',CURRENT_DATE)` + f.PG()},
 			{"open_cases",
-				"SELECT COUNT(DISTINCT [CIF Number]) AS val FROM dbo.RecoveryMasterSheet WHERE ([Status] IS NULL OR [Status] NOT IN ('Recovered','Paid','Closed'))" + f.MS(),
 				`SELECT COUNT(DISTINCT "CIF Number") AS val FROM "Recovery Master Sheet" WHERE ("Status" IS NULL OR "Status" NOT IN ('Recovered','Paid','Closed'))` + f.PG()},
 		} {
-			val, src, err := db.DualScalar(ctx, "val", s.ms, s.pg, f.Args()...)
+			val, src, err := db.DualScalar(ctx, "val", s.pg, f.Args()...)
 			if err != nil {
 				respondErr(w, 500, "Query failed: "+s.key)
 				return
@@ -70,7 +66,6 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 		// CBN recovery rate = total_recovered / total_npl_book_value * 100
 		// (CBN supervisory framework: recoveries as % of gross NPL balance)
 		nplBalance, _, _ := db.DualScalar(ctx, "val",
-			"SELECT ISNULL(SUM([Outstanding Balance]),0) AS val FROM dbo.RecoveryMasterSheet",
 			`SELECT COALESCE(SUM("Outstanding Balance"),0) AS val FROM "Recovery Master Sheet"`)
 		if toFloat(nplBalance) > 0 {
 			kpis["recovery_rate"] = round1(toFloat(kpis["total_recovered"]) / toFloat(nplBalance) * 100)
@@ -85,7 +80,7 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 		kpis["success_rate_pct"] = kpis["recovery_rate"]
 
 		// avg days open — PG-only; falls back to 0 gracefully
-		avgArgs  := []any{}
+		avgArgs := []any{}
 		avgWhere := ""
 		n := 1
 		if from != "" && dateRE.MatchString(from) {
@@ -114,8 +109,6 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 func recoveryByMethod(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT [Recovery Method], ISNULL(SUM([Recovery Amount]),0) AS total, COUNT(*) AS count
-			 FROM dbo.RecoveryMasterSheet GROUP BY [Recovery Method] ORDER BY total DESC`,
 			`SELECT "Recovery Method", COALESCE(SUM("Recovery Amount"),0) AS total, COUNT(*) AS count
 			 FROM "Recovery Master Sheet" GROUP BY "Recovery Method" ORDER BY total DESC`)
 		if err != nil {
@@ -129,19 +122,11 @@ func recoveryByMethod(db *core.DB) http.HandlerFunc {
 func recoveryMonthlyTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		var f Filter
 		f.Date("[Recovery Date]", `"Recovery Date"`, from, to)
 
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT FORMAT([Recovery Date],'MMM yyyy') AS month,
-			        DATEFROMPARTS(YEAR([Recovery Date]),MONTH([Recovery Date]),1) AS month_sort,
-			        ISNULL(SUM([Recovery Amount]),0) AS amount_kobo
-			 FROM dbo.RecoveryMasterSheet
-			 WHERE 1=1`+f.MS()+`
-			 GROUP BY DATEFROMPARTS(YEAR([Recovery Date]),MONTH([Recovery Date]),1),
-			          FORMAT([Recovery Date],'MMM yyyy')
-			 ORDER BY month_sort`,
 			`SELECT TO_CHAR(DATE_TRUNC('month',"Recovery Date"),'Mon YYYY') AS month,
 			        DATE_TRUNC('month',"Recovery Date") AS month_sort,
 			        COALESCE(SUM("Recovery Amount"),0) AS amount_kobo
@@ -175,13 +160,6 @@ func recoveryCases(db *core.DB) http.HandlerFunc {
 		f.Date("r.[Recovery Date]", `r."Recovery Date"`, dateFrom, dateTo)
 
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT TOP %d
-			        r.[CIF Number], a.First_Name AS [First Name], a.Last_Name AS [Last Name],
-			        r.[Recovery Amount], r.[Recovery Method], r.[Legal Stage],
-			        r.Agent, r.Status, r.[Recovery Date]
-			 FROM dbo.RecoveryMasterSheet r
-			 LEFT JOIN dbo.Contact a ON r.[CIF Number]=a.CIF
-			 WHERE 1=1%s ORDER BY r.[Recovery Date] DESC`, limit, f.MS()),
 			fmt.Sprintf(`SELECT r."CIF Number", a.first_name AS "First Name", a.last_name AS "Last Name",
 			        r."Recovery Amount", r."Recovery Method", r."Legal Stage",
 			        r."Agent", r."Status", r."Recovery Date"
@@ -212,12 +190,6 @@ func recoveryExport(db *core.DB) http.HandlerFunc {
 		var f Filter
 		f.Date("r.[Recovery Date]", `r."Recovery Date"`, dateFrom, dateTo)
 		data, _, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT r.[CIF Number], a.First_Name AS [First Name], a.Last_Name AS [Last Name],
-			        r.[Recovery Amount], r.[Recovery Method], r.[Legal Stage],
-			        r.Agent, r.Status, r.[Recovery Date]
-			 FROM dbo.RecoveryMasterSheet r
-			 LEFT JOIN dbo.Contact a ON r.[CIF Number]=a.CIF
-			 WHERE 1=1%s ORDER BY r.[Recovery Date] DESC`, f.MS()),
 			fmt.Sprintf(`SELECT r."CIF Number", a.first_name AS "First Name", a.last_name AS "Last Name",
 			        r."Recovery Amount", r."Recovery Method", r."Legal Stage",
 			        r."Agent", r."Status", r."Recovery Date"
@@ -242,7 +214,7 @@ func recoveryExport(db *core.DB) http.HandlerFunc {
 func recoveryByChannel(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		var where string
 		var args []any
 		n := 1
@@ -284,7 +256,7 @@ func recoveryByChannel(db *core.DB) http.HandlerFunc {
 func recoveryByAgent(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		var where string
 		var args []any
 		n := 1
@@ -329,11 +301,11 @@ func recoveryByAgent(db *core.DB) http.HandlerFunc {
 // recoveryLegal lists recovery cases that have entered the legal stage.
 func recoveryLegal(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		limit     := qint(r, "limit", 200, 1, 1000)
-		from      := qstr(r, "from")
-		to        := qstr(r, "to")
+		limit := qint(r, "limit", 200, 1, 1000)
+		from := qstr(r, "from")
+		to := qstr(r, "to")
 		milestone := qstr(r, "milestone")
-		q         := qstr(r, "q")
+		q := qstr(r, "q")
 		var extraWhere string
 		var args []any
 		n := 1
@@ -511,7 +483,7 @@ func recoveryAddLegalMilestone(db *core.DB) http.HandlerFunc {
 func recoveryDebtSales(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		var where string
 		var args []any
 		n := 1
@@ -547,13 +519,13 @@ func recoveryDebtSales(db *core.DB) http.HandlerFunc {
 func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			BuyerName           string `json:"buyer_name"`
-			SaleDate            string `json:"sale_date"`
-			AccountCount        int    `json:"account_count"`
-			FaceValueKobo       int64  `json:"face_value_kobo"`
-			SalePriceKobo       int64  `json:"sale_price_kobo"`
-			RecoveryPostSaleKobo int64 `json:"recovery_post_sale_kobo"`
-			Notes               string `json:"notes"`
+			BuyerName            string `json:"buyer_name"`
+			SaleDate             string `json:"sale_date"`
+			AccountCount         int    `json:"account_count"`
+			FaceValueKobo        int64  `json:"face_value_kobo"`
+			SalePriceKobo        int64  `json:"sale_price_kobo"`
+			RecoveryPostSaleKobo int64  `json:"recovery_post_sale_kobo"`
+			Notes                string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondErr(w, 400, "Invalid JSON")

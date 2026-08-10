@@ -2,16 +2,18 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Page, ErrBanner, Spinner, ConfirmModal, TblSearch, DateFilter, NameCell,
+  Page, ErrBanner, Spinner, ConfirmModal, Modal, TblSearch, NameCell,
 } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtDatetime, today, monthStart } from '../../lib/fmt'
+import { apiFetch, apiPost, apiExport } from '../../lib/api'
+import { fmtKobo, fmtDate, fmtDatetime, today } from '../../lib/fmt'
 import { GREEN, AMBER, RED, DARKRED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface TelemarketingContact {
+type Purpose = 'marketing' | 'collections' | 'support'
+
+interface CallCenterContact {
   id: number
   customer_name: string
   phone: string
@@ -25,6 +27,9 @@ interface TelemarketingContact {
   is_existing_customer: boolean
   loan_product: string | null
   next_payment_date: string | null
+  purpose: Purpose
+  source: string | null
+  ref: string | null
 }
 
 interface CallEntry {
@@ -34,6 +39,33 @@ interface CallEntry {
   disposition: string
   agent_name: string
   notes: string | null
+  direction?: string | null
+  purpose?: string | null
+  recording_url?: string | null
+  log_source?: string | null
+}
+
+interface QueueSummary {
+  total: number; uncalled: number; contacted: number; callbacks: number
+  marketing?: number; collections?: number; support?: number
+}
+
+// Purpose presentation — colors + labels for the segmentation tabs and row tags.
+const PURPOSE_META: Record<Purpose, { label: string; color: string; icon: string }> = {
+  marketing:   { label: 'Marketing',   color: BLUE,  icon: 'campaign' },
+  collections: { label: 'Collections', color: RED,   icon: 'account_balance_wallet' },
+  support:     { label: 'Support',     color: GREEN, icon: 'support_agent' },
+}
+
+// A contact carries collections context (outstanding / DPD) only when it's an
+// existing customer with a live balance. Telemarketing leads have neither, so the
+// UI must not render misleading "₦0.00 / DPD 0" for them.
+function hasCollectionsContext(c: CallCenterContact): boolean {
+  return c.is_existing_customer && c.outstanding_kobo > 0
+}
+function isGenericProduct(p: string | null): boolean {
+  const v = (p || '').trim().toLowerCase()
+  return v === '' || v === 'zoho lead'
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -93,7 +125,7 @@ function StatChip({ label, value, color }: { label: string; value: number; color
       padding: '8px 10px', borderRadius: RADIUS.md, flex: 1,
       background: `${color}0f`, border: `1px solid ${color}28`,
     }}>
-      <span style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color, lineHeight: 1 }}>{value}</span>
+      <span style={{ ...NUM, fontSize: value >= 10000 ? TEXT.xl : TEXT['2xl'], fontWeight: FW.extrabold, color, lineHeight: 1 }}>{value.toLocaleString()}</span>
       <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', marginTop: 3, fontWeight: FW.medium, textAlign: 'center' }}>{label}</span>
     </div>
   )
@@ -116,7 +148,7 @@ function CallHistoryTimeline({ contactId, refreshKey }: { contactId: number; ref
 
   useEffect(() => {
     setLoading(true)
-    apiFetch<{ data: CallEntry[] }>(`/api/telemarketing/contacts/${contactId}/calls`)
+    apiFetch<{ data: CallEntry[] }>(`/api/call-center/contacts/${contactId}/calls`)
       .then(r => setCalls(r.data ?? []))
       .catch(() => setCalls([]))
       .finally(() => setLoading(false))
@@ -149,15 +181,33 @@ function CallHistoryTimeline({ contactId, refreshKey }: { contactId: number; ref
               border: '1px solid var(--bdr)',
               background: i === 0 ? `${NAVY}06` : 'var(--th-bg)',
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                <DispositionPill disp={c.disposition} size="sm" />
-                <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5, gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                  {c.direction && (
+                    <span className="material-symbols-rounded" title={c.direction} style={{ fontSize: 14, color: c.direction === 'inbound' ? GREEN : NAVY }}>
+                      {c.direction === 'inbound' ? 'call_received' : 'call_made'}
+                    </span>
+                  )}
+                  <DispositionPill disp={c.disposition} size="sm" />
+                  {c.purpose && (
+                    <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'capitalize' }}>{c.purpose}</span>
+                  )}
+                </div>
+                <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER, flexShrink: 0 }}>
                   {fmtDatetime(c.called_at)}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold }}>{c.agent_name}</span>
-                <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{fmtDuration(c.duration_seconds)}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {c.recording_url && (
+                    <a href={c.recording_url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                      style={{ fontSize: TEXT['2xs'], color: NAVY, display: 'inline-flex', alignItems: 'center', gap: 2, textDecoration: 'none' }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 13 }}>play_circle</span>Recording
+                    </a>
+                  )}
+                  <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{fmtDuration(c.duration_seconds)}</span>
+                </div>
               </div>
               {c.notes && (
                 <div style={{
@@ -217,7 +267,7 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
         body.ptp_date = ptpDate
         body.ptp_amount_kobo = Math.round(parseFloat(ptpAmountNaira || '0') * 100)
       }
-      await apiPost(`/api/telemarketing/contacts/${contactId}/log-call`, body)
+      await apiPost(`/api/call-center/contacts/${contactId}/log-call`, body)
       toast.success('Call logged')
       setNotes('')
       setDisposition(DISPOSITIONS[0])
@@ -308,7 +358,7 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
 
 type DetailTab = 'log' | 'history' | 'info'
 
-function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onAction: () => void }) {
+function DetailPanel({ contact, onAction }: { contact: CallCenterContact; onAction: () => void }) {
   const navigate = useNavigate()
   const [tab, setTab] = useState<DetailTab>('log')
   const [historyKey, setHistoryKey] = useState(0)
@@ -345,21 +395,25 @@ function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onA
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: TEXT.lg, fontWeight: FW.extrabold, letterSpacing: '-0.5px',
           }}>
-            {contact.customer_name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+            {(contact.customer_name || 'Unknown Lead').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap', marginBottom: 5 }}>
               <span style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>
-                {contact.customer_name}
+                {contact.customer_name || 'Unknown Lead'}
               </span>
               <span style={{
                 fontSize: TEXT.xs, fontWeight: FW.bold, padding: '1px 8px', borderRadius: RADIUS.full,
                 background: `${pColor}18`, color: pColor,
               }}>{contact.priority}</span>
-              <DpdBadge dpd={contact.dpd} />
-              {contact.last_disposition && (
+              {hasCollectionsContext(contact) && <DpdBadge dpd={contact.dpd} />}
+              {contact.last_disposition ? (
                 <DispositionPill disp={contact.last_disposition} size="sm" />
+              ) : (
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: BLUE, background: `${BLUE}14`, padding: '1px 8px', borderRadius: RADIUS.full }}>
+                  Not yet called
+                </span>
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
@@ -462,10 +516,12 @@ function DetailPanel({ contact, onAction }: { contact: TelemarketingContact; onA
               Contact Details
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', marginBottom: SP[6] }}>
-              <InfoField label="Full Name" value={contact.customer_name} />
+              <InfoField label="Full Name" value={contact.customer_name || 'Unknown Lead'} />
               <InfoField label="Phone" value={<span style={{ fontFamily: INTER }}>{contact.phone}</span>} />
               <InfoField label="CIF" value={contact.cif} />
-              <InfoField label="Product" value={contact.product_name} />
+              {contact.purpose === 'marketing'
+                ? <InfoField label="Campaign List" value={contact.ref || 'Unlisted'} />
+                : <InfoField label="Product" value={contact.product_name} />}
               <InfoField label="Last Called" value={contact.last_called_at ? fmtDatetime(contact.last_called_at) : null} />
               <InfoField label="Last Outcome" value={contact.last_disposition
                 ? <DispositionPill disp={contact.last_disposition} size="sm" />
@@ -499,55 +555,117 @@ const DISPOSITION_OPTIONS = [
   'Answered-Interested', 'Answered-Not Interested',
   'No Answer', 'Wrong Number', 'PTP', 'Callback',
 ] as const
-const DPD_OPTIONS = ['1-30', '31-60', '61-90', '90+'] as const
+
+// ── Import modal ──────────────────────────────────────────────────────────────
+
+function ImportContactsModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+  const [purpose, setPurpose] = useState<Purpose>('marketing')
+  const [raw, setRaw] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  // One contact per line: "name, phone, cif?, product?" — phone is required.
+  const parsed = raw.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+    const [name = '', phone = '', cif = '', product = ''] = line.split(',').map(s => s.trim())
+    return { name, phone, cif, product }
+  }).filter(c => c.phone)
+
+  async function submit() {
+    if (parsed.length === 0) { setErr('Add at least one row with a phone number'); return }
+    setSaving(true); setErr(null)
+    try {
+      const res = await apiPost<{ inserted: number; skipped: number }>('/api/call-center/queue/import', { purpose, contacts: parsed })
+      toast.success(`${res.inserted ?? 0} added${res.skipped ? ` · ${res.skipped} skipped` : ''}`)
+      setRaw(''); onDone(); onClose()
+    } catch (e: any) { setErr(e.message ?? 'Import failed') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Import Contacts" width={480}
+      footer={
+        <>
+          <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving || parsed.length === 0} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (saving || !parsed.length) ? 'not-allowed' : 'pointer', opacity: (saving || !parsed.length) ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {saving && <Spinner size={13} color="#fff" />}Import{parsed.length ? ` ${parsed.length}` : ''}
+          </button>
+        </>
+      }
+    >
+      <ErrBanner error={err} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Add to</label>
+          <select value={purpose} onChange={e => setPurpose(e.target.value as Purpose)} style={{ ...fieldStyle, height: 38 }}>
+            <option value="marketing">Marketing</option>
+            <option value="collections">Collections</option>
+            <option value="support">Support</option>
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+            Contacts — one per line: name, phone, cif, product
+          </label>
+          <textarea
+            spellCheck={false}
+            value={raw}
+            onChange={e => setRaw(e.target.value)}
+            rows={8}
+            placeholder={'Jane Doe, 08012345678\nJohn Smith, 08087654321, 00012345, Loan follow-up'}
+            style={{ ...fieldStyle, resize: 'vertical', fontFamily: INTER }}
+          />
+        </div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{parsed.length} valid row(s) detected</div>
+      </div>
+    </Modal>
+  )
+}
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function TelemarketingQueue() {
-  const [items, setItems] = useState<TelemarketingContact[]>([])
+export default function CallCenterQueue() {
+  const [items, setItems] = useState<CallCenterContact[]>([])
+  const [summary, setSummary] = useState<QueueSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [selected, setSelected] = useState<TelemarketingContact | null>(null)
+  const [selected, setSelected] = useState<CallCenterContact | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
 
+  const [purposeF, setPurposeF] = useState<'' | Purpose>('')
   const [priority, setPriority] = useState('All')
   const [disposition, setDisposition] = useState('All')
-  const [dpd, setDpd] = useState('All')
   const [search, setSearch] = useState('')
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
 
   const [skipConfirm, setSkipConfirm] = useState(false)
   const [skipLoading, setSkipLoading] = useState(false)
   const [syncLoading, setSyncLoading] = useState(false)
+  const [collLoading, setCollLoading] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     setErr(null)
+    // A work queue is a live list, not a date-bounded report — no date filter.
     const params = new URLSearchParams({ limit: '200' })
+    if (purposeF) params.set('purpose', purposeF)
     if (priority !== 'All') params.set('priority', priority)
     if (disposition !== 'All') params.set('disposition', disposition)
-    if (dpd !== 'All') params.set('dpd', dpd)
     if (search) params.set('search', search)
-    if (dateFrom) params.set('from', dateFrom)
-    if (dateTo)   params.set('to', dateTo)
     try {
-      const res = await apiFetch<{ data: TelemarketingContact[] }>(`/api/telemarketing/queue?${params}`)
+      const res = await apiFetch<{ data: CallCenterContact[]; summary?: QueueSummary }>(`/api/call-center/queue?${params}`)
       setItems(res.data ?? [])
+      setSummary(res.summary ?? null)
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load queue')
     } finally {
       setLoading(false)
     }
-  }, [priority, disposition, dpd, search, dateFrom, dateTo])
+  }, [purposeF, priority, disposition, search])
 
   useEffect(() => { load() }, [load])
   useLiveData(load)
 
-  // Derived stats
-  const highCount = items.filter(i => i.priority === 'High').length
-  const callbackCount = items.filter(i => i.last_disposition === 'Callback').length
-  const anyFilter = priority !== 'All' || disposition !== 'All' || dpd !== 'All' || search !== ''
+  const anyFilter = priority !== 'All' || disposition !== 'All' || search !== ''
 
   function toggleCheck(id: number, e: React.MouseEvent) {
     e.stopPropagation()
@@ -563,7 +681,7 @@ export default function TelemarketingQueue() {
   async function handleSkip() {
     setSkipLoading(true)
     try {
-      await apiPost('/api/telemarketing/queue/bulk-skip', { ids: [...checkedIds] })
+      await apiPost('/api/call-center/queue/bulk-skip', { ids: [...checkedIds] })
       toast.success(`${checkedIds.size} contact(s) skipped`)
       clearChecked()
       setSelected(null)
@@ -579,8 +697,8 @@ export default function TelemarketingQueue() {
   async function handleSyncCRM() {
     setSyncLoading(true)
     try {
-      const res = await apiPost<{ inserted: number }>('/api/telemarketing/queue/sync-from-crm', {})
-      toast.success(`${res.inserted ?? 0} new lead(s) added to the queue`)
+      const res = await apiPost<{ inserted: number }>('/api/call-center/queue/sync-from-crm', {})
+      toast.success(`${res.inserted ?? 0} new marketing lead(s) added`)
       load()
     } catch (e: any) {
       toast.error(e.message ?? 'Sync failed')
@@ -589,29 +707,52 @@ export default function TelemarketingQueue() {
     }
   }
 
+  async function handlePullCollections() {
+    setCollLoading(true)
+    try {
+      const res = await apiPost<{ inserted: number }>('/api/call-center/queue/sync-collections', {})
+      toast.success(`${res.inserted ?? 0} overdue account(s) added to Collections`)
+      load()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Collections pull failed')
+    } finally {
+      setCollLoading(false)
+    }
+  }
+
   async function handleExport() {
     try {
-      await apiPost('/api/telemarketing/queue/export', { ids: [...checkedIds] })
-      toast.success('Export queued')
+      const ids = [...checkedIds]
+      const qs = ids.length ? `?ids=${ids.join(',')}` : ''
+      await apiExport(`/api/call-center/queue/export${qs}`, 'call_center_queue')
     } catch (e: any) {
       toast.error(e.message ?? 'Export failed')
     }
   }
 
   return (
-    <Page title="Outbound Queue" subtitle="Telemarketing call queue" noPad
+    <Page title="Outbound Queue" subtitle="Marketing, collections & support calls — from Zoho, our accounts, and manual lists" noPad
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-          <button
-            onClick={handleSyncCRM}
-            disabled={syncLoading}
-            title="Pull Zoho-imported CRM leads into the queue"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: syncLoading ? 'wait' : 'pointer', opacity: syncLoading ? 0.7 : 1 }}
-          >
-            {syncLoading ? <Spinner size={13} color={NAVY} /> : <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>sync</span>}
-            Sync from CRM
-          </button>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          {(() => {
+            const feedBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }
+            return (
+              <>
+                <button onClick={handleSyncCRM} disabled={syncLoading} title="Pull Zoho CRM leads (Marketing)" style={{ ...feedBtn, cursor: syncLoading ? 'wait' : 'pointer', opacity: syncLoading ? 0.7 : 1 }}>
+                  {syncLoading ? <Spinner size={13} color={NAVY} /> : <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: BLUE }}>campaign</span>}
+                  Sync CRM
+                </button>
+                <button onClick={handlePullCollections} disabled={collLoading} title="Pull overdue accounts (Collections)" style={{ ...feedBtn, cursor: collLoading ? 'wait' : 'pointer', opacity: collLoading ? 0.7 : 1 }}>
+                  {collLoading ? <Spinner size={13} color={RED} /> : <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: RED }}>account_balance_wallet</span>}
+                  Pull Collections
+                </button>
+                <button onClick={() => setImportOpen(true)} title="Upload a manual list" style={feedBtn}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
+                  Import
+                </button>
+              </>
+            )
+          })()}
         </div>
       }
     >
@@ -626,15 +767,39 @@ export default function TelemarketingQueue() {
         }}>
           {/* Header */}
           <div style={{ padding: '14px 14px 12px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
-            <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 10 }}>
-              Outbound Queue
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>Call Queue</div>
+              <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER }}>
+                showing {items.length} of {(summary?.total ?? items.length).toLocaleString()}
+              </div>
             </div>
 
-            {/* Stats */}
+            {/* Purpose segmentation — Marketing / Collections / Support */}
+            <div style={{ display: 'flex', gap: 3, marginBottom: 10, background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: 3 }}>
+              {([['', 'All'], ['marketing', 'Marketing'], ['collections', 'Collections'], ['support', 'Support']] as const).map(([val, label]) => {
+                const on = purposeF === val
+                const count = val === '' ? (summary?.total ?? 0) : (summary?.[val] ?? 0)
+                const color = val === '' ? NAVY : PURPOSE_META[val].color
+                return (
+                  <button key={label || 'all'} onClick={() => setPurposeF(val)} style={{
+                    flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                    padding: '5px 2px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer',
+                    background: on ? 'var(--card)' : 'transparent',
+                    boxShadow: on ? '0 1px 2px rgba(0,0,0,.10)' : 'none',
+                  }}>
+                    <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: on ? color : 'var(--txt2)' }}>{label}</span>
+                    <span style={{ ...NUM, fontSize: TEXT['2xs'], color: on ? color : 'var(--txt3)' }}>{count.toLocaleString()}</span>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Stats — over the current (purpose-filtered) pending pool */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-              <StatChip label="Total" value={items.length} color={NAVY} />
-              <StatChip label="High Priority" value={highCount} color={RED} />
-              <StatChip label="Callbacks" value={callbackCount} color={AMBER} />
+              <StatChip label="Pending" value={summary?.total ?? items.length} color={NAVY} />
+              <StatChip label="Not Yet Called" value={summary?.uncalled ?? 0} color={BLUE} />
+              <StatChip label="Contacted" value={summary?.contacted ?? 0} color={GREEN} />
+              <StatChip label="Callbacks" value={summary?.callbacks ?? 0} color={AMBER} />
             </div>
 
             {/* Search */}
@@ -677,30 +842,16 @@ export default function TelemarketingQueue() {
               })}
             </div>
 
-            {/* DPD chips */}
-            <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap' }}>
-              {DPD_OPTIONS.map(o => {
-                const on = dpd === o
-                return (
-                  <button key={o} onClick={() => setDpd(on ? 'All' : o)} style={{
-                    fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 9px', borderRadius: RADIUS.full,
-                    border: `1px solid ${on ? BLUE : 'var(--bdr)'}`,
-                    background: on ? `${BLUE}12` : 'transparent',
-                    color: on ? BLUE : 'var(--txt3)', cursor: 'pointer',
-                  }}>DPD {o}</button>
-                )
-              })}
-              {anyFilter && (
-                <button
-                  onClick={() => { setPriority('All'); setDisposition('All'); setDpd('All'); setSearch('') }}
-                  style={{
-                    fontSize: TEXT['2xs'], fontWeight: FW.medium, padding: '2px 9px', borderRadius: RADIUS.full,
-                    border: '1px solid var(--bdr)', background: 'none',
-                    color: 'var(--txt3)', cursor: 'pointer',
-                  }}
-                >Clear</button>
-              )}
-            </div>
+            {anyFilter && (
+              <button
+                onClick={() => { setPriority('All'); setDisposition('All'); setSearch('') }}
+                style={{
+                  fontSize: TEXT['2xs'], fontWeight: FW.medium, padding: '2px 9px', borderRadius: RADIUS.full,
+                  border: '1px solid var(--bdr)', background: 'none',
+                  color: 'var(--txt3)', cursor: 'pointer',
+                }}
+              >Clear filters</button>
+            )}
           </div>
 
           {/* Batch bar */}
@@ -712,7 +863,6 @@ export default function TelemarketingQueue() {
             }}>
               <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{checkedIds.size} selected</span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                <button onClick={() => toast.info('Reassign — coming soon')} style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer' }}>Reassign</button>
                 <button onClick={() => setSkipConfirm(true)} style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer' }}>Skip</button>
                 <button onClick={handleExport} style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer' }}>Export</button>
                 <button onClick={clearChecked} style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%' }}>
@@ -773,7 +923,7 @@ export default function TelemarketingQueue() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: SP[1] }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <NameCell
-                            name={item.customer_name}
+                            name={item.customer_name || 'Unknown Lead'}
                             sub={`${item.phone}${item.cif ? ` · ${item.cif}` : ''}`}
                             avatar={false}
                           />
@@ -782,15 +932,39 @@ export default function TelemarketingQueue() {
                           <DispositionPill disp={item.last_disposition} size="sm" />
                         )}
                       </div>
-                      {/* Row 3: outstanding + DPD + last called */}
+                      {/* Row 3: collections context when real, else product + call-status */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                          {fmtKobo(item.outstanding_kobo)}
-                        </span>
-                        <DpdBadge dpd={item.dpd} />
-                        {item.last_called_at && (
+                        {purposeF === '' && PURPOSE_META[item.purpose] && (
+                          <span title={PURPOSE_META[item.purpose].label} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: TEXT['2xs'], fontWeight: FW.bold, color: PURPOSE_META[item.purpose].color }}>
+                            <span className="material-symbols-rounded" style={{ fontSize: 12 }}>{PURPOSE_META[item.purpose].icon}</span>
+                          </span>
+                        )}
+                        {hasCollectionsContext(item) ? (
+                          <>
+                            <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                              {fmtKobo(item.outstanding_kobo)}
+                            </span>
+                            <DpdBadge dpd={item.dpd} />
+                          </>
+                        ) : item.purpose === 'marketing' ? (
+                          <span title="Campaign list" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.full, background: item.ref ? `${BLUE}14` : 'var(--chip-bg)', color: item.ref ? BLUE : 'var(--txt3)' }}>
+                            <span className="material-symbols-rounded" style={{ fontSize: 12 }}>format_list_bulleted</span>
+                            {item.ref || 'Unlisted'}
+                          </span>
+                        ) : (
+                          !isGenericProduct(item.product_name) && (
+                            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.full, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>
+                              {item.product_name}
+                            </span>
+                          )
+                        )}
+                        {item.last_called_at ? (
                           <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER, marginLeft: 'auto' }}>
-                            {fmtDate(item.last_called_at)}
+                            Called {fmtDate(item.last_called_at)}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: BLUE, background: `${BLUE}14`, padding: '1px 7px', borderRadius: RADIUS.full, marginLeft: 'auto' }}>
+                            New
                           </span>
                         )}
                       </div>
@@ -825,6 +999,8 @@ export default function TelemarketingQueue() {
         onConfirm={handleSkip}
         onClose={() => setSkipConfirm(false)}
       />
+
+      <ImportContactsModal open={importOpen} onClose={() => setImportOpen(false)} onDone={load} />
     </Page>
   )
 }
