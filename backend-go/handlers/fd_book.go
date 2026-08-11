@@ -183,6 +183,7 @@ func fdBookList(db *core.DB) http.HandlerFunc {
 				principal_kobo, accrued_interest_kobo, ledger_balance_kobo,
 				interest_rate, tenor_days,
 				TO_CHAR(commencement_date, 'YYYY-MM-DD') AS commencement_date,
+				TO_CHAR(date_booked, 'YYYY-MM-DD')       AS date_booked,
 				TO_CHAR(maturity_date, 'YYYY-MM-DD')     AS maturity_date
 			FROM cbs_fixed_deposits
 			WHERE ($1 = '%%' OR cbs_account_number ILIKE $1 OR cbs_customer_id ILIKE $1 OR product_name ILIKE $1)

@@ -41,6 +41,7 @@ interface LoanRow {
   maturity_date:          string | null
   disbursed_at:           string
   created_at:             string
+  date_booked:            string | null
   officer_name:           string
 }
 
@@ -106,6 +107,10 @@ const LOAN_COLS: TableCol<LoanRow>[] = [
   {
     key: 'officer_name', label: 'Officer',
     render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.officer_name ?? '—'}</span>,
+  },
+  {
+    key: 'date_booked', label: 'Booked', align: 'right',
+    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt3)' }}>{fmtDate(r.date_booked ?? r.disbursed_at)}</span>,
   },
   {
     key: 'disbursed_at', label: 'Disbursed', align: 'right',
@@ -204,6 +209,7 @@ function LoanDetailPanel({ loan, onClose }: { loan: LoanRow; onClose: () => void
           />
           <DetailRow label="Next Due"    value={fmtDate(loan.next_due_date)} />
           <DetailRow label="Maturity"    value={fmtDate(loan.maturity_date)} />
+          <DetailRow label="Booked"      value={fmtDate(loan.date_booked ?? loan.disbursed_at)} />
           <DetailRow label="Disbursed"   value={fmtDate(loan.disbursed_at)} />
           <DetailRow label="Created"     value={fmtDate(loan.created_at)} />
         </div>

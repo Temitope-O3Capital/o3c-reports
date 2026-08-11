@@ -55,7 +55,7 @@ func cbsLoanBook(db *core.DB) http.HandlerFunc {
 			SELECT cl.cbs_account_number, cl.cbs_customer_id, `+custName(master, "cl")+`,
 			       cl.product_name, cl.status, cl.loan_amount_kobo, cl.outstanding_principal_kobo,
 			       cl.outstanding_interest_kobo, cl.interest_rate, cl.tenor_days,
-			       cl.start_date, cl.maturity_date, cl.officer_name
+			       cl.date_booked, cl.start_date, cl.maturity_date, cl.officer_name
 			FROM cbs_loans cl ORDER BY cl.outstanding_principal_kobo DESC`)
 
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
@@ -96,7 +96,7 @@ func cbsFDBook(db *core.DB) http.HandlerFunc {
 			SELECT cf.cbs_account_number, cf.cbs_customer_id, `+custName(master, "cf")+`,
 			       cf.product_name, cf.status, cf.principal_kobo, cf.accrued_interest_kobo,
 			       cf.ledger_balance_kobo, cf.interest_rate, cf.tenor_days,
-			       cf.commencement_date, cf.maturity_date
+			       cf.date_booked, cf.commencement_date, cf.maturity_date
 			FROM cbs_fixed_deposits cf ORDER BY cf.principal_kobo DESC`)
 
 		cbsWriteJSON(w, http.StatusOK, map[string]any{

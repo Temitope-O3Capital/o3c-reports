@@ -158,6 +158,7 @@ function LoanTab({ data, loading }: { data: LoanBook | null; loading: boolean })
     { key: 'outstanding_principal_kobo', label: 'Outstanding', align: 'right', render: r => fmtKobo(r.outstanding_principal_kobo) },
     { key: 'loan_amount_kobo', label: 'Disbursed', align: 'right', render: r => fmtKobo(r.loan_amount_kobo) },
     { key: 'interest_rate', label: 'Rate', align: 'right', render: r => fmtPct(r.interest_rate, 1) },
+    { key: 'date_booked', label: 'Booked', render: r => fmtDate(r.date_booked ?? r.start_date) },
     { key: 'maturity_date', label: 'Maturity', render: r => fmtDate(r.maturity_date) },
     { key: 'officer_name', label: 'Officer' },
   ]
@@ -196,8 +197,9 @@ function FDTab({ data, loading }: { data: FDBook | null; loading: boolean }) {
     { key: 'principal_kobo', label: 'Principal', align: 'right', render: r => fmtKobo(r.principal_kobo) },
     { key: 'accrued_interest_kobo', label: 'Accrued', align: 'right', render: r => fmtKobo(r.accrued_interest_kobo) },
     { key: 'interest_rate', label: 'Rate', align: 'right', render: r => fmtPct(r.interest_rate, 1) },
-    { key: 'commencement_date', label: 'Start', render: r => fmtDate(r.commencement_date) },
+    { key: 'date_booked', label: 'Booked', render: r => fmtDate(r.date_booked ?? r.commencement_date) },
     { key: 'maturity_date', label: 'Maturity', render: r => fmtDate(r.maturity_date) },
+    // "Booked" (commencement) replaces the former separate "Start" column — same date for an FD.
   ]
   return (
     <>
