@@ -147,6 +147,24 @@ export default function CollectionsPromises() {
     }
   }
 
+  // Export the full filtered set (not just the loaded page) so the CSV isn't
+  // silently truncated to the first 100 rows.
+  async function handleExportAll() {
+    try {
+      const p = new URLSearchParams({ limit: '10000' })
+      if (fStatusKey) p.set('status', fStatusKey)
+      if (dateFrom)   p.set('date_from', dateFrom)
+      if (dateTo)     p.set('date_to', dateTo)
+      const res = await apiFetch<{ data: PTPane[] }>(`/api/collections-ops/promises?${p}`)
+      const all = res.data ?? []
+      if (all.length === 0) { toast.error('No promises to export'); return }
+      exportPromisesCsv(all)
+      toast.success(`Exported ${all.length} promise${all.length === 1 ? '' : 's'}`)
+    } catch (e: any) {
+      toast.error(e.message ?? 'Export failed')
+    }
+  }
+
   const cols: TableCol<PTPane>[] = [
     {
       key: 'account_cif',
@@ -243,7 +261,7 @@ export default function CollectionsPromises() {
         <KpiCard label="Amount Promised ₦" value={kpis ? fmtKobo(kpis.amount_promised_kobo) : '—'} icon="payments" accent={AMBER} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="Promises" badge={rows.length} padding={false} actions={<button onClick={() => exportPromisesCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Promises" badge={rows.length} padding={false} actions={<button onClick={handleExportAll} aria-label="Export all promises to CSV" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

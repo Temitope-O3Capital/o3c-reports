@@ -131,7 +131,7 @@ function PaginationBar({
       </span>
       <div style={{ display: 'flex', gap: 4 }}>
         <button
-          onClick={() => onPage(page - 1)} disabled={page <= 1}
+          onClick={() => onPage(page - 1)} disabled={page <= 1} aria-label="Previous page"
           style={{ ...btnBase, border: '1.5px solid var(--input-bdr)', background: 'transparent', color: page <= 1 ? 'var(--txt3)' : 'var(--txt2)' }}
         >
           <span className="material-symbols-rounded" style={{ fontSize: 14 }}>chevron_left</span>
@@ -155,7 +155,7 @@ function PaginationBar({
           )
         )}
         <button
-          onClick={() => onPage(page + 1)} disabled={page >= totalPages}
+          onClick={() => onPage(page + 1)} disabled={page >= totalPages} aria-label="Next page"
           style={{ ...btnBase, border: '1.5px solid var(--input-bdr)', background: 'transparent', color: page >= totalPages ? 'var(--txt3)' : 'var(--txt2)' }}
         >
           <span className="material-symbols-rounded" style={{ fontSize: 14 }}>chevron_right</span>
@@ -284,10 +284,10 @@ export default function CollectionsActivityLog() {
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
-        <KpiCard label="Total Actions"      value={loading ? '—' : total.toLocaleString('en-NG')} icon="history"   accent={NAVY}  loading={loading} />
-        <KpiCard label="PTPs Created"       value={loading ? '—' : ptpsCreated}                   icon="handshake" accent={NAVY}  loading={loading} />
-        <KpiCard label="Contacts Logged"    value={loading ? '—' : contactsLogged}                icon="phone"     accent={BLUE}  loading={loading} />
-        <KpiCard label="Payments Logged"    value={loading ? '—' : paymentsLogged}                icon="payments"  accent={GREEN} loading={loading} />
+        <KpiCard label="Total Actions"          value={loading ? '—' : total.toLocaleString('en-NG')} icon="history"   accent={NAVY}  loading={loading} />
+        <KpiCard label="PTPs · this page"       value={loading ? '—' : ptpsCreated}                   icon="handshake" accent={NAVY}  loading={loading} />
+        <KpiCard label="Contacts · this page"   value={loading ? '—' : contactsLogged}                icon="phone"     accent={BLUE}  loading={loading} />
+        <KpiCard label="Payments · this page"   value={loading ? '—' : paymentsLogged}                icon="payments"  accent={GREEN} loading={loading} />
       </div>
 
       <SectionCard padding={false}>

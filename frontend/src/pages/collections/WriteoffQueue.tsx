@@ -155,6 +155,23 @@ export default function WriteoffQueue() {
 
   function resetFilters() { setFDpdRange(new Set()); setSearch('') }
 
+  // Export the full filtered set, not just the loaded page.
+  async function handleExportAll() {
+    try {
+      const p = new URLSearchParams({ limit: '10000' })
+      if (fDpdRangeKey) p.set('dpd_range', fDpdRangeKey)
+      if (dateFrom)     p.set('date_from', dateFrom)
+      if (dateTo)       p.set('date_to', dateTo)
+      const res = await apiFetch<{ data: WriteoffRow[] }>(`/api/collections-ops/writeoffs?${p}`)
+      const all = res.data ?? []
+      if (all.length === 0) { toast.error('No write-off items to export'); return }
+      exportWriteoffCsv(all)
+      toast.success(`Exported ${all.length} item${all.length === 1 ? '' : 's'}`)
+    } catch (e: any) {
+      toast.error(e.message ?? 'Export failed')
+    }
+  }
+
   async function doApprove(id: number) {
     await apiPost(`/api/collections-ops/writeoffs/${id}/approve`, {})
     toast.success('Write-off approved')
@@ -317,7 +334,7 @@ export default function WriteoffQueue() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Write-off Queue" badge={rows.length} padding={false} actions={<button onClick={() => exportWriteoffCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Write-off Queue" badge={rows.length} padding={false} actions={<button onClick={handleExportAll} aria-label="Export all write-off items to CSV" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}
