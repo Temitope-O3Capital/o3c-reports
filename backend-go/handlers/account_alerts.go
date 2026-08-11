@@ -27,8 +27,10 @@ func ScheduleAccountAlerts(db *core.DB) {
 
 func runAccountAlerts(db *core.DB) {
 	ctx := context.Background()
+	WorkerBeat(ctx, db, "account_alerts", "running", "", "")
 	runLoanAlerts(ctx, db)
 	runFDAlerts(ctx, db)
+	WorkerBeat(ctx, db, "account_alerts", "ok", "loan + FD alerts swept", "")
 }
 
 // ── Loan alerts ───────────────────────────────────────────────────────────────

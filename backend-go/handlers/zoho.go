@@ -563,6 +563,7 @@ func StartZohoDeskAutoSync(db *core.DB) {
 			j.imported, j.skipped, j.failed, j.pages = 0, 0, 0, 0
 			j.startedAt, j.endedAt, j.lastErr = time.Now(), time.Time{}, ""
 			j.Unlock()
+			WorkerBeat(ctx, db, "zoho_desk", "running", "", "")
 
 			// Newest-first, capped so each hourly sweep only touches the recent window.
 			runZohoTicketImportJob(ctx, db, j, 2000, true)
@@ -570,8 +571,14 @@ func StartZohoDeskAutoSync(db *core.DB) {
 			j.Lock()
 			j.running, j.done, j.endedAt = false, true, time.Now()
 			imported := j.imported
+			lastErr := j.lastErr
 			j.Unlock()
 			slog.Info("zoho desk auto-sync: tickets done", "imported", imported)
+			if lastErr != "" {
+				WorkerBeat(ctx, db, "zoho_desk", "error", lastErr, "")
+			} else {
+				WorkerBeat(ctx, db, "zoho_desk", "ok", fmt.Sprintf("%d tickets imported", imported), "")
+			}
 		}
 
 		runOnce()

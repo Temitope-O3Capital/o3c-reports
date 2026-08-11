@@ -44,6 +44,7 @@ type sgBounce struct {
 
 func pollBounces(db *core.DB) {
 	ctx := context.Background()
+	WorkerBeat(ctx, db, "bounce_monitor", "running", "", "")
 
 	var lastTS int64
 	if rows, _ := db.PGQuery(ctx, `SELECT value FROM settings WHERE key='last_bounce_poll_ts'`); len(rows) > 0 {
@@ -54,6 +55,7 @@ func pollBounces(db *core.DB) {
 		db.PGExec(ctx, `INSERT INTO settings (key, value) VALUES ('last_bounce_poll_ts', $1)
 			ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`,
 			strconv.FormatInt(time.Now().Unix(), 10)) //nolint:errcheck
+		WorkerBeat(ctx, db, "bounce_monitor", "ok", "baselined", "")
 		return
 	}
 
@@ -63,16 +65,19 @@ func pollBounces(db *core.DB) {
 	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
 	if err != nil {
 		slog.Warn("bounce monitor: request failed", "err", err)
+		WorkerBeat(ctx, db, "bounce_monitor", "error", err.Error(), "")
 		return
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
 		slog.Warn("bounce monitor: non-200 from SendGrid", "status", resp.StatusCode)
+		WorkerBeat(ctx, db, "bounce_monitor", "error", fmt.Sprintf("SendGrid HTTP %d", resp.StatusCode), "")
 		return
 	}
 	var bounces []sgBounce
 	if json.Unmarshal(body, &bounces) != nil {
+		WorkerBeat(ctx, db, "bounce_monitor", "error", "bad JSON from SendGrid", "")
 		return
 	}
 
@@ -98,4 +103,5 @@ func pollBounces(db *core.DB) {
 			ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`,
 			strconv.FormatInt(maxTS, 10)) //nolint:errcheck
 	}
+	WorkerBeat(ctx, db, "bounce_monitor", "ok", fmt.Sprintf("%d bounce(s) checked", len(bounces)), "")
 }

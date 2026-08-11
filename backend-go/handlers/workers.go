@@ -59,7 +59,7 @@ var workerRegistry = []workerDef{
 	{"zoho_voice", "Zoho Voice · Call Logs", "Data Sync", "Hourly",
 		"Imports call-centre call logs from Zoho into the activity timeline.", "zoho", "/api/zoho/import-calls"},
 	{"zoho_desk", "Zoho Desk · Tickets", "Data Sync", "Hourly",
-		"Imports the newest helpdesk tickets from Zoho Desk.", "zoho", ""},
+		"Imports the newest helpdesk tickets from Zoho Desk.", "heartbeat", ""},
 	{"callcenter_crm", "Call-Center Queue · from CRM", "Data Sync", "On demand",
 		"Populates the call-centre dialer queue from CRM contacts.", "heartbeat", "/api/call-center/queue/sync-from-crm"},
 	{"callcenter_collections", "Call-Center Queue · Collections", "Data Sync", "On demand",
@@ -68,7 +68,7 @@ var workerRegistry = []workerDef{
 	// ── Integrations / pollers ──
 	{"graph_inbox", "Helpdesk Inbox · MS Graph", "Integration", "Every 3 min",
 		"Polls the helpdesk mailbox and turns new mail into tickets.", "heartbeat", ""},
-	{"care_mail", "Care Mailbox Poller", "Integration", "Every 3 min",
+	{"care_mail", "Care Mailbox Poller", "Integration", "Every 1 min",
 		"Polls care@ via Microsoft Graph and raises Care tickets.", "heartbeat", ""},
 	{"fx_rates", "FX Parallel-Market Rates", "Integration", "Hourly",
 		"Scrapes parallel-market FX rates for treasury reporting.", "heartbeat", ""},
@@ -105,18 +105,44 @@ func RegisterWorkers(r chi.Router, db *core.DB) {
 }
 
 type workerOut struct {
-	Key       string  `json:"key"`
-	Name      string  `json:"name"`
-	Category  string  `json:"category"`
-	Cadence   string  `json:"cadence"`
-	Descr     string  `json:"description"`
-	Status    string  `json:"status"` // ok | error | running | scheduled | idle
-	LastRunAt *string `json:"last_run_at"`
-	LastOKAt  *string `json:"last_ok_at"`
-	LastError *string `json:"last_error"`
-	Detail    *string `json:"detail"`
-	Manual    bool    `json:"manual"`
-	Trigger   string  `json:"trigger"`
+	Key         string  `json:"key"`
+	Name        string  `json:"name"`
+	Category    string  `json:"category"`
+	Cadence     string  `json:"cadence"`
+	Descr       string  `json:"description"`
+	Status      string  `json:"status"` // ok | error | running | scheduled | idle
+	LastRunAt   *string `json:"last_run_at"`
+	LastOKAt    *string `json:"last_ok_at"`
+	LastError   *string `json:"last_error"`
+	Detail      *string `json:"detail"`
+	Manual      bool    `json:"manual"`
+	Trigger     string  `json:"trigger"`
+	IntervalSec int     `json:"interval_sec"`  // 0 = no fixed interval (on-demand/always-on)
+	NextRunAt   *string `json:"next_run_at"`   // last_run + interval, when both known
+}
+
+// cadenceSecs maps a registry cadence string to its interval in seconds so the UI
+// can render a live "next run in …" countdown. 0 = no fixed interval.
+func cadenceSecs(cadence string) int {
+	switch cadence {
+	case "Every 1 min":
+		return 60
+	case "Every 3 min":
+		return 180
+	case "Every 15 min":
+		return 900
+	case "Every 30 min":
+		return 1800
+	case "Hourly":
+		return 3600
+	case "Continuous":
+		return 90
+	default:
+		if len(cadence) >= 5 && cadence[:5] == "Daily" {
+			return 86400
+		}
+		return 0 // On demand / Always on
+	}
 }
 
 func workersStatus(db *core.DB) http.HandlerFunc {
@@ -208,6 +234,14 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 					o.Status = s.status
 				}
 				o.LastRunAt, o.LastOKAt, o.LastError, o.Detail = s.lastRun, s.lastOK, s.err, s.detail
+			}
+			// Live "next run" for interval workers = last run + interval.
+			o.IntervalSec = cadenceSecs(d.Cadence)
+			if o.IntervalSec > 0 && o.LastRunAt != nil {
+				if t, e := time.Parse(time.RFC3339, *o.LastRunAt); e == nil {
+					nr := t.Add(time.Duration(o.IntervalSec) * time.Second).Format(time.RFC3339)
+					o.NextRunAt = &nr
+				}
 			}
 			out = append(out, o)
 		}

@@ -300,10 +300,12 @@ func StartFXRatesScraper(db *core.DB) {
 func runFXScrape(db *core.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	WorkerBeat(ctx, db, "fx_rates", "running", "", "")
 
 	rates, err := scrapeNgnRates(ctx)
 	if err != nil {
 		slog.Error("FX rate scrape failed", "err", err)
+		WorkerBeat(ctx, db, "fx_rates", "error", err.Error(), "")
 		return
 	}
 
@@ -319,6 +321,7 @@ func runFXScrape(db *core.DB) {
 		}
 	}
 	slog.Info("FX rates scraped", "inserted", inserted)
+	WorkerBeat(ctx, db, "fx_rates", "ok", fmt.Sprintf("%d rates scraped", inserted), "")
 }
 
 // fxFloat converts pgx numeric types to float64 for FX rate rows.

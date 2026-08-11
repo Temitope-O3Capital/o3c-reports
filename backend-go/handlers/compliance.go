@@ -1962,6 +1962,7 @@ func StartNDPRErasureWorker(db *core.DB) {
 
 func runNDPRErasure(db *core.DB) {
 	ctx := context.Background()
+	WorkerBeat(ctx, db, "ndpr_erasure", "running", "", "")
 
 	rows, err := db.PGQuery(ctx, `
 		SELECT id, subject_cif
@@ -1971,6 +1972,7 @@ func runNDPRErasure(db *core.DB) {
 		  AND processed_at IS NULL`)
 	if err != nil {
 		slog.Error("ndpr_erasure: query failed", "error", err)
+		WorkerBeat(ctx, db, "ndpr_erasure", "error", err.Error(), "")
 		return
 	}
 
@@ -2070,6 +2072,8 @@ func runNDPRErasure(db *core.DB) {
 
 		slog.Info("ndpr_erasure: processed", "dsar_id", id, "cif", cif)
 	}
+
+	WorkerBeat(ctx, db, "ndpr_erasure", "ok", fmt.Sprintf("%d request(s) processed", len(rows)), "")
 }
 
 // ── AML Rules (C1) ───────────────────────────────────────────────────────────

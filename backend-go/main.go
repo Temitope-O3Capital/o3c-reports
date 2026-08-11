@@ -6,12 +6,14 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -634,6 +636,7 @@ type activityLogEntry struct {
 // startActivityWorkers drains activityCh and writes each entry to the DB.
 // Runs until the channel is closed (on graceful shutdown).
 func startActivityWorkers(db *core.DB, ch <-chan activityLogEntry, n int) {
+	var written int64
 	for i := 0; i < n; i++ {
 		go func() {
 			for e := range ch {
@@ -643,8 +646,25 @@ func startActivityWorkers(db *core.DB, ch <-chan activityLogEntry, n int) {
 					 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 					e.userID, e.page, e.action, "", e.ip, e.resource, e.method)
 				cancel()
+				atomic.AddInt64(&written, 1)
 			}
 		}()
+	}
+	go poolHeartbeat(db, "activity_log", &written)
+}
+
+// poolHeartbeat gives an always-on worker pool a live "last run" in the Sync &
+// Workers hub. It beats "ok" every 60s with the running total written, so the
+// pool reads as alive without spamming a heartbeat on every drained entry.
+func poolHeartbeat(db *core.DB, key string, counter *int64) {
+	handlers.WorkerBeat(context.Background(), db, key, "ok", "0 written since boot", "")
+	t := time.NewTicker(60 * time.Second)
+	defer t.Stop()
+	for range t.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		handlers.WorkerBeat(ctx, db, key, "ok",
+			fmt.Sprintf("%d written since boot", atomic.LoadInt64(counter)), "")
+		cancel()
 	}
 }
 
@@ -753,6 +773,7 @@ type auditLogEntry struct {
 
 // startAuditWorkers drains auditCh into audit_logs. audit_logs is append-only.
 func startAuditWorkers(db *core.DB, ch <-chan auditLogEntry, n int) {
+	var written int64
 	for i := 0; i < n; i++ {
 		go func() {
 			for e := range ch {
@@ -762,9 +783,11 @@ func startAuditWorkers(db *core.DB, ch <-chan auditLogEntry, n int) {
 					 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
 					e.actorID, e.actorRole, e.actorName, e.action, e.entityType, e.entityID, e.changes, e.ip)
 				cancel()
+				atomic.AddInt64(&written, 1)
 			}
 		}()
 	}
+	go poolHeartbeat(db, "audit_trail", &written)
 }
 
 // auditSkip drops pure UI/telemetry noise from the compliance trail (these are still

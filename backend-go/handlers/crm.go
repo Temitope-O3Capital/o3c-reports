@@ -1095,6 +1095,9 @@ func sendTaskNotifications(db *core.DB) {
 			})
 		}
 	}
+
+	WorkerBeat(ctx, db, "task_notifications", "ok",
+		fmt.Sprintf("%d due-soon · %d overdue", len(dueSoon), len(overdue)), "")
 }
 
 // ScheduleBirthdayWorker fires daily at 08:00 and notifies account managers
@@ -1162,6 +1165,9 @@ func runBirthdayNotifications(db *core.DB) {
 			})
 		}
 	}
+
+	WorkerBeat(ctx, db, "birthday", "ok",
+		fmt.Sprintf("%d today · %d in 3 days", len(today), len(soon)), "")
 }
 
 // ── Requests ──────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -219,8 +220,10 @@ func SequenceStepTicker(db *core.DB) {
 			  AND c.is_sequence = TRUE AND c.status IN ('active','scheduled')`)
 		cancel()
 		if err != nil {
+			WorkerBeat(context.Background(), db, "sequence_ticker", "error", err.Error(), "")
 			continue
 		}
+		advanced := 0
 		for _, row := range rows {
 			stepID := toInt64(row["id"])
 			campaignID := toInt64(row["campaign_id"])
@@ -234,7 +237,9 @@ func SequenceStepTicker(db *core.DB) {
 			}
 			db.PGExec(context.Background(), `UPDATE campaigns SET status='active', started_at=COALESCE(started_at, NOW()), updated_at=NOW() WHERE id=$1 AND status='scheduled'`, campaignID) //nolint:errcheck
 			go dispatchStep(db, campaignID, stepID)
+			advanced++
 		}
+		WorkerBeat(context.Background(), db, "sequence_ticker", "ok", fmt.Sprintf("%d steps advanced", advanced), "")
 	}
 }
 

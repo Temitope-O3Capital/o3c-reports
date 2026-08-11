@@ -72,8 +72,10 @@ func ScheduledCampaignTicker(db *core.DB) {
 		cancel()
 		if err != nil {
 			slog.Error("ScheduledCampaignTicker: query failed", "err", err)
+			WorkerBeat(context.Background(), db, "campaign_ticker", "error", err.Error(), "")
 			continue
 		}
+		launched := 0
 		for _, row := range rows {
 			id := toInt64(row["id"])
 			if id == 0 {
@@ -90,7 +92,9 @@ func ScheduledCampaignTicker(db *core.DB) {
 			}
 			slog.Info("Auto-launching scheduled campaign", "id", id)
 			startDispatch(db, id)
+			launched++
 		}
+		WorkerBeat(context.Background(), db, "campaign_ticker", "ok", fmt.Sprintf("%d launched", launched), "")
 	}
 }
 
