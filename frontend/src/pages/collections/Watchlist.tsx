@@ -71,10 +71,10 @@ const ACTION_LABELS: Record<string, string> = {
 // ── Status tab bar ─────────────────────────────────────────────────────────────
 
 const STATUS_TABS = [
-  { key: 'all',       label: 'All' },
-  { key: 'active',    label: 'Active' },
-  { key: 'resolved',  label: 'Resolved' },
-  { key: 'escalated', label: 'Escalated' },
+  { key: 'all',                    label: 'All' },
+  { key: 'active',                 label: 'Active' },
+  { key: 'resolved',               label: 'Resolved' },
+  { key: 'escalated_to_recovery',  label: 'Escalated' },
 ]
 
 // ── Resolve modal ──────────────────────────────────────────────────────────────

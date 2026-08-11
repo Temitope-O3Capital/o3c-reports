@@ -253,8 +253,8 @@ export default function WriteoffQueue() {
   ]
 
   const bulkBar = canAct && selectedIds.size > 0 ? (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: '#F0F4FF', borderBottom: '1px solid var(--bdr)' }}>
-      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{selectedIds.size} selected</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'var(--chip-bg)', borderBottom: '1px solid var(--bdr)' }}>
+      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{selectedIds.size} selected</span>
       <div style={{ marginLeft: 'auto' }}>
         <button
           onClick={() => setModal({ type: 'bulk-approve' })}

@@ -141,11 +141,14 @@ export default function CollectionsOverview() {
     setLoading(true)
     setErr(null)
     const qs = `?from=${dateFrom}&to=${dateTo}`
+    // by-agent reads date_from/date_to (not from/to); send both spellings so the
+    // agent table + Collected-MTD actually respect the date picker.
+    const agentQs = `?date_from=${dateFrom}&date_to=${dateTo}&from=${dateFrom}&to=${dateTo}`
     try {
       const [kpisRes, trendRes, agentRes, rollRes] = await Promise.all([
         apiFetch<{ data: PortfolioKPIs }>(`/api/collections/portfolio-kpis${qs}`),
         apiFetch<{ data: DPDTrendPoint[] }>(`/api/collections/dpd-trend${qs}`),
-        apiFetch<{ data: AgentRow[] }>(`/api/collections/by-agent${qs}`),
+        apiFetch<{ data: AgentRow[] }>(`/api/collections/by-agent${agentQs}`),
         apiFetch<{ data: { current_distribution: RollBucket[] } }>(`/api/collections/roll-rate${qs}`),
       ])
       setKpis(kpisRes.data)

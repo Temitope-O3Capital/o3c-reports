@@ -210,7 +210,9 @@ export default function AgentDashboard() {
     },
   ]
 
-  if (loading) return (
+  // Only block the whole page on the very first load; live reloads keep the
+  // tables visible and use their own skeleton state instead of blanking.
+  if (loading && agents.length === 0 && queue.length === 0) return (
     <Page title="Collections Dashboard">
       <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div>
     </Page>
