@@ -42,6 +42,13 @@ interface LoanRow {
   disbursed_at:           string
   created_at:             string
   date_booked:            string | null
+  first_installment_date: string | null
+  collateral_type:        string | null
+  collateral_description: string | null
+  collateral_valuation_kobo: number | null
+  ledger_balance_kobo:    number | null
+  interest_frequency:     string | null
+  lending_model:          string | null
   officer_name:           string
 }
 
@@ -69,8 +76,20 @@ const LOAN_COLS: TableCol<LoanRow>[] = [
   {
     key: 'product_type', label: 'Product',
     render: r => (
-      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         {r.product_type ?? r.loan_product ?? '—'}
+        {r.collateral_type && (
+          <span
+            title={`Secured: ${r.collateral_type}${r.collateral_description ? ' — ' + r.collateral_description : ''}`}
+            style={{
+              fontSize: 10, fontWeight: FW.semibold, letterSpacing: 0.3,
+              padding: '1px 6px', borderRadius: RADIUS.full,
+              background: `${GREEN}1a`, color: GREEN, whiteSpace: 'nowrap',
+            }}
+          >
+            SECURED
+          </span>
+        )}
       </span>
     ),
   },
@@ -211,7 +230,17 @@ function LoanDetailPanel({ loan, onClose }: { loan: LoanRow; onClose: () => void
           <DetailRow label="Maturity"    value={fmtDate(loan.maturity_date)} />
           <DetailRow label="Booked"      value={fmtDate(loan.date_booked ?? loan.disbursed_at)} />
           <DetailRow label="Disbursed"   value={fmtDate(loan.disbursed_at)} />
-          <DetailRow label="Created"     value={fmtDate(loan.created_at)} />
+          <DetailRow label="1st Instalment" value={fmtDate(loan.first_installment_date)} />
+
+          <PanelDivider />
+
+          <DetailRow label="Lending Model"    value={loan.lending_model} />
+          <DetailRow label="Interest Freq."   value={loan.interest_frequency} />
+          <DetailRow label="Ledger Balance"   value={loan.ledger_balance_kobo != null ? fmtKobo(loan.ledger_balance_kobo) : '—'} mono />
+          <DetailRow label="Collateral"       value={loan.collateral_type ? `${loan.collateral_type} — ${loan.collateral_description ?? ''}`.trim().replace(/—\s*$/, '') : 'Unsecured'} />
+          {loan.collateral_valuation_kobo != null && loan.collateral_valuation_kobo > 0 && (
+            <DetailRow label="Collateral Value" value={fmtKobo(loan.collateral_valuation_kobo)} mono />
+          )}
         </div>
       </div>
     </>

@@ -43,7 +43,10 @@ func albList(db *core.DB) http.HandlerFunc {
 		             cl.outstanding_principal_kobo AS outstanding_kobo, ` + cbsLoanDPD + ` AS dpd,
 		             cl.maturity_date AS next_due_date, cl.installment_amount_kobo AS monthly_repayment_kobo,
 		             cl.maturity_date, cl.start_date AS disbursed_at, cl.start_date AS created_at,
-		             cl.date_booked, cl.officer_name, cl.status
+		             cl.date_booked, cl.first_installment_date,
+		             cl.collateral_type, cl.collateral_description, cl.collateral_valuation_kobo,
+		             cl.ledger_balance_kobo, cl.interest_frequency, cl.lending_model,
+		             cl.officer_name, cl.status
 		      FROM cbs_loans cl
 		      WHERE cl.status NOT IN ('Closed','Revoked')
 		      ) x WHERE 1=1`
@@ -141,7 +144,10 @@ func albGet(db *core.DB) http.HandlerFunc {
 			       `+cbsLoanDPD+` AS dpd, cl.maturity_date AS next_due_date,
 			       cl.interest_rate, cl.tenor_days, cl.maturity_date,
 			       cl.start_date AS disbursed_at, cl.start_date AS created_at,
-			       cl.date_booked, cl.status, cl.officer_name
+			       cl.date_booked, cl.first_installment_date,
+			       cl.collateral_type, cl.collateral_description, cl.collateral_valuation_kobo,
+			       cl.ledger_balance_kobo, cl.interest_frequency, cl.lending_model,
+			       cl.status, cl.officer_name
 			FROM cbs_loans cl
 			WHERE cl.cbs_id=$1`, id)
 		if err != nil || len(rows) == 0 {

@@ -272,8 +272,11 @@ func refreshLoans(ctx context.Context, tx *sql.Tx, rows []map[string]any) error 
 	     loan_amount_kobo, outstanding_principal_kobo, outstanding_interest_kobo, outstanding_fee_kobo,
 	     interest_rate, tenor_days, start_date, maturity_date, officer_name,
 	     economic_sector, branch_name, reference_number, installment_amount_kobo, approved_date, date_booked,
+	     collateral_type, collateral_description, collateral_valuation_kobo, ledger_balance_kobo,
+	     interest_frequency, lending_model, first_installment_date,
 	     raw, synced_at)
-	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb, NOW())
+	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+	            $23,$24,$25,$26,$27,$28,$29,$30::jsonb, NOW())
 	    ON CONFLICT (cbs_id) DO UPDATE SET
 	        cbs_account_number = EXCLUDED.cbs_account_number,
 	        cbs_customer_id = EXCLUDED.cbs_customer_id, linked_account = EXCLUDED.linked_account,
@@ -286,6 +289,10 @@ func refreshLoans(ctx context.Context, tx *sql.Tx, rows []map[string]any) error 
 	        economic_sector = EXCLUDED.economic_sector, branch_name = EXCLUDED.branch_name,
 	        reference_number = EXCLUDED.reference_number, installment_amount_kobo = EXCLUDED.installment_amount_kobo,
 	        approved_date = EXCLUDED.approved_date, date_booked = EXCLUDED.date_booked,
+	        collateral_type = EXCLUDED.collateral_type, collateral_description = EXCLUDED.collateral_description,
+	        collateral_valuation_kobo = EXCLUDED.collateral_valuation_kobo, ledger_balance_kobo = EXCLUDED.ledger_balance_kobo,
+	        interest_frequency = EXCLUDED.interest_frequency, lending_model = EXCLUDED.lending_model,
+	        first_installment_date = EXCLUDED.first_installment_date,
 	        raw = EXCLUDED.raw, synced_at = NOW()`
 	for _, m := range rows {
 		id := gstr(m, "id")
@@ -307,7 +314,11 @@ func refreshLoans(ctx context.Context, tx *sql.Tx, rows []map[string]any) error 
 			gnum(m, "applicableInterestRate"), gint(m, "tenure"),
 			gts(m, "startDate"), gts(m, "maturityDate"), gstr(m, "accountOfficerName"),
 			gstr(m, "economicSector"), gstr(m, "branchName"), gstr(m, "referenceNumber"),
-			gkobo(m, "installmentAmount"), gts(m, "approvedDate"), booked, rawOf(m),
+			gkobo(m, "installmentAmount"), gts(m, "approvedDate"), booked,
+			gstr(m, "collateralType"), gstr(m, "collateralDescription"),
+			gkobo(m, "collateralValuation"), gkobo(m, "ledgerBalance"),
+			gstr(m, "interestFrequency"), gstr(m, "lendingModel"), gts(m, "firstInstallmentDate"),
+			rawOf(m),
 		); err != nil {
 			return fmt.Errorf("cbs refresh loans: insert %s: %w", id, err)
 		}
