@@ -215,6 +215,11 @@ function HtmlMessage({ html }: { html: string }) {
     html,body{margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#1f2733;background:#fff;padding:14px 16px;overflow-wrap:anywhere;word-break:break-word}
     body *{max-width:100%}
+    /* Neutralise the full-width / rounded grey backdrops email templates wrap content
+       in — in this narrow pane they render as big empty grey blocks. Whiten the outer
+       wrapper(s) and drop their rounding so the message reads as clean content. */
+    body > *{background-color:#fff!important;background-image:none!important;border-radius:0!important}
+    body > * > table,table[width="100%"]{background-color:#fff!important;background-image:none!important}
     p{margin:0 0 10px}
     img{height:auto!important}
     table{border-collapse:collapse}
