@@ -490,7 +490,7 @@ export default function WriteoffRequests() {
   return (
     <Page
       title="Write-off Requests"
-      subtitle="Collections-initiated write-off requests pending admin approval"
+      subtitle="Collections-initiated write-off requests pending admin approval. (Recovery-originated write-offs are actioned under Write-off Approvals.)"
       actions={
         <button
           onClick={() => setCreateOpen(true)}

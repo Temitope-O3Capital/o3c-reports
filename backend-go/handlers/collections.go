@@ -571,7 +571,13 @@ func collectionsWriteoffKPIs(db *core.DB) http.HandlerFunc {
 				COALESCE(SUM(wo.amount_kobo), 0)                                 AS amount_kobo,
 				CASE WHEN SUM(wo.amount_kobo) = 0 OR SUM(wo.amount_kobo) IS NULL THEN 0
 				     ELSE ROUND(
-				       100.0 * SUM(rc.recovered_kobo) / NULLIF(SUM(wo.amount_kobo), 0), 1
+				       100.0 * (SELECT COALESCE(SUM(rc2.recovered_kobo), 0)
+				                FROM recovery_cases rc2
+				                WHERE rc2.id IN (
+				                    SELECT DISTINCT case_id FROM recovery_write_off_approvals w2
+				                    WHERE ($1 = '' OR w2.created_at::date >= $1::date)
+				                      AND ($2 = '' OR w2.created_at::date <= $2::date)
+				                )) / NULLIF(SUM(wo.amount_kobo), 0), 1
 				     )
 				END                                                               AS recovery_rate_pct,
 				COUNT(*) FILTER (WHERE wo.status = 'pending')                    AS pending

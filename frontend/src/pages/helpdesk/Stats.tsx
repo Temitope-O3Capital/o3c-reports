@@ -1,7 +1,7 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, DateFilter } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, unwrapList } from '../../lib/api'
 import { today, monthStart } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, INTER, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import {
@@ -124,14 +124,16 @@ export default function HelpdeskStats() {
         apiFetch<{ data: BusyHourRow[] }>(`/api/helpdesk/stats/busiest-hours?${s}`),
         apiFetch<{ data: ChannelRow[] }>(`/api/helpdesk/stats/channel-breakdown?${s}`),
       ])
-      setCsatTrend(ct.data ?? [])
-      setHandleTime(ht.data ?? [])
-      setResolution(res.data ?? [])
-      setTypeDist(td.data ?? [])
-      setLeaderboard(lb.data ?? [])
-      setSlaByAgent(sla.data ?? [])
-      setBusyHours(bh.data ?? [])
-      setChannels(ch.data ?? [])
+      // unwrapList reads either a bare array or a { data: [] } envelope, so these
+      // charts don't blank if any analytics endpoint's shape is later normalized.
+      setCsatTrend(unwrapList<CsatPoint>(ct))
+      setHandleTime(unwrapList<HandlePoint>(ht))
+      setResolution(unwrapList<ResolutionPoint>(res))
+      setTypeDist(unwrapList<TypeDistPoint>(td))
+      setLeaderboard(unwrapList<LeaderRow>(lb))
+      setSlaByAgent(unwrapList<SLAByAgentRow>(sla))
+      setBusyHours(unwrapList<BusyHourRow>(bh))
+      setChannels(unwrapList<ChannelRow>(ch))
     } catch (e: any) {
       setError(e.message)
     } finally {

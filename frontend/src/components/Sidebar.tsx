@@ -188,7 +188,7 @@ const SECTIONS: Section[] = [
           { label: 'Agent Queue',          to: '/collections/queue' },
           { label: 'Promises to Pay',      to: '/collections/promises' },
           { label: 'Repayment Plans',      to: '/collections/repayment-plans' },
-          { label: 'Write-off Queue',      to: '/collections/writeoffs' },
+          { label: 'Write-off Approvals',  to: '/collections/writeoffs' },
           { label: 'Write-off Requests',   to: '/collections/writeoff-requests' },
           { label: 'Recovery Approvals',   to: '/collections/recovery-approvals' },
           { label: 'Activity Log',         to: '/collections/activity-log', vis: ['collections_head','collections_head'] },

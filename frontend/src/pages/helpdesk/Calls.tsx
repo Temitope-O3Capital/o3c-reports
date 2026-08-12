@@ -82,6 +82,15 @@ const DISPOSITIONS = [
   'Wrong Number', 'Not Interested',
 ]
 
+// Dispositions that imply the call needs follow-up work — these pre-check the
+// "open a linked ticket" box (the agent can still override it either way).
+const FOLLOWUP_DISPOSITIONS = new Set([
+  'Escalated', 'Complaint Logged', 'Callback Scheduled', 'Pending / Follow-up', 'Unreachable / No Answer',
+])
+function dispositionPriority(d: string): 'high' | 'medium' | 'low' {
+  return d === 'Escalated' || d === 'Complaint Logged' ? 'high' : 'medium'
+}
+
 // Zoho-sourced calls only carry `completed` (connected) and `missed` (no answer);
 // the other values exist for the live AT flow. "Connected" reads truer than
 // "Completed" for a dialer-heavy operation.
@@ -317,6 +326,8 @@ export default function Calls() {
   // walk-in by hand; otherwise the search typeahead shows.
   const [custPicked, setCustPicked] = useState(false)
   const [custManual, setCustManual] = useState(false)
+  // Whether to also open a linked follow-up ticket when the call is logged.
+  const [createTicket, setCreateTicket] = useState(false)
   const [logSaving, setLogSaving] = useState(false)
   const [callScript, setCallScript] = useState<CallScript | null>(null)
   const [scriptExpanded, setScriptExpanded] = useState(false)
@@ -410,7 +421,7 @@ export default function Calls() {
       outcome_val: 'completed', disposition: '', duration_seconds: '',
       ticket_type: '', notes: '', resolution: '',
     })
-    setCustPicked(false); setCustManual(false)
+    setCustPicked(false); setCustManual(false); setCreateTicket(false)
   }
 
   async function handleLogCall() {
@@ -419,8 +430,30 @@ export default function Calls() {
     if (!logForm.phone.trim() && !logForm.customer_cif.trim()) {
       toast.error('Add a customer (search) or a phone number'); return
     }
+    if (createTicket && !logForm.ticket_type) {
+      toast.error('Pick a ticket type to open a linked ticket'); return
+    }
     setLogSaving(true)
     try {
+      // Optionally spin up a follow-up ticket first — this reuses the full ticket
+      // pipeline (SLA clock, auto-assignment, first message) rather than a thin
+      // insert — then link the call to it via ticket_ref below.
+      let ticketRef: string | undefined
+      if (createTicket) {
+        const complaint = logForm.notes.trim()
+        const tRes = await apiPost<{ ticket?: { ticket_ref?: string } }>('/api/helpdesk/tickets', {
+          channel:        'phone',
+          subject:        `${logForm.ticket_type} — ${logForm.customer_name || logForm.phone || 'caller'}`,
+          ticket_type:    logForm.ticket_type,
+          priority:       dispositionPriority(logForm.disposition),
+          customer_name:  logForm.customer_name || undefined,
+          customer_cif:   logForm.customer_cif || undefined,
+          customer_phone: logForm.phone || undefined,
+          message_text:   complaint || `Follow-up from call · ${logForm.disposition || 'logged'}`,
+          custom_fields:  { disposition: logForm.disposition || '', resolution: logForm.resolution || '', source: 'call_log' },
+        })
+        ticketRef = tRes?.ticket?.ticket_ref
+      }
       await apiPost('/api/helpdesk/calls', {
         customer_name:    logForm.customer_name || undefined,
         customer_cif:     logForm.customer_cif || undefined,
@@ -432,8 +465,9 @@ export default function Calls() {
         ticket_type:      logForm.ticket_type || undefined,
         notes:            logForm.notes || undefined,
         resolution:       logForm.resolution || undefined,
+        ticket_ref:       ticketRef,
       })
-      toast.success('Call logged')
+      toast.success(ticketRef ? `Call logged · ticket ${ticketRef} opened` : 'Call logged')
       setLogOpen(false)
       resetLogForm()
       setCallScript(null)
@@ -795,12 +829,19 @@ export default function Calls() {
             </div>
             <div>
               <label style={labelSt}>Disposition</label>
-              <select value={logForm.disposition} onChange={e => setLogForm(f => ({ ...f, disposition: e.target.value }))} style={inputSt}>
+              <select value={logForm.disposition} onChange={e => { const v = e.target.value; setLogForm(f => ({ ...f, disposition: v })); setCreateTicket(FOLLOWUP_DISPOSITIONS.has(v)) }} style={inputSt}>
                 <option value="">— Select —</option>
                 {DISPOSITIONS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
           </div>
+
+          {/* Optional: open a linked follow-up ticket (auto-checked for follow-up dispositions) */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: TEXT.sm, color: 'var(--txt)', cursor: 'pointer', userSelect: 'none' }}>
+            <input type="checkbox" checked={createTicket} onChange={e => setCreateTicket(e.target.checked)} style={{ accentColor: NAVY, width: 15, height: 15 }} />
+            Open a linked follow-up ticket
+            {createTicket && !logForm.ticket_type && <span style={{ color: AMBER, fontSize: TEXT.xs }}>— pick a ticket type above</span>}
+          </label>
 
           {/* Customer complaint / summary */}
           <div>

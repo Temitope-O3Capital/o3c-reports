@@ -308,7 +308,7 @@ export default function WriteoffQueue() {
   return (
     <Page
       title="Write-off Queue"
-      subtitle="Accounts recommended for write-off after exhausting collection attempts"
+      subtitle="Recovery-originated write-offs awaiting your decision — approve to post, or return to recovery. (Collections-initiated write-offs live under Write-off Requests.)"
       actions={
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
