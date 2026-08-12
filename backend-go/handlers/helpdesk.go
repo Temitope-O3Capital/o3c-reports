@@ -1783,13 +1783,26 @@ func hdGetTicket(db *core.DB) http.HandlerFunc {
 		// Lazy conversation fill: the Zoho sync imports the ticket but NOT its threads,
 		// so a freshly synced email ticket has no message rows yet — its body lives only
 		// in the Zoho conversation. When an agent opens such a mail, fetch it now so the
-		// pane isn't blank. Bounded by a short timeout so a slow/absent Zoho can't hang
-		// the open, and skipped for call tickets (no email thread to fetch).
-		if len(msgs) == 0 {
+		// pane isn't blank. Also refetch when the existing messages are summary-only
+		// (no body_html) so an older truncated import is upgraded to the full body on
+		// view. Bounded by a short timeout so a slow/absent Zoho can't hang the open,
+		// and skipped for call tickets (no email thread to fetch).
+		needFull := len(msgs) == 0
+		if !needFull {
+			hasFullBody := false
+			for _, m := range msgs {
+				if str(m["body_html"]) != "" {
+					hasFullBody = true
+					break
+				}
+			}
+			needFull = !hasFullBody
+		}
+		if needFull {
 			ref := str(ticket["ticket_ref"])
 			if str(ticket["source_system"]) == "zoho_desk" && strings.HasPrefix(ref, "ZOHO-") &&
 				str(ticket["channel"]) != "call" && zohoEnsureConfigured(r.Context(), db) {
-				cctx, cancel := context.WithTimeout(r.Context(), 9*time.Second)
+				cctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 				if n, _ := zohoImportTicketConversations(cctx, db, toInt64(ticket["id"]), strings.TrimPrefix(ref, "ZOHO-"), str(ticket["channel"])); n > 0 {
 					if refetched, _ := db.PGQuery(r.Context(), `
 						SELECT m.*, u.full_name AS author_user_name

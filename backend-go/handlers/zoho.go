@@ -1282,6 +1282,17 @@ func zohoOnboardAgents(db *core.DB) http.HandlerFunc {
 
 // ── Zoho Desk — import conversation threads ──────────────────────────────────
 
+// zohoFetchThreadContent returns the full HTML body of one ticket thread. The
+// /conversations list returns only a truncated summary, so the complete message
+// body must be read from the individual thread endpoint.
+func zohoFetchThreadContent(ctx context.Context, ticketZohoID, threadID string) (string, error) {
+	result, err := zohoFetch(ctx, "tickets/"+ticketZohoID+"/threads/"+threadID, nil)
+	if err != nil {
+		return "", err
+	}
+	return zohoStr(result["content"]), nil
+}
+
 // zohoFetchConversations returns the combined thread/comment timeline for a ticket.
 func zohoFetchConversations(ctx context.Context, ticketZohoID string) ([]map[string]any, error) {
 	result, err := zohoFetch(ctx, "tickets/"+ticketZohoID+"/conversations", url.Values{"limit": {"100"}})
@@ -1402,18 +1413,36 @@ func zohoImportTicketConversations(ctx context.Context, db *core.DB, localID int
 		if a, ok := c["author"].(map[string]any); ok {
 			author = zohoStr(a["name"])
 		}
+		// The /conversations list only carries a ~200-char summary preview, which is
+		// why messages showed up cut off. The full email body lives on the individual
+		// thread, so fetch it for threads and store the complete text (+ HTML). Notes/
+		// comments are short — their summary is the whole thing.
 		body := zohoStr(c["summary"])
+		var bodyHTML string
+		if strings.EqualFold(zohoStr(c["type"]), "thread") {
+			if html, ferr := zohoFetchThreadContent(ctx, zohoID, extID); ferr == nil && html != "" {
+				bodyHTML = html
+				if txt := strings.TrimSpace(htmlToText(html)); txt != "" {
+					body = txt
+				}
+			}
+		}
 		createdAt := zohoParseTime(c["createdTime"])
 		if createdAt.IsZero() {
 			createdAt = time.Now()
 		}
+		// Upgrade-safe upsert: refresh to the fuller body when we now have more content
+		// (so a re-sync/on-open replaces an old truncated summary), never shorten it.
 		res, ierr := db.PGExec(ctx, `
 			INSERT INTO helpdesk_messages
-			  (ticket_id, direction, channel, author_name, body_text,
+			  (ticket_id, direction, channel, author_name, body_text, body_html,
 			   is_internal_note, external_id, source_system, created_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,'zoho_desk',$8)
-			ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO NOTHING`,
-			localID, direction, ch, author, body, isNote, extID, createdAt)
+			VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,'zoho_desk',$9)
+			ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET
+			  body_text = CASE WHEN length(EXCLUDED.body_text) > length(COALESCE(helpdesk_messages.body_text,''))
+			                   THEN EXCLUDED.body_text ELSE helpdesk_messages.body_text END,
+			  body_html = COALESCE(EXCLUDED.body_html, helpdesk_messages.body_html)`,
+			localID, direction, ch, author, body, bodyHTML, isNote, extID, createdAt)
 		if ierr != nil {
 			slog.Warn("zohoImportTicketConversations: insert", "ext", extID, "err", ierr)
 			continue
