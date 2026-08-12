@@ -581,6 +581,17 @@ func StartZohoDeskAutoSync(db *core.DB) {
 
 		runZohoTicketSync(db, 2000)
 		zohoSweepConversations(db, 300) // seed message bodies for the newest tickets
+		// One-time backfill: drain message-less + summary-only tickets to full thread
+		// content in gentle batches until caught up, then stop. Runs alongside (the
+		// hourly deep sweep maintains it afterwards). Bounded so a bug can't loop forever.
+		go func() {
+			for i := 0; i < 80; i++ {
+				if zohoSweepConversations(db, 100) < 100 {
+					break // fewer than a full batch remained — backlog drained
+				}
+				time.Sleep(60 * time.Second)
+			}
+		}()
 		// Fast incremental poll (recent tickets) + hourly deep reconcile.
 		fast := time.NewTicker(zohoPollInterval())
 		deep := time.NewTicker(1 * time.Hour)
@@ -602,12 +613,17 @@ func StartZohoDeskAutoSync(db *core.DB) {
 // tickets that still have no messages, so mail bodies and inbox previews populate
 // automatically instead of only when an agent opens each mail. Bounded by cap and
 // gated on Zoho being configured. (The ticket sync imports tickets but not threads.)
-func zohoSweepConversations(db *core.DB, cap int) {
+func zohoSweepConversations(db *core.DB, cap int) int {
 	ctx := context.Background()
 	if !zohoEnsureConfigured(ctx, db) {
-		return
+		return 0
 	}
-	runZohoThreadImportJob(ctx, db, &zohoJob{}, false, cap)
+	j := &zohoJob{}
+	runZohoThreadImportJob(ctx, db, j, false, cap)
+	j.Lock()
+	n := j.processed
+	j.Unlock()
+	return n
 }
 
 // ── Background import jobs ────────────────────────────────────────────────────
@@ -1343,11 +1359,14 @@ func runZohoThreadImportJob(ctx context.Context, db *core.DB, j *zohoJob, includ
 	if !includeCalls {
 		q += ` AND channel <> 'call'`
 	}
-	// Resume: skip tickets that already have an imported message, so a re-trigger
-	// after a restart only processes the ones still missing conversations.
+	// Target tickets that don't yet have a FULL-content message (body_html): both
+	// message-less tickets and ones that only have the old truncated summary. This
+	// makes the sweep both import missing conversations AND backfill/upgrade summaries
+	// to the complete thread body. Newest first so recent mail fills in first; a
+	// ticket drops out once it has a full-content message (idempotent resume).
 	q += ` AND NOT EXISTS (
 	         SELECT 1 FROM helpdesk_messages m
-	         WHERE m.ticket_id = helpdesk_tickets.id AND m.source_system='zoho_desk')`
+	         WHERE m.ticket_id = helpdesk_tickets.id AND COALESCE(m.body_html,'') <> '')`
 	q += ` ORDER BY id DESC LIMIT $1`
 	rows, err := db.PGQuery(ctx, q, maxTickets)
 	if err != nil {

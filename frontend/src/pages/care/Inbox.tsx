@@ -211,7 +211,19 @@ function CustomerHistory({ cif, email, excludeId }: { cif?: string; email?: stri
 function HtmlMessage({ html }: { html: string }) {
   const ref = useRef<HTMLIFrameElement>(null)
   const [h, setH] = useState(60)
-  const srcDoc = `<!doctype html><html><head><base target="_blank"><meta name="color-scheme" content="light"><style>html,body{margin:0;padding:0}body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13.5px;line-height:1.5;color:#1a1a1a;background:#fff;word-break:break-word;padding:10px 12px}img{max-width:100%;height:auto}a{color:#0E2841}blockquote{margin:6px 0 6px 2px;padding-left:10px;border-left:2px solid #e2e2e2;color:#555}table{max-width:100%}pre{white-space:pre-wrap;word-break:break-word}</style></head><body>${html}</body></html>`
+  const srcDoc = `<!doctype html><html><head><base target="_blank"><meta name="color-scheme" content="light"><style>
+    html,body{margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#1f2733;background:#fff;padding:14px 16px;overflow-wrap:anywhere;word-break:break-word}
+    body *{max-width:100%}
+    p{margin:0 0 10px}
+    img{height:auto!important}
+    table{border-collapse:collapse}
+    td,th{word-break:break-word}
+    a{color:#0E2841;text-decoration:underline}
+    blockquote,.gmail_quote{margin:10px 0;padding:2px 0 2px 12px;border-left:3px solid #e6e8eb;color:#6b7280}
+    hr{border:none;border-top:1px solid #edf0f2;margin:14px 0}
+    pre{white-space:pre-wrap;word-break:break-word;font-family:inherit;margin:0}
+  </style></head><body>${html}</body></html>`
   function measure() {
     try {
       const doc = ref.current?.contentDocument
