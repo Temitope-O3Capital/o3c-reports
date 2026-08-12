@@ -1,73 +1,67 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  ResponsiveContainer, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
 import { Page, SectionCard, KpiCard, Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
-import { RED, AMBER, BLUE, GREEN, NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { RED, AMBER, BLUE, GREEN, NAVY, INTER, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { PeriodFilter, Tip, Stat, Note, ytick, share, type Period } from './shared'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ExecSettlements {
-  paystack_wallet_kobo: number
-  nip_success_rate_pct: number
-  settled_today_kobo: number
-  pending_kobo: number
+  period: { type: string; start: string; end: string }
+
+  payouts_kobo: number
+  payouts_count: number
+  payouts_change_pct: number
+  payout_fees_kobo: number
   failed_count: number
+  failed_value_kobo: number
+  nip_success_rate_pct: number
+
+  collections_kobo: number
+  collections_count: number
+  collection_fees_kobo: number
+  net_flow_kobo: number
+  channel_volumes: { channel: string; volume_kobo: number; count: number; fees_kobo: number }[]
+
+  paystack_wallet_kobo: number
+  settled_period_kobo: number
+  settled_period_count: number
+
   recon_rate_pct: number
-  channel_volumes: { channel: string; volume_kobo: number; count: number; success_rate_pct: number }[]
-  daily_trend: { date: string; settled: number; failed: number }[]
+  recon_matched: number
+  recon_unmatched: number
+  recon_last_run: string
   open_exceptions: number
   exception_value_kobo: number
+  exception_reasons: { reason: string; count: number; value_kobo: number }[]
+  exception_ageing: { bucket: string; count: number; value_kobo: number }[]
+
+  daily_trend: { day: string; payouts_kobo: number; collections_kobo: number }[]
 }
 
-type Period = 'mtd' | 'l30d' | 'l90d' | 'ytd'
-const PERIOD_OPTIONS: { id: Period; label: string }[] = [
-  { id: 'mtd', label: 'MTD' }, { id: 'l30d', label: 'Last 30d' },
-  { id: 'l90d', label: 'Last 90d' }, { id: 'ytd', label: 'YTD' },
-]
-
-function PeriodFilter({ period, onChange }: { period: Period; onChange: (p: Period) => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--chip-bg)', borderRadius: RADIUS.md, padding: 3, border: '1px solid var(--bdr)' }}>
-      {PERIOD_OPTIONS.map(opt => (
-        <button key={opt.id} onClick={() => onChange(opt.id)} style={{
-          padding: '5px 14px', borderRadius: 7, border: 'none',
-          fontSize: TEXT.sm, fontWeight: period === opt.id ? FW.bold : FW.medium,
-          fontFamily: INTER, cursor: 'pointer',
-          background: period === opt.id ? 'var(--card)' : 'transparent',
-          color: period === opt.id ? 'var(--txt)' : 'var(--txt2)',
-          boxShadow: period === opt.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-          transition: 'all 130ms',
-        }}>{opt.label}</button>
-      ))}
-    </div>
-  )
+// Fixed hues — a reason keeps its colour whatever the mix looks like this period.
+const REASON_COLOR: Record<string, string> = {
+  no_candidate: RED, ambiguous: AMBER, amount_mismatch: BLUE, unclassified: '#94A3B8',
 }
-
-function Tip({ active, payload, label, fmt }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: NAVY, borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
-      {label && <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER, marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</div>}
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>{fmt ? fmt(p.value) : p.value}</span>
-          {p.name && payload.length > 1 && <span style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>}
-        </div>
-      ))}
-    </div>
-  )
+const REASON_LABEL: Record<string, string> = {
+  no_candidate: 'No candidate', ambiguous: 'Ambiguous', amount_mismatch: 'Amount mismatch',
+  unclassified: 'Unclassified',
+}
+// Ageing runs fresh → stale, so colour runs calm → alarming in the same direction.
+const AGE_COLOR: Record<string, string> = {
+  '0-7d': GREEN, '8-30d': BLUE, '31-90d': AMBER, '90d+': RED,
 }
 
 export default function ExecSettlements() {
   const [data, setData] = useState<ExecSettlements | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [period, setPeriod] = useState<Period>('mtd')
+  const [period, setPeriod] = useState<Period>('l30d')
 
   const load = useCallback(async (p: Period) => {
     setLoading(true); setError(null)
@@ -96,94 +90,162 @@ export default function ExecSettlements() {
   )
   if (!data) return null
 
+  const exceptionTotal = data.exception_reasons.reduce((s, x) => s + x.value_kobo, 0) || 1
+  const stale = data.exception_ageing.find(a => a.bucket === '90d+')
+  const staleShare = stale ? share(stale.value_kobo, data.exception_value_kobo) : 0
+  const netOut = data.net_flow_kobo < 0
+
   return (
     <Page title={title} back={back} actions={actions}>
 
-      {/* KPI row */}
+      {/* ── Money moved ───────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="Settled Today"     value={fmtKobo(data.settled_today_kobo)}   sub={`${fmtKobo(data.pending_kobo)} pending`}      icon="check_circle"  accent={GREEN} />
-        <KpiCard label="Paystack Wallet"   value={fmtKobo(data.paystack_wallet_kobo)}                                                     icon="account_balance" accent={NAVY}  />
-        <KpiCard label="NIP Success Rate"  value={fmtPct(data.nip_success_rate_pct)}   sub={`Recon: ${fmtPct(data.recon_rate_pct)}`}      icon="swap_horiz"    accent={data.nip_success_rate_pct < 95 ? AMBER : BLUE} />
-        <KpiCard label="Open Exceptions"   value={fmtNum(data.open_exceptions)}        sub={fmtKobo(data.exception_value_kobo)}            icon="error_outline" accent={data.open_exceptions > 0 ? RED : GREEN} />
+        <KpiCard label="Payouts Out" value={fmtKobo(data.payouts_kobo)} change={data.payouts_change_pct} icon="north_east" accent={NAVY} />
+        <KpiCard label="Collections In" value={fmtKobo(data.collections_kobo)} icon="south_west" accent={GREEN} />
+        <KpiCard label="Payout Success" value={fmtPct(data.nip_success_rate_pct)} icon="check_circle" accent={data.nip_success_rate_pct >= 99 ? GREEN : AMBER} />
+        <KpiCard label="Open Exceptions" value={fmtNum(data.open_exceptions)} icon="report" accent={data.open_exceptions > 0 ? RED : GREEN} />
       </div>
 
-      {/* Settlement trend */}
-      <SectionCard title="Daily Settlement Trend" subtitle="Settled vs failed" style={{ marginBottom: 14 }}>
-        <ResponsiveContainer width="100%" height={220}>
+      {/* ── Reconciliation: the number that matters most ──────────────────── */}
+      <SectionCard
+        title="Reconciliation"
+        subtitle={data.recon_last_run ? `Last run ${data.recon_last_run}` : 'Never run'}
+        style={{ marginBottom: 14 }}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[5], marginBottom: SP[4] }}>
+          <Stat label="Match Rate" value={fmtPct(data.recon_rate_pct)} sub={`${fmtNum(data.recon_matched)} matched`} tone={data.recon_rate_pct >= 95 ? GREEN : RED} />
+          <Stat label="Unmatched" value={fmtNum(data.recon_unmatched)} sub="items with no counterparty" tone={AMBER} />
+          <Stat label="Value Unreconciled" value={fmtKobo(data.exception_value_kobo)} sub="open exceptions" tone={RED} />
+          <Stat label="Oldest Bucket" value={stale ? fmtPct(staleShare) : '—'} sub="of value aged 90d+" tone={staleShare > 50 ? RED : 'var(--txt)'} />
+        </div>
+
+        {data.open_exceptions > 0 && staleShare > 90 && (
+          <Note tone={RED}>
+            <b>Every open exception is more than 90 days old.</b> {fmtNum(data.open_exceptions)} items worth{' '}
+            {fmtKobo(data.exception_value_kobo)} have no counterparty and none have been worked. This is not a
+            backlog that is being cleared slowly — nothing is moving. Exceptions are shown for the whole open
+            book rather than the selected period, because an item unmatched since March is still unmatched today.
+          </Note>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginTop: SP[4] }}>
+          <div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: SP[3] }}>Why they failed to match</div>
+            {data.exception_reasons.length === 0 ? (
+              <Note tone={GREEN}>Nothing unmatched — every item found its counterparty.</Note>
+            ) : data.exception_reasons.map(x => (
+              <div key={x.reason} style={{ marginBottom: SP[3] }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, fontWeight: FW.medium }}>
+                    {REASON_LABEL[x.reason] ?? x.reason}
+                  </span>
+                  <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
+                    {fmtKobo(x.value_kobo)} · {fmtNum(x.count)}
+                  </span>
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: 'var(--chip-bg)', overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${share(x.value_kobo, exceptionTotal)}%`, height: '100%', borderRadius: 3,
+                    background: REASON_COLOR[x.reason] ?? REASON_COLOR.unclassified,
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: SP[3] }}>How long they have been sitting</div>
+            <ResponsiveContainer width="100%" height={170}>
+              <BarChart data={data.exception_ageing} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
+                <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
+                <XAxis dataKey="bucket" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                <YAxis width={62} tickFormatter={ytick} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+                <Tooltip content={<Tip fmt={fmtKobo} />} cursor={{ fill: 'var(--row-hvr)' }} />
+                <Bar dataKey="value_kobo" name="Value" radius={[4, 4, 0, 0]} barSize={44}>
+                  {data.exception_ageing.map(a => <Cell key={a.bucket} fill={AGE_COLOR[a.bucket] ?? BLUE} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* ── Daily flow ────────────────────────────────────────────────────── */}
+      <SectionCard title="Daily Flow" subtitle="Payouts against collections" style={{ marginBottom: 14 }}>
+        <ResponsiveContainer width="100%" height={230}>
           <AreaChart data={data.daily_trend} margin={{ top: 4, right: 8, bottom: 14, left: 8 }}>
             <defs>
-              <linearGradient id="gradSettled" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={GREEN} stopOpacity={0.2} />
-                <stop offset="100%" stopColor={GREEN} stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="gradFailed" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={RED} stopOpacity={0.15} />
-                <stop offset="100%" stopColor={RED} stopOpacity={0} />
-              </linearGradient>
+              {[['payouts', NAVY], ['collections', GREEN]].map(([k, c]) => (
+                <linearGradient key={k} id={`sgrad_${k}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={c} stopOpacity={0.2} />
+                  <stop offset="100%" stopColor={c} stopOpacity={0} />
+                </linearGradient>
+              ))}
             </defs>
             <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
-            <XAxis dataKey="date" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
-            <YAxis width={72} tickFormatter={v => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : ''}
-              tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+            <XAxis dataKey="day" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} minTickGap={24} />
+            <YAxis width={70} tickFormatter={ytick} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
             <Tooltip content={<Tip fmt={fmtKobo} />} />
-            <Area type="monotone" dataKey="settled" name="Settled" stroke={GREEN} strokeWidth={2.2} fill="url(#gradSettled)"
-              dot={false} activeDot={{ r: 4, fill: GREEN, stroke: '#fff', strokeWidth: 2 }} />
-            <Area type="monotone" dataKey="failed" name="Failed" stroke={RED} strokeWidth={1.8} fill="url(#gradFailed)"
-              dot={false} activeDot={{ r: 4, fill: RED, stroke: '#fff', strokeWidth: 2 }} />
+            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs, fontFamily: INTER, color: 'var(--txt2)' }} />
+            <Area type="monotone" dataKey="payouts_kobo" name="Payouts" stroke={NAVY} strokeWidth={2} fill="url(#sgrad_payouts)" dot={false} activeDot={{ r: 4, fill: NAVY, stroke: '#fff', strokeWidth: 2 }} />
+            <Area type="monotone" dataKey="collections_kobo" name="Collections" stroke={GREEN} strokeWidth={2} fill="url(#sgrad_collections)" dot={false} activeDot={{ r: 4, fill: GREEN, stroke: '#fff', strokeWidth: 2 }} />
           </AreaChart>
         </ResponsiveContainer>
       </SectionCard>
 
-      {/* Channel breakdown + Exception summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: SP[3] }}>
-        <SectionCard title="Channel Breakdown" subtitle="Volume, count and success rate by channel">
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: 'var(--th-bg)' }}>
-                {['Channel', 'Volume', 'Transactions', 'Success Rate', 'Status'].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Channel' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.channel_volumes.map(ch => {
-                const isHealthy = ch.success_rate_pct >= 95
-                return (
-                  <tr key={ch.channel} style={{ borderBottom: '1px solid var(--bdr)' }}
-                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'}
-                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}>
-                    <td style={{ padding: '10px 12px', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: SORA }}>{ch.channel}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(ch.volume_kobo)}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(ch.count)}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: isHealthy ? GREEN : RED, fontWeight: FW.bold, fontFamily: INTER }}>{fmtPct(ch.success_rate_pct)}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                      <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, fontFamily: INTER, padding: '2px 8px', borderRadius: 99, background: isHealthy ? 'rgba(22,163,74,0.12)' : 'rgba(192,0,0,0.1)', color: isHealthy ? GREEN : RED }}>
-                        {isHealthy ? 'Healthy' : 'Degraded'}
-                      </span>
-                    </td>
+      {/* ── Channels + position ───────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: SP[3] }}>
+        <SectionCard title="Collection Channels" subtitle="Inbound value and cost to collect">
+          {data.channel_volumes.length === 0 ? (
+            <Note>No collections settled in this period.</Note>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: 'var(--th-bg)' }}>
+                  {['Channel', 'Value', 'Count', 'Fees', 'Cost %'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Channel' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.channel_volumes.map(c => (
+                  <tr key={c.channel} style={{ borderBottom: '1px solid var(--bdr)' }}>
+                    <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, fontWeight: FW.medium, textTransform: 'capitalize' }}>{c.channel.replace(/_/g, ' ')}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(c.volume_kobo)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(c.count)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtKobo(c.fees_kobo)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtPct(share(c.fees_kobo, c.volume_kobo))}</td>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          )}
         </SectionCard>
 
-        <SectionCard title="Exceptions">
+        <SectionCard title="Position">
           <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-            <div style={{ borderLeft: `3px solid ${data.open_exceptions > 0 ? RED : GREEN}`, paddingLeft: SP[3] }}>
-              <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Open</div>
-              <div style={{ ...NUM, fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: data.open_exceptions > 0 ? RED : GREEN, fontFamily: INTER, lineHeight: 1 }}>{fmtNum(data.open_exceptions)}</div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, marginTop: 3 }}>unresolved</div>
-            </div>
-            <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4], borderLeft: `3px solid ${AMBER}`, paddingLeft: SP[3] }}>
-              <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>At Risk Value</div>
-              <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.extrabold, color: 'var(--txt)', fontFamily: INTER, lineHeight: 1 }}>{fmtKobo(data.exception_value_kobo)}</div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, marginTop: 3 }}>pending resolution</div>
+            <Stat
+              label="Net Flow"
+              value={fmtKobo(Math.abs(data.net_flow_kobo))}
+              sub={netOut ? 'more paid out than collected' : 'more collected than paid out'}
+              tone={netOut ? AMBER : GREEN}
+            />
+            <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
+              <Stat label="Paystack Wallet" value={fmtKobo(data.paystack_wallet_kobo)} sub="available balance" />
             </div>
             <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
-                Failed txns: <span style={{ ...NUM, fontWeight: FW.bold, color: 'var(--txt)' }}>{fmtNum(data.failed_count)}</span>
-              </div>
+              <Stat label="Settled to Bank" value={fmtKobo(data.settled_period_kobo)} sub={`${fmtNum(data.settled_period_count)} settlements`} />
+            </div>
+            <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
+              <Stat
+                label="Failed Payouts"
+                value={fmtNum(data.failed_count)}
+                sub={data.failed_count === 0 ? 'none' : `${fmtKobo(data.failed_value_kobo)} to retry`}
+                tone={data.failed_count > 0 ? RED : GREEN}
+              />
+            </div>
+            <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
+              <Stat label="Cost of Payouts" value={fmtKobo(data.payout_fees_kobo)} sub={`${fmtNum(data.payouts_count)} transfers`} />
             </div>
           </div>
         </SectionCard>

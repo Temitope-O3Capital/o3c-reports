@@ -1,4 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
+import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useState, useEffect, useCallback, lazy, Suspense, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -98,11 +99,16 @@ export default function CRMContacts() {
   const [c360Open, setC360Open] = useState(false)
   const [bulkSel,  setBulkSel]  = useState<Set<string | number>>(new Set())
 
+  // Search runs on the SERVER (name, CIF, phone, email) so it spans every contact, not
+  // just the first 500 that happen to be loaded. Debounced to one request per pause.
+  const dq = useDebouncedValue(search, 300)
+
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
       // Leads page only shows pre-conversion contacts; customers live in My Accounts.
       const p = new URLSearchParams({ limit: '500', exclude_status: 'customer' })
+      if (dq)       p.set('q', dq)
       if (dateFrom) p.set('from', dateFrom)
       if (dateTo)   p.set('to',   dateTo)
 
@@ -115,7 +121,7 @@ export default function CRMContacts() {
       setUsers(Array.isArray(us) ? us : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, dq])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['deals','crm'] })
@@ -125,23 +131,15 @@ export default function CRMContacts() {
     [contacts],
   )
 
+  // Only facet filters run client-side now; the text search is served (see load), so a
+  // server CIF/phone hit is never re-hidden by a narrower client-side text check.
   const filteredContacts = useMemo(() => contacts.filter(c => {
     if (fStatuses.size && (c.status == null || !fStatuses.has(c.status.toLowerCase()))) return false
     if (fSources.size && (c.source == null || !fSources.has(c.source.toLowerCase()))) return false
     if (fAssignees.size && (c.assigned_name == null || !fAssignees.has(c.assigned_name))) return false
     if (fSourceTypes.size && !fSourceTypes.has(c.source_type ?? 'self_sourced')) return false
-    if (search) {
-      const q = search.toLowerCase()
-      if (!(
-        c.first_name?.toLowerCase().includes(q) ||
-        c.last_name?.toLowerCase().includes(q) ||
-        c.email?.toLowerCase().includes(q) ||
-        c.phone?.includes(q) ||
-        c.employer_name?.toLowerCase().includes(q)
-      )) return false
-    }
     return true
-  }), [contacts, fStatuses, fSources, fAssignees, fSourceTypes, search])
+  }), [contacts, fStatuses, fSources, fAssignees, fSourceTypes])
 
   function resetFilters() { setSearch(''); setFStatuses(new Set()); setFSources(new Set()); setFAssignees(new Set()); setFSourceTypes(new Set()) }
 

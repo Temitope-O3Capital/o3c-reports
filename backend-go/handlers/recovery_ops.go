@@ -89,9 +89,12 @@ func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if q != "" {
-			query += fmt.Sprintf(" AND rc.account_cif ILIKE $%d", n)
-			args = append(args, "%"+q+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(q,
+				[]string{"rc.account_cif"}, "", n); clause != "" {
+				query += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		if from != "" {
 			query += fmt.Sprintf(" AND rc.opened_at::date >= $%d", n)

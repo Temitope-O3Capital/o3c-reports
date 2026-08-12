@@ -31,12 +31,6 @@ interface KPIs {
   disbursements_series: number[]
   customers_series: number[]
 }
-interface HRSummary {
-  total_employees: number
-  active_employees: number
-  new_hires_period: number
-  pending_leave_requests: number
-}
 interface SettlementsSummary {
   settled_period_kobo: number
   pending_count: number
@@ -192,8 +186,8 @@ function ATMCard({ tier, gradient, count, outstanding, lastFour }: {
   return (
     <div style={{
       borderRadius: RADIUS['2xl'], background: gradient, position: 'relative',
-      padding: '20px 22px', overflow: 'hidden', flex: 1,
-      boxShadow: '0 8px 28px rgba(0,0,0,0.28)', minHeight: 180,
+      padding: '22px 26px', overflow: 'hidden', flex: 1,
+      boxShadow: '0 8px 28px rgba(0,0,0,0.28)', minHeight: 200,
     }}>
       <div style={{ position: 'absolute', top: -32, right: -32, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', bottom: -20, right: 16, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
@@ -283,18 +277,6 @@ function PipelineSegments<K extends string>({
   )
 }
 
-// ── MiniStat ──────────────────────────────────────────────────────────────────
-
-function MiniStat({ label, value, sub, subColor }: { label: string; value: string; sub?: string; subColor?: string }) {
-  return (
-    <div>
-      <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>{label}</div>
-      <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', fontFamily: INTER, lineHeight: 1, letterSpacing: -0.6 }}>{value}</div>
-      {sub && <div style={{ fontSize: TEXT.xs, color: subColor ?? 'var(--txt2)', fontFamily: INTER, marginTop: 4 }}>{sub}</div>}
-    </div>
-  )
-}
-
 // ── DPD Legend (rendered in SectionCard actions — top right) ──────────────────
 
 const DPD_LEGEND = (
@@ -359,7 +341,6 @@ export default function Overview() {
   const [losStages,  setLosStages]  = useState<LOSStages | null>(null)
   const [ccStages,   setCcStages]   = useState<CCStages | null>(null)
   const [funnel,     setFunnel]     = useState<AcquisitionFunnel | null>(null)
-  const [hr,         setHr]         = useState<HRSummary | null>(null)
   const [settlements, setSettlements] = useState<SettlementsSummary | null>(null)
   const [lastSync,   setLastSync]   = useState<Date | null>(null)
 
@@ -380,7 +361,6 @@ export default function Overview() {
       apiFetch<{ data: CardsSummary         }>('/api/overview/cards-summary'),
       apiFetch<{ data: ContactCenterSummary }>('/api/overview/contact-center'),
       apiFetch<{ data: AcquisitionFunnel    }>('/api/overview/acquisition-funnel'),
-      apiFetch<{ data: HRSummary            }>(`/api/executive/hr?${exec}`),
       apiFetch<{ data: SettlementsSummary   }>(`/api/executive/settlements?${exec}`),
     ])
     function ok<T>(r: PromiseSettledResult<{ data: T }>): { data: T } | null {
@@ -397,8 +377,7 @@ export default function Overview() {
     const ca  = ok<CardsSummary>(results[8]    as PromiseSettledResult<{ data: CardsSummary }>)
     const cct = ok<ContactCenterSummary>(results[9]  as PromiseSettledResult<{ data: ContactCenterSummary }>)
     const fn  = ok<AcquisitionFunnel>(results[10] as PromiseSettledResult<{ data: AcquisitionFunnel }>)
-    const hrs = ok<HRSummary>(results[11] as PromiseSettledResult<{ data: HRSummary }>)
-    const stl = ok<SettlementsSummary>(results[12] as PromiseSettledResult<{ data: SettlementsSummary }>)
+    const stl = ok<SettlementsSummary>(results[11] as PromiseSettledResult<{ data: SettlementsSummary }>)
     if (k?.data)          setKpis(k.data)
     if (m?.data?.length)  setMonthly(m.data)
     if (pr?.data?.length) setProducts(pr.data)
@@ -410,7 +389,6 @@ export default function Overview() {
     if (ca?.data)         setCards(ca.data)
     if (cct?.data)        setCcSummary(cct.data)
     if (fn?.data)         setFunnel(fn.data)
-    if (hrs?.data)        setHr(hrs.data)
     if (stl?.data)        setSettlements(stl.data)
     setLastSync(new Date())
     setLoading(false)
@@ -496,14 +474,6 @@ export default function Overview() {
           ]}
         />
         <DeptPanel
-          icon="account_balance" label="Finance" color={NAVY} to="/executive/finance"
-          metrics={[
-            { label: 'FD Book',        value: fd ? fmtKobo(fd.total_fd_book_kobo) : '—' },
-            { label: 'New This Month', value: fd ? String(fd.new_this_month) : '—' },
-            { label: 'GL Entries',     value: '—' },
-          ]}
-        />
-        <DeptPanel
           icon="trending_up" label="Sales" color={GREEN} to="/executive/sales"
           metrics={[
             { label: 'Disbursed (period)', value: kpis ? fmtKobo(kpis.disbursements_kobo) : '—' },
@@ -528,14 +498,6 @@ export default function Overview() {
           ]}
         />
         <DeptPanel
-          icon="people" label="HR" color={BLUE} to="/executive/hr"
-          metrics={[
-            { label: 'Headcount',        value: hr ? fmtNum(hr.active_employees) : '—' },
-            { label: 'New Hires',        value: hr ? String(hr.new_hires_period) : '—' },
-            { label: 'Pending Leave',    value: hr ? String(hr.pending_leave_requests) : '—' },
-          ]}
-        />
-        <DeptPanel
           icon="swap_horiz" label="Settlements" color="#7C3AED" to="/executive/settlements"
           metrics={[
             { label: 'Settled (period)', value: settlements ? fmtKobo(settlements.settled_period_kobo) : '—' },
@@ -543,63 +505,26 @@ export default function Overview() {
             { label: 'Failed',           value: settlements ? String(settlements.failed_period) : '—' },
           ]}
         />
+        {/* Call centre and care are one team, so they get one panel. It reuses the
+            contact-center summary already fetched for the panel further down rather
+            than adding a second request for the same numbers. */}
+        <DeptPanel
+          icon="support_agent" label="Contact Centre" color={BLUE} to="/helpdesk/stats"
+          metrics={[
+            { label: 'Open Tickets',   value: ccSummary ? fmtNum(ccSummary.open_tickets) : '—' },
+            { label: 'Resolved Today', value: ccSummary ? fmtNum(ccSummary.resolved_today) : '—' },
+            { label: 'SLA Compliance', value: ccSummary ? fmtPct(ccSummary.sla_compliance_pct) : '—' },
+          ]}
+        />
       </div>
 
-      {/* ── Business Lines: [FD + CC stacked] | Cards ────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: SP[3], marginBottom: 14 }}>
-
-        {/* Left column — FD above, CC below */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-
-          {/* Fixed Deposits */}
-          <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)', borderRadius: RADIUS.xl, padding: `${SP[5]} ${SP[6]}`, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: 20 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: AMBER }}>savings</span>
-              <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA }}>Fixed Deposits</span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[5] }}>
-              <MiniStat label="Total Book Value" value={fd ? fmtKobo(fd.total_fd_book_kobo) : '—'} />
-              <MiniStat label="Active FDs"       value={fd ? fmtNum(fd.active_fd_count) : '—'} />
-              <MiniStat label="Maturing in 30d"  value={fd ? String(fd.maturing_30d) : '—'}    sub="Require action" subColor={(fd?.maturing_30d ?? 0) > 10 ? RED : 'var(--txt2)'} />
-              <MiniStat label="New This Month"   value={fd ? String(fd.new_this_month) : '—'}  sub="New placements" />
-            </div>
-          </div>
-
-          {/* Contact Centre */}
-          <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)', borderRadius: RADIUS.xl, padding: `${SP[5]} ${SP[6]}`, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: 20 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: BLUE }}>support_agent</span>
-              <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA }}>Contact Centre</span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[5] }}>
-              <MiniStat
-                label="Open Tickets"
-                value={ccSummary ? String(ccSummary.open_tickets) : '—'}
-                sub={ccSummary ? `${ccSummary.in_queue} in queue` : undefined}
-              />
-              <MiniStat
-                label="Resolved Today"
-                value={ccSummary ? String(ccSummary.resolved_today) : '—'}
-                sub="tickets closed"
-              />
-              <MiniStat
-                label="Avg 1st Response"
-                value={ccSummary ? `${ccSummary.avg_first_response_mins.toFixed(1)}m` : '—'}
-                sub="target < 5 min"
-                subColor={(ccSummary?.avg_first_response_mins ?? 0) < 5 ? GREEN : RED}
-              />
-              <MiniStat
-                label="SLA Compliance"
-                value={ccSummary ? fmtPct(ccSummary.sla_compliance_pct) : '—'}
-                sub={ccSummary ? (ccSummary.escalations_open > 0 ? `${ccSummary.escalations_open} escalations` : 'no escalations') : undefined}
-                subColor={(ccSummary?.escalations_open ?? 0) > 0 ? RED : 'var(--txt2)'}
-              />
-            </div>
-          </div>
-
-        </div>
-
-        {/* Right column — Cards (wider) */}
+      {/* ── Business Lines: Cards, full width ────────────────────────────── */}
+      {/* Fixed Deposits and Contact Centre used to sit stacked in a narrow left
+          column here, duplicating the numbers their Department Dashboard panels
+          already carry. Dropping them gives the card tiers and currency tiles the
+          full row, which is what they needed — three ATM visuals at a third of a
+          third of the page were unreadable. */}
+      <div style={{ marginBottom: 14 }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)', borderRadius: RADIUS.xl, padding: `${SP[5]} ${SP[6]}` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>

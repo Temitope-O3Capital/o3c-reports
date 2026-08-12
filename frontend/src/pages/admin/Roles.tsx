@@ -44,8 +44,9 @@ function pageLabel(p: string): string {
 
 // ── Role modal ────────────────────────────────────────────────────────────────
 
-function RoleModal({ role, users, onClose, onSaved }: {
+function RoleModal({ role, users, pageGroups, onClose, onSaved }: {
   role: Role | null; users: { role: string; full_name: string }[]
+  pageGroups: { label: string; pages: { key: string; label: string }[] }[]
   onClose: () => void; onSaved: () => void
 }) {
   const isNew = !role || !role.name
@@ -165,9 +166,10 @@ function RoleModal({ role, users, onClose, onSaved }: {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-              {PAGE_GROUPS.map(group => {
-                const allOn = group.pages.every(p => pages.has(p))
-                const someOn = group.pages.some(p => pages.has(p))
+              {pageGroups.map(group => {
+                const keys = group.pages.map(p => p.key)
+                const allOn = keys.every(k => pages.has(k))
+                const someOn = keys.some(k => pages.has(k))
                 return (
                   <div key={group.label} style={{ border: '1.5px solid var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
                     <label style={{
@@ -175,18 +177,18 @@ function RoleModal({ role, users, onClose, onSaved }: {
                       background: someOn ? `${NAVY}08` : 'var(--input-bg)', cursor: 'pointer', userSelect: 'none',
                     }}>
                       <input
-                        type="checkbox" checked={allOn} onChange={() => toggleGroup(group.pages)}
+                        type="checkbox" checked={allOn} onChange={() => toggleGroup(keys)}
                         ref={el => { if (el) el.indeterminate = someOn && !allOn }}
                         style={{ cursor: 'pointer' }}
                       />
                       <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{group.label}</span>
-                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{group.pages.filter(p => pages.has(p)).length}/{group.pages.length}</span>
+                      <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{keys.filter(k => pages.has(k)).length}/{keys.length}</span>
                     </label>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[2], padding: '10px 14px', borderTop: '1px solid var(--bdr)' }}>
                       {group.pages.map(p => (
-                        <label key={p} style={{ display: 'flex', alignItems: 'center', gap: SP[1], cursor: 'pointer', fontSize: TEXT.sm }}>
-                          <input type="checkbox" checked={pages.has(p)} onChange={() => togglePage(p)} style={{ cursor: 'pointer' }} />
-                          {pageLabel(p)}
+                        <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: SP[1], cursor: 'pointer', fontSize: TEXT.sm }}>
+                          <input type="checkbox" checked={pages.has(p.key)} onChange={() => togglePage(p.key)} style={{ cursor: 'pointer' }} />
+                          {p.label}
                         </label>
                       ))}
                     </div>
@@ -266,14 +268,18 @@ export default function AdminRoles() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
+  const [pageGroups, setPageGroups] = useState<{ label: string; pages: { key: string; label: string }[] }[]>([])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [r, u] = await Promise.all([
+      const [r, u, cat] = await Promise.all([
         apiFetch<Role[]>(`/api/admin/roles?from=${dateFrom}&to=${dateTo}`),
         apiFetch<{ role: string; full_name: string }[]>('/api/admin/users'),
+        apiFetch<{ label: string; pages: { key: string; label: string }[] }[]>('/api/admin/page-catalog'),
       ])
+      setPageGroups(Array.isArray(cat) ? cat.map(m => ({ label: m.label, pages: m.pages })) : [])
       const roleList = Array.isArray(r) ? r : []
       const userList = Array.isArray(u) ? u : []
 
@@ -371,6 +377,7 @@ export default function AdminRoles() {
         <RoleModal
           role={editing}
           users={users}
+          pageGroups={pageGroups}
           onClose={() => setEditing(false)}
           onSaved={load}
         />

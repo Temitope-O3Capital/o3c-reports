@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Page, KpiCard, SectionCard, DataTable, Modal, Button, Select, Input, Sk,
@@ -76,14 +77,15 @@ export default function SalesBook() {
   const [assignReason, setAssignReason] = useState('')
   const [assigning, setAssigning] = useState(false)
 
+  const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
   const query = useMemo(() => {
     const p = new URLSearchParams()
     p.set('limit', String(PAGE_SIZE))
     p.set('offset', String(offset))
-    if (search) p.set('q', search)
+    if (dq) p.set('q', dq)
     if (officerFilter) p.set('officer_id', officerFilter)
     return p.toString()
-  }, [offset, search, officerFilter])
+  }, [offset, dq, officerFilter])
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -105,7 +107,7 @@ export default function SalesBook() {
 
   useEffect(() => { load() }, [load])
   // Changing scope or search invalidates the current page position.
-  useEffect(() => { setOffset(0); setSelected(new Set()) }, [officerFilter, search])
+  useEffect(() => { setOffset(0); setSelected(new Set()) }, [officerFilter, dq])
 
   async function doAssign() {
     if (!assignTo) return

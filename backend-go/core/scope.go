@@ -24,14 +24,12 @@ const (
 // their pages grant. Every "*_head" and "head_*" role is included implicitly by
 // DataScopeForRole, so only the non-suffixed seniors are listed here.
 var seesAllRoles = map[string]bool{
-	"admin":      true,
-	"md":         true,
-	"coo":        true,
-	"cfo":        true,
-	"cmo":        true,
-	"executive":  true,
-	"management": true,
-	"it_admin":   true,
+	"admin":    true,
+	"md":       true,
+	"coo":      true,
+	"cfo":      true,
+	"cmo":      true,
+	"it_admin": true,
 }
 
 // DataScopeForRole maps a role to how many rows it may see. Leaf officer/agent
@@ -53,16 +51,11 @@ func SeesAllRows(role string) bool { return DataScopeForRole(role) == ScopeAll }
 // SeesAllRows: a sales_head sees all sales rows but is not management. Kept in
 // sync with the frontend MGMT set (lib/roles.ts).
 var managementRoles = map[string]bool{
-	"admin":      true,
-	"md":         true,
-	"coo":        true,
-	"cfo":        true,
-	"cmo":        true,
-	"executive":  true,
-	"management": true,
-	"head_ops":   true,
-	"head_it":    true,
-	"head_hr":    true,
+	"admin": true,
+	"md":    true,
+	"coo":   true,
+	"cfo":   true,
+	"cmo":   true,
 }
 
 // IsManagement reports whether a role belongs to the executive/management tier

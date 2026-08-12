@@ -4,7 +4,7 @@ import { useLocation, Link, useNavigate } from 'react-router-dom'
 import { roleLabel, MGMT } from '../lib/roles'
 import { SORA, PLEX, MONO } from '../lib/design'
 import { NAV_ICONS, IcoSearch } from '../lib/icons'
-import { allRoles, type AuthUser } from '../hooks/useAuth'
+import { allRoles, ROLE_PAGES, type AuthUser } from '../hooks/useAuth'
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 
@@ -39,18 +39,20 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'corporate_fare', label: 'Business Dev', to: '/bd',
-        vis: ['sales_officer','sales_head','head_sales','bd_officer','bd_head'],
+        vis: ['sales_officer','sales_head','sales_head','bd_officer','bd_head'],
         subs: [
           { label: 'My Dashboard',      to: '/bd/my-dashboard',  vis: ['bd_officer'] },
-          { label: 'All Leads',         to: '/bd/leads' },
+          // Same page, two scopes: My Pipeline is filtered to the signed-in officer,
+          // All Leads is the whole book. They used to be byte-identical.
           { label: 'My Pipeline',       to: '/bd/pipeline' },
+          { label: 'All Leads',         to: '/bd/leads' },
           { label: 'Employer Register', to: '/bd/employers' },
           { label: 'Assignments',       to: '/bd/assignments',   vis: ['bd_officer','bd_head'] },
         ],
       },
       {
         icon: 'mark_email_read', label: 'Mail', to: '/mail/overview',
-        vis: ['sales_officer','sales_head','head_sales','bd_officer','bd_head'],
+        vis: ['sales_officer','sales_head','sales_head','bd_officer','bd_head'],
         subs: [
           { label: 'Overview',  to: '/mail/overview' },
           { label: 'Inbox',     to: '/mail/inbox' },
@@ -63,7 +65,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'campaign', label: 'Campaigns & Marketing', to: '/marketing/overview',
-        vis: ['sales_head','head_sales','bd_officer','bd_head','call_center_head'],
+        vis: ['sales_head','sales_head','bd_officer','bd_head','call_center_head'],
         subs: [
           { label: 'Overview',           to: '/marketing/overview' },
           { label: 'All Campaigns',      to: '/campaigns' },
@@ -80,7 +82,7 @@ const SECTIONS: Section[] = [
         // routes onto the same idea and are now one — My Book — and 'Cohort Analysis'
         // moved under Reports rather than standing alone.
         icon: 'trending_up', label: 'Sales & CRM', to: '/sales/overview',
-        vis: ['sales_officer','sales_head','head_sales'],
+        vis: ['sales_officer','sales_head','sales_head'],
         subs: [
           { label: 'Overview',         to: '/sales/overview' },
           { label: 'My Book',          to: '/sales/book' },
@@ -106,11 +108,13 @@ const SECTIONS: Section[] = [
           { label: 'Customer Directory', to: '/customers' },
           { label: 'Ticket Queue',     to: '/helpdesk/tickets' },
           { label: 'Call Log',         to: '/helpdesk/calls' },
+          { label: 'Inbound Calls',    to: '/call-center/inbound' },
           { label: 'Outbound Queue',   to: '/call-center/queue' },
           { label: 'Leads',            to: '/call-center/leads' },
           { label: 'DNC List',         to: '/call-center/dnc' },
           // leadership
           { label: 'Performance',      to: '/call-center/performance',  vis: ['call_center_head'] },
+          { label: 'Agent Matching',   to: '/call-center/agent-matching', vis: ['call_center_head'] },
           { label: 'Supervisor View',  to: '/helpdesk/supervisor',      vis: ['call_center_head'] },
           // resources
           { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
@@ -121,10 +125,10 @@ const SECTIONS: Section[] = [
         icon: 'mark_email_unread', label: 'Care', to: '/care',
         vis: ['call_center_agent','call_center_head'],
         subs: [
-          // Care handles customer mail — email-channel tickets shown as an inbox
+          // Care handles customer mail — email-channel tickets shown as an inbox.
+          // Dashboard + Supervisor + Analytics are now tabs in the /care hub.
           { label: 'Dashboard',          to: '/care' },
           { label: 'Care Inbox',         to: '/care/inbox' },
-          { label: 'Supervisor',         to: '/care/supervisor',  vis: ['call_center_head'] },
           // shared history + resources (customer's cross-channel history via Customer 360).
           // Care-scoped paths (same pages) so the sidebar highlights Care, not Call Center.
           { label: 'Customer Directory', to: '/care/customers' },
@@ -140,24 +144,24 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'credit_card', label: 'Card Operations', to: '/cards',
-        vis: ['cards_ops_officer','cards_ops_head','risk_officer','risk_head'],
+        vis: ['cards_agent','cards_head','risk_officer','risk_head'],
         subs: [
-          { label: 'My Queue',            to: '/cards/my-queue', vis: ['cards_ops_officer'] },
+          { label: 'My Queue',            to: '/cards/my-queue', vis: ['cards_agent'] },
           { label: 'Credit Card Portfolio', to: '/cards/credit-portfolio' },
           { label: 'At-Risk Cards',       to: '/cards/at-risk' },
-          { label: 'Import Cycle Data',   to: '/cards/cycle-import', vis: ['cards_ops_head','finance_head'] },
+          { label: 'Import Cycle Data',   to: '/cards/cycle-import', vis: ['cards_head','finance_head'] },
           { label: 'Card Trends',         to: '/cards/trends' },
           { label: 'Cardholder Mgmt',     to: '/cards/management' },
           { label: 'Issuance Queue',      to: '/cards/issuance' },
           { label: 'Disputes',            to: '/cards/disputes' },
           { label: 'Credit Limit Review', to: '/cards/credit-limit' },
           { label: 'Billing Cycles',      to: '/cards/billing' },
-          { label: 'Blink Card',          to: '/blink-card', vis: ['cards_ops_officer','cards_ops_head'] },
+          { label: 'Blink Card',          to: '/blink-card', vis: ['cards_agent','cards_head'] },
         ],
       },
       {
         icon: 'smartphone', label: 'Mobile App', to: '/mobile-app',
-        vis: ['cards_ops_head','finance_head','head_ops'],
+        vis: ['cards_head','finance_head','coo'],
       },
     ],
   },
@@ -167,7 +171,7 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'shield', label: 'Risk', to: '/operations/risk',
-        vis: ['risk_officer','risk_head','finance_officer','finance_head','collections_head','head_collections'],
+        vis: ['risk_officer','risk_head','finance_officer','finance_head','collections_head','collections_head'],
         subs: [
           { label: 'Overview',         to: '/operations/risk',              vis: ['risk_officer','risk_head'] },
           { label: 'App Review',       to: '/operations/risk/applications', vis: ['risk_officer','risk_head'] },
@@ -177,7 +181,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'collections_bookmark', label: 'Collections', to: '/collections',
-        vis: ['collections_agent','collections_head','head_collections'],
+        vis: ['collections_agent','collections_head','collections_head'],
         subs: [
           { label: 'Credit Portfolio',     to: '/collections/portfolio' },
           { label: 'Watchlist',            to: '/collections/watchlist' },
@@ -187,24 +191,24 @@ const SECTIONS: Section[] = [
           { label: 'Write-off Queue',      to: '/collections/writeoffs' },
           { label: 'Write-off Requests',   to: '/collections/writeoff-requests' },
           { label: 'Recovery Approvals',   to: '/collections/recovery-approvals' },
-          { label: 'Activity Log',         to: '/collections/activity-log', vis: ['collections_head','head_collections'] },
+          { label: 'Activity Log',         to: '/collections/activity-log', vis: ['collections_head','collections_head'] },
           { label: 'My Dashboard',         to: '/collections-ops/agent', vis: ['collections_agent'] },
         ],
       },
       {
         icon: 'gavel', label: 'Recovery', to: '/recovery',
-        vis: ['recovery_agent','recovery_head','head_recovery'],
+        vis: ['recovery_agent','recovery_head','recovery_head'],
         subs: [
           { label: 'My Dashboard',   to: '/recovery-ops/agent', vis: ['recovery_agent'] },
           { label: 'Cases',          to: '/recovery/cases' },
           { label: 'Legal Tracker',  to: '/recovery/legal' },
-          { label: 'Activity Log',   to: '/recovery/activity-log', vis: ['recovery_head','head_recovery'] },
+          { label: 'Activity Log',   to: '/recovery/activity-log', vis: ['recovery_head','recovery_head'] },
           { label: 'Debt Sales',     to: '/recovery/debt-sales' },
         ],
       },
       {
         icon: 'compare_arrows', label: 'Settlement & Reconciliation', to: '/settlements',
-        vis: ['settlement_officer','finance_head','head_of_reconciliation'],
+        vis: ['settlement_officer','finance_head','finance_head'],
         // The module serves two jobs: OPERATIONS (do the day's work) and REPORTING
         // (see the position). Entries are grouped in that order.
         //
@@ -222,7 +226,7 @@ const SECTIONS: Section[] = [
           { label: 'Manual Postings',          to: '/settlements/manual-postings' },
           { label: 'Interswitch',              to: '/settlements/interswitch' },
           { label: 'Transaction Report',       to: '/settlements/interswitch/half-year' },
-          { label: 'Import EODTXN',            to: '/settlements/interswitch/import', vis: ['cards_ops_head'] },
+          { label: 'Import EODTXN',            to: '/settlements/interswitch/import', vis: ['cards_head'] },
         ],
       },
     ],
@@ -233,7 +237,7 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'account_balance', label: 'Finance', to: '/finance',
-        vis: ['finance_officer','finance_head','head_of_reconciliation'],
+        vis: ['finance_officer','finance_head','finance_head'],
         subs: [
           { label: 'Transactions',      to: '/finance/transactions' },
           { label: 'Income',            to: '/finance/income' },
@@ -250,7 +254,7 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'verified_user', label: 'Compliance', to: '/compliance',
-        vis: ['compliance_officer','compliance_head','internal_control_head'],
+        vis: ['compliance_officer','compliance_head','compliance_head'],
         subs: [
           { label: 'Credit Audit Trail',  to: '/compliance/credit-audit-trail' },
           { label: 'AML Watchlist',       to: '/compliance/watchlist' },
@@ -280,7 +284,7 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'analytics', label: 'Reports & BI', to: '/reports',
-        vis: ['internal_control_head','finance_head'],
+        vis: ['bi_analyst','bi_head','compliance_head','finance_head'],
         subs: [
           { label: 'KPI Tracker',         to: '/reports/kpi' },
           { label: 'Analytics Dashboard', to: '/reports' },
@@ -293,7 +297,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'receipt_long', label: 'Statements', to: '/statements',
-        vis: ['internal_control_head','finance_officer','finance_head','head_of_reconciliation'],
+        vis: ['bi_head','compliance_head','finance_officer','finance_head'],
         subs: [
           { label: 'Account Statements',     to: '/statements' },
           { label: 'Credit Card Statements', to: '/statements/credit-cards' },
@@ -317,6 +321,79 @@ const SECTIONS: Section[] = [
   },
 ]
 
+// ── Page-key gating ───────────────────────────────────────────────────────────
+// Every nav destination maps to the page-key(s) its route guard (RequireAccess in
+// App.tsx) enforces. The sidebar hides any entry whose page the signed-in user does
+// not hold, so the menu shows only what will actually open — no items that would
+// immediately bounce to a redirect. This is what stops management roles (coo/cfo/cmo)
+// from seeing modules they can't enter, and clears dead cross-module links (e.g. a
+// sales officer seeing "Business Dev", a compliance officer seeing audit-trail pages).
+// Keep in step with the route→page map in App.tsx. Entries with no mapping here are
+// left to the role (`vis`) gate alone. admin & md bypass entirely.
+const PAGE_FOR: Record<string, string | string[]> = {
+  // Sales & BD
+  '/bd': 'bd', '/bd/my-dashboard': 'bd', '/bd/pipeline': 'bd_pipeline',
+  '/bd/leads': 'bd', '/bd/employers': 'bd_employers', '/bd/assignments': 'bd',
+  '/mail/overview': 'mail', '/mail/inbox': 'mail', '/mail/sent': 'mail', '/mail/drafts': 'mail',
+  '/marketing/overview': 'campaigns', '/campaigns': 'campaigns', '/campaigns/templates': 'campaigns',
+  '/campaigns/lists': 'campaigns', '/contact-segments': 'campaigns', '/marketing/analytics': 'campaigns',
+  '/sales/overview': 'sales', '/sales/book': 'crm_contacts', '/sales/leads': 'crm_contacts',
+  '/sales/crm': 'crm_pipeline', '/sales/tasks': 'crm_tasks', '/sales/applications': 'loans',
+  '/sales/targets': 'sales', '/sales/reports': 'crm_reports',
+  // Contact Centre
+  '/helpdesk': 'helpdesk', '/helpdesk/my-dashboard': 'helpdesk', '/helpdesk/tickets': 'helpdesk',
+  '/helpdesk/calls': 'helpdesk', '/helpdesk/supervisor': 'helpdesk',
+  '/helpdesk/knowledge-base': 'helpdesk', '/helpdesk/canned': 'helpdesk_canned',
+  '/customers': 'customer360',
+  '/call-center/queue': 'call_center', '/call-center/leads': 'call_center', '/call-center/dnc': 'call_center',
+  '/call-center/inbound': 'call_center',
+  '/call-center/performance': 'call_center_stats', '/call-center/agent-matching': 'call_center_stats',
+  '/care': 'helpdesk', '/care/inbox': 'helpdesk', '/care/customers': 'customer360',
+  '/care/knowledge-base': 'helpdesk', '/care/canned': 'helpdesk_canned',
+  // Cards
+  '/cards': 'cards', '/cards/my-queue': 'cards', '/cards/credit-portfolio': 'cards',
+  '/cards/at-risk': 'cards', '/cards/cycle-import': 'cards', '/cards/trends': 'card_trends',
+  '/cards/management': 'cards', '/cards/issuance': 'cards', '/cards/disputes': 'cards',
+  '/cards/credit-limit': 'cards', '/cards/billing': 'cards', '/blink-card': 'blink_card',
+  '/mobile-app': 'mobile_app',
+  // Operations
+  '/operations/risk': 'credit_portfolio', '/operations/risk/applications': 'credit_portfolio',
+  '/operations/risk/portfolio': ['credit_portfolio', 'active_loan_book'], '/operations/risk/vintage': 'credit_portfolio',
+  '/collections': 'collections', '/collections/portfolio': 'collections', '/collections/watchlist': 'collections',
+  '/collections/queue': 'collections', '/collections/promises': 'collections',
+  '/collections/repayment-plans': 'collections', '/collections/writeoffs': 'collections',
+  '/collections/writeoff-requests': 'collections', '/collections/recovery-approvals': 'recovery',
+  '/collections/activity-log': 'collections', '/collections-ops/agent': 'collections',
+  '/recovery': 'recovery', '/recovery-ops/agent': 'recovery', '/recovery/cases': 'recovery',
+  '/recovery/legal': 'recovery', '/recovery/activity-log': 'recovery', '/recovery/debt-sales': 'recovery',
+  '/settlements': 'settlement',
+  '/settlements/workbench': ['settlement', 'reconciliation'], '/settlements/exceptions': ['settlement', 'reconciliation'],
+  '/settlements/position': ['settlement', 'reconciliation'], '/settlements/runs': ['settlement', 'reconciliation'],
+  '/settlements/reconciliation': 'reconciliation', '/settlements/manual-postings': 'settlement',
+  '/settlements/interswitch': ['settlement', 'cards'], '/settlements/interswitch/half-year': ['settlement', 'cards'],
+  '/settlements/interswitch/import': ['settlement', 'cards'],
+  // Finance
+  '/finance': 'income', '/finance/transactions': 'transactions', '/finance/income': 'income',
+  '/deposits': 'fixed_deposit', '/finance/eod': 'eod', '/finance/fx-rates': 'fx_rates',
+  // Compliance
+  '/compliance': 'watch_list', '/compliance/credit-audit-trail': 'audit_trail',
+  '/compliance/watchlist': 'watch_list', '/compliance/regulatory': 'watch_list',
+  '/compliance/findings': 'audit_findings', '/compliance/checklists': 'compliance_checklists',
+  '/compliance/audit-trail': 'audit_trail', '/compliance/kyc-expiry': 'watch_list',
+  '/compliance/aml-rules': 'watch_list', '/compliance/prudential': 'watch_list',
+  '/compliance/dsar': 'watch_list', '/compliance/concentration': 'watch_list',
+  '/compliance/dpa-register': 'watch_list', '/compliance/soc2': 'audit_trail',
+  '/compliance/pentest': 'audit_trail', '/compliance/policies': 'compliance_checklists',
+  '/compliance/credit-bureau': 'watch_list', '/compliance/breach-incidents': 'compliance_all',
+  '/compliance/board-pack': 'compliance_all',
+  // Analytics
+  '/reports': 'reports', '/reports/kpi': 'reports', '/reports/cbn-report': 'reports',
+  '/reports/export': 'reports', '/bi': 'reports', '/bi/builder': 'reports', '/bi/scheduled': 'reports',
+  '/statements': 'statements', '/statements/credit-cards': 'statements', '/core-banking': 'core-banking',
+  // Admin
+  '/admin': 'admin_users',
+}
+
 // ── Role visibility ───────────────────────────────────────────────────────────
 
 
@@ -335,9 +412,23 @@ function canSeeSub(vis: string[] | undefined, roles: string[]): boolean {
   return roles.some(r => vis.includes(r))
 }
 
-function visibleSections(roles: string[]): Section[] {
+// makeCanOpen returns a predicate that answers "will this destination actually open
+// for the signed-in user". user.pages (baked into the JWT at login) is authoritative;
+// ROLE_PAGES is only the dev/empty-token fallback. admin & md are unrestricted.
+function makeCanOpen(user: AuthUser, roles: string[]): (to: string) => boolean {
+  if (roles.some(r => r === 'admin' || r === 'md')) return () => true
+  const pages = user.pages?.length ? user.pages : roles.flatMap(r => ROLE_PAGES[r] ?? [])
+  const held = new Set(pages)
+  return (to: string) => {
+    const need = PAGE_FOR[to]
+    if (!need) return true
+    return Array.isArray(need) ? need.some(p => held.has(p)) : held.has(need)
+  }
+}
+
+function visibleSections(roles: string[], canOpen: (to: string) => boolean): Section[] {
   return SECTIONS
-    .map(s => ({ ...s, items: s.items.filter(item => canSee(item.vis, roles)) }))
+    .map(s => ({ ...s, items: s.items.filter(item => canSee(item.vis, roles) && canOpen(item.to)) }))
     .filter(s => s.items.length > 0)
 }
 
@@ -389,12 +480,13 @@ function NavBadge({ n, hot }: { n: number; hot?: boolean }) {
 // ── Nav row ───────────────────────────────────────────────────────────────────
 
 function NavRow({
-  item, isActive, hasActiveSub, collapsed, open, onToggle, roles,
+  item, isActive, hasActiveSub, collapsed, open, onToggle, roles, canOpen,
 }: {
   item: NavItem; isActive: boolean; hasActiveSub: boolean
   collapsed: boolean; open: boolean; onToggle: () => void; roles: string[]
+  canOpen: (to: string) => boolean
 }) {
-  const visibleSubs = item.subs?.filter(s => canSeeSub(s.vis, roles)) ?? []
+  const visibleSubs = item.subs?.filter(s => canSeeSub(s.vis, roles) && canOpen(s.to)) ?? []
   const hasSubs     = visibleSubs.length > 0
   const highlighted = isActive || hasActiveSub
   const { pathname } = useLocation()
@@ -512,6 +604,33 @@ function SectionHeader({ label, collapsed }: { label?: string; collapsed: boolea
   )
 }
 
+// ── Flat module (agent view) ──────────────────────────────────────────────────
+// Agents/officers work inside one or two modules, so a collapsible dropdown is
+// pure friction. Their nav shows the module as a section header with every page
+// they can reach listed flat beneath it — no clicking to expand.
+function FlatModule({ item, roles, pathname, canOpen }: { item: NavItem; roles: string[]; pathname: string; canOpen: (to: string) => boolean }) {
+  const subs = item.subs?.filter(s => canSeeSub(s.vis, roles) && canOpen(s.to)) ?? []
+  const Ico = NAV_ICONS[item.icon]
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '14px 14px 6px',
+        fontSize: 10.5, fontWeight: 700, letterSpacing: '.11em', textTransform: 'uppercase',
+        color: 'rgba(255,255,255,.42)', fontFamily: SORA, whiteSpace: 'nowrap',
+      }}>
+        {Ico
+          ? <Ico size={13} style={{ opacity: 0.6, flexShrink: 0 }} />
+          : <span className="material-symbols-rounded" style={{ fontSize: 14, opacity: 0.6, flexShrink: 0 }}>{item.icon}</span>}
+        <span>{item.label}</span>
+      </div>
+      {subs.length > 0
+        ? subs.map(sub => <SubLink key={sub.to} sub={sub} active={pathname === sub.to} />)
+        : <SubLink sub={{ label: `${item.label} Home`, to: item.to }} active={pathname === item.to || pathname.startsWith(item.to + '/')} />}
+    </div>
+  )
+}
+
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
 export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModules }: {
@@ -554,10 +673,21 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
     localStorage.setItem('o3c_sb', collapsed ? '1' : '0')
   }, [collapsed])
 
+  const roleSet = allRoles(user)
+
+  // canOpen hides any nav entry whose route the user's pages don't grant, so the menu
+  // shows only what actually opens (no items that would redirect). See makeCanOpen.
+  const canOpen = makeCanOpen(user, roleSet)
+
   // root and admin sections always show; all others require the module to be enabled
-  const sections = visibleSections(allRoles(user)).filter(s =>
+  const sections = visibleSections(roleSet, canOpen).filter(s =>
     s.key === 'root' || s.key === 'admin' || enabledModules.has(s.key)
   )
+
+  // Agents/officers get a flat, dropdown-free nav (module = header, pages listed
+  // beneath). Heads, management and admins keep the collapsible accordion since
+  // they span many modules. Collapsed rail always uses the icon accordion.
+  const flatNav = !collapsed && roleSet.length > 0 && roleSet.every(r => /(_agent|_officer)$/.test(r))
 
   function toggleItem(to: string) {
     setOpenKey(prev => prev === to ? null : to)
@@ -694,25 +824,30 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
         scrollbarWidth: 'thin',
         scrollbarColor: 'var(--sb2) transparent',
       }}>
-        {sections.map((section, i) => (
-          <div key={section.key}>
-            {(section.header || i > 0) && (
-              <SectionHeader label={section.header} collapsed={collapsed} />
-            )}
-            {section.items.map(item => (
-              <NavRow
-                key={item.to}
-                item={item}
-                roles={allRoles(user)}
-                isActive={item.to === '/' ? pathname === '/' : item.subs?.length ? pathname === item.to : pathname.startsWith(item.to)}
-                hasActiveSub={item.subs?.some(s => s.to !== '/' && pathname.startsWith(s.to)) ?? false}
-                collapsed={collapsed}
-                open={openKey === item.to}
-                onToggle={() => toggleItem(item.to)}
-              />
+        {flatNav
+          ? sections.flatMap(s => s.items).map(item => (
+              <FlatModule key={item.to} item={item} roles={roleSet} pathname={pathname} canOpen={canOpen} />
+            ))
+          : sections.map((section, i) => (
+              <div key={section.key}>
+                {(section.header || i > 0) && (
+                  <SectionHeader label={section.header} collapsed={collapsed} />
+                )}
+                {section.items.map(item => (
+                  <NavRow
+                    key={item.to}
+                    item={item}
+                    roles={roleSet}
+                    canOpen={canOpen}
+                    isActive={item.to === '/' ? pathname === '/' : item.subs?.length ? pathname === item.to : pathname.startsWith(item.to)}
+                    hasActiveSub={item.subs?.some(s => s.to !== '/' && pathname.startsWith(s.to)) ?? false}
+                    collapsed={collapsed}
+                    open={openKey === item.to}
+                    onToggle={() => toggleItem(item.to)}
+                  />
+                ))}
+              </div>
             ))}
-          </div>
-        ))}
       </nav>
 
       {/* ── User footer ───────────────────────────────────────────────────── */}

@@ -1,4 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
+import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -30,6 +31,16 @@ interface CallCenterContact {
   purpose: Purpose
   source: string | null
   ref: string | null
+  // Call-derived (migration 144). These come from helpdesk_calls, the real call
+  // ledger — the queue used to be blind to any call an agent placed via the carrier.
+  attempts: number
+  connects: number
+  last_call_outcome: string | null
+  is_cooling: boolean    // dialled inside the cooldown window; rest it
+  is_exhausted: boolean  // many attempts, never once answered
+  disposition_code: string | null
+  callback_at: string | null
+  callback_due: boolean  // the agreed callback time has passed — serve it first
 }
 
 interface CallEntry {
@@ -46,9 +57,16 @@ interface CallEntry {
 }
 
 interface QueueSummary {
-  total: number; uncalled: number; contacted: number; callbacks: number
+  total: number; uncalled: number; contacted: number
+  callbacks: number      // scheduled, any time
+  callbacks_due: number  // the agreed time has passed
+  ready: number; cooling: number; exhausted: number
   marketing?: number; collections?: number; support?: number
 }
+
+// The working buckets. "ready" is what an agent should dial now; the rest exist so a
+// supervisor can see — and act on — the part of the backlog that should not be dialled.
+type Bucket = '' | 'ready' | 'uncalled' | 'cooling' | 'exhausted'
 
 // Purpose presentation — colors + labels for the segmentation tabs and row tags.
 const PURPOSE_META: Record<Purpose, { label: string; color: string; icon: string }> = {
@@ -99,15 +117,21 @@ function DpdBadge({ dpd }: { dpd: number }) {
   )
 }
 
+// Keyed by canonical code. It was keyed by display label, which meant any rewording of
+// a label silently dropped the colour back to grey.
 const DISP_COLORS: Record<string, { bg: string; txt: string }> = {
-  'Answered-Interested':     { bg: 'rgba(22,163,74,.12)',   txt: '#16A34A' },
-  'Answered-Not Interested': { bg: 'rgba(192,0,0,.1)',      txt: '#C00000' },
-  'PTP':                     { bg: 'rgba(37,99,235,.12)',   txt: '#2563EB' },
-  'Callback':                { bg: 'rgba(217,119,6,.12)',   txt: '#D97706' },
+  answered_interested:     { bg: 'rgba(22,163,74,.12)',   txt: '#16A34A' },
+  answered_not_interested: { bg: 'rgba(192,0,0,.1)',      txt: '#C00000' },
+  ptp:                     { bg: 'rgba(37,99,235,.12)',   txt: '#2563EB' },
+  callback:                { bg: 'rgba(217,119,6,.12)',   txt: '#D97706' },
+  wrong_number:            { bg: 'rgba(124,58,237,.12)',  txt: '#7C3AED' },
+  do_not_call:             { bg: 'rgba(192,0,0,.1)',      txt: '#C00000' },
 }
 
-function DispositionPill({ disp, size = 'md' }: { disp: string; size?: 'sm' | 'md' }) {
-  const s = DISP_COLORS[disp] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
+// `disp` is what the user reads; `code` is what picks the colour. Call trails from the
+// ledger carry only the raw outcome text, so code is optional and falls back to neutral.
+function DispositionPill({ disp, code, size = 'md' }: { disp: string; code?: string | null; size?: 'sm' | 'md' }) {
+  const s = DISP_COLORS[code ?? ''] ?? { bg: 'var(--chip-bg)', txt: 'var(--chip-txt)' }
   return (
     <span style={{
       ...NUM, display: 'inline-flex', alignItems: 'center',
@@ -118,16 +142,29 @@ function DispositionPill({ disp, size = 'md' }: { disp: string; size?: 'sm' | 'm
   )
 }
 
-function StatChip({ label, value, color }: { label: string; value: number; color: string }) {
+// A chip doubles as the bucket selector — the counts are the navigation, so a
+// supervisor who sees "3,773 exhausted" can click straight into them.
+function StatChip({ label, value, color, active, onClick, title }: {
+  label: string; value: number; color: string
+  active?: boolean; onClick?: () => void; title?: string
+}) {
+  const Tag = onClick ? 'button' : 'div'
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      padding: '8px 10px', borderRadius: RADIUS.md, flex: 1,
-      background: `${color}0f`, border: `1px solid ${color}28`,
-    }}>
+    <Tag
+      onClick={onClick}
+      title={title}
+      style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        padding: '8px 10px', borderRadius: RADIUS.md, flex: 1,
+        background: active ? `${color}22` : `${color}0f`,
+        border: `1px solid ${active ? color : `${color}28`}`,
+        cursor: onClick ? 'pointer' : 'default',
+        font: 'inherit', textAlign: 'center',
+      }}
+    >
       <span style={{ ...NUM, fontSize: value >= 10000 ? TEXT.xl : TEXT['2xl'], fontWeight: FW.extrabold, color, lineHeight: 1 }}>{value.toLocaleString()}</span>
       <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', marginTop: 3, fontWeight: FW.medium, textAlign: 'center' }}>{label}</span>
-    </div>
+    </Tag>
   )
 }
 
@@ -227,18 +264,27 @@ function CallHistoryTimeline({ contactId, refreshKey }: { contactId: number; ref
 
 // ── Log Call Form ─────────────────────────────────────────────────────────────
 
-const DISPOSITIONS = [
-  'Answered-Interested', 'Answered-Not Interested',
-  'No Answer', 'Wrong Number', 'PTP', 'Callback',
-]
+// Served by GET /api/call-center/dispositions — the Go side owns the vocabulary and
+// what each outcome does to the contact, so there is one list, not three.
+interface DispositionOption {
+  code: string
+  label: string
+  status: string
+  needs_callback: boolean
+  add_to_dnc: boolean
+  connected: boolean
+  hint: string
+}
 
+// Presentation only — keyed by the canonical code.
 const DISP_BTN_COLORS: Record<string, string> = {
-  'Answered-Interested': GREEN,
-  'Answered-Not Interested': RED,
-  'No Answer': 'var(--txt2)',
-  'Wrong Number': PURPLE,
-  'PTP': BLUE,
-  'Callback': AMBER,
+  answered_interested: GREEN,
+  answered_not_interested: RED,
+  no_answer: 'var(--txt2)',
+  wrong_number: PURPLE,
+  ptp: BLUE,
+  callback: AMBER,
+  do_not_call: RED,
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -249,16 +295,33 @@ const fieldStyle: React.CSSProperties = {
 }
 
 function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => void }) {
-  const [disposition, setDisposition] = useState(DISPOSITIONS[0])
+  // The vocabulary comes from the server (GET /dispositions) rather than a local array.
+  // It used to be hardcoded here AND again further down the file, in two copies that had
+  // already drifted, with the backend accepting any string at all.
+  const options = useDispositions()
+  const [disposition, setDisposition] = useState('')
   const [notes, setNotes] = useState('')
   const [ptpDate, setPtpDate] = useState(today())
   const [ptpAmountNaira, setPtpAmountNaira] = useState('')
+  const [callbackAt, setCallbackAt] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  const isPtp = disposition === 'PTP'
+  // Default to the first option once the vocabulary arrives, without clobbering a
+  // choice the agent has already made while it was loading.
+  useEffect(() => {
+    if (options.length) setDisposition(d => d || options[0].code)
+  }, [options])
+
+  const chosen = options.find(o => o.code === disposition)
+  const isPtp = disposition === 'ptp'
 
   async function submit() {
+    if (!disposition) return
+    if (chosen?.needs_callback && !callbackAt) {
+      setErr('Pick the date and time you agreed to call back')
+      return
+    }
     setSaving(true)
     setErr(null)
     try {
@@ -267,11 +330,13 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
         body.ptp_date = ptpDate
         body.ptp_amount_kobo = Math.round(parseFloat(ptpAmountNaira || '0') * 100)
       }
+      if (chosen?.needs_callback && callbackAt) body.callback_at = new Date(callbackAt).toISOString()
       await apiPost(`/api/call-center/contacts/${contactId}/log-call`, body)
-      toast.success('Call logged')
+      toast.success(chosen?.hint ? `Call logged — ${chosen.hint.toLowerCase()}` : 'Call logged')
       setNotes('')
-      setDisposition(DISPOSITIONS[0])
+      setDisposition(options[0]?.code ?? '')
       setPtpAmountNaira('')
+      setCallbackAt('')
       onDone()
     } catch (e: any) {
       setErr(e.message ?? 'Failed to log call')
@@ -290,22 +355,45 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
           Call Outcome <span style={{ color: RED }}>*</span>
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-          {DISPOSITIONS.map(d => {
-            const on = disposition === d
-            const color = DISP_BTN_COLORS[d] ?? NAVY
+          {options.map(d => {
+            const on = disposition === d.code
+            const color = DISP_BTN_COLORS[d.code] ?? NAVY
             return (
-              <button key={d} onClick={() => setDisposition(d)} style={{
+              <button key={d.code} onClick={() => setDisposition(d.code)} title={d.hint} style={{
                 padding: '8px 10px', borderRadius: RADIUS.md,
                 fontSize: TEXT.xs, fontWeight: FW.semibold, textAlign: 'center',
                 border: `1.5px solid ${on ? color : 'var(--bdr)'}`,
                 background: on ? `${color}15` : 'transparent',
                 color: on ? color : 'var(--txt2)',
                 cursor: 'pointer', transition: 'all .12s',
-              }}>{d}</button>
+              }}>{d.label}</button>
             )
           })}
         </div>
+        {/* Say what the choice will DO. "Wrong Number" quietly removing the contact is
+            only acceptable if the agent was told that before they clicked. */}
+        {chosen?.hint && (
+          <div style={{ marginTop: 6, fontSize: TEXT['2xs'], color: 'var(--txt2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 13 }}>info</span>
+            {chosen.hint}
+          </div>
+        )}
       </div>
+
+      {/* Callback time — required, because a callback with no time is a promise nobody keeps */}
+      {chosen?.needs_callback && (
+        <div style={{ padding: 12, background: `${AMBER}0d`, borderRadius: RADIUS.md, border: `1px solid ${AMBER}28` }}>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+            Call back at <span style={{ color: RED }}>*</span>
+          </label>
+          <input
+            type="datetime-local"
+            value={callbackAt}
+            onChange={e => setCallbackAt(e.target.value)}
+            style={{ ...fieldStyle, height: 36 }}
+          />
+        </div>
+      )}
 
       {/* PTP fields */}
       {isPtp && (
@@ -409,7 +497,7 @@ function DetailPanel({ contact, onAction }: { contact: CallCenterContact; onActi
               }}>{contact.priority}</span>
               {hasCollectionsContext(contact) && <DpdBadge dpd={contact.dpd} />}
               {contact.last_disposition ? (
-                <DispositionPill disp={contact.last_disposition} size="sm" />
+                <DispositionPill disp={contact.last_disposition} code={contact.disposition_code} size="sm" />
               ) : (
                 <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: BLUE, background: `${BLUE}14`, padding: '1px 8px', borderRadius: RADIUS.full }}>
                   Not yet called
@@ -524,9 +612,24 @@ function DetailPanel({ contact, onAction }: { contact: CallCenterContact; onActi
                 : <InfoField label="Product" value={contact.product_name} />}
               <InfoField label="Last Called" value={contact.last_called_at ? fmtDatetime(contact.last_called_at) : null} />
               <InfoField label="Last Outcome" value={contact.last_disposition
-                ? <DispositionPill disp={contact.last_disposition} size="sm" />
-                : null}
+                ? <DispositionPill disp={contact.last_disposition} code={contact.disposition_code} size="sm" />
+                : contact.last_call_outcome}
               />
+              {/* Straight from the call ledger, so it counts carrier calls the queue
+                  itself never recorded — the reason a number can read "0 attempts"
+                  in an agent's memory and 37 in reality. */}
+              <InfoField label="Attempts" value={
+                contact.attempts > 0
+                  ? <span style={{ ...NUM, color: contact.is_exhausted ? RED : 'var(--txt)' }}>
+                      {contact.attempts} · {contact.connects} answered
+                    </span>
+                  : 'Never called'
+              } />
+              <InfoField label="Dial Status" value={
+                contact.is_exhausted ? <span style={{ color: RED, fontWeight: FW.bold }}>Exhausted — 6+ tries, no answer</span>
+                : contact.is_cooling ? <span style={{ color: AMBER, fontWeight: FW.bold }}>Cooling — called in last 7 days</span>
+                : <span style={{ color: GREEN, fontWeight: FW.bold }}>Ready to call</span>
+              } />
             </div>
             {contact.is_existing_customer && (
               <>
@@ -551,10 +654,16 @@ function DetailPanel({ contact, onAction }: { contact: CallCenterContact; onActi
 // ── Filter constants ──────────────────────────────────────────────────────────
 
 const PRIORITY_OPTIONS = ['High', 'Medium', 'Low'] as const
-const DISPOSITION_OPTIONS = [
-  'Answered-Interested', 'Answered-Not Interested',
-  'No Answer', 'Wrong Number', 'PTP', 'Callback',
-] as const
+// One fetch of the server vocabulary, shared by the log form and the queue filter.
+function useDispositions() {
+  const [options, setOptions] = useState<DispositionOption[]>([])
+  useEffect(() => {
+    apiFetch<{ data: DispositionOption[] }>('/api/call-center/dispositions')
+      .then(res => setOptions(res.data ?? []))
+      .catch(() => setOptions([]))
+  }, [])
+  return options
+}
 
 // ── Import modal ──────────────────────────────────────────────────────────────
 
@@ -631,10 +740,13 @@ export default function CallCenterQueue() {
   const [selected, setSelected] = useState<CallCenterContact | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
 
+  const dispositionOptions = useDispositions()
   const [purposeF, setPurposeF] = useState<'' | Purpose>('')
+  const [bucket, setBucket] = useState<Bucket>('ready')
   const [priority, setPriority] = useState('All')
   const [disposition, setDisposition] = useState('All')
   const [search, setSearch] = useState('')
+  const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
 
   const [skipConfirm, setSkipConfirm] = useState(false)
   const [skipLoading, setSkipLoading] = useState(false)
@@ -648,9 +760,10 @@ export default function CallCenterQueue() {
     // A work queue is a live list, not a date-bounded report — no date filter.
     const params = new URLSearchParams({ limit: '200' })
     if (purposeF) params.set('purpose', purposeF)
+    if (bucket) params.set('bucket', bucket)
     if (priority !== 'All') params.set('priority', priority)
     if (disposition !== 'All') params.set('disposition', disposition)
-    if (search) params.set('search', search)
+    if (dq) params.set('search', dq)
     try {
       const res = await apiFetch<{ data: CallCenterContact[]; summary?: QueueSummary }>(`/api/call-center/queue?${params}`)
       setItems(res.data ?? [])
@@ -660,7 +773,7 @@ export default function CallCenterQueue() {
     } finally {
       setLoading(false)
     }
-  }, [purposeF, priority, disposition, search])
+  }, [purposeF, bucket, priority, disposition, dq])
 
   useEffect(() => { load() }, [load])
   useLiveData(load)
@@ -770,7 +883,9 @@ export default function CallCenterQueue() {
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
               <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>Call Queue</div>
               <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER }}>
-                showing {items.length} of {(summary?.total ?? items.length).toLocaleString()}
+                {/* Count the bucket in view, not the whole backlog — the list is
+                    bucket-filtered, so "of 14,708" would overstate what is loaded. */}
+                showing {items.length} of {((bucket ? summary?.[bucket] : summary?.total) ?? items.length).toLocaleString()}
               </div>
             </div>
 
@@ -794,12 +909,39 @@ export default function CallCenterQueue() {
               })}
             </div>
 
-            {/* Stats — over the current (purpose-filtered) pending pool */}
+            {/* Buckets — counted from real call history, and clickable. These read
+                "Contacted 0 / Not Yet Called 14,708" before the queue was joined to the
+                call ledger; every contact claimed to be untouched while 13,669 of them
+                had been dialled 97,938 times. */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-              <StatChip label="Pending" value={summary?.total ?? items.length} color={NAVY} />
-              <StatChip label="Not Yet Called" value={summary?.uncalled ?? 0} color={BLUE} />
-              <StatChip label="Contacted" value={summary?.contacted ?? 0} color={GREEN} />
-              <StatChip label="Callbacks" value={summary?.callbacks ?? 0} color={AMBER} />
+              {/* Only shown when there are any — a permanent "0 Callbacks Due" chip
+                  would cost a quarter of the strip to say nothing. */}
+              {!!summary?.callbacks_due && (
+                <StatChip
+                  label="Callbacks Due" value={summary.callbacks_due} color={AMBER}
+                  title="A customer agreed a time and it has passed — call these first"
+                />
+              )}
+              <StatChip
+                label="Ready to Call" value={summary?.ready ?? 0} color={GREEN}
+                active={bucket === 'ready'} onClick={() => setBucket(bucket === 'ready' ? '' : 'ready')}
+                title="Never called, or rested past the 7-day cooldown — and not an exhausted number"
+              />
+              <StatChip
+                label="Never Called" value={summary?.uncalled ?? 0} color={BLUE}
+                active={bucket === 'uncalled'} onClick={() => setBucket(bucket === 'uncalled' ? '' : 'uncalled')}
+                title="No call to this number exists in the call ledger"
+              />
+              <StatChip
+                label="Cooling" value={summary?.cooling ?? 0} color={AMBER}
+                active={bucket === 'cooling'} onClick={() => setBucket(bucket === 'cooling' ? '' : 'cooling')}
+                title="Called within the last 7 days — resting before the next attempt"
+              />
+              <StatChip
+                label="Exhausted" value={summary?.exhausted ?? 0} color={RED}
+                active={bucket === 'exhausted'} onClick={() => setBucket(bucket === 'exhausted' ? '' : 'exhausted')}
+                title="6+ attempts and never once answered — consider skipping these"
+              />
             </div>
 
             {/* Search */}
@@ -829,15 +971,15 @@ export default function CallCenterQueue() {
 
             {/* Disposition chips */}
             <div style={{ display: 'flex', gap: SP[1], flexWrap: 'wrap', marginBottom: 6 }}>
-              {DISPOSITION_OPTIONS.map(o => {
-                const on = disposition === o
+              {dispositionOptions.map(o => {
+                const on = disposition === o.code
                 return (
-                  <button key={o} onClick={() => setDisposition(on ? 'All' : o)} style={{
+                  <button key={o.code} onClick={() => setDisposition(on ? 'All' : o.code)} style={{
                     fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 9px', borderRadius: RADIUS.full,
                     border: `1px solid ${on ? NAVY : 'var(--bdr)'}`,
                     background: on ? `${NAVY}12` : 'transparent',
                     color: on ? NAVY : 'var(--txt3)', cursor: 'pointer',
-                  }}>{o}</button>
+                  }}>{o.label}</button>
                 )
               })}
             </div>
@@ -929,7 +1071,7 @@ export default function CallCenterQueue() {
                           />
                         </div>
                         {item.last_disposition && (
-                          <DispositionPill disp={item.last_disposition} size="sm" />
+                          <DispositionPill disp={item.last_disposition} code={item.disposition_code} size="sm" />
                         )}
                       </div>
                       {/* Row 3: collections context when real, else product + call-status */}
@@ -958,15 +1100,44 @@ export default function CallCenterQueue() {
                             </span>
                           )
                         )}
-                        {item.last_called_at ? (
-                          <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER, marginLeft: 'auto' }}>
-                            Called {fmtDate(item.last_called_at)}
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: BLUE, background: `${BLUE}14`, padding: '1px 7px', borderRadius: RADIUS.full, marginLeft: 'auto' }}>
-                            New
-                          </span>
-                        )}
+                        {/* Call history at a glance. An agent needs to know a number has
+                            already swallowed 14 attempts BEFORE dialling it again. */}
+                        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          {item.attempts > 0 && (
+                            <span
+                              title={`${item.attempts} attempt${item.attempts === 1 ? '' : 's'}, ${item.connects} answered`}
+                              style={{
+                                ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold,
+                                padding: '1px 6px', borderRadius: RADIUS.full,
+                                background: item.is_exhausted ? `${RED}14` : 'var(--chip-bg)',
+                                color: item.is_exhausted ? RED : 'var(--txt2)',
+                              }}
+                            >
+                              {item.attempts}× · {item.connects} ans
+                            </span>
+                          )}
+                          {item.callback_due ? (
+                            <span title={`Callback agreed for ${fmtDatetime(item.callback_at!)}`} style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', background: AMBER, padding: '1px 7px', borderRadius: RADIUS.full }}>
+                              Callback due
+                            </span>
+                          ) : item.is_exhausted ? (
+                            <span title="6+ attempts, never answered" style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: RED, background: `${RED}14`, padding: '1px 7px', borderRadius: RADIUS.full }}>
+                              Exhausted
+                            </span>
+                          ) : item.is_cooling ? (
+                            <span title={`Called ${fmtDate(item.last_called_at!)} — resting`} style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: AMBER, background: `${AMBER}14`, padding: '1px 7px', borderRadius: RADIUS.full }}>
+                              Cooling
+                            </span>
+                          ) : item.last_called_at ? (
+                            <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: INTER }}>
+                              {fmtDate(item.last_called_at)}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: BLUE, background: `${BLUE}14`, padding: '1px 7px', borderRadius: RADIUS.full }}>
+                              New
+                            </span>
+                          )}
+                        </span>
                       </div>
                     </div>
                   </div>

@@ -61,6 +61,8 @@ func ensureHelpdeskColumns(ctx context.Context, db *core.DB) {
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS sla_due_at TIMESTAMPTZ`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS first_response_due TIMESTAMPTZ`,
+		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS sla_breached BOOLEAN DEFAULT FALSE`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS csat_score INT`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS csat_token TEXT`,
 		`ALTER TABLE helpdesk_tickets ADD COLUMN IF NOT EXISTS department TEXT`,
@@ -190,6 +192,7 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Post("/tickets/bulk-assign", hdBulkAssignTickets(db))
 		r.Post("/tickets/bulk-close", hdBulkCloseTickets(db))
 		r.Post("/tickets/bulk-priority", hdBulkPriorityTickets(db))
+		r.Post("/tickets/distribute", hdDistributeTickets(db))
 		r.Post("/tickets/{id}/claim", hdClaimTicket(db))
 		r.Get("/tickets/{id}", hdGetTicket(db))
 		r.Patch("/tickets/{id}", hdUpdateTicket(db))
@@ -230,6 +233,7 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 
 		// Ticket enriched context (customer360 data)
 		r.Get("/tickets/{id}/context", hdTicketContext(db))
+		r.Get("/tickets/{id}/calls", hdTicketCalls(db))
 
 		// KB article feedback
 		r.Post("/kb/{id}/feedback", hdKBFeedback(db))
@@ -287,7 +291,118 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 
 		// Care backlog — round-robin distribute the unassigned mail pool to agents.
 		r.Post("/care-distribute", hdCareDistribute(db))
+
+		// Care analytics — mail-channel trends, agent leaderboard, CSAT, peak hours.
+		r.Get("/care-analytics", hdCareAnalytics(db))
 	})
+}
+
+// hdCareAnalytics returns time-series and team analytics for the Care module
+// (email channel): volume & resolution trends, first-response trend, per-agent
+// leaderboard, CSAT, status mix and peak inbound hours. Window is ?days (default 30).
+func hdCareAnalytics(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		days := qint(r, "days", 30, 1, 365)
+		since := fmt.Sprintf("NOW() - INTERVAL '%d days'", days)
+
+		one := func(sql string) any {
+			rows, _ := db.PGQuery(ctx, sql)
+			if len(rows) > 0 {
+				return rows[0]["n"]
+			}
+			return nil
+		}
+		received := one(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND created_at >= ` + since)
+		resolved := one(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND resolved_at IS NOT NULL AND resolved_at >= ` + since)
+		openBacklog := one(`SELECT COUNT(*) AS n FROM helpdesk_tickets WHERE channel='email' AND status NOT IN ('resolved','closed')`)
+		avgFirst := one(`SELECT ROUND(AVG(EXTRACT(EPOCH FROM (first_response_at - created_at))/60.0)) AS n
+			FROM helpdesk_tickets WHERE channel='email' AND first_response_at IS NOT NULL AND created_at >= ` + since)
+		avgResolution := one(`SELECT ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/3600.0)::numeric, 1) AS n
+			FROM helpdesk_tickets WHERE channel='email' AND resolved_at IS NOT NULL AND resolved_at >= ` + since)
+		csatAvg := one(`SELECT ROUND(AVG(csat_score)::numeric, 2) AS n FROM helpdesk_tickets
+			WHERE channel='email' AND csat_score IS NOT NULL AND csat_submitted_at >= ` + since)
+		csatCount := one(`SELECT COUNT(*) AS n FROM helpdesk_tickets
+			WHERE channel='email' AND csat_score IS NOT NULL AND csat_submitted_at >= ` + since)
+
+		// Daily volume: received vs resolved (one row per day in-window, zero-filled).
+		volume, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			WITH d AS (SELECT generate_series((CURRENT_DATE - INTERVAL '%d days')::date, CURRENT_DATE, '1 day')::date AS day)
+			SELECT TO_CHAR(d.day, 'YYYY-MM-DD') AS date,
+			  COALESCE((SELECT COUNT(*) FROM helpdesk_tickets t WHERE t.channel='email' AND t.created_at::date = d.day), 0) AS received,
+			  COALESCE((SELECT COUNT(*) FROM helpdesk_tickets t WHERE t.channel='email' AND t.resolved_at::date = d.day), 0) AS resolved
+			FROM d ORDER BY d.day`, days-1))
+
+		// First-response trend (avg minutes by day, only days with data).
+		respTrend, _ := db.PGQuery(ctx, `
+			SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date,
+			  ROUND(AVG(EXTRACT(EPOCH FROM (first_response_at - created_at))/60.0)) AS avg_first_mins
+			FROM helpdesk_tickets
+			WHERE channel='email' AND first_response_at IS NOT NULL AND created_at >= `+since+`
+			GROUP BY created_at::date ORDER BY created_at::date`)
+
+		// Peak inbound hours (0–23) over the window.
+		byHour, _ := db.PGQuery(ctx, `
+			SELECT EXTRACT(HOUR FROM m.created_at)::int AS hour, COUNT(*) AS n
+			FROM helpdesk_messages m JOIN helpdesk_tickets t ON t.id = m.ticket_id
+			WHERE t.channel='email' AND m.direction='inbound' AND m.created_at >= `+since+`
+			GROUP BY 1 ORDER BY 1`)
+
+		// Status mix of email tickets in-window.
+		statusMix, _ := db.PGQuery(ctx, `
+			SELECT status, COUNT(*) AS n FROM helpdesk_tickets
+			WHERE channel='email' AND created_at >= `+since+`
+			GROUP BY status ORDER BY n DESC`)
+
+		// Agent leaderboard (resolved in-window; response/handle/CSAT).
+		agents, _ := db.PGQuery(ctx, `
+			SELECT u.full_name AS agent_name,
+			  COUNT(*) FILTER (WHERE t.resolved_at IS NOT NULL AND t.resolved_at >= `+since+`)                         AS resolved,
+			  ROUND(AVG(EXTRACT(EPOCH FROM (t.first_response_at - t.created_at))/60.0)
+			        FILTER (WHERE t.first_response_at IS NOT NULL AND t.created_at >= `+since+`))                      AS avg_first_response_mins,
+			  ROUND(AVG(EXTRACT(EPOCH FROM (t.resolved_at - t.created_at))/60.0)
+			        FILTER (WHERE t.resolved_at IS NOT NULL AND t.resolved_at >= `+since+`))                           AS avg_handle_mins,
+			  ROUND(AVG(t.csat_score)::numeric, 2)
+			        FILTER (WHERE t.csat_score IS NOT NULL AND t.csat_submitted_at >= `+since+`)                       AS csat
+			FROM helpdesk_tickets t JOIN o3c_users u ON u.id = t.assigned_to
+			WHERE t.channel='email'
+			GROUP BY u.id, u.full_name
+			HAVING COUNT(*) FILTER (WHERE t.resolved_at IS NOT NULL AND t.resolved_at >= `+since+`) > 0
+			    OR COUNT(*) FILTER (WHERE t.status NOT IN ('resolved','closed')) > 0
+			ORDER BY resolved DESC, u.full_name LIMIT 50`)
+
+		for _, s := range []*[]core.Row{&volume, &respTrend, &byHour, &statusMix, &agents} {
+			if *s == nil {
+				*s = []core.Row{}
+			}
+		}
+
+		var resolutionRate any
+		if rv, ok := received.(int64); ok && rv > 0 {
+			if sv, ok := resolved.(int64); ok {
+				resolutionRate = float64(sv) / float64(rv) * 100.0
+			}
+		}
+
+		respond(w, map[string]any{
+			"summary": map[string]any{
+				"received":                received,
+				"resolved":                resolved,
+				"resolution_rate":         resolutionRate,
+				"open_backlog":            openBacklog,
+				"avg_first_response_mins": avgFirst,
+				"avg_resolution_hours":    avgResolution,
+				"csat_avg":                csatAvg,
+				"csat_count":              csatCount,
+			},
+			"volume":         volume,
+			"response_trend": respTrend,
+			"by_hour":        byHour,
+			"status_mix":     statusMix,
+			"agents":         agents,
+			"days":           days,
+		}, "care")
+	}
 }
 
 // hdCareSupervisor returns team-level mail metrics for the Care module: headline
@@ -630,19 +745,59 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 				COUNT(CASE WHEN status = 'resolved' AND updated_at::date = CURRENT_DATE THEN 1 END)                                               AS resolved_today,
 				COUNT(CASE WHEN created_at::date = CURRENT_DATE THEN 1 END)                                                                       AS tickets_today,
 				COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/60.0) FILTER (WHERE resolved_at IS NOT NULL)), 0)               AS avg_handle_time_mins,
-				ROUND(AVG(csat_score)::numeric FILTER (WHERE csat_score IS NOT NULL), 1)                                                          AS csat_score
+				ROUND(AVG(csat_score) FILTER (WHERE csat_score IS NOT NULL)::numeric, 1)                                                          AS csat_score
 			FROM helpdesk_tickets
 			WHERE assigned_to = $1 AND (channel IS NULL OR channel NOT IN ('email','call'))`, user.ID)
 
+		// Open tickets — awaiting-my-reply first (customer spoke last), then SLA
+		// breaches, then newest. last_message_direction lets the UI badge which
+		// tickets are actually waiting on this agent vs the customer.
 		recentRows, _ := db.PGQuery(ctx, `
-			SELECT id, ticket_ref, subject, customer_name, status, priority, created_at, sla_due_at
-			FROM helpdesk_tickets
-			WHERE assigned_to = $1 AND status NOT IN ('closed','resolved')
-			  AND (channel IS NULL OR channel NOT IN ('email','call'))
-			ORDER BY created_at DESC
-			LIMIT 10`, user.ID)
+			SELECT t.id, t.ticket_ref, t.subject, t.customer_name, t.status, t.priority, t.created_at, t.sla_due_at,
+			       COALESCE(lm.last_dir, 'inbound') AS last_message_direction,
+			       (COALESCE(lm.last_dir, 'inbound') <> 'outbound') AS awaiting_me
+			FROM helpdesk_tickets t
+			LEFT JOIN LATERAL (
+				SELECT m.direction AS last_dir FROM helpdesk_messages m
+				WHERE m.ticket_id = t.id ORDER BY m.created_at DESC LIMIT 1
+			) lm ON TRUE
+			WHERE t.assigned_to = $1 AND t.status NOT IN ('closed','resolved')
+			  AND (t.channel IS NULL OR t.channel NOT IN ('email','call'))
+			ORDER BY awaiting_me DESC,
+			         (t.sla_due_at IS NOT NULL AND t.sla_due_at < NOW()) DESC,
+			         t.created_at DESC
+			LIMIT 12`, user.ID)
 		if recentRows == nil {
 			recentRows = []core.Row{}
+		}
+
+		// ── Forward-looking "My Day" work counts ──────────────────────────────
+		// Tickets where the customer spoke last → the agent owes a reply.
+		var awaitingMyReply int64
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS n
+			FROM helpdesk_tickets t
+			LEFT JOIN LATERAL (
+				SELECT m.direction AS last_dir FROM helpdesk_messages m
+				WHERE m.ticket_id = t.id ORDER BY m.created_at DESC LIMIT 1
+			) lm ON TRUE
+			WHERE t.assigned_to = $1 AND t.status NOT IN ('resolved','closed')
+			  AND (t.channel IS NULL OR t.channel NOT IN ('email','call'))
+			  AND COALESCE(lm.last_dir, 'inbound') <> 'outbound'`, user.ID); len(rows) > 0 {
+			awaitingMyReply = toInt64(rows[0]["n"])
+		}
+		// Outbound contacts still waiting to be dialled (shared queue).
+		var queuePending int64
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM call_center_contacts WHERE status = 'pending'`); len(rows) > 0 {
+			queuePending = toInt64(rows[0]["n"])
+		}
+		// Callbacks this agent has promised (populates as outbound dispositions land
+		// in the call ledger).
+		var callbacksDue int64
+		if user != nil {
+			if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM helpdesk_calls WHERE agent_id = $1 AND outcome ILIKE '%callback%'`, user.ID); len(rows) > 0 {
+				callbacksDue = toInt64(rows[0]["n"])
+			}
 		}
 
 		// CSAT trend (14 days) — {date, score}. Only days with a scored survey appear.
@@ -763,6 +918,9 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			"rank_today":           rankToday,
 			"team_size":            teamSize,
 			"by_hour_today":        byHourToday,
+			"awaiting_my_reply":    awaitingMyReply,
+			"queue_pending":        queuePending,
+			"callbacks_due":        callbacksDue,
 			"daily_call_target":    ccSettingInt(ctx, db, "daily_call_target", 60),
 			"my_status":            "available",
 		}
@@ -859,6 +1017,16 @@ func hdCreateTicket(db *core.DB) http.HandlerFunc {
 		}
 		ticket := rows[0]
 		ticketID := toInt64(ticket["id"])
+
+		// Give the new ticket an owner immediately (load-balanced) so it doesn't land
+		// in the unowned pile. Best-effort — a no-op if no agent is eligible.
+		actorID := int64(0)
+		if user != nil {
+			actorID = user.ID
+		}
+		if a := hdAutoAssignTicket(r.Context(), db, ticketID, actorID); a != nil {
+			ticket["assigned_to"] = *a
+		}
 
 		// Insert first message
 		msgRows, err := db.PGQuery(r.Context(), `
@@ -1248,14 +1416,24 @@ func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
 			args = append(args, caller.ID)
 			where += fmt.Sprintf(" AND assigned_to = $%d", len(args))
 		}
-		if _, err := db.PGExec(r.Context(),
-			"UPDATE helpdesk_tickets SET assigned_to=$1, updated_at=NOW() WHERE "+where, args...); err != nil {
+		urows, err := db.PGQuery(r.Context(),
+			"UPDATE helpdesk_tickets SET assigned_to=$1, updated_at=NOW() WHERE "+where+" RETURNING id", args...)
+		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
+		var updatedIDs []int64
+		for _, row := range urows {
+			updatedIDs = append(updatedIDs, toInt64(row["id"]))
+		}
+		newVal := "unassigned"
+		if b.AgentID != nil {
+			newVal = fmt.Sprintf("%d", *b.AgentID)
+		}
+		hdBulkRecordEvent(r.Context(), db, updatedIDs, caller.ID, "assigned", "", newVal)
 		// Notify the agent the tickets were assigned to (both channels).
 		if b.AgentID != nil && *b.AgentID > 0 {
-			n := len(b.TicketIDs)
+			n := len(updatedIDs)
 			word := "ticket has"
 			if n != 1 {
 				word = "tickets have"
@@ -1269,7 +1447,174 @@ func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
 			})
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"updated": len(updatedIDs)}) //nolint:errcheck
+	}
+}
+
+// ── Load-balanced auto-assignment ──────────────────────────────────────────────
+//
+// Tickets pile up unowned because nothing routes them: the routing-rules table has
+// a CRUD UI but is never evaluated, so every ticket lands unassigned until a human
+// claims it — which is why the open backlog is ~96% unowned. These helpers give
+// every open ticket an owner: new tickets are auto-assigned to the least-loaded
+// active agent at intake, and a supervisor can distribute the existing unowned
+// backlog on demand. "Least loaded" = fewest currently-open (not resolved/closed)
+// tickets, so load self-corrects as agents go on leave or clear their queue.
+
+// hdAgentLoad is one eligible agent and their current open-ticket count.
+type hdAgentLoad struct {
+	id   int64
+	open int
+}
+
+// hdEligibleAgents returns active call-center staff with their current open load,
+// least-loaded first. Empty when nobody is eligible.
+func hdEligibleAgents(ctx context.Context, db *core.DB) []hdAgentLoad {
+	rows, err := db.PGQuery(ctx, `
+		SELECT u.id, COUNT(t.id) AS open_cnt
+		FROM o3c_users u
+		LEFT JOIN helpdesk_tickets t
+		  ON t.assigned_to = u.id AND t.status NOT IN ('resolved','closed')
+		WHERE u.deleted_at IS NULL AND u.is_active = TRUE
+		  AND u.role ILIKE '%call_center%'
+		GROUP BY u.id
+		ORDER BY open_cnt ASC, u.id ASC`)
+	if err != nil {
+		return nil
+	}
+	out := make([]hdAgentLoad, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, hdAgentLoad{id: toInt64(r["id"]), open: int(toInt64(r["open_cnt"]))})
+	}
+	return out
+}
+
+// hdPickLeastLoadedAgent returns the id of the active agent with the fewest open
+// tickets, or nil when no agent is eligible.
+func hdPickLeastLoadedAgent(ctx context.Context, db *core.DB) *int64 {
+	agents := hdEligibleAgents(ctx, db)
+	if len(agents) == 0 {
+		return nil
+	}
+	id := agents[0].id
+	return &id
+}
+
+// hdAutoAssignTicket assigns one open, unowned ticket to the least-loaded agent.
+// Best-effort: records an event and notifies. Returns the agent id, or nil if there
+// was no eligible agent or the ticket was already taken/closed.
+func hdAutoAssignTicket(ctx context.Context, db *core.DB, ticketID, actorID int64) *int64 {
+	agent := hdPickLeastLoadedAgent(ctx, db)
+	if agent == nil {
+		return nil
+	}
+	res, err := db.PGExec(ctx, `
+		UPDATE helpdesk_tickets SET assigned_to=$1, assigned_at=NOW(), updated_at=NOW()
+		WHERE id=$2 AND assigned_to IS NULL AND status NOT IN ('resolved','closed')`,
+		*agent, ticketID)
+	if err != nil {
+		return nil
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil // someone claimed it first, or it closed — no-op
+	}
+	hdRecordEvent(ctx, db, ticketID, actorID, "assigned", "", "auto:load_balanced")
+	go Notify(context.Background(), db, NotifPayload{
+		EventType: "ticket_assigned",
+		UserID:    *agent,
+		Title:     "Ticket assigned to you",
+		Body:      "A ticket has been auto-assigned to you.",
+		ActionURL: "/helpdesk/tickets",
+	})
+	return agent
+}
+
+// hdDistributeUnassigned load-balances up to `limit` unowned open tickets (oldest
+// first) across active agents, least-loaded first. Returns the number actually
+// assigned and per-agent counts. Records an audit event per batch.
+func hdDistributeUnassigned(ctx context.Context, db *core.DB, limit int, actorID int64) (int, map[int64]int) {
+	perAgent := map[int64]int{}
+	agents := hdEligibleAgents(ctx, db)
+	if len(agents) == 0 || limit <= 0 {
+		return 0, perAgent
+	}
+	rows, err := db.PGQuery(ctx, `
+		SELECT id FROM helpdesk_tickets
+		WHERE assigned_to IS NULL AND status NOT IN ('resolved','closed')
+		ORDER BY created_at ASC
+		LIMIT $1`, limit)
+	if err != nil || len(rows) == 0 {
+		return 0, perAgent
+	}
+	// Greedy least-loaded assignment in memory (pool is tiny, so a linear min-scan
+	// is fine); the DB UPDATE re-checks the guards so a concurrent claim can't double.
+	assign := map[int64][]int64{}
+	for _, r := range rows {
+		tid := toInt64(r["id"])
+		mi := 0
+		for i := 1; i < len(agents); i++ {
+			if agents[i].open < agents[mi].open {
+				mi = i
+			}
+		}
+		agents[mi].open++
+		assign[agents[mi].id] = append(assign[agents[mi].id], tid)
+	}
+	total := 0
+	for agentID, ids := range assign {
+		res, err := db.PGExec(ctx, `
+			UPDATE helpdesk_tickets SET assigned_to=$1, assigned_at=NOW(), updated_at=NOW()
+			WHERE id = ANY($2) AND assigned_to IS NULL AND status NOT IN ('resolved','closed')`,
+			agentID, ids)
+		if err != nil {
+			continue
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			continue
+		}
+		perAgent[agentID] = int(n)
+		total += int(n)
+		// Audit trail (batch) — bulk assignment previously left no history at all.
+		db.PGExec(ctx, //nolint:errcheck
+			`INSERT INTO helpdesk_events (ticket_id, user_id, event_type, old_value, new_value)
+			 SELECT unnest($1::bigint[]), NULLIF($2,0)::bigint, 'assigned', NULL, 'distribute:load_balanced'`,
+			ids, actorID)
+		aid, cnt := agentID, int(n)
+		go Notify(context.Background(), db, NotifPayload{
+			EventType: "ticket_assigned",
+			UserID:    aid,
+			Title:     "Tickets assigned to you",
+			Body:      fmt.Sprintf("%d tickets have been assigned to you.", cnt),
+			ActionURL: "/helpdesk/tickets",
+		})
+	}
+	return total, perAgent
+}
+
+// hdDistributeTickets — POST /tickets/distribute (head/admin): spread the unowned
+// open backlog across active agents, least-loaded first.
+func hdDistributeTickets(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		caller := core.UserFromCtx(r.Context())
+		if caller == nil || (caller.Role != "call_center_head" && caller.Role != "admin") {
+			respondErr(w, 403, "insufficient role")
+			return
+		}
+		var b struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+		if b.Limit <= 0 || b.Limit > 100000 {
+			b.Limit = 100000
+		}
+		if len(hdEligibleAgents(r.Context(), db)) == 0 {
+			respondErr(w, 422, "no active call-center agents to assign to")
+			return
+		}
+		total, perAgent := hdDistributeUnassigned(r.Context(), db, b.Limit, caller.ID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"assigned": total, "per_agent": perAgent}) //nolint:errcheck
 	}
 }
 
@@ -1304,13 +1649,19 @@ func hdBulkCloseTickets(db *core.DB) http.HandlerFunc {
 			args = append(args, caller.ID)
 			where += fmt.Sprintf(" AND assigned_to = $%d", len(args))
 		}
-		if _, err := db.PGExec(r.Context(),
-			"UPDATE helpdesk_tickets SET status='closed', closed_at=NOW(), updated_at=NOW() WHERE "+where, args...); err != nil {
+		urows, err := db.PGQuery(r.Context(),
+			"UPDATE helpdesk_tickets SET status='closed', closed_at=NOW(), updated_at=NOW() WHERE "+where+" RETURNING id", args...)
+		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
+		var updatedIDs []int64
+		for _, row := range urows {
+			updatedIDs = append(updatedIDs, toInt64(row["id"]))
+		}
+		hdBulkRecordEvent(r.Context(), db, updatedIDs, caller.ID, "status_changed", "", "closed")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"updated": len(updatedIDs)}) //nolint:errcheck
 	}
 }
 
@@ -1345,13 +1696,19 @@ func hdBulkPriorityTickets(db *core.DB) http.HandlerFunc {
 			args = append(args, caller.ID)
 			where += fmt.Sprintf(" AND assigned_to = $%d", len(args))
 		}
-		if _, err := db.PGExec(r.Context(),
-			"UPDATE helpdesk_tickets SET priority=$1, updated_at=NOW() WHERE "+where, args...); err != nil {
+		urows, err := db.PGQuery(r.Context(),
+			"UPDATE helpdesk_tickets SET priority=$1, updated_at=NOW() WHERE "+where+" RETURNING id", args...)
+		if err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
+		var updatedIDs []int64
+		for _, row := range urows {
+			updatedIDs = append(updatedIDs, toInt64(row["id"]))
+		}
+		hdBulkRecordEvent(r.Context(), db, updatedIDs, caller.ID, "priority_changed", "", b.Priority)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"updated": len(b.TicketIDs)}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"updated": len(updatedIDs)}) //nolint:errcheck
 	}
 }
 
@@ -1459,6 +1816,13 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
+		// Single guarded caller id — auth makes user non-nil in practice, but the
+		// status/priority/assignment branches used to deref user.ID unguarded while
+		// the queue branch guarded it (P9). Normalise to one value.
+		callerID := int64(0)
+		if user != nil {
+			callerID = user.ID
+		}
 
 		var setParts []string
 		var args []any
@@ -1479,15 +1843,15 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 			setParts = append(setParts, fmt.Sprintf("queue=$%d", n))
 			args = append(args, newQueue)
 			n++
-			callerID := int64(0)
-			if user != nil {
-				callerID = user.ID
-			}
 			hdRecordEvent(ctx, db, ticketID, callerID, "queue_changed", oldQueue, newQueue)
 		}
 
 		// Status change
 		if newStatus, ok := b["status"].(string); ok && newStatus != str(ticket["status"]) {
+			if !hdValidStatus(newStatus) {
+				respondErr(w, 422, "invalid status: "+newStatus)
+				return
+			}
 			oldStatus := str(ticket["status"])
 			setParts = append(setParts, fmt.Sprintf("status=$%d", n))
 			args = append(args, newStatus)
@@ -1499,8 +1863,26 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 				go hdSendCSATEmail(context.Background(), db, ticket)
 			case "closed":
 				setParts = append(setParts, "closed_at=NOW()")
+			case "open", "in_progress", "pending", "escalated":
+				// Reopening a resolved/closed ticket must clear the terminal
+				// timestamps, or it stays counted as resolved/closed in every report
+				// even though it's active again (P5).
+				if oldStatus == "resolved" || oldStatus == "closed" {
+					setParts = append(setParts, "resolved_at=NULL", "closed_at=NULL")
+				}
 			}
-			hdRecordEvent(ctx, db, ticketID, user.ID, "status_changed", oldStatus, newStatus)
+			// Escalation is a first-class state now (P4) — alert the supervisors so it
+			// doesn't just sit in the queue unseen.
+			if newStatus == "escalated" {
+				go NotifyRole(context.Background(), db, "call_center_head", NotifPayload{
+					EventType: "ticket_escalated",
+					Title:     fmt.Sprintf("Ticket escalated: %s", str(ticket["ticket_ref"])),
+					Body:      fmt.Sprintf("Ticket %s (%s) has been escalated and needs review.", str(ticket["ticket_ref"]), str(ticket["subject"])),
+					ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
+					EntityRef: fmt.Sprintf("ticket:%d", ticketID),
+				})
+			}
+			hdRecordEvent(ctx, db, ticketID, callerID, "status_changed", oldStatus, newStatus)
 		}
 
 		// Priority change
@@ -1509,14 +1891,24 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 			setParts = append(setParts, fmt.Sprintf("priority=$%d", n))
 			args = append(args, newPri)
 			n++
-			// Recompute SLA
+			// Recompute both SLA deadlines for the new priority.
 			newSLA := hdComputeSLADue(ctx, db, newPri)
 			if newSLA != nil {
 				setParts = append(setParts, fmt.Sprintf("sla_due_at=$%d", n))
 				args = append(args, newSLA)
 				n++
 			}
-			hdRecordEvent(ctx, db, ticketID, user.ID, "priority_changed", oldPri, newPri)
+			newFRT := hdComputeFirstResponseDue(ctx, db, newPri)
+			if newFRT != nil {
+				setParts = append(setParts, fmt.Sprintf("first_response_due=$%d", n))
+				args = append(args, newFRT)
+				n++
+			}
+			// Moving the deadline invalidates any stored breach/warning flag — clear
+			// them so the monitor re-evaluates against the new deadline (P8: otherwise
+			// the list view and the persisted flag / CBN count diverge).
+			setParts = append(setParts, "sla_breached=FALSE", "sla_warning_sent=FALSE")
+			hdRecordEvent(ctx, db, ticketID, callerID, "priority_changed", oldPri, newPri)
 		}
 
 		// Assignment change
@@ -1539,9 +1931,9 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 				if len(nameRows) > 0 {
 					newAssignName = str(nameRows[0]["full_name"])
 				}
-				hdRecordEvent(ctx, db, ticketID, user.ID, "assigned", oldAssign, newAssignName)
+				hdRecordEvent(ctx, db, ticketID, callerID, "assigned", oldAssign, newAssignName)
 				// Notify new assignee via all enabled channels
-				if newAssignID != user.ID {
+				if newAssignID != callerID {
 					go Notify(context.Background(), db, NotifPayload{
 						EventType: EvtTicketAssigned,
 						UserID:    newAssignID,
@@ -1555,7 +1947,7 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 				setParts = append(setParts, fmt.Sprintf("assigned_to=$%d, assigned_at=NULL", n))
 				args = append(args, nil)
 				n++
-				hdRecordEvent(ctx, db, ticketID, user.ID, "unassigned", oldAssign, "")
+				hdRecordEvent(ctx, db, ticketID, callerID, "unassigned", oldAssign, "")
 			}
 		}
 
@@ -1711,40 +2103,46 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 
 func hdSearchTickets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		q := qstr(r, "q")
+		q := strings.TrimSpace(qstr(r, "q"))
 		if q == "" {
 			respondErr(w, 422, "q is required")
 			return
 		}
 		page := qint(r, "page", 1, 1, 10000)
 		perPage := qint(r, "per_page", 25, 1, 200)
+		if l := qint(r, "limit", 0, 0, 200); l > 0 { // accept ?limit= as an alias
+			perPage = l
+		}
 		offset := (page - 1) * perPage
 
-		// Ticket FTS
-		ticketRows, _ := db.PGQuery(r.Context(), `
+		// Tokenised substring match (partial words, CIF/ref fragments, normalized phone,
+		// email) — the same matcher the ticket LIST uses, so /tickets/search and
+		// /tickets behave identically. FTS (plainto_tsquery) could only match whole
+		// word-stems, so "Temi" missed "Temitope" and identifiers/phones tokenised badly.
+		tMatch, tArgs, tn := buildCustomerSearch(q,
+			[]string{"t.subject", "t.customer_name", "t.customer_cif", "t.ticket_ref", "t.customer_email"},
+			"t.customer_phone", 1)
+		tArgs = append(tArgs, perPage, offset)
+		ticketRows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT t.id, t.ticket_ref, t.subject, t.status, t.priority, t.channel,
-			       t.customer_name, t.customer_cif, t.created_at,
-			       ts_rank(to_tsvector('english', coalesce(t.subject,'') || ' ' || coalesce(t.customer_name,'') || ' ' || coalesce(t.customer_cif,'')),
-			               plainto_tsquery('english', $1)) AS rank,
-			       'ticket' AS result_type
+			       t.customer_name, t.customer_cif, t.created_at, 'ticket' AS result_type
 			FROM helpdesk_tickets t
-			WHERE to_tsvector('english', coalesce(t.subject,'') || ' ' || coalesce(t.customer_name,'') || ' ' || coalesce(t.customer_cif,''))
-			      @@ plainto_tsquery('english', $1)
-			ORDER BY rank DESC
-			LIMIT $2 OFFSET $3`, q, perPage, offset)
+			WHERE %s
+			ORDER BY t.created_at DESC NULLS LAST
+			LIMIT $%d OFFSET $%d`, tMatch, tn, tn+1), tArgs...)
 
-		// Message FTS
-		msgRows, _ := db.PGQuery(r.Context(), `
+		// Message body stays substring too (tokenised), so a partial phrase inside a
+		// reply is found — useful for the merge-ticket lookup.
+		mMatch, mArgs, mn := buildCustomerSearch(q, []string{"m.body_text"}, "", 1)
+		mArgs = append(mArgs, perPage, offset)
+		msgRows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT m.id, m.ticket_id, t.ticket_ref, LEFT(m.body_text,200) AS excerpt,
-			       m.created_at, m.direction,
-			       ts_rank(to_tsvector('english', coalesce(m.body_text,'')),
-			               plainto_tsquery('english', $1)) AS rank,
-			       'message' AS result_type
+			       m.created_at, m.direction, 'message' AS result_type
 			FROM helpdesk_messages m
 			JOIN helpdesk_tickets t ON m.ticket_id=t.id
-			WHERE to_tsvector('english', coalesce(m.body_text,'')) @@ plainto_tsquery('english', $1)
-			ORDER BY rank DESC
-			LIMIT $2 OFFSET $3`, q, perPage, offset)
+			WHERE %s
+			ORDER BY m.created_at DESC NULLS LAST
+			LIMIT $%d OFFSET $%d`, mMatch, mn, mn+1), mArgs...)
 
 		if ticketRows == nil {
 			ticketRows = []core.Row{}
@@ -2474,6 +2872,31 @@ func hdRecordEvent(ctx context.Context, db *core.DB, ticketID, userID int64, eve
 		ticketID, uid, eventType, oldVal, newVal)
 }
 
+// hdBulkRecordEvent writes one audit event per ticket in a single batch insert. The
+// bulk actions (assign/close/priority) previously left NO history at all, which is a
+// real gap for a CBN-regulated call centre and undermines the CBN report that counts
+// on ticket data.
+func hdBulkRecordEvent(ctx context.Context, db *core.DB, ticketIDs []int64, actorID int64, eventType, oldVal, newVal string) {
+	if len(ticketIDs) == 0 {
+		return
+	}
+	db.PGExec(ctx, //nolint:errcheck
+		`INSERT INTO helpdesk_events (ticket_id, user_id, event_type, old_value, new_value)
+		 SELECT unnest($1::bigint[]), NULLIF($2,0)::bigint, $3, NULLIF($4,''), NULLIF($5,'')`,
+		ticketIDs, actorID, eventType, oldVal, newVal)
+}
+
+// hdValidStatus reports whether s is a canonical ticket status. Permissive enough to
+// cover every state the importer, UI and merge path produce, but it rejects free-form
+// typos that would silently create ghost statuses no query filters on (P5).
+func hdValidStatus(s string) bool {
+	switch s {
+	case "open", "in_progress", "pending", "escalated", "resolved", "closed", "cancelled", "merged":
+		return true
+	}
+	return false
+}
+
 func hdComputeSLADue(ctx context.Context, db *core.DB, priority string) *time.Time {
 	rows, err := db.PGQuery(ctx,
 		"SELECT resolution_hours FROM helpdesk_sla_policies WHERE priority=$1 AND is_active=true LIMIT 1",
@@ -2503,6 +2926,29 @@ func hdComputeFirstResponseDue(ctx context.Context, db *core.DB, priority string
 	}
 	t := time.Now().Add(time.Duration(hours) * time.Hour)
 	return &t
+}
+
+// hdSLATimesFrom computes the resolution and first-response SLA deadlines for a
+// priority, measured from base (e.g. a ticket's created time). Returns nil for a
+// deadline when there is no active policy for the priority. Unlike the hdCompute*
+// helpers (which measure from now), this lets the importer/backfill anchor SLA to
+// when the ticket was actually raised.
+func hdSLATimesFrom(ctx context.Context, db *core.DB, priority string, base time.Time) (resolutionDue, firstResponseDue *time.Time) {
+	rows, err := db.PGQuery(ctx,
+		"SELECT resolution_hours, first_response_hours FROM helpdesk_sla_policies WHERE priority=$1 AND is_active=true LIMIT 1",
+		priority)
+	if err != nil || len(rows) == 0 {
+		return nil, nil
+	}
+	if rh := toInt64(rows[0]["resolution_hours"]); rh > 0 {
+		t := base.Add(time.Duration(rh) * time.Hour)
+		resolutionDue = &t
+	}
+	if fh := toInt64(rows[0]["first_response_hours"]); fh > 0 {
+		t := base.Add(time.Duration(fh) * time.Hour)
+		firstResponseDue = &t
+	}
+	return resolutionDue, firstResponseDue
 }
 
 func hdCustomerContext(ctx context.Context, db *core.DB, cif string) map[string]any {
@@ -2787,6 +3233,11 @@ func ensureCallLogSchema(ctx context.Context, db *core.DB) error {
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS transcript TEXT`)
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_call_id TEXT`)
 	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_voice_id TEXT`)
+	// Agent-logged call disposition (business result) + the agent's resolution note.
+	// The customer complaint/summary continues to live in `notes` (already read by
+	// the list, export and Customer360 activity), so old rows keep displaying.
+	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS disposition TEXT`)
+	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS resolution TEXT`)
 	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_cif ON helpdesk_calls(customer_cif, started_at DESC)`)
 	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_calls_zoho_id ON helpdesk_calls(zoho_call_id) WHERE zoho_call_id IS NOT NULL`)
 	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_calls_zoho_voice ON helpdesk_calls(zoho_voice_id) WHERE zoho_voice_id IS NOT NULL`)
@@ -2803,7 +3254,9 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		DurationSec     *int    `json:"duration_sec"`
 		DurationSeconds *int    `json:"duration_seconds"` // client sends this name
 		Outcome         string  `json:"outcome"`
-		Notes           *string `json:"notes"`
+		Notes           *string `json:"notes"`        // customer complaint / summary
+		Resolution      *string `json:"resolution"`   // agent response / resolution
+		Disposition     string  `json:"disposition"`  // business result of the call
 		TicketRef       string  `json:"ticket_ref"`
 		TicketType      string  `json:"ticket_type"`
 	}
@@ -2873,11 +3326,12 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO helpdesk_calls
-			  (agent_id, agent_name, customer_name, customer_cif, customer_email, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref, ticket_type)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			  (agent_id, agent_name, customer_name, customer_cif, customer_email, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref, ticket_type, resolution, disposition)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 			RETURNING id`,
 			agentID, agentName, b.CustomerName, b.CustomerCIF, b.CustomerEmail, b.CustomerPhone,
-			direction, durationSec, outcome, b.Notes, ticketID, ptrOrNilStr(b.TicketRef), ptrOrNilStr(b.TicketType))
+			direction, durationSec, outcome, b.Notes, ticketID, ptrOrNilStr(b.TicketRef), ptrOrNilStr(b.TicketType),
+			b.Resolution, ptrOrNilStr(b.Disposition))
 		if err != nil {
 			respondErr(w, 500, "Insert failed: "+err.Error())
 			return
@@ -2957,8 +3411,8 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 			       hc.customer_cif, hc.customer_email,
 			       INITCAP(hc.direction) AS direction,
 			       hc.duration_sec AS duration_seconds,
-			       hc.outcome, hc.notes,
-			       hc.ticket_id, hc.ticket_ref, hc.recording_url,
+			       hc.outcome, hc.notes, hc.resolution, hc.disposition,
+			       hc.ticket_id, hc.ticket_ref, hc.recording_url, hc.ticket_type,
 			       hc.started_at AS called_at,
 			       qa.id AS qa_evaluation_id, qa.total_score AS qa_score, qa.rating_band AS qa_band, qa.passed AS qa_passed
 			FROM helpdesk_calls hc
@@ -3589,6 +4043,7 @@ func hdCSATTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom := qstr(r, "date_from")
 		dateTo := qstr(r, "date_to")
+		agentID := qint(r, "agent_id", 0, 0, 2000000000)
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD') AS date,
 			       ROUND(AVG(csat_score::numeric), 2) AS csat_score,
@@ -3597,8 +4052,9 @@ func hdCSATTrend(db *core.DB) http.HandlerFunc {
 			WHERE csat_score IS NOT NULL
 			  AND ($1 = '' OR created_at::date >= $1::date)
 			  AND ($2 = '' OR created_at::date <= $2::date)
+			  AND ($3 = 0 OR assigned_to = $3)
 			GROUP BY created_at::date
-			ORDER BY created_at::date`, dateFrom, dateTo)
+			ORDER BY created_at::date`, dateFrom, dateTo, agentID)
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -3611,6 +4067,7 @@ func hdHandleTimeByType(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom := qstr(r, "date_from")
 		dateTo := qstr(r, "date_to")
+		agentID := qint(r, "agent_id", 0, 0, 2000000000)
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT COALESCE(ticket_type, 'General') AS ticket_type,
 			       ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at)) / 60))::int AS avg_minutes
@@ -3618,8 +4075,9 @@ func hdHandleTimeByType(db *core.DB) http.HandlerFunc {
 			WHERE resolved_at IS NOT NULL
 			  AND ($1 = '' OR created_at::date >= $1::date)
 			  AND ($2 = '' OR created_at::date <= $2::date)
+			  AND ($3 = 0 OR assigned_to = $3)
 			GROUP BY ticket_type
-			ORDER BY avg_minutes DESC`, dateFrom, dateTo)
+			ORDER BY avg_minutes DESC`, dateFrom, dateTo, agentID)
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -3632,6 +4090,7 @@ func hdResolutionByAgent(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom := qstr(r, "date_from")
 		dateTo := qstr(r, "date_to")
+		agentID := qint(r, "agent_id", 0, 0, 2000000000)
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT u.full_name AS agent_name,
 			       ROUND(
@@ -3643,9 +4102,10 @@ func hdResolutionByAgent(db *core.DB) http.HandlerFunc {
 			WHERE t.assigned_to IS NOT NULL
 			  AND ($1 = '' OR t.created_at::date >= $1::date)
 			  AND ($2 = '' OR t.created_at::date <= $2::date)
+			  AND ($3 = 0 OR t.assigned_to = $3)
 			GROUP BY u.full_name
 			HAVING COUNT(*) > 0
-			ORDER BY resolution_pct DESC`, dateFrom, dateTo)
+			ORDER BY resolution_pct DESC`, dateFrom, dateTo, agentID)
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -3658,14 +4118,16 @@ func hdTypeDistribution(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom := qstr(r, "date_from")
 		dateTo := qstr(r, "date_to")
+		agentID := qint(r, "agent_id", 0, 0, 2000000000)
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT COALESCE(ticket_type, 'General') AS ticket_type,
 			       COUNT(*) AS count
 			FROM helpdesk_tickets
 			WHERE ($1 = '' OR created_at::date >= $1::date)
 			  AND ($2 = '' OR created_at::date <= $2::date)
+			  AND ($3 = 0 OR assigned_to = $3)
 			GROUP BY ticket_type
-			ORDER BY count DESC`, dateFrom, dateTo)
+			ORDER BY count DESC`, dateFrom, dateTo, agentID)
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -3675,6 +4137,47 @@ func hdTypeDistribution(db *core.DB) http.HandlerFunc {
 }
 
 // ── Inbound Call → Auto-Ticket (Zoho Voice webhook) ──────────────────────────
+
+// hdTicketCalls returns the phone-call history for a ticket's customer, matched by
+// CIF or by the last 10 digits of the phone. Zoho provides no call↔ticket id (the
+// call payload's ticketId is null and helpdesk_calls.ticket_id is empty across the
+// board), so we link by customer instead of a brittle per-call guess — the panel
+// shows every call behind the ticket's customer, newest first.
+func hdTicketCalls(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		rows, err := db.PGQuery(r.Context(), `
+			WITH t AS (
+			  SELECT COALESCE(customer_cif,'') AS cif,
+			         right(regexp_replace(COALESCE(customer_phone,''),'\D','','g'),10) AS np
+			  FROM helpdesk_tickets WHERE id=$1
+			)
+			SELECT hc.id,
+			       COALESCE(hc.started_at, hc.created_at)               AS called_at,
+			       COALESCE(hc.duration_sec,0)                          AS duration_sec,
+			       COALESCE(NULLIF(hc.outcome,''),'Call')               AS outcome,
+			       COALESCE(NULLIF(hc.agent_name,''),'Unknown')         AS agent_name,
+			       hc.direction                                         AS direction,
+			       hc.purpose                                           AS purpose,
+			       hc.recording_url                                     AS recording_url,
+			       hc.notes                                             AS notes
+			FROM helpdesk_calls hc, t
+			WHERE (t.cif <> '' AND hc.customer_cif = t.cif)
+			   OR (length(t.np) = 10
+			       AND right(regexp_replace(COALESCE(hc.customer_phone,''),'\D','','g'),10) = t.np)
+			ORDER BY called_at DESC NULLS LAST
+			LIMIT 50`, id)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+	}
+}
 
 func hdInboundCall(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -4005,6 +4508,7 @@ func hdStatsLeaderboard(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom := qstr(r, "date_from")
 		dateTo := qstr(r, "date_to")
+		agentID := qint(r, "agent_id", 0, 0, 2000000000)
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT u.full_name AS agent_name,
 			       COUNT(t.id)                                                                           AS tickets_handled,
@@ -4018,9 +4522,10 @@ func hdStatsLeaderboard(db *core.DB) http.HandlerFunc {
 			WHERE t.assigned_to IS NOT NULL
 			  AND ($1 = '' OR t.created_at::date >= $1::date)
 			  AND ($2 = '' OR t.created_at::date <= $2::date)
+			  AND ($3 = 0 OR t.assigned_to = $3)
 			GROUP BY u.full_name
 			HAVING COUNT(t.id) > 0
-			ORDER BY tickets_resolved DESC, avg_csat DESC NULLS LAST`, dateFrom, dateTo)
+			ORDER BY tickets_resolved DESC, avg_csat DESC NULLS LAST`, dateFrom, dateTo, agentID)
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -4033,6 +4538,7 @@ func hdStatsSLAByAgent(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom := qstr(r, "date_from")
 		dateTo := qstr(r, "date_to")
+		agentID := qint(r, "agent_id", 0, 0, 2000000000)
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT u.full_name AS agent_name,
 			       COUNT(t.id) AS total,
@@ -4046,9 +4552,10 @@ func hdStatsSLAByAgent(db *core.DB) http.HandlerFunc {
 			WHERE t.assigned_to IS NOT NULL
 			  AND ($1 = '' OR t.created_at::date >= $1::date)
 			  AND ($2 = '' OR t.created_at::date <= $2::date)
+			  AND ($3 = 0 OR t.assigned_to = $3)
 			GROUP BY u.full_name
 			HAVING COUNT(t.id) > 0
-			ORDER BY breach_pct DESC`, dateFrom, dateTo)
+			ORDER BY breach_pct DESC`, dateFrom, dateTo, agentID)
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -4061,14 +4568,16 @@ func hdStatsBusiestHours(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom := qstr(r, "date_from")
 		dateTo := qstr(r, "date_to")
+		agentID := qint(r, "agent_id", 0, 0, 2000000000)
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'Africa/Lagos')::int AS hour,
 			       COUNT(*) AS ticket_count
 			FROM helpdesk_tickets
 			WHERE ($1 = '' OR created_at::date >= $1::date)
 			  AND ($2 = '' OR created_at::date <= $2::date)
+			  AND ($3 = 0 OR assigned_to = $3)
 			GROUP BY hour
-			ORDER BY hour`, dateFrom, dateTo)
+			ORDER BY hour`, dateFrom, dateTo, agentID)
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -4081,14 +4590,16 @@ func hdStatsChannelBreakdown(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom := qstr(r, "date_from")
 		dateTo := qstr(r, "date_to")
+		agentID := qint(r, "agent_id", 0, 0, 2000000000)
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT COALESCE(channel, 'manual') AS channel,
 			       COUNT(*) AS count
 			FROM helpdesk_tickets
 			WHERE ($1 = '' OR created_at::date >= $1::date)
 			  AND ($2 = '' OR created_at::date <= $2::date)
+			  AND ($3 = 0 OR assigned_to = $3)
 			GROUP BY channel
-			ORDER BY count DESC`, dateFrom, dateTo)
+			ORDER BY count DESC`, dateFrom, dateTo, agentID)
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -4670,20 +5181,24 @@ func StartGraphInboxPoller(db *core.DB) {
 		defer ticker.Stop()
 		for range ticker.C {
 			ctx := context.Background()
+			WorkerBeat(ctx, db, "graph_inbox", "running", "", "")
 			token, err := graphToken(ctx, db)
 			if err != nil {
 				slog.Info("GraphInboxPoller: Graph not configured, skipping")
+				WorkerBeat(ctx, db, "graph_inbox", "ok", "Graph not configured", "")
 				continue
 			}
 			inbox := resolveCredKey(ctx, db, "HELPDESK_INBOX_ADDRESS")
 			if inbox == "" {
 				slog.Info("GraphInboxPoller: HELPDESK_INBOX_ADDRESS not set, skipping")
+				WorkerBeat(ctx, db, "graph_inbox", "ok", "inbox address not set", "")
 				continue
 			}
 			processed, skipped, newTickets := hdPollGraphInbox(ctx, db, token, inbox)
 			if processed > 0 || newTickets > 0 {
 				slog.Info("GraphInboxPoller: done", "processed", processed, "skipped", skipped, "new_tickets", newTickets)
 			}
+			WorkerBeat(ctx, db, "graph_inbox", "ok", fmt.Sprintf("%d processed · %d new tickets", processed, newTickets), "")
 		}
 	}()
 }

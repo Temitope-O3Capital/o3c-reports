@@ -2,7 +2,7 @@ import { useLiveData } from '../../hooks/useRealtime'
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Page, SectionCard, Spinner, ErrBanner, ConfirmModal } from '../../components/UI'
+import { SectionCard, Spinner, ErrBanner, ConfirmModal } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, FW, RADIUS, SP, TEXT, NUM } from '../../lib/design'
@@ -93,22 +93,17 @@ export default function CareSupervisor() {
   useLiveData(load, { topics: ['tickets'] })
 
   return (
-    <Page
-      title="Care Supervisor"
-      subtitle="Team mail load & SLA"
-      actions={
-        <div style={{ display: 'inline-flex', gap: 10 }}>
-          <button onClick={() => setDistOpen(true)} disabled={!d || d.unassigned === 0}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'var(--card)', color: (!d || d.unassigned === 0) ? 'var(--txt3)' : NAVY, border: '1px solid var(--card-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (!d || d.unassigned === 0) ? 'default' : 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>groups</span>Distribute
-          </button>
-          <button onClick={() => navigate('/care/inbox')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>mail</span>Open Inbox
-          </button>
-        </div>
-      }
-    >
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: SP[3] }}>
+        <button onClick={() => setDistOpen(true)} disabled={!d || d.unassigned === 0}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'var(--card)', color: (!d || d.unassigned === 0) ? 'var(--txt3)' : NAVY, border: '1px solid var(--card-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (!d || d.unassigned === 0) ? 'default' : 'pointer' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 18 }}>groups</span>Distribute
+        </button>
+        <button onClick={() => navigate('/care/inbox')}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 18 }}>mail</span>Open Inbox
+        </button>
+      </div>
       <ErrBanner error={err} onRetry={load} />
 
       {loading && !d ? (
@@ -166,7 +161,7 @@ export default function CareSupervisor() {
                     const pColor = t.priority === 'urgent' || t.priority === 'high' ? RED : t.priority === 'medium' || t.priority === 'normal' ? AMBER : BLUE
                     return (
                       <div key={t.id}
-                        onClick={() => navigate('/care/inbox')}
+                        onClick={() => navigate(`/care/inbox?mail=${t.id}`)}
                         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 2px', borderBottom: i < d.unassigned_tickets.length - 1 ? '1px solid var(--bdr)' : 'none', cursor: 'pointer' }}
                         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
@@ -193,8 +188,7 @@ export default function CareSupervisor() {
         loading={distBusy}
         onConfirm={distribute}
         onClose={() => { if (!distBusy) setDistOpen(false) }}
-      >
-        <p style={{ margin: '0 0 14px', fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.55 }}>
+      ><p style={{ margin: '0 0 14px', fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.55 }}>
           The oldest unassigned mail will be shared out evenly (round-robin) across active Care
           agents. {d && <>There {d.unassigned === 1 ? 'is' : 'are'} <strong style={{ color: 'var(--txt)' }}>{fmtNum(d.unassigned)}</strong> unassigned mail{d.unassigned === 1 ? '' : 's'} in total.</>}
         </p>
@@ -210,6 +204,6 @@ export default function CareSupervisor() {
           Up to 1,000 per pass — run it again to keep clearing the backlog.
         </p>
       </ConfirmModal>
-    </Page>
+    </>
   )
 }

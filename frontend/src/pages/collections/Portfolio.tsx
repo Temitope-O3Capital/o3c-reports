@@ -1,4 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
+import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -18,14 +19,17 @@ function getStoredRole(): string {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface PortfolioRow {
-  loan_id: number
+  loan_id: string | number
   applicant_cif: string
+  customer_name: string | null
+  product_name: string | null
   loan_status: string
   dpd_bucket: string | null
   dpd_lower: number
   outstanding_kobo: number
   current_stage: string | null
   agent_name: string | null
+  assignment_id: number | null
   watchlist_id: number | null
   watchlist_scenario: string | null
 }
@@ -132,6 +136,12 @@ export default function CollectionsPortfolio() {
   const [modal, setModal]         = useState<WatchlistModal>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string | number>>(new Set())
 
+  // Bulk actions (head only)
+  const [agents, setAgents]         = useState<{ id: number; full_name: string; role: string }[]>([])
+  const [bulkModal, setBulkModal]   = useState<'assign' | null>(null)
+  const [bulkAgentId, setBulkAgentId] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+
   // Add-to-watchlist form
   const [wlScenario, setWlScenario] = useState('unreachable')
   const [wlNotes, setWlNotes]       = useState('')
@@ -142,11 +152,15 @@ export default function CollectionsPortfolio() {
   const [rvNotes, setRvNotes]   = useState('')
   const [rvSaving, setRvSaving] = useState(false)
 
+  // Search on the server (CIF or customer name) so it spans the whole book, not just
+  // the first 500 rows the endpoint returns. Debounced to one request per pause.
+  const dq = useDebouncedValue(search, 300)
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
+      const portUrl = dq.trim() ? `/api/collections/portfolio?q=${encodeURIComponent(dq.trim())}` : '/api/collections/portfolio'
       const [portRes, wlRes] = await Promise.all([
-        apiFetch<{ data: PortfolioRow[] }>('/api/collections/portfolio'),
+        apiFetch<{ data: PortfolioRow[] }>(portUrl),
         apiFetch<{ data: WatchlistEntry[] }>('/api/collections/watchlist?status=active'),
       ])
       setRows(portRes.data ?? [])
@@ -156,23 +170,64 @@ export default function CollectionsPortfolio() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dq])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['collections','loans'] })
 
+  // Collection agents for the bulk-assign picker.
+  useEffect(() => {
+    if (!isHead) return
+    apiFetch<{ data: { id: number; full_name: string; role: string }[] }>('/api/admin/users')
+      .then(r => setAgents((r.data ?? []).filter(u =>
+        u.role.includes('collection') || u.role.includes('call_center') || ['admin', 'management', 'head_ops'].includes(u.role))))
+      .catch(() => {})
+  }, [isHead])
+
+  const selectedAccounts = useCallback(() =>
+    rows.filter(r => checkedIds.has(r.loan_id))
+      .map(r => ({ cif: r.applicant_cif, outstanding_kobo: r.outstanding_kobo, dpd_bucket: r.dpd_bucket ?? '' })),
+  [rows, checkedIds])
+
+  async function handleBulkEscalate() {
+    const accounts = selectedAccounts()
+    if (!accounts.length) return
+    if (!window.confirm(`Escalate ${accounts.length} account(s) to Recovery? A recovery case will be opened for each.`)) return
+    setBulkSaving(true)
+    try {
+      const r = await apiPost<{ escalated: number }>('/api/collections-ops/bulk/escalate-by-cif', { accounts })
+      toast.success(`${r.escalated ?? accounts.length} account(s) escalated to recovery`)
+      setCheckedIds(new Set()); load()
+    } catch (e: any) { toast.error(e.message || 'Escalation failed') } finally { setBulkSaving(false) }
+  }
+
+  const [generating, setGenerating] = useState(false)
+  async function handleGenerate() {
+    setGenerating(true)
+    try {
+      const r = await apiPost<{ created: number }>('/api/collections/generate-assignments', {})
+      toast.success(r.created > 0 ? `${r.created} new assignment(s) created from the delinquency book` : 'Assignments refreshed — no new delinquent accounts')
+      load()
+    } catch (e: any) { toast.error(e.message || 'Generation failed') } finally { setGenerating(false) }
+  }
+
+  async function handleBulkAssign() {
+    const accounts = selectedAccounts()
+    if (!accounts.length || !bulkAgentId) { toast.error('Pick an agent'); return }
+    setBulkSaving(true)
+    try {
+      const r = await apiPost<{ assigned: number }>('/api/collections-ops/bulk/assign-by-cif', { agent_user_id: Number(bulkAgentId), accounts })
+      toast.success(`${r.assigned ?? accounts.length} account(s) assigned`)
+      setBulkModal(null); setBulkAgentId(''); setCheckedIds(new Set()); load()
+    } catch (e: any) { toast.error(e.message || 'Assignment failed') } finally { setBulkSaving(false) }
+  }
+
+  // Text search runs on the server (see load); here we only slice by the active tab.
   const displayed = useMemo(() => {
-    let base = rows
-    if (tab === 'collections') base = rows.filter(r => r.dpd_lower <= 90)
-    if (tab === 'recovery')    base = rows.filter(r => r.dpd_lower > 90)
-    if (!search.trim()) return base
-    const q = search.toLowerCase()
-    return base.filter(r =>
-      [r.applicant_cif, r.agent_name, r.dpd_bucket, r.current_stage].some(
-        v => v != null && String(v).toLowerCase().includes(q)
-      )
-    )
-  }, [rows, tab, search])
+    if (tab === 'collections') return rows.filter(r => r.dpd_lower <= 90)
+    if (tab === 'recovery')    return rows.filter(r => r.dpd_lower > 90)
+    return rows
+  }, [rows, tab])
 
   const collCount = rows.filter(r => r.dpd_lower <= 90).length
   const recCount  = rows.filter(r => r.dpd_lower > 90).length
@@ -228,8 +283,8 @@ export default function CollectionsPortfolio() {
       key: 'applicant_cif', label: 'Account / CIF', sortable: true,
       render: r => (
         <NameCell
-          name={r.applicant_cif}
-          sub={r.current_stage ?? null}
+          name={r.customer_name || r.applicant_cif}
+          sub={r.customer_name ? `${r.applicant_cif}${r.product_name ? ' · ' + r.product_name : ''}` : (r.current_stage ?? null)}
           avatar={false}
         />
       ),
@@ -382,18 +437,36 @@ export default function CollectionsPortfolio() {
       title="Credit Portfolio"
       subtitle="All delinquent loan accounts — 0–90 DPD is Collections, 90d+ is Recovery territory"
       actions={
-        <button
-          onClick={() => navigate('/collections/activity-log')}
-          style={{
-            padding: '6px 14px', borderRadius: RADIUS.md, cursor: 'pointer',
-            border: `1.5px solid ${NAVY}40`, background: `${NAVY}08`, color: NAVY,
-            fontSize: TEXT.sm, fontWeight: FW.semibold,
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-          }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>history</span>
-          Activity Log
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {isHead && (
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              title="Create/refresh collection assignments from the live delinquency book"
+              style={{
+                padding: '6px 14px', borderRadius: RADIUS.md, cursor: generating ? 'wait' : 'pointer',
+                border: 'none', background: NAVY, color: '#fff',
+                fontSize: TEXT.sm, fontWeight: FW.semibold,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              {generating ? <Spinner size={13} color="#fff" /> : <span className="material-symbols-rounded" style={{ fontSize: 15 }}>sync</span>}
+              Generate Assignments
+            </button>
+          )}
+          <button
+            onClick={() => navigate('/collections/activity-log')}
+            style={{
+              padding: '6px 14px', borderRadius: RADIUS.md, cursor: 'pointer',
+              border: `1.5px solid ${NAVY}40`, background: `${NAVY}08`, color: NAVY,
+              fontSize: TEXT.sm, fontWeight: FW.semibold,
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>history</span>
+            Activity Log
+          </button>
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />
@@ -474,21 +547,16 @@ export default function CollectionsPortfolio() {
           bulkBar={isHead && checkedIds.size > 0 ? (
             <div style={{ display: 'flex', gap: 6 }}>
               <button
-                onClick={() => {
-                  // Navigate to bulk reassign — open a quick modal or navigate to queue
-                  toast.info(`Bulk reassign ${checkedIds.size} accounts — use the Queue page for agent assignment`)
-                  setCheckedIds(new Set())
-                }}
-                style={{ padding: '4px 12px', borderRadius: RADIUS.sm, border: `1.5px solid ${NAVY}40`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
+                onClick={() => setBulkModal('assign')}
+                disabled={bulkSaving}
+                style={{ padding: '4px 12px', borderRadius: RADIUS.sm, border: `1.5px solid ${NAVY}40`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: bulkSaving ? 'wait' : 'pointer' }}
               >
-                Reassign {checkedIds.size}
+                Assign {checkedIds.size}
               </button>
               <button
-                onClick={() => {
-                  toast.info(`To send to recovery in bulk, use the Queue page escalate action`)
-                  setCheckedIds(new Set())
-                }}
-                style={{ padding: '4px 12px', borderRadius: RADIUS.sm, border: `1.5px solid ${RED}40`, background: `${RED}08`, color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
+                onClick={handleBulkEscalate}
+                disabled={bulkSaving}
+                style={{ padding: '4px 12px', borderRadius: RADIUS.sm, border: `1.5px solid ${RED}40`, background: `${RED}08`, color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: bulkSaving ? 'wait' : 'pointer' }}
               >
                 Escalate {checkedIds.size}
               </button>
@@ -496,6 +564,34 @@ export default function CollectionsPortfolio() {
           ) : undefined}
         />
       </SectionCard>
+
+      {/* Bulk-assign to agent modal */}
+      <Modal
+        open={bulkModal === 'assign'}
+        onClose={() => setBulkModal(null)}
+        title={`Assign ${checkedIds.size} account(s) to an agent`}
+        width={440}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setBulkModal(null)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={handleBulkAssign} disabled={bulkSaving || !bulkAgentId} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: bulkSaving || !bulkAgentId ? 'not-allowed' : 'pointer', opacity: bulkSaving || !bulkAgentId ? 0.6 : 1 }}>
+              {bulkSaving && <Spinner size={13} color="#fff" />}Assign
+            </button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.03em' }}>Collection Agent</label>
+          <select value={bulkAgentId} onChange={e => setBulkAgentId(e.target.value)}
+            style={{ width: '100%', height: 40, padding: '0 11px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)' }}>
+            <option value="">Select an agent…</option>
+            {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+          </select>
+          <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', margin: 0 }}>
+            Creates a collection assignment for each selected account (or reassigns the active one) and notifies the agent.
+          </p>
+        </div>
+      </Modal>
 
       {/* Add to Watchlist Modal */}
       <Modal

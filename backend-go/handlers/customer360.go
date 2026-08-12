@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
@@ -187,7 +188,7 @@ func c360DirectoryFacets(db *core.DB) http.HandlerFunc {
 
 func c360Search(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		q := qstr(r, "q")
+		q := strings.TrimSpace(qstr(r, "q"))
 		limit := qint(r, "limit", 20, 1, 100)
 
 		if q == "" {
@@ -195,18 +196,51 @@ func c360Search(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		like := "%" + q + "%"
-		// Return a clean {cif,name,phone,email} shape the C360 search bar consumes
-		// (the raw view columns are "CIF Number"/"First Name"/… which the UI can't read).
-		data, src, err := db.DualQuery(r.Context(),
-			`SELECT cif AS cif,
-			        TRIM(CONCAT(first_name, ' ', last_name)) AS name,
-			        phone AS phone, email AS email, state AS state
-			 FROM app.customers
-			 WHERE cif ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1
-			 ORDER BY cif
-			 LIMIT $2`,
-			like, limit)
+		// One PERSON per row: a CIF is a card and one human holds many, so we match at
+		// card level then aggregate to the party (like the directory). Matching spans
+		// full name, first/last, CIF, email and normalized phone; tokenised so word
+		// order and partials work; wildcard-safe.
+		match, args, n := buildCustomerSearch(q,
+			[]string{"c.full_name", "c.first_name", "c.last_name", "c.cif", "c.email"},
+			"c.phone", 1)
+
+		// Relevance: an exact CIF or exact phone hit sorts first, then a name/CIF prefix,
+		// then everything else — so the obvious match leads the dropdown instead of an
+		// arbitrary substring row.
+		np := normalizePhone(q)
+		pExact, pPrefix, pNp, pLimit := n, n+1, n+2, n+3
+		args = append(args, q, escapeLike(q)+"%", np, limit)
+
+		sql := fmt.Sprintf(`
+			WITH matched AS (
+				SELECT DISTINCT c.party_id
+				FROM app.customers c
+				WHERE %s
+			)
+			SELECT (array_agg(c.cif ORDER BY c.account_created ASC NULLS LAST, c.cif))[1] AS cif,
+			       p.full_name                    AS name,
+			       COALESCE(p.primary_phone,'')   AS phone,
+			       COALESCE(p.primary_email,'')   AS email,
+			       max(c.state)                   AS state,
+			       p.card_count                   AS card_count,
+			       min(CASE
+			         WHEN lower(c.cif) = lower($%d)                        THEN 0
+			         WHEN $%d <> '' AND %s = $%d                           THEN 0
+			         WHEN c.full_name ILIKE $%d OR c.cif ILIKE $%d         THEN 1
+			         ELSE 2 END)                    AS rank
+			FROM app.customers c
+			JOIN app.parties p ON p.party_id = c.party_id
+			JOIN matched     m ON m.party_id = c.party_id
+			GROUP BY p.party_id, p.full_name, p.primary_phone, p.primary_email, p.card_count
+			ORDER BY rank, p.full_name
+			LIMIT $%d`,
+			match,
+			pExact,
+			pNp, normalizedPhoneExpr("c.phone"), pNp,
+			pPrefix, pPrefix,
+			pLimit)
+
+		data, err := db.PGQuery(r.Context(), sql, args...)
 		if err != nil {
 			respondErr(w, 500, "Search failed")
 			return
@@ -214,7 +248,7 @@ func c360Search(db *core.DB) http.HandlerFunc {
 		if data == nil {
 			data = []core.Row{}
 		}
-		respond(w, data, src)
+		respond(w, data, "pg")
 	}
 }
 

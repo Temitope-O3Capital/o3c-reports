@@ -41,6 +41,7 @@ func RegisterCollectionsOps(r chi.Router, db *core.DB) {
 	r.With(base).Post("/{id}/payment", collectionsOpsLogPayment(db))
 	r.With(base).Get("/{id}/contacts", collectionsOpsGetContacts(db))
 	r.With(base).Get("/{id}/payments", collectionsOpsGetPayments(db))
+	r.With(head).Post("/payments/reconcile", collectionsOpsReconcilePayments(db))
 
 	r.With(base).Get("/writeoffs", collectionsOpsListWriteoffs(db))
 	r.With(head).Post("/writeoffs/{id}/approve", collectionsOpsApproveWriteoff(db))
@@ -56,6 +57,9 @@ func RegisterCollectionsOps(r chi.Router, db *core.DB) {
 	// Bulk operations (head only)
 	r.With(head).Post("/bulk/reassign", collectionsOpsBulkReassign(db))
 	r.With(head).Post("/bulk/send-to-recovery", collectionsOpsBulkSendToRecovery(db))
+	r.With(head).Post("/bulk/assign-by-cif", collectionsOpsBulkAssignByCIF(db))
+	r.With(head).Post("/bulk/escalate-by-cif", collectionsOpsBulkEscalateByCIF(db))
+	r.With(head).Post("/distribute", collectionsOpsDistribute(db))
 }
 
 func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
@@ -116,9 +120,12 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if q != "" {
-			query += fmt.Sprintf(" AND ca.account_cif ILIKE $%d", n)
-			args = append(args, "%"+q+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(q,
+				[]string{"ca.account_cif", "u.full_name"}, "", n); clause != "" {
+				query += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		if from != "" {
 			query += fmt.Sprintf(" AND ca.created_at::date >= $%d::date", n)
@@ -225,6 +232,53 @@ func collectionsOpsGetContacts(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// reconcileCollectionPayment marks a single collection payment reconciled when its
+// reference matches a settled Paystack transaction — so a logged payment is
+// provably backed by money that actually landed. Returns whether it matched.
+func reconcileCollectionPayment(ctx context.Context, db *core.DB, payID int64, reference string) bool {
+	if strings.TrimSpace(reference) == "" {
+		return false
+	}
+	res, err := db.PGExec(ctx, `
+		UPDATE collection_payments cp
+		SET reconciled = true, reconciled_at = NOW(),
+		    paystack_reference = (SELECT pt.reference FROM paystack_transactions pt
+		                          WHERE lower(pt.reference) = lower($2) AND pt.status = 'success' LIMIT 1)
+		WHERE cp.id = $1 AND cp.reconciled = false
+		  AND EXISTS (SELECT 1 FROM paystack_transactions pt WHERE lower(pt.reference) = lower($2) AND pt.status = 'success')`,
+		payID, reference)
+	if err != nil || res == nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n > 0
+}
+
+// collectionsOpsReconcilePayments sweeps all unreconciled collection payments and
+// matches them to settled Paystack transactions by reference.
+func collectionsOpsReconcilePayments(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		res, err := db.PGExec(ctx, `
+			UPDATE collection_payments cp
+			SET reconciled = true, reconciled_at = NOW(), paystack_reference = pt.reference
+			FROM paystack_transactions pt
+			WHERE cp.reconciled = false
+			  AND cp.reference IS NOT NULL AND cp.reference <> ''
+			  AND lower(cp.reference) = lower(pt.reference)
+			  AND pt.status = 'success'`)
+		if err != nil {
+			respondErr(w, 500, "Reconcile failed: "+err.Error())
+			return
+		}
+		n := int64(0)
+		if res != nil {
+			n, _ = res.RowsAffected()
+		}
+		respond(w, map[string]any{"reconciled": n}, "json")
+	}
+}
+
 func collectionsOpsGetPayments(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -235,15 +289,16 @@ func collectionsOpsGetPayments(db *core.DB) http.HandlerFunc {
 		}
 		cif := str(assRows[0]["account_cif"])
 
+		// Collections payments ledger (the source of truth) with reconciliation status.
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT lr.id, lr.amount_kobo, lr.payment_date, lr.payment_method, lr.reference, lr.created_at,
+			SELECT cp.id, cp.amount_kobo, cp.payment_date, cp.channel AS payment_method,
+			       cp.reference, cp.created_at, cp.reconciled, cp.paystack_reference,
 			       u.full_name AS received_by_name
-			FROM loan_repayments lr
-			JOIN loan_applications la ON la.id = lr.application_id
-			LEFT JOIN o3c_users u ON u.id = lr.received_by
-			WHERE la.applicant_cif = $1
-			ORDER BY lr.payment_date DESC
-			LIMIT 20`, cif)
+			FROM collection_payments cp
+			LEFT JOIN o3c_users u ON u.id = cp.received_by
+			WHERE cp.account_cif = $1
+			ORDER BY cp.payment_date DESC, cp.id DESC
+			LIMIT 40`, cif)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -289,17 +344,6 @@ func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
 		}
 		cif := str(assRows[0]["account_cif"])
 
-		// Find the most-recently booked active loan for this CIF.
-		loanRows, err := db.PGQuery(ctx,
-			`SELECT id FROM loan_applications
-			 WHERE applicant_cif=$1 AND status IN ('active','booked')
-			 ORDER BY created_at DESC LIMIT 1`, cif)
-		if err != nil || len(loanRows) == 0 {
-			respondErr(w, 404, "No active loan found for CIF "+cif)
-			return
-		}
-		loanID := toInt64(loanRows[0]["id"])
-
 		tx, err := db.PG.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		if err != nil {
 			respondErr(w, 500, "Transaction start failed")
@@ -307,22 +351,25 @@ func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
 		}
 		defer tx.Rollback() //nolint:errcheck
 
+		// CIF-keyed collections payments ledger — works across the whole delinquency
+		// book (card arrears + loans), not just the near-empty native loan table.
 		var payID int64
 		err = tx.QueryRowContext(ctx,
-			`INSERT INTO loan_repayments
-			 (application_id, amount_kobo, payment_date, payment_method, reference, received_by)
-			 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-			loanID, b.AmountKobo, b.PaymentDate, b.Channel, b.Reference, user.ID,
+			`INSERT INTO collection_payments
+			 (assignment_id, account_cif, amount_kobo, payment_date, channel, reference, received_by)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+			id, cif, b.AmountKobo, b.PaymentDate, b.Channel, b.Reference, user.ID,
 		).Scan(&payID)
 		if err != nil {
 			respondErr(w, 500, "Payment log failed")
 			return
 		}
 
+		glRef := fmt.Sprintf("COL-PAY-%d", payID)
 		if glErr := postJournalTx(ctx, tx, glEntry{
 			Date:          time.Now(),
 			Description:   fmt.Sprintf("Collections payment received — CIF %s", cif),
-			Reference:     fmt.Sprintf("COL-PAY-%d", payID),
+			Reference:     glRef,
 			DebitAccount:  "1001",
 			CreditAccount: "1100",
 			AmountKobo:    b.AmountKobo,
@@ -333,16 +380,36 @@ func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "GL journal failed")
 			return
 		}
+		if _, e := tx.ExecContext(ctx, `UPDATE collection_payments SET gl_reference=$1 WHERE id=$2`, glRef, payID); e != nil {
+			respondErr(w, 500, "GL link failed")
+			return
+		}
+
+		// Legacy parity: also record loan_repayments when the CIF maps to a booked
+		// loan, so downstream loan-book views stay consistent.
+		if lr, lErr := db.PGQuery(ctx,
+			`SELECT id FROM loan_applications WHERE applicant_cif=$1 AND status IN ('active','booked') ORDER BY created_at DESC LIMIT 1`, cif); lErr == nil && len(lr) > 0 {
+			if _, e := tx.ExecContext(ctx,
+				`INSERT INTO loan_repayments (application_id, amount_kobo, payment_date, payment_method, reference, received_by)
+				 VALUES ($1,$2,$3,$4,$5,$6)`,
+				toInt64(lr[0]["id"]), b.AmountKobo, b.PaymentDate, b.Channel, b.Reference, user.ID); e != nil {
+				respondErr(w, 500, "Repayment record failed")
+				return
+			}
+		}
 
 		if err := tx.Commit(); err != nil {
 			respondErr(w, 500, "Commit failed")
 			return
 		}
 
+		// Best-effort auto-reconcile against a settled Paystack transaction by reference.
+		reconciled := reconcileCollectionPayment(ctx, db, payID, b.Reference)
+
 		logCreditEvent(ctx, db, r, "collections", "payment", fmt.Sprint(payID), cif, "payment_logged",
-			fmt.Sprintf("Collection payment of ₦%s logged via %s", fmtKoboStr(b.AmountKobo), b.Channel), nil, map[string]any{"amount_kobo": b.AmountKobo, "channel": b.Channel})
-		slog.Info("collections payment logged", "pay_id", payID, "cif", cif, "amount_kobo", b.AmountKobo, "by", user.ID)
-		respond(w, map[string]any{"id": payID, "amount_kobo": b.AmountKobo}, "json")
+			fmt.Sprintf("Collection payment of ₦%s logged via %s", fmtKoboStr(b.AmountKobo), b.Channel), nil, map[string]any{"amount_kobo": b.AmountKobo, "channel": b.Channel, "reconciled": reconciled})
+		slog.Info("collections payment logged", "pay_id", payID, "cif", cif, "amount_kobo", b.AmountKobo, "by", user.ID, "reconciled", reconciled)
+		respond(w, map[string]any{"id": payID, "amount_kobo": b.AmountKobo, "reconciled": reconciled}, "json")
 	}
 }
 
@@ -656,9 +723,9 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 				WHERE is_kept = TRUE
 				  AND actual_date = CURRENT_DATE`},
 			{"collected_today_kobo", `
-				SELECT COALESCE(SUM(amount_collected_kobo), 0) AS val
-				FROM collections_daily_kpi
-				WHERE kpi_date = CURRENT_DATE`},
+				SELECT COALESCE(SUM(amount_kobo), 0) AS val
+				FROM collection_payments
+				WHERE payment_date = CURRENT_DATE`},
 			{"contacts_today", `
 				SELECT COUNT(*) AS val FROM collection_contacts
 				WHERE created_at::date = CURRENT_DATE`},
@@ -702,6 +769,29 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 
 		respond(w, result, "pg")
 	}
+}
+
+// openRecoveryCase creates a recovery_cases row and returns its ref + id.
+// Shared by every collections→recovery escalation path (single/bulk assignment
+// handoff and watchlist escalation) so they all reach the recovery system with a
+// consistent, valid row. total_outstanding_kobo is NOT NULL with no default, so
+// it must be set alongside outstanding_kobo.
+func openRecoveryCase(ctx context.Context, db *core.DB, cif, dpd string, outstanding int64, sourceAssignmentID *int64) (string, int64, error) {
+	refRows, err := db.PGQuery(ctx, `SELECT LPAD(NEXTVAL('sar_ref_seq')::TEXT,6,'0') AS ref`)
+	if err != nil || len(refRows) == 0 {
+		return "", 0, fmt.Errorf("failed to generate case reference")
+	}
+	caseRef := "RC-" + str(refRows[0]["ref"])
+	rows, err := db.PGQuery(ctx, `
+		INSERT INTO recovery_cases
+		  (case_ref, cif_number, account_cif, outstanding_kobo, total_outstanding_kobo, source_assignment_id, dpd_at_handoff, status, opened_at, created_at, updated_at)
+		VALUES ($1,$2,$2,$3,$3,$4,$5,'open',NOW(),NOW(),NOW())
+		RETURNING id`,
+		caseRef, cif, outstanding, sourceAssignmentID, dpd)
+	if err != nil || len(rows) == 0 {
+		return "", 0, err
+	}
+	return caseRef, toInt64(rows[0]["id"]), nil
 }
 
 func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
@@ -751,8 +841,8 @@ func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
 		var caseID any
 		if err = tx.QueryRowContext(ctx,
 			`INSERT INTO recovery_cases
-			   (case_ref, cif_number, account_cif, outstanding_kobo, source_assignment_id, dpd_at_handoff, status, opened_at, created_at, updated_at)
-			 VALUES ($1,$2,$2,$3,$4,$5,'open',NOW(),NOW(),NOW())
+			   (case_ref, cif_number, account_cif, outstanding_kobo, total_outstanding_kobo, source_assignment_id, dpd_at_handoff, status, opened_at, created_at, updated_at)
+			 VALUES ($1,$2,$2,$3,$3,$4,$5,'open',NOW(),NOW(),NOW())
 			 RETURNING id`,
 			caseRef, accountCIF, outstanding, id, dpd).Scan(&caseID); err != nil {
 			tx.Rollback() //nolint:errcheck
@@ -882,8 +972,12 @@ func collectionsOpsListPlans(db *core.DB) http.HandlerFunc {
 			query += " AND rp.status IN (" + strings.Join(placeholders, ",") + ")"
 		}
 		if q != "" {
-			query += fmt.Sprintf(" AND (rp.account_cif ILIKE $%d OR rp.customer_name ILIKE $%d)", n, n)
-			args = append(args, "%"+q+"%"); n++
+			if clause, sargs, nn := buildCustomerSearch(q,
+				[]string{"rp.account_cif", "rp.customer_name"}, "", n); clause != "" {
+				query += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		if from != "" {
 			query += fmt.Sprintf(" AND rp.created_at::date >= $%d::date", n)
@@ -1087,6 +1181,22 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Plan update failed"); return
 		}
 
+		// Record a loan_repayments row too (parity with single/batch payments) so
+		// the instalment shows in the payments tab and CIF paid totals — not only
+		// in the GL. Best-effort: only when the CIF maps to a booked loan.
+		if amountKobo > 0 && accountCIF != "" {
+			if lr, lErr := db.PGQuery(ctx,
+				`SELECT id FROM loan_applications WHERE applicant_cif=$1 AND status IN ('active','booked') ORDER BY created_at DESC LIMIT 1`, accountCIF); lErr == nil && len(lr) > 0 {
+				if _, e := tx.ExecContext(ctx,
+					`INSERT INTO loan_repayments (application_id, amount_kobo, payment_date, payment_method, reference, received_by)
+					 VALUES ($1,$2,CURRENT_DATE,$3,$4,$5)`,
+					toInt64(lr[0]["id"]), amountKobo, "repayment_plan", fmt.Sprintf("RP-INST-%s", iid), user.ID); e != nil {
+					tx.Rollback() //nolint:errcheck
+					respondErr(w, 500, "Repayment record failed"); return
+				}
+			}
+		}
+
 		// Post GL entry: Dr Cash (1001) / Cr Loan Receivable (1100).
 		if amountKobo > 0 {
 			iidInt, _ := strconv.ParseInt(iid, 10, 64)
@@ -1181,8 +1291,12 @@ func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
 			}
 		}
 		if q != "" {
-			query += fmt.Sprintf(" AND (cp.cif_number ILIKE $%d OR u.full_name ILIKE $%d)", n, n)
-			args = append(args, "%"+q+"%"); n++
+			if clause, sargs, nn := buildCustomerSearch(q,
+				[]string{"cp.cif_number", "u.full_name"}, "", n); clause != "" {
+				query += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 
 		query += fmt.Sprintf(" ORDER BY cp.promised_date ASC LIMIT $%d OFFSET $%d", n, n+1)
@@ -1308,6 +1422,16 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Approve failed"); return
 		}
 
+		// Close the underlying recovery case so a written-off loan stops resurfacing
+		// in the recovery/collections queues (previously GL was posted but the case
+		// stayed 'open').
+		if _, err = tx.ExecContext(ctx,
+			`UPDATE recovery_cases
+			 SET status='written_off', write_off_status='approved', write_off_amount_kobo=$1, closed_at=NOW(), updated_at=NOW()
+			 WHERE id=$2`, amountKobo, caseID); err != nil {
+			respondErr(w, 500, "Failed to close recovery case"); return
+		}
+
 		// Post GL entry: Dr Loan Loss Provision (5200) / Cr Loan Receivable (1100).
 		if amountKobo > 0 {
 			if glErr := postJournalTx(ctx, tx, glEntry{
@@ -1421,6 +1545,19 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 			user.ID, pendingIDs); err != nil {
 			tx.Rollback() //nolint:errcheck
 			respondErr(w, 500, "Update failed"); return
+		}
+
+		// Close each underlying recovery case so written-off loans stop resurfacing
+		// (previously only GL was posted; the case stayed open).
+		for _, row := range pendingRows {
+			if cid := toInt64(row["case_id"]); cid > 0 {
+				if _, err = tx.ExecContext(ctx,
+					`UPDATE recovery_cases SET status='written_off', write_off_status='approved', write_off_amount_kobo=$1, closed_at=NOW(), updated_at=NOW() WHERE id=$2`,
+					toInt64(row["amount_kobo"]), cid); err != nil {
+					tx.Rollback() //nolint:errcheck
+					respondErr(w, 500, "Failed to close recovery case"); return
+				}
+			}
 		}
 
 		// Post a GL entry for each approved write-off.
@@ -1643,8 +1780,18 @@ func collectionsOpsApproveWriteoffRequest(db *core.DB) http.HandlerFunc {
 		if err := tx.Commit(); err != nil {
 			respondErr(w, 500, "Commit failed"); return
 		}
+		// A full write-off closes the exposure: mark the loan written-off and drop
+		// any active collection assignment for the CIF from the work queue (GL was
+		// posted above but the loan previously stayed active and kept resurfacing).
+		// Partial/percentage write-offs leave the account open.
+		if writeoffType == "full" {
+			if laID := toInt64(wr["loan_application_id"]); laID > 0 {
+				db.PGExec(ctx, `UPDATE loan_applications SET status='written_off' WHERE id=$1`, laID) //nolint:errcheck
+			}
+			db.PGExec(ctx, `UPDATE collection_assignments SET status='written_off', updated_at=NOW() WHERE account_cif=$1 AND status='active'`, str(wr["account_cif"])) //nolint:errcheck
+		}
 		logCreditEvent(ctx, db, r, "collections", "writeoff_request", fmt.Sprint(id), str(wr["account_cif"]), "writeoff_request_approved",
-			"Write-off request approved by collections head", nil, map[string]any{"notes": b.ReviewNotes})
+			"Write-off request approved by collections head", nil, map[string]any{"notes": b.ReviewNotes, "writeoff_type": writeoffType})
 		respond(w, map[string]any{"id": id, "status": "approved", "gl_amount_kobo": glAmountKobo}, "json")
 	}
 }
@@ -1714,6 +1861,182 @@ func collectionsOpsBulkReassign(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// collectionsOpsDistribute round-robins all currently-unassigned active
+// assignments across a head-chosen pool of agents (biggest balances spread first).
+// The head picks who is on shift, which sidesteps depending on a fixed
+// collections-agent role.
+func collectionsOpsDistribute(db *core.DB) http.HandlerFunc {
+	type body struct {
+		AgentIDs []int64 `json:"agent_ids"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if len(b.AgentIDs) == 0 {
+			respondErr(w, 422, "agent_ids is required"); return
+		}
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		var assignedBy any
+		if user != nil {
+			assignedBy = user.ID
+		}
+		res, err := db.PGExec(ctx, `
+			WITH pool AS (
+				SELECT id, ROW_NUMBER() OVER (ORDER BY ord) - 1 AS rn
+				FROM (SELECT unnest($1::bigint[]) AS id, generate_subscripts($1::bigint[], 1) AS ord) p
+			),
+			n AS (SELECT COUNT(*)::int AS c FROM pool),
+			todo AS (
+				SELECT id, ROW_NUMBER() OVER (ORDER BY outstanding_kobo DESC, id) - 1 AS seq
+				FROM collection_assignments
+				WHERE status = 'active' AND agent_user_id IS NULL
+			)
+			UPDATE collection_assignments ca
+			SET agent_user_id = pool.id, assigned_by = $2, updated_at = NOW()
+			FROM todo, pool, n
+			WHERE ca.id = todo.id AND pool.rn = (todo.seq % n.c)`,
+			b.AgentIDs, assignedBy)
+		if err != nil {
+			respondErr(w, 500, "Distribute failed: "+err.Error()); return
+		}
+		distributed := int64(0)
+		if res != nil {
+			distributed, _ = res.RowsAffected()
+		}
+		logCreditEvent(ctx, db, r, "collections", "assignment", "distribute", "", "queue_distributed",
+			fmt.Sprintf("Distributed %d unassigned accounts across %d agents", distributed, len(b.AgentIDs)),
+			nil, map[string]any{"distributed": distributed, "agents": len(b.AgentIDs)})
+		for _, aid := range b.AgentIDs {
+			go Notify(context.Background(), db, NotifPayload{ //nolint:errcheck
+				EventType: "collections_assigned", UserID: aid,
+				Title:     "Collection accounts assigned to you",
+				Body:      "New accounts from the collections queue have been assigned to you.",
+				ActionURL: "/collections/queue",
+			})
+		}
+		respond(w, map[string]any{"distributed": distributed, "agents": len(b.AgentIDs)}, "json")
+	}
+}
+
+// cifAccount is the portfolio-row shape the CIF-keyed bulk actions accept. The
+// Portfolio page works off the loan book (CIF-grained) and may not yet have a
+// collection_assignments row, so these endpoints take CIF + amount/dpd directly.
+type cifAccount struct {
+	CIF             string `json:"cif"`
+	OutstandingKobo int64  `json:"outstanding_kobo"`
+	DPDBucket       string `json:"dpd_bucket"`
+}
+
+// collectionsOpsBulkAssignByCIF assigns delinquent accounts (by CIF) to an agent
+// from the Portfolio page, creating a collection_assignments row where none
+// exists yet (manual counterpart to the assignment-generation job) or reassigning
+// the active one.
+func collectionsOpsBulkAssignByCIF(db *core.DB) http.HandlerFunc {
+	type body struct {
+		AgentUserID int64        `json:"agent_user_id"`
+		Accounts    []cifAccount `json:"accounts"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if b.AgentUserID == 0 || len(b.Accounts) == 0 {
+			respondErr(w, 422, "agent_user_id and accounts are required"); return
+		}
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		var assignedBy any
+		if user != nil {
+			assignedBy = user.ID
+		}
+		assigned := 0
+		for _, acc := range b.Accounts {
+			if acc.CIF == "" {
+				continue
+			}
+			// Reassign an existing active row, else create one.
+			res, uErr := db.PGExec(ctx,
+				`UPDATE collection_assignments SET agent_user_id=$1, assigned_by=$2, updated_at=NOW()
+				 WHERE account_cif=$3 AND status='active'`, b.AgentUserID, assignedBy, acc.CIF)
+			affected := int64(0)
+			if uErr == nil && res != nil {
+				affected, _ = res.RowsAffected()
+			}
+			if affected == 0 {
+				if _, iErr := db.PGExec(ctx,
+					`INSERT INTO collection_assignments
+					   (cif_number, account_cif, agent_user_id, assigned_by, dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
+					 VALUES ($1,$1,$2,$3,$4,$5,'active',CURRENT_DATE,NOW(),NOW())`,
+					acc.CIF, b.AgentUserID, assignedBy, acc.DPDBucket, acc.OutstandingKobo); iErr != nil {
+					continue
+				}
+			}
+			assigned++
+		}
+		logCreditEvent(ctx, db, r, "collections", "assignment", fmt.Sprint(assigned), "", "bulk_assigned",
+			fmt.Sprintf("Bulk assigned %d accounts to agent %d", assigned, b.AgentUserID),
+			nil, map[string]any{"agent_user_id": b.AgentUserID, "count": assigned})
+		go Notify(context.Background(), db, NotifPayload{
+			EventType: "collections_assigned",
+			UserID:    b.AgentUserID,
+			Title:     "Collection accounts assigned to you",
+			Body:      fmt.Sprintf("%d collection account(s) have been assigned to you.", assigned),
+			ActionURL: "/collections/queue",
+		})
+		respond(w, map[string]any{"assigned": assigned, "requested": len(b.Accounts)}, "json")
+	}
+}
+
+// collectionsOpsBulkEscalateByCIF opens recovery cases for accounts (by CIF)
+// straight from the Portfolio page, closing any active assignment. Skips a CIF
+// that already has an open recovery case so it can't double-open.
+func collectionsOpsBulkEscalateByCIF(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Accounts []cifAccount `json:"accounts"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON"); return
+		}
+		if len(b.Accounts) == 0 {
+			respondErr(w, 422, "accounts is required"); return
+		}
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		escalated := 0
+		refs := make([]string, 0, len(b.Accounts))
+		for _, acc := range b.Accounts {
+			if acc.CIF == "" {
+				continue
+			}
+			if dup, _ := db.PGQuery(ctx, `SELECT 1 FROM recovery_cases WHERE account_cif=$1 AND status='open' LIMIT 1`, acc.CIF); len(dup) > 0 {
+				continue // already in recovery
+			}
+			// Close any active assignment so it leaves the collections queue.
+			db.PGExec(ctx, `UPDATE collection_assignments SET status='sent_to_recovery', updated_at=NOW() WHERE account_cif=$1 AND status='active'`, acc.CIF) //nolint:errcheck
+			caseRef, caseID, cErr := openRecoveryCase(ctx, db, acc.CIF, acc.DPDBucket, acc.OutstandingKobo, nil)
+			if cErr != nil {
+				continue
+			}
+			escalated++
+			refs = append(refs, caseRef)
+			logCreditEvent(ctx, db, r, "collections", "assignment", acc.CIF, acc.CIF, "sent_to_recovery",
+				fmt.Sprintf("Account escalated to recovery from portfolio — case %s created", caseRef), nil, map[string]any{"case_ref": caseRef})
+			if user != nil {
+				sendNotification(ctx, db, user.ID, "sent_to_recovery", //nolint:errcheck
+					fmt.Sprintf("Account %s sent to recovery", acc.CIF), fmt.Sprintf("Case %s created", caseRef),
+					"recovery_case", caseID)
+			}
+		}
+		respond(w, map[string]any{"escalated": escalated, "requested": len(b.Accounts), "case_refs": refs}, "json")
+	}
+}
+
 func collectionsOpsBulkSendToRecovery(db *core.DB) http.HandlerFunc {
 	type body struct {
 		AssignmentIDs []int64 `json:"assignment_ids"`
@@ -1727,17 +2050,41 @@ func collectionsOpsBulkSendToRecovery(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "assignment_ids is required"); return
 		}
 		ctx := r.Context()
-		_, err := db.PG.ExecContext(ctx, `
-			UPDATE collection_assignments
-			SET current_stage = 'sent_to_recovery', updated_at = NOW()
-			WHERE id = ANY($1)
-			  AND current_stage != 'sent_to_recovery'`, b.AssignmentIDs)
-		if err != nil {
-			respondErr(w, 500, "Bulk send to recovery failed"); return
+		user := core.UserFromCtx(ctx)
+		// Each account must genuinely hand off: open a recovery case and flip the
+		// assignment to sent_to_recovery (same semantics as the single path), not
+		// just stamp current_stage. Process per-id so one failure doesn't abort all.
+		handedOff := 0
+		refs := make([]string, 0, len(b.AssignmentIDs))
+		for _, aid := range b.AssignmentIDs {
+			rows, qErr := db.PGQuery(ctx,
+				`SELECT account_cif, COALESCE(outstanding_kobo,0) AS outstanding_kobo, dpd_bucket
+				 FROM collection_assignments WHERE id=$1 AND status='active'`, aid)
+			if qErr != nil || len(rows) == 0 {
+				continue // already handed off / not active — skip
+			}
+			cif := str(rows[0]["account_cif"])
+			outstanding := toInt64(rows[0]["outstanding_kobo"])
+			dpd := str(rows[0]["dpd_bucket"])
+			aidCopy := aid
+			caseRef, caseID, cErr := openRecoveryCase(ctx, db, cif, dpd, outstanding, &aidCopy)
+			if cErr != nil {
+				continue
+			}
+			if _, uErr := db.PGExec(ctx,
+				`UPDATE collection_assignments SET status='sent_to_recovery', updated_at=NOW() WHERE id=$1`, aid); uErr != nil {
+				continue
+			}
+			handedOff++
+			refs = append(refs, caseRef)
+			logCreditEvent(ctx, db, r, "collections", "assignment", fmt.Sprint(aid), cif, "sent_to_recovery",
+				fmt.Sprintf("Account escalated to recovery — case %s created", caseRef), nil, map[string]any{"case_ref": caseRef})
+			if user != nil {
+				sendNotification(ctx, db, user.ID, "sent_to_recovery", //nolint:errcheck
+					fmt.Sprintf("Account %s sent to recovery", cif), fmt.Sprintf("Case %s created", caseRef),
+					"recovery_case", caseID)
+			}
 		}
-		logCreditEvent(ctx, db, r, "collections", "assignment", fmt.Sprintf("%d", len(b.AssignmentIDs)), "", "bulk_sent_to_recovery",
-			fmt.Sprintf("Bulk staged %d accounts for recovery", len(b.AssignmentIDs)),
-			nil, map[string]any{"count": len(b.AssignmentIDs)})
-		respond(w, map[string]any{"updated": len(b.AssignmentIDs)}, "json")
+		respond(w, map[string]any{"handed_off": handedOff, "requested": len(b.AssignmentIDs), "case_refs": refs}, "json")
 	}
 }

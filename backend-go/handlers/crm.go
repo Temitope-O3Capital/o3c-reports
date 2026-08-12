@@ -137,11 +137,12 @@ func listContacts(db *core.DB) http.HandlerFunc {
 		n := 1
 
 		if q := qstr(r, "q"); q != "" {
-			where += fmt.Sprintf(
-				` AND (c.first_name ILIKE $%d OR c.last_name ILIKE $%d OR c.phone ILIKE $%d OR c.email ILIKE $%d OR c.cif_number ILIKE $%d)`,
-				n, n, n, n, n)
-			args = append(args, "%"+q+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(q,
+				[]string{"c.first_name", "c.last_name", "c.email", "c.cif_number", "c.phone"}, "c.phone", n); clause != "" {
+				where += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		if v := qstr(r, "status"); v != "" {
 			where += fmt.Sprintf(" AND c.status=$%d", n)
@@ -387,11 +388,12 @@ func listAccounts(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if q := qstr(r, "q"); q != "" {
-			where += fmt.Sprintf(
-				` AND (c.first_name ILIKE $%d OR c.last_name ILIKE $%d OR c.cif_number ILIKE $%d OR c.email ILIKE $%d)`,
-				n, n, n, n)
-			args = append(args, "%"+q+"%")
-			n++ //nolint:ineffassign
+			if clause, sargs, nn := buildCustomerSearch(q,
+				[]string{"c.first_name", "c.last_name", "c.cif_number", "c.email", "c.phone"}, "c.phone", n); clause != "" {
+				where += " AND " + clause
+				args = append(args, sargs...)
+				n = nn //nolint:ineffassign,staticcheck
+			}
 		}
 
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`

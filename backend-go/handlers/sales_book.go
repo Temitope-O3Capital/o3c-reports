@@ -162,11 +162,12 @@ func listBook(db *core.DB) http.HandlerFunc {
 		}
 
 		if q := qstr(r, "q"); q != "" {
-			where = append(where, fmt.Sprintf(
-				"(a.full_name ILIKE $%d OR a.cif ILIKE $%d OR a.email ILIKE $%d OR a.phone ILIKE $%d)",
-				n, n, n, n))
-			args = append(args, "%"+q+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(q,
+				[]string{"a.full_name", "a.cif", "a.email", "a.phone"}, "a.phone", n); clause != "" {
+				where = append(where, clause)
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		if s := qstr(r, "state"); s != "" {
 			where = append(where, fmt.Sprintf("a.state = $%d", n))

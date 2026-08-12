@@ -4,7 +4,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell,
 } from 'recharts'
 import { SectionCard, KpiCard, Spinner, ErrBanner, DateFilter } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, unwrap } from '../../lib/api'
 import { fmtDate, today } from '../../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, BLUE, PURPLE, INTER, NUM, MONO, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { BAND_COLOR, qaBand } from '../../lib/qa'
@@ -32,7 +32,9 @@ export default function PerformancePanel() {
 
   const load = useCallback(async () => {
     setErr(null)
-    try { setD(await apiFetch<Stats>(`/api/helpdesk/calls/stats?date_from=${from}&date_to=${to}`)) }
+    // Read either envelope shape ({data:…} or bare) so this panel can't silently
+    // blank if /calls/stats is ever switched to the wrapped respond() helper.
+    try { setD(unwrap<Stats>(await apiFetch<any>(`/api/helpdesk/calls/stats?date_from=${from}&date_to=${to}`))) }
     catch (e: any) { setErr(e.message) }
   }, [from, to])
   useEffect(() => { load() }, [load])

@@ -584,8 +584,25 @@ func bdSectorAnalytics(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// bdPipelineKPIs summarises the lead book, optionally for one owner.
+//
+// The scope must match the table it sits above. My Pipeline shows your leads, so
+// KPI cards reading "Total Leads 340" over a table of 18 rows describe a different
+// population than the one on screen — the numbers are not wrong, they are answering
+// a question nobody asked.
 func bdPipelineKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		where := ""
+		var args []any
+		if q := qstr(r, "assigned_to"); q != "" {
+			id, err := parseUserID(q)
+			if err != nil {
+				respondErr(w, 400, err.Error())
+				return
+			}
+			where = " WHERE assigned_to = $1"
+			args = append(args, id)
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 			  COUNT(*)                                                                         AS total_leads,
@@ -594,7 +611,7 @@ func bdPipelineKPIs(db *core.DB) http.HandlerFunc {
 			    ROUND(100.0 * COUNT(*) FILTER (WHERE stage = 'won') / COUNT(*), 1)
 			  ELSE 0 END                                                                       AS conversion_rate_pct,
 			  COALESCE(AVG(potential_value_kobo) FILTER (WHERE potential_value_kobo > 0), 0)  AS avg_deal_kobo
-			FROM bd_leads`)
+			FROM bd_leads`+where, args...)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"total_leads": 0, "this_month": 0,

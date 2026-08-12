@@ -17,6 +17,7 @@ import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA, FW, RADIUS, SP, TEXT 
 import QAEvaluation from './QAEvaluation'
 import { BAND_COLOR } from '../../lib/qa'
 import { toast } from 'sonner'
+import { CustomerSearch, CustSuggest, cleanName, initialsOf } from '../../components/CustomerSearch'
 
 function myRole(): string { try { return String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '') } catch { return '' } }
 const CAN_EVALUATE = /head|admin|super|manager|lead|supervisor/i.test(myRole())
@@ -32,10 +33,12 @@ interface CallLog {
   direction: string
   duration_seconds: number
   outcome: string
+  disposition: string | null
   ticket_id: number | null
   ticket_ref: string | null
   called_at: string
   notes: string | null
+  resolution: string | null
   customer_cif: string | null
   recording_url: string | null
   qa_evaluation_id: number | null
@@ -65,9 +68,18 @@ const num = (v: any): number => Number(v ?? 0) || 0
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const TICKET_TYPES_CALL = [
-  'General Enquiry', 'Balance Enquiry', 'Payment Confirmation', 'Card Dispute',
-  'Statement Request', 'Loan Complaint', 'FD Enquiry', 'Technical / App Issue',
-  'Complaint (CBN reportable)',
+  'General Enquiry', 'Balance Enquiry', 'Payment Confirmation', 'Failed Transaction',
+  'Card Dispute', 'Statement Request', 'Loan Complaint', 'Collection',
+  'FD Enquiry', 'App Download', 'Technical / App Issue',
+  'Complaint (CBN reportable)', 'Others',
+]
+
+// Call disposition = the business result of the call. Kept distinct from Outcome
+// (connection status: completed/missed/…), which drives the KPIs and Zoho mapping.
+const DISPOSITIONS = [
+  'Resolved', 'Information Provided', 'Callback Scheduled', 'Escalated',
+  'Complaint Logged', 'Pending / Follow-up', 'Unreachable / No Answer',
+  'Wrong Number', 'Not Interested',
 ]
 
 // Zoho-sourced calls only carry `completed` (connected) and `missed` (no answer);
@@ -297,9 +309,14 @@ export default function Calls() {
   // Log Call modal
   const [logOpen, setLogOpen] = useState(false)
   const [logForm, setLogForm] = useState({
-    customer_name: '', phone: '', direction: 'Inbound',
-    outcome_val: 'completed', duration_seconds: '', ticket_type: '', notes: '',
+    customer_name: '', phone: '', customer_cif: '', direction: 'Inbound',
+    outcome_val: 'completed', disposition: '', duration_seconds: '',
+    ticket_type: '', notes: '', resolution: '',
   })
+  // Customer picker state: picked = a customer chosen (chip); manual = typing a
+  // walk-in by hand; otherwise the search typeahead shows.
+  const [custPicked, setCustPicked] = useState(false)
+  const [custManual, setCustManual] = useState(false)
   const [logSaving, setLogSaving] = useState(false)
   const [callScript, setCallScript] = useState<CallScript | null>(null)
   const [scriptExpanded, setScriptExpanded] = useState(false)
@@ -387,22 +404,38 @@ export default function Calls() {
 
   // ── Log Call ──────────────────────────────────────────────────────────────
 
+  function resetLogForm() {
+    setLogForm({
+      customer_name: '', phone: '', customer_cif: '', direction: 'Inbound',
+      outcome_val: 'completed', disposition: '', duration_seconds: '',
+      ticket_type: '', notes: '', resolution: '',
+    })
+    setCustPicked(false); setCustManual(false)
+  }
+
   async function handleLogCall() {
-    if (!logForm.phone.trim()) { toast.error('Phone number is required'); return }
+    // A call needs at least a way to identify the caller — a linked customer (CIF)
+    // or a phone number.
+    if (!logForm.phone.trim() && !logForm.customer_cif.trim()) {
+      toast.error('Add a customer (search) or a phone number'); return
+    }
     setLogSaving(true)
     try {
       await apiPost('/api/helpdesk/calls', {
         customer_name:    logForm.customer_name || undefined,
-        customer_phone:   logForm.phone,
+        customer_cif:     logForm.customer_cif || undefined,
+        customer_phone:   logForm.phone || undefined,
         direction:        logForm.direction,
         outcome:          logForm.outcome_val,
+        disposition:      logForm.disposition || undefined,
         duration_seconds: logForm.duration_seconds ? Number(logForm.duration_seconds) : undefined,
         ticket_type:      logForm.ticket_type || undefined,
         notes:            logForm.notes || undefined,
+        resolution:       logForm.resolution || undefined,
       })
       toast.success('Call logged')
       setLogOpen(false)
-      setLogForm({ customer_name: '', phone: '', direction: 'Inbound', outcome_val: 'completed', duration_seconds: '', ticket_type: '', notes: '' })
+      resetLogForm()
       setCallScript(null)
       load(); loadStats()
     } catch (e: any) {
@@ -411,7 +444,7 @@ export default function Calls() {
   }
 
   function exportCsv() {
-    const header = ['Agent', 'Customer', 'Phone', 'Direction', 'Duration (s)', 'Outcome', 'Ticket', 'Called At', 'Notes']
+    const header = ['Agent', 'Customer', 'Phone', 'Direction', 'Duration (s)', 'Outcome', 'Disposition', 'Ticket', 'Called At', 'Complaint / Summary', 'Resolution']
     const lines = rows.map(r => [
       `"${(r.agent_name ?? '').replace(/"/g, '""')}"`,
       `"${(r.customer_name ?? '').replace(/"/g, '""')}"`,
@@ -419,9 +452,11 @@ export default function Calls() {
       r.direction ?? '',
       r.duration_seconds ?? 0,
       r.outcome ?? '',
+      `"${(r.disposition ?? '').replace(/"/g, '""')}"`,
       r.ticket_ref ?? '',
       r.called_at ?? '',
       `"${(r.notes ?? '').replace(/"/g, '""')}"`,
+      `"${(r.resolution ?? '').replace(/"/g, '""')}"`,
     ].join(','))
     const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `call-log-${today()}.csv` })
@@ -451,6 +486,13 @@ export default function Calls() {
       key: 'outcome',
       label: 'Outcome',
       render: r => <OutcomePill outcome={r.outcome} />,
+    },
+    {
+      key: 'disposition' as any,
+      label: 'Disposition',
+      render: r => r.disposition ? (
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{r.disposition}</span>
+      ) : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>,
     },
     {
       key: 'qa_score' as any,
@@ -488,12 +530,21 @@ export default function Calls() {
     },
     {
       key: 'notes' as any,
-      label: 'Notes',
-      render: r => r.notes ? (
-        <span title={r.notes} style={{ fontSize: TEXT.sm, color: 'var(--txt2)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', maxWidth: 200 }}>
-          {r.notes}
-        </span>
-      ) : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>,
+      label: 'Summary',
+      render: r => {
+        const complaint = (r.notes ?? '').trim()
+        const resolution = (r.resolution ?? '').trim()
+        if (!complaint && !resolution) return <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>
+        // Tooltip carries both sides of the call; the cell shows the complaint
+        // (falling back to the resolution for calls that only recorded an action).
+        const tip = [complaint && `Complaint: ${complaint}`, resolution && `Resolution: ${resolution}`].filter(Boolean).join('\n\n')
+        return (
+          <span title={tip} style={{ fontSize: TEXT.sm, color: 'var(--txt2)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', maxWidth: 220 }}>
+            {complaint || resolution}
+            {resolution && <span title="Resolution recorded" style={{ marginLeft: 5, color: GREEN, fontWeight: FW.bold }}>✓</span>}
+          </span>
+        )
+      },
     },
     {
       key: '_actions',
@@ -658,18 +709,53 @@ export default function Calls() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: SORA }}>
 
-          {/* Customer */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-            <div>
-              <label style={labelSt}>Customer Name</label>
-              <input value={logForm.customer_name} onChange={e => setLogForm(f => ({ ...f, customer_name: e.target.value }))}
-                placeholder="Full name" style={inputSt} />
-            </div>
-            <div>
-              <label style={labelSt}>Phone Number *</label>
-              <input value={logForm.phone} onChange={e => setLogForm(f => ({ ...f, phone: e.target.value }))}
-                placeholder="e.g. 08012345678" style={inputSt} />
-            </div>
+          {/* Customer — search & autofill, with a manual (walk-in) fallback */}
+          <div>
+            <label style={labelSt}>Customer</label>
+            {custPicked ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'var(--th-bg)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg }}>
+                <div style={{ width: 36, height: 36, borderRadius: RADIUS.full, flexShrink: 0, background: `${NAVY}12`, color: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.sm, fontWeight: FW.extrabold }}>
+                  {initialsOf(logForm.customer_name)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>{logForm.customer_name || 'Unknown customer'}</div>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>
+                    {logForm.customer_cif && <span style={{ fontFamily: 'var(--font-mono)' }}>CIF {logForm.customer_cif}</span>}
+                    {logForm.phone && <span>{logForm.phone}</span>}
+                  </div>
+                </div>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: GREEN, background: `${GREEN}14`, padding: '3px 9px', borderRadius: RADIUS.xl }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>check_circle</span>Linked
+                </span>
+                <button type="button"
+                  onClick={() => { setLogForm(f => ({ ...f, customer_cif: '' })); setCustPicked(false); setCustManual(false) }}
+                  style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
+                  Change
+                </button>
+              </div>
+            ) : custManual ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+                  <input value={logForm.customer_name} onChange={e => setLogForm(f => ({ ...f, customer_name: e.target.value }))}
+                    placeholder="Customer name" style={inputSt} />
+                  <input value={logForm.phone} onChange={e => setLogForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="Phone e.g. 08012345678" style={inputSt} />
+                </div>
+                <button type="button" onClick={() => setCustManual(false)}
+                  style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, padding: 0, border: 'none', background: 'none', color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>search</span>Search for an existing customer instead
+                </button>
+              </div>
+            ) : (
+              <CustomerSearch
+                autoFocus={false}
+                onPick={(c: CustSuggest) => {
+                  setLogForm(f => ({ ...f, customer_name: cleanName(c.name), customer_cif: c.cif, phone: c.phone ?? f.phone }))
+                  setCustPicked(true)
+                }}
+                onManual={() => setCustManual(true)}
+              />
+            )}
           </div>
 
           {/* Direction / Outcome / Duration */}
@@ -698,20 +784,37 @@ export default function Calls() {
             </div>
           </div>
 
-          {/* Ticket type */}
-          <div>
-            <label style={labelSt}>Ticket Type</label>
-            <select value={logForm.ticket_type} onChange={e => setLogForm(f => ({ ...f, ticket_type: e.target.value }))} style={inputSt}>
-              <option value="">— None —</option>
-              {TICKET_TYPES_CALL.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+          {/* Ticket type + Disposition */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+            <div>
+              <label style={labelSt}>Ticket Type</label>
+              <select value={logForm.ticket_type} onChange={e => setLogForm(f => ({ ...f, ticket_type: e.target.value }))} style={inputSt}>
+                <option value="">— None —</option>
+                {TICKET_TYPES_CALL.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelSt}>Disposition</label>
+              <select value={logForm.disposition} onChange={e => setLogForm(f => ({ ...f, disposition: e.target.value }))} style={inputSt}>
+                <option value="">— Select —</option>
+                {DISPOSITIONS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
           </div>
 
-          {/* Notes */}
+          {/* Customer complaint / summary */}
           <div>
-            <label style={labelSt}>Notes</label>
+            <label style={labelSt}>Customer complaint / summary</label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={logForm.notes} onChange={e => setLogForm(f => ({ ...f, notes: e.target.value }))}
-              rows={3} placeholder="Call notes…"
+              rows={3} placeholder="What the customer called about…"
+              style={{ ...inputSt, height: 'auto', padding: '8px 10px', resize: 'vertical', lineHeight: 1.5 }} />
+          </div>
+
+          {/* Agent response / resolution */}
+          <div>
+            <label style={labelSt}>Agent response / resolution</label>
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={logForm.resolution} onChange={e => setLogForm(f => ({ ...f, resolution: e.target.value }))}
+              rows={3} placeholder="What you did / how it was resolved…"
               style={{ ...inputSt, height: 'auto', padding: '8px 10px', resize: 'vertical', lineHeight: 1.5 }} />
           </div>
 

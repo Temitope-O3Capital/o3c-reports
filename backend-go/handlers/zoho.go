@@ -85,6 +85,10 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	r.Post("/relink-assignees", zohoRelinkAssignees(db))
 	r.Post("/onboard-agents", zohoOnboardAgents(db))
 
+	// Agent crosswalk — unmatched Zoho agents + one-click mapping to workspace users.
+	r.Get("/unmatched-agents", zohoUnmatchedAgents(db))
+	r.Post("/map-agent", zohoMapAgent(db))
+
 	// Voice routes require call_center page permission — these initiate or import live calls.
 	cc := core.RequirePages("call_center")
 	r.With(cc).Post("/voice/import-logs", zohoImportVoiceLogs(db))
@@ -346,6 +350,15 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 
 		imported, skipped, failed, err := runZohoVoiceImport(ctx, db, fromDate, toDate)
 		if err != nil {
+			// This org's OAuth grant is Zoho Desk + PhoneBridge (Desk.calls.ALL,
+			// PhoneBridge.call.log) — NOT the standalone Zoho Voice product. The Voice
+			// API therefore rejects the token with ZVT022 "Invalid OAuth scope". Calls
+			// aren't missing: PhoneBridge telephony logs land in Zoho Desk and are
+			// imported via the Desk /calls sync. Return that instead of a raw error.
+			if strings.Contains(err.Error(), "ZVT022") || strings.Contains(strings.ToLower(err.Error()), "invalid oauth scope") {
+				respondErr(w, 409, "Zoho Voice is not part of this Zoho plan (the token is scoped to Zoho Desk + PhoneBridge). Calls are logged in Zoho Desk and imported by the Desk call sync — no separate Voice import is needed.")
+				return
+			}
 			respondErr(w, 502, err.Error())
 			return
 		}
@@ -452,7 +465,7 @@ func recordZohoSyncResult(ctx context.Context, db *core.DB, job string, imported
 // runZohoVoiceSyncCycle imports the recent call window with a few backoff retries,
 // so a transient DNS/connection blip doesn't skip the whole hour. Records the
 // outcome either way.
-func runZohoVoiceSyncCycle(db *core.DB) {
+func runZohoVoiceSyncCycle(db *core.DB, cap int) {
 	ctx := context.Background()
 	if !zohoEnsureConfigured(ctx, db) {
 		return
@@ -466,52 +479,63 @@ func runZohoVoiceSyncCycle(db *core.DB) {
 	to := time.Now().Format("2006-01-02")
 
 	backoffs := []time.Duration{0, 30 * time.Second, 2 * time.Minute}
-	var imported int
+	var imported, failed int
 	var err error
 	for i, wait := range backoffs {
 		if wait > 0 {
 			time.Sleep(wait)
 		}
-		imported, err = runZohoDeskCallsHeadless(ctx, db, from, to)
+		imported, failed, err = runZohoDeskCallsHeadless(ctx, db, from, to, cap)
 		if err == nil {
-			slog.Info("zoho auto-sync: done", "imported", imported, "attempt", i+1)
-			recordZohoSyncResult(ctx, db, "calls", imported, nil)
+			// Fetch succeeded — but a high insert-failure rate is a silent-failure
+			// alarm (see the customer_cif incident), so surface it as an error, not green.
+			if spike, msg := zohoFailedSpike(imported, failed); spike {
+				slog.Error("zoho auto-sync: HIGH INSERT-FAILURE RATE", "imported", imported, "failed", failed, "detail", msg)
+				recordZohoSyncResult(ctx, db, "calls", imported, fmt.Errorf("%s", msg))
+				WorkerBeat(ctx, db, "zoho_calls", "error", msg, msg)
+			} else {
+				slog.Info("zoho auto-sync: done", "imported", imported, "attempt", i+1)
+				recordZohoSyncResult(ctx, db, "calls", imported, nil)
+				WorkerBeat(ctx, db, "zoho_calls", "ok", fmt.Sprintf("%d imported", imported), "")
+			}
 			return
 		}
 		slog.Warn("zoho auto-sync: attempt failed", "attempt", i+1, "err", err)
 	}
 	slog.Error("zoho auto-sync: giving up this cycle (will retry next hour)", "err", err)
 	recordZohoSyncResult(ctx, db, "calls", 0, err)
+	WorkerBeat(ctx, db, "zoho_calls", "error", err.Error(), err.Error())
 }
 
 // runZohoDeskCallsHeadless runs the Zoho Desk call import for a date window without
 // an HTTP response, reusing the shared "calls" job so it never collides with a
 // manual import. Returns the count imported and any error the job recorded.
-func runZohoDeskCallsHeadless(ctx context.Context, db *core.DB, from, to string) (int, error) {
+func runZohoDeskCallsHeadless(ctx context.Context, db *core.DB, from, to string, cap int) (imported, failed int, err error) {
 	j := zohoJobs["calls"]
 	j.Lock()
 	if j.running {
 		j.Unlock()
-		return 0, nil // a manual or prior auto import is already running; skip quietly
+		return 0, 0, nil // a manual or prior auto import is already running; skip quietly
 	}
 	j.running, j.done = true, false
 	j.imported, j.skipped, j.failed, j.pages = 0, 0, 0, 0
 	j.startedAt, j.endedAt, j.lastErr = time.Now(), time.Time{}, ""
 	j.Unlock()
 
-	// Bounded sweep: newest-first, so the top ~1000 calls always contain everything
-	// new since the last hourly run. A light 10-page pass keeps it fast + reliable on
-	// the flaky path (the 3-day `from` is just a safety filter, not a scan target).
-	runZohoDeskCallImportJob(ctx, db, j, from, to, 1000)
+	// Bounded sweep: newest-first, so the top `cap` calls always contain everything
+	// new since the last run. The fast poll uses a small cap (recent minute); the
+	// hourly reconcile uses a larger one. The 3-day `from` is a safety filter, not a
+	// scan target.
+	runZohoDeskCallImportJob(ctx, db, j, from, to, cap)
 
 	j.Lock()
-	imported, lastErr := j.imported, j.lastErr
+	imp, fail, lastErr := j.imported, j.failed, j.lastErr
 	j.running, j.done, j.endedAt = false, true, time.Now()
 	j.Unlock()
 	if lastErr != "" {
-		return imported, fmt.Errorf("%s", lastErr)
+		return imp, fail, fmt.Errorf("%s", lastErr)
 	}
-	return imported, nil
+	return imp, fail, nil
 }
 
 // StartZohoAutoSync imports Zoho Desk call logs shortly after startup and then
@@ -528,11 +552,20 @@ func StartZohoAutoSync(db *core.DB) {
 	go func() {
 		ensureZohoSyncState(context.Background(), db)
 		time.Sleep(30 * time.Second) // let startup settle
-		runZohoVoiceSyncCycle(db)
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			runZohoVoiceSyncCycle(db)
+		runZohoVoiceSyncCycle(db, 1000)
+		// Fast incremental poll (small cap, near-real-time) + hourly deep reconcile
+		// (large cap, catches anything the fast poll missed / late-arriving records).
+		fast := time.NewTicker(zohoPollInterval())
+		deep := time.NewTicker(1 * time.Hour)
+		defer fast.Stop()
+		defer deep.Stop()
+		for {
+			select {
+			case <-fast.C:
+				runZohoVoiceSyncCycle(db, 200)
+			case <-deep.C:
+				runZohoVoiceSyncCycle(db, 1000)
+			}
 		}
 	}()
 }
@@ -545,45 +578,20 @@ func StartZohoDeskAutoSync(db *core.DB) {
 	// package-init before .env loads, so the inner runOnce gates on zohoEnsureConfigured.
 	go func() {
 		time.Sleep(2 * time.Minute) // let startup settle before the first sweep
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
 
-		runOnce := func() {
-			ctx := context.Background()
-			if !zohoEnsureConfigured(ctx, db) {
-				return
+		runZohoTicketSync(db, 2000)
+		// Fast incremental poll (recent tickets) + hourly deep reconcile.
+		fast := time.NewTicker(zohoPollInterval())
+		deep := time.NewTicker(1 * time.Hour)
+		defer fast.Stop()
+		defer deep.Stop()
+		for {
+			select {
+			case <-fast.C:
+				runZohoTicketSync(db, 100)
+			case <-deep.C:
+				runZohoTicketSync(db, 2000)
 			}
-			j := zohoJobs["tickets"]
-			j.Lock()
-			if j.running { // a manual import is already in flight — skip this tick
-				j.Unlock()
-				return
-			}
-			j.running, j.done = true, false
-			j.imported, j.skipped, j.failed, j.pages = 0, 0, 0, 0
-			j.startedAt, j.endedAt, j.lastErr = time.Now(), time.Time{}, ""
-			j.Unlock()
-			WorkerBeat(ctx, db, "zoho_desk", "running", "", "")
-
-			// Newest-first, capped so each hourly sweep only touches the recent window.
-			runZohoTicketImportJob(ctx, db, j, 2000, true)
-
-			j.Lock()
-			j.running, j.done, j.endedAt = false, true, time.Now()
-			imported := j.imported
-			lastErr := j.lastErr
-			j.Unlock()
-			slog.Info("zoho desk auto-sync: tickets done", "imported", imported)
-			if lastErr != "" {
-				WorkerBeat(ctx, db, "zoho_desk", "error", lastErr, "")
-			} else {
-				WorkerBeat(ctx, db, "zoho_desk", "ok", fmt.Sprintf("%d tickets imported", imported), "")
-			}
-		}
-
-		runOnce()
-		for range ticker.C {
-			runOnce()
 		}
 	}()
 }
@@ -710,7 +718,7 @@ func runZohoTicketImportJob(ctx context.Context, db *core.DB, j *zohoJob, maxTic
 	ensureHelpdeskColumns(ctx, db)
 
 	statusMap := map[string]string{
-		"open": "open", "on hold": "pending", "escalated": "open",
+		"open": "open", "on hold": "pending", "escalated": "escalated",
 		"resolved": "resolved", "closed": "closed",
 	}
 	priorityMap := map[string]string{
@@ -818,14 +826,12 @@ func upsertZohoTicket(ctx context.Context, db *core.DB, t map[string]any, status
 		closedAt = &ca
 	}
 
-	// SLA + type — Zoho carries these on the ticket (dueDate / category), but they
-	// were never mapped, which is why sla_due_at and ticket_type were 100% NULL and
-	// the SLA badges/overdue feed had nothing to show. Map the resolution SLA due
-	// date and the Zoho category (+ sub-category) into our fields.
-	var slaDue *time.Time
-	if dd := zohoParseTime(t["dueDate"]); !dd.IsZero() {
-		slaDue = &dd
-	}
+	// SLA + CSAT — Zoho carries no SLA/priority/category data for this org (dueDate,
+	// category and priority are all null on every ticket), so compute our own SLA
+	// deadlines from the ticket's created time + the active policy for its priority,
+	// and mint a CSAT token so resolving the ticket can actually send a survey.
+	slaDue, frtDue := hdSLATimesFrom(ctx, db, priority, createdAt)
+	csatToken := hdNewUUID()
 	ticketType := strings.TrimSpace(zohoStr(t["category"]))
 	if sc := strings.TrimSpace(zohoStr(t["subCategory"])); sc != "" {
 		if ticketType != "" {
@@ -845,18 +851,21 @@ func upsertZohoTicket(ctx context.Context, db *core.DB, t map[string]any, status
 	// Ticket owner (assignee) — captured from Zoho and, where the agent has a
 	// matching workspace account, linked to assigned_to so the ticket shows as owned.
 	asgID, asgName, asgEmail := zohoAssignee(t)
-	assignedTo := lookupUserIDByEmail(ctx, db, asgEmail)
+	// Resolve the assignee through the durable crosswalk (manual → email → name),
+	// unifying ticket + call attribution and honouring manual mappings. Records the
+	// agent in zoho_agent_map so ticket-only agents also surface in Agent Matching.
+	assignedTo := zohoResolveAgent(ctx, db, asgID, asgEmail, asgName)
 
-	res, err := db.PGExec(ctx, `
+	rows, err := db.PGQuery(ctx, `
 		INSERT INTO helpdesk_tickets
 		  (subject, description, channel, status, priority, department,
 		   customer_name, customer_email, customer_phone,
 		   ticket_ref, resolved_at, closed_at, created_at, updated_at, source_system,
 		   zoho_assignee_id, zoho_assignee_name, zoho_assignee_email, assigned_to,
-		   sla_due_at, ticket_type)
+		   sla_due_at, ticket_type, first_response_due, csat_token)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,'zoho_desk',
 		   NULLIF($14,''),NULLIF($15,''),NULLIF($16,''),$17,
-		   $18, NULLIF($19,''))
+		   $18, NULLIF($19,''), $20, NULLIF($21,''))
 		ON CONFLICT (ticket_ref) DO UPDATE SET
 		  status              = EXCLUDED.status,
 		  priority            = EXCLUDED.priority,
@@ -869,20 +878,29 @@ func upsertZohoTicket(ctx context.Context, db *core.DB, t map[string]any, status
 		  zoho_assignee_email = EXCLUDED.zoho_assignee_email,
 		  assigned_to         = COALESCE(EXCLUDED.assigned_to, helpdesk_tickets.assigned_to),
 		  sla_due_at          = COALESCE(EXCLUDED.sla_due_at, helpdesk_tickets.sla_due_at),
-		  ticket_type         = COALESCE(EXCLUDED.ticket_type, helpdesk_tickets.ticket_type)`,
+		  ticket_type         = COALESCE(EXCLUDED.ticket_type, helpdesk_tickets.ticket_type),
+		  first_response_due  = COALESCE(EXCLUDED.first_response_due, helpdesk_tickets.first_response_due),
+		  csat_token          = COALESCE(helpdesk_tickets.csat_token, EXCLUDED.csat_token)
+		RETURNING id, (xmax = 0) AS inserted`,
 		subject, body, channel, status, priority, dept,
 		custName, custEmail, custPhone,
 		ref, resolvedAt, closedAt, createdAt,
 		asgID, asgName, asgEmail, assignedTo,
-		slaDue, ticketType)
+		slaDue, ticketType, frtDue, csatToken)
 	if err != nil {
 		slog.Warn("upsertZohoTicket: insert", "ref", ref, "err", err)
 		return 0, 0, 1
 	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		return 1, 0, 0
+	if len(rows) == 0 {
+		return 0, 1, 0
 	}
-	return 0, 1, 0
+	// Auto-assign only brand-new, open, still-unowned tickets (load-balanced) so
+	// incoming email/social tickets get an owner instead of ageing in an unowned
+	// pile. Re-imports (xmax<>0) and tickets Zoho already assigned are left alone.
+	if ins, _ := rows[0]["inserted"].(bool); ins && assignedTo == nil && (status == "open" || status == "pending") {
+		hdAutoAssignTicket(ctx, db, toInt64(rows[0]["id"]), 0)
+	}
+	return 1, 0, 0
 }
 
 // channelFromZoho maps a Zoho channel label to O3's widened channel vocabulary
@@ -1236,14 +1254,14 @@ func zohoOnboardAgents(db *core.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"applied":         apply,
-			"role":            role,
-			"agents_in_zoho":  len(agents),
-			"considered":      considered,
-			"created":         created,
-			"skipped_exists":  skipped,
-			"failed":          failed,
-			"results":         out,
+			"applied":        apply,
+			"role":           role,
+			"agents_in_zoho": len(agents),
+			"considered":     considered,
+			"created":        created,
+			"skipped_exists": skipped,
+			"failed":         failed,
+			"results":        out,
 		})
 	}
 }
@@ -1417,9 +1435,13 @@ func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 		}
 		startZohoJob("calls", w, func(ctx context.Context, j *zohoJob) {
 			runZohoDeskCallImportJob(ctx, db, j, from, to, maxOffset)
-			// Record the outcome so a manual "Sync now" also advances the sync state.
+			// Record the outcome so a manual "Sync now" also advances the sync state
+			// and raises the same silent-failure alarm as the auto-sync.
 			if j.lastErr != "" {
 				recordZohoSyncResult(ctx, db, "calls", j.imported, fmt.Errorf("%s", j.lastErr))
+			} else if spike, msg := zohoFailedSpike(j.imported, j.failed); spike {
+				slog.Error("zoho manual import: HIGH INSERT-FAILURE RATE", "imported", j.imported, "failed", j.failed)
+				recordZohoSyncResult(ctx, db, "calls", j.imported, fmt.Errorf("%s", msg))
 			} else {
 				recordZohoSyncResult(ctx, db, "calls", j.imported, nil)
 			}
@@ -1472,28 +1494,6 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 			agentMap[id] = zAgent{name: name, email: strings.ToLower(strings.TrimSpace(zohoStr(a["emailId"])))}
 		}
 	}
-	userByEmail := map[string]int64{}
-	resolveAgentUser := func(email string) *int64 {
-		if email == "" {
-			return nil
-		}
-		if v, ok := userByEmail[email]; ok {
-			if v == 0 {
-				return nil
-			}
-			return &v
-		}
-		var id int64
-		if rows, _ := db.PGQuery(ctx, `SELECT id FROM o3c_users WHERE lower(email)=$1 AND deleted_at IS NULL LIMIT 1`, email); len(rows) > 0 {
-			id = toInt64(rows[0]["id"])
-		}
-		userByEmail[email] = id
-		if id == 0 {
-			return nil
-		}
-		return &id
-	}
-
 	for {
 		params := url.Values{
 			"from":   {fmt.Sprintf("%d", offset)},
@@ -1571,7 +1571,7 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 					strings.Contains(st, "declin") {
 					outcome = "missed"
 				}
-				
+
 				// Duration = completedTime - startTime (no explicit duration field).
 				// Cap at 4h: some Zoho records carry a bogus completedTime (call left
 				// open and closed days later), yielding absurd multi-day durations that
@@ -1583,17 +1583,22 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 						durSec = &d
 					}
 				}
-				
+
 				// Agent — prefer the call owner (ownerId) resolved via the Zoho agent
-				// map; fall back to modifiedBy. Link to a workspace user by email so
-				// per-agent stats can join on agent_id, not just a free-text name.
-				agentName, agentEmail := "", ""
+				// map; fall back to modifiedBy. Resolve to a workspace user through the
+				// durable crosswalk (manual → email → name) so attribution survives
+				// email mismatches and re-mapping is a set-based backfill, not a re-import.
+				agentName, agentEmail, agentZID := "", "", ""
 				if ownerID := zohoStr(c["ownerId"]); ownerID != "" {
+					agentZID = ownerID
 					if a, ok := agentMap[ownerID]; ok {
 						agentName, agentEmail = a.name, a.email
 					}
 				}
 				if mb, ok := c["modifiedBy"].(map[string]any); ok {
+					if agentZID == "" {
+						agentZID = zohoStr(mb["id"])
+					}
 					if agentName == "" {
 						agentName = strings.TrimSpace(zohoStr(mb["firstName"]) + " " + zohoStr(mb["lastName"]))
 					}
@@ -1601,7 +1606,7 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 						agentEmail = strings.ToLower(strings.TrimSpace(zohoStr(mb["emailId"])))
 					}
 				}
-				agentID := resolveAgentUser(agentEmail)
+				agentID := zohoResolveAgent(ctx, db, agentZID, agentEmail, agentName)
 
 				// Customer via the Zoho contact id -> crm_contacts; phone falls back to subject.
 				var custName, custPhone, custCIF string
@@ -1616,7 +1621,7 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 						custPhone = strings.ReplaceAll(m, " ", "")
 					}
 				}
-				
+
 				// Purpose is derived in-SQL (indexed norm_phone lookups): inbound -> support;
 				// a known customer (cif/phone) -> collections; a known lead phone -> marketing;
 				// otherwise outbound telesales -> marketing. Retention is set explicitly by
@@ -1624,12 +1629,12 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 				res, err := db.PGExec(ctx, `
 					INSERT INTO helpdesk_calls
 					  (agent_name, agent_id, customer_name, customer_phone, customer_cif, direction,
-					   duration_sec, outcome, started_at, zoho_call_id, purpose, source_system)
+					   duration_sec, outcome, started_at, zoho_call_id, purpose, source_system, zoho_agent_id)
 					  VALUES ($1,$2,$3,$4,
 					    -- resolve CIF by phone against the customer master when Zoho gave none
 					    COALESCE(NULLIF($5,''), (SELECT c.cif FROM app.customers c
 					       WHERE app.norm_phone($4) <> '' AND app.norm_phone(c.phone) = app.norm_phone($4)
-					       LIMIT 1)),
+					       LIMIT 1), ''),  -- '' fallback: customer_cif is NOT NULL DEFAULT ''; unresolved call = '' not NULL (else 23502 drops it)
 					    $6,$7,$8,$9,$10,
 					    CASE
 					      WHEN $6 = 'inbound' THEN 'support'
@@ -1642,10 +1647,11 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 					        THEN 'marketing'
 					      ELSE 'marketing'
 					    END,
-					    'zoho_desk')
+					    'zoho_desk', NULLIF($11,''))
 					ON CONFLICT (zoho_call_id) WHERE zoho_call_id IS NOT NULL DO UPDATE SET
 					  agent_name     = EXCLUDED.agent_name,
 					  agent_id       = COALESCE(EXCLUDED.agent_id, helpdesk_calls.agent_id),
+					  zoho_agent_id  = COALESCE(EXCLUDED.zoho_agent_id, helpdesk_calls.zoho_agent_id),
 					  customer_name  = EXCLUDED.customer_name,
 					  customer_phone = EXCLUDED.customer_phone,
 					  customer_cif   = EXCLUDED.customer_cif,
@@ -1655,7 +1661,7 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 					  started_at     = EXCLUDED.started_at,
 					  purpose        = COALESCE(helpdesk_calls.purpose, EXCLUDED.purpose)`,
 					agentName, agentID, custName, custPhone, custCIF, direction,
-					durSec, outcome, startedAt, zohoID)
+					durSec, outcome, startedAt, zohoID, agentZID)
 				if err != nil {
 					slog.Warn("zohoImportDeskCalls: insert", "zoho_id", zohoID, "err", err)
 					fail = 1
@@ -1663,6 +1669,12 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 					imp = 1
 				} else {
 					skip = 1
+				}
+				// Agents dial through the carrier, so this importer is where the
+				// outbound queue learns a contact was called. Without it the queue
+				// keeps offering numbers that were dialled minutes ago (migration 144).
+				if err == nil {
+					ccStampQueueForPhone(ctx, db, custPhone)
 				}
 			}()
 

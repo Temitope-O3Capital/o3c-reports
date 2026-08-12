@@ -12,7 +12,8 @@ import NotificationBell from './components/NotificationBell'
 import GlobalSearch     from './components/GlobalSearch'
 import C360Drawer       from './components/C360Drawer'
 import { RealtimeProvider } from './hooks/useRealtime'
-import { type AuthUser, ROLE_PAGES } from './hooks/useAuth'
+import { type AuthUser, ROLE_PAGES, allRoles } from './hooks/useAuth'
+import { useCustomerSearch } from './hooks/useCustomerSearch'
 import { useModules } from './hooks/useModules'
 import { roleLabel, MGMT } from './lib/roles'
 import { API, apiFetch, apiPost, apiLogout, refreshSession } from './lib/api'
@@ -141,8 +142,7 @@ const HelpdeskTickets     = lazy(() => import('./pages/helpdesk/Tickets'))
 const HelpdeskTicketDetail = lazy(() => import('./pages/helpdesk/TicketDetail'))
 const HelpdeskNewTicket   = lazy(() => import('./pages/helpdesk/NewTicketPage'))
 const CareInbox           = lazy(() => import('./pages/care/Inbox'))
-const CareDashboard       = lazy(() => import('./pages/care/Dashboard'))
-const CareSupervisor      = lazy(() => import('./pages/care/Supervisor'))
+const CareHub             = lazy(() => import('./pages/care/CareHub'))
 const HelpdeskSupervisor  = lazy(() => import('./pages/helpdesk/Supervisor'))
 const HelpdeskCalls       = lazy(() => import('./pages/helpdesk/Calls'))
 const HelpdeskStats       = lazy(() => import('./pages/helpdesk/Stats'))
@@ -204,6 +204,8 @@ const CallCenterQueue          = lazy(() => import('./pages/call-center/Queue'))
 const CallCenterLeads          = lazy(() => import('./pages/call-center/Leads'))
 const CallCenterDNC            = lazy(() => import('./pages/call-center/DNC'))
 const CallCenterPerformance    = lazy(() => import('./pages/call-center/Performance'))
+const CallCenterAgentMatching  = lazy(() => import('./pages/call-center/AgentMatching'))
+const CallCenterInbound        = lazy(() => import('./pages/call-center/Inbound'))
 
 // Marketing
 const MarketingOverview    = lazy(() => import('./pages/marketing/Overview'))
@@ -270,12 +272,17 @@ function homeFor(role: string): string {
 
 
 function RequireAccess({ page, user, children }: { page: string | string[]; user: AuthUser; children: ReactNode }) {
-  const role = user.role as string
-  if (MGMT.has(role)) return <>{children}</>
+  const roles = allRoles(user)
+  // Only admin & MD are unrestricted (admin bypasses backend gating; MD holds
+  // every page). All other roles — including coo/cfo/cmo — are gated by their
+  // actual pages so frontend access matches the backend exactly (no more
+  // "nav opens but the API 403s"). user.pages (baked at login) is authoritative;
+  // ROLE_PAGES is only a dev/empty-token fallback and now mirrors the backend.
+  if (roles.some(r => r === 'admin' || r === 'md')) return <>{children}</>
   const pages = Array.isArray(page) ? page : [page]
-  const userPages = user.pages?.length ? user.pages : (ROLE_PAGES[role] ?? [])
+  const userPages = user.pages?.length ? user.pages : roles.flatMap(r => ROLE_PAGES[r] ?? [])
   const allowed = pages.some(p => userPages.includes(p))
-  if (!allowed) return <Navigate to={homeFor(role)} replace />
+  if (!allowed) return <Navigate to={homeFor(user.role as string)} replace />
   return <>{children}</>
 }
 
@@ -681,12 +688,12 @@ function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }
 interface C360Hit { cif: string; name: string; phone: string; email: string }
 
 function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
-  const [q,       setQ]       = useState('')
-  const [results, setResults] = useState<C360Hit[]>([])
+  // Shared hook = consistent debounce/min-length and, importantly, a race guard so a
+  // slow earlier response can't overwrite fresher results while typing fast.
+  const { query, setQuery, results, loading, reset } = useCustomerSearch({ limit: 8 })
   const [focused, setFocused] = useState(false)
   const [show,    setShow]    = useState(false)
   const wrapRef   = useRef<HTMLDivElement>(null)
-  const debounce  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -696,26 +703,11 @@ function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  function search(val: string) {
-    setQ(val)
-    if (debounce.current) clearTimeout(debounce.current)
-    if (val.trim().length < 2) { setResults([]); setShow(false); return }
-    debounce.current = setTimeout(async () => {
-      try {
-        const data = await apiFetch<{ data: C360Hit[] }>(`/api/customer360/search?q=${encodeURIComponent(val.trim())}&limit=6`)
-        const hits: C360Hit[] = (data?.data ?? []).map((r: any) => ({
-          cif: r.cif, name: r.name ?? r.full_name, phone: r.phone, email: r.email ?? '',
-        }))
-        setResults(hits)
-        setShow(true)
-      } catch {
-        setResults([]); setShow(false)
-      }
-    }, 250)
-  }
+  // Open the dropdown whenever there's a searchable query (covers loading + empty too).
+  useEffect(() => { if (query.trim().length >= 2) setShow(true) }, [query, results])
 
   function pick(r: C360Hit) {
-    setQ(''); setShow(false); setResults([])
+    reset(); setShow(false)
     onPick(r)
   }
 
@@ -734,12 +726,12 @@ function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
       <IcoSearch size={14} style={{ flexShrink: 0 }} />
       <input
         className="srch-input"
-        value={q}
-        onChange={e => search(e.target.value)}
-        onFocus={() => { setFocused(true); if (results.length > 0) setShow(true) }}
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        onFocus={() => { setFocused(true); if (query.trim().length >= 2) setShow(true) }}
         onBlur={() => setFocused(false)}
-        onKeyDown={e => { if (e.key === 'Escape') { setShow(false); setQ('') } }}
-        placeholder="Customer 360 — search name or CIF…"
+        onKeyDown={e => { if (e.key === 'Escape') { setShow(false); reset() } }}
+        placeholder="Customer 360 — name, CIF, phone or email…"
         style={{
           border: 'none', outline: 'none', background: 'none', flex: 1,
           fontFamily: "'Sora', sans-serif", fontSize: 12.5, color: 'var(--txt)',
@@ -747,7 +739,7 @@ function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
         }}
       />
 
-      {show && q.trim().length >= 2 && (
+      {show && query.trim().length >= 2 && (
         <div style={{
           position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
           background: 'var(--card)', border: '1px solid var(--bdr)',
@@ -766,13 +758,16 @@ function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
             >
-              <strong>{r.name}</strong>
-              <span style={{ fontSize: 11, color: 'var(--txt3)' }}>{r.phone}</span>
-              <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11, color: 'var(--txt3)' }}>{r.cif}</span>
+              <strong style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</strong>
+              {r.phone && <span style={{ fontSize: 11, color: 'var(--txt3)' }}>{r.phone}</span>}
+              {r.card_count != null && r.card_count > 1 && (
+                <span style={{ fontSize: 10, color: 'var(--txt3)' }}>· {r.card_count} accounts</span>
+              )}
+              <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11, color: 'var(--txt3)', flexShrink: 0 }}>{r.cif}</span>
             </div>
           )) : (
             <div style={{ padding: '9px 13px', color: 'var(--txt3)', fontSize: 12.5, cursor: 'default' }}>
-              No customers match &ldquo;{q}&rdquo;
+              {loading ? 'Searching…' : <>No customers match &ldquo;{query}&rdquo;</>}
             </div>
           )}
         </div>
@@ -1001,6 +996,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/call-center/leads"              element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterLeads /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/dnc"                element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterDNC /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/performance"        element={<RequireAccess page="call_center_stats" user={user}><PageErrorBoundary><CallCenterPerformance /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/call-center/agent-matching"     element={<RequireAccess page="call_center_stats" user={user}><PageErrorBoundary><CallCenterAgentMatching /></PageErrorBoundary></RequireAccess>} />
+                  {/* Inbound is agent-level work (returning missed calls), not a head-only view */}
+                  <Route path="/call-center/inbound"            element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterInbound /></PageErrorBoundary></RequireAccess>} />
                   {/* Predictive-dialer pages retired — no in-app dialer (agents dial via carrier); redirect to the queue */}
                   <Route path="/call-center/dialer/*"           element={<Navigate to="/call-center" replace />} />
                   {/* Legacy /telemarketing/* links redirect to the Call Center paths */}
@@ -1014,9 +1012,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/helpdesk"                element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/tickets"        element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/new"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskNewTicket /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/care"                    element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><CareDashboard /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/care"                    element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><CareHub /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/care/inbox"              element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><CareInbox /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/care/supervisor"         element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><CareSupervisor /></PageErrorBoundary></RequireAccess>} />
+                  {/* Supervisor is now a tab in the Care hub — keep the old path working. */}
+                  <Route path="/care/supervisor"         element={<Navigate to="/care?tab=supervisor" replace />} />
                   <Route path="/helpdesk/calls"          element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskCalls /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/supervisor"     element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskSupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/stats"          element={<RequireAccess page="helpdesk_stats" user={user}><PageErrorBoundary><HelpdeskStats /></PageErrorBoundary></RequireAccess>} />
@@ -1301,6 +1300,22 @@ export default function App() {
       setLoading(false)
     })
   }, [])
+
+  // Keep the session warm. The access token lives 30 minutes; without this the first
+  // action after that window costs a failed request, a refresh and a retry, and any
+  // pre-existing bug in that recovery path surfaces as a surprise logout. Refreshing
+  // on a timer and whenever the tab regains focus means the token is almost always
+  // valid before it is used.
+  useEffect(() => {
+    if (!user) return
+    const REFRESH_EVERY = 20 * 60 * 1000 // comfortably inside the 30-minute token life
+    const tick = () => { if (document.visibilityState === 'visible') refreshSession() }
+    const id = window.setInterval(tick, REFRESH_EVERY)
+    // Returning to a tab left open overnight: refresh before the user clicks anything.
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshSession() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { window.clearInterval(id); document.removeEventListener('visibilitychange', onVisible) }
+  }, [user])
 
   // Cross-tab logout: always listen so logout on Tab B clears Tab A
   useEffect(() => {

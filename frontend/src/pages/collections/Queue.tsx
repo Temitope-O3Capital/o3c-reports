@@ -1,4 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
+import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -14,6 +15,18 @@ import { toast } from 'sonner'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface AgentUser { id: number; full_name: string; role: string }
+
+// Who can be assigned collections work. There is no dedicated collections-agent
+// role yet, so the pool includes the call-centre team plus collections roles and
+// the relevant heads/admin.
+const isCollectionsStaff = (role: string) =>
+  role.includes('collection') || role.includes('call_center') ||
+  ['admin', 'management', 'head_ops'].includes(role)
+
+function storedRole(): string {
+  try { return (JSON.parse(localStorage.getItem('o3c_user') ?? 'null') as { role?: string } | null)?.role ?? '' } catch { return '' }
+}
+const HEAD_ROLES = ['collections_head', 'head_collections', 'admin', 'management', 'md', 'coo', 'head_ops']
 
 interface Assignment {
   id: number
@@ -326,7 +339,7 @@ function AssignAgentTab({ assignmentId, agents, onDone }: {
   const [err,     setErr]     = useState<string | null>(null)
 
   const collectionAgents = agents.filter(a =>
-    a.role.includes('collection') || a.role === 'admin' || a.role === 'management'
+    isCollectionsStaff(a.role)
   )
 
   async function submit() {
@@ -741,7 +754,7 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
   const [err,     setErr]     = useState<string | null>(null)
 
   const collectionAgents = agents.filter(a =>
-    a.role.includes('collection') || a.role === 'admin' || a.role === 'management'
+    isCollectionsStaff(a.role)
   )
 
   async function submit() {
@@ -803,6 +816,74 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
   )
 }
 
+function DistributeModal({ open, onClose, agents, unassignedCount, onDone }: {
+  open: boolean; onClose: () => void; agents: AgentUser[]; unassignedCount: number; onDone: () => void
+}) {
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+  const [saving, setSaving] = useState(false)
+  const [err,    setErr]    = useState<string | null>(null)
+  const pool = agents.filter(a => isCollectionsStaff(a.role))
+
+  function toggle(id: number) {
+    setPicked(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+  async function submit() {
+    if (picked.size === 0) return
+    setSaving(true); setErr(null)
+    try {
+      const r = await apiPost<{ distributed: number }>('/api/collections-ops/distribute', { agent_ids: [...picked] })
+      toast.success(`${r.distributed ?? 0} account(s) distributed across ${picked.size} agent(s)`)
+      setPicked(new Set()); onDone()
+    } catch (e: any) { setErr(e.message ?? 'Distribute failed') } finally { setSaving(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Distribute Queue" width={460}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <ErrBanner error={err} />
+        <p style={{ margin: 0, fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+          Round-robin every unassigned account across the agents you pick (largest balances spread first).
+          {unassignedCount > 0 && <> <b>{unassignedCount}</b> unassigned on this page.</>}
+        </p>
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Agents on shift</label>
+            <button onClick={() => setPicked(picked.size === pool.length ? new Set() : new Set(pool.map(a => a.id)))}
+              style={{ background: 'none', border: 'none', color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
+              {picked.size === pool.length && pool.length > 0 ? 'Clear all' : 'Select all'}
+            </button>
+          </div>
+          <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }}>
+            {pool.length === 0 && <div style={{ padding: 14, color: 'var(--txt3)', fontSize: TEXT.sm }}>No eligible staff found.</div>}
+            {pool.map(a => (
+              <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--bdr)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} />
+                <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', flex: 1 }}>{a.full_name}</span>
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{a.role}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={submit} disabled={picked.size === 0 || saving}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: RADIUS.md, border: 'none',
+              background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold,
+              cursor: picked.size === 0 || saving ? 'not-allowed' : 'pointer', opacity: picked.size === 0 || saving ? 0.6 : 1,
+            }}>
+            {saving && <Spinner size={13} color="#fff" />}
+            Distribute to {picked.size} agent{picked.size !== 1 ? 's' : ''}
+          </button>
+          <button onClick={onClose} style={{
+            padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer',
+          }}>Cancel</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ── Left panel: queue list ────────────────────────────────────────────────────
 
 const DPD_VALUES    = ['0', '1-30', '31-60', '61-90', '91-180', '181-360']
@@ -818,6 +899,8 @@ export default function CollectionsQueue() {
   const [selected,     setSelected]     = useState<Assignment | null>(null)
   const [checkedIds,   setCheckedIds]   = useState<Set<number>>(new Set())
   const [reassignOpen, setReassignOpen] = useState(false)
+  const [distributeOpen, setDistributeOpen] = useState(false)
+  const isHead = HEAD_ROLES.includes(storedRole())
 
   // Filters
   const [fDpd,     setFDpd]     = useState(new Set<string>())
@@ -827,14 +910,18 @@ export default function CollectionsQueue() {
   const [dateTo,   setDateTo]   = useState(today())
 
   const fDpdKey = [...fDpd].sort().join(',')
+  // Search on the server (CIF or agent name) so it spans the whole queue, not just the
+  // loaded page of 100. Debounced to one request per pause.
+  const dq = useDebouncedValue(search, 300)
 
   const load = useCallback(async () => {
     setLoading(true)
     setErr(null)
     const params = new URLSearchParams({ limit: '100' })
-    if (fDpdKey)  params.set('dpd_bucket', fDpdKey)
-    if (dateFrom) params.set('from', dateFrom)
-    if (dateTo)   params.set('to', dateTo)
+    if (fDpdKey)   params.set('dpd_bucket', fDpdKey)
+    if (dq.trim()) params.set('q', dq.trim())
+    if (dateFrom)  params.set('from', dateFrom)
+    if (dateTo)    params.set('to', dateTo)
 
     try {
       const [queueRes, usersRes] = await Promise.all([
@@ -849,7 +936,7 @@ export default function CollectionsQueue() {
     } finally {
       setLoading(false)
     }
-  }, [fDpdKey, dateFrom, dateTo])
+  }, [fDpdKey, dq, dateFrom, dateTo])
 
   const displayed = useMemo(() => {
     let result = items
@@ -875,18 +962,9 @@ export default function CollectionsQueue() {
       })
     }
 
-    // Client-side text search
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      result = result.filter(item =>
-        ['account_cif', 'dpd_bucket', 'agent_name'].some(k =>
-          String((item as any)[k] ?? '').toLowerCase().includes(q)
-        )
-      )
-    }
-
+    // Text search runs on the server now (see load); no client-side text filter here.
     return result
-  }, [items, fContact, search])
+  }, [items, fContact])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['collections','loans'] })
@@ -927,7 +1005,23 @@ export default function CollectionsQueue() {
       subtitle="Manage and work assigned collection accounts"
       noPad
       actions={
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isHead && (
+            <button
+              onClick={() => setDistributeOpen(true)}
+              title="Round-robin all unassigned accounts across selected agents"
+              style={{
+                padding: '6px 14px', borderRadius: RADIUS.md, cursor: 'pointer', border: 'none',
+                background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold,
+                display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+              }}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>groups</span>
+              Distribute Queue
+            </button>
+          )}
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        </div>
       }
     >
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
@@ -1084,6 +1178,13 @@ export default function CollectionsQueue() {
         selectedIds={checkedIds}
         agents={agents}
         onDone={() => { setReassignOpen(false); setCheckedIds(new Set()); load() }}
+      />
+      <DistributeModal
+        open={distributeOpen}
+        onClose={() => setDistributeOpen(false)}
+        agents={agents}
+        unassignedCount={items.filter(a => !a.agent_name).length}
+        onDone={() => { setDistributeOpen(false); load() }}
       />
     </Page>
   )

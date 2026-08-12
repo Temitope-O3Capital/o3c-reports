@@ -1,10 +1,10 @@
 import { useLiveData } from '../../hooks/useRealtime'
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, Spinner, ErrBanner, StatusBadge } from '../../components/UI'
+import { SectionCard, Spinner, ErrBanner, StatusBadge } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtNum } from '../../lib/fmt'
-import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, FW, RADIUS, SP, TEXT, SORA, NUM } from '../../lib/design'
+import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, FW, RADIUS, SP, TEXT, NUM } from '../../lib/design'
 
 interface CareRecent {
   id: number
@@ -66,17 +66,7 @@ export default function CareDashboard() {
   useLiveData(load, { topics: ['tickets'] })
 
   return (
-    <Page
-      title="Care Dashboard"
-      subtitle="Customer mail workload"
-      actions={
-        <button onClick={() => navigate('/care/inbox')}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 18 }}>mail</span>
-          Open Care Inbox
-        </button>
-      }
-    >
+    <>
       <ErrBanner error={err} onRetry={load} />
 
       {loading && !d ? (
@@ -99,7 +89,7 @@ export default function CareDashboard() {
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {d.recent.map((m, i) => (
                   <div key={m.id}
-                    onClick={() => navigate('/care/inbox')}
+                    onClick={() => navigate(`/care/inbox?mail=${m.id}`)}
                     style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 4px', borderBottom: i < d.recent.length - 1 ? '1px solid var(--bdr)' : 'none', cursor: 'pointer' }}
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
@@ -116,6 +106,6 @@ export default function CareDashboard() {
           </SectionCard>
         </>
       )}
-    </Page>
+    </>
   )
 }

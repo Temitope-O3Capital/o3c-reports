@@ -32,7 +32,9 @@ export default function QAEvaluation({ call, onClose, onSaved }: { call: QACall;
 
   useEffect(() => {
     apiFetch<QAConfig>('/api/qa/config')
-      .then(c => setCfg(c))
+      // Go marshals an empty section list as JSON null (nil slice), which would
+      // crash cfg.sections.map / qaCompute — coerce to an array on the way in.
+      .then(c => setCfg(c ? { ...c, sections: Array.isArray(c.sections) ? c.sections : [] } : c))
       .catch(e => setErr(e.message))
       .finally(() => setLoading(false))
   }, [])

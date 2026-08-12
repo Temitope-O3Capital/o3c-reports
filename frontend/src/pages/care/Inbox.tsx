@@ -1,6 +1,6 @@
 import { useLiveData } from '../../hooks/useRealtime'
-import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Page, Spinner, ErrBanner, TblSearch, StatusBadge } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, fmtDate } from '../../lib/fmt'
@@ -208,6 +208,8 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
   const [loading, setLoading] = useState(true)
   const [reply, setReply] = useState('')
   const [sending, setSending] = useState(false)
+  const [attachments, setAttachments] = useState<{ filename: string; content_type: string; content: string; size: number }[]>([])
+  const fileRef = useRef<HTMLInputElement>(null)
   const [historyOpen, setHistoryOpen] = useState(true)
   const [cannedOpen, setCannedOpen] = useState(false)
   const [canned, setCanned] = useState<CannedResponse[]>([])
@@ -245,13 +247,42 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
 
   useEffect(() => { load() }, [load])
 
+  // Read picked files as base64 for the message attachments payload (matches the
+  // backend MailAttachment shape). Enforces the same 10 MB / 10-file limits.
+  async function onPickFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    const picked: { filename: string; content_type: string; content: string; size: number }[] = []
+    for (const f of Array.from(files)) {
+      if (f.size > 10 * 1024 * 1024) { toast.error(`${f.name} is larger than 10 MB`); continue }
+      try {
+        const b64 = await new Promise<string>((res, rej) => {
+          const rd = new FileReader()
+          rd.onload = () => res(String(rd.result).split(',')[1] ?? '')
+          rd.onerror = () => rej(rd.error)
+          rd.readAsDataURL(f)
+        })
+        picked.push({ filename: f.name, content_type: f.type || 'application/octet-stream', content: b64, size: f.size })
+      } catch { toast.error(`Could not read ${f.name}`) }
+    }
+    setAttachments(prev => {
+      const next = [...prev, ...picked]
+      if (next.length > 10) { toast.error('Maximum 10 attachments'); return next.slice(0, 10) }
+      return next
+    })
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
   async function send() {
     if (!reply.trim()) return
     setSending(true)
     try {
-      await apiPost(`/api/helpdesk/tickets/${ticketId}/messages`, { body_text: reply.trim(), channel: 'email' })
+      await apiPost(`/api/helpdesk/tickets/${ticketId}/messages`, {
+        body_text: reply.trim(), channel: 'email',
+        attachments: attachments.map(({ filename, content_type, content }) => ({ filename, content_type, content })),
+      })
       toast.success('Reply sent')
       setReply('')
+      setAttachments([])
       load()
       onReplied()
     } catch (e: any) {
@@ -406,12 +437,36 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
           placeholder={`Reply to ${t.customer_name || 'customer'} by email…  (Cmd/Ctrl+Enter to send)`}
           style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.5 }}
         />
+        {/* Attachment chips */}
+        {attachments.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {attachments.map((a, i) => (
+              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: 'var(--th-bg)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, color: 'var(--txt2)', maxWidth: 240 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 14, color: NAVY }}>attach_file</span>
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.filename}</span>
+                <span style={{ color: 'var(--txt3)', flexShrink: 0 }}>{(a.size / 1024).toFixed(0)}KB</span>
+                <button type="button" onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))}
+                  style={{ display: 'inline-flex', border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'var(--txt3)' }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>close</span>
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <input ref={fileRef} type="file" multiple hidden onChange={e => onPickFiles(e.target.files)} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-          <button onClick={toggleCanned} type="button"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: cannedOpen ? `${NAVY}12` : 'transparent', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>bolt</span>
-            Canned
-          </button>
+          <div style={{ display: 'inline-flex', gap: 8 }}>
+            <button onClick={toggleCanned} type="button"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: cannedOpen ? `${NAVY}12` : 'transparent', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>bolt</span>
+              Canned
+            </button>
+            <button onClick={() => fileRef.current?.click()} type="button"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'transparent', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>attach_file</span>
+              Attach
+            </button>
+          </div>
           <button onClick={send} disabled={sending || !reply.trim()}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.bold, cursor: sending || !reply.trim() ? 'not-allowed' : 'pointer', opacity: sending || !reply.trim() ? 0.6 : 1, fontFamily: SORA }}>
             {sending ? <Spinner size={13} color="#fff" /> : <span className="material-symbols-rounded" style={{ fontSize: 16 }}>send</span>}
@@ -428,11 +483,19 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function CareInbox() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [items, setItems] = useState<MailTicket[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [selected, setSelected] = useState<number | null>(null)
+  // Selection is mirrored to ?mail= so the Dashboard/Supervisor and notifications
+  // can deep-link straight to a specific mail.
+  const mailParam = searchParams.get('mail')
+  const [selected, setSelected] = useState<number | null>(mailParam ? Number(mailParam) : null)
+  const selectMail = useCallback((id: number) => {
+    setSelected(id)
+    setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('mail', String(id)); return p }, { replace: true })
+  }, [setSearchParams])
   const [status, setStatus] = useState('open')
   const [owner, setOwner] = useState<'all' | 'mine' | 'unassigned'>('all')
   const [search, setSearch] = useState('')
@@ -459,6 +522,10 @@ export default function CareInbox() {
     const h = setTimeout(() => setDebounced(search.trim()), 350)
     return () => clearTimeout(h)
   }, [search])
+  // Follow the ?mail= param when it changes underneath us (deep-link while mounted).
+  useEffect(() => {
+    if (mailParam && Number(mailParam) !== selected) setSelected(Number(mailParam))
+  }, [mailParam]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Page title="Care Inbox" subtitle="Customer mail — handled as tickets" noPad>
@@ -507,7 +574,7 @@ export default function CareInbox() {
               const on = selected === m.id
               const pColor = m.priority === 'urgent' || m.priority === 'high' ? RED : m.priority === 'medium' || m.priority === 'normal' ? AMBER : GREEN
               return (
-                <div key={m.id} onClick={() => setSelected(m.id)}
+                <div key={m.id} onClick={() => selectMail(m.id)}
                   style={{ display: 'flex', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--bdr)', cursor: 'pointer', background: on ? `${NAVY}08` : undefined, borderLeft: `3px solid ${on ? NAVY : 'transparent'}` }}
                   onMouseEnter={e => { if (!on) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                   onMouseLeave={e => { if (!on) (e.currentTarget as HTMLElement).style.background = '' }}>

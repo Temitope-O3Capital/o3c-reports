@@ -502,6 +502,86 @@ function TOTPSection() {
 
 // ── Security Tab ──────────────────────────────────────────────────────────────
 
+// ── Sign out everywhere ───────────────────────────────────────────────────────
+
+// The recovery path for a device you no longer have. "Keep me signed in" can leave a
+// browser authenticated for 30 days, and clearing cookies on the laptop in front of
+// you does nothing for the one that was stolen.
+function SignOutEverywhereSection() {
+  const [confirming, setConfirming] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  async function run() {
+    setLoading(true)
+    try {
+      await apiPost('/api/auth/sign-out-everywhere', {})
+      toast.success('All sessions ended — signing you out')
+      // The call revokes this session too, so there is nothing left to stay on.
+      setTimeout(() => { localStorage.removeItem('o3c_user'); window.location.href = '/' }, 900)
+    } catch (e: any) {
+      toast.error(e.message ?? 'Could not end your sessions')
+      setLoading(false)
+      setConfirming(false)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+      <p style={{ margin: 0, fontSize: TEXT.base, color: 'var(--txt2)', lineHeight: 1.6 }}>
+        Ends your session on every device, including this one. Use this if a phone or laptop
+        you were signed in on has been lost or stolen, or if you think someone else has your
+        password. You will need to sign in again everywhere afterwards.
+      </p>
+      {!confirming ? (
+        <button
+          onClick={() => setConfirming(true)}
+          style={{
+            alignSelf: 'flex-start', padding: '8px 16px', borderRadius: RADIUS.md,
+            border: `1.5px solid ${RED}`, background: 'transparent', color: RED,
+            fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: 'inherit',
+          }}
+        >
+          Sign out everywhere
+        </button>
+      ) : (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap',
+          padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.md,
+          background: `${RED}0F`, border: `1px solid ${RED}33`,
+        }}>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold }}>
+            End every session now?
+          </span>
+          <button
+            onClick={run}
+            disabled={loading}
+            style={{
+              padding: '7px 16px', borderRadius: RADIUS.md, border: 'none', background: RED,
+              color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold,
+              cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1,
+              fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            {loading && <Spinner size={13} color="#fff" />}
+            Yes, sign out everywhere
+          </button>
+          <button
+            onClick={() => setConfirming(false)}
+            disabled={loading}
+            style={{
+              padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+              background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SecurityTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
@@ -510,6 +590,9 @@ function SecurityTab() {
       </SectionCard>
       <SectionCard title="Two-Factor Authentication" subtitle="Add an extra layer of security with a TOTP authenticator app">
         <TOTPSection />
+      </SectionCard>
+      <SectionCard title="Active Sessions" subtitle="Sign out of every device you are currently signed in on">
+        <SignOutEverywhereSection />
       </SectionCard>
     </div>
   )

@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useDebouncedValue } from '../../hooks/useDebounce'
 import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, Modal, DateFilter } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -11,6 +12,7 @@ import { toast } from 'sonner'
 
 interface Cardholder {
   cif_number: string
+  customer_name: string
   product_name: string
   status: string
   card_product: string
@@ -228,6 +230,8 @@ function makeCols(onDone: () => void, navigate: (path: string) => void): TableCo
           {r.cif_number}
         </span>
       ) },
+    { key: 'customer_name', label: 'Cardholder',
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{r.customer_name || '—'}</span> },
     { key: 'product_name', label: 'Product',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA }}>{r.product_name || '—'}</span> },
     { key: 'card_product', label: 'Card Programme',
@@ -279,6 +283,11 @@ export default function CardsManagement() {
   const [fProducts, setFProducts] = useState(new Set<string>())
   const [page, setPage] = useState(1)
 
+  // Debounce the box and search on the SERVER (by CIF and cardholder name, phone-aware)
+  // — the old code filtered the current page in-memory by CIF only, so a name query or a
+  // cardholder on any other page was invisible.
+  const debouncedSearch = useDebouncedValue(search, 300)
+
   const load = useCallback(async (pg = 1) => {
     setLoading(true)
     setError(null)
@@ -288,6 +297,7 @@ export default function CardsManagement() {
       p.set('offset', String((pg - 1) * PAGE_SIZE))
       if (fStatuses.size)  p.set('status',    [...fStatuses].join(','))
       if (fProducts.size)  p.set('card_type', [...fProducts].join(','))
+      if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim())
       p.set('from', dateFrom)
       p.set('to',   dateTo)
       const res = await apiFetch<ListResp>(`/api/cards/cardholders?${p}`)
@@ -299,15 +309,11 @@ export default function CardsManagement() {
     } finally {
       setLoading(false)
     }
-  }, [fStatuses, fProducts, dateFrom, dateTo])
+  }, [fStatuses, fProducts, dateFrom, dateTo, debouncedSearch])
 
   useEffect(() => { load(1) }, [load])
 
-  const displayed = useMemo(() => {
-    if (!search) return rows
-    const q = search.toLowerCase()
-    return rows.filter(r => r.cif_number.toLowerCase().includes(q))
-  }, [rows, search])
+  const displayed = rows
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const showStart  = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1

@@ -67,7 +67,7 @@ function messageLine(t: Ticket): string {
   return (t.last_message_preview || '').trim() || s || '(no message)'
 }
 
-const STATUS_CHIPS = [{ value: 'open', label: 'Open' }, { value: 'pending', label: 'Pending' }, { value: 'in_progress', label: 'In Progress' }]
+const STATUS_CHIPS = [{ value: 'open', label: 'Open' }, { value: 'pending', label: 'Pending' }, { value: 'in_progress', label: 'In Progress' }, { value: 'escalated', label: 'Escalated' }]
 const CHANNEL_CHIPS = [{ value: '', label: 'All' }, { value: 'web', label: 'Web' }, { value: 'social', label: 'Social' }]
 const SORT_OPTS = [
   { value: 'waiting', label: 'Longest waiting on us' }, { value: 'newest', label: 'Newest first' },
@@ -380,8 +380,9 @@ export default function Tickets() {
       </div>
 
       {/* KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: SP[3], padding: '16px 24px 0', flexShrink: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: SP[3], padding: '16px 24px 0', flexShrink: 0 }}>
         <TriageCard icon="inbox" label="Open" value={summary?.open} color={NAVY} active={!bucket && view === 'all' && !agentFilter} onClick={() => pickView('all')} />
+        <TriageCard icon="alarm" label="Overdue" value={summary?.overdue} color={RED} active={bucket === 'overdue'} onClick={() => pickBucket('overdue')} />
         <TriageCard icon="mark_chat_unread" label="Awaiting us" value={summary?.awaiting_us} color={RED} active={bucket === 'awaiting_us'} onClick={() => pickBucket('awaiting_us')} />
         <TriageCard icon="schedule_send" label="Awaiting customer" value={summary?.awaiting_customer} color={BLUE} active={bucket === 'awaiting_customer'} onClick={() => pickBucket('awaiting_customer')} />
         <TriageCard icon="person_off" label="Unassigned" value={summary?.unassigned} color={AMBER} active={view === 'unassigned'} onClick={() => pickView(view === 'unassigned' ? 'all' : 'unassigned')} />

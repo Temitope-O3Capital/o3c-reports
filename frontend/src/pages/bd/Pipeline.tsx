@@ -1,10 +1,11 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Modal, filterInputStyle, SearchInput, DateFilter, NameCell, ActionRow, StatusBadge } from '../../components/UI'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Modal, filterInputStyle, SearchInput, NameCell, ActionRow, StatusBadge } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPatch, API, getCsrfToken } from '../../lib/api'
-import { fmtKobo, fmtNum, fmtDate, today, monthStart } from '../../lib/fmt'
+import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, GREEN, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { currentUser } from '../../hooks/useAuth'
 import { toast } from 'sonner'
 
 interface PipelineKPIs {
@@ -160,6 +161,10 @@ const BULK_ACTIONS = [
 ]
 
 const PER_PAGE = 25
+// Matches the cap the endpoint enforces (qint(r,"limit",100,1,500)). Kept as a named
+// constant so the "showing the first N only" warning cannot drift away from the real
+// limit and start lying.
+const FETCH_LIMIT = 500
 
 const EMPTY_LEAD = {
   entity_type: 'company' as EntityType,
@@ -182,6 +187,12 @@ const ENTITY_ICONS: Record<EntityType, string> = {
 export default function BDPipeline() {
   const navigate = useNavigate()
   const [leads,      setLeads]      = useState<Lead[]>([])
+  // /bd/leads and /bd/pipeline render this same component. They used to render it
+  // identically, so "My Pipeline" showed the whole team's leads — two menu entries
+  // for one page, one of them misnamed. The route now decides the scope.
+  const mineOnly = useLocation().pathname.startsWith('/bd/pipeline')
+  const me = currentUser()
+
   const [kpis,       setKpis]       = useState<PipelineKPIs | null>(null)
   const [loading,    setLoading]    = useState(true)
   const [err,        setErr]        = useState<string | null>(null)
@@ -190,8 +201,6 @@ export default function BDPipeline() {
   const [fStages,    setFStages]    = useState<Set<string>>(new Set())
   const [fTypes,     setFTypes]     = useState<Set<string>>(new Set())
   const [fAssignees, setFAssignees] = useState<Set<string>>(new Set())
-  const [dateFrom,   setDateFrom]   = useState(monthStart())
-  const [dateTo,     setDateTo]     = useState(today())
   const [page,       setPage]       = useState(1)
   const [selected,   setSelected]   = useState<Set<string | number>>(new Set())
   const [view,       setView]       = useState<'table' | 'kanban'>('table')
@@ -206,6 +215,11 @@ export default function BDPipeline() {
   const [editingLead,  setEditingLead]  = useState<Lead | null>(null)
   const [activityLead, setActivityLead] = useState<Lead | null>(null)
   const [newTab,     setNewTab]     = useState<'manual' | 'csv'>('manual')
+  // The create form opened with every field at once and ran taller than the screen.
+  // Only the fields that make a lead a lead — who, what product, what stage, how to
+  // reach them — are shown up front; value, notes and the secondary contact names sit
+  // behind this disclosure. Nothing was removed, only deferred.
+  const [newMore,    setNewMore]    = useState(false)
   const [csvFile,    setCsvFile]    = useState<File | null>(null)
   const [csvPreview, setCsvPreview] = useState<{ valid: number; invalid: number; errors: string[] } | null>(null)
   const [csvImporting, setCsvImporting] = useState(false)
@@ -214,9 +228,14 @@ export default function BDPipeline() {
   async function load() {
     setLoading(true); setErr(null)
     try {
+      // Scoping happens server-side, not by filtering after the fact. The endpoint
+      // caps at 500 rows, so narrowing in the browser would mean "my leads" was drawn
+      // from whichever 500 came back rather than from all of mine. The KPI cards take
+      // the same scope so they describe the table they sit above.
+      const scope = mineOnly && me?.id ? `assigned_to=${me.id}` : ''
       const [data, kpiRes] = await Promise.all([
-        apiFetch<{ data: Lead[] }>('/api/bd/leads?limit=500'),
-        apiFetch<{ data: PipelineKPIs }>('/api/bd/pipeline-kpis'),
+        apiFetch<{ data: Lead[] }>(`/api/bd/leads?limit=${FETCH_LIMIT}${scope ? `&${scope}` : ''}`),
+        apiFetch<{ data: PipelineKPIs }>(`/api/bd/pipeline-kpis${scope ? `?${scope}` : ''}`),
       ])
       setLeads(Array.isArray(data) ? data : (data?.data ?? []))
       setKpis(kpiRes.data)
@@ -227,7 +246,7 @@ export default function BDPipeline() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [mineOnly])  // refetch when switching between All Leads and My Pipeline
 
   // Employer name suggestions for the New Lead form (datalist).
   useEffect(() => {
@@ -245,14 +264,17 @@ export default function BDPipeline() {
     if (fStages.size && !fStages.has(l.stage)) return false
     if (fTypes.size && l.lead_type != null && !fTypes.has(l.lead_type)) return false
     if (fAssignees.size && l.assigned_name != null && !fAssignees.has(l.assigned_name)) return false
-    if (dateFrom && l.created_at.slice(0, 10) < dateFrom) return false
-    if (dateTo && l.created_at.slice(0, 10) > dateTo) return false
     if (search) {
       const q = search.toLowerCase()
       if (!(['company_name', 'title', 'contact_name', 'employer_name'] as const).some(k => l[k]?.toLowerCase().includes(q))) return false
     }
     return true
-  }), [leads, fStages, fTypes, fAssignees, dateFrom, dateTo, search])
+  // No date filter, deliberately. It defaulted to the current month and filtered on
+  // created_at, so a page called "All Leads" opened hiding every lead raised before
+  // the 1st — including open ones still being worked. A lead list is a picture of what
+  // is open now; "how many did we raise in June" is a reporting question, not a
+  // browsing one. Reset also never cleared the dates, so there was no way back to all.
+  }), [leads, fStages, fTypes, fAssignees, search])
 
   const totalValue  = filtered.reduce((s, l) => s + Number(l.potential_value_kobo ?? 0), 0)
   const totalPages  = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
@@ -261,7 +283,7 @@ export default function BDPipeline() {
   const showStart   = filtered.length === 0 ? 0 : (safePage - 1) * PER_PAGE + 1
   const showEnd     = Math.min(safePage * PER_PAGE, filtered.length)
 
-  useEffect(() => { setPage(1) }, [search, fStages, fTypes, fAssignees, dateFrom, dateTo])
+  useEffect(() => { setPage(1) }, [search, fStages, fTypes, fAssignees])
 
   function toggleSet<T>(set: Set<T>, value: T): Set<T> {
     const next = new Set(set)
@@ -540,11 +562,10 @@ export default function BDPipeline() {
 
   return (
     <Page
-      title="BD Pipeline"
-      subtitle={`${fmtNum(filtered.length)} leads · ${fmtKobo(totalValue)} total value`}
+      title={mineOnly ? 'My Pipeline' : 'All Leads'}
+      subtitle={`${fmtNum(filtered.length)} ${mineOnly ? 'assigned to you' : 'leads'} · ${fmtKobo(totalValue)} total value`}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <button
             onClick={() => setNewOpen(true)}
             style={{
@@ -571,7 +592,7 @@ export default function BDPipeline() {
 
       {view === 'table' ? (
 
-        <SectionCard title="All Leads" badge={leads.length} padding={false} actions={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{viewSwitch}<button onClick={() => exportLeadsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button></div>}>
+        <SectionCard title={mineOnly ? "My Leads" : "All Leads"} badge={filtered.length} padding={false} actions={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{viewSwitch}<button onClick={() => exportLeadsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button></div>}>
 
           {/* ── Filter bar ─────────────────────────────────────────────────── */}
           <div style={{
@@ -815,7 +836,16 @@ export default function BDPipeline() {
               {filtered.length === 0
                 ? 'No leads'
                 : `Showing ${showStart}–${showEnd} of ${filtered.length} leads`
+                  + (filtered.length < leads.length ? ` (filtered from ${leads.length})` : '')
               }
+              {/* The endpoint caps at 500. Without saying so, a 501st lead is simply
+                  absent and the page looks complete — the one failure mode a list
+                  must never have. */}
+              {leads.length >= FETCH_LIMIT && (
+                <span style={{ color: AMBER, marginLeft: 6 }}>
+                  · showing the first {FETCH_LIMIT} only — narrow with search or filters
+                </span>
+              )}
             </span>
             {totalPages > 1 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -925,13 +955,14 @@ export default function BDPipeline() {
       {/* New Lead Modal */}
       <Modal
         open={newOpen}
-        onClose={() => { setNewOpen(false); setNewForm(EMPTY_LEAD); setNewTab('manual'); setCsvFile(null); setCsvPreview(null) }}
+        onClose={() => { setNewOpen(false); setNewForm(EMPTY_LEAD); setNewTab('manual'); setNewMore(false); setCsvFile(null); setCsvPreview(null) }}
         title="New Lead"
-        width={460}
+        width={560}
+        maxHeight="560px"
         footer={
           newTab === 'manual' ? (
             <>
-              <button onClick={() => { setNewOpen(false); setNewForm(EMPTY_LEAD); setNewTab('manual') }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => { setNewOpen(false); setNewForm(EMPTY_LEAD); setNewTab('manual'); setNewMore(false) }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
               <button onClick={doCreateLead} disabled={saving} style={{ padding: `${SP[2]} 18px`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
                 {saving ? 'Creating…' : 'Create Lead'}
               </button>
@@ -947,7 +978,7 @@ export default function BDPipeline() {
         }
       >
         {/* Tab switcher */}
-        <div style={{ display: 'flex', gap: 0, marginBottom: 18, borderBottom: '1px solid var(--bdr)' }}>
+        <div style={{ display: 'flex', gap: 0, marginBottom: 12, borderBottom: '1px solid var(--bdr)' }}>
           {([
             { key: 'manual', label: 'Manual Entry', icon: 'edit' },
             { key: 'csv',    label: 'CSV Import',   icon: 'upload_file' },
@@ -969,7 +1000,7 @@ export default function BDPipeline() {
         {newTab === 'manual' ? (
           <>
             {/* Entity type toggle */}
-            <div style={{ display: 'flex', gap: 4, marginBottom: 18, padding: 4, background: 'var(--th-bg)', borderRadius: RADIUS.lg }}>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 12, padding: 4, background: 'var(--th-bg)', borderRadius: RADIUS.lg }}>
               {(['company', 'individual', 'individual_at_company'] as EntityType[]).map(et => {
                 const active = newForm.entity_type === et
                 return (
@@ -997,11 +1028,8 @@ export default function BDPipeline() {
                 <FormField label="Organisation Name *" fullWidth list="bd-employer-list" placeholder="Search or type…" value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
                 <SelectField label="Product / Loan Type" placeholder="Select…" options={PRODUCT_OPTIONS} value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
                 <SelectField label="Stage" options={STAGES} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
-                <FormField label="Contact First Name" value={newForm.first_name} onChange={v => setNewForm(f => ({ ...f, first_name: v }))} />
-                <FormField label="Contact Last Name" value={newForm.last_name} onChange={v => setNewForm(f => ({ ...f, last_name: v }))} />
                 <FormField label="Contact Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
                 <FormField label="Contact Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
-                <FormField label="Est. Value (₦)" fullWidth value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
               </>) : newForm.entity_type === 'individual' ? (<>
                 <FormField label="First Name *" value={newForm.first_name} onChange={v => setNewForm(f => ({ ...f, first_name: v }))} />
                 <FormField label="Last Name" value={newForm.last_name} onChange={v => setNewForm(f => ({ ...f, last_name: v }))} />
@@ -1009,7 +1037,6 @@ export default function BDPipeline() {
                 <SelectField label="Stage" options={STAGES} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
                 <FormField label="Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
                 <FormField label="Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
-                <FormField label="Est. Value (₦)" fullWidth value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
               </>) : (<>
                 <FormField label="First Name *" value={newForm.first_name} onChange={v => setNewForm(f => ({ ...f, first_name: v }))} />
                 <FormField label="Last Name" value={newForm.last_name} onChange={v => setNewForm(f => ({ ...f, last_name: v }))} />
@@ -1018,17 +1045,37 @@ export default function BDPipeline() {
                 <SelectField label="Stage" options={STAGES} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
                 <FormField label="Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
                 <FormField label="Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
-                <FormField label="Est. Value (₦)" fullWidth value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
               </>)}
-              <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Notes</label>
-                <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-                  value={newForm.notes}
-                  onChange={e => setNewForm(f => ({ ...f, notes: e.target.value }))}
-                  rows={3}
-                  style={{ ...filterInputStyle, height: 'auto', resize: 'vertical', padding: '8px 10px' }}
-                />
-              </div>
+
+              <button
+                type="button"
+                onClick={() => setNewMore(m => !m)}
+                style={{
+                  gridColumn: '1/-1', display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '4px 0', border: 'none', background: 'none', cursor: 'pointer',
+                  color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold,
+                }}
+              >
+                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{newMore ? 'expand_less' : 'expand_more'}</span>
+                {newMore ? 'Fewer details' : 'More details'}
+              </button>
+
+              {newMore && (<>
+                {newForm.entity_type === 'company' && (<>
+                  <FormField label="Contact First Name" value={newForm.first_name} onChange={v => setNewForm(f => ({ ...f, first_name: v }))} />
+                  <FormField label="Contact Last Name" value={newForm.last_name} onChange={v => setNewForm(f => ({ ...f, last_name: v }))} />
+                </>)}
+                <FormField label="Est. Value (₦)" fullWidth value={newForm.potential_value_kobo} onChange={v => setNewForm(f => ({ ...f, potential_value_kobo: v }))} />
+                <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Notes</label>
+                  <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
+                    value={newForm.notes}
+                    onChange={e => setNewForm(f => ({ ...f, notes: e.target.value }))}
+                    rows={3}
+                    style={{ ...filterInputStyle, height: 'auto', resize: 'vertical', padding: '8px 10px' }}
+                  />
+                </div>
+              </>)}
             </div>
           </>
         ) : (

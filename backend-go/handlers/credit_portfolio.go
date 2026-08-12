@@ -66,8 +66,12 @@ func cpListApplications(db *core.DB) http.HandlerFunc {
 			where += fmt.Sprintf(" AND date_received <= $%d::date", n); args = append(args, v); n++
 		}
 		if v := qstr(r, "q"); v != "" {
-			where += fmt.Sprintf(" AND (customer_name ILIKE $%d OR company ILIKE $%d OR loan_id ILIKE $%d)", n, n, n)
-			args = append(args, "%"+v+"%"); n++
+			if clause, sargs, nn := buildCustomerSearch(v,
+				[]string{"customer_name", "company", "loan_id"}, "", n); clause != "" {
+				where += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 
 		limit  := qint(r, "limit", 100, 1, 500)

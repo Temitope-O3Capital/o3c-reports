@@ -97,6 +97,7 @@ export default function Supervisor() {
   const [editingTarget, setEditingTarget] = useState(false)
   const [targetInput, setTargetInput] = useState('60')
   const [view, setView] = useState<'live' | 'perf' | 'qa'>('live')
+  const [distributing, setDistributing] = useState(false)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async (silent = false) => {
@@ -125,6 +126,23 @@ export default function Supervisor() {
       await apiFetch('/api/helpdesk/cc-settings', { method: 'PUT', body: JSON.stringify({ daily_call_target: n }) })
       setTarget(n); setEditingTarget(false); toast.success('Daily target updated')
     } catch (e: any) { toast.error(e.message) }
+  }
+
+  // Load-balance the unowned open backlog across active agents (least-loaded first).
+  async function distribute() {
+    const n = sup?.totals.unassigned ?? 0
+    if (!n) { toast.info('No unassigned tickets to distribute'); return }
+    if (!window.confirm(`Distribute ${n} unassigned ticket${n === 1 ? '' : 's'} across active agents (load-balanced)?`)) return
+    setDistributing(true)
+    try {
+      const r = await apiFetch<any>('/api/helpdesk/tickets/distribute', { method: 'POST', body: JSON.stringify({}) })
+      const d = r?.data ?? r
+      const assigned = d?.assigned ?? 0
+      const agents = Object.keys(d?.per_agent ?? {}).length
+      toast.success(`Assigned ${fmtNum(assigned)} ticket${assigned === 1 ? '' : 's'} across ${agents} agent${agents === 1 ? '' : 's'}`)
+      load(true)
+    } catch (e: any) { toast.error(e.message) }
+    finally { setDistributing(false) }
   }
 
   useEffect(() => {
@@ -208,6 +226,13 @@ export default function Supervisor() {
             <button onClick={() => setEditingTarget(true)} title="Set the agents' daily call goal"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: RADIUS['2xl'], border: '1px solid var(--card-bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>flag</span>Goal: {target}/day
+            </button>
+          )}
+          {(sup?.totals.unassigned ?? 0) > 0 && (
+            <button onClick={distribute} disabled={distributing} title="Load-balance unowned open tickets across active agents"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: RADIUS['2xl'], border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: distributing ? 'wait' : 'pointer', opacity: distributing ? .7 : 1 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{distributing ? 'hourglass_empty' : 'shuffle'}</span>
+              {distributing ? 'Distributing…' : `Distribute ${fmtNum(sup?.totals.unassigned ?? 0)}`}
             </button>
           )}
           <Ago since={refreshed} />

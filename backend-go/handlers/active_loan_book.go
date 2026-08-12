@@ -72,9 +72,12 @@ func albList(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if search != "" {
-			q += fmt.Sprintf(" AND (applicant_name ILIKE $%d OR applicant_cif ILIKE $%d OR reference ILIKE $%d)", n, n, n)
-			args = append(args, "%"+search+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(search,
+				[]string{"applicant_name", "applicant_cif", "reference"}, "", n); clause != "" {
+				q += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		args = append(args, limit)
 		q += fmt.Sprintf(" ORDER BY dpd DESC NULLS LAST, disbursed_at DESC LIMIT $%d", n)

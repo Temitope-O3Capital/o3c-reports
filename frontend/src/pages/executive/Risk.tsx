@@ -1,65 +1,40 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  ResponsiveContainer, BarChart, Bar,
+  ResponsiveContainer, BarChart, Bar, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import { Page, SectionCard, KpiCard, Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
-import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import { RED, AMBER, BLUE, GREEN, NAVY, INTER, NUM, TEXT, FW, SP } from '../../lib/design'
+import { PeriodFilter, Tip, Stat, Note, ytick, share, type Period } from './shared'
 
 interface ExecRisk {
+  period: { type: string; start: string; end: string }
+
+  // CBS loan book.
   portfolio_outstanding_kobo: number
   npl_rate_pct: number
   concentration_top10_pct: number
   avg_loan_size_kobo: number
-  new_accounts_mtd: number
-  churn_rate_pct: number
-  dpd_trend: { month: string; par30: number; par60: number; par90: number }[]
-  product_concentration: { product: string; outstanding_kobo: number; count: number }[]
-  vintage_performance: { vintage: string; par30_rate: number; par90_rate: number }[]
-}
+  product_concentration: { product: string; count: number; outstanding_kobo: number }[]
 
-type Period = 'mtd' | 'l30d' | 'l90d' | 'ytd'
-const PERIOD_OPTIONS: { id: Period; label: string }[] = [
-  { id: 'mtd', label: 'MTD' }, { id: 'l30d', label: 'Last 30d' },
-  { id: 'l90d', label: 'Last 90d' }, { id: 'ytd', label: 'YTD' },
-]
+  // Card book — the larger credit asset.
+  card_exposure_kobo: number
+  card_accounts: number
+  card_overdue_kobo: number
+  card_npl_pct: number
+  card_top10_pct: number
+  card_top50_pct: number
+  card_products: { product: string; count: number; outstanding_kobo: number; overdue_kobo: number; delinquency_pct: number }[]
 
-function PeriodFilter({ period, onChange }: { period: Period; onChange: (p: Period) => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--chip-bg)', borderRadius: RADIUS.md, padding: 3, border: '1px solid var(--bdr)' }}>
-      {PERIOD_OPTIONS.map(opt => (
-        <button key={opt.id} onClick={() => onChange(opt.id)} style={{
-          padding: '5px 14px', borderRadius: 7, border: 'none',
-          fontSize: TEXT.sm, fontWeight: period === opt.id ? FW.bold : FW.medium,
-          fontFamily: INTER, cursor: 'pointer',
-          background: period === opt.id ? 'var(--card)' : 'transparent',
-          color: period === opt.id ? 'var(--txt)' : 'var(--txt2)',
-          boxShadow: period === opt.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-          transition: 'all 130ms',
-        }}>{opt.label}</button>
-      ))}
-    </div>
-  )
-}
-
-function Tip({ active, payload, label, fmt }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: NAVY, borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
-      {label && <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER, marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</div>}
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>{fmt ? fmt(p.value) : p.value}</span>
-          {p.name && payload.length > 1 && <span style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>}
-        </div>
-      ))}
-    </div>
-  )
+  // Funding.
+  credit_assets_kobo: number
+  fd_liability_kobo: number
+  fd_count: number
+  fd_maturing_30d_kobo: number
+  fd_maturing_90d_kobo: number
+  asset_coverage_pct: number
 }
 
 export default function ExecRisk() {
@@ -95,104 +70,140 @@ export default function ExecRisk() {
   )
   if (!data) return null
 
-  const maxConcentration = data.product_concentration[0]?.outstanding_kobo ?? 1
-  const DPD_LEGEND = (
-    <div style={{ display: 'flex', gap: SP[3] }}>
-      {[{ c: AMBER, l: 'PAR30' }, { c: RED, l: 'PAR60' }, { c: PURPLE, l: 'PAR90' }].map(({ c, l }) => (
-        <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
-          <div style={{ width: 10, height: 3, borderRadius: 2, background: c }} />{l}
-        </div>
-      ))}
-    </div>
-  )
+  const totalOverdue = data.card_overdue_kobo
+  const blendedNpl = share(totalOverdue, data.credit_assets_kobo)
+  const cardShare = share(data.card_exposure_kobo, data.credit_assets_kobo)
+
+  // Exposure by product line, as one comparable bar set.
+  const exposure = [
+    { line: 'Cards', value_kobo: data.card_exposure_kobo, tone: NAVY },
+    { line: 'Loans', value_kobo: data.portfolio_outstanding_kobo, tone: BLUE },
+    { line: 'FD (liability)', value_kobo: data.fd_liability_kobo, tone: AMBER },
+  ]
 
   return (
     <Page title={title} back={back} actions={actions}>
 
-      {/* KPI row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="Portfolio Outstanding"  value={fmtKobo(data.portfolio_outstanding_kobo)} icon="account_balance_wallet" accent={NAVY} />
-        <KpiCard label="NPL Rate"               value={fmtPct(data.npl_rate_pct)}                 icon="warning"               accent={data.npl_rate_pct > 5 ? RED : AMBER} />
-        <KpiCard label="Top-10 Concentration"   value={fmtPct(data.concentration_top10_pct)}      icon="donut_large"           accent={data.concentration_top10_pct > 30 ? RED : BLUE} />
-        <KpiCard label="Avg Loan Size"          value={fmtKobo(data.avg_loan_size_kobo)}          icon="payments"              accent={GREEN} />
+        <KpiCard label="Credit Assets" value={fmtKobo(data.credit_assets_kobo)} icon="account_balance_wallet" accent={NAVY} />
+        <KpiCard label="FD Liability" value={fmtKobo(data.fd_liability_kobo)} icon="savings" accent={AMBER} />
+        <KpiCard label="Blended NPL" value={fmtPct(blendedNpl)} icon="warning" accent={blendedNpl > 10 ? RED : GREEN} />
+        <KpiCard label="Top 10 Concentration" value={fmtPct(data.card_top10_pct)} icon="donut_large" accent={data.card_top10_pct > 25 ? AMBER : GREEN} />
       </div>
 
-      {/* DPD trend + Product concentration */}
+      {/* ── Balance sheet shape ───────────────────────────────────────────── */}
+      <SectionCard title="Exposure by Product Line" subtitle="Credit assets against deposit funding" style={{ marginBottom: 14 }}>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={exposure} margin={{ top: 4, right: 8, bottom: 4, left: 8 }} layout="vertical">
+            <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" horizontal={false} strokeWidth={1} />
+            <XAxis type="number" tickFormatter={ytick} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="line" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} width={104} />
+            <Tooltip content={<Tip fmt={fmtKobo} />} cursor={{ fill: 'var(--row-hvr)' }} />
+            <Bar dataKey="value_kobo" name="Value" radius={[0, 4, 4, 0]} barSize={30}>
+              {exposure.map(e => <Cell key={e.line} fill={e.tone} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+
+        {data.asset_coverage_pct < 50 && data.fd_liability_kobo > 0 && (
+          <Note tone={AMBER}>
+            <b>Credit assets cover {fmtPct(data.asset_coverage_pct)} of deposit liabilities.</b>{' '}
+            {fmtKobo(data.fd_liability_kobo)} is owed to {fmtNum(data.fd_count)} depositors against{' '}
+            {fmtKobo(data.credit_assets_kobo)} of card and loan receivables. The difference is not necessarily a
+            gap — deposit funds may be held in treasury, investments or bank balances that this workspace does
+            not yet mirror — but nothing in the data here accounts for it, so it cannot be confirmed from this
+            page. {fmtKobo(data.fd_maturing_90d_kobo)} of it matures within 90 days.
+          </Note>
+        )}
+      </SectionCard>
+
+      {/* ── Where the credit risk sits ────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: SP[3], marginBottom: 14 }}>
-        <SectionCard title="DPD Trend" subtitle="PAR30 / PAR60 / PAR90 last 12 months" actions={DPD_LEGEND}>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={data.dpd_trend} margin={{ top: 4, right: 8, bottom: 14, left: 8 }} barCategoryGap="30%" barGap={3}>
-              <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
-              <XAxis dataKey="month" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
-              <YAxis width={36} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-              <Tooltip content={<Tip fmt={(v: number) => `${v} accounts`} />} />
-              <Bar dataKey="par30" name="PAR30 (1–30d)"  fill={AMBER}  radius={[3, 3, 0, 0]} />
-              <Bar dataKey="par60" name="PAR60 (31–60d)" fill={RED}    radius={[3, 3, 0, 0]} />
-              <Bar dataKey="par90" name="PAR90 (60d+)"   fill={PURPLE} radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+        <SectionCard title="Card Product Risk" subtitle="Delinquency by product code, worst value first">
+          {data.card_products.length === 0 ? (
+            <Note>No billing cycle loaded.</Note>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: 'var(--th-bg)' }}>
+                  {['Product', 'Accounts', 'Outstanding', 'Overdue', 'Delinquency'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Product' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.card_products.map(p => (
+                  <tr key={p.product} style={{ borderBottom: '1px solid var(--bdr)' }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}>
+                    <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, fontWeight: FW.medium }}>{p.product}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(p.count)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(p.outstanding_kobo)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtKobo(p.overdue_kobo)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                      <span style={{
+                        ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, fontFamily: INTER,
+                        padding: '2px 8px', borderRadius: 99,
+                        background: p.delinquency_pct >= 95 ? `${RED}1A` : p.delinquency_pct >= 50 ? `${AMBER}1A` : 'var(--chip-bg)',
+                        color: p.delinquency_pct >= 95 ? RED : p.delinquency_pct >= 50 ? AMBER : 'var(--txt2)',
+                      }}>{fmtPct(p.delinquency_pct)}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {data.card_products.some(p => p.delinquency_pct >= 99) && (
+            <div style={{ marginTop: SP[3] }}>
+              <Note tone={RED}>
+                Several product codes show <b>100% delinquency</b> — every naira outstanding is also flagged
+                overdue. That is possible for a closed or written-off product line, but it is equally consistent
+                with the cycle file setting overdue equal to the balance where no ageing was supplied. Worth
+                confirming against the card system before this drives a provisioning decision.
+              </Note>
+            </div>
+          )}
         </SectionCard>
 
-        <SectionCard title="Product Concentration" subtitle="Portfolio by outstanding balance">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], paddingTop: 4 }}>
-            {data.product_concentration.map((p, i) => {
-              const colors = [NAVY, BLUE, AMBER, GREEN, RED, PURPLE]
-              const color = colors[i % colors.length]
-              const pct = Math.round((p.outstanding_kobo / maxConcentration) * 100)
-              return (
-                <div key={p.product}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
-                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', fontFamily: SORA }}>{p.product}</span>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(p.outstanding_kobo)}</span>
-                      <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, marginLeft: 6 }}>{fmtNum(p.count)}</span>
-                    </div>
-                  </div>
-                  <div style={{ height: 6, background: 'var(--bdr)', borderRadius: 99, overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 99 }} />
-                  </div>
-                </div>
-              )
-            })}
+        <SectionCard title="Concentration">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+            <Stat label="Top 10 Card Accounts" value={fmtPct(data.card_top10_pct)} sub="of card receivables" tone={data.card_top10_pct > 25 ? AMBER : 'var(--txt)'} />
+            <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
+              <Stat label="Top 50 Card Accounts" value={fmtPct(data.card_top50_pct)} sub="of card receivables" />
+            </div>
+            <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
+              <Stat label="Top 10 Loans" value={fmtPct(data.concentration_top10_pct)} sub="of the loan book" tone={data.concentration_top10_pct > 50 ? RED : 'var(--txt)'} />
+            </div>
+            <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
+              <Stat label="Cards as Share of Credit" value={fmtPct(cardShare)} sub={`${fmtNum(data.card_accounts)} card accounts owing`} />
+            </div>
           </div>
         </SectionCard>
       </div>
 
-      {/* Vintage analysis */}
-      <SectionCard title="Vintage Performance" subtitle="PAR30 and PAR90 rates by origination cohort">
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 500 }}>
-            <thead>
-              <tr style={{ background: 'var(--th-bg)' }}>
-                {['Vintage', 'PAR30 Rate', 'PAR90 Rate', 'Health'].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Vintage' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.vintage_performance.map(v => {
-                const health = v.par90_rate < 2 ? { label: 'Good', color: GREEN } : v.par90_rate < 5 ? { label: 'Watch', color: AMBER } : { label: 'Stressed', color: RED }
-                return (
-                  <tr key={v.vintage} style={{ borderBottom: '1px solid var(--bdr)' }}
-                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'}
-                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}>
-                    <td style={{ padding: '10px 12px', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: SORA }}>{v.vintage}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: v.par30_rate > 5 ? AMBER : 'var(--txt)', fontFamily: INTER }}>{fmtPct(v.par30_rate)}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: v.par90_rate > 5 ? RED : 'var(--txt)', fontFamily: INTER }}>{fmtPct(v.par90_rate)}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                      <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, fontFamily: INTER, padding: '2px 9px', borderRadius: 99, background: `${health.color}15`, color: health.color, border: `1px solid ${health.color}25` }}>
-                        {health.label}
-                      </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+      {/* ── Loan book ─────────────────────────────────────────────────────── */}
+      <SectionCard title="Loan Book" subtitle="CBS open book by product">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[5], marginBottom: SP[4] }}>
+          <Stat label="Outstanding" value={fmtKobo(data.portfolio_outstanding_kobo)} />
+          <Stat label="NPL Rate" value={fmtPct(data.npl_rate_pct)} tone={data.npl_rate_pct > 10 ? RED : 'var(--txt)'} />
+          <Stat label="Average Loan" value={fmtKobo(data.avg_loan_size_kobo)} />
+          <Stat label="FD Maturing 30d" value={fmtKobo(data.fd_maturing_30d_kobo)} sub="cash due to depositors" tone={AMBER} />
         </div>
+        {data.product_concentration.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+            {data.product_concentration.slice(0, 6).map(p => (
+              <div key={p.product}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, fontWeight: FW.medium }}>{p.product}</span>
+                  <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtKobo(p.outstanding_kobo)} · {fmtNum(p.count)}</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: 'var(--chip-bg)', overflow: 'hidden' }}>
+                  <div style={{ width: `${share(p.outstanding_kobo, data.portfolio_outstanding_kobo)}%`, height: '100%', borderRadius: 3, background: BLUE }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </SectionCard>
     </Page>
   )

@@ -161,14 +161,20 @@ func StartCareMailPoller(db *core.DB) {
 		run := func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
+			WorkerBeat(ctx, db, "care_mail", "running", "", "")
 			if !graphConfigured(ctx, db) {
-				return // dormant until IT connects Microsoft Graph
+				WorkerBeat(ctx, db, "care_mail", "ok", "Graph not configured", "") // dormant until IT connects Microsoft Graph
+				return
 			}
 			n, err := pollCareMailbox(ctx, db)
 			if err != nil {
 				slog.Warn("care mail poller", "err", err)
-			} else if n > 0 {
-				slog.Info("care mail poller: ingested", "count", n)
+				WorkerBeat(ctx, db, "care_mail", "error", err.Error(), "")
+			} else {
+				if n > 0 {
+					slog.Info("care mail poller: ingested", "count", n)
+				}
+				WorkerBeat(ctx, db, "care_mail", "ok", fmt.Sprintf("%d ingested", n), "")
 			}
 		}
 		run()
@@ -324,12 +330,17 @@ func ingestInboundEmail(ctx context.Context, db *core.DB, senderEmail, senderNam
 		if sub == "" {
 			sub = "Inbound email from " + senderEmail
 		}
+		// Stamp SLA deadlines from the 'normal' policy so Care's SLA-at-risk /
+		// first-response metrics work for inbound mail. Both are nil (→ NULL) when
+		// no active policy exists, matching prior behaviour.
+		slaDue := hdComputeSLADue(ctx, db, "normal")
+		frDue := hdComputeFirstResponseDue(ctx, db, "normal")
 		newRows, err := db.PGQuery(ctx, `
 			INSERT INTO helpdesk_tickets
-			    (channel, status, priority, subject, customer_cif, customer_name, customer_email, email_thread_id)
-			VALUES ('email','open','normal',$1,$2,$3,$4,$5)
+			    (channel, status, priority, subject, customer_cif, customer_name, customer_email, email_thread_id, sla_due_at, first_response_due)
+			VALUES ('email','open','normal',$1,$2,$3,$4,$5,$6,$7)
 			RETURNING *`,
-			sub, ptrOrNilStr(customerCIF), ptrOrNilStr(senderName), senderEmail, ptrOrNilStr(msgID))
+			sub, ptrOrNilStr(customerCIF), ptrOrNilStr(senderName), senderEmail, ptrOrNilStr(msgID), slaDue, frDue)
 		if err != nil {
 			return 0, err
 		}

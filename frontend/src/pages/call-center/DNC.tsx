@@ -1,5 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useDebouncedValue } from '../../hooks/useDebounce'
+import { useEffect, useState, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
   ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger, KpiCard,
@@ -61,10 +62,14 @@ export default function CallCenterDNC() {
   const [removeConfirm, setRemoveConfirm] = useState(false)
   const [removeLoading, setRemoveLoading] = useState(false)
 
+  // Search on the server (phone-normalized, plus reason/added-by) so it spans the whole
+  // list, not just the loaded page. Debounced to one request per pause.
+  const dq = useDebouncedValue(dncSearch, 300)
   const load = useCallback(async () => {
     setLoading(true)
     setErr(null)
     const params = new URLSearchParams({ limit: '200' })
+    if (dq.trim()) params.set('search', dq.trim())
     try {
       const res = await apiFetch<{ data: DNCEntry[] }>(`/api/call-center/dnc?${params}`)
       setRows(Array.isArray(res) ? res : (res?.data ?? []))
@@ -73,7 +78,7 @@ export default function CallCenterDNC() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dq])
 
   useEffect(() => { load() }, [load])
   useLiveData(load)
@@ -137,11 +142,8 @@ export default function CallCenterDNC() {
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
-  const displayedDnc = useMemo(() =>
-    dncSearch
-      ? rows.filter(r => r.phone.includes(dncSearch) || (r.reason ?? '').toLowerCase().includes(dncSearch.toLowerCase()) || (r.added_by ?? '').toLowerCase().includes(dncSearch.toLowerCase()))
-      : rows
-  , [rows, dncSearch])
+  // Server already applied the search; render the rows as returned.
+  const displayedDnc = rows
 
   function confirmRemoveSingle(r: DNCEntry) {
     setSelectedIds(new Set([r.id]))

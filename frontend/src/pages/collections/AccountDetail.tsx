@@ -527,8 +527,8 @@ export default function CollectionsAccountDetail() {
     setSaving(true)
     try {
       await apiPost(`/api/collections-ops/${detail.assignment_id}/promise`, {
-        promised_amount_kobo: Math.round(naira * 100),
-        promised_date: ptpDate,
+        amount_kobo: Math.round(naira * 100),
+        promise_date: ptpDate,
       })
       toast.success('PTP created')
       setModal(null); setPtpAmount(''); setPtpDate('')

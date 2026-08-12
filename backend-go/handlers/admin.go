@@ -42,6 +42,7 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.Post("/roles", createRole(db))
 	r.Put("/roles/{name}", updateRole(db))
 	r.Delete("/roles/{name}", deleteRole(db))
+	r.Get("/page-catalog", pageCatalog(db))
 	r.Get("/activity", getActivity(db))
 	r.Get("/activity/export", exportActivityCSV(db))
 	r.Get("/users/{id}/activity", getUserActivity(db))
@@ -82,6 +83,24 @@ func validRole(db *core.DB, r *http.Request, role string) bool {
 	rows, _ := db.PGQuery(r.Context(), `SELECT 1 FROM o3c_custom_roles WHERE name=$1`, role)
 	return len(rows) > 0
 }
+
+// roleGrantsAdmin reports whether a primary role or any secondary role would give
+// a user the super-admin role. Used to enforce "only an admin can grant admin".
+func roleGrantsAdmin(primary string, extras []string) bool {
+	if primary == "admin" {
+		return true
+	}
+	for _, e := range extras {
+		if strings.TrimSpace(e) == "admin" {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeEmail lowercases and trims an email so all write paths agree (create,
+// update, register, login), preventing duplicate/mismatched accounts.
+func normalizeEmail(e string) string { return strings.ToLower(strings.TrimSpace(e)) }
 
 // sanitizeExtraRoles trims/dedups secondary roles and drops any that equal the
 // primary role or are blank. Returns a non-nil slice so it maps to a Postgres
@@ -173,7 +192,16 @@ func createUser(db *core.DB) http.HandlerFunc {
 				return
 			}
 		}
-		existing, _ := db.PGQuery(r.Context(), `SELECT id FROM o3c_users WHERE email=$1`, b.Email)
+		// C1: only an admin may create another admin (privilege-escalation guard).
+		caller := core.UserFromCtx(r.Context())
+		if roleGrantsAdmin(b.Role, extraRoles) && (caller == nil || caller.Role != "admin") {
+			respondErr(w, 403, "Only an admin can grant the admin role")
+			return
+		}
+		b.Email = normalizeEmail(b.Email)
+		// M1/M2: match the active-user semantics used elsewhere so a soft-deleted
+		// email can be re-created and mixed-case dups are caught.
+		existing, _ := db.PGQuery(r.Context(), `SELECT id FROM o3c_users WHERE lower(email)=$1 AND deleted_at IS NULL`, b.Email)
 		if len(existing) > 0 {
 			respondErr(w, 409, "A user with this email already exists")
 			return
@@ -266,10 +294,10 @@ func updateUser(db *core.DB) http.HandlerFunc {
 			setCols["full_name"] = strings.TrimSpace(fn + " " + ln)
 		}
 		if b.Email != nil {
-			newEmail := strings.TrimSpace(*b.Email)
+			newEmail := normalizeEmail(*b.Email)
 			var emailExists int
 			db.PG.QueryRowContext(r.Context(), //nolint:errcheck
-				`SELECT COUNT(*) FROM o3c_users WHERE email=$1 AND id!=$2 AND deleted_at IS NULL`,
+				`SELECT COUNT(*) FROM o3c_users WHERE lower(email)=$1 AND id!=$2 AND deleted_at IS NULL`,
 				newEmail, id).Scan(&emailExists)
 			if emailExists > 0 {
 				respondErr(w, 409, "Email already in use")
@@ -282,6 +310,11 @@ func updateUser(db *core.DB) http.HandlerFunc {
 			caller := core.UserFromCtx(r.Context())
 			if caller != nil && fmt.Sprint(caller.ID) == id {
 				respondErr(w, 403, "Cannot change your own role")
+				return
+			}
+			// C1: only an admin may promote a user to admin.
+			if *b.Role == "admin" && (caller == nil || caller.Role != "admin") {
+				respondErr(w, 403, "Only an admin can grant the admin role")
 				return
 			}
 			// Last-admin guard: prevent downgrading the last admin account (C2).
@@ -313,6 +346,14 @@ func updateUser(db *core.DB) http.HandlerFunc {
 			for _, er := range extraRoles {
 				if !validRole(db, r, er) {
 					respondErr(w, 422, "Unknown extra role: "+er)
+					return
+				}
+			}
+			// C1: only an admin may grant admin as a secondary role.
+			if roleGrantsAdmin("", extraRoles) {
+				caller := core.UserFromCtx(r.Context())
+				if caller == nil || caller.Role != "admin" {
+					respondErr(w, 403, "Only an admin can grant the admin role")
 					return
 				}
 			}
@@ -377,11 +418,16 @@ func updateUser(db *core.DB) http.HandlerFunc {
 				callerID, callerRole, callerName, id, string(changesJSON))
 		}
 		rows, _ := db.PGQuery(r.Context(),
-			`SELECT id,email,full_name,role,department,created_at,must_change_password,last_login FROM o3c_users WHERE id=$1`, id)
+			`SELECT id,email,full_name,role,department,extra_roles,created_at,must_change_password,last_login FROM o3c_users WHERE id=$1`, id)
 		if len(rows) == 0 {
 			respondErr(w, 404, "User not found")
 			return
 		}
+		// C2: an admin-set password must also revoke the target's existing sessions.
+		if b.Password != nil && *b.Password != "" {
+			core.InvalidateUserTokens(r.Context(), toInt64(rows[0]["id"]))
+		}
+		rows[0]["extra_roles"] = core.ParsePages(rows[0]["extra_roles"]) // L3: return array, not raw jsonb
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
@@ -437,12 +483,17 @@ func resetPassword(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Failed to reset password")
 			return
 		}
+		// C2: revoke the user's existing tokens so the old password can't keep a
+		// session alive after a reset.
+		core.InvalidateUserTokens(r.Context(), toInt64(rows[0]["id"]))
 		mailRes := SendTemporaryPasswordEmail(r.Context(), db,
 			str(rows[0]["email"]), str(rows[0]["full_name"]), tempPW, toInt64(rows[0]["id"]))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"email_sent":  mailRes.OK,
 			"email_error": mailRes.Error,
+			// Returned once so the admin can relay it if email delivery is down.
+			"temporary_password": tempPW,
 		})
 	}
 }
@@ -595,6 +646,15 @@ func listRoles(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// pageCatalog returns the canonical module→page catalog so the role editor and
+// any other UI build their permission list from one backend source of truth.
+func pageCatalog(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(core.PageCatalog) //nolint:errcheck
+	}
+}
+
 func createRole(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b rolePayload
@@ -616,7 +676,9 @@ func createRole(db *core.DB) http.HandlerFunc {
 			respondErr(w, 409, "Role '"+slug+"' already exists")
 			return
 		}
-		pages := core.ParsePages(b.Pages)
+		// Drop any page-key not in the canonical catalog so a typo/invented key
+		// can't be silently stored as a no-op grant.
+		pages := core.FilterValidPages(core.ParsePages(b.Pages))
 		pagesJSON, _ := json.Marshal(pages)
 		if _, err := db.PGExec(r.Context(),
 			`INSERT INTO o3c_custom_roles (name, label, pages) VALUES ($1,$2,$3::jsonb)`,
@@ -642,7 +704,7 @@ func updateRole(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		pages := core.ParsePages(b.Pages)
+		pages := core.FilterValidPages(core.ParsePages(b.Pages))
 		pagesJSON, _ := json.Marshal(pages)
 		res, err := db.PGExec(r.Context(),
 			`UPDATE o3c_custom_roles SET label=$1, pages=$2::jsonb WHERE name=$3`,
@@ -684,11 +746,16 @@ func deleteRole(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// H1: count the role as BOTH a primary and a secondary (extra_roles) role, so
+		// a role held only as a secondary role can't be silently deleted out from
+		// under users.
 		var assignedCount int
 		tx.QueryRowContext(r.Context(), //nolint:errcheck
-			`SELECT COUNT(*) FROM o3c_users WHERE role=$1 AND deleted_at IS NULL`, name).Scan(&assignedCount)
+			`SELECT COUNT(*) FROM o3c_users
+			 WHERE deleted_at IS NULL
+			   AND (role=$1 OR extra_roles @> to_jsonb($1::text))`, name).Scan(&assignedCount)
 		if assignedCount > 0 {
-			respondErr(w, 409, "Role is assigned to active users")
+			respondErr(w, 409, "Role is assigned to active users (primary or secondary)")
 			return
 		}
 
@@ -737,7 +804,7 @@ func logActivity(db *core.DB) http.HandlerFunc {
 			w.WriteHeader(204)
 			return
 		}
-		if !allowedActivityPages[b.Page] {
+		if !core.IsValidPage(b.Page) {
 			respondErr(w, 422, "Invalid page name")
 			return
 		}
@@ -1472,7 +1539,7 @@ func pingIntegration(db *core.DB) http.HandlerFunc {
 			statusCode, newStatus, id)
 
 		if newStatus == "down" {
-			go NotifyRoles(r.Context(), db, []string{"it_admin", "cto"}, NotifPayload{
+			go NotifyRoles(r.Context(), db, []string{"it_admin", "admin"}, NotifPayload{
 				EventType: EvtSystemAlert,
 				Title:     "Integration Down: " + integrationName,
 				Body:      fmt.Sprintf("Health check failed for %s (HTTP %d). Manual investigation required.", integrationName, statusCode),

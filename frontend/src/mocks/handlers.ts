@@ -1550,47 +1550,6 @@ const CAMPAIGNS = [
     }))
   )),
 
-  // Dialer
-  http.get(u('/api/dialer/sessions/me'), () => ok({
-    id: 1, campaign_id: 1, campaign_name: 'October Loan Renewal Drive',
-    status: 'ready', calls_made: 14, calls_answered: 9,
-    joined_at: new Date(Date.now() - 3_600_000).toISOString(),
-    active_call_id: null, active_call_phone: null,
-  })),
-  http.post(u('/api/dialer/sessions'), () => ok({
-    id: 1, campaign_id: 1, campaign_name: 'October Loan Renewal Drive',
-    status: 'ready', calls_made: 0, calls_answered: 0,
-    joined_at: new Date().toISOString(),
-    active_call_id: null, active_call_phone: null,
-  })),
-  http.delete(u('/api/dialer/sessions'), () => new HttpResponse(null, { status: 204 })),
-  http.get(u('/api/dialer/campaigns'), () => ok([
-    { id: 1, name: 'October Loan Renewal Drive', description: 'Outbound renewal calls to expiring loans', status: 'active',
-      dial_ratio: 1.5, max_abandonment_pct: 3.0, caller_id: '+2348000000000',
-      max_attempts: 3, retry_delay_minutes: 60, schedule_start: '08:00', schedule_end: '17:00',
-      created_at: new Date(Date.now() - 7*86400000).toISOString(),
-      updated_at: new Date(Date.now() - 86400000).toISOString() },
-    { id: 2, name: 'Overdue Collections Q3', description: 'Collections calls for 30+ DPD accounts', status: 'paused',
-      dial_ratio: 2.0, max_abandonment_pct: 2.5, caller_id: '+2348000000001',
-      max_attempts: 5, retry_delay_minutes: 120, schedule_start: '09:00', schedule_end: '16:00',
-      created_at: new Date(Date.now() - 14*86400000).toISOString(),
-      updated_at: new Date(Date.now() - 2*86400000).toISOString() },
-    { id: 3, name: 'Card Activation Drive', description: 'Activate dormant card holders', status: 'draft',
-      dial_ratio: 1.0, max_abandonment_pct: 3.0, caller_id: '+2348000000002',
-      max_attempts: 2, retry_delay_minutes: 30, schedule_start: null, schedule_end: null,
-      created_at: new Date(Date.now() - 2*86400000).toISOString(),
-      updated_at: new Date(Date.now() - 86400000).toISOString() },
-  ])),
-  http.post(u('/api/dialer/campaigns'), () => ok({ id: 99 })),
-  http.put(u('/api/dialer/campaigns/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.delete(u('/api/dialer/campaigns/:id'), () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/dialer/campaigns/:id/contacts'), () => ok({ inserted: 284, total: 300 })),
-  http.get(u('/api/dialer/campaigns/:id/stats'), () => ok({
-    queue:    [{ status: 'pending', cnt: 412 }, { status: 'called', cnt: 187 }, { status: 'converted', cnt: 38 }],
-    calls:    [{ answered: 163, abandoned: 4, total: 187, avg_duration_sec: 142 }],
-    sessions: [{ status: 'ready', cnt: 4 }, { status: 'on_call', cnt: 2 }, { status: 'paused', cnt: 1 }],
-    abandon_pct: 2.1, cbn_limit_pct: 3.0,
-  })),
 ]
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
@@ -2476,23 +2435,6 @@ const REPORTS_EXTRA = [
   http.post(u('/api/reports/schedules'), () => ok({ id: 99 })),
 ]
 
-// ── Dialer — Extra ────────────────────────────────────────────────────────────
-
-const DIALER_EXTRA = [
-  http.get(u('/api/dialer/live'), () => ok(
-    Array.from({ length: 2 }, (_, i) => ({
-      id: i+1, name: `Live Campaign ${i+1}`, status: 'active',
-      dial_ratio: pick([1.2, 1.5, 2.0]), agents_ready: rng(2,6), agents_on_call: rng(1,4),
-      calls_in_flight: rng(1,8), queue_pending: rng(20,120),
-    }))
-  )),
-  http.post(u('/api/dialer/campaigns/:id/start'), () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/dialer/campaigns/:id/pause'), () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/dialer/campaigns/:id/stop'),  () => new HttpResponse(null, { status: 204 })),
-  http.put(u('/api/dialer/sessions/status'), () => new HttpResponse(null, { status: 204 })),
-  http.post(u('/api/dialer/calls/:id/disposition'), () => new HttpResponse(null, { status: 204 })),
-]
-
 // ── Call Center — Extra ─────────────────────────────────────────────────────
 
 const CALL_CENTER_EXTRA = [
@@ -3138,15 +3080,6 @@ const GAP_FILL = [
       page: pick(['/los', '/helpdesk', '/collections-ops']), action: pick(['viewed','updated','assigned']),
       detail: `Record #${rng(1,200)}`, ts: isoDate(rng(0,3)),
     })),
-  })),
-
-  // ── Dialer — next contact for agent session ───────────────────────────────────
-  http.get(u('/api/dialer/sessions/me/next-contact'), () => ok({
-    contact: {
-      id: rng(1,9999), phone: `0801${rng(1000000,9999999)}`,
-      customer_name: name(), cif: `CIF${String(rng(100000,999999)).padStart(7,'0')}`,
-      metadata: { dpd: rng(1,90) }, priority: rng(1,5), attempts: rng(0,3),
-    },
   })),
 
   // ── Zoho sync status ──────────────────────────────────────────────────────────
@@ -3936,7 +3869,6 @@ export const handlers = [
   ...COMPLIANCE_EXTRA,
   ...SALES_EXTRA,
   ...REPORTS_EXTRA,
-  ...DIALER_EXTRA,
   ...CALL_CENTER_EXTRA,
   ...MARKETING_EXTRA,
   ...USER_MISC,

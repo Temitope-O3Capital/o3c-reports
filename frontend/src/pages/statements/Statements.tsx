@@ -1,4 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
+import { useCustomerSearch } from '../../hooks/useCustomerSearch'
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Page, SectionCard, DataTable, Tabs, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -101,25 +102,14 @@ function RunProgress({ run }: { run: BulkRun }) {
 // ── Customer typeahead ────────────────────────────────────────────────────────
 
 function CustomerSearch({ onSelect }: { onSelect: (c: CustomerResult) => void }) {
-  const [q,           setQ]           = useState('')
-  const [results,     setResults]     = useState<CustomerResult[]>([])
+  // Shared hook: same debounce/min-length (2) as every other typeahead, with a race
+  // guard. This box used to require 3 chars and had no guard against stale responses.
+  const { query, setQuery, results, reset } = useCustomerSearch({ limit: 10 })
   const [showDrop,    setShowDrop]    = useState(false)
   const [selected,    setSelected]    = useState<CustomerResult | null>(null)
-  const timer    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wrapRef  = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (q.length < 3) { setResults([]); setShowDrop(false); return }
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(async () => {
-      try {
-        const res = await apiFetch<{ data: CustomerResult[] }>(`/api/customer360/search?q=${encodeURIComponent(q)}&limit=10`)
-        setResults(res.data ?? [])
-        setShowDrop(true)
-      } catch { setResults([]) }
-    }, 300)
-    return () => { if (timer.current) clearTimeout(timer.current) }
-  }, [q])
+  useEffect(() => { if (query.trim().length >= 2) setShowDrop(true) }, [query, results])
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -131,15 +121,14 @@ function CustomerSearch({ onSelect }: { onSelect: (c: CustomerResult) => void })
 
   function pick(c: CustomerResult) {
     setSelected(c)
-    setQ('')
-    setResults([])
+    reset()
     setShowDrop(false)
     onSelect(c)
   }
 
   function clear() {
     setSelected(null)
-    setQ('')
+    reset()
   }
 
   if (selected) {
@@ -164,9 +153,9 @@ function CustomerSearch({ onSelect }: { onSelect: (c: CustomerResult) => void })
       <div style={{ position: 'relative' }}>
         <span className="material-symbols-rounded" style={{ position: 'absolute', left: SP[3], top: '50%', transform: 'translateY(-50%)', fontSize: TEXT.xl, color: 'var(--txt3)' }}>search</span>
         <input
-          value={q} onChange={e => setQ(e.target.value)}
-          onFocus={() => results.length > 0 && setShowDrop(true)}
-          placeholder="Search customer name, CIF, or phone…"
+          value={query} onChange={e => setQuery(e.target.value)}
+          onFocus={() => query.trim().length >= 2 && setShowDrop(true)}
+          placeholder="Search name, CIF, phone or email…"
           style={{ width: '100%', padding: `${SP[2]} ${SP[3]} ${SP[2]} 38px`, borderRadius: RADIUS.lg, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, outline: 'none', boxSizing: 'border-box' }}
         />
       </div>

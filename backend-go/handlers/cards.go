@@ -229,24 +229,41 @@ func cardsCardholders(db *core.DB) http.HandlerFunc {
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		var f Filter
-		f.Eq(" AND Status=?", ` AND status=?`, status)
-		f.Eq(" AND Product_Name=?", ` AND product_name=?`, cardType)
-		f.Date("Account_Created_Date", `opened_date`, from, to)
+		f.Eq(" AND Status=?", ` AND a.status=?`, status)
+		f.Eq(" AND Product_Name=?", ` AND a.product_name=?`, cardType)
+		f.Date("Account_Created_Date", `a.opened_date`, from, to)
 
+		// Search joins the identity table so a query can match (and the row can show)
+		// the cardholder's NAME, not just the CIF — the box used to filter CIF only.
+		// Tokenised, phone-normalized, wildcard-safe via the shared matcher; its params
+		// are numbered after the filter's so the two clause sets don't collide.
+		search, searchArgs := "", []any{}
+		if q := qstr(r, "q"); q != "" {
+			if clause, sargs, _ := buildCustomerSearch(q,
+				[]string{"a.cif", "c.full_name", "c.phone"}, "c.phone", len(f.Args())+1); clause != "" {
+				search = " AND " + clause
+				searchArgs = sargs
+			}
+		}
 		total, _, _ := db.DualScalar(r.Context(), "val",
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, f.PG()),
-			f.Args()...)
+			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts a
+				LEFT JOIN app.customers c ON c.cif = a.cif
+				WHERE 1=1%s%s`, f.PG(), search),
+			append(append([]any{}, f.Args()...), searchArgs...)...)
 
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT cif AS cif_number,
-				COALESCE(product_name,'') AS product_name,
-				COALESCE(status,'') AS status,
-				COALESCE(COALESCE(card_product,card_program),'') AS card_product,
-				TO_CHAR(opened_date,'YYYY-MM-DD') AS created_at
-			FROM app.accounts WHERE 1=1%s
-			ORDER BY opened_date DESC
-			LIMIT %d OFFSET %d`, f.PG(), limit, offset),
-			f.Args()...)
+			fmt.Sprintf(`SELECT a.cif AS cif_number,
+				COALESCE(c.full_name,'') AS customer_name,
+				COALESCE(a.product_name,'') AS product_name,
+				COALESCE(a.status,'') AS status,
+				COALESCE(COALESCE(a.card_product,a.card_program),'') AS card_product,
+				TO_CHAR(a.opened_date,'YYYY-MM-DD') AS created_at
+			FROM app.accounts a
+			LEFT JOIN app.customers c ON c.cif = a.cif
+			WHERE 1=1%s%s
+			ORDER BY a.opened_date DESC
+			LIMIT %d OFFSET %d`, f.PG(), search, limit, offset),
+			append(append([]any{}, f.Args()...), searchArgs...)...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return

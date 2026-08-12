@@ -99,11 +99,12 @@ func listLeads(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if q := qstr(r, "q"); q != "" {
-			where = append(where, fmt.Sprintf(
-				"(c.first_name ILIKE $%d OR c.last_name ILIKE $%d OR c.phone ILIKE $%d OR c.email ILIKE $%d)",
-				n, n, n, n))
-			args = append(args, "%"+q+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(q,
+				[]string{"c.first_name", "c.last_name", "c.email", "c.phone"}, "c.phone", n); clause != "" {
+				where = append(where, clause)
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		if qstr(r, "due") == "1" {
 			where = append(where, "c.next_action_at IS NOT NULL AND c.next_action_at <= NOW()")

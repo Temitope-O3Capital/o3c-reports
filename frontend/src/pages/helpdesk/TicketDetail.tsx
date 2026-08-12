@@ -250,6 +250,7 @@ export default function TicketDetail() {
   // Enriched context (loaded on CIF availability)
   const [ctx, setCtx] = useState<EnrichedContext | null>(null)
   const [ctxLoading, setCtxLoading] = useState(false)
+  const [calls, setCalls] = useState<any[]>([])
 
   // Reply
   const [replyText, setReplyText] = useState('')
@@ -317,8 +318,12 @@ export default function TicketDetail() {
     setCtxLoading(true)
     try {
       // The endpoint resolves a CIF from phone/email when the ticket has none.
-      const enriched = await apiFetch<EnrichedContext>(`/api/helpdesk/tickets/${id}/context`)
+      const [enriched, callsResp] = await Promise.all([
+        apiFetch<EnrichedContext>(`/api/helpdesk/tickets/${id}/context`),
+        apiFetch<any>(`/api/helpdesk/tickets/${id}/calls`).catch(() => null),
+      ])
       setCtx(enriched)
+      setCalls((callsResp?.data ?? callsResp) ?? [])
     } catch {
       // context enrichment is best-effort
     } finally {
@@ -347,34 +352,42 @@ export default function TicketDetail() {
     }
   }, [transferOpen, escalateOpen, agents.length])
 
-  // KB search (debounced)
+  // KB search (debounced, race-guarded)
   const kbTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const kbSeq = useRef(0)
   const searchKB = useCallback((q: string) => {
     setKbQuery(q)
     if (kbTimer.current) clearTimeout(kbTimer.current)
-    if (!q.trim()) { setKbResults([]); return }
+    if (q.trim().length < 2) { setKbResults([]); return }
+    const mySeq = ++kbSeq.current
     kbTimer.current = setTimeout(async () => {
       setKbSearching(true)
       try {
-        const res = await apiFetch<KBResult[]>(`/api/helpdesk/kb/search?q=${encodeURIComponent(q)}`)
+        const res = await apiFetch<KBResult[]>(`/api/helpdesk/kb/search?q=${encodeURIComponent(q.trim())}`)
+        if (mySeq !== kbSeq.current) return
         setKbResults(Array.isArray(res) ? res : [])
-      } catch { setKbResults([]) } finally { setKbSearching(false) }
+      } catch { if (mySeq === kbSeq.current) setKbResults([]) }
+      finally { if (mySeq === kbSeq.current) setKbSearching(false) }
     }, 300)
   }, [])
 
-  // Merge ticket search (debounced)
+  // Merge ticket search (debounced, race-guarded)
   const mergeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mergeSeq = useRef(0)
   const searchMerge = useCallback((q: string) => {
     setMergeQuery(q)
     if (mergeTimer.current) clearTimeout(mergeTimer.current)
-    if (!q.trim()) { setMergeResults([]); return }
+    if (q.trim().length < 2) { setMergeResults([]); return }
+    const mySeq = ++mergeSeq.current
     mergeTimer.current = setTimeout(async () => {
       setMergeSearching(true)
       try {
-        const data = await apiFetch<any>(`/api/helpdesk/tickets/search?q=${encodeURIComponent(q)}&limit=5`)
+        const data = await apiFetch<any>(`/api/helpdesk/tickets/search?q=${encodeURIComponent(q.trim())}&limit=5`)
+        if (mySeq !== mergeSeq.current) return
         const res: TicketSearchResult[] = Array.isArray(data) ? data : (data.tickets ?? [])
         setMergeResults(res.filter(t => String(t.id) !== id))
-      } catch { setMergeResults([]) } finally { setMergeSearching(false) }
+      } catch { if (mySeq === mergeSeq.current) setMergeResults([]) }
+      finally { if (mySeq === mergeSeq.current) setMergeSearching(false) }
     }, 300)
   }, [id])
 
@@ -467,7 +480,7 @@ export default function TicketDetail() {
       })
       await apiFetch(`/api/helpdesk/tickets/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: 'in_progress', priority: 'urgent' }),
+        body: JSON.stringify({ status: 'escalated', priority: 'urgent' }),
       })
       setEscalateOpen(false)
       setEscalateReason('')
@@ -857,6 +870,7 @@ export default function TicketDetail() {
               <Tabs
                 tabs={[
                   { key: 'customer', label: 'Customer' },
+                  { key: 'calls', label: 'Calls' },
                   { key: 'loans', label: 'Loans' },
                   { key: 'fd', label: 'FDs' },
                   { key: 'transactions', label: 'Transactions' },
@@ -1009,6 +1023,36 @@ export default function TicketDetail() {
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+              {!ctxLoading && tab === 'calls' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+                  {calls.length === 0 ? (
+                    <p style={{ color: 'var(--txt2)', fontSize: TEXT.base, margin: 0 }}>No calls found for this customer.</p>
+                  ) : calls.map((c, i) => {
+                    const dir = String(c.direction ?? '')
+                    const inbound = dir === 'inbound'
+                    const dur = Number(c.duration_sec ?? 0)
+                    const when = c.called_at ? new Date(c.called_at).toLocaleString() : '—'
+                    return (
+                      <div key={c.id ?? i} className="hd-lift" style={{ background: 'var(--th-bg)', border: '1px solid var(--bdr)', boxShadow: 'var(--shadow-xs)', borderRadius: RADIUS.md, padding: '9px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: TEXT.sm, fontWeight: FW.semibold, color: inbound ? GREEN : NAVY }}>
+                            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{inbound ? 'call_received' : 'call_made'}</span>
+                            {inbound ? 'Inbound' : dir === 'outbound' ? 'Outbound' : 'Call'}
+                          </span>
+                          <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{when}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: SP[3], fontSize: TEXT.xs, color: 'var(--txt2)', flexWrap: 'wrap' }}>
+                          <span style={{ textTransform: 'capitalize' }}>{c.outcome ?? 'Call'}</span>
+                          <span>{dur > 0 ? `${Math.floor(dur / 60)}m ${dur % 60}s` : '—'}</span>
+                          {c.agent_name && <span>· {c.agent_name}</span>}
+                          {c.purpose && <span style={{ textTransform: 'capitalize' }}>· {c.purpose}</span>}
+                        </div>
+                        {c.recording_url && <a href={c.recording_url} target="_blank" rel="noreferrer" style={{ fontSize: TEXT.xs, color: BLUE }}>Recording</a>}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>

@@ -37,11 +37,17 @@ export function allRoles(user: { role: string; extra_roles?: string[] }): string
 // a control is worth rendering; a stale copy hides a button, it never grants access.
 const SALES_HEAD_ROLES = ['admin', 'sales_head', 'head_sales', 'head_ops', 'cfo']
 
+// The one place the signed-in user is stored. Everything that needs the current user
+// must go through AUTH_USER_KEY rather than spelling the key out again — a typo'd key
+// does not throw, it silently returns null, and a null user degrades to "not a head,
+// no id", which looks like a permissions decision rather than a bug.
+export const AUTH_USER_KEY = 'o3c_user'
+
 // currentUser reads the signed-in user from storage. Returns null when absent or
 // unparseable so callers degrade to the least-privileged view rather than throwing.
 export function currentUser(): AuthUser | null {
   try {
-    const raw = localStorage.getItem('auth_user')
+    const raw = localStorage.getItem(AUTH_USER_KEY)
     return raw ? (JSON.parse(raw) as AuthUser) : null
   } catch {
     return null
@@ -68,56 +74,36 @@ const COMPLIANCE_PAGES  = ['compliance_checklists','watch_list','sars','cbn_repo
 const ADMIN_PAGES       = ['admin_users','admin_api_keys','settings','sync_status']
 
 export const ROLE_PAGES: Record<string, string[]> = {
-  // Legacy roles
-  md:               ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','call_center_stats','loans','bd','bd_employers','bd_pipeline', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
-  coo:              ['overview','transactions','collections','recovery','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','loans',          ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
-  cfo:              ['overview','income','collections','recovery','executive','transactions','eod','uploads','reconciliation','loans','credit_portfolio','fixed_deposit','settlement','statements', ...FINANCE_PAGES],
-  head_it:          ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, 'mobile_app','blink_card', ...ADMIN_PAGES, ...HELPDESK],
-  cmo:              ['overview','sales','cohort','executive','uploads', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  head_ops:         ['overview','transactions','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','credit_portfolio','fixed_deposit','settlement', ...CRM, ...HELPDESK],
-  head_sales:       ['sales','overview','uploads','executive','loans','credit_portfolio','bd','bd_employers','bd_pipeline', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  head_collections: ['collections','recovery','overview','eod','uploads','executive','reconciliation','loans','credit_portfolio', ...CRM, ...HELPDESK],
-  head_recovery:    ['recovery','collections','overview','eod','uploads','executive','loans','credit_portfolio', ...CRM, ...HELPDESK],
-  admin:            ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','admin','executive','income','eod','uploads','reconciliation','call_center','call_center_stats','loans', ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...ADMIN_PAGES, ...HELPDESK],
-  management:       ['overview','transactions','collections','recovery','sales','cards','card_trends','cohort','executive','income','eod','uploads','reconciliation','call_center','call_center_stats',                 ...CRM, ...CRM_REPORT, ...CAMPAIGNS, ...OPERATIONS, ...HELPDESK],
-  sales:            ['sales','overview','uploads','loans','credit_portfolio',                                                                                                                       ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  collections:      ['collections','recovery','eod','uploads','reconciliation','credit_portfolio',                                                                                                  ...CRM, ...HELPDESK],
-  recovery:         ['recovery','collections','eod','uploads','loans','credit_portfolio',                                                                                                           ...CRM, ...HELPDESK],
-  cards_ops:        ['cards','card_trends','transactions','overview','eod','uploads','blink_card', ...HELPDESK],
-
-  // Canonical roles
-  executive:             ['overview','income','transactions','credit_portfolio','fixed_deposit','eod', ...FINANCE_PAGES],
-  sales_officer:         ['sales','overview','loans','credit_portfolio','bd','bd_employers','bd_pipeline', ...CRM, ...CRM_REPORT],
-  sales_head:            ['sales','overview','loans','credit_portfolio','reports','statements','bd','bd_employers','bd_pipeline', ...CRM, ...CRM_REPORT, ...CAMPAIGNS],
-  risk_officer:          ['credit_portfolio','los_all','income'],
-  risk_head:             ['credit_portfolio','los_all','income','reports','statements'],
-  finance_officer:       [...FINANCE_PAGES, 'overview', 'core-banking'],
-  finance_head:          [...FINANCE_PAGES, 'overview','reports','statements','settlement','reconciliation','credit_portfolio','fixed_deposit','core-banking'],
-  cards_ops_officer:     ['cards','card_trends','transactions','overview','eod','blink_card','mobile_app', ...HELPDESK],
-  cards_ops_head:        ['cards','card_trends','transactions','overview','eod','blink_card','mobile_app','reports','statements', ...HELPDESK],
-  collections_agent:     [...COLLECTIONS_PAGES, 'eod','uploads', ...HELPDESK],
-  collections_head:      [...COLLECTIONS_PAGES, 'eod','uploads','reports','statements','reconciliation', ...HELPDESK],
-  recovery_agent:        [...RECOVERY_PAGES, 'eod','uploads', ...HELPDESK],
-  recovery_head:         [...RECOVERY_PAGES, 'eod','uploads','reports','statements', ...HELPDESK],
-  call_center_agent:     ['call_center','overview','transactions','crm_requests','crm_contacts','customer360', ...HELPDESK],
-  call_center_head:      ['call_center','call_center_stats','overview','transactions','crm_requests','crm_contacts','customer360','reports','statements','kpi_dashboard','campaigns','contact_lists','message_templates', ...HELPDESK],
-  compliance_officer:    [...COMPLIANCE_PAGES],
-  compliance_head:       [...COMPLIANCE_PAGES, 'reports','statements'],
-  internal_control_head: [...COMPLIANCE_PAGES, 'reports','statements','audit_trail'],
-  it_admin:              [...ADMIN_PAGES, 'overview', 'core-banking', ...HELPDESK],
-
-  // Business Development
-  bd_officer:            ['overview','bd','bd_employers','bd_pipeline','customer360','crm_contacts','campaigns','contact_lists','message_templates'],
-  bd_head:               ['overview','bd','bd_employers','bd_pipeline','customer360','crm_contacts','kpi_dashboard','statements','campaigns','contact_lists','message_templates'],
-
-
-  // Finance ops
-  head_of_reconciliation: ['overview','income','eod','transactions','uploads','reconciliation','credit_portfolio','fixed_deposit','settlement','kpi_dashboard','reports','statements'],
-  settlement_officer:     ['overview','settlement','reconciliation','eod','transactions','credit_portfolio'],
-
-  // BI / Analytics
-  bi_analyst:             ['overview','reports','kpi_dashboard'],
-  bi_head:                ['overview','reports','kpi_dashboard','admin_users'],
+  // Auto-generated to mirror backend core/auth.go RolePages exactly. This is only a
+  // FALLBACK for when the JWT carries no baked pages (dev/empty token); in production
+  // the authoritative set is user.pages (resolved by the backend at login).
+  admin:                ['active_loan_book', 'admin_api_keys', 'admin_users', 'approvals', 'audit_export', 'audit_findings', 'audit_trail', 'bd', 'bd_employers', 'bd_pipeline', 'blink_card', 'call_center', 'call_center_stats', 'campaigns', 'card_trends', 'cards', 'cbn_reports', 'cohort', 'collections', 'collections_assign', 'collections_payment', 'collections_payment_approve', 'compliance_all', 'compliance_checklists', 'contact_lists', 'core-banking', 'credit_portfolio', 'crm_contacts', 'crm_pipeline', 'crm_reports', 'crm_tasks', 'customer360', 'customer_service', 'eod', 'executive', 'finance', 'fixed_deposit', 'fx_rates', 'helpdesk', 'helpdesk_canned', 'helpdesk_kb', 'helpdesk_stats', 'income', 'kpi_dashboard', 'loans', 'los', 'los_all', 'los_assign', 'los_booking', 'los_finance', 'los_finance_approve', 'los_risk_head', 'los_risk_review', 'mail', 'message_templates', 'mobile_app', 'overview', 'payroll', 'reconciliation', 'recovery', 'recovery_assign', 'recovery_write_off', 'reports', 'risk_all', 'risk_head', 'risk_officer', 'sales', 'sars', 'settings', 'settlement', 'statements', 'sync_status', 'transactions', 'uploads', 'watch_list'],
+  bd_head:              ['bd', 'bd_employers', 'bd_pipeline', 'campaigns', 'contact_lists', 'crm_contacts', 'customer360', 'executive', 'kpi_dashboard', 'mail', 'message_templates', 'overview', 'uploads'],
+  bd_officer:           ['bd', 'bd_employers', 'bd_pipeline', 'crm_contacts', 'customer360', 'mail', 'overview', 'uploads'],
+  bi_analyst:           ['cohort', 'kpi_dashboard', 'overview', 'reports'],
+  bi_head:              ['cohort', 'executive', 'kpi_dashboard', 'overview', 'reports', 'statements'],
+  call_center_agent:    ['call_center', 'crm_contacts', 'customer360', 'helpdesk', 'helpdesk_canned', 'helpdesk_kb', 'overview', 'transactions', 'uploads'],
+  call_center_head:     ['call_center', 'call_center_stats', 'campaigns', 'contact_lists', 'crm_contacts', 'customer360', 'executive', 'helpdesk', 'helpdesk_canned', 'helpdesk_kb', 'helpdesk_stats', 'kpi_dashboard', 'message_templates', 'overview', 'statements', 'transactions', 'uploads'],
+  cards_agent:          ['blink_card', 'card_trends', 'cards', 'customer360', 'eod', 'los_booking', 'overview', 'uploads'],
+  cards_head:           ['blink_card', 'card_trends', 'cards', 'customer360', 'eod', 'executive', 'kpi_dashboard', 'los_assign', 'los_booking', 'mobile_app', 'overview', 'statements', 'uploads'],
+  cfo:                  ['approvals', 'collections_payment', 'collections_payment_approve', 'core-banking', 'credit_portfolio', 'customer360', 'eod', 'executive', 'finance', 'fixed_deposit', 'fx_rates', 'income', 'kpi_dashboard', 'los_finance', 'los_finance_approve', 'overview', 'payroll', 'reconciliation', 'reports', 'settlement', 'statements', 'transactions', 'uploads'],
+  cmo:                  ['bd', 'bd_employers', 'bd_pipeline', 'campaigns', 'cohort', 'contact_lists', 'crm_contacts', 'crm_pipeline', 'crm_reports', 'crm_tasks', 'customer360', 'executive', 'kpi_dashboard', 'loans', 'los', 'mail', 'message_templates', 'overview', 'reports', 'sales', 'uploads'],
+  collections_agent:    ['collections', 'crm_contacts', 'customer360', 'eod', 'overview', 'uploads'],
+  collections_head:     ['collections', 'collections_assign', 'collections_payment', 'collections_payment_approve', 'credit_portfolio', 'crm_contacts', 'customer360', 'eod', 'executive', 'kpi_dashboard', 'loans', 'overview', 'recovery', 'reports', 'statements', 'uploads'],
+  compliance_head:      ['audit_export', 'audit_findings', 'audit_trail', 'cbn_reports', 'compliance_all', 'compliance_checklists', 'customer360', 'executive', 'kpi_dashboard', 'overview', 'reports', 'sars', 'uploads', 'watch_list'],
+  compliance_officer:   ['audit_findings', 'compliance_checklists', 'customer360', 'overview', 'uploads', 'watch_list'],
+  coo:                  ['active_loan_book', 'approvals', 'blink_card', 'call_center', 'call_center_stats', 'campaigns', 'card_trends', 'cards', 'collections', 'collections_assign', 'collections_payment', 'collections_payment_approve', 'contact_lists', 'core-banking', 'credit_portfolio', 'crm_contacts', 'customer360', 'eod', 'executive', 'finance', 'fixed_deposit', 'fx_rates', 'helpdesk', 'helpdesk_canned', 'helpdesk_kb', 'helpdesk_stats', 'income', 'kpi_dashboard', 'loans', 'los_assign', 'los_booking', 'los_finance', 'los_finance_approve', 'los_risk_head', 'los_risk_review', 'message_templates', 'mobile_app', 'overview', 'payroll', 'reconciliation', 'recovery', 'recovery_assign', 'recovery_write_off', 'reports', 'risk_all', 'risk_head', 'risk_officer', 'settlement', 'statements', 'transactions', 'uploads'],
+  finance_head:         ['core-banking', 'credit_portfolio', 'customer360', 'eod', 'executive', 'finance', 'fixed_deposit', 'fx_rates', 'income', 'kpi_dashboard', 'los_finance', 'los_finance_approve', 'overview', 'payroll', 'reconciliation', 'reports', 'settlement', 'statements', 'transactions', 'uploads'],
+  finance_officer:      ['core-banking', 'credit_portfolio', 'customer360', 'eod', 'finance', 'fixed_deposit', 'fx_rates', 'income', 'los_finance', 'overview', 'reconciliation', 'settlement', 'transactions', 'uploads'],
+  it_admin:             ['admin_api_keys', 'admin_users', 'customer360', 'overview', 'settings', 'sync_status', 'uploads'],
+  md:                   ['active_loan_book', 'admin_api_keys', 'admin_users', 'approvals', 'audit_export', 'audit_findings', 'audit_trail', 'bd', 'bd_employers', 'bd_pipeline', 'blink_card', 'call_center', 'call_center_stats', 'campaigns', 'card_trends', 'cards', 'cbn_reports', 'cohort', 'collections', 'collections_assign', 'collections_payment', 'collections_payment_approve', 'compliance_all', 'compliance_checklists', 'contact_lists', 'core-banking', 'credit_portfolio', 'crm_contacts', 'crm_pipeline', 'crm_reports', 'crm_tasks', 'customer360', 'customer_service', 'eod', 'executive', 'finance', 'fixed_deposit', 'fx_rates', 'helpdesk', 'helpdesk_canned', 'helpdesk_kb', 'helpdesk_stats', 'income', 'kpi_dashboard', 'loans', 'los', 'los_all', 'los_assign', 'los_booking', 'los_finance', 'los_finance_approve', 'los_risk_head', 'los_risk_review', 'mail', 'message_templates', 'mobile_app', 'overview', 'payroll', 'reconciliation', 'recovery', 'recovery_assign', 'recovery_write_off', 'reports', 'risk_all', 'risk_head', 'risk_officer', 'sales', 'sars', 'settings', 'settlement', 'statements', 'sync_status', 'transactions', 'uploads', 'watch_list'],
+  recovery_agent:       ['customer360', 'eod', 'overview', 'recovery', 'uploads'],
+  recovery_head:        ['credit_portfolio', 'customer360', 'eod', 'executive', 'kpi_dashboard', 'loans', 'overview', 'recovery', 'recovery_assign', 'recovery_write_off', 'reports', 'statements', 'uploads'],
+  risk_head:            ['active_loan_book', 'credit_portfolio', 'customer360', 'executive', 'kpi_dashboard', 'loans', 'los_assign', 'los_risk_head', 'los_risk_review', 'overview', 'risk_all', 'risk_head', 'risk_officer', 'statements', 'uploads'],
+  risk_officer:         ['credit_portfolio', 'customer360', 'loans', 'los_risk_review', 'overview', 'risk_officer', 'uploads'],
+  sales_head:           ['campaigns', 'cohort', 'contact_lists', 'crm_contacts', 'crm_pipeline', 'crm_reports', 'crm_tasks', 'customer360', 'executive', 'kpi_dashboard', 'loans', 'los', 'los_all', 'los_assign', 'mail', 'message_templates', 'overview', 'reports', 'sales', 'statements', 'uploads'],
+  sales_officer:        ['cohort', 'crm_contacts', 'crm_pipeline', 'crm_reports', 'crm_tasks', 'customer360', 'loans', 'los', 'mail', 'overview', 'sales', 'uploads'],
+  settlement_officer:   ['credit_portfolio', 'customer360', 'eod', 'overview', 'reconciliation', 'settlement', 'transactions', 'uploads'],
 }
 
 export function parseToken(token: string): { exp: number; [key: string]: unknown } | null {

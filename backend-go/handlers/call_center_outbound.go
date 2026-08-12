@@ -20,9 +20,46 @@ func ensureCCContactColumns(db *core.DB) {
 	for _, s := range []string{
 		`ALTER TABLE call_center_contacts ADD COLUMN IF NOT EXISTS source TEXT`,
 		`ALTER TABLE call_center_contacts ADD COLUMN IF NOT EXISTS ref TEXT`,
+		// Call-derived counters (migration 144). Declared here too so the queue
+		// handlers cannot query a column the migration has not yet created.
+		`ALTER TABLE call_center_contacts ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE call_center_contacts ADD COLUMN IF NOT EXISTS connects INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE call_center_contacts ADD COLUMN IF NOT EXISTS last_call_outcome TEXT`,
 	} {
 		db.PGExec(ctx, s) //nolint:errcheck
 	}
+}
+
+// ccStampQueueForPhone refreshes the outbound queue's call-derived counters for one
+// number, and is the live half of migration 144: the migration backfilled history,
+// this keeps it true as calls arrive.
+//
+// It RECOMPUTES from helpdesk_calls rather than incrementing. The Zoho Desk importer
+// re-upserts calls it has already seen on every hourly deep reconcile, so an increment
+// would count the same call again on each sweep and inflate attempts without limit.
+// Recomputing is idempotent, which matters more here than the saved row scan — and the
+// scan is cheap, both sides of the match are indexed on norm_phone.
+func ccStampQueueForPhone(ctx context.Context, db *core.DB, phone string) {
+	if strings.TrimSpace(phone) == "" {
+		return
+	}
+	db.PGExec(ctx, //nolint:errcheck
+		`UPDATE call_center_contacts c
+		    SET attempts          = t.n,
+		        connects          = t.conn,
+		        last_called_at    = t.last_at,
+		        last_call_outcome = t.last_outcome,
+		        updated_at        = NOW()
+		   FROM (
+		     SELECT COUNT(*)                                            AS n,
+		            COUNT(*) FILTER (WHERE outcome = 'completed')        AS conn,
+		            MAX(started_at)                                      AS last_at,
+		            (ARRAY_AGG(NULLIF(outcome,'') ORDER BY started_at DESC))[1] AS last_outcome
+		       FROM helpdesk_calls
+		      WHERE norm_phone(customer_phone) = norm_phone($1)
+		   ) t
+		  WHERE norm_phone(c.phone) = norm_phone($1)
+		    AND norm_phone($1) <> ''`, phone)
 }
 
 func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
@@ -58,6 +95,12 @@ func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
 	r.Get("/queue/export", ccExportQueue(db)) // GET for blob download (apiExport)
 	r.Get("/contacts/{id}/calls", ccContactCalls(db))
 	r.Post("/contacts/{id}/log-call", ccLogCall(db))
+	r.Get("/dispositions", ccListDispositions()) // canonical outcome vocabulary
+
+	// Inbound — 53% of inbound calls go unanswered and had no follow-up path at all.
+	r.Get("/inbound", ccInboundList(db))
+	r.Post("/inbound/queue-callbacks", ccQueueMissedCallbacks(db))
+	r.Post("/inbound/{id}/ticket", ccInboundToTicket(db))
 
 	// Performance analytics
 	r.Get("/performance-kpis",    ccPerformanceKPIs(db))
@@ -170,9 +213,12 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if search != "" {
-			q += fmt.Sprintf(" AND (l.customer_name ILIKE $%d OR l.customer_phone ILIKE $%d OR l.employer ILIKE $%d)", n, n, n)
-			args = append(args, "%"+search+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(search,
+				[]string{"l.customer_name", "l.customer_phone", "l.employer"}, "l.customer_phone", n); clause != "" {
+				q += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		from := qstr(r, "from")
 		to   := qstr(r, "to")
@@ -344,6 +390,19 @@ func ccLogDisposition(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Mirror the telesales call into the single call ledger (helpdesk_calls) so it
+		// appears alongside every other call in agent stats, QA and the customer
+		// timeline. call_center_dispositions is kept for the lead-funnel analytics.
+		if lr, _ := db.PGQuery(r.Context(),
+			`SELECT COALESCE(customer_name,'') n, COALESCE(customer_phone,'') p FROM call_center_leads WHERE id=$1`, id); len(lr) > 0 {
+			db.PGExec(r.Context(), //nolint:errcheck
+				`INSERT INTO helpdesk_calls
+				   (agent_id, agent_name, customer_name, customer_phone,
+				    direction, duration_sec, outcome, notes, purpose, source_system)
+				 VALUES ($1,$2,$3,$4,'outbound',$5,$6,$7,'marketing','call_center')`,
+				user.ID, user.FullName, str(lr[0]["n"]), str(lr[0]["p"]), b.DurationSec, b.Outcome, b.Notes)
+		}
+
 		// Hand-off: when converted, create a BD lead for follow-up
 		if b.Outcome == "converted" {
 			lead, _ := db.PGQuery(r.Context(),
@@ -429,9 +488,12 @@ func ccListDNC(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if search != "" {
-			q += fmt.Sprintf(" AND d.phone ILIKE $%d", n)
-			args = append(args, "%"+search+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(search,
+				[]string{"d.phone", "d.reason", "u.full_name"}, "d.phone", n); clause != "" {
+				q += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		args = append(args, limit)
 		q += fmt.Sprintf(" ORDER BY d.added_at DESC LIMIT $%d", n)
@@ -934,6 +996,17 @@ func ccAddCallback(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// ccCooldownDays is how long a contact rests after a call before the queue offers it
+// again. Without it the list is ordered by data the queue never had: before migration
+// 144 every contact reported "never called" while 13,669 of them had been dialled
+// 97,938 times, so agents were re-serving numbers called hours earlier.
+const ccCooldownDays = 7
+
+// ccExhaustedAttempts is the point at which repeat dialling stops being worth an
+// agent's minute — this many attempts with not one connect. 3,773 marketing contacts
+// were past it at backfill, one collections number at 229 attempts.
+const ccExhaustedAttempts = 6
+
 func ccListQueue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		priority    := qstr(r, "priority")
@@ -941,15 +1014,24 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		dpdRange    := qstr(r, "dpd")
 		search      := qstr(r, "search")
 		purpose     := qstr(r, "purpose")
+		bucket      := qstr(r, "bucket")
 		limit       := qint(r, "limit", 200, 1, 500)
+		cooldown    := qint(r, "cooldown_days", ccCooldownDays, 0, 90)
 
-		q := `SELECT id, customer_name, phone, cif, product_name,
+		// Derived flags travel with each row so the UI can badge a contact without
+		// re-deriving the thresholds and drifting from the ordering below.
+		sel := fmt.Sprintf(`SELECT id, customer_name, phone, cif, product_name,
 		             priority, outstanding_kobo, dpd, is_existing_customer,
 		             loan_product, next_payment_date, last_disposition, last_called_at,
+		             attempts, connects, last_call_outcome, disposition_code, callback_at,
+		             COALESCE(last_called_at > NOW() - INTERVAL '%d days', FALSE) AS is_cooling,
+		             (attempts >= %d AND connects = 0)                             AS is_exhausted,
+		             (callback_at IS NOT NULL AND callback_at <= NOW())            AS callback_due,
 		             COALESCE(purpose,'marketing') AS purpose, COALESCE(source,'zoho_crm') AS source, ref
 		      FROM call_center_contacts
 		      WHERE status = 'pending'
-		        AND phone NOT IN (SELECT phone FROM dnc_list)`
+		        AND phone NOT IN (SELECT phone FROM dnc_list)`, cooldown, ccExhaustedAttempts)
+		q := sel
 		var args []any
 		n := 1
 		cond := ""
@@ -965,7 +1047,9 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if disposition != "" {
-			cond += fmt.Sprintf(" AND last_disposition=$%d", n)
+			// Match the canonical code, not the display label — the label is presentation
+			// and changing its wording would silently break every saved filter.
+			cond += fmt.Sprintf(" AND disposition_code=$%d", n)
 			args = append(args, disposition)
 			n++
 		}
@@ -980,9 +1064,12 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 			cond += " AND dpd > 90"
 		}
 		if search != "" {
-			cond += fmt.Sprintf(" AND (customer_name ILIKE $%d OR phone ILIKE $%d)", n, n)
-			args = append(args, "%"+search+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(search,
+				[]string{"customer_name", "phone"}, "phone", n); clause != "" {
+				cond += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		if from := qstr(r, "from"); from != "" {
 			cond += fmt.Sprintf(" AND created_at::date >= $%d::date", n)
@@ -995,16 +1082,53 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 			n++
 		}
 
+		// Buckets are the queue's working views, kept out of `cond` so the chips below
+		// keep reporting every bucket's size while one of them is selected — the same
+		// reason the purpose tabs drop the purpose filter. "ready" is what an agent
+		// should actually dial: never called or rested past the cooldown, and not a
+		// number that has already swallowed ccExhaustedAttempts tries without one answer.
+		bucketCond := ""
+		switch bucket {
+		case "ready":
+			// A due callback is always ready — the customer set the time, so neither the
+			// cooldown nor an exhausted-number rule should hold it back.
+			bucketCond = fmt.Sprintf(" AND ((callback_at IS NOT NULL AND callback_at <= NOW())"+
+				" OR ((last_called_at IS NULL OR last_called_at <= NOW() - INTERVAL '%d days')"+
+				"     AND NOT (attempts >= %d AND connects = 0)))", cooldown, ccExhaustedAttempts)
+		case "uncalled":
+			bucketCond = " AND attempts = 0"
+		case "cooling":
+			bucketCond = fmt.Sprintf(" AND last_called_at > NOW() - INTERVAL '%d days'", cooldown)
+		case "exhausted":
+			bucketCond = fmt.Sprintf(" AND attempts >= %d AND connects = 0", ccExhaustedAttempts)
+		}
+
 		// Summary over the full filtered pool — powers the queue's stat chips so they
-		// reflect the whole backlog, not just the loaded page.
-		summary := map[string]any{"total": 0, "uncalled": 0, "contacted": 0, "callbacks": 0, "marketing": 0, "collections": 0, "support": 0}
+		// reflect the whole backlog, not just the loaded page. Counted from the
+		// call-derived columns, so "uncalled" now means nobody has ever dialled this
+		// number rather than "the queue never recorded dialling it".
+		//
+		// The bucket filter is deliberately excluded here: the chips are the navigation
+		// between buckets, so each has to keep reporting its own size while another is
+		// selected — the same reason the purpose tabs drop the purpose filter below.
+		summary := map[string]any{"total": 0, "uncalled": 0, "contacted": 0, "cooling": 0,
+			"exhausted": 0, "ready": 0, "callbacks": 0, "callbacks_due": 0,
+			"marketing": 0, "collections": 0, "support": 0}
 		if sr, _ := db.PGQuery(r.Context(),
-			`SELECT COUNT(*) AS total,
-			        COUNT(*) FILTER (WHERE last_called_at IS NULL)        AS uncalled,
-			        COUNT(*) FILTER (WHERE last_called_at IS NOT NULL)    AS contacted,
-			        COUNT(*) FILTER (WHERE last_disposition = 'Callback') AS callbacks
+			fmt.Sprintf(`SELECT COUNT(*) AS total,
+			        COUNT(*) FILTER (WHERE attempts = 0)                  AS uncalled,
+			        COUNT(*) FILTER (WHERE attempts > 0)                  AS contacted,
+			        COUNT(*) FILTER (WHERE last_called_at > NOW() - INTERVAL '%d days') AS cooling,
+			        COUNT(*) FILTER (WHERE attempts >= %d AND connects = 0)             AS exhausted,
+			        COUNT(*) FILTER (WHERE (callback_at IS NOT NULL AND callback_at <= NOW())
+			                            OR ((last_called_at IS NULL
+			                              OR last_called_at <= NOW() - INTERVAL '%d days')
+			                            AND NOT (attempts >= %d AND connects = 0)))      AS ready,
+			        COUNT(*) FILTER (WHERE callback_at IS NOT NULL AND callback_at <= NOW()) AS callbacks_due,
+			        COUNT(*) FILTER (WHERE callback_at IS NOT NULL)       AS callbacks
 			 FROM call_center_contacts
-			 WHERE status = 'pending' AND phone NOT IN (SELECT phone FROM dnc_list)`+cond, args...); len(sr) > 0 {
+			 WHERE status = 'pending' AND phone NOT IN (SELECT phone FROM dnc_list)`,
+				cooldown, ccExhaustedAttempts, cooldown, ccExhaustedAttempts)+cond, args...); len(sr) > 0 {
 			summary = sr[0]
 		}
 		// Per-purpose backlog is computed WITHOUT the purpose filter so the
@@ -1026,8 +1150,27 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		q += cond
-		q += fmt.Sprintf(` ORDER BY (last_called_at IS NOT NULL), last_called_at NULLS FIRST, CASE priority WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END, dpd DESC, id LIMIT $%d`, n)
+		q += cond + bucketCond
+		// Serving order, worst-first-to-dial last:
+		//   1. exhausted numbers sink (attempts spent, never once answered),
+		//   2. then anything still cooling from a recent attempt,
+		//   3. then never-called before rested, oldest attempt first,
+		//   4. then the existing priority / DPD tie-breaks.
+		// The old clause led with `last_called_at IS NOT NULL` on a column that was NULL
+		// for every row, so it sorted nothing and the queue fell through to priority.
+		// COALESCE is load-bearing: `last_called_at > ...` is NULL for a never-called
+		// contact, and Postgres sorts NULL last in an ASC order — which would bury the
+		// never-called contacts (the ones an agent most wants) beneath every cooling one.
+		//
+		// A due callback outranks everything: the customer named a time and we agreed to
+		// it, so it must beat even a never-called contact, and must not be held back by
+		// the cooldown the call that scheduled it just started.
+		q += fmt.Sprintf(` ORDER BY (callback_at IS NULL OR callback_at > NOW()),
+		         (attempts >= %d AND connects = 0),
+		         COALESCE(last_called_at > NOW() - INTERVAL '%d days', FALSE),
+		         last_called_at ASC NULLS FIRST,
+		         CASE priority WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END,
+		         dpd DESC, id LIMIT $%d`, ccExhaustedAttempts, cooldown, n)
 		args = append(args, limit)
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
@@ -1043,11 +1186,11 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// ccContactCalls returns a contact's real call trail. The queue's own
-// manually-logged dispositions (call_center_call_logs) are sparse; the bulk of a
-// customer's true telephony history lives in helpdesk_calls (Zoho Voice + Desk),
-// matched by the last 10 digits of the phone. We UNION both so the panel shows
-// every touch — direction, purpose, outcome, agent, duration and any recording.
+// ccContactCalls returns a contact's real call trail. All telephony — including the
+// queue's own manually-logged dispositions (ccLogCall now writes them into
+// helpdesk_calls) — lives in helpdesk_calls, matched by the last 10 digits of the
+// phone. The panel shows every touch: direction, purpose, outcome, agent, duration
+// and any recording.
 func ccContactCalls(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -1056,36 +1199,19 @@ func ccContactCalls(db *core.DB) http.HandlerFunc {
 			   SELECT right(regexp_replace(COALESCE(phone,''),'\D','','g'),10) AS np
 			   FROM call_center_contacts WHERE id=$1
 			 )
-			 SELECT * FROM (
-			   -- Real telephony from the phone system
-			   SELECT hc.id,
-			          hc.started_at                                        AS called_at,
-			          COALESCE(hc.duration_sec,0)                          AS duration_seconds,
-			          COALESCE(NULLIF(hc.outcome,''),'Call')               AS disposition,
-			          COALESCE(NULLIF(hc.agent_name,''),'Unknown')         AS agent_name,
-			          hc.direction                                         AS direction,
-			          hc.purpose                                           AS purpose,
-			          hc.recording_url                                     AS recording_url,
-			          hc.notes                                             AS notes,
-			          'telephony'                                          AS log_source
-			   FROM helpdesk_calls hc, c
-			   WHERE length(c.np)=10
-			     AND right(regexp_replace(COALESCE(hc.customer_phone,''),'\D','','g'),10) = c.np
-			   UNION ALL
-			   -- Dispositions logged from this queue
-			   SELECT cl.id,
-			          cl.called_at,
-			          COALESCE(cl.duration_seconds,0),
-			          cl.disposition,
-			          COALESCE(cl.agent_name,'Unknown'),
-			          'outbound'::text,
-			          NULL::text,
-			          NULL::text,
-			          cl.notes,
-			          'queue'
-			   FROM call_center_call_logs cl
-			   WHERE cl.contact_id = $1
-			 ) t
+			 SELECT hc.id,
+			        hc.started_at                                        AS called_at,
+			        COALESCE(hc.duration_sec,0)                          AS duration_seconds,
+			        COALESCE(NULLIF(hc.outcome,''),'Call')               AS disposition,
+			        COALESCE(NULLIF(hc.agent_name,''),'Unknown')         AS agent_name,
+			        hc.direction                                         AS direction,
+			        hc.purpose                                           AS purpose,
+			        hc.recording_url                                     AS recording_url,
+			        hc.notes                                             AS notes,
+			        'telephony'                                          AS log_source
+			 FROM helpdesk_calls hc, c
+			 WHERE length(c.np)=10
+			   AND right(regexp_replace(COALESCE(hc.customer_phone,''),'\D','','g'),10) = c.np
 			 ORDER BY called_at DESC NULLS LAST
 			 LIMIT 100`, id)
 		if err != nil {
@@ -1106,6 +1232,7 @@ func ccLogCall(db *core.DB) http.HandlerFunc {
 		Notes         string  `json:"notes"`
 		PTPDate       *string `json:"ptp_date"`
 		PTPAmountKobo *int64  `json:"ptp_amount_kobo"`
+		CallbackAt    *string `json:"callback_at"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -1114,23 +1241,77 @@ func ccLogCall(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "disposition is required")
 			return
 		}
-		user := core.UserFromCtx(r.Context())
+		// Validate against the canonical vocabulary. Previously any string was accepted
+		// and written straight to last_disposition, so a typo became a permanent value
+		// that no filter would ever match.
+		disp, ok := ccDispositionByCode(b.Disposition)
+		if !ok {
+			respondErr(w, 400, "unknown disposition: "+b.Disposition)
+			return
+		}
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
 
-		_, err := db.PGExec(r.Context(),
-			`INSERT INTO call_center_call_logs
-			   (contact_id, agent_id, agent_name, disposition, notes, ptp_date, ptp_amount_kobo)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-			id, user.ID, user.FullName, b.Disposition, b.Notes, b.PTPDate, b.PTPAmountKobo)
-		if err != nil {
+		// Pull the contact so the call lands in the ledger with customer context.
+		var name, phone, cif, purpose string
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT COALESCE(customer_name,'') n, COALESCE(phone,'') p, COALESCE(cif,'') c,
+			        COALESCE(NULLIF(purpose,''),'marketing') pu
+			 FROM call_center_contacts WHERE id=$1`, id); len(rows) > 0 {
+			name, phone, cif, purpose = str(rows[0]["n"]), str(rows[0]["p"]), str(rows[0]["c"]), str(rows[0]["pu"])
+		}
+		var agentID *int64
+		agentName := ""
+		if user != nil {
+			agentID, agentName = &user.ID, user.FullName
+		}
+
+		// A queue disposition IS a call — record it in the single call ledger
+		// (helpdesk_calls) so it shows on agent stats, the customer 360 timeline and
+		// QA, exactly like a Zoho or inbound call. This retires call_center_call_logs.
+		//
+		// outcome stays in the ledger's own two-value vocabulary (completed | missed,
+		// what Zoho supplies) rather than the disposition label, because connect rates
+		// across the module — including ccStampQueueForPhone's `connects` — are counted
+		// as outcome='completed'. Writing "Answered — Interested" here would make a
+		// connected call read as a non-connect everywhere. The richer label rides in
+		// notes and on the contact row, so nothing is lost.
+		outcome := "missed"
+		if disp.Connected {
+			outcome = "completed"
+		}
+		notes := strings.TrimSpace(disp.Label + " — " + b.Notes)
+		if _, err := db.PGExec(ctx,
+			`INSERT INTO helpdesk_calls
+			   (agent_id, agent_name, customer_name, customer_cif, customer_phone,
+			    direction, duration_sec, outcome, notes, purpose, source_system)
+			 VALUES ($1,$2,$3,$4,$5,'outbound',0,$6,$7,$8,'call_center')`,
+			agentID, agentName, name, cif, phone, outcome, notes, purpose); err != nil {
 			respondErr(w, 500, "Insert failed")
 			return
 		}
 
-		db.PGExec(r.Context(), //nolint:errcheck
-			`UPDATE call_center_contacts
-			 SET last_disposition=$1, last_called_at=NOW(), updated_at=NOW()
-			 WHERE id=$2`,
-			b.Disposition, id)
+		// A promise-to-pay belongs in the Collections promise book, not a call log —
+		// route it there (keyed by CIF) so it actually reaches Collections.
+		if b.PTPAmountKobo != nil && *b.PTPAmountKobo > 0 && b.PTPDate != nil && *b.PTPDate != "" && cif != "" {
+			db.PGExec(ctx, //nolint:errcheck
+				`INSERT INTO collection_promises (cif_number, agent_user_id, promised_amount_kobo, promised_date, created_at)
+				 VALUES ($1,$2,$3,$4,NOW())`,
+				cif, agentID, *b.PTPAmountKobo, *b.PTPDate)
+		}
+
+		// Apply the disposition's consequences — close it out, mark it invalid, schedule
+		// the callback, suppress the number. This is what makes logging worth an agent's
+		// time; before, every disposition left the contact exactly where it was.
+		var userID *int64
+		if user != nil {
+			userID = &user.ID
+		}
+		ccApplyDisposition(ctx, db, id, disp, phone, b.CallbackAt, userID)
+
+		// The call above went into helpdesk_calls, so recompute the counters from it
+		// rather than stamping last_called_at here — one source of truth, one path.
+		ccStampQueueForPhone(ctx, db, phone)
 
 		w.WriteHeader(201)
 	}

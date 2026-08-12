@@ -330,9 +330,12 @@ func recoveryLegal(db *core.DB) http.HandlerFunc {
 			extraWhere += " AND rc.legal_stage IN (" + strings.Join(placeholders, ",") + ")"
 		}
 		if q != "" {
-			extraWhere += fmt.Sprintf(" AND (rc.account_cif ILIKE $%d OR lp.court_name ILIKE $%d)", n, n)
-			args = append(args, "%"+q+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(q,
+				[]string{"rc.account_cif", "lp.court_name"}, "", n); clause != "" {
+				extraWhere += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		args = append(args, limit)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`

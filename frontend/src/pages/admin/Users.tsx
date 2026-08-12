@@ -6,7 +6,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { toast } from 'sonner'
-import { roleLabel, ROLE_LABELS } from '../../lib/roles'
+import { roleLabel } from '../../lib/roles'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,27 +40,53 @@ function asRoleArray(v: unknown): string[] {
 const DEPARTMENTS = ['Finance', 'Operations', 'IT', 'HR', 'Sales & BD', 'Collections', 'Recovery', 'Compliance', 'Customer Service', 'Cards']
 
 
-const ROLE_GROUPS = [
-  { label: 'Leadership',            roles: ['md','coo','cfo','cmo','executive'] },
-  { label: 'Management',            roles: ['head_ops','head_it','head_hr','head_sales','head_collections','head_recovery','head_of_reconciliation'] },
-  { label: 'Administration',        roles: ['admin','it_admin'] },
-  { label: 'Finance & Treasury',    roles: ['finance_officer','finance_head','settlement_officer','treasury_officer'] },
-  { label: 'Cards Operations',      roles: ['cards_ops_officer','cards_ops_head'] },
-  { label: 'Collections',           roles: ['collections_agent','collections_head'] },
-  { label: 'Recovery',              roles: ['recovery_agent','recovery_head'] },
-  { label: 'Risk & Credit',         roles: ['risk_officer','risk_head'] },
-  { label: 'Sales & Business Dev',  roles: ['sales_officer','sales_head','bd_officer','bd_head'] },
-  { label: 'Call Center',           roles: ['call_center_agent','call_center_head'] },
-  { label: 'Human Resources',       roles: ['hr_officer','hr_manager','payroll_officer','payroll_manager'] },
-  { label: 'Compliance & Control',  roles: ['compliance_officer','compliance_head','internal_control_head'] },
-].map(g => ({ ...g, roles: g.roles.filter(r => r in ROLE_LABELS) }))
+// ── Role options come from the backend (/api/admin/roles) so the dropdowns always
+// reflect the live role registry — the clean built-in taxonomy AND any custom
+// roles — instead of a hardcoded list that drifts. Cached module-wide.
+interface RoleOpt { name: string; label: string }
+let _rolesCache: RoleOpt[] | null = null
+let _rolesPromise: Promise<RoleOpt[]> | null = null
+function roleTier(name: string): { k: number; label: string } {
+  if (name === 'admin') return { k: 0, label: 'Super Admin' }
+  if (['md', 'coo', 'cfo', 'cmo'].includes(name)) return { k: 1, label: 'Executive' }
+  if (['it_admin', 'bi_head', 'bi_analyst'].includes(name)) return { k: 2, label: 'IT & Analytics' }
+  if (/_head$/.test(name)) return { k: 3, label: 'Department Heads' }
+  if (/(_officer|_agent)$/.test(name)) return { k: 4, label: 'Officers & Agents' }
+  return { k: 5, label: 'Other roles' }
+}
+function buildRoleGroups(roles: RoleOpt[]): { label: string; roles: RoleOpt[] }[] {
+  const byTier = new Map<number, { label: string; roles: RoleOpt[] }>()
+  for (const r of roles) {
+    const t = roleTier(r.name)
+    if (!byTier.has(t.k)) byTier.set(t.k, { label: t.label, roles: [] })
+    byTier.get(t.k)!.roles.push(r)
+  }
+  return [...byTier.entries()].sort((a, b) => a[0] - b[0]).map(([, g]) => ({
+    label: g.label, roles: g.roles.sort((a, b) => a.label.localeCompare(b.label)),
+  }))
+}
+function useRoleGroups() {
+  const [roles, setRoles] = useState<RoleOpt[] | null>(_rolesCache)
+  useEffect(() => {
+    if (_rolesCache) { setRoles(_rolesCache); return }
+    if (!_rolesPromise) {
+      _rolesPromise = apiFetch<any>('/api/admin/roles')
+        .then(r => { _rolesCache = (Array.isArray(r) ? r : []).map((x: any) => ({ name: x.name, label: x.label || roleLabel(x.name) })); return _rolesCache! })
+        .catch(() => { _rolesPromise = null; return [] })
+    }
+    _rolesPromise.then(setRoles)
+  }, [])
+  return useMemo(() => buildRoleGroups(roles ?? []), [roles])
+}
 
 function RoleSelect({ value, onChange, style }: { value: string; onChange: (v: string) => void; style?: React.CSSProperties }) {
+  const groups = useRoleGroups()
   return (
     <select value={value} onChange={e => onChange(e.target.value)} style={style}>
-      {ROLE_GROUPS.map(g => (
+      {value && !groups.some(g => g.roles.some(r => r.name === value)) && <option value={value}>{roleLabel(value)}</option>}
+      {groups.map(g => (
         <optgroup key={g.label} label={g.label}>
-          {g.roles.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
+          {g.roles.map(r => <option key={r.name} value={r.name}>{r.label}</option>)}
         </optgroup>
       ))}
     </select>
@@ -72,6 +98,7 @@ function RoleSelect({ value, onChange, style }: { value: string; onChange: (v: s
 function MultiRoleSelect({ value, exclude, onChange, style }: {
   value: string[]; exclude: string; onChange: (v: string[]) => void; style?: React.CSSProperties
 }) {
+  const groups = useRoleGroups()
   return (
     <div>
       {value.length > 0 && (
@@ -87,12 +114,12 @@ function MultiRoleSelect({ value, exclude, onChange, style }: {
       )}
       <select value="" onChange={e => { const v = e.target.value; if (v && v !== exclude && !value.includes(v)) onChange([...value, v]) }} style={style}>
         <option value="">+ Add another team…</option>
-        {ROLE_GROUPS.map(g => {
-          const opts = g.roles.filter(r => r !== exclude && !value.includes(r))
+        {groups.map(g => {
+          const opts = g.roles.filter(r => r.name !== exclude && !value.includes(r.name))
           if (opts.length === 0) return null
           return (
             <optgroup key={g.label} label={g.label}>
-              {opts.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
+              {opts.map(r => <option key={r.name} value={r.name}>{r.label}</option>)}
             </optgroup>
           )
         })}
@@ -125,7 +152,7 @@ function RolePill({ role }: { role: string }) {
 function InviteModal({ onClose, onSaved }: {
   onClose: () => void; onSaved: (pw: string, name: string) => void
 }) {
-  const EMAIL_DOMAIN = '@o3cards.com'
+  const EMAIL_DOMAIN = '@o3ccards.com'
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', role: 'call_center_agent', department: 'Operations' })
   const [extraRoles, setExtraRoles] = useState<string[]>([])
   const [emailEdited, setEmailEdited] = useState(false)
@@ -260,7 +287,10 @@ function EditUserModal({ user, onClose, onSaved }: {
   async function save() {
     setSaving(true)
     try {
-      await apiFetch(`/api/admin/users/${user.id}`, { method: 'PUT', body: JSON.stringify({ ...form, extra_roles: extraRoles }) })
+      // Active state is changed via the deactivate/reactivate actions, not this
+      // form — the update endpoint ignores is_active, so don't send it.
+      const { is_active: _ignore, ...payload } = form
+      await apiFetch(`/api/admin/users/${user.id}`, { method: 'PUT', body: JSON.stringify({ ...payload, extra_roles: extraRoles }) })
       toast.success('User updated')
       onSaved()
       onClose()

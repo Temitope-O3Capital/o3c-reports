@@ -105,9 +105,18 @@ export async function apiFetch<T = any>(
     })
 
     if (res.status === 401) {
-      // Never retry a mutation — the request body is consumed and the operation
-      // may have partially succeeded on the server before returning 401.
-      if (isMutation) {
+      // A 401 is rejection at the auth middleware — the handler never ran, so nothing
+      // partially succeeded and the request is safe to replay once the session is
+      // refreshed. This used to sign the user out on any failed mutation without even
+      // attempting a refresh, which is why sessions felt like they lasted 30 minutes
+      // rather than the refresh token's full lifetime: work for half an hour, press
+      // Save, get thrown to the login screen with a valid refresh cookie still sitting
+      // in the browser.
+      //
+      // The one thing that genuinely cannot be replayed is a streaming body, which is
+      // consumed by the first send. Strings and FormData can both be re-sent.
+      const bodyReplayable = !(fetchInit.body instanceof ReadableStream)
+      if (isMutation && !bodyReplayable) {
         if (!silent) signOut()
         throw new Error('Session expired')
       }

@@ -17,10 +17,13 @@ interface MyTicket {
   id: number; ticket_ref: string; subject: string
   customer_name: string; priority: string; status: string
   created_at: string; sla_due_at: string | null
+  last_message_direction?: string; awaiting_me?: boolean
 }
 interface MyCall { id: number; direction: string; customer: string; outcome: string; duration_sec: number | null; started_at: string }
 interface AgentDash {
   open_tickets: number; resolved_today: number
+  sla_breached: number; csat_score: number | null; avg_handle_time_mins: number
+  awaiting_my_reply: number; queue_pending: number; callbacks_due: number
   my_calls: { calls_today: number; connected_today: number; missed_today: number; avg_talk_sec: number }
   calls_yesterday: number; rank_today: number; team_size: number
   daily_call_target: number; my_status: string
@@ -161,6 +164,29 @@ function SlaCell({ sla_due_at }: { sla_due_at: string | null }) {
   const color = ms < 7_200_000 ? RED : ms < 21_600_000 ? AMBER : GREEN
   return <span style={{ color, fontWeight: FW.semibold, fontSize: TEXT.xs }}>{mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`}</span>
 }
+function MyDayTile({ icon, count, label, sub, color, urgent, onClick }: {
+  icon: string; count: React.ReactNode; label: string; sub: string; color: string; urgent?: boolean; onClick?: () => void
+}) {
+  const clickable = !!onClick
+  return (
+    <div onClick={onClick} style={{
+      display: 'flex', alignItems: 'center', gap: 13, padding: '15px 16px',
+      background: 'var(--card)', border: `1px solid ${urgent ? color + '55' : 'var(--card-bdr)'}`,
+      borderRadius: RADIUS.lg, cursor: clickable ? 'pointer' : 'default',
+      boxShadow: urgent ? `inset 3px 0 0 ${color}` : 'none', transition: 'transform .12s ease, box-shadow .12s ease',
+    }}
+      onMouseEnter={e => { if (clickable) { const el = e.currentTarget as HTMLElement; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = `${urgent ? `inset 3px 0 0 ${color}, ` : ''}0 8px 22px rgba(14,40,65,.12)` } }}
+      onMouseLeave={e => { if (clickable) { const el = e.currentTarget as HTMLElement; el.style.transform = 'none'; el.style.boxShadow = urgent ? `inset 3px 0 0 ${color}` : 'none' } }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 23, color, background: `${color}16`, borderRadius: RADIUS.md, padding: 9, flexShrink: 0 }}>{icon}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ ...NUM, fontSize: 25, fontWeight: FW.extrabold, color: 'var(--txt)', lineHeight: 1 }}>{count}</div>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 1 }}>{sub}</div>
+      </div>
+      {clickable && <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt3)', flexShrink: 0 }}>chevron_right</span>}
+    </div>
+  )
+}
 function ChartTip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
@@ -198,6 +224,12 @@ export default function CallCenterMyDashboard() {
       setD({
         open_tickets: raw.open_tickets ?? 0,
         resolved_today: raw.resolved_today ?? 0,
+        sla_breached: Number(raw.sla_breached ?? 0),
+        csat_score: raw.csat_score != null ? Number(raw.csat_score) : null,
+        avg_handle_time_mins: Number(raw.avg_handle_time_mins ?? 0),
+        awaiting_my_reply: Number(raw.awaiting_my_reply ?? 0),
+        queue_pending: Number(raw.queue_pending ?? 0),
+        callbacks_due: Number(raw.callbacks_due ?? 0),
         my_calls: raw.my_calls ?? { calls_today: 0, connected_today: 0, missed_today: 0, avg_talk_sec: 0 },
         calls_yesterday: raw.calls_yesterday ?? 0,
         rank_today: raw.rank_today ?? 0,
@@ -299,6 +331,7 @@ export default function CallCenterMyDashboard() {
               <HeroStat label="Avg Talk"    value={fmtDur(c.avg_talk_sec)} />
               <HeroStat label="Resolved"    value={fmtNum(d.resolved_today)} color="#4ADE80" />
               <HeroStat label="Open Tickets" value={fmtNum(d.open_tickets)} />
+              <HeroStat label="Avg Handle"  value={d.avg_handle_time_mins > 0 ? `${d.avg_handle_time_mins}m` : '—'} />
             </div>
           </div>
 
@@ -327,6 +360,30 @@ export default function CallCenterMyDashboard() {
           {qbtn('dialpad', 'Outbound Queue', '/call-center/queue')}
           {qbtn('confirmation_number', 'Ticket Queue', '/helpdesk/tickets')}
           {qbtn('menu_book', 'Knowledge Base', '/helpdesk/knowledge-base')}
+        </div>
+      </div>
+
+      {/* ── My Day: forward-looking work + quality ───────────────────────── */}
+      <div style={{ marginBottom: SP[4] }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 11 }}>
+          <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>My Day</span>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>what needs your attention now</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(212px, 1fr))', gap: SP[3] }}>
+          <MyDayTile icon="reply" count={fmtNum(d.awaiting_my_reply)} label="Awaiting your reply"
+            sub={d.awaiting_my_reply > 0 ? 'customers waiting on you' : "you're caught up"}
+            color={AMBER} urgent={d.awaiting_my_reply > 0} onClick={() => navigate('/helpdesk/tickets')} />
+          <MyDayTile icon="warning" count={fmtNum(d.sla_breached)} label="SLA breached"
+            sub={d.sla_breached > 0 ? 'past due — act now' : 'all within SLA'}
+            color={d.sla_breached > 0 ? RED : GREEN} urgent={d.sla_breached > 0} onClick={() => navigate('/helpdesk/tickets')} />
+          <MyDayTile icon="dialpad" count={fmtNum(d.queue_pending)} label="Outbound queue"
+            sub="contacts ready to dial" color={BLUE} onClick={() => navigate('/call-center/queue')} />
+          {d.callbacks_due > 0 && (
+            <MyDayTile icon="event_repeat" count={fmtNum(d.callbacks_due)} label="Callbacks due"
+              sub="call-backs you promised" color={PURPLE} urgent onClick={() => navigate('/call-center/queue')} />
+          )}
+          <MyDayTile icon="sentiment_satisfied" count={d.csat_score != null ? `${d.csat_score}` : '—'} label="Your CSAT"
+            sub={d.csat_score != null ? 'avg customer satisfaction' : 'no surveys scored yet'} color={PURPLE} />
         </div>
       </div>
 
@@ -387,6 +444,7 @@ export default function CallCenterMyDashboard() {
 
       {/* ── My tickets ───────────────────────────────────────────────────── */}
       <SectionCard title="My Open Tickets" badge={d.recent_tickets.length}
+        subtitle={d.awaiting_my_reply > 0 ? `${d.awaiting_my_reply} awaiting your reply — shown first` : 'Sorted by urgency'}
         actions={<button onClick={() => navigate('/helpdesk/tickets')} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: 'none', cursor: 'pointer' }}>View all →</button>}>
         {d.recent_tickets.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '34px 0', color: 'var(--txt2)' }}>No open tickets — you're all caught up 🎉</div>
@@ -404,6 +462,7 @@ export default function CallCenterMyDashboard() {
                     <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.subject || '(no subject)'}</div>
                     <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}><span style={{ fontFamily: 'var(--font-mono)' }}>{t.ticket_ref}</span> · {t.customer_name || 'Unknown'}</div>
                   </div>
+                  {t.awaiting_me && <StatusPill label="Awaiting you" color={AMBER} />}
                   <StatusPill label={t.priority} color={pc} />
                   <div style={{ width: 70, textAlign: 'right', flexShrink: 0 }}><SlaCell sla_due_at={t.sla_due_at} /></div>
                 </div>

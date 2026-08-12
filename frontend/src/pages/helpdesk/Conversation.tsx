@@ -31,6 +31,7 @@ export interface ConvTicket {
 // (these Zoho web/social tickets often have an empty message thread). Surface it
 // as the first inbound message so the conversation is never blank.
 export function withOpening(ticket: ConvTicket, messages: ConvMessage[]): ConvMessage[] {
+  messages = messages ?? []
   const subj = (ticket.subject ?? '').trim()
   const desc = (ticket.description ?? '').trim()
   const body = [subj, desc].filter(Boolean).join('\n\n')

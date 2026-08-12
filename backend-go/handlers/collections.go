@@ -35,6 +35,9 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Post("/watchlist", collectionsWatchlistAdd(db))
 	r.Put("/watchlist/{id}/resolve", collectionsWatchlistResolve(db))
 
+	// Generate/refresh collection assignments from the unified delinquency book
+	r.Post("/generate-assignments", collectionsGenerateAssignments(db))
+
 	// Batch payment upload
 	r.Post("/payments/batch", collectionsBatchPayment(db))
 
@@ -46,52 +49,131 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Get("/accounts/{cif}", collectionsAccountDetail(db))
 }
 
+// collectionsGenerateAssignments seeds/refreshes the collection_assignments work
+// book from the unified delinquency source (both card arrears and the Udara loan
+// book, aggregated per CIF). Head-gated. It refreshes outstanding/dpd on existing
+// active assignments and creates new ones for delinquent CIFs not yet being worked
+// or already in recovery. This is the job that makes the module operational.
+func collectionsGenerateAssignments(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil || !user.HasPage("collections_assign") {
+			respondErr(w, 403, "Only collections heads can generate assignments")
+			return
+		}
+		ctx := r.Context()
+
+		bucketExpr := `CASE WHEN dpd<=30 THEN '1-30' WHEN dpd<=60 THEN '31-60' WHEN dpd<=90 THEN '61-90'
+			WHEN dpd<=180 THEN '91-180' WHEN dpd<=360 THEN '181-360' ELSE '360+' END`
+
+		// Refresh outstanding/bucket/name on assignments still being worked.
+		if _, err := db.PGExec(ctx, `
+			WITH agg AS (
+				SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo, MAX(customer_name) AS customer_name
+				FROM app.collections_delinquent_unified GROUP BY cif
+			)
+			UPDATE collection_assignments ca SET
+				outstanding_kobo = agg.outstanding_kobo,
+				dpd_bucket       = `+bucketExpr+`,
+				customer_name    = COALESCE(NULLIF(ca.customer_name,''), agg.customer_name),
+				updated_at       = NOW()
+			FROM agg WHERE ca.account_cif = agg.cif AND ca.status = 'active'`); err != nil {
+			respondErr(w, 500, "Refresh failed: "+err.Error())
+			return
+		}
+
+		// Create assignments for delinquent CIFs not already active or in recovery.
+		// assigned_by records the head who ran the generation; agent stays NULL
+		// (unassigned) until a head distributes the queue.
+		res, err := db.PGExec(ctx, `
+			WITH agg AS (
+				SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo, MAX(customer_name) AS customer_name
+				FROM app.collections_delinquent_unified GROUP BY cif
+			)
+			INSERT INTO collection_assignments
+			  (cif_number, account_cif, customer_name, assigned_by, dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
+			SELECT cif, cif, customer_name, $1, `+bucketExpr+`, outstanding_kobo, 'active', CURRENT_DATE, NOW(), NOW()
+			FROM agg
+			WHERE cif NOT IN (
+				SELECT account_cif FROM collection_assignments
+				WHERE status IN ('active','sent_to_recovery') AND account_cif IS NOT NULL
+			)`, user.ID)
+		if err != nil {
+			respondErr(w, 500, "Generation failed: "+err.Error())
+			return
+		}
+		created := int64(0)
+		if res != nil {
+			created, _ = res.RowsAffected()
+		}
+		logCreditEvent(ctx, db, r, "collections", "assignment", "generate", "", "assignments_generated",
+			fmt.Sprintf("Generated %d new collection assignments from the delinquency book", created), nil, map[string]any{"created": created})
+		respond(w, map[string]any{"created": created}, "json")
+	}
+}
+
 // collectionsAccountDetail returns a full account snapshot for a given CIF.
 func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cif := chi.URLParam(r, "cif")
+		// Base the snapshot on the CIF itself (never 404 for a valid account) and
+		// draw balances/name/product from the unified delinquency book, the
+		// collection overlay, and the CIF-keyed payments ledger.
 		rows, err := db.PGQuery(r.Context(), `
+			WITH d AS (
+			    SELECT cif,
+			           MAX(customer_name)                       AS customer_name,
+			           STRING_AGG(DISTINCT product_name, ', ')  AS product_name,
+			           STRING_AGG(DISTINCT source, ',')         AS source,
+			           MAX(dpd)                                 AS dpd,
+			           SUM(outstanding_kobo)                    AS outstanding_kobo
+			    FROM app.collections_delinquent_unified WHERE cif = $1 GROUP BY cif
+			)
 			SELECT
-			    la.id                                                AS loan_id,
-			    la.applicant_cif,
-			    COALESCE(la.applicant_name, la.applicant_cif)       AS applicant_name,
-			    la.product_type,
-			    COALESCE(la.disbursement_amount_kobo, 0)            AS principal_kobo,
-			    la.status                                           AS loan_status,
-			    la.created_at                                       AS loan_created_at,
+			    NULL::bigint                                        AS loan_id,
+			    base.cif                                            AS applicant_cif,
+			    COALESCE(d.customer_name, (SELECT full_name FROM app.customers WHERE cif = base.cif), base.cif) AS applicant_name,
+			    COALESCE(d.product_name, '—')                       AS product_type,
+			    COALESCE((SELECT SUM(loan_amount_kobo) FROM cbs_loans WHERE cbs_customer_id = base.cif),
+			             d.outstanding_kobo, ca.outstanding_kobo, 0) AS principal_kobo,
+			    COALESCE(d.source, '')                              AS loan_status,
+			    NULL::timestamptz                                   AS loan_created_at,
 			    ca.id                                               AS assignment_id,
 			    ca.agent_user_id,
 			    u.full_name                                         AS agent_name,
 			    ca.assignment_date,
-			    ca.dpd_bucket,
-			    COALESCE(ca.outstanding_kobo, 0)                    AS outstanding_kobo,
+			    COALESCE(ca.dpd_bucket, CASE
+			        WHEN COALESCE(d.dpd,0) <= 0   THEN '0'
+			        WHEN d.dpd <= 30  THEN '1-30'
+			        WHEN d.dpd <= 60  THEN '31-60'
+			        WHEN d.dpd <= 90  THEN '61-90'
+			        WHEN d.dpd <= 180 THEN '91-180'
+			        WHEN d.dpd <= 360 THEN '181-360'
+			        ELSE '360+' END)                                AS dpd_bucket,
+			    COALESCE(ca.outstanding_kobo, d.outstanding_kobo, 0) AS outstanding_kobo,
 			    ca.current_stage,
 			    ca.notes                                            AS assignment_notes,
-			    CAST(COALESCE(NULLIF(REGEXP_REPLACE(SPLIT_PART(COALESCE(ca.dpd_bucket,'0'),'-',1),'[^0-9]','','g'),''),'0') AS INT) AS dpd_lower,
+			    COALESCE(d.dpd, 0)                                  AS dpd_lower,
 			    cw.id                                               AS watchlist_id,
 			    cw.scenario                                         AS watchlist_scenario,
 			    cw.notes                                            AS watchlist_notes,
 			    wbu.full_name                                       AS watchlist_flagged_by,
 			    cw.created_at                                       AS watchlist_flagged_at,
-			    (SELECT COUNT(*) FROM collection_contacts WHERE cif_number = la.applicant_cif)         AS total_contacts,
-			    (SELECT COUNT(*) FROM collection_promises WHERE cif_number = la.applicant_cif)         AS ptps_created,
-			    (SELECT COUNT(*) FROM collection_promises WHERE cif_number = la.applicant_cif AND status = 'kept') AS ptps_kept,
-			    (SELECT COALESCE(SUM(lr.amount_kobo), 0)
-			     FROM loan_repayments lr JOIN loan_applications lax ON lax.id = lr.application_id
-			     WHERE lax.applicant_cif = la.applicant_cif)                                           AS total_paid_kobo,
-			    (SELECT MAX(cc.created_at) FROM collection_contacts cc WHERE cc.cif_number = la.applicant_cif)  AS last_contact_at,
-			    (SELECT cc.outcome FROM collection_contacts cc WHERE cc.cif_number = la.applicant_cif ORDER BY cc.created_at DESC LIMIT 1) AS last_contact_outcome
-			FROM loan_applications la
-			LEFT JOIN collection_assignments ca ON ca.account_cif = la.applicant_cif
+			    (SELECT COUNT(*) FROM collection_contacts WHERE cif_number = base.cif)                  AS total_contacts,
+			    (SELECT COUNT(*) FROM collection_promises WHERE cif_number = base.cif)                  AS ptps_created,
+			    (SELECT COUNT(*) FROM collection_promises WHERE cif_number = base.cif AND is_kept = true) AS ptps_kept,
+			    (SELECT COALESCE(SUM(amount_kobo), 0) FROM collection_payments WHERE account_cif = base.cif) AS total_paid_kobo,
+			    (SELECT MAX(cc.created_at) FROM collection_contacts cc WHERE cc.cif_number = base.cif)  AS last_contact_at,
+			    (SELECT cc.outcome FROM collection_contacts cc WHERE cc.cif_number = base.cif ORDER BY cc.created_at DESC LIMIT 1) AS last_contact_outcome
+			FROM (SELECT $1::text AS cif) base
+			LEFT JOIN d ON d.cif = base.cif
+			LEFT JOIN collection_assignments ca ON ca.account_cif = base.cif AND ca.status IN ('active','sent_to_recovery')
 			LEFT JOIN o3c_users u ON u.id = ca.agent_user_id
 			LEFT JOIN LATERAL (
 			    SELECT id, scenario, notes, created_at, flagged_by FROM collections_watchlist
-			    WHERE account_cif = la.applicant_cif AND status = 'active' LIMIT 1
+			    WHERE account_cif = base.cif AND status = 'active' LIMIT 1
 			) cw ON TRUE
 			LEFT JOIN o3c_users wbu ON wbu.id = cw.flagged_by
-			WHERE la.applicant_cif = $1
-			  AND la.status IN ('active','booked')
-			ORDER BY la.created_at DESC
 			LIMIT 1`, cif)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Account not found")
@@ -104,11 +186,10 @@ func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
 // collectionsPortfolioKPIs returns PAR-based KPIs from collection_assignments.
 func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		from := r.URL.Query().Get("from")
-		to := r.URL.Query().Get("to")
-		// Live Udara/CBS credit book. DPD = days past maturity_date; PAR30 = cumulative
-		// DPD>30 (CBN definition). The workspace has no separate delinquency ledger, so the
-		// collections portfolio is the open loan book (status NOT IN Closed/Revoked).
+		// Unified delinquency book — both the card/customer arrears (app.accounts)
+		// and the Udara loan book (cbs_loans), aggregated per CIF. This is an
+		// as-of-now snapshot, so date filters don't apply. PAR30/60/90 = cumulative
+		// DPD > 30/60/90 (CBN definition).
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 30), 0) AS par30_kobo,
@@ -117,17 +198,12 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 				COALESCE(SUM(outstanding_kobo), 0)                        AS total_outstanding_kobo,
 				COUNT(*)                                                  AS total_accounts,
 				COUNT(*) FILTER (WHERE dpd > 0)                           AS delinquent_accounts,
-				CASE WHEN COUNT(*) = 0 THEN 0::numeric
-				     ELSE ROUND(COUNT(*) FILTER (WHERE dpd = 0)::numeric / COUNT(*)::numeric * 100, 1)
-				END                                                       AS current_rate_pct
+				0::numeric                                                AS current_rate_pct
 			FROM (
-				SELECT outstanding_principal_kobo AS outstanding_kobo,
-				       GREATEST(0, (CURRENT_DATE - maturity_date::date))::int AS dpd
-				FROM cbs_loans
-				WHERE status NOT IN ('Closed','Revoked')
-				  AND ($1 = '' OR start_date::date >= $1::date)
-				  AND ($2 = '' OR start_date::date <= $2::date)
-			) ca`, from, to)
+				SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo
+				FROM app.collections_delinquent_unified
+				GROUP BY cif
+			) ca`)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"par30_kobo": int64(0), "par60_kobo": int64(0), "par90_kobo": int64(0),
@@ -187,15 +263,24 @@ func collectionsRollRate(db *core.DB) http.HandlerFunc {
 		from := r.URL.Query().Get("from")
 		to := r.URL.Query().Get("to")
 
-		// Current DPD distribution
+		_ = from
+		_ = to
+		// Current DPD distribution from the unified delinquency book (per CIF), so it
+		// reflects the live arrears snapshot regardless of assignment generation.
 		current, err := db.PGQuery(ctx, `
 			SELECT
 				dpd_bucket,
 				COUNT(*)                             AS account_count,
 				COALESCE(SUM(outstanding_kobo), 0)  AS outstanding_kobo
-			FROM collection_assignments
-			WHERE ($1 = '' OR created_at::date >= $1::date)
-			  AND ($2 = '' OR created_at::date <= $2::date)
+			FROM (
+				SELECT cif,
+				       SUM(outstanding_kobo) AS outstanding_kobo,
+				       CASE
+				         WHEN MAX(dpd)<=0 THEN '0' WHEN MAX(dpd)<=30 THEN '1-30' WHEN MAX(dpd)<=60 THEN '31-60'
+				         WHEN MAX(dpd)<=90 THEN '61-90' WHEN MAX(dpd)<=180 THEN '91-180' WHEN MAX(dpd)<=360 THEN '181-360' ELSE '360+'
+				       END AS dpd_bucket
+				FROM app.collections_delinquent_unified GROUP BY cif
+			) d
 			GROUP BY dpd_bucket
 			ORDER BY
 				CASE dpd_bucket
@@ -206,7 +291,7 @@ func collectionsRollRate(db *core.DB) http.HandlerFunc {
 					WHEN '91-180'  THEN 4
 					WHEN '181-360' THEN 5
 					ELSE 6
-				END`, from, to)
+				END`)
 		if err != nil {
 			respondErr(w, 500, "Roll rate query failed")
 			return
@@ -514,56 +599,70 @@ func collectionsPortfolioAccounts(db *core.DB) http.HandlerFunc {
 		territory := qstr(r, "territory")   // "collections" | "recovery" | ""
 		onWatchlist := qstr(r, "watchlist") // "true" | ""
 
-		// Live Udara/CBS credit book is the base; workspace collection overlay (assignments,
-		// agent, watchlist) is LEFT-JOINed by CIF. DPD (and its bucket) derive from maturity.
+		// Unified delinquency book (card arrears + Udara loans) aggregated per CIF,
+		// with the workspace collection overlay (assignment, agent, stage, watchlist)
+		// LEFT-JOINed by CIF.
 		query := `
 			SELECT
-			    cl.cbs_id                                            AS loan_id,
-			    cl.cbs_customer_id                                   AS applicant_cif,
-			    cl.status                                            AS loan_status,
-			    COALESCE(ca.dpd_bucket, CASE
-			        WHEN d.dpd = 0   THEN '0'
-			        WHEN d.dpd <= 30 THEN '1-30'
-			        WHEN d.dpd <= 60 THEN '31-60'
-			        WHEN d.dpd <= 90 THEN '61-90'
+			    d.cif                                      AS loan_id,
+			    d.cif                                      AS applicant_cif,
+			    d.customer_name,
+			    d.source                                   AS loan_status,
+			    CASE
+			        WHEN d.dpd <= 0   THEN '0'
+			        WHEN d.dpd <= 30  THEN '1-30'
+			        WHEN d.dpd <= 60  THEN '31-60'
+			        WHEN d.dpd <= 90  THEN '61-90'
 			        WHEN d.dpd <= 180 THEN '91-180'
 			        WHEN d.dpd <= 360 THEN '181-360'
-			        ELSE '360+' END)                                 AS dpd_bucket,
-			    d.dpd                                                AS dpd_lower,
-			    COALESCE(ca.outstanding_kobo, cl.outstanding_principal_kobo, 0) AS outstanding_kobo,
+			        ELSE '360+' END                        AS dpd_bucket,
+			    d.dpd                                      AS dpd_lower,
+			    d.outstanding_kobo,
+			    d.product_name,
+			    ca.id                                      AS assignment_id,
 			    ca.current_stage,
-			    u.full_name                                          AS agent_name,
-			    cw.id                                                AS watchlist_id,
-			    cw.scenario                                          AS watchlist_scenario
-			FROM cbs_loans cl
-			CROSS JOIN LATERAL (SELECT GREATEST(0, (CURRENT_DATE - cl.maturity_date::date))::int AS dpd) d
-			LEFT JOIN collection_assignments ca ON ca.account_cif = cl.cbs_customer_id
+			    u.full_name                                AS agent_name,
+			    cw.id                                      AS watchlist_id,
+			    cw.scenario                                AS watchlist_scenario
+			FROM (
+			    SELECT cif,
+			           MAX(customer_name)                       AS customer_name,
+			           STRING_AGG(DISTINCT product_name, ', ')  AS product_name,
+			           STRING_AGG(DISTINCT source, ',')         AS source,
+			           MAX(dpd)                                 AS dpd,
+			           SUM(outstanding_kobo)                    AS outstanding_kobo
+			    FROM app.collections_delinquent_unified
+			    GROUP BY cif
+			) d
+			LEFT JOIN collection_assignments ca ON ca.account_cif = d.cif AND ca.status IN ('active','sent_to_recovery')
 			LEFT JOIN o3c_users u ON u.id = ca.agent_user_id
 			LEFT JOIN LATERAL (
 			    SELECT id, scenario FROM collections_watchlist
-			    WHERE account_cif = cl.cbs_customer_id AND status = 'active'
-			    LIMIT 1
+			    WHERE account_cif = d.cif AND status = 'active' LIMIT 1
 			) cw ON TRUE
-			WHERE cl.status NOT IN ('Closed','Revoked')`
+			WHERE 1=1`
 		args := []any{}
 		n := 1
 
 		if search != "" {
-			query += fmt.Sprintf(" AND cl.cbs_customer_id ILIKE $%d", n)
-			args = append(args, "%"+search+"%")
-			n++
+			if clause, sargs, nn := buildCustomerSearch(search,
+				[]string{"d.cif", "d.customer_name"}, "", n); clause != "" {
+				query += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 		if territory == "collections" {
-			query += ` AND GREATEST(0, (CURRENT_DATE - cl.maturity_date::date)) <= 90`
+			query += ` AND d.dpd <= 90`
 		} else if territory == "recovery" {
-			query += ` AND GREATEST(0, (CURRENT_DATE - cl.maturity_date::date)) > 90`
+			query += ` AND d.dpd > 90`
 		}
 		if onWatchlist == "true" {
-			query += " AND EXISTS (SELECT 1 FROM collections_watchlist cw WHERE cw.account_cif = cl.cbs_customer_id AND cw.status = 'active')"
+			query += " AND cw.id IS NOT NULL"
 		}
 		_ = n
 
-		query += " ORDER BY dpd_lower DESC LIMIT 500"
+		query += " ORDER BY d.dpd DESC, d.outstanding_kobo DESC LIMIT 500"
 
 		rows, err := db.PGQuery(ctx, query, args...)
 		if err != nil {
@@ -663,7 +762,20 @@ func collectionsWatchlistResolve(db *core.DB) http.HandlerFunc {
 			return
 		}
 		user := core.UserFromCtx(r.Context())
-		rows, err := db.PGQuery(r.Context(), `
+		ctx := r.Context()
+
+		// Load current flag first so escalation can carry outstanding/dpd into the
+		// recovery case, and so we don't open a duplicate case on re-escalation.
+		cur, cErr := db.PGQuery(ctx, `SELECT status, COALESCE(outstanding_kobo,0) AS outstanding_kobo, COALESCE(dpd_at_flag,0) AS dpd_at_flag FROM collections_watchlist WHERE id=$1`, id)
+		if cErr != nil || len(cur) == 0 {
+			respondErr(w, 404, "Watchlist entry not found")
+			return
+		}
+		alreadyEscalated := str(cur[0]["status"]) == "escalated_to_recovery"
+		wlOutstanding := toInt64(cur[0]["outstanding_kobo"])
+		wlDPD := toInt64(cur[0]["dpd_at_flag"])
+
+		rows, err := db.PGQuery(ctx, `
 			UPDATE collections_watchlist
 			SET status = $1, resolved_at = NOW(), resolved_by = $2, resolution_notes = $3
 			WHERE id = $4
@@ -673,13 +785,28 @@ func collectionsWatchlistResolve(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Watchlist entry not found")
 			return
 		}
-		cif := ""
-		if len(rows) > 0 {
-			cif = str(rows[0]["account_cif"])
+		cif := str(rows[0]["account_cif"])
+
+		// Escalation must actually reach recovery — open a real recovery case
+		// (mirrors send-to-recovery) instead of only flipping the flag's status.
+		var caseRef string
+		if b.Status == "escalated_to_recovery" && !alreadyEscalated && cif != "" {
+			if ref, _, oErr := openRecoveryCase(ctx, db, cif, fmt.Sprint(wlDPD), wlOutstanding, nil); oErr == nil {
+				caseRef = ref
+			}
 		}
-		logCreditEvent(r.Context(), db, r, "collections", "watchlist", fmt.Sprint(id), cif, "watchlist_resolved",
-			fmt.Sprintf("Watchlist flag resolved — status: %s", b.Status), nil, map[string]any{"status": b.Status, "notes": b.ResolutionNotes})
-		respond(w, rows[0], "pg")
+
+		evtDesc := fmt.Sprintf("Watchlist flag resolved — status: %s", b.Status)
+		if caseRef != "" {
+			evtDesc = fmt.Sprintf("Watchlist flag escalated to recovery — case %s created", caseRef)
+		}
+		logCreditEvent(ctx, db, r, "collections", "watchlist", fmt.Sprint(id), cif, "watchlist_resolved",
+			evtDesc, nil, map[string]any{"status": b.Status, "notes": b.ResolutionNotes, "case_ref": caseRef})
+		out := rows[0]
+		if caseRef != "" {
+			out["recovery_case_ref"] = caseRef
+		}
+		respond(w, out, "pg")
 	}
 }
 
@@ -774,7 +901,11 @@ func creditActivityByCIF(db *core.DB) http.HandlerFunc {
 			rows = []core.Row{}
 		}
 
-		respond(w, map[string]any{"data": rows}, "credit_activity_cif")
+		// respond() already wraps the payload as {"data": …}; return the rows
+		// directly so the client sees r.data as the array (TimelineTab reads
+		// r.data). Wrapping again here double-nests and crashes the timeline
+		// with "x.map is not a function".
+		respond(w, rows, "credit_activity_cif")
 	}
 }
 
@@ -842,15 +973,23 @@ func collectionsBatchPayment(db *core.DB) http.HandlerFunc {
 			}
 			amtKobo := int64(math.Round(amtNaira * 100))
 
-			loanRows, qErr := db.PGQuery(ctx, `
-				SELECT id FROM loan_applications WHERE applicant_cif = $1 AND status IN ('active','booked')
-				ORDER BY created_at DESC LIMIT 1`, cif)
-			if qErr != nil || len(loanRows) == 0 {
-				results = append(results, result{Row: rowNum, CIF: cif, Error: "no active loan found for CIF"})
+			// Validate the CIF is a known customer so a typo can't post a GL entry.
+			if custRows, cErr := db.PGQuery(ctx, `SELECT 1 FROM app.customers WHERE cif = $1 LIMIT 1`, cif); cErr != nil || len(custRows) == 0 {
+				results = append(results, result{Row: rowNum, CIF: cif, Error: "unknown CIF"})
 				failed++
 				continue
 			}
-			loanID, _ := loanRows[0]["id"].(int64)
+			if _, dErr := time.Parse("2006-01-02", payDate); dErr != nil {
+				results = append(results, result{Row: rowNum, CIF: cif, Error: "invalid payment_date (want YYYY-MM-DD)"})
+				failed++
+				continue
+			}
+
+			// Link the active assignment when there is one (nullable in the ledger).
+			var assignmentID any
+			if aRows, _ := db.PGQuery(ctx, `SELECT id FROM collection_assignments WHERE account_cif = $1 AND status = 'active' ORDER BY id DESC LIMIT 1`, cif); len(aRows) > 0 {
+				assignmentID = toInt64(aRows[0]["id"])
+			}
 
 			tx, txErr := db.PG.BeginTx(ctx, nil)
 			if txErr != nil {
@@ -859,12 +998,15 @@ func collectionsBatchPayment(db *core.DB) http.HandlerFunc {
 				continue
 			}
 
+			// Write to the CIF-keyed collections ledger (works for the whole
+			// delinquency book, not just booked loans) so batch payments post and
+			// show up in the account snapshot.
 			var payID int64
 			insErr := tx.QueryRowContext(ctx, `
-				INSERT INTO loan_repayments (application_id, amount_kobo, payment_date, payment_method, reference, received_by, created_at)
-				VALUES ($1, $2, $3, $4, $5, $6, NOW())
+				INSERT INTO collection_payments (assignment_id, account_cif, amount_kobo, payment_date, channel, reference, received_by)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
 				RETURNING id`,
-				loanID, amtKobo, payDate, channel, reference, user.ID,
+				assignmentID, cif, amtKobo, payDate, channel, reference, user.ID,
 			).Scan(&payID)
 			if insErr != nil {
 				tx.Rollback() //nolint:errcheck
@@ -873,14 +1015,15 @@ func collectionsBatchPayment(db *core.DB) http.HandlerFunc {
 				continue
 			}
 
+			glRef := fmt.Sprintf("COL-BATCH-%d", payID)
 			if jErr := postJournalTx(ctx, tx, glEntry{
 				Date:          time.Now(),
 				Description:   fmt.Sprintf("Batch collection payment — CIF %s", cif),
-				Reference:     fmt.Sprintf("COL-BATCH-%d", payID),
+				Reference:     glRef,
 				DebitAccount:  "1001",
 				CreditAccount: "1100",
 				AmountKobo:    amtKobo,
-				SourceType:    "loan_repayment",
+				SourceType:    "collections_payment",
 				SourceID:      payID,
 				PostedBy:      user.ID,
 			}); jErr != nil {
@@ -888,6 +1031,15 @@ func collectionsBatchPayment(db *core.DB) http.HandlerFunc {
 				results = append(results, result{Row: rowNum, CIF: cif, Error: "GL post failed"})
 				failed++
 				continue
+			}
+			tx.ExecContext(ctx, `UPDATE collection_payments SET gl_reference = $1 WHERE id = $2`, glRef, payID) //nolint:errcheck
+
+			// Legacy parity: mirror to loan_repayments when the CIF maps to a booked
+			// loan (best-effort — never fail the payment over this).
+			if lr, lErr := db.PGQuery(ctx, `SELECT id FROM loan_applications WHERE applicant_cif = $1 AND status IN ('active','booked') ORDER BY created_at DESC LIMIT 1`, cif); lErr == nil && len(lr) > 0 {
+				tx.ExecContext(ctx, `INSERT INTO loan_repayments (application_id, amount_kobo, payment_date, payment_method, reference, received_by, created_at)
+					VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+					toInt64(lr[0]["id"]), amtKobo, payDate, channel, reference, user.ID) //nolint:errcheck
 			}
 
 			if cErr := tx.Commit(); cErr != nil {

@@ -108,8 +108,8 @@ export default function HelpdeskStats() {
     setLoading(true)
     setError(null)
     try {
-      // Note: agentFilter is not sent — backend does not yet support per-agent filtering
       const qs = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
+      if (agentFilter) qs.set('agent_id', agentFilter)
       const s = qs.toString()
 
       const dateQs = s
@@ -137,7 +137,7 @@ export default function HelpdeskStats() {
     } finally {
       setLoading(false)
     }
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, agentFilter])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['tickets'] })
@@ -162,10 +162,9 @@ export default function HelpdeskStats() {
       <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[5], flexWrap: 'wrap' }}>
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
         <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)}
-          title="Per-agent filtering is coming soon — data shown is for all agents"
-          style={{ height: 32, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, padding: '0 10px', cursor: 'not-allowed', opacity: 0.6 }}
-          disabled>
-          <option value="">All agents (filter coming soon)</option>
+          title="Filter all charts to a single agent"
+          style={{ height: 32, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, padding: '0 10px', cursor: 'pointer' }}>
+          <option value="">All agents</option>
           {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
         </select>
       </div>

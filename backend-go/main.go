@@ -241,6 +241,10 @@ func main() {
 			r.With(httprate.Limit(3, time.Minute, ipKey)).Post("/change-password", changePasswordPublic(db))
 			r.With(httprate.Limit(3, time.Minute, ipKey)).Post("/force-change-password", forceChangePasswordPublic(db))
 			r.Post("/logout", logoutHandler())
+			// Revoking every session is rate-limited like the other credential
+			// operations: it is destructive, and an attacker who has a session should
+			// not be able to hammer it.
+			r.With(httprate.Limit(3, time.Minute, ipKey)).Post("/sign-out-everywhere", signOutEverywherePublic(db))
 			r.Route("/totp", func(r chi.Router) {
 				handlers.RegisterMFA(r, db)
 			})
@@ -261,6 +265,11 @@ func main() {
 	// Care inbound mail webhook — SendGrid Inbound Parse relays care@ mail here
 	// (no JWT; authenticated on ?key=CARE_INBOUND_SECRET). Dormant until configured.
 	r.Post("/api/care/inbound", handlers.CareInboundWebhook(db))
+
+	// Zoho Desk/Voice Event Webhook — real-time ticket/call updates (no JWT;
+	// authenticated on ?key=ZOHO_WEBHOOK_SECRET). Records the event and triggers an
+	// incremental sync. Dormant until the secret + public ingress are configured.
+	r.Post("/api/zoho/webhook", handlers.ZohoWebhook(db))
 
 	// Email open-pixel and click-redirect tracking (embedded in campaign emails — no JWT)
 	r.Get("/t/o/{tracking_id}", handlers.TrackOpen(db))
@@ -295,16 +304,10 @@ func main() {
 		})
 	})
 
-	// Predictive dialer — webhook is unauthenticated (Zoho Voice fires it)
-	r.Get("/api/dialer/webhook", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	r.Post("/api/dialer/webhook", handlers.RegisterDialerWebhookOnly(db))
-	r.Route("/api/dialer", func(r chi.Router) {
-		r.Group(func(r chi.Router) {
-			r.Use(core.AuthMiddleware)
-			r.Use(activityLogger(activityCh, auditCh))
-			handlers.RegisterDialer(r, db)
-		})
-	})
+	// Predictive dialer retired — O3 agents dial via the carrier, not an in-app
+	// dialer. The handler, its background engine and the dialer_* tables were
+	// removed (convergence: helpdesk_calls is the single call ledger). The
+	// /call-center/dialer/* frontend routes already redirect to the queue.
 
 	// Africa's Talking inbound webhook — no auth (AT posts here on every call event)
 	r.Post("/api/voice/at-inbound", handlers.VoiceATInbound(db))
@@ -982,6 +985,19 @@ func mePublic() http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(user) //nolint:errcheck
+	}
+}
+
+// signOutEverywherePublic mounts the revoke-all-sessions handler. It sits inside the
+// authenticated group, so the cloned request carries the caller's claims and the
+// handler knows whose sessions to end.
+func signOutEverywherePublic(db *core.DB) http.HandlerFunc {
+	sub := chi.NewRouter()
+	handlers.RegisterAuth(sub, db)
+	return func(w http.ResponseWriter, r *http.Request) {
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/sign-out-everywhere"
+		sub.ServeHTTP(w, r2)
 	}
 }
 

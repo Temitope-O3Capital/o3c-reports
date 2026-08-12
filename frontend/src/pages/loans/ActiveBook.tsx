@@ -1,4 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
+import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useEffect, useState, useCallback } from 'react'
 import type { CSSProperties } from 'react'
 import {
@@ -257,13 +258,14 @@ export default function ActiveLoanBook() {
   const [search,    setSearch]    = useState('')
   const [dpdBucket, setDpdBucket] = useState('')
   const [selected,  setSelected]  = useState<LoanRow | null>(null)
+  const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const params: Record<string, string> = { limit: '200' }
-      if (search)    params.search     = search
+      if (dq)        params.search     = dq
       if (dpdBucket) params.dpd_bucket = dpdBucket
       const qs = new URLSearchParams(params).toString()
 
@@ -278,7 +280,7 @@ export default function ActiveLoanBook() {
     } finally {
       setLoading(false)
     }
-  }, [search, dpdBucket])
+  }, [dq, dpdBucket])
 
   useEffect(() => { load() }, [load])
   useLiveData(load)

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { parseToken, type AuthUser } from '../hooks/useAuth'
 import { API, storeCsrfToken } from '../lib/api'
-import { TEXT, FW, RADIUS, SP } from '../lib/design'
+import { TEXT, FW, RADIUS, SP, NAVY } from '../lib/design'
 
 
 // ── CSS (pseudo-selectors + keyframes must live outside inline styles) ─────────
@@ -436,6 +436,10 @@ interface LoginProps { onLogin: (u: AuthUser) => void }
 export default function Login({ onLogin }: LoginProps) {
   const [email,        setEmail]        = useState('')
   const [password,     setPassword]     = useState('')
+  // Opt-in, and deliberately not persisted across visits — the box starts unticked
+  // every time so staying signed in is always a fresh choice rather than something a
+  // previous user of a shared machine decided.
+  const [remember,     setRemember]     = useState(false)
   const [step,         setStep]         = useState<'credentials' | 'totp'>('credentials')
   const [mfaToken,     setMfaToken]     = useState('')
   const [loading,      setLoading]      = useState(false)
@@ -513,7 +517,7 @@ export default function Login({ onLogin }: LoginProps) {
       const res  = await fetch(`${API}/api/auth/token`, {
         method: 'POST',
         credentials: 'include',
-        body: new URLSearchParams({ username: email.trim(), password }),
+        body: new URLSearchParams({ username: email.trim(), password, remember: remember ? 'true' : 'false' }),
       })
       const data = await res.json()
       if (!res.ok) { triggerErr(data.detail || 'Invalid credentials'); return }
@@ -678,6 +682,28 @@ export default function Login({ onLogin }: LoginProps) {
                     delay={80}
                   />
                 </div>
+
+                <label
+                  htmlFor="login-remember"
+                  style={{
+                    marginTop: 14, display: 'flex', alignItems: 'flex-start', gap: 9,
+                    cursor: 'pointer', userSelect: 'none',
+                  }}
+                >
+                  <input
+                    id="login-remember"
+                    type="checkbox"
+                    checked={remember}
+                    onChange={e => setRemember(e.target.checked)}
+                    style={{ width: 15, height: 15, marginTop: 1, accentColor: NAVY, cursor: 'pointer', flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.45 }}>
+                    Keep me signed in for 30 days
+                    <span style={{ display: 'block', fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1 }}>
+                      Only on a device that is yours alone
+                    </span>
+                  </span>
+                </label>
 
                 <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 11 }}>
                   {err && <ErrorMsg msg={err} />}

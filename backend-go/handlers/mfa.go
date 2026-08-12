@@ -199,11 +199,12 @@ func mfaChallenge(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		userID, err := core.VerifyMFAToken(b.MFAToken)
+		mfaClaims, err := core.VerifyMFATokenClaims(b.MFAToken)
 		if err != nil {
 			respondErr(w, 401, "MFA session expired — please log in again")
 			return
 		}
+		userID := mfaClaims.ID
 
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT id, email, full_name, role, department,
@@ -259,12 +260,12 @@ func mfaChallenge(db *core.DB) http.HandlerFunc {
 
 		csrfTok := setAuthCookie(w, r, token)
 
-		refreshTok, refErr := core.CreateRefreshToken(toInt64(u["id"]))
+		refreshTok, refErr := core.CreateRefreshTokenRemember(toInt64(u["id"]), mfaClaims.Remember)
 		if refErr != nil {
 			respondErr(w, 500, "Token generation failed")
 			return
 		}
-		setRefreshCookie(w, r, refreshTok)
+		setRefreshCookie(w, r, refreshTok, mfaClaims.Remember)
 
 		mustChange, _ := u["must_change_password"].(bool)
 		w.Header().Set("Content-Type", "application/json")

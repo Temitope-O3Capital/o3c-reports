@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useSearchParams } from 'react-router-dom'
 import {
   Page, KpiCard, SectionCard, DataTable, Modal, Button, Input, Select, Field,
@@ -83,6 +84,10 @@ export default function SalesLeads() {
     state: '', city: '', occupation: '', employer: '',
     lead_source: '', estimated_value: '', next_action_at: '', notes: '',
   })
+  // Only the fields the create actually requires — a name, a way to reach them, and a
+  // source — are shown up front. The other seven are enrichment and sit behind this
+  // disclosure; they still submit if filled.
+  const [moreOpen, setMoreOpen] = useState(false)
 
   // Stage / convert / disqualify
   const [acting, setActing] = useState<Lead | null>(null)
@@ -92,15 +97,16 @@ export default function SalesLeads() {
   const [actionNote, setActionNote] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
 
+  const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
   const query = useMemo(() => {
     const p = new URLSearchParams()
     p.set('limit', String(PAGE_SIZE)); p.set('offset', String(offset))
     if (stage) p.set('stage', stage)
     if (owner) p.set('owner_id', owner)
     if (due) p.set('due', due)
-    if (search) p.set('q', search)
+    if (dq) p.set('q', dq)
     return p.toString()
-  }, [offset, stage, owner, due, search])
+  }, [offset, stage, owner, due, dq])
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -121,7 +127,7 @@ export default function SalesLeads() {
   }, [query])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setOffset(0) }, [stage, owner, due, search])
+  useEffect(() => { setOffset(0) }, [stage, owner, due, dq])
 
   async function createLead() {
     setSaving(true); setErr(null)
@@ -137,6 +143,7 @@ export default function SalesLeads() {
         }),
       })
       setNewOpen(false)
+      setMoreOpen(false)
       setForm({
         first_name: '', last_name: '', phone: '', email: '', state: '', city: '',
         occupation: '', employer: '', lead_source: '', estimated_value: '',
@@ -333,10 +340,10 @@ export default function SalesLeads() {
 
       {/* New lead */}
       <Modal
-        open={newOpen} onClose={() => setNewOpen(false)} title="New lead" width={620}
+        open={newOpen} onClose={() => { setNewOpen(false); setMoreOpen(false) }} title="New lead" width={620}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Button variant="secondary" onClick={() => setNewOpen(false)}>Cancel</Button>
+            <Button variant="secondary" onClick={() => { setNewOpen(false); setMoreOpen(false) }}>Cancel</Button>
             <Button variant="primary" loading={saving}
               disabled={(!form.first_name && !form.last_name) || (!form.phone && !form.email) || !form.lead_source}
               onClick={createLead}>Create lead</Button>
@@ -352,31 +359,46 @@ export default function SalesLeads() {
             <option value="">Choose a source…</option>
             {sources.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
           </Select>
-          <Input label="Estimated value (₦)" type="number" value={form.estimated_value}
-            onChange={e => setForm({ ...form, estimated_value: e.target.value })} />
-          <Input label="State" value={form.state} onChange={e => setForm({ ...form, state: e.target.value })} />
-          <Input label="City" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} />
-          <Input label="Occupation" value={form.occupation} onChange={e => setForm({ ...form, occupation: e.target.value })} />
-          <Input label="Employer" value={form.employer} onChange={e => setForm({ ...form, employer: e.target.value })} />
-          <Input label="Next action" type="date" value={form.next_action_at}
-            onChange={e => setForm({ ...form, next_action_at: e.target.value })} />
-          <div style={{ gridColumn: '1 / -1' }}>
-            <Field label="Notes">
-              <textarea
-                value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
-                rows={3}
-                style={{
-                  width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, resize: 'vertical',
-                  border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
-                  fontSize: TEXT.sm, fontFamily: 'inherit',
-                }}
-              />
-            </Field>
-          </div>
+          <button
+            type="button"
+            onClick={() => setMoreOpen(o => !o)}
+            style={{
+              gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 4,
+              padding: '4px 0', border: 'none', background: 'none', cursor: 'pointer',
+              color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold,
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{moreOpen ? 'expand_less' : 'expand_more'}</span>
+            {moreOpen ? 'Fewer details' : 'More details'}
+          </button>
+
+          {moreOpen && (<>
+            <Input label="Estimated value (₦)" type="number" value={form.estimated_value}
+              onChange={e => setForm({ ...form, estimated_value: e.target.value })} />
+            <Input label="Next action" type="date" value={form.next_action_at}
+              onChange={e => setForm({ ...form, next_action_at: e.target.value })} />
+            <Input label="State" value={form.state} onChange={e => setForm({ ...form, state: e.target.value })} />
+            <Input label="City" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} />
+            <Input label="Occupation" value={form.occupation} onChange={e => setForm({ ...form, occupation: e.target.value })} />
+            <Input label="Employer" value={form.employer} onChange={e => setForm({ ...form, employer: e.target.value })} />
+            <div style={{ gridColumn: '1 / -1' }}>
+              <Field label="Notes">
+                <textarea
+                  value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
+                  rows={3}
+                  style={{
+                    width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, resize: 'vertical',
+                    border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
+                    fontSize: TEXT.sm, fontFamily: 'inherit',
+                  }}
+                />
+              </Field>
+            </div>
+          </>)}
+
           <p style={{ gridColumn: '1 / -1', fontSize: TEXT.xs, color: 'var(--txt3)', margin: 0, lineHeight: 1.5 }}>
-            A phone number or email is required — a lead with no way to reach it is not a
-            lead. The source is required so origination can be credited later. The lead is
-            assigned to you; a team lead can reassign it.
+            A phone or email is required — a lead with no way to reach it is not a lead — and
+            the source is required so origination can be credited. The lead is assigned to you.
           </p>
         </div>
       </Modal>

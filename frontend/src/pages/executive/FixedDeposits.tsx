@@ -21,6 +21,11 @@ interface ExecFD {
   product_breakdown: { product: string; count: number; principal_kobo: number }[]
   tenor_breakdown: { bucket: string; count: number; principal_kobo: number }[]
   top_deposits: { account: string; product: string; principal_kobo: number; rate: number; maturity: string }[]
+  // A deposit book is funding, so these two answer what it costs and how exposed the
+  // book is if the largest depositors leave.
+  cost_of_funds_monthly_kobo?: number
+  top10_share_pct?: number
+  top10_value_kobo?: number
 }
 
 const DONUT_COLORS = [NAVY, AMBER, GREEN, PURPLE, BLUE, RED]
@@ -83,6 +88,23 @@ export default function ExecFixedDeposits() {
         <KpiCard label="Accrued Interest"  value={fmtKobo(data.accrued_interest_kobo)}  sub="payable at maturity"                            icon="trending_up"      accent={GREEN} />
         <KpiCard label="Avg Rate"          value={fmtPct(data.avg_rate_pct)}            sub="weighted book rate"                             icon="percent"          accent={NAVY} />
         <KpiCard label="Maturing 30 Days"  value={fmtNum(data.maturing_30d)}            sub={`${fmtNum(data.maturing_90d)} within 90d`}      icon="event"            accent={data.maturing_30d > 10 ? RED : BLUE} />
+      </div>
+
+      {/* Funding cost and concentration — the two questions a deposit book raises. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: SP[3], marginBottom: 14 }}>
+        <KpiCard
+          label="Cost of Funds / Month"
+          value={data.cost_of_funds_monthly_kobo != null ? fmtKobo(data.cost_of_funds_monthly_kobo) : '—'}
+          sub="interest accruing to depositors"
+          icon="payments" accent={AMBER}
+        />
+        <KpiCard
+          label="Top 10 Depositors"
+          value={data.top10_share_pct != null ? fmtPct(data.top10_share_pct) : '—'}
+          sub={data.top10_value_kobo != null ? `${fmtKobo(data.top10_value_kobo)} of the book` : 'concentration'}
+          icon="donut_large"
+          accent={(data.top10_share_pct ?? 0) > 30 ? RED : GREEN}
+        />
       </div>
 
       {/* Maturity ladder + Product mix */}

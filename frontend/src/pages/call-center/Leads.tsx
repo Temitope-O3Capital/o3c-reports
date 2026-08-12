@@ -1,4 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
+import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useState, useEffect, useCallback } from 'react'
 import {
   Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, DateFilter, NameCell,
@@ -222,12 +223,13 @@ export default function CallCenterLeads() {
   const [distributing, setDistributing] = useState(false)
   const [distributeConfirm, setDistributeConfirm] = useState(false)
 
+  const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
   const load = useCallback(async (refreshSelected?: number) => {
     setLoading(true); setErr(null)
     const p = new URLSearchParams({ limit: '200' })
     if (campaignId) p.set('campaign_id', campaignId)
     if (status)     p.set('status', status)
-    if (search)     p.set('search', search)
+    if (dq)         p.set('search', dq)
     if (dateFrom)   p.set('from', dateFrom)
     if (dateTo)     p.set('to', dateTo)
     try {
@@ -240,7 +242,7 @@ export default function CallCenterLeads() {
       }
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [campaignId, status, search, dateFrom, dateTo])
+  }, [campaignId, status, dq, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
   useLiveData(load)

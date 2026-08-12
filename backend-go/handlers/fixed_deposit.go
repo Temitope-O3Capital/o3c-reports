@@ -54,8 +54,12 @@ func fdListTransactions(db *core.DB) http.HandlerFunc {
 			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n); args = append(args, v); n++
 		}
 		if v := qstr(r, "q"); v != "" {
-			where += fmt.Sprintf(" AND customer_name ILIKE $%d", n)
-			args = append(args, "%"+v+"%"); n++
+			if clause, sargs, nn := buildCustomerSearch(v,
+				[]string{"customer_name"}, "", n); clause != "" {
+				where += " AND " + clause
+				args = append(args, sargs...)
+				n = nn
+			}
 		}
 
 		limit  := qint(r, "limit", 200, 1, 1000)

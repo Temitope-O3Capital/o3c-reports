@@ -22,6 +22,7 @@ func RegisterAuth(r chi.Router, db *core.DB) {
 	r.Post("/token", loginHandler(db))
 	r.Post("/refresh", refreshHandler(db))
 	r.Get("/me", meHandler())
+	r.Post("/sign-out-everywhere", signOutEverywhereHandler(db))
 	r.Post("/change-password", changePasswordHandler(db))
 	r.Post("/force-change-password", forceChangePasswordHandler(db))
 	r.Post("/forgot-password", ForgotPasswordHandler(db))
@@ -75,14 +76,18 @@ func setAuthCookie(w http.ResponseWriter, r *http.Request, token string) string 
 	return csrf
 }
 
-// setRefreshCookie writes the 7-day refresh token as an HttpOnly cookie.
-func setRefreshCookie(w http.ResponseWriter, r *http.Request, token string) {
+// setRefreshCookie writes the refresh token as an HttpOnly cookie. MaxAge is derived
+// from core.RefreshTokenTTL rather than hardcoded, so the cookie and the signed token
+// always expire together — a cookie that outlives its token produces a browser that
+// keeps sending credentials the server rejects, which reads to the user as a random
+// logout.
+func setRefreshCookie(w http.ResponseWriter, r *http.Request, token string, remember bool) {
 	secure, sameSite := cookieAttrs(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "o3c_refresh",
 		Value:    token,
 		Path:     "/",
-		MaxAge:   7 * 24 * 60 * 60,
+		MaxAge:   int(core.RefreshTokenTTL(remember).Seconds()),
 		HttpOnly: true,
 		Secure:   secure,
 		SameSite: sameSite,
@@ -144,7 +149,7 @@ func ForgotPasswordHandler(db *core.DB) http.HandlerFunc {
 		}
 
 		rawBytes := make([]byte, 8)
-		rand.Read(rawBytes) //nolint:errcheck
+		rand.Read(rawBytes)                    //nolint:errcheck
 		tempPW := hex.EncodeToString(rawBytes) // 16 hex chars — meets 12-char minimum
 
 		hash, err := core.HashPassword(tempPW)
@@ -173,6 +178,9 @@ func ForgotPasswordHandler(db *core.DB) http.HandlerFunc {
 			w.WriteHeader(204)
 			return
 		}
+		// C2: kill existing sessions — a forgot-password flow may be remediating a
+		// compromised account.
+		core.InvalidateUserTokens(ctx, toInt64(rows[0]["id"]))
 
 		w.WriteHeader(204)
 	}
@@ -309,6 +317,10 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "username and password are required")
 			return
 		}
+		// "Keep me signed in" — opt-in only. Anything other than an explicit truthy
+		// value is treated as not remembered, so a malformed or absent field gives the
+		// shorter session rather than the longer one.
+		remember := r.FormValue("remember") == "true" || r.FormValue("remember") == "1"
 
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT id, email, password_hash, full_name,
@@ -409,7 +421,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 
 		// If TOTP is enabled, issue a short-lived MFA challenge token instead.
 		if totpEnabled, _ := u["totp_enabled"].(bool); totpEnabled {
-			mfaTok, err := core.CreateMFAToken(toInt64(u["id"]))
+			mfaTok, err := core.CreateMFATokenRemember(toInt64(u["id"]), remember)
 			if err != nil {
 				respondErr(w, 500, "Token generation failed")
 				return
@@ -439,12 +451,12 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 
 		csrfTok := setAuthCookie(w, r, token)
 
-		refreshTok, err := core.CreateRefreshToken(toInt64(u["id"]))
+		refreshTok, err := core.CreateRefreshTokenRemember(toInt64(u["id"]), remember)
 		if err != nil {
 			respondErr(w, 500, "Token generation failed")
 			return
 		}
-		setRefreshCookie(w, r, refreshTok)
+		setRefreshCookie(w, r, refreshTok, remember)
 
 		mustChange, _ := u["must_change_password"].(bool)
 		w.Header().Set("Content-Type", "application/json")
@@ -468,8 +480,39 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// signOutEverywhereHandler ends every session for the calling user on every device.
+//
+// This is the recovery path for a lost or stolen laptop. "Keep me signed in" can leave
+// a browser authenticated for 30 days, and clearing cookies on the device you still
+// have does nothing for the one you do not — so there has to be a way to revoke from
+// anywhere. It moves the user's tokens_valid_from watermark forward, which kills every
+// access and refresh token minted before now, including the caller's own.
+//
+// The caller is signed out too, deliberately: "sign out everywhere" that leaves the
+// current session alive is a different feature, and the safer reading of the phrase is
+// the literal one.
+func signOutEverywhereHandler(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims := core.UserFromCtx(r.Context())
+		if claims == nil || claims.ID == 0 {
+			respondErr(w, 401, "Not signed in")
+			return
+		}
+		core.InvalidateUserTokens(r.Context(), claims.ID)
+		ClearAuthCookies(w, r)
+
+		slog.Info("sign-out-everywhere", "user", claims.ID, "email", claims.Sub)
+		db.PGExec(r.Context(), //nolint:errcheck
+			`INSERT INTO o3c_activity_log (user_id, action, detail)
+			 VALUES ($1, 'sign_out_everywhere', 'All sessions revoked by the user')`,
+			claims.ID)
+
+		w.WriteHeader(204)
+	}
+}
+
 // refreshHandler reads the o3c_refresh HttpOnly cookie, verifies it, looks up the user,
-// and issues a fresh 30-min access token + rotated 7-day refresh token.
+// and issues a fresh 30-min access token + rotated refresh token.
 func refreshHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("o3c_refresh")
@@ -486,6 +529,11 @@ func refreshHandler(db *core.DB) http.HandlerFunc {
 		// tokens cannot be replayed to obtain a new access token.
 		if core.IsTokenRevoked(r.Context(), old.JTI) {
 			respondErr(w, 401, "Token has been revoked")
+			return
+		}
+		// C2: a refresh token issued before the user's last password change is dead.
+		if core.TokenPredatesInvalidation(r.Context(), old) {
+			respondErr(w, 401, "Session expired — please sign in again")
 			return
 		}
 
@@ -517,14 +565,17 @@ func refreshHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		newRefresh, err := core.CreateRefreshToken(old.ID)
+		// Carry the remembered flag across rotation. Without this the session is a
+		// rolling 7 days no matter what the user asked for, and "keep me signed in"
+		// would quietly mean nothing.
+		newRefresh, err := core.CreateRefreshTokenRemember(old.ID, old.Remember)
 		if err != nil {
 			respondErr(w, 500, "Token generation failed")
 			return
 		}
 
 		csrfTok := setAuthCookie(w, r, token)
-		setRefreshCookie(w, r, newRefresh)
+		setRefreshCookie(w, r, newRefresh, old.Remember)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"access_token": token,
@@ -580,8 +631,10 @@ func changePasswordHandler(db *core.DB) http.HandlerFunc {
 		db.PGExec(r.Context(), //nolint:errcheck
 			`UPDATE o3c_users SET password_hash = $1, must_change_password = FALSE WHERE id = $2`,
 			hash, user.ID)
-		// H8: Invalidate all existing sessions so open sessions are forced to re-authenticate.
+		// H8/C2: revoke all existing access + refresh tokens so open sessions are
+		// forced to re-authenticate with the new password.
 		db.PGExec(r.Context(), `DELETE FROM user_sessions WHERE user_id=$1`, user.ID) //nolint:errcheck
+		core.InvalidateUserTokens(r.Context(), user.ID)
 		respondOK(w, "Password updated successfully")
 	}
 }
@@ -612,6 +665,7 @@ func forceChangePasswordHandler(db *core.DB) http.HandlerFunc {
 			`UPDATE o3c_users SET password_hash = $1, must_change_password = FALSE WHERE id = $2`,
 			hash, user.ID)
 		db.PGExec(r.Context(), `DELETE FROM user_sessions WHERE user_id=$1`, user.ID) //nolint:errcheck
+		core.InvalidateUserTokens(r.Context(), user.ID)
 		respondOK(w, "Password updated successfully")
 	}
 }

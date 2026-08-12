@@ -36,6 +36,11 @@ type Claims struct {
 	Department string   `json:"department"`
 	Pages      []string `json:"pages"`
 	JTI        string   `json:"jti,omitempty"`
+	// Remember marks a refresh token issued under "keep me signed in". It must survive
+	// rotation: refreshHandler reissues with the same flag, otherwise a 30-day session
+	// silently collapses to 7 days the first time it refreshes and the user is thrown
+	// back to the login screen a week later for no visible reason.
+	Remember bool `json:"rem,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -109,8 +114,13 @@ func CreateToken(c *Claims) (string, error) {
 	c.JTI = newJTI()
 	c.RegisteredClaims = jwt.RegisteredClaims{
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(tokenExpiry)),
-		Audience:  jwt.ClaimStrings{tokenAudience},
-		ID:        c.JTI,
+		// IssuedAt is what makes revocation work. tokenPredatesInvalidation compares it
+		// against the user's tokens_valid_from watermark and returns false when it is
+		// nil — so without this, InvalidateUserTokens silently revokes nothing and a
+		// password change or forgot-password reset leaves every existing session alive.
+		IssuedAt: jwt.NewNumericDate(time.Now()),
+		Audience: jwt.ClaimStrings{tokenAudience},
+		ID:       c.JTI,
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte(secretKey))
 }
@@ -139,6 +149,38 @@ func isTokenRevoked(ctx context.Context, jti string) bool {
 	return len(rows) > 0
 }
 
+// InvalidateUserTokens revokes ALL of a user's outstanding access + refresh tokens
+// by advancing their tokens_valid_from watermark. Any token issued before that
+// moment is rejected by AuthMiddleware and the refresh handler — so a password
+// reset/change actually kills existing sessions (not just deletes a log row).
+func InvalidateUserTokens(ctx context.Context, userID int64) {
+	if authDB == nil {
+		return
+	}
+	if _, err := authDB.PGExec(ctx, `UPDATE o3c_users SET tokens_valid_from = NOW() WHERE id=$1`, userID); err != nil {
+		slog.Warn("InvalidateUserTokens failed", "user", userID, "err", err)
+	}
+}
+
+// tokenPredatesInvalidation reports whether a token was issued before the user's
+// tokens_valid_from watermark (i.e. revoked by a password change). Fails OPEN on
+// any DB/parse error so a transient DB issue can never lock everyone out. A 1s
+// grace absorbs clock skew between token mint and the watermark write.
+func tokenPredatesInvalidation(ctx context.Context, claims *Claims) bool {
+	if authDB == nil || claims == nil || claims.IssuedAt == nil {
+		return false
+	}
+	rows, err := authDB.PGQuery(ctx, `SELECT tokens_valid_from FROM o3c_users WHERE id=$1`, claims.ID)
+	if err != nil || len(rows) == 0 {
+		return false
+	}
+	vf, ok := rows[0]["tokens_valid_from"].(time.Time)
+	if !ok {
+		return false
+	}
+	return claims.IssuedAt.Time.Before(vf.Add(-1 * time.Second))
+}
+
 // CreateSSEToken issues a short-lived (2 min) token for the SSE endpoint.
 // EventSource cannot set headers, so the token is passed as a query param;
 // using a short-lived ticket limits log-exposure risk.
@@ -157,14 +199,40 @@ func CreateSSEToken(userID int64) (string, error) {
 // password check when the user has TOTP enabled. The token only contains the user
 // ID; it must be exchanged for a full access token via POST /api/auth/totp/challenge.
 func CreateMFAToken(userID int64) (string, error) {
+	return CreateMFATokenRemember(userID, false)
+}
+
+// CreateMFATokenRemember carries the "keep me signed in" choice through the MFA
+// challenge. The user ticks the box at the password step, but the refresh token is not
+// issued until the TOTP code is verified — so the preference has to survive the round
+// trip. Putting it in the signed challenge token means the client cannot alter it
+// between the two steps.
+func CreateMFATokenRemember(userID int64, remember bool) (string, error) {
 	c := &Claims{
-		ID: userID,
+		ID:       userID,
+		Remember: remember,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(mfaTokenExpiry)),
 			Audience:  jwt.ClaimStrings{mfaTokenAudience},
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte(secretKey))
+}
+
+// VerifyMFATokenClaims validates an MFA challenge token and returns its claims, so the
+// caller can read both the user ID and the remembered flag.
+func VerifyMFATokenClaims(raw string) (*Claims, error) {
+	c := &Claims{}
+	_, err := jwt.ParseWithClaims(raw, c, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secretKey), nil
+	}, jwt.WithAudience(mfaTokenAudience))
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // VerifyMFAToken validates a token issued by CreateMFAToken and returns the user ID.
@@ -200,16 +268,45 @@ func VerifySSEToken(raw string) (*Claims, error) {
 const refreshTokenAudience = "o3c:refresh"
 const refreshTokenExpiry = 7 * 24 * time.Hour
 
+// rememberTokenExpiry applies when the user ticks "keep me signed in". 30 days is a
+// deliberate ceiling rather than an indefinite session: this workspace holds customer
+// bank details and the card book, so a stolen laptop must eventually stop being a way
+// in. Logout and a password change still revoke immediately regardless of this value.
+const rememberTokenExpiry = 30 * 24 * time.Hour
+
 // CreateRefreshToken issues a long-lived (7-day) refresh token for the given user.
 func CreateRefreshToken(userID int64) (string, error) {
+	return CreateRefreshTokenRemember(userID, false)
+}
+
+// RefreshTokenTTL is how long a refresh token lives, and therefore how long a user can
+// go without re-entering a password. Exported so the cookie MaxAge is derived from the
+// same value the token is signed with — the two drifting apart is what produces a
+// cookie the browser still sends but the server rejects.
+func RefreshTokenTTL(remember bool) time.Duration {
+	if remember {
+		return rememberTokenExpiry
+	}
+	return refreshTokenExpiry
+}
+
+// CreateRefreshTokenRemember issues a refresh token whose lifetime depends on whether
+// the user asked to stay signed in. The flag is carried in the claims so rotation can
+// preserve it.
+func CreateRefreshTokenRemember(userID int64, remember bool) (string, error) {
 	jti := newJTI()
 	c := &Claims{
-		ID:  userID,
-		JTI: jti,
+		ID:       userID,
+		JTI:      jti,
+		Remember: remember,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(refreshTokenExpiry)),
-			Audience:  jwt.ClaimStrings{refreshTokenAudience},
-			ID:        jti,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(RefreshTokenTTL(remember))),
+			// Required for revocation — see the note in CreateToken. It matters more
+			// here: a refresh token now lives up to 30 days, so an unrevocable one is a
+			// month-long way back into the account.
+			IssuedAt: jwt.NewNumericDate(time.Now()),
+			Audience: jwt.ClaimStrings{refreshTokenAudience},
+			ID:       jti,
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte(secretKey))
@@ -268,6 +365,12 @@ func IsTokenRevoked(ctx context.Context, jti string) bool {
 	return isTokenRevoked(ctx, jti)
 }
 
+// TokenPredatesInvalidation is the exported wrapper used by the refresh handler to
+// reject refresh tokens issued before the user's last password change.
+func TokenPredatesInvalidation(ctx context.Context, claims *Claims) bool {
+	return tokenPredatesInvalidation(ctx, claims)
+}
+
 // AuthMiddleware validates the Bearer token (or o3c_token HttpOnly cookie as fallback)
 // and populates the request context. Also checks the JTI denylist.
 // Cookie-authenticated mutation requests (POST/PUT/PATCH/DELETE) are validated against
@@ -293,6 +396,11 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 		if isTokenRevoked(r.Context(), claims.JTI) {
 			authErr(w, 401, "Token has been revoked")
+			return
+		}
+		// C2: reject tokens minted before the user's last password change/reset.
+		if tokenPredatesInvalidation(r.Context(), claims) {
+			authErr(w, 401, "Session expired — please sign in again")
 			return
 		}
 		// CSRF double-submit check for cookie-authenticated state-changing requests.
@@ -464,251 +572,103 @@ func authErr(w http.ResponseWriter, code int, msg string) {
 
 // ── Role → page mapping ──────────────────────────────────────────────────────
 
-var RolePages = map[string][]string{
-	// ── Executive ──────────────────────────────────────────────────────────────
-	"md": {
-		"overview", "executive", "transactions", "income", "finance", "eod", "uploads",
-		"reconciliation", "collections", "recovery", "sales", "cards", "card_trends",
-		"cohort", "call_center", "loans", "credit_portfolio", "fixed_deposit", "settlement", "mobile_app", "blink_card",
-		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates", "statements",
-		"los", "los_all", "los_assign", "customer360",
-		"compliance_all", "compliance_checklists", "cbn_reports", "audit_trail", "audit_export",
-		"sars", "watch_list", "audit_findings",
-		"kpi_dashboard", "reports", "approvals", "statements", "admin_users", "settings", "sync_status",
-		"active_loan_book", "call_center", "call_center_stats", "bd", "bd_employers", "bd_pipeline",
-		"helpdesk_kb",
-	},
-	"coo": {
-		"overview", "executive", "transactions", "income", "finance", "eod", "uploads",
-		"reconciliation", "collections", "recovery", "sales", "cards", "card_trends",
-		"cohort", "call_center", "loans", "credit_portfolio", "fixed_deposit", "settlement", "mobile_app", "blink_card",
-		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates", "statements",
-		"los", "los_all", "customer360",
-		"kpi_dashboard", "reports", "statements",
-	},
-	"cfo": {
-		"overview", "executive", "income", "finance", "eod", "uploads", "reconciliation",
-		"collections", "recovery", "transactions", "loans", "credit_portfolio",
-		"fixed_deposit", "settlement",
-		"los_finance", "customer360",
-		"cbn_reports", "audit_trail", "audit_export",
-		"kpi_dashboard", "reports", "statements",
-	},
-	"executive": {
-		"overview", "executive", "kpi_dashboard", "reports", "statements",
-	},
+// RolePages is composed from labeled building blocks so grants stay consistent
+// and drift-free. Two kinds of page-key: VIEW keys gate nav + read APIs; ACTION
+// keys (los_assign, los_finance_approve, collections_assign/payment*,
+// recovery_assign/write_off, call_center_stats, admin_api_keys) gate head-only
+// write APIs. Every key here exists in the page catalog (catalog.go).
+//
+// Clean taxonomy: one Head + one Agent/Officer per operating module, a lean
+// C-suite tier, a clean IT role (system only) and a clean BI role (analytics
+// only). Legacy duplicates (head_*, management, bare module roles, cards_ops_*)
+// were retired — migration 141 remaps any users still on them.
+var RolePages = buildRolePages()
 
-	// ── Sales ──────────────────────────────────────────────────────────────────
-	"sales_officer": {
-		"overview", "sales", "uploads", "loans", "credit_portfolio",
-		"los", "customer360",
-		"bd", "bd_employers", "bd_pipeline",
-		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates", "statements",
-		"mail",
-	},
-	"sales_head": {
-		"overview", "sales", "executive", "uploads", "loans", "credit_portfolio",
-		"los", "los_all", "los_assign", "customer360",
-		"bd", "bd_employers", "bd_pipeline",
-		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates", "statements",
-		"kpi_dashboard", "mail",
-	},
+func buildRolePages() map[string][]string {
+	union := func(sets ...[]string) []string {
+		seen := map[string]bool{}
+		out := []string{}
+		for _, s := range sets {
+			for _, p := range s {
+				if !seen[p] {
+					seen[p] = true
+					out = append(out, p)
+				}
+			}
+		}
+		return out
+	}
+	util := []string{"overview", "customer360", "uploads"}
 
-	// ── Risk ───────────────────────────────────────────────────────────────────
-	"risk_officer": {
-		"overview", "customer360",
-		"los_risk_review", "credit_portfolio", "loans",
-	},
-	"risk_head": {
-		"overview", "customer360", "executive",
-		"los_risk_review", "los_risk_head", "los_assign",
-		"credit_portfolio", "loans", "kpi_dashboard", "statements",
-	},
+	// Per-module page sets: agent (day-to-day) + head extras (oversight/actions).
+	salesAgent := []string{"sales", "loans", "los", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "cohort", "mail"}
+	salesHead := []string{"los_all", "los_assign", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "reports", "statements", "executive"}
+	bdAgent := []string{"bd", "bd_employers", "bd_pipeline", "crm_contacts", "mail"}
+	bdHead := []string{"campaigns", "contact_lists", "message_templates", "kpi_dashboard", "executive"}
+	collAgent := []string{"collections", "eod", "crm_contacts"}
+	// collHead includes "recovery" so collections leads can open the Recovery Approvals
+	// hand-off screen (route /collections/recovery-approvals gates on the recovery page);
+	// the Recovery *module* itself stays gated to recovery roles via the sidebar vis list.
+	collHead := []string{"collections_assign", "collections_payment", "collections_payment_approve", "recovery", "loans", "credit_portfolio", "kpi_dashboard", "reports", "statements", "executive"}
+	recAgent := []string{"recovery", "eod"}
+	recHead := []string{"recovery_assign", "recovery_write_off", "loans", "credit_portfolio", "kpi_dashboard", "reports", "statements", "executive"}
+	cardsAgent := []string{"cards", "card_trends", "los_booking", "blink_card", "eod"}
+	cardsHead := []string{"los_assign", "mobile_app", "kpi_dashboard", "statements", "executive"}
+	finAgent := []string{"income", "finance", "transactions", "fixed_deposit", "fx_rates", "eod", "settlement", "reconciliation", "core-banking", "credit_portfolio", "los_finance"}
+	finHead := []string{"los_finance_approve", "payroll", "kpi_dashboard", "reports", "statements", "executive"}
+	ccAgent := []string{"call_center", "helpdesk", "helpdesk_canned", "helpdesk_kb", "transactions", "crm_contacts"}
+	ccHead := []string{"call_center_stats", "helpdesk_stats", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive"}
+	riskAgent := []string{"credit_portfolio", "loans", "los_risk_review", "risk_officer"}
+	riskHead := []string{"los_risk_head", "los_assign", "risk_head", "risk_all", "active_loan_book", "kpi_dashboard", "statements", "executive"}
+	compAgent := []string{"compliance_checklists", "audit_findings", "watch_list"}
+	compHead := []string{"compliance_all", "cbn_reports", "sars", "audit_trail", "audit_export", "kpi_dashboard", "reports", "executive"}
+	itAdmin := []string{"admin_users", "admin_api_keys", "settings", "sync_status"}
+	biAnalyst := []string{"reports", "kpi_dashboard", "cohort"}
+	biHead := []string{"executive", "statements"}
 
-	// ── Finance ────────────────────────────────────────────────────────────────
-	"finance_officer": {
-		"overview", "income", "finance", "eod", "transactions", "reconciliation",
-		"collections_payment", "credit_portfolio", "fixed_deposit", "settlement",
-		"los_finance", "customer360", "statements",
-	},
-	"finance_head": {
-		"overview", "income", "finance", "eod", "transactions", "uploads", "reconciliation",
-		"collections_payment", "collections_payment_approve",
-		"credit_portfolio", "fixed_deposit", "settlement",
-		"los_finance", "los_finance_approve", "customer360",
-		"kpi_dashboard", "reports", "statements",
-	},
+	m := map[string][]string{
+		// ── System & Analytics ──
+		"it_admin":   union(util, itAdmin),
+		"bi_analyst": union([]string{"overview"}, biAnalyst),
+		"bi_head":    union([]string{"overview"}, biAnalyst, biHead),
+		// ── Sales & BD ──
+		"sales_officer": union(util, salesAgent),
+		"sales_head":    union(util, salesAgent, salesHead),
+		"bd_officer":    union(util, bdAgent),
+		"bd_head":       union(util, bdAgent, bdHead),
+		// ── Collections & Recovery ──
+		"collections_agent": union(util, collAgent),
+		"collections_head":  union(util, collAgent, collHead),
+		"recovery_agent":    union(util, recAgent),
+		"recovery_head":     union(util, recAgent, recHead),
+		// ── Cards ──
+		"cards_agent": union(util, cardsAgent),
+		"cards_head":  union(util, cardsAgent, cardsHead),
+		// ── Finance ──
+		"finance_officer":    union(util, finAgent),
+		"finance_head":       union(util, finAgent, finHead),
+		"settlement_officer": union(util, []string{"settlement", "reconciliation", "eod", "transactions", "credit_portfolio"}),
+		// ── Contact Centre ──
+		"call_center_agent": union(util, ccAgent),
+		"call_center_head":  union(util, ccAgent, ccHead),
+		// ── Risk ──
+		"risk_officer": union(util, riskAgent),
+		"risk_head":    union(util, riskAgent, riskHead),
+		// ── Compliance ──
+		"compliance_officer": union(util, compAgent),
+		"compliance_head":    union(util, compAgent, compHead),
+	}
 
-	// ── Cards Ops ──────────────────────────────────────────────────────────────
-	"cards_ops_officer": {
-		"overview", "cards", "card_trends", "eod", "uploads",
-		"los_booking", "customer360",
-	},
-	"cards_ops_head": {
-		"overview", "cards", "card_trends", "eod", "uploads",
-		"los_booking", "los_assign", "customer360",
-		"kpi_dashboard", "statements",
-	},
+	// ── Executive / C-suite ──
+	m["admin"] = AllCatalogPages() // super-user (also bypasses gating)
+	m["md"] = AllCatalogPages()
+	m["coo"] = union(util, collAgent, collHead, recAgent, recHead, cardsAgent, cardsHead,
+		finAgent, finHead, ccAgent, ccHead, riskAgent, riskHead,
+		[]string{"kpi_dashboard", "reports", "statements", "executive", "approvals", "active_loan_book", "payroll"})
+	m["cfo"] = union(util, finAgent, finHead,
+		[]string{"collections_payment", "collections_payment_approve", "kpi_dashboard", "reports", "statements", "executive", "approvals"})
+	m["cmo"] = union(util, salesAgent, bdAgent,
+		[]string{"campaigns", "contact_lists", "message_templates", "kpi_dashboard", "reports", "executive"})
 
-	// ── Collections ────────────────────────────────────────────────────────────
-	"collections_agent": {
-		"overview", "collections", "customer360", "eod", "uploads",
-		"crm_contacts",
-	},
-	"collections_head": {
-		"overview", "collections", "collections_assign", "customer360",
-		"eod", "uploads", "reconciliation", "loans", "credit_portfolio",
-		"crm_contacts", "kpi_dashboard", "statements",
-	},
-
-	// ── Recovery ───────────────────────────────────────────────────────────────
-	"recovery_agent": {
-		"overview", "recovery", "customer360", "eod", "uploads",
-	},
-	"recovery_head": {
-		"overview", "recovery", "recovery_assign", "recovery_write_off",
-		"customer360", "eod", "uploads", "loans", "credit_portfolio",
-		"kpi_dashboard", "statements",
-	},
-
-	// ── Call Center ────────────────────────────────────────────────────────────
-	// Call Center — one team for calls, call tickets, inbound/outbound, collection
-	// calls and outbound campaigns. The `call_center` page-key gates the whole
-	// module (queue, leads, DNC, dialer, tickets); `call_center_stats` is the
-	// head-only performance/supervisor view.
-	"call_center_agent": {
-		"overview", "call_center", "customer360", "transactions",
-		"crm_contacts", "uploads",
-		"helpdesk", "helpdesk_stats", "helpdesk_canned",
-	},
-	"call_center_head": {
-		"overview", "call_center", "call_center_stats", "customer360", "transactions",
-		"crm_contacts", "uploads", "kpi_dashboard", "statements", "helpdesk_kb",
-		"helpdesk", "helpdesk_stats", "helpdesk_canned",
-		"campaigns", "contact_lists", "message_templates",
-	},
-
-
-	// ── Compliance ─────────────────────────────────────────────────────────────
-	"compliance_officer": {
-		"overview", "compliance_checklists", "audit_findings", "watch_list",
-	},
-	"compliance_head": {
-		"overview", "compliance_all", "compliance_checklists", "cbn_reports",
-		"sars", "audit_trail", "audit_export", "watch_list", "audit_findings",
-		"kpi_dashboard",
-	},
-
-	// ── Internal Control ───────────────────────────────────────────────────────
-	"internal_control_head": {
-		"overview", "audit_trail", "audit_export", "audit_findings",
-		"cbn_reports", "kpi_dashboard", "reports", "statements",
-	},
-
-	// ── IT Admin ───────────────────────────────────────────────────────────────
-	"it_admin": {
-		"overview", "transactions", "collections", "recovery", "sales",
-		"cards", "card_trends", "cohort", "admin_users", "executive", "income", "finance", "eod",
-		"uploads", "reconciliation", "call_center", "loans", "credit_portfolio",
-		"fixed_deposit", "settlement", "los", "los_all", "customer360",
-		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates", "statements",
-		"compliance_checklists", "audit_trail", "watch_list",
-		"kpi_dashboard", "reports", "statements", "settings", "sync_status",
-	},
-
-	// ── Legacy roles (keep for backwards compatibility) ──────────────────────
-	"admin": {
-		"overview", "executive", "transactions", "income", "finance", "eod", "uploads",
-		"reconciliation", "collections", "recovery", "sales", "cards", "card_trends",
-		"cohort", "call_center", "customer_service", "loans", "credit_portfolio",
-		"fixed_deposit", "settlement", "mobile_app", "blink_card",
-		"risk_all", "risk_officer", "risk_head",
-		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates", "statements",
-		"los", "los_all", "los_assign", "customer360",
-		"compliance_all", "compliance_checklists", "cbn_reports", "audit_trail", "audit_export",
-		"sars", "watch_list", "audit_findings",
-		"collections_assign", "collections_payment", "collections_payment_approve",
-		"recovery_assign", "recovery_write_off",
-		"kpi_dashboard", "reports", "statements", "admin_users", "admin_api_keys", "settings", "sync_status",
-		"active_loan_book", "call_center", "call_center_stats", "bd", "bd_employers", "bd_pipeline",
-		"helpdesk_kb",
-	},
-	"management": {
-		"overview", "executive", "transactions", "income", "eod", "uploads",
-		"reconciliation", "collections", "recovery", "sales", "cards", "card_trends",
-		"cohort", "call_center", "customer_service", "loans", "credit_portfolio",
-		"fixed_deposit", "settlement", "mobile_app", "blink_card",
-		"risk_all", "risk_officer", "risk_head",
-		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates", "statements",
-		"collections_assign", "recovery_assign", "recovery_write_off",
-		"kpi_dashboard", "reports", "statements",
-	},
-	"head_ops": {
-		"overview", "executive", "transactions", "income", "eod", "uploads",
-		"reconciliation", "collections", "recovery", "cards", "card_trends",
-		"cohort", "call_center", "customer_service", "loans", "credit_portfolio",
-		"fixed_deposit", "settlement",
-		"risk_all", "risk_officer", "risk_head",
-		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"collections_assign", "recovery_assign", "recovery_write_off",
-		"kpi_dashboard", "reports", "statements",
-	},
-	"head_it": {
-		"overview", "transactions", "collections", "recovery", "sales", "cards", "card_trends",
-		"cohort", "admin_users", "admin_api_keys", "executive", "income", "eod", "uploads",
-		"reconciliation", "call_center", "customer_service", "loans", "credit_portfolio",
-		"fixed_deposit", "settlement", "risk_all",
-		"crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports",
-		"campaigns", "contact_lists", "message_templates", "statements",
-		"compliance_checklists", "audit_trail", "watch_list",
-		"kpi_dashboard", "reports", "statements", "settings", "sync_status", "los", "los_all", "customer360",
-	},
-	"head_of_reconciliation": {
-		"overview", "income", "eod", "transactions", "uploads", "reconciliation",
-		"collections_payment", "collections_payment_approve",
-		"credit_portfolio", "fixed_deposit", "settlement",
-		"los_finance", "los_finance_approve", "customer360",
-		"kpi_dashboard", "reports", "statements",
-	},
-	"sales":            {"sales", "overview", "uploads", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
-	"collections":      {"collections", "recovery", "eod", "uploads", "reconciliation", "crm_pipeline", "crm_contacts", "crm_tasks"},
-	"recovery":         {"recovery", "collections", "eod", "uploads", "loans", "crm_pipeline", "crm_contacts", "crm_tasks"},
-	"cards_ops":        {"cards", "card_trends", "transactions", "overview", "eod", "uploads"},
-	"cmo":              {"overview", "sales", "cohort", "executive", "uploads", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
-	"head_sales":       {"sales", "overview", "uploads", "executive", "loans", "credit_portfolio", "bd", "bd_employers", "bd_pipeline", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "campaigns", "contact_lists", "message_templates", "statements"},
-	"head_collections": {"collections", "recovery", "overview", "eod", "uploads", "executive", "reconciliation", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
-	"head_recovery":    {"recovery", "collections", "overview", "eod", "uploads", "executive", "loans", "credit_portfolio", "crm_pipeline", "crm_contacts", "crm_tasks"},
-
-	// ── Business Development ──────────────────────────────────────────────────
-	"bd_officer": {
-		"overview", "bd", "bd_employers", "bd_pipeline", "customer360",
-		"crm_contacts", "campaigns", "contact_lists", "message_templates",
-		"mail",
-	},
-	"bd_head": {
-		"overview", "bd", "bd_employers", "bd_pipeline", "customer360",
-		"crm_contacts", "kpi_dashboard", "statements",
-		"campaigns", "contact_lists", "message_templates", "mail",
-	},
-
-
-	// ── BI / Analytics ────────────────────────────────────────────────────────
-	"bi_analyst": {
-		"overview", "reports", "kpi_dashboard",
-	},
-	"bi_head": {
-		"overview", "reports", "kpi_dashboard", "admin_users",
-	},
-
-	// ── Settlement ────────────────────────────────────────────────────────────
-	"settlement_officer": {
-		"overview", "settlement", "reconciliation", "eod", "transactions", "credit_portfolio",
-	},
+	return m
 }
