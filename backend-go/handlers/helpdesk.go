@@ -1201,8 +1201,9 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 				t.id, t.ticket_ref, t.channel, t.status, t.priority, t.subject,
-				t.customer_name, t.customer_cif, t.assigned_to, t.department,
+				t.customer_name, t.customer_cif, t.customer_email, t.assigned_to, t.department,
 				t.sla_due_at, t.created_at, t.first_response_at,
+				LEFT(t.description, 160) AS description_preview,
 				u.full_name AS assigned_to_name,
 				msg.message_count, msg.last_message_at, msg.last_message_preview, msg.last_message_direction,
 				(t.sla_due_at IS NOT NULL AND t.sla_due_at < NOW() AND t.status NOT IN ('resolved','closed')) AS sla_breached
@@ -1778,6 +1779,31 @@ func hdGetTicket(db *core.DB) http.HandlerFunc {
 		if msgs == nil {
 			msgs = []core.Row{}
 		}
+
+		// Lazy conversation fill: the Zoho sync imports the ticket but NOT its threads,
+		// so a freshly synced email ticket has no message rows yet — its body lives only
+		// in the Zoho conversation. When an agent opens such a mail, fetch it now so the
+		// pane isn't blank. Bounded by a short timeout so a slow/absent Zoho can't hang
+		// the open, and skipped for call tickets (no email thread to fetch).
+		if len(msgs) == 0 {
+			ref := str(ticket["ticket_ref"])
+			if str(ticket["source_system"]) == "zoho_desk" && strings.HasPrefix(ref, "ZOHO-") &&
+				str(ticket["channel"]) != "call" && zohoEnsureConfigured(r.Context(), db) {
+				cctx, cancel := context.WithTimeout(r.Context(), 9*time.Second)
+				if n, _ := zohoImportTicketConversations(cctx, db, toInt64(ticket["id"]), strings.TrimPrefix(ref, "ZOHO-"), str(ticket["channel"])); n > 0 {
+					if refetched, _ := db.PGQuery(r.Context(), `
+						SELECT m.*, u.full_name AS author_user_name
+						FROM helpdesk_messages m
+						LEFT JOIN o3c_users u ON m.author_user_id=u.id
+						WHERE m.ticket_id=$1
+						ORDER BY m.created_at ASC`, id); refetched != nil {
+						msgs = refetched
+					}
+				}
+				cancel()
+			}
+		}
+
 		if events == nil {
 			events = []core.Row{}
 		}

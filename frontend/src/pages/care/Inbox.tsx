@@ -22,6 +22,8 @@ interface MailTicket {
   created_at: string
   last_message_at?: string
   last_message_preview?: string
+  description_preview?: string
+  description?: string
 }
 
 interface Message {
@@ -313,6 +315,15 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
 
   const t = data.ticket
   const msgs = data.messages ?? []
+  // Some mails — especially system-notification emails — arrive with the body on the
+  // ticket itself (description) and no separate message row. Surface that so a mail
+  // with real content never renders blank; only a truly empty notification shows the
+  // hint below.
+  const displayMsgs: Message[] = msgs.length > 0
+    ? msgs
+    : (t.description
+        ? [{ id: -1, direction: 'inbound', author_name: t.customer_name, body_text: t.description, created_at: t.created_at }]
+        : [])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -375,8 +386,8 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
       {/* Conversation */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {msgs.length === 0 && <div style={{ color: 'var(--txt3)', textAlign: 'center', padding: 40 }}>No messages on this mail yet.</div>}
-        {msgs.map(m => {
+        {displayMsgs.length === 0 && <div style={{ color: 'var(--txt3)', textAlign: 'center', padding: 40 }}>This mail has no message body — it may be a system notification (e.g. a registration or transaction alert).</div>}
+        {displayMsgs.map(m => {
           const agent = m.direction === 'outbound'
           return (
             <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: agent ? 'flex-end' : 'flex-start' }}>
@@ -587,7 +598,7 @@ export default function CareInbox() {
                       <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', flexShrink: 0 }}>{fmtDate(m.last_message_at || m.created_at)}</span>
                     </div>
                     <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>{m.subject || '(no subject)'}</div>
-                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>{m.last_message_preview || m.customer_email || m.ticket_ref}</div>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>{m.last_message_preview || m.description_preview || m.customer_email || m.ticket_ref}</div>
                   </div>
                 </div>
               )

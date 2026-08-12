@@ -580,6 +580,7 @@ func StartZohoDeskAutoSync(db *core.DB) {
 		time.Sleep(2 * time.Minute) // let startup settle before the first sweep
 
 		runZohoTicketSync(db, 2000)
+		zohoSweepConversations(db, 300) // seed message bodies for the newest tickets
 		// Fast incremental poll (recent tickets) + hourly deep reconcile.
 		fast := time.NewTicker(zohoPollInterval())
 		deep := time.NewTicker(1 * time.Hour)
@@ -591,9 +592,22 @@ func StartZohoDeskAutoSync(db *core.DB) {
 				runZohoTicketSync(db, 100)
 			case <-deep.C:
 				runZohoTicketSync(db, 2000)
+				zohoSweepConversations(db, 150)
 			}
 		}
 	}()
+}
+
+// zohoSweepConversations backfills helpdesk_messages for the newest email/web/social
+// tickets that still have no messages, so mail bodies and inbox previews populate
+// automatically instead of only when an agent opens each mail. Bounded by cap and
+// gated on Zoho being configured. (The ticket sync imports tickets but not threads.)
+func zohoSweepConversations(db *core.DB, cap int) {
+	ctx := context.Background()
+	if !zohoEnsureConfigured(ctx, db) {
+		return
+	}
+	runZohoThreadImportJob(ctx, db, &zohoJob{}, false, cap)
 }
 
 // ── Background import jobs ────────────────────────────────────────────────────
@@ -1341,69 +1355,74 @@ func runZohoThreadImportJob(ctx context.Context, db *core.DB, j *zohoJob, includ
 			continue
 		}
 
-		convs, cerr := zohoFetchConversations(ctx, zohoID)
-		if cerr != nil {
-			slog.Warn("zohoImportThreads: conversations", "ref", ref, "err", cerr)
-			j.Lock()
-			j.failed++
-			j.lastErr = cerr.Error()
-			j.Unlock()
-			continue
-		}
+		imp, cerr := zohoImportTicketConversations(ctx, db, localID, zohoID, ticketChannel)
 		j.Lock()
 		j.processed++
+		if cerr != nil {
+			j.failed++
+			j.lastErr = cerr.Error()
+		} else {
+			j.imported += imp
+		}
 		j.Unlock()
+	}
+}
 
-		for _, c := range convs {
-			extID := zohoStr(c["id"])
-			if extID == "" {
-				j.Lock()
-				j.skipped++
-				j.Unlock()
-				continue
-			}
-
-			isNote := strings.EqualFold(zohoStr(c["type"]), "comment") ||
-				strings.EqualFold(zohoStr(c["visibility"]), "private")
-			direction := "inbound"
-			if isNote || strings.EqualFold(zohoStr(c["direction"]), "out") {
-				direction = "outbound"
-			}
-
-			ch := channelFromZoho(zohoStr(c["channel"]))
-			if ch == "" {
-				ch = ticketChannel
-			}
-
-			var author string
-			if a, ok := c["author"].(map[string]any); ok {
-				author = zohoStr(a["name"])
-			}
-			body := zohoStr(c["summary"])
-			createdAt := zohoParseTime(c["createdTime"])
-			if createdAt.IsZero() {
-				createdAt = time.Now()
-			}
-
-			res, ierr := db.PGExec(ctx, `
-				INSERT INTO helpdesk_messages
-				  (ticket_id, direction, channel, author_name, body_text,
-				   is_internal_note, external_id, source_system, created_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,'zoho_desk',$8)
-				ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO NOTHING`,
-				localID, direction, ch, author, body, isNote, extID, createdAt)
-			j.Lock()
-			if ierr != nil {
-				slog.Warn("zohoImportThreads: insert", "ext", extID, "err", ierr)
-				j.failed++
-			} else if n, _ := res.RowsAffected(); n > 0 {
-				j.imported++
-			} else {
-				j.skipped++
-			}
-			j.Unlock()
+// zohoImportTicketConversations fetches a single Zoho ticket's conversation timeline
+// and inserts any missing helpdesk_messages rows (idempotent on external_id). Returns
+// how many were inserted. Zoho imports the ticket but NOT its threads, so a freshly
+// synced email ticket has its body only in the conversation — this is what fills it,
+// used both by the bulk backfill job and lazily when an agent opens a message-less
+// ticket.
+func zohoImportTicketConversations(ctx context.Context, db *core.DB, localID int64, zohoID, ticketChannel string) (int, error) {
+	if zohoID == "" {
+		return 0, nil
+	}
+	convs, err := zohoFetchConversations(ctx, zohoID)
+	if err != nil {
+		return 0, err
+	}
+	imported := 0
+	for _, c := range convs {
+		extID := zohoStr(c["id"])
+		if extID == "" {
+			continue
+		}
+		isNote := strings.EqualFold(zohoStr(c["type"]), "comment") ||
+			strings.EqualFold(zohoStr(c["visibility"]), "private")
+		direction := "inbound"
+		if isNote || strings.EqualFold(zohoStr(c["direction"]), "out") {
+			direction = "outbound"
+		}
+		ch := channelFromZoho(zohoStr(c["channel"]))
+		if ch == "" {
+			ch = ticketChannel
+		}
+		var author string
+		if a, ok := c["author"].(map[string]any); ok {
+			author = zohoStr(a["name"])
+		}
+		body := zohoStr(c["summary"])
+		createdAt := zohoParseTime(c["createdTime"])
+		if createdAt.IsZero() {
+			createdAt = time.Now()
+		}
+		res, ierr := db.PGExec(ctx, `
+			INSERT INTO helpdesk_messages
+			  (ticket_id, direction, channel, author_name, body_text,
+			   is_internal_note, external_id, source_system, created_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,'zoho_desk',$8)
+			ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO NOTHING`,
+			localID, direction, ch, author, body, isNote, extID, createdAt)
+		if ierr != nil {
+			slog.Warn("zohoImportTicketConversations: insert", "ext", extID, "err", ierr)
+			continue
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			imported++
 		}
 	}
+	return imported, nil
 }
 
 // ── Zoho Desk — import call logs ─────────────────────────────────────────────
