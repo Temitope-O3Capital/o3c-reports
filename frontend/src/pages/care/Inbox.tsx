@@ -32,6 +32,7 @@ interface Message {
   author_name?: string
   author_user_name?: string
   body_text: string
+  body_html?: string
   is_internal_note?: boolean
   created_at: string
 }
@@ -199,6 +200,29 @@ function CustomerHistory({ cif, email, excludeId }: { cif?: string; email?: stri
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+// Renders an HTML email body inside a sandboxed iframe (no allow-scripts, so email
+// markup can't run JavaScript) — the standard safe way to display untrusted email
+// HTML. The app CSP allows inline styles + https/data images, so formatting and
+// images render; the frame auto-sizes to its content up to a cap, then scrolls.
+function HtmlMessage({ html }: { html: string }) {
+  const ref = useRef<HTMLIFrameElement>(null)
+  const [h, setH] = useState(60)
+  const srcDoc = `<!doctype html><html><head><base target="_blank"><meta name="color-scheme" content="light"><style>html,body{margin:0;padding:0}body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:13.5px;line-height:1.5;color:#1a1a1a;background:#fff;word-break:break-word;padding:10px 12px}img{max-width:100%;height:auto}a{color:#0E2841}blockquote{margin:6px 0 6px 2px;padding-left:10px;border-left:2px solid #e2e2e2;color:#555}table{max-width:100%}pre{white-space:pre-wrap;word-break:break-word}</style></head><body>${html}</body></html>`
+  function measure() {
+    try {
+      const doc = ref.current?.contentDocument
+      if (doc?.body) setH(Math.min(760, Math.max(44, doc.documentElement?.scrollHeight || doc.body.scrollHeight)))
+    } catch { /* sandboxed access denied — keep default height */ }
+  }
+  function onLoad() { measure(); setTimeout(measure, 400); setTimeout(measure, 1200) }
+  return (
+    <div style={{ maxWidth: '82%', width: '82%', borderRadius: RADIUS.lg, overflow: 'hidden', border: '1px solid var(--bdr)', background: '#fff' }}>
+      <iframe ref={ref} title="message" sandbox="allow-same-origin" srcDoc={srcDoc} onLoad={onLoad}
+        style={{ width: '100%', height: h, border: 'none', display: 'block', background: '#fff' }} />
     </div>
   )
 }
@@ -401,15 +425,19 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
                 <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtDatetime(m.created_at)}</span>
                 {m.is_internal_note && <span style={{ fontSize: TEXT['2xs'], color: AMBER, fontWeight: FW.bold }}>internal note</span>}
               </div>
-              <div style={{
-                maxWidth: '78%', padding: '10px 14px', borderRadius: RADIUS.lg, fontSize: TEXT.sm, lineHeight: 1.55,
-                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                background: m.is_internal_note ? `${AMBER}10` : agent ? NAVY : 'var(--th-bg)',
-                color: agent && !m.is_internal_note ? '#fff' : 'var(--txt)',
-                border: agent && !m.is_internal_note ? 'none' : '1px solid var(--bdr)',
-              }}>
-                {m.body_text || '(empty)'}
-              </div>
+              {m.body_html && !m.is_internal_note ? (
+                <HtmlMessage html={m.body_html} />
+              ) : (
+                <div style={{
+                  maxWidth: '78%', padding: '10px 14px', borderRadius: RADIUS.lg, fontSize: TEXT.sm, lineHeight: 1.55,
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  background: m.is_internal_note ? `${AMBER}10` : agent ? NAVY : 'var(--th-bg)',
+                  color: agent && !m.is_internal_note ? '#fff' : 'var(--txt)',
+                  border: agent && !m.is_internal_note ? 'none' : '1px solid var(--bdr)',
+                }}>
+                  {m.body_text || '(empty)'}
+                </div>
+              )}
             </div>
           )
         })}
