@@ -93,6 +93,7 @@ func RegisterZoho(r chi.Router, db *core.DB) {
 	cc := core.RequirePages("call_center")
 	r.With(cc).Post("/voice/import-logs", zohoImportVoiceLogs(db))
 	r.With(cc).Post("/voice/call", zohoInitiateCall(db))
+	r.With(cc).Get("/voice/token", voiceTokenHandler(db))
 }
 
 // RegisterZohoAdmin mounts the import endpoints outside the JWT auth group,
@@ -1897,6 +1898,62 @@ func upsertZohoContact(ctx context.Context, db *core.DB, c map[string]any) (impo
 
 // ── Zoho Voice — initiate outbound call ──────────────────────────────────────
 
+// voiceUserAccessToken fetches (or refreshes) a user's personal Zoho Voice access
+// token from their stored refresh token, persisting the refreshed token. Returns
+// ("","") when the user has not connected their Zoho Voice account.
+func voiceUserAccessToken(ctx context.Context, db *core.DB, userID int64) (token, agentID string) {
+	rows, _ := db.PGQuery(ctx,
+		`SELECT zoho_voice_access_token, zoho_voice_token_expiry, zoho_voice_refresh_token, zoho_voice_agent_id
+		 FROM o3c_users WHERE id=$1`, userID)
+	if len(rows) == 0 {
+		return "", ""
+	}
+	encAccess, _ := rows[0]["zoho_voice_access_token"].(string)
+	expiry, _ := rows[0]["zoho_voice_token_expiry"].(time.Time)
+	encRefresh, _ := rows[0]["zoho_voice_refresh_token"].(string)
+	agentID, _ = rows[0]["zoho_voice_agent_id"].(string)
+	if encAccess != "" && time.Now().Add(60*time.Second).Before(expiry) {
+		token, _ = decryptValue(encAccess)
+		return token, agentID
+	}
+	if encRefresh != "" {
+		if rt, _ := decryptValue(encRefresh); rt != "" {
+			if newAccess, newExpiry, err := voiceRefreshUserToken(ctx, rt); err == nil {
+				token = newAccess
+				if enc, encErr := encryptValue(newAccess); encErr == nil {
+					db.PGExec(ctx, //nolint:errcheck
+						`UPDATE o3c_users SET zoho_voice_access_token=$1, zoho_voice_token_expiry=$2 WHERE id=$3`,
+						enc, newExpiry, userID)
+				}
+			}
+		}
+	}
+	return token, agentID
+}
+
+// voiceTokenHandler — GET /api/zoho/voice/token. Returns the caller's fresh Zoho
+// Voice access token (+ agent id + DC) for the browser WebSDK to authenticate. No
+// call is logged (unlike /voice/call); used to initialise the SDK's OAuth callback.
+func voiceTokenHandler(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		if user == nil {
+			respondErr(w, 401, "unauthorized")
+			return
+		}
+		token, agentID := voiceUserAccessToken(ctx, db, user.ID)
+		if token == "" {
+			respondErr(w, 403, "Zoho Voice not connected — connect your account in Settings")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+			"access_token": token, "agent_id": agentID, "dc": zohoDC,
+		})
+	}
+}
+
 // zohoInitiateCall fetches a fresh per-user Zoho Voice access token and returns
 // it to the frontend alongside the Zoho data-centre region.  The actual call is
 // placed browser-side by the Zoho Voice WebSDK — the Desk REST API is a call-log
@@ -1925,32 +1982,9 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(ctx)
 
 		// Fetch / refresh the agent's personal Zoho Voice token + agent ID.
-		callToken := ""
-		agentVoiceID := ""
+		callToken, agentVoiceID := "", ""
 		if user != nil {
-			rows, _ := db.PGQuery(ctx,
-				`SELECT zoho_voice_access_token, zoho_voice_token_expiry, zoho_voice_refresh_token, zoho_voice_agent_id
-				 FROM o3c_users WHERE id=$1`, user.ID)
-			if len(rows) > 0 {
-				encAccess, _ := rows[0]["zoho_voice_access_token"].(string)
-				expiry, _ := rows[0]["zoho_voice_token_expiry"].(time.Time)
-				encRefresh, _ := rows[0]["zoho_voice_refresh_token"].(string)
-				agentVoiceID, _ = rows[0]["zoho_voice_agent_id"].(string)
-				if encAccess != "" && time.Now().Add(60*time.Second).Before(expiry) {
-					callToken, _ = decryptValue(encAccess)
-				} else if encRefresh != "" {
-					if rt, _ := decryptValue(encRefresh); rt != "" {
-						if newAccess, newExpiry, err := voiceRefreshUserToken(ctx, rt); err == nil {
-							callToken = newAccess
-							if enc, err := encryptValue(newAccess); err == nil {
-								db.PGExec(ctx, //nolint:errcheck
-									`UPDATE o3c_users SET zoho_voice_access_token=$1, zoho_voice_token_expiry=$2 WHERE id=$3`,
-									enc, newExpiry, user.ID)
-							}
-						}
-					}
-				}
-			}
+			callToken, agentVoiceID = voiceUserAccessToken(ctx, db, user.ID)
 		}
 
 		if callToken == "" {

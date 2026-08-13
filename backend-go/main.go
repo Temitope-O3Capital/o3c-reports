@@ -888,19 +888,28 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+		// microphone=(self) so the Zoho Voice WebSDK (browser softphone) can capture
+		// audio on our own origin; still denied to third-party frames unless delegated.
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(self), geolocation=(), payment=(), usb=()")
 		// CSP must allow the served React SPA: its own /assets/*.js and .css
 		// ('self'), the static inline theme script and React's inline style
 		// attributes ('unsafe-inline'), Google Fonts, and same-origin API calls.
 		// The previous "default-src 'none' + unpkg-only" policy was API-only and
 		// blocked the app's own scripts, producing a blank page.
+		// The Zoho Voice WebSDK (browser softphone) is loaded from js.zohostatic.com and
+		// talks to *.zoho.com over HTTPS + WSS (WebRTC signalling), rendering its media
+		// UI in a zoho.com iframe. These extra allowances are scoped to Zoho hosts; they
+		// can be tightened to the exact voice.zoho.<dc> hosts once the spike confirms them.
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self' 'unsafe-inline'; "+
-				"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
+				"script-src 'self' 'unsafe-inline' https://js.zohostatic.com; "+
+				"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://js.zohostatic.com; "+
 				"font-src 'self' data: https://fonts.gstatic.com; "+
 				"img-src 'self' data: https:; "+
-				"connect-src 'self' https://crm.o3cards.pri:8443; "+
+				"connect-src 'self' https://crm.o3cards.pri:8443 https://*.zoho.com wss://*.zoho.com https://*.zohostatic.com; "+
+				"media-src 'self' blob:; "+
+				"worker-src 'self' blob:; "+
+				"frame-src 'self' https://*.zoho.com; "+
 				"base-uri 'self'; "+
 				"form-action 'self'; "+
 				"frame-ancestors 'none'")
