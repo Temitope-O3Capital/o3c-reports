@@ -15,7 +15,7 @@ export default function CareHub() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const user = currentUser()
-  const isHead = user?.role === 'call_center_head' || user?.role === 'admin'
+  const isHead = user?.role === 'care_head' || user?.role === 'admin'
 
   const tabs = [
     { key: 'overview', label: 'Overview' },

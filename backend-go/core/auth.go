@@ -618,6 +618,12 @@ func buildRolePages() map[string][]string {
 	finHead := []string{"los_finance_approve", "payroll", "kpi_dashboard", "reports", "statements", "executive"}
 	ccAgent := []string{"call_center", "helpdesk", "helpdesk_canned", "helpdesk_kb", "transactions", "crm_contacts"}
 	ccHead := []string{"call_center_stats", "helpdesk_stats", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive"}
+	// Care (customer email) is a separate team from Call Center (phone) — its own
+	// module + roles, so a call-center agent no longer sees Care and vice-versa. Care
+	// still uses the shared helpdesk ticket engine (email-channel tickets), hence the
+	// helpdesk/canned/kb keys; the "care" key + sidebar gate the module itself.
+	careAgent := []string{"care", "helpdesk", "helpdesk_canned", "helpdesk_kb", "crm_contacts"}
+	careHead := []string{"helpdesk_stats", "message_templates", "kpi_dashboard", "statements", "executive"}
 	riskAgent := []string{"credit_portfolio", "loans", "los_risk_review", "risk_officer"}
 	riskHead := []string{"los_risk_head", "los_assign", "risk_head", "risk_all", "active_loan_book", "kpi_dashboard", "statements", "executive"}
 	compAgent := []string{"compliance_checklists", "audit_findings", "watch_list"}
@@ -651,6 +657,8 @@ func buildRolePages() map[string][]string {
 		// ── Contact Centre ──
 		"call_center_agent": union(util, ccAgent),
 		"call_center_head":  union(util, ccAgent, ccHead),
+		"care_agent":        union(util, careAgent),
+		"care_head":         union(util, careAgent, careHead),
 		// ── Risk ──
 		"risk_officer": union(util, riskAgent),
 		"risk_head":    union(util, riskAgent, riskHead),

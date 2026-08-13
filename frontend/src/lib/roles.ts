@@ -45,6 +45,8 @@ export const ROLE_LABELS: Record<string, string> = {
   // Contact Centre
   call_center_agent:        'Call Center Agent',
   call_center_head:         'Head of Call Center',
+  care_agent:               'Care Agent',
+  care_head:                'Head of Care',
 
   // Compliance
   compliance_officer:       'Compliance Officer',
