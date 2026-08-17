@@ -91,8 +91,8 @@ export interface HeroStatSpec { label: string; value: string; delta?: React.Reac
 
 export function HeroStat({ label, value, delta, color }: HeroStatSpec) {
   return (
-    <div style={{ background: 'rgba(255,255,255,.08)', borderRadius: RADIUS.lg, padding: '11px 14px', minWidth: 92 }}>
-      <div style={{ fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.55)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+    <div style={{ background: 'rgba(255,255,255,.08)', borderRadius: RADIUS.lg, padding: '11px 14px', minWidth: 0 }}>
+      <div style={{ fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.55)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
         <span style={{ ...NUM, fontSize: 22, fontWeight: FW.extrabold, color: color ?? '#fff', lineHeight: 1 }}>{value}</span>
         {delta}
@@ -198,11 +198,12 @@ export function WorkspaceHero({ presence, subline, ring, stats, aside, actions, 
         <LiveClock />
       </div>
 
-      {/* ring + stats + aside */}
-      <div style={{ display: 'grid', gridTemplateColumns: aside ? 'auto 1fr' : '1fr', gap: 26, alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+      {/* ring + stats + aside — stats sit in an even grid so the tiles line up in
+          clean columns/rows instead of ragged flex-wrap. */}
+      <div style={{ display: 'grid', gridTemplateColumns: aside ? 'minmax(0, 1fr) minmax(240px, 340px)' : '1fr', gap: 26, alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, minWidth: 0 }}>
           {ring && <Ring value={ring.value} max={ring.max} unit={ring.unit} />}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10 }}>
             {stats.map((s, i) => <HeroStat key={i} {...s} />)}
           </div>
         </div>

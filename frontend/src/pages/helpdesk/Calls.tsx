@@ -17,7 +17,6 @@ import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA, FW, RADIUS, SP, TEXT 
 import QAEvaluation from './QAEvaluation'
 import { BAND_COLOR } from '../../lib/qa'
 import { toast } from 'sonner'
-import ScheduleCallbackModal from '../../components/ScheduleCallbackModal'
 import LogCallModal, { LogCallInitial } from '../../components/LogCallModal'
 
 function myRole(): string { try { return String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '') } catch { return '' } }
@@ -302,7 +301,6 @@ export default function Calls() {
   // Supervisor "view agent" drawer target.
   // Per-call detail modal (everything logged about one call).
   const [viewCall, setViewCall] = useState<CallLog | null>(null)
-  const [scheduleOpen, setScheduleOpen] = useState(false)
   // Filters
   const [agentFilter, setAgentFilter] = useState('')
   const [fDirs,       setFDirs]       = useState(new Set<string>())
@@ -401,26 +399,6 @@ export default function Calls() {
     setLogOpen(true)
   }
 
-  function exportCsv() {
-    const header = ['Agent', 'Customer', 'Phone', 'Direction', 'Duration (s)', 'Outcome', 'Disposition', 'Purpose', 'Ticket', 'Called At', 'Complaint / Summary', 'Resolution']
-    const lines = rows.map(r => [
-      `"${(r.agent_name ?? '').replace(/"/g, '""')}"`,
-      `"${(r.customer_name ?? '').replace(/"/g, '""')}"`,
-      r.phone ?? '',
-      r.direction ?? '',
-      r.duration_seconds ?? 0,
-      r.outcome ?? '',
-      `"${(r.disposition ?? '').replace(/"/g, '""')}"`,
-      `"${(PURPOSE_META[(r.purpose ?? '').toLowerCase()]?.label ?? '')}"`,
-      r.ticket_ref ?? '',
-      r.called_at ?? '',
-      `"${(r.notes ?? '').replace(/"/g, '""')}"`,
-      `"${(r.resolution ?? '').replace(/"/g, '""')}"`,
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `call-log-${today()}.csv` })
-    document.body.appendChild(a); a.click(); a.remove()
-  }
 
   // ── Table columns ─────────────────────────────────────────────────────────
 
@@ -572,16 +550,6 @@ export default function Calls() {
       actions={
         <div style={{ display: 'flex', gap: SP[2] }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-          <button onClick={exportCsv}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
-            Export CSV
-          </button>
-          <button onClick={() => setScheduleOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>event_upcoming</span>
-            Schedule Callback
-          </button>
           <button onClick={() => openLog()}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add_call</span>
@@ -682,7 +650,6 @@ export default function Calls() {
       <CallDetailModal call={viewCall} onClose={() => setViewCall(null)}
         onEvaluate={CAN_EVALUATE ? c => { setViewCall(null); setEvalCall(c) } : undefined}
         onOpenTicket={id => { setViewCall(null); navigate(`/helpdesk/${id}`) }} />
-      <ScheduleCallbackModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} onSaved={() => { load(); loadStats() }} />
     </Page>
   )
 }

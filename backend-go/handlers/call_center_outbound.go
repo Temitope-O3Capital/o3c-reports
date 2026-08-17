@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -128,6 +127,7 @@ func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
 	r.Post("/leads", ccCreateLead(db))
 	r.Post("/leads/import", ccImportLeads(db)) // bulk upload a lead list (heads)
 	r.Post("/leads/bulk-assign", ccBulkAssign(db))
+	r.Post("/leads/assign-batch", ccAssignLeadsBatch(db)) // count-based assign to one agent (parity with the queue)
 	r.Post("/leads/distribute", ccDistribute(db))
 	r.Patch("/leads/{id}", ccUpdateLead(db))
 	r.Post("/leads/{id}/disposition", ccLogDisposition(db))
@@ -137,18 +137,21 @@ func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
 
 	// Outbound queue (contacts + call logs)
 	r.Get("/queue", ccListQueue(db))
-	r.Post("/queue/sync-from-crm", ccSyncQueueFromCRM(db))     // marketing leads (Zoho CRM)
-	r.Post("/queue/sync-collections", ccSyncCollections(db))   // collections (overdue accounts)
-	r.Post("/queue/import", ccImportContacts(db))              // manual / CSV upload
-	r.Post("/queue/add-callback", ccAddCallback(db))           // support call-back (from a ticket/customer)
+	r.Post("/queue/sync-from-crm", ccSyncQueueFromCRM(db))   // marketing leads (Zoho CRM)
+	r.Post("/queue/sync-collections", ccSyncCollections(db)) // collections (overdue accounts)
+	r.Post("/queue/import", ccImportContacts(db))            // manual / CSV upload
+	r.Post("/queue/add-callback", ccAddCallback(db))         // support call-back (from a ticket/customer)
 	r.Post("/queue/assign-batch", ccAssignBatch(db))
 	r.Post("/queue/distribute", ccDistributeQueue(db)) // round-robin the whole pool
 	r.Post("/queue/bulk-skip", ccBulkSkip(db))
-	r.Post("/queue/export", ccExportQueue(db))
-	r.Get("/queue/export", ccExportQueue(db)) // GET for blob download (apiExport)
 	r.Get("/contacts/{id}/calls", ccContactCalls(db))
 	r.Post("/contacts/{id}/log-call", ccLogCall(db))
 	r.Get("/dispositions", ccListDispositions()) // canonical outcome vocabulary
+
+	// Agent presence heartbeat — the workspace pings while open (auto-online) and
+	// beacons on close (auto-offline); powers "distribute to online agents".
+	r.Post("/presence/ping", ccPresencePing(db))
+	r.Post("/presence/offline", ccPresenceOffline(db))
 
 	// Inbound — 53% of inbound calls go unanswered and had no follow-up path at all.
 	r.Get("/inbound", ccInboundList(db))
@@ -156,10 +159,10 @@ func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
 	r.Post("/inbound/{id}/ticket", ccInboundToTicket(db))
 
 	// Performance analytics
-	r.Get("/performance-kpis",    ccPerformanceKPIs(db))
-	r.Get("/by-disposition",      ccByDisposition(db))
-	r.Get("/hourly-volume",       ccHourlyVolume(db))
-	r.Get("/agent-performance",   ccAgentPerformance(db))
+	r.Get("/performance-kpis", ccPerformanceKPIs(db))
+	r.Get("/by-disposition", ccByDisposition(db))
+	r.Get("/hourly-volume", ccHourlyVolume(db))
+	r.Get("/agent-performance", ccAgentPerformance(db))
 
 	// DNC
 	r.Get("/dnc", ccListDNC(db))
@@ -282,7 +285,7 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 			}
 		}
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		if from != "" {
 			q += fmt.Sprintf(" AND l.created_at::date >= $%d::date", n)
 			args = append(args, from)
@@ -307,13 +310,13 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 
 func ccCreateLead(db *core.DB) http.HandlerFunc {
 	type body struct {
-		CampaignID   *int64  `json:"campaign_id"`
-		CustomerCIF  *string `json:"customer_cif"`
-		CustomerName string  `json:"customer_name"`
+		CampaignID    *int64  `json:"campaign_id"`
+		CustomerCIF   *string `json:"customer_cif"`
+		CustomerName  string  `json:"customer_name"`
 		CustomerPhone *string `json:"customer_phone"`
-		Employer     *string `json:"employer"`
-		LeadScore    int     `json:"lead_score"`
-		AssignedTo   *int64  `json:"assigned_to"`
+		Employer      *string `json:"employer"`
+		LeadScore     int     `json:"lead_score"`
+		AssignedTo    *int64  `json:"assigned_to"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -405,13 +408,13 @@ func ccLogDisposition(db *core.DB) http.HandlerFunc {
 
 		// Map outcome to lead status
 		statusMap := map[string]string{
-			"interested":      "called",
-			"not_interested":  "called",
-			"callback":        "callback",
-			"no_answer":       "no_answer",
-			"voicemail":       "no_answer",
-			"dnc":             "dnc",
-			"converted":       "converted",
+			"interested":     "called",
+			"not_interested": "called",
+			"callback":       "callback",
+			"no_answer":      "no_answer",
+			"voicemail":      "no_answer",
+			"dnc":            "dnc",
+			"converted":      "converted",
 		}
 		leadStatus := "called"
 		if s, ok := statusMap[b.Outcome]; ok {
@@ -719,7 +722,9 @@ func ccDistributeQueue(db *core.DB) http.HandlerFunc {
 			b.Limit = 20000
 		}
 
-		agents := activeAgentIDs(ctx, db)
+		// Online & available agents first; fall back to everyone so a distribute never
+		// no-ops when nobody is currently online.
+		agents, onlineOnly := distributionAgents(ctx, db)
 		if len(agents) == 0 {
 			respondErr(w, 422, "No active call-centre agents to distribute to")
 			return
@@ -745,7 +750,7 @@ func ccDistributeQueue(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if len(rows) == 0 {
-			respond(w, map[string]any{"assigned": 0, "per_agent": map[string]int{}}, "json")
+			respond(w, map[string]any{"assigned": 0, "per_agent": map[string]int{}, "online_only": onlineOnly}, "json")
 			return
 		}
 
@@ -783,7 +788,7 @@ func ccDistributeQueue(db *core.DB) http.HandlerFunc {
 				GroupKey:  "queue:assigned",
 			})
 		}
-		respond(w, map[string]any{"assigned": total, "per_agent": perAgent, "agents": len(agents)}, "json")
+		respond(w, map[string]any{"assigned": total, "per_agent": perAgent, "agents": len(agents), "online_only": onlineOnly}, "json")
 	}
 }
 
@@ -833,6 +838,175 @@ func ccBulkAssign(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// ── Agent presence (heartbeat) ────────────────────────────────────────────────
+
+// onlineAgentIDs returns the call-centre agents who are online AND available right
+// now: status 'available' with a heartbeat in the last 5 minutes. Distribution uses
+// this so work only lands on people actually at their desk.
+func onlineAgentIDs(ctx context.Context, db *core.DB) []int64 {
+	rows, _ := db.PGQuery(ctx, `
+		SELECT id FROM o3c_users
+		 WHERE deleted_at IS NULL
+		   AND role IN ('call_center_agent','call_center_head')
+		   AND COALESCE(helpdesk_status,'offline') = 'available'
+		   AND helpdesk_last_seen IS NOT NULL
+		   AND helpdesk_last_seen > NOW() - INTERVAL '5 minutes'
+		 ORDER BY id`)
+	out := make([]int64, 0, len(rows))
+	for _, r := range rows {
+		if id := toInt64(r["id"]); id > 0 {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// allCCAgentIDs is the fallback pool used when nobody is online, so a supervisor's
+// distribute never silently no-ops.
+func allCCAgentIDs(ctx context.Context, db *core.DB) []int64 {
+	rows, _ := db.PGQuery(ctx, `
+		SELECT id FROM o3c_users
+		 WHERE deleted_at IS NULL AND role IN ('call_center_agent','call_center_head')
+		 ORDER BY id`)
+	out := make([]int64, 0, len(rows))
+	for _, r := range rows {
+		if id := toInt64(r["id"]); id > 0 {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// distributionAgents resolves the target pool for a round-robin: online-and-available
+// first, falling back to everyone when nobody is online. The bool reports whether the
+// online set was used, so the UI can say so.
+func distributionAgents(ctx context.Context, db *core.DB) ([]int64, bool) {
+	online := onlineAgentIDs(ctx, db)
+	if len(online) > 0 {
+		return online, true
+	}
+	return allCCAgentIDs(ctx, db), false
+}
+
+// ccPresencePing marks the caller present by refreshing last-seen on a timer while the
+// workspace is open. Body {"initial":true} — sent once when the app loads — also brings
+// an offline agent back to available ("auto-online on login"). Regular heartbeats never
+// change status, so a manual Break/Offline the agent chose with the tab open is respected.
+func ccPresencePing(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := core.UserFromCtx(r.Context())
+		if u == nil {
+			respondErr(w, 401, "Not signed in")
+			return
+		}
+		var b struct {
+			Initial bool `json:"initial"`
+		}
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+		if b.Initial {
+			db.PGExec(r.Context(), `
+				UPDATE o3c_users
+				   SET helpdesk_last_seen = NOW(),
+				       helpdesk_status = CASE WHEN COALESCE(helpdesk_status,'offline') = 'offline'
+				                              THEN 'available' ELSE helpdesk_status END
+				 WHERE id = $1`, u.ID) //nolint:errcheck
+		} else {
+			db.PGExec(r.Context(), `UPDATE o3c_users SET helpdesk_last_seen = NOW() WHERE id = $1`, u.ID) //nolint:errcheck
+		}
+		var status string
+		if rows, _ := db.PGQuery(r.Context(), `SELECT COALESCE(helpdesk_status,'available') AS s FROM o3c_users WHERE id=$1`, u.ID); len(rows) > 0 {
+			status = str(rows[0]["s"])
+		}
+		respond(w, map[string]any{"status": status}, "json")
+	}
+}
+
+// ccPresenceOffline flips the caller offline — sent as a beacon when the tab closes.
+func ccPresenceOffline(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := core.UserFromCtx(r.Context())
+		if u == nil {
+			respondErr(w, 401, "Not signed in")
+			return
+		}
+		db.PGExec(r.Context(), `UPDATE o3c_users SET helpdesk_status='offline' WHERE id=$1`, u.ID) //nolint:errcheck
+		respond(w, map[string]any{"status": "offline"}, "json")
+	}
+}
+
+// ccAssignLeadsBatch hands a COUNT of unassigned pending leads to one agent — the
+// leads analogue of ccAssignBatch, so Leads and the Outbound Queue offer the same
+// "Assign to agent" action. Head/management only.
+func ccAssignLeadsBatch(db *core.DB) http.HandlerFunc {
+	mgmtRoles := map[string]bool{
+		"md": true, "coo": true, "cfo": true, "cmo": true,
+		"admin": true, "management": true, "head_ops": true, "head_it": true,
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil || (user.Role != "call_center_head" && !mgmtRoles[user.Role]) {
+			respondErr(w, 403, "Only team heads can assign leads")
+			return
+		}
+		var b struct {
+			AgentID    int64  `json:"agent_id"`
+			Count      int    `json:"count"`
+			CampaignID *int64 `json:"campaign_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.AgentID <= 0 {
+			respondErr(w, 422, "agent_id is required")
+			return
+		}
+		if b.Count <= 0 || b.Count > 5000 {
+			respondErr(w, 422, "count must be between 1 and 5000")
+			return
+		}
+		if rows, _ := db.PGQuery(r.Context(),
+			`SELECT 1 FROM o3c_users WHERE id=$1 AND deleted_at IS NULL AND role IN ('call_center_agent','call_center_head')`,
+			b.AgentID); len(rows) == 0 {
+			respondErr(w, 422, "Unknown agent")
+			return
+		}
+		where := "assigned_to IS NULL AND status='pending'"
+		args := []any{b.AgentID}
+		n := 2
+		if b.CampaignID != nil {
+			where += fmt.Sprintf(" AND campaign_id=$%d", n)
+			args = append(args, *b.CampaignID)
+			n++
+		}
+		args = append(args, b.Count)
+		res, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			UPDATE call_center_leads SET assigned_to=$1, updated_at=NOW()
+			 WHERE id IN (
+			   SELECT id FROM call_center_leads
+			    WHERE %s
+			    ORDER BY lead_score DESC, created_at ASC
+			    LIMIT $%d
+			 ) RETURNING id`, where, n), args...)
+		if err != nil {
+			respondErr(w, 500, "Assign failed")
+			return
+		}
+		if len(res) > 0 {
+			go Notify(context.WithoutCancel(r.Context()), db, NotifPayload{
+				EventType: "leads_assigned",
+				UserID:    b.AgentID,
+				Title:     fmt.Sprintf("%d lead(s) assigned to you", len(res)),
+				Body:      "New leads are waiting in your list.",
+				ActionURL: "/call-center/leads",
+				EntityRef: "leads:assigned",
+				GroupKey:  "leads:assigned",
+			})
+		}
+		respond(w, map[string]any{"assigned": len(res)}, "pg")
+	}
+}
+
 // ccDistribute distributes unassigned pending leads round-robin across active agents.
 // Restricted to call_center_head and management roles.
 // Leads are ordered by lead_score DESC so high-value leads are spread first.
@@ -858,23 +1032,12 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 		}
 		ctx := r.Context()
 
-		// Resolve agents
+		// Resolve agents — online & available first, falling back to everyone so a
+		// distribute never no-ops when the floor is quiet.
 		agentIDs := b.AgentIDs
+		onlineOnly := false
 		if len(agentIDs) == 0 {
-			rows, err := db.PGQuery(ctx,
-				`SELECT id FROM o3c_users WHERE deleted_at IS NULL AND role IN ('call_center_agent','call_center_head') ORDER BY full_name`)
-			if err != nil {
-				respondErr(w, 500, "Query failed")
-				return
-			}
-			for _, row := range rows {
-				switch v := row["id"].(type) {
-				case int64:
-					agentIDs = append(agentIDs, v)
-				case float64:
-					agentIDs = append(agentIDs, int64(v))
-				}
-			}
+			agentIDs, onlineOnly = distributionAgents(ctx, db)
 		}
 		if len(agentIDs) == 0 {
 			respondErr(w, 400, "No call center agents found")
@@ -976,6 +1139,7 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"distributed": len(leadRows),
 			"breakdown":   breakdown,
+			"online_only": onlineOnly,
 		})
 	}
 }
@@ -1302,14 +1466,14 @@ const ccExhaustedAttempts = 6
 
 func ccListQueue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		priority    := qstr(r, "priority")
+		priority := qstr(r, "priority")
 		disposition := qstr(r, "disposition")
-		dpdRange    := qstr(r, "dpd")
-		search      := qstr(r, "search")
-		purpose     := qstr(r, "purpose")
-		bucket      := qstr(r, "bucket")
-		limit       := qint(r, "limit", 200, 1, 500)
-		cooldown    := qint(r, "cooldown_days", ccCooldownDays, 0, 90)
+		dpdRange := qstr(r, "dpd")
+		search := qstr(r, "search")
+		purpose := qstr(r, "purpose")
+		bucket := qstr(r, "bucket")
+		limit := qint(r, "limit", 200, 1, 500)
+		cooldown := qint(r, "cooldown_days", ccCooldownDays, 0, 90)
 
 		// Derived flags travel with each row so the UI can badge a contact without
 		// re-deriving the thresholds and drifting from the ordering below.
@@ -1651,80 +1815,6 @@ func ccBulkSkip(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// ccExportQueue streams the outbound queue (call_center_contacts) as CSV.
-// Honours a selection of ids (POST body {ids:[...]} or ?ids=1,2,3); with none it
-// exports the whole pending queue.
-func ccExportQueue(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-
-		// Collect selected ids from a JSON body or the ?ids= query param.
-		var ids []int64
-		if r.Method == http.MethodPost {
-			var b struct {
-				IDs []int64 `json:"ids"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
-			ids = b.IDs
-		}
-		if len(ids) == 0 {
-			for _, s := range strings.Split(qstr(r, "ids"), ",") {
-				if s = strings.TrimSpace(s); s != "" {
-					if v, err := strconv.ParseInt(s, 10, 64); err == nil {
-						ids = append(ids, v)
-					}
-				}
-			}
-		}
-
-		where := "1=1"
-		args := []any{}
-		if len(ids) > 0 {
-			ph := make([]string, len(ids))
-			for i, id := range ids {
-				ph[i] = fmt.Sprintf("$%d", i+1)
-				args = append(args, id)
-			}
-			where = "c.id IN (" + strings.Join(ph, ",") + ")"
-		}
-
-		rows, err := db.PGQuery(ctx, fmt.Sprintf(`
-			SELECT c.id, c.customer_name, c.phone, c.cif, c.product_name, c.priority,
-			       c.dpd, c.outstanding_kobo, c.status, c.last_disposition,
-			       u.full_name AS agent_name, c.created_at
-			FROM call_center_contacts c
-			LEFT JOIN o3c_users u ON u.id = c.assigned_to
-			WHERE %s
-			ORDER BY c.created_at DESC`, where), args...)
-		if err != nil {
-			respondErr(w, 500, "Export query failed")
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="call_center_queue.csv"`)
-		w.WriteHeader(200)
-		fmt.Fprint(w, "ID,Customer Name,Phone,CIF,Product,Priority,DPD,Outstanding (₦),Status,Last Disposition,Agent,Created At\n")
-		for _, row := range rows {
-			outstanding := toInt64(row["outstanding_kobo"]) / 100
-			fmt.Fprintf(w, "%v,%q,%q,%q,%q,%q,%v,%v,%q,%q,%q,%v\n",
-				row["id"],
-				str(row["customer_name"]),
-				str(row["phone"]),
-				str(row["cif"]),
-				str(row["product_name"]),
-				str(row["priority"]),
-				row["dpd"],
-				outstanding,
-				str(row["status"]),
-				str(row["last_disposition"]),
-				str(row["agent_name"]),
-				row["created_at"],
-			)
-		}
-	}
-}
-
 // ── DNC extras ────────────────────────────────────────────────────────────────
 
 func ccDNCKPIs(db *core.DB) http.HandlerFunc {
@@ -1778,10 +1868,10 @@ func ccBulkRemoveDNC(db *core.DB) http.HandlerFunc {
 func ccPerformanceKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
-		agent       := qstr(r, "agent")
+		dateTo, _ := validDate(r, "date_to")
+		agent := qstr(r, "agent")
 
-		from  := "call_center_dispositions d"
+		from := "call_center_dispositions d"
 		where := "1=1"
 		var args []any
 		n := 1
@@ -1826,7 +1916,7 @@ func ccPerformanceKPIs(db *core.DB) http.HandlerFunc {
 func ccByDisposition(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
+		dateTo, _ := validDate(r, "date_to")
 
 		where := "1=1"
 		var args []any
@@ -1886,7 +1976,7 @@ func ccHourlyVolume(db *core.DB) http.HandlerFunc {
 func ccAgentPerformance(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
+		dateTo, _ := validDate(r, "date_to")
 
 		where := "1=1"
 		var args []any

@@ -15,6 +15,7 @@ import { RealtimeProvider } from './hooks/useRealtime'
 import { type AuthUser, ROLE_PAGES, allRoles } from './hooks/useAuth'
 import { useCustomerSearch } from './hooks/useCustomerSearch'
 import { useModules } from './hooks/useModules'
+import { useAgentPresence } from './hooks/useAgentPresence'
 import { roleLabel, MGMT } from './lib/roles'
 import { API, apiFetch, apiPost, apiLogout, refreshSession } from './lib/api'
 import { LIGHT, DARK, GREEN, BLUE, NAVY, PLEX, MONO, RED, CANVAS }  from './lib/design'
@@ -28,7 +29,7 @@ const UserSettings = lazy(() => import('./pages/Settings'))
 
 // Intelligence
 const ReportsMyDashboard = lazy(() => import('./pages/reports/MyDashboard'))
-const ReportsBI       = lazy(() => import('./pages/reports/BI'))
+const ReportsLibrary  = lazy(() => import('./pages/reports/ReportsLibrary'))
 const ReportsKPI      = lazy(() => import('./pages/reports/KPITracker'))
 const ReportsExport   = lazy(() => import('./pages/reports/Export'))
 const BIOverview      = lazy(() => import('./pages/bi/BIOverview'))
@@ -141,6 +142,7 @@ const CollOpsAgentDash = lazy(() => import('./pages/collections-ops/AgentDashboa
 // Agent dashboards
 const RecoveryAgentDash   = lazy(() => import('./pages/recovery-ops/Agent'))
 const SalesMyDashboard    = lazy(() => import('./pages/sales/MyDashboard'))
+const SalesSupervisor     = lazy(() => import('./pages/sales/Supervisor'))
 const HelpdeskOverview    = lazy(() => import('./pages/helpdesk/Overview'))
 const HelpdeskMyDashboard = lazy(() => import('./pages/helpdesk/MyDashboard'))
 const BDMyDashboard       = lazy(() => import('./pages/bd/MyDashboard'))
@@ -255,6 +257,14 @@ const CoreBanking       = lazy(() => import('./pages/core-banking/CoreBanking'))
 const CCStatements      = lazy(() => import('./pages/statements/CCStatements'))
 const CCStatementNew    = lazy(() => import('./pages/statements/CCStatementNew'))
 const CCStatementDetail = lazy(() => import('./pages/statements/CCStatementDetail'))
+
+// Presence beacon for call-facing roles — mounted once in the shell so an agent goes
+// online on login, stays online while the app is open, and drops offline on close.
+// Renders nothing.
+function AgentPresence({ enabled }: { enabled: boolean }) {
+  useAgentPresence(enabled)
+  return null
+}
 
 // ── Role → home ───────────────────────────────────────────────────────────────
 
@@ -906,6 +916,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         fontFamily: "'Sora', sans-serif",
       }}>
         <Toaster richColors position="top-right" />
+        <AgentPresence enabled={role === 'call_center_agent' || role === 'call_center_head'} />
 
         {/* Sidebar */}
         <Sidebar user={user} onLogout={onLogout} onCmdK={() => setSearchOpen(true)} enabledModules={enabledModules} />
@@ -1039,7 +1050,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/helpdesk/knowledge-base" element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskKB /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/canned"         element={<RequireAccess page="helpdesk_canned" user={user}><PageErrorBoundary><HelpdeskCallScripts /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/care/canned"             element={<RequireAccess page="helpdesk_canned" user={user}><PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/reports/cbn-report"      element={<RequireAccess page="reports" user={user}><PageErrorBoundary><HelpdeskCBNReport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/compliance/cbn-complaints" element={<RequireAccess page="cbn_reports" user={user}><PageErrorBoundary><HelpdeskCBNReport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/:id"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTicketDetail /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Cards */}
@@ -1098,6 +1109,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   {/* Agent dashboards */}
                   <Route path="/recovery-ops/agent"     element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryAgentDash /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/my-dashboard"     element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesMyDashboard /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/supervisor"       element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesSupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/my-dashboard"  element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bd/my-dashboard"        element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/my-queue"         element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMyQueue /></PageErrorBoundary></RequireAccess>} />
@@ -1161,8 +1173,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* Intelligence */}
                   <Route path="/reports/my-dashboard" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsMyDashboard /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/reports"        element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsBI /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/reports/kpi"    element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsKPI /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports"        element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsLibrary /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/kpi"    element={<RequireAccess page="kpi_dashboard" user={user}><PageErrorBoundary><ReportsKPI /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/export" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsExport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bi"             element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bi/builder"     element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIBuilder /></PageErrorBoundary></RequireAccess>} />

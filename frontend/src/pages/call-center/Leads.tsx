@@ -346,6 +346,91 @@ function ImportLeadsModal({ open, onClose, onDone, campaigns, onCampaignCreated 
   )
 }
 
+// ── Assign-to-agent modal (heads) ──────────────────────────────────────────────
+// Count-based hand-off of unassigned pending leads to one agent — the same "Assign to
+// agent" action the Outbound Queue offers, for parity.
+
+const ASSIGN_PRESETS = [20, 50, 100, 200]
+
+function AssignLeadsModal({ open, onClose, onDone, agents, campaigns, defaultCampaignId }: {
+  open: boolean; onClose: () => void; onDone: () => void
+  agents: CCAgent[]; campaigns: CCCampaign[]; defaultCampaignId: string
+}) {
+  const [agentId, setAgentId] = useState('')
+  const [count, setCount] = useState(50)
+  const [campaignId, setCampaignId] = useState(defaultCampaignId)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => { if (open) { setCampaignId(defaultCampaignId); setAgentId(''); setErr(null) } }, [open, defaultCampaignId])
+
+  async function submit() {
+    if (!agentId) { setErr('Pick an agent'); return }
+    if (!count || count < 1) { setErr('Enter a count'); return }
+    setSaving(true); setErr(null)
+    try {
+      const body: Record<string, any> = { agent_id: Number(agentId), count }
+      if (campaignId) body.campaign_id = Number(campaignId)
+      const res = await apiPost<{ assigned: number }>('/api/call-center/leads/assign-batch', body)
+      const name = agents.find(a => a.id === Number(agentId))?.full_name ?? 'agent'
+      toast.success(`Assigned ${res.assigned ?? 0} lead(s) to ${name}`)
+      onClose(); onDone()
+    } catch (e: any) { setErr(e.message ?? 'Assign failed') }
+    finally { setSaving(false) }
+  }
+
+  const fld: React.CSSProperties = { width: '100%', height: 38, padding: '0 11px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }
+  const lbl: React.CSSProperties = { display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.03em' }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Assign leads to an agent" width={460}
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer' }}>
+            {saving && <Spinner size={13} color="#fff" />}Assign {count}
+          </button>
+        </div>
+      }>
+      <ErrBanner error={err} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+        <div>
+          <label style={lbl}>Agent</label>
+          <select value={agentId} onChange={e => setAgentId(e.target.value)} style={fld}>
+            <option value="">Select an agent…</option>
+            {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={lbl}>How many</label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {ASSIGN_PRESETS.map(p => (
+              <button key={p} onClick={() => setCount(p)} style={{
+                padding: '7px 13px', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold,
+                border: `1px solid ${count === p ? NAVY : 'var(--bdr)'}`, background: count === p ? `${NAVY}0e` : 'var(--card)', color: count === p ? NAVY : 'var(--txt2)',
+              }}>{p}</button>
+            ))}
+            <input type="number" min={1} max={5000} value={count} onChange={e => setCount(Math.max(1, Math.min(5000, Number(e.target.value) || 0)))}
+              style={{ ...fld, width: 90, height: 34 }} title="Custom count" />
+          </div>
+        </div>
+        {campaigns.length > 0 && (
+          <div>
+            <label style={lbl}>Campaign</label>
+            <select value={campaignId} onChange={e => setCampaignId(e.target.value)} style={fld}>
+              <option value="">All campaigns</option>
+              {campaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+            </select>
+          </div>
+        )}
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+          Assigns the highest-scored, oldest unassigned pending leads that aren’t already assigned.
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function CallCenterLeads() {
@@ -372,6 +457,7 @@ export default function CallCenterLeads() {
   const [distributing, setDistributing] = useState(false)
   const [distributeConfirm, setDistributeConfirm] = useState(false)
   const [importOpen, setImportOpen]     = useState(false)
+  const [assignOpen, setAssignOpen]     = useState(false)
 
   const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
   const load = useCallback(async (refreshSelected?: number) => {
@@ -449,14 +535,14 @@ export default function CallCenterLeads() {
     try {
       const body: Record<string, any> = {}
       if (campaignId) body.campaign_id = Number(campaignId)
-      const res = await apiPost<{ distributed: number; breakdown: { agent_name: string; count: number }[] }>(
+      const res = await apiPost<{ distributed: number; online_only?: boolean; breakdown: { agent_name: string; count: number }[] }>(
         '/api/call-center/leads/distribute', body
       )
       if (res.distributed === 0) {
         toast.info('No unassigned pending leads to distribute')
       } else {
         const summary = res.breakdown.map(b => `${b.agent_name}: ${b.count}`).join(', ')
-        toast.success(`${res.distributed} leads distributed — ${summary}`)
+        toast.success(`${res.distributed} leads distributed ${res.online_only ? 'to online agents' : '(nobody online — spread across all)'} — ${summary}`)
         load()
       }
     } catch (ex: any) {
@@ -477,11 +563,18 @@ export default function CallCenterLeads() {
     <Page title="Leads" subtitle="Contacts pushed from email & SMS campaigns, or uploaded here" noPad
       actions={
         isHead ? (
-          <button onClick={() => setImportOpen(true)} title="Upload a lead list"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: NAVY, color: '#fff', border: `1px solid ${NAVY}`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
-            Upload leads
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+            <button onClick={() => setImportOpen(true)} title="Upload a lead list"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
+              Upload leads
+            </button>
+            <button onClick={() => setAssignOpen(true)} title="Assign a batch of leads to one agent"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: NAVY, color: '#fff', border: `1px solid ${NAVY}`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>assignment_ind</span>
+              Assign to agent
+            </button>
+          </div>
         ) : undefined
       }
     >
@@ -709,6 +802,10 @@ export default function CallCenterLeads() {
 
       {/* Upload lead list — heads/supervisors */}
       <ImportLeadsModal open={importOpen} onClose={() => setImportOpen(false)} onDone={load} campaigns={campaigns} onCampaignCreated={loadCampaigns} />
+
+      {/* Assign a batch of leads to one agent (heads) */}
+      <AssignLeadsModal open={assignOpen} onClose={() => setAssignOpen(false)} onDone={load}
+        agents={agents} campaigns={campaigns} defaultCampaignId={campaignId} />
 
       {/* Distribute confirm modal */}
       <ConfirmModal

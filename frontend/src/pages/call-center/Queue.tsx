@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Page, ErrBanner, Spinner, ConfirmModal, Modal, TblSearch, NameCell,
 } from '../../components/UI'
-import { apiFetch, apiPost, apiExport } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime, today } from '../../lib/fmt'
 import { GREEN, AMBER, RED, DARKRED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
@@ -750,10 +750,10 @@ export default function CallCenterQueue() {
 
   const [skipConfirm, setSkipConfirm] = useState(false)
   const [skipLoading, setSkipLoading] = useState(false)
-  const [syncLoading, setSyncLoading] = useState(false)
-  const [collLoading, setCollLoading] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
+  const [distributing, setDistributing] = useState(false)
+  const [distributeConfirm, setDistributeConfirm] = useState(false)
   const isHead = isHeadRole()
 
   const load = useCallback(async () => {
@@ -809,39 +809,24 @@ export default function CallCenterQueue() {
     }
   }
 
-  async function handleSyncCRM() {
-    setSyncLoading(true)
+  async function handleDistribute() {
+    setDistributing(true)
+    setDistributeConfirm(false)
     try {
-      const res = await apiPost<{ inserted: number }>('/api/call-center/queue/sync-from-crm', {})
-      toast.success(`${res.inserted ?? 0} new marketing lead(s) added`)
-      load()
+      const res = await apiPost<{ assigned: number; online_only?: boolean }>(
+        '/api/call-center/queue/distribute',
+        purposeF ? { purpose: purposeF } : {},
+      )
+      if (!res.assigned) {
+        toast.info('No unassigned contacts to distribute')
+      } else {
+        toast.success(`${res.assigned} contact(s) distributed${res.online_only ? ' to online agents' : ' — nobody online, spread across all agents'}`)
+        load()
+      }
     } catch (e: any) {
-      toast.error(e.message ?? 'Sync failed')
+      toast.error(e.message ?? 'Distribute failed')
     } finally {
-      setSyncLoading(false)
-    }
-  }
-
-  async function handlePullCollections() {
-    setCollLoading(true)
-    try {
-      const res = await apiPost<{ inserted: number }>('/api/call-center/queue/sync-collections', {})
-      toast.success(`${res.inserted ?? 0} overdue account(s) added to Collections`)
-      load()
-    } catch (e: any) {
-      toast.error(e.message ?? 'Collections pull failed')
-    } finally {
-      setCollLoading(false)
-    }
-  }
-
-  async function handleExport() {
-    try {
-      const ids = [...checkedIds]
-      const qs = ids.length ? `?ids=${ids.join(',')}` : ''
-      await apiExport(`/api/call-center/queue/export${qs}`, 'call_center_queue')
-    } catch (e: any) {
-      toast.error(e.message ?? 'Export failed')
+      setDistributing(false)
     }
   }
 
@@ -856,25 +841,21 @@ export default function CallCenterQueue() {
             if (!isHead) return null
             return (
               <>
-                <button onClick={handleSyncCRM} disabled={syncLoading} title="Pull Zoho CRM leads (Marketing)" style={{ ...feedBtn, cursor: syncLoading ? 'wait' : 'pointer', opacity: syncLoading ? 0.7 : 1 }}>
-                  {syncLoading ? <Spinner size={13} color={NAVY} /> : <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: BLUE }}>campaign</span>}
-                  Sync CRM
-                </button>
-                <button onClick={handlePullCollections} disabled={collLoading} title="Pull overdue accounts (Collections)" style={{ ...feedBtn, cursor: collLoading ? 'wait' : 'pointer', opacity: collLoading ? 0.7 : 1 }}>
-                  {collLoading ? <Spinner size={13} color={RED} /> : <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: RED }}>account_balance_wallet</span>}
-                  Pull Collections
-                </button>
+                {/* Feed the queue (Sync CRM / Pull Collections) now lives in Admin → Sync & Workers. */}
                 <button onClick={() => setImportOpen(true)} title="Upload a manual list" style={feedBtn}>
                   <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
                   Import
                 </button>
-                {isHead && (
-                  <button onClick={() => setAssignOpen(true)} title="Assign a batch of the queue to one agent"
-                    style={{ ...feedBtn, background: NAVY, color: '#fff', border: `1px solid ${NAVY}` }}>
-                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>assignment_ind</span>
-                    Assign to agent
-                  </button>
-                )}
+                <button onClick={() => setDistributeConfirm(true)} disabled={distributing} title="Round-robin the unassigned queue across online agents"
+                  style={{ ...feedBtn, cursor: distributing ? 'wait' : 'pointer', opacity: distributing ? 0.7 : 1 }}>
+                  {distributing ? <Spinner size={13} color={NAVY} /> : <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>shuffle</span>}
+                  Distribute
+                </button>
+                <button onClick={() => setAssignOpen(true)} title="Assign a batch of the queue to one agent"
+                  style={{ ...feedBtn, background: NAVY, color: '#fff', border: `1px solid ${NAVY}` }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>assignment_ind</span>
+                  Assign to agent
+                </button>
               </>
             )
           })()}
@@ -1018,7 +999,6 @@ export default function CallCenterQueue() {
               <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{checkedIds.size} selected</span>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                 <button onClick={() => setSkipConfirm(true)} style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer' }}>Skip</button>
-                <button onClick={handleExport} style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY, background: 'none', border: `1px solid ${NAVY}30`, borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer' }}>Export</button>
                 <button onClick={clearChecked} style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%' }}>
                   <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
                 </button>
@@ -1186,6 +1166,16 @@ export default function CallCenterQueue() {
       <ImportContactsModal open={importOpen} onClose={() => setImportOpen(false)} onDone={load} />
       <AssignBatchModal open={assignOpen} defaultPurpose={purposeF || 'all'} available={summary}
         onClose={() => setAssignOpen(false)} onDone={load} />
+
+      <ConfirmModal
+        open={distributeConfirm}
+        title="Distribute Queue Round-Robin"
+        body={`Spread the unassigned pending contacts${purposeF ? ` in ${purposeF}` : ''} evenly across the agents who are online now? (If nobody is online, they go to all agents.)`}
+        confirmLabel="Distribute"
+        loading={distributing}
+        onConfirm={handleDistribute}
+        onClose={() => setDistributeConfirm(false)}
+      />
     </Page>
   )
 }

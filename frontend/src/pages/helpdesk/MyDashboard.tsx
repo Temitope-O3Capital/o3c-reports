@@ -13,7 +13,6 @@ import {
   HourlyActivity, HeroButton, LiveBadge, heroDelta, fmtDur, relTime, ordinal, myUserId,
 } from '../../components/MyWorkspace'
 import NewTicketForm from './NewTicket'
-import ScheduleCallbackModal from '../../components/ScheduleCallbackModal'
 import LogCallModal, { LogCallInitial } from '../../components/LogCallModal'
 
 // ── Config / types ──────────────────────────────────────────────────────────
@@ -86,7 +85,6 @@ export default function CallCenterMyDashboard() {
   const [logInitial, setLogInitial] = useState<LogCallInitial | undefined>(undefined)
   const [ticketOpen, setTicketOpen] = useState(false)
   const [ticketInitial, setTicketInitial] = useState<{ cif?: string; name?: string; phone?: string } | undefined>(undefined)
-  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [status, setStatus] = useState('available')
   const [qa, setQa] = useState<{ summary: any; recent: any[] } | null>(null)
   useEffect(() => { apiFetch<any>('/api/qa/my').then(setQa).catch(() => {}) }, [])
@@ -179,7 +177,6 @@ export default function CallCenterMyDashboard() {
         actions={<>
           <HeroButton icon="add_call" label="Log a Call" primary onClick={() => openLog()} />
           <HeroButton icon="note_add" label="New Ticket" onClick={() => { setTicketInitial(undefined); setTicketOpen(true) }} />
-          <HeroButton icon="event_upcoming" label="Schedule Callback" onClick={() => setScheduleOpen(true)} />
           <HeroButton icon="dialpad" label="Outbound Queue" onClick={() => navigate('/call-center/queue')} />
           <HeroButton icon="confirmation_number" label="Ticket Queue" onClick={() => navigate('/helpdesk/tickets')} />
           <HeroButton icon="call_log" label="Call Log" onClick={() => navigate('/helpdesk/calls')} />
@@ -350,8 +347,6 @@ export default function CallCenterMyDashboard() {
       })()}
 
       <LogCallModal open={logOpen} initial={logInitial} onClose={() => setLogOpen(false)} onSaved={load} />
-
-      <ScheduleCallbackModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} onSaved={load} />
 
       {/* New-ticket modal — raise a ticket without leaving the dashboard. */}
       <Modal open={ticketOpen} onClose={() => setTicketOpen(false)} title="New Ticket" width={620}>
