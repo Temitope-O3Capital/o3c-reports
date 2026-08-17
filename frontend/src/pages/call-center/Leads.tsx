@@ -1,11 +1,11 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useDebouncedValue } from '../../hooks/useDebounce'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, Modal, DateFilter, NameCell,
+  Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, Modal, NameCell,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDatetime, monthStart, today } from '../../lib/fmt'
+import { fmtDatetime } from '../../lib/fmt'
 import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -204,38 +204,89 @@ function DetailPanel({ lead, onRefresh }: { lead: Lead; onRefresh: () => void })
 
 // ── Import leads modal (heads/supervisors) ─────────────────────────────────────
 
-function ImportLeadsModal({ open, onClose, onDone, campaigns }: {
+const LEAD_TEMPLATE = 'name,phone,cif,employer\nJane Doe,08012345678,,\nJohn Smith,08087654321,00012345,Acme Corp\n'
+const NEW_CAMPAIGN = '__new__'
+
+// A header row of column names ("name,phone,…") is optional in an uploaded file — drop it
+// so it isn't imported as a lead.
+function isHeaderLine(line: string): boolean {
+  return /(^|,)\s*name\s*(,|$)/i.test(line) && /phone/i.test(line)
+}
+
+function ImportLeadsModal({ open, onClose, onDone, campaigns, onCampaignCreated }: {
   open: boolean; onClose: () => void; onDone: () => void; campaigns: CCCampaign[]
+  onCampaignCreated: () => void
 }) {
   const [campaignId, setCampaignId] = useState('')
+  const [newCampaign, setNewCampaign] = useState('')
   const [raw, setRaw] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const creatingCampaign = campaignId === NEW_CAMPAIGN
 
   // One lead per line: "name, phone, cif?, employer?" — a name or a phone is enough.
-  const parsed = raw.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+  // A leading header row is skipped so template files import cleanly.
+  const parsed = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean).filter(l => !isHeaderLine(l)).map(line => {
     const [name = '', phone = '', cif = '', employer = ''] = line.split(',').map(s => s.trim())
     return { name, phone, cif, employer }
   }).filter(l => l.name || l.phone)
 
+  function reset() {
+    setRaw(''); setCampaignId(''); setNewCampaign(''); setErr(null)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  function downloadTemplate() {
+    const blob = new Blob([LEAD_TEMPLATE], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'lead-list-template.csv'
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setRaw(prev => {
+      const text = String(reader.result ?? '').trim()
+      return prev.trim() ? `${prev.trim()}\n${text}` : text
+    })
+    reader.onerror = () => setErr('Could not read that file')
+    reader.readAsText(file)
+  }
+
   async function submit() {
     if (parsed.length === 0) { setErr('Add at least one row with a name or phone'); return }
+    if (creatingCampaign && !newCampaign.trim()) { setErr('Name the new campaign'); return }
     setSaving(true); setErr(null)
     try {
+      // Create the campaign first (marketing lead lists), then import into it.
+      let targetCampaignId: number | undefined
+      if (creatingCampaign) {
+        const c = await apiPost<{ id: number }>('/api/call-center/campaigns', { name: newCampaign.trim(), purpose: 'marketing' })
+        targetCampaignId = c?.id
+        onCampaignCreated()
+      } else if (campaignId) {
+        targetCampaignId = Number(campaignId)
+      }
       const body: Record<string, any> = { leads: parsed }
-      if (campaignId) body.campaign_id = Number(campaignId)
+      if (targetCampaignId) body.campaign_id = targetCampaignId
       const res = await apiPost<{ inserted: number; skipped: number }>('/api/call-center/leads/import', body)
       toast.success(`${res.inserted ?? 0} lead(s) uploaded${res.skipped ? ` · ${res.skipped} skipped` : ''}`)
-      setRaw(''); setCampaignId(''); onDone(); onClose()
+      reset(); onDone(); onClose()
     } catch (e: any) { setErr(e.message ?? 'Upload failed') }
     finally { setSaving(false) }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Upload Lead List" width={480}
+    <Modal open={open} onClose={() => { reset(); onClose() }} title="Upload Lead List" width={480}
       footer={
         <>
-          <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={() => { reset(); onClose() }} style={{ padding: '8px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
           <button onClick={submit} disabled={saving || parsed.length === 0}
             style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (saving || !parsed.length) ? 'not-allowed' : 'pointer', opacity: (saving || !parsed.length) ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 6 }}>
             {saving && <Spinner size={13} color="#fff" />}Upload{parsed.length ? ` ${parsed.length}` : ''}
@@ -245,19 +296,40 @@ function ImportLeadsModal({ open, onClose, onDone, campaigns }: {
     >
       <ErrBanner error={err} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {campaigns.length > 0 && (
-          <div>
-            <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Campaign (optional)</label>
-            <select value={campaignId} onChange={e => setCampaignId(e.target.value)}
-              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}>
-              <option value="">No campaign</option>
-              {campaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-            </select>
-          </div>
-        )}
+        {/* Campaign — pick an existing one or create a new one inline */}
+        <div>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Campaign</label>
+          <select value={campaignId} onChange={e => setCampaignId(e.target.value)}
+            style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}>
+            <option value="">No campaign</option>
+            {campaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+            <option value={NEW_CAMPAIGN}>+ New campaign…</option>
+          </select>
+          {creatingCampaign && (
+            <input value={newCampaign} onChange={e => setNewCampaign(e.target.value)} autoFocus
+              placeholder="New campaign name" spellCheck={false}
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', marginTop: 6 }} />
+          )}
+        </div>
+
+        {/* Template + file upload */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" onClick={downloadTemplate}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
+            Download template
+          </button>
+          <button type="button" onClick={() => fileRef.current?.click()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
+            Upload CSV file
+          </button>
+          <input ref={fileRef} type="file" accept=".csv,.txt,text/csv,text/plain" onChange={onPickFile} style={{ display: 'none' }} />
+        </div>
+
         <div>
           <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-            Leads — one per line: name, phone, cif, employer
+            Leads — one per line: name, phone, cif, employer (or upload a file above)
           </label>
           <textarea
             spellCheck={false}
@@ -288,8 +360,6 @@ export default function CallCenterLeads() {
   const [campaignId, setCampaignId] = useState('')
   const [status, setStatus]         = useState('')
   const [search, setSearch]         = useState('')
-  const [dateFrom, setDateFrom]     = useState(monthStart())
-  const [dateTo,   setDateTo]       = useState(today())
 
   const isHead = isHeadRole()
 
@@ -310,8 +380,6 @@ export default function CallCenterLeads() {
     if (campaignId) p.set('campaign_id', campaignId)
     if (status)     p.set('status', status)
     if (dq)         p.set('search', dq)
-    if (dateFrom)   p.set('from', dateFrom)
-    if (dateTo)     p.set('to', dateTo)
     try {
       const res = await apiFetch<Lead[]>(`/api/call-center/leads?${p}`)
       const fresh = Array.isArray(res) ? res : []
@@ -322,17 +390,21 @@ export default function CallCenterLeads() {
       }
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [campaignId, status, dq, dateFrom, dateTo])
+  }, [campaignId, status, dq])
 
   useEffect(() => { load() }, [load])
   useLiveData(load)
 
-  useEffect(() => {
+  const loadCampaigns = useCallback(() => {
     apiFetch<CCCampaign[]>('/api/call-center/campaigns')
       .then(r => setCampaigns(Array.isArray(r) ? r : [])).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    loadCampaigns()
     apiFetch<CCAgent[]>('/api/call-center/agents')
       .then(r => setAgents(Array.isArray(r) ? r : [])).catch(() => {})
-  }, [])
+  }, [loadCampaigns])
 
   function handleRefresh() {
     load(selected?.id)
@@ -404,16 +476,13 @@ export default function CallCenterLeads() {
   return (
     <Page title="Leads" subtitle="Contacts pushed from email & SMS campaigns, or uploaded here" noPad
       actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-          {isHead && (
-            <button onClick={() => setImportOpen(true)} title="Upload a lead list"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: NAVY, color: '#fff', border: `1px solid ${NAVY}`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
-              Upload leads
-            </button>
-          )}
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-        </div>
+        isHead ? (
+          <button onClick={() => setImportOpen(true)} title="Upload a lead list"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: NAVY, color: '#fff', border: `1px solid ${NAVY}`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
+            Upload leads
+          </button>
+        ) : undefined
       }
     >
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
@@ -639,7 +708,7 @@ export default function CallCenterLeads() {
       </div>
 
       {/* Upload lead list — heads/supervisors */}
-      <ImportLeadsModal open={importOpen} onClose={() => setImportOpen(false)} onDone={load} campaigns={campaigns} />
+      <ImportLeadsModal open={importOpen} onClose={() => setImportOpen(false)} onDone={load} campaigns={campaigns} onCampaignCreated={loadCampaigns} />
 
       {/* Distribute confirm modal */}
       <ConfirmModal

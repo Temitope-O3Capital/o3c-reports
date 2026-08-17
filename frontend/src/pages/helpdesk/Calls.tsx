@@ -17,8 +17,8 @@ import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA, FW, RADIUS, SP, TEXT 
 import QAEvaluation from './QAEvaluation'
 import { BAND_COLOR } from '../../lib/qa'
 import { toast } from 'sonner'
-import { CustomerSearch, CustSuggest, cleanName, initialsOf } from '../../components/CustomerSearch'
 import ScheduleCallbackModal from '../../components/ScheduleCallbackModal'
+import LogCallModal, { LogCallInitial } from '../../components/LogCallModal'
 
 function myRole(): string { try { return String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '') } catch { return '' } }
 const CAN_EVALUATE = /head|admin|super|manager|lead|supervisor/i.test(myRole())
@@ -51,9 +51,6 @@ interface CallLog {
   qa_passed: boolean | null
 }
 
-interface CallScriptStep { order: number; prompt: string; options?: string[] }
-interface CallScript { id: number; ticket_type: string; name: string; steps: CallScriptStep[]; is_active: boolean }
-
 // Server-side aggregates over the FULL filtered dataset (not just the loaded page).
 interface CallStats {
   summary: {
@@ -71,45 +68,14 @@ const num = (v: any): number => Number(v ?? 0) || 0
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TICKET_TYPES_CALL = [
-  'General Enquiry', 'Balance Enquiry', 'Payment Confirmation', 'Failed Transaction',
-  'Card Dispute', 'Statement Request', 'Loan Complaint', 'Collection',
-  'FD Enquiry', 'App Download', 'Technical / App Issue', 'Pitching / Marketing',
-  'Complaint (CBN reportable)', 'Others',
-]
-
-// Call disposition = the business result of the call. Kept distinct from Outcome
-// (connection status: completed/missed/…), which drives the KPIs and Zoho mapping.
-const DISPOSITIONS = [
-  'Resolved', 'Closed', 'Information Provided', 'Callback Scheduled', 'Escalated',
-  'Complaint Logged', 'Pending / Follow-up', 'Unreachable / No Answer',
-  'Wrong Number', 'Not Interested',
-]
-
-// Call purpose = which book/queue the call belongs to. Lets a call logged here be
-// linked to where it actually falls (a marketing/leads dial, a collections chase, an
-// outbound sales pitch) rather than every call reading as generic "support". Codes are
-// stored lower-case to match the outbound queue + Zoho voice import.
-const PURPOSES: { value: string; label: string }[] = [
-  { value: '',            label: 'Support / Service' },   // default — no explicit book
-  { value: 'marketing',   label: 'Marketing / Leads' },
-  { value: 'sales',       label: 'Outbound Sales' },
-  { value: 'collections', label: 'Collections' },
-]
+// Call purpose = which book/queue the call belongs to (marketing/sales/collections);
+// used to colour the Purpose column, CSV and detail view. The Log-a-Call form itself
+// lives in the shared components/LogCallModal.tsx so it can never drift from My-Dashboard.
 const PURPOSE_META: Record<string, { label: string; color: string }> = {
   marketing:   { label: 'Marketing / Leads', color: BLUE },
   sales:       { label: 'Outbound Sales',    color: PURPLE },
   collections: { label: 'Collections',       color: RED },
   support:     { label: 'Support',           color: GREEN },
-}
-
-// Dispositions that imply the call needs follow-up work — these pre-check the
-// "open a linked ticket" box (the agent can still override it either way).
-const FOLLOWUP_DISPOSITIONS = new Set([
-  'Escalated', 'Complaint Logged', 'Callback Scheduled', 'Pending / Follow-up', 'Unreachable / No Answer',
-])
-function dispositionPriority(d: string): 'high' | 'medium' | 'low' {
-  return d === 'Escalated' || d === 'Complaint Logged' ? 'high' : 'medium'
 }
 
 // Zoho-sourced calls only carry `completed` (connected) and `missed` (no answer);
@@ -334,7 +300,6 @@ export default function Calls() {
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState<string | null>(null)
   // Supervisor "view agent" drawer target.
-  const [viewAgent, setViewAgent] = useState<{ id: number; name: string } | null>(null)
   // Per-call detail modal (everything logged about one call).
   const [viewCall, setViewCall] = useState<CallLog | null>(null)
   const [scheduleOpen, setScheduleOpen] = useState(false)
@@ -350,22 +315,9 @@ export default function Calls() {
   // QA evaluation modal (opened from a call's Evaluate action)
   const [evalCall, setEvalCall] = useState<CallLog | null>(null)
 
-  // Log Call modal
+  // Log Call modal — the form itself is the shared components/LogCallModal.
   const [logOpen, setLogOpen] = useState(false)
-  const [logForm, setLogForm] = useState({
-    customer_name: '', phone: '', customer_cif: '', direction: 'Inbound',
-    outcome_val: 'completed', disposition: '', duration_seconds: '',
-    purpose: '', ticket_type: '', notes: '', resolution: '',
-  })
-  // Customer picker state: picked = a customer chosen (chip); manual = typing a
-  // walk-in by hand; otherwise the search typeahead shows.
-  const [custPicked, setCustPicked] = useState(false)
-  const [custManual, setCustManual] = useState(false)
-  // Whether to also open a linked follow-up ticket when the call is logged.
-  const [createTicket, setCreateTicket] = useState(false)
-  const [logSaving, setLogSaving] = useState(false)
-  const [callScript, setCallScript] = useState<CallScript | null>(null)
-  const [scriptExpanded, setScriptExpanded] = useState(false)
+  const [logInitial, setLogInitial] = useState<LogCallInitial | undefined>(undefined)
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -405,13 +357,6 @@ export default function Calls() {
   useEffect(() => { load(); loadStats() }, [load, loadStats])
   useLiveData(() => { load(); loadStats() }, { topics: ['tickets'] })
 
-  useEffect(() => {
-    if (!logOpen || !logForm.ticket_type) { setCallScript(null); return }
-    apiFetch<any>(`/api/helpdesk/call-scripts/by-type?ticket_type=${encodeURIComponent(logForm.ticket_type)}`)
-      .then(r => { const s = r?.data ?? r; setCallScript(s?.id ? s : null); setScriptExpanded(true) })
-      .catch(() => setCallScript(null))
-  }, [logOpen, logForm.ticket_type])
-
   // ── KPIs computed from loaded rows ────────────────────────────────────────
 
   const kpis = useMemo(() => {
@@ -449,68 +394,11 @@ export default function Calls() {
   }, [stats])
 
   // ── Log Call ──────────────────────────────────────────────────────────────
+  // The form is the shared LogCallModal; opening it just seeds an optional prefill.
 
-  function resetLogForm() {
-    setLogForm({
-      customer_name: '', phone: '', customer_cif: '', direction: 'Inbound',
-      outcome_val: 'completed', disposition: '', duration_seconds: '',
-      purpose: '', ticket_type: '', notes: '', resolution: '',
-    })
-    setCustPicked(false); setCustManual(false); setCreateTicket(false)
-  }
-
-  async function handleLogCall() {
-    // A call needs at least a way to identify the caller — a linked customer (CIF)
-    // or a phone number.
-    if (!logForm.phone.trim() && !logForm.customer_cif.trim()) {
-      toast.error('Add a customer (search) or a phone number'); return
-    }
-    if (createTicket && !logForm.ticket_type) {
-      toast.error('Pick a ticket type to open a linked ticket'); return
-    }
-    setLogSaving(true)
-    try {
-      // Optionally spin up a follow-up ticket first — this reuses the full ticket
-      // pipeline (SLA clock, auto-assignment, first message) rather than a thin
-      // insert — then link the call to it via ticket_ref below.
-      let ticketRef: string | undefined
-      if (createTicket) {
-        const complaint = logForm.notes.trim()
-        const tRes = await apiPost<{ ticket?: { ticket_ref?: string } }>('/api/helpdesk/tickets', {
-          channel:        'phone',
-          subject:        `${logForm.ticket_type} — ${logForm.customer_name || logForm.phone || 'caller'}`,
-          ticket_type:    logForm.ticket_type,
-          priority:       dispositionPriority(logForm.disposition),
-          customer_name:  logForm.customer_name || undefined,
-          customer_cif:   logForm.customer_cif || undefined,
-          customer_phone: logForm.phone || undefined,
-          message_text:   complaint || `Follow-up from call · ${logForm.disposition || 'logged'}`,
-          custom_fields:  { disposition: logForm.disposition || '', resolution: logForm.resolution || '', source: 'call_log' },
-        })
-        ticketRef = tRes?.ticket?.ticket_ref
-      }
-      await apiPost('/api/helpdesk/calls', {
-        customer_name:    logForm.customer_name || undefined,
-        customer_cif:     logForm.customer_cif || undefined,
-        customer_phone:   logForm.phone || undefined,
-        direction:        logForm.direction,
-        outcome:          logForm.outcome_val,
-        disposition:      logForm.disposition || undefined,
-        purpose:          logForm.purpose || undefined,
-        duration_seconds: logForm.duration_seconds ? Number(logForm.duration_seconds) : undefined,
-        ticket_type:      logForm.ticket_type || undefined,
-        notes:            logForm.notes || undefined,
-        resolution:       logForm.resolution || undefined,
-        ticket_ref:       ticketRef,
-      })
-      toast.success(ticketRef ? `Call logged · ticket ${ticketRef} opened` : 'Call logged')
-      setLogOpen(false)
-      resetLogForm()
-      setCallScript(null)
-      load(); loadStats()
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to log call')
-    } finally { setLogSaving(false) }
+  function openLog(initial?: LogCallInitial) {
+    setLogInitial(initial)
+    setLogOpen(true)
   }
 
   function exportCsv() {
@@ -640,26 +528,17 @@ export default function Calls() {
             icon: 'info', label: 'View call details',
             onClick: () => setViewCall(r),
           },
-          // Supervisors can additionally open the agent's overall snapshot.
-          ...(CAN_EVALUATE && r.agent_id ? [{
-            icon: 'badge', label: 'Agent snapshot',
-            onClick: () => setViewAgent({ id: r.agent_id as number, name: r.agent_name }),
-          }] : []),
           // Log a report for this number — pre-fills the Log-a-Call form so the agent
           // just records the outcome/notes for that customer.
           {
             icon: 'edit_note', label: 'Log a report',
-            onClick: () => {
-              setLogForm(f => ({
-                ...f,
-                customer_name: r.customer_name || '',
-                phone: (r.phone as string) || '',
-                customer_cif: (r.customer_cif as string) || '',
-                direction: r.direction || 'Inbound',
-              }))
-              setCustPicked(false); setCustManual(true)
-              setLogOpen(true)
-            },
+            onClick: () => openLog({
+              name: r.customer_name || undefined,
+              phone: r.phone || undefined,
+              cif: r.customer_cif || undefined,
+              direction: r.direction || 'Inbound',
+              purpose: r.purpose || undefined,
+            }),
           },
           // Evaluators can score the call against the QA rubric.
           ...(CAN_EVALUATE ? [{
@@ -686,16 +565,6 @@ export default function Calls() {
     },
   ]
 
-  const inputSt: React.CSSProperties = {
-    width: '100%', height: 36, padding: '0 10px',
-    border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
-    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-    boxSizing: 'border-box', fontFamily: SORA,
-  }
-  const labelSt: React.CSSProperties = {
-    display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5,
-  }
-
   return (
     <Page
       title="Call Log"
@@ -713,7 +582,7 @@ export default function Calls() {
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>event_upcoming</span>
             Schedule Callback
           </button>
-          <button onClick={() => setLogOpen(true)}
+          <button onClick={() => openLog()}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add_call</span>
             Log Call
@@ -800,190 +669,6 @@ export default function Calls() {
         />
       </SectionCard>
 
-      {/* Log Call modal */}
-      <Modal
-        open={logOpen}
-        onClose={() => { setLogOpen(false); setCallScript(null) }}
-        title="Log a Call"
-        width={500}
-        footer={
-          <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
-            <button onClick={() => { setLogOpen(false); setCallScript(null) }}
-              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
-              Cancel
-            </button>
-            <button onClick={handleLogCall} disabled={logSaving}
-              style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: logSaving ? 'wait' : 'pointer', opacity: logSaving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: SP[2] }}>
-              {logSaving && <Spinner size={13} color="#fff" />}
-              Log Call
-            </button>
-          </div>
-        }
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: SORA }}>
-
-          {/* Customer — search & autofill, with a manual (walk-in) fallback */}
-          <div>
-            <label style={labelSt}>Customer</label>
-            {custPicked ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'var(--th-bg)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg }}>
-                <div style={{ width: 36, height: 36, borderRadius: RADIUS.full, flexShrink: 0, background: `${NAVY}12`, color: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.sm, fontWeight: FW.extrabold }}>
-                  {initialsOf(logForm.customer_name)}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>{logForm.customer_name || 'Unknown customer'}</div>
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>
-                    {logForm.customer_cif && <span style={{ fontFamily: 'var(--font-mono)' }}>CIF {logForm.customer_cif}</span>}
-                    {logForm.phone && <span>{logForm.phone}</span>}
-                  </div>
-                </div>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, color: GREEN, background: `${GREEN}14`, padding: '3px 9px', borderRadius: RADIUS.xl }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>check_circle</span>Linked
-                </span>
-                <button type="button"
-                  onClick={() => { setLogForm(f => ({ ...f, customer_cif: '' })); setCustPicked(false); setCustManual(false) }}
-                  style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-                  Change
-                </button>
-              </div>
-            ) : custManual ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-                  <input value={logForm.customer_name} onChange={e => setLogForm(f => ({ ...f, customer_name: e.target.value }))}
-                    placeholder="Customer name" style={inputSt} />
-                  <input value={logForm.phone} onChange={e => setLogForm(f => ({ ...f, phone: e.target.value }))}
-                    placeholder="Phone e.g. 08012345678" style={inputSt} />
-                </div>
-                <button type="button" onClick={() => setCustManual(false)}
-                  style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, padding: 0, border: 'none', background: 'none', color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 15 }}>search</span>Search for an existing customer instead
-                </button>
-              </div>
-            ) : (
-              <CustomerSearch
-                autoFocus={false}
-                onPick={(c: CustSuggest) => {
-                  setLogForm(f => ({ ...f, customer_name: cleanName(c.name), customer_cif: c.cif, phone: c.phone ?? f.phone }))
-                  setCustPicked(true)
-                }}
-                onManual={() => setCustManual(true)}
-              />
-            )}
-          </div>
-
-          {/* Direction / Outcome / Duration */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: SP[3] }}>
-            <div>
-              <label style={labelSt}>Direction</label>
-              <select value={logForm.direction} onChange={e => setLogForm(f => ({ ...f, direction: e.target.value }))} style={inputSt}>
-                <option value="Inbound">Inbound</option>
-                <option value="Outbound">Outbound</option>
-              </select>
-            </div>
-            <div>
-              <label style={labelSt}>Outcome</label>
-              <select value={logForm.outcome_val} onChange={e => setLogForm(f => ({ ...f, outcome_val: e.target.value }))} style={inputSt}>
-                <option value="completed">Completed</option>
-                <option value="missed">Missed</option>
-                <option value="transferred">Transferred</option>
-                <option value="escalated">Escalated</option>
-              </select>
-            </div>
-            <div>
-              <label style={labelSt} title="Auto-captured from Zoho Voice on synced calls; enter it only for a manually logged call">Duration (sec)</label>
-              <input type="number" min={0} value={logForm.duration_seconds}
-                onChange={e => setLogForm(f => ({ ...f, duration_seconds: e.target.value }))}
-                placeholder="auto for voice" style={inputSt} />
-            </div>
-          </div>
-
-          {/* Purpose — links the call to the book it belongs to (leads, outbound
-              sales, collections, support) so it isn't filed as generic "support". */}
-          <div>
-            <label style={labelSt}>Call purpose / links to</label>
-            <select value={logForm.purpose} onChange={e => setLogForm(f => ({ ...f, purpose: e.target.value }))} style={inputSt}>
-              {PURPOSES.map(p => <option key={p.value || 'support'} value={p.value}>{p.label}</option>)}
-            </select>
-          </div>
-
-          {/* Ticket type + Disposition */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-            <div>
-              <label style={labelSt}>Ticket Type</label>
-              <select value={logForm.ticket_type} onChange={e => setLogForm(f => ({ ...f, ticket_type: e.target.value }))} style={inputSt}>
-                <option value="">— None —</option>
-                {TICKET_TYPES_CALL.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={labelSt}>Disposition</label>
-              <select value={logForm.disposition} onChange={e => { const v = e.target.value; setLogForm(f => ({ ...f, disposition: v })); setCreateTicket(FOLLOWUP_DISPOSITIONS.has(v)) }} style={inputSt}>
-                <option value="">— Select —</option>
-                {DISPOSITIONS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Optional: open a linked follow-up ticket (auto-checked for follow-up dispositions) */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: TEXT.sm, color: 'var(--txt)', cursor: 'pointer', userSelect: 'none' }}>
-            <input type="checkbox" checked={createTicket} onChange={e => setCreateTicket(e.target.checked)} style={{ accentColor: NAVY, width: 15, height: 15 }} />
-            Open a linked follow-up ticket
-            {createTicket && !logForm.ticket_type && <span style={{ color: AMBER, fontSize: TEXT.xs }}>— pick a ticket type above</span>}
-          </label>
-
-          {/* Customer complaint / summary */}
-          <div>
-            <label style={labelSt}>Customer complaint / summary</label>
-            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={logForm.notes} onChange={e => setLogForm(f => ({ ...f, notes: e.target.value }))}
-              rows={3} placeholder="What the customer called about…"
-              style={{ ...inputSt, height: 'auto', padding: '8px 10px', resize: 'vertical', lineHeight: 1.5 }} />
-          </div>
-
-          {/* Agent response / resolution */}
-          <div>
-            <label style={labelSt}>Agent response / resolution</label>
-            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={logForm.resolution} onChange={e => setLogForm(f => ({ ...f, resolution: e.target.value }))}
-              rows={3} placeholder="What you did / how it was resolved…"
-              style={{ ...inputSt, height: 'auto', padding: '8px 10px', resize: 'vertical', lineHeight: 1.5 }} />
-          </div>
-
-          {/* Call script panel */}
-          {callScript && (
-            <div style={{ border: `1px solid ${NAVY}25`, borderRadius: RADIUS.md, overflow: 'hidden' }}>
-              <button type="button" onClick={() => setScriptExpanded(x => !x)}
-                style={{ width: '100%', padding: '9px 14px', background: `${NAVY}08`, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: SORA }}>
-                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>assignment</span>
-                  {callScript.name}
-                </span>
-                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{scriptExpanded ? '▲' : '▼'}</span>
-              </button>
-              {scriptExpanded && (
-                <div style={{ padding: '10px 14px 14px', display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-                  {[...callScript.steps].sort((a, b) => a.order - b.order).map(step => (
-                    <div key={step.order} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                      <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TEXT.xs, fontWeight: FW.bold }}>
-                        {step.order}
-                      </div>
-                      <div style={{ fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.5 }}>
-                        {step.prompt}
-                        {step.options && step.options.length > 0 && (
-                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: SP[1] }}>
-                            {step.options.map((opt, i) => (
-                              <span key={i} style={{ fontSize: TEXT.xs, padding: '1px 7px', borderRadius: RADIUS.lg, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>{opt}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </Modal>
-
       {evalCall && (
         <QAEvaluation
           call={{ id: evalCall.id, agent_name: evalCall.agent_name, customer_name: evalCall.customer_name, phone: evalCall.phone, direction: evalCall.direction, called_at: evalCall.called_at, duration_seconds: evalCall.duration_seconds }}
@@ -992,10 +677,11 @@ export default function Calls() {
         />
       )}
 
+      <LogCallModal open={logOpen} initial={logInitial}
+        onClose={() => setLogOpen(false)} onSaved={() => { load(); loadStats() }} />
       <CallDetailModal call={viewCall} onClose={() => setViewCall(null)}
         onEvaluate={CAN_EVALUATE ? c => { setViewCall(null); setEvalCall(c) } : undefined}
         onOpenTicket={id => { setViewCall(null); navigate(`/helpdesk/${id}`) }} />
-      <AgentDetailModal agent={viewAgent} dateFrom={dateFrom} dateTo={dateTo} onClose={() => setViewAgent(null)} onOpenTicket={id => { setViewAgent(null); navigate(`/helpdesk/${id}`) }} />
       <ScheduleCallbackModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} onSaved={() => { load(); loadStats() }} />
     </Page>
   )

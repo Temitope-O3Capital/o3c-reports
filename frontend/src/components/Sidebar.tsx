@@ -116,8 +116,7 @@ const SECTIONS: Section[] = [
           { label: 'Outbound Queue',   to: '/call-center/queue' },
           { label: 'Leads',            to: '/call-center/leads' },
           { label: 'DNC List',         to: '/call-center/dnc' },
-          // leadership
-          { label: 'Performance',      to: '/call-center/performance',  vis: ['call_center_head'] },
+          // leadership — Performance now lives inside the Supervisor view (not a standalone nav page).
           // Agent Matching is now a modal inside the Supervisor view (not a nav page).
           { label: 'Supervisor View',  to: '/helpdesk/supervisor',      vis: ['call_center_head'] },
           // resources

@@ -13,8 +13,8 @@ import {
   HourlyActivity, HeroButton, LiveBadge, heroDelta, fmtDur, relTime, ordinal, myUserId,
 } from '../../components/MyWorkspace'
 import NewTicketForm from './NewTicket'
-import { CustomerSearch, cleanName } from '../../components/CustomerSearch'
 import ScheduleCallbackModal from '../../components/ScheduleCallbackModal'
+import LogCallModal, { LogCallInitial } from '../../components/LogCallModal'
 
 // ── Config / types ──────────────────────────────────────────────────────────
 
@@ -83,7 +83,7 @@ export default function CallCenterMyDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [logOpen, setLogOpen] = useState(false)
-  const [logInitial, setLogInitial] = useState<{ name?: string; phone?: string; cif?: string } | undefined>(undefined)
+  const [logInitial, setLogInitial] = useState<LogCallInitial | undefined>(undefined)
   const [ticketOpen, setTicketOpen] = useState(false)
   const [ticketInitial, setTicketInitial] = useState<{ cif?: string; name?: string; phone?: string } | undefined>(undefined)
   const [scheduleOpen, setScheduleOpen] = useState(false)
@@ -92,7 +92,7 @@ export default function CallCenterMyDashboard() {
   useEffect(() => { apiFetch<any>('/api/qa/my').then(setQa).catch(() => {}) }, [])
 
   // Open the Log-a-Call modal, optionally pre-filled for a specific call/number.
-  const openLog = useCallback((initial?: { name?: string; phone?: string; cif?: string }) => {
+  const openLog = useCallback((initial?: LogCallInitial) => {
     setLogInitial(initial); setLogOpen(true)
   }, [])
 
@@ -349,8 +349,7 @@ export default function CallCenterMyDashboard() {
         )
       })()}
 
-      <LogCallModal open={logOpen} initial={logInitial} onClose={() => setLogOpen(false)} onSaved={load}
-        onCreateTicket={cust => { setTicketInitial(cust); setTicketOpen(true) }} />
+      <LogCallModal open={logOpen} initial={logInitial} onClose={() => setLogOpen(false)} onSaved={load} />
 
       <ScheduleCallbackModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} onSaved={load} />
 
@@ -366,143 +365,3 @@ export default function CallCenterMyDashboard() {
   )
 }
 
-// ── Log-a-call modal ──────────────────────────────────────────────────────────
-
-const OUTCOMES = [
-  { value: 'completed', label: 'Completed' },
-  { value: 'missed', label: 'Missed / No answer' },
-  { value: 'voicemail', label: 'Voicemail' },
-  { value: 'callback', label: 'Callback requested' },
-]
-
-interface DispositionOpt { code: string; label: string }
-
-function LogCallModal({ open, initial, onClose, onSaved, onCreateTicket }: {
-  open: boolean; initial?: { name?: string; phone?: string; cif?: string }
-  onClose: () => void; onSaved: () => void
-  onCreateTicket: (cust: { cif?: string; name?: string; phone?: string }) => void
-}) {
-  const [direction, setDirection] = useState('Outbound')
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [cif, setCif] = useState('')
-  const [outcome, setOutcome] = useState('completed')
-  const [disposition, setDisposition] = useState('')
-  const [duration, setDuration] = useState('')
-  const [notes, setNotes] = useState('')
-  const [callbackAt, setCallbackAt] = useState('')
-  const [makeTicket, setMakeTicket] = useState(false)
-  const [dispositions, setDispositions] = useState<DispositionOpt[]>([])
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (!open) return
-    setName(initial?.name && initial.name !== 'Unknown' ? initial.name : '')
-    setPhone(initial?.phone ?? '')
-    setCif(initial?.cif ?? '')
-    setDirection('Outbound'); setOutcome('completed'); setDisposition('')
-    setDuration(''); setNotes(''); setCallbackAt(''); setMakeTicket(false)
-    // Structured business-result vocabulary is owned by the server.
-    apiFetch<any>('/api/call-center/dispositions')
-      .then(r => setDispositions((Array.isArray(r) ? r : (r?.data ?? [])).map((d: any) => ({ code: d.code ?? d.value ?? d.label, label: d.label ?? d.code }))))
-      .catch(() => setDispositions([]))
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const isCallback = outcome === 'callback'
-
-  async function submit() {
-    if (!name.trim() && !phone.trim()) { toast.error('Add a customer name or phone'); return }
-    setSaving(true)
-    try {
-      await apiPost('/api/helpdesk/calls', {
-        customer_name: name.trim(), customer_phone: phone.trim(),
-        customer_cif: cif.trim() || undefined,
-        direction, outcome,
-        disposition: disposition || undefined,
-        duration_seconds: duration ? Number(duration) : undefined,
-        notes: notes.trim() || undefined,
-      })
-      // Callback outcome → drop a scheduled call-back into the queue for this number.
-      if (isCallback && phone.trim()) {
-        try {
-          await apiPost('/api/call-center/queue/add-callback', {
-            name: name.trim(), phone: phone.trim(), cif: cif.trim(),
-            callback_at: callbackAt, notes: notes.trim(),
-          })
-        } catch { /* the call itself logged; surface only the primary result */ }
-      }
-      toast.success(isCallback && callbackAt ? 'Call logged · callback scheduled' : 'Call logged')
-      onClose(); onSaved()
-      if (makeTicket) onCreateTicket({ cif: cif.trim(), name: name.trim(), phone: phone.trim() })
-    } catch (e: any) { toast.error(e?.message || 'Could not log call') }
-    finally { setSaving(false) }
-  }
-
-  const fld: React.CSSProperties = { width: '100%', height: 38, padding: '0 11px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }
-  const lbl: React.CSSProperties = { display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.03em' }
-
-  return (
-    <Modal open={open} onClose={onClose} title="Log a Call" width={500}
-      footer={
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer' }}>
-            {saving && <Spinner size={13} color="#fff" />}Log Call
-          </button>
-        </div>
-      }>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-        <div>
-          <label style={lbl}>Find customer</label>
-          <CustomerSearch autoFocus placeholder="Search name, CIF or phone…"
-            onPick={c => { setName(cleanName(c.name)); setPhone(c.phone ?? ''); setCif(c.cif ?? '') }} />
-        </div>
-        <div>
-          <label style={lbl}>Direction</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {['Outbound', 'Inbound'].map(dir => (
-              <button key={dir} onClick={() => setDirection(dir)} style={{
-                flex: 1, padding: '9px 0', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold,
-                border: `1px solid ${direction === dir ? NAVY : 'var(--bdr)'}`, background: direction === dir ? `${NAVY}0e` : 'var(--card)', color: direction === dir ? NAVY : 'var(--txt2)',
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-              }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 17 }}>{dir === 'Outbound' ? 'call_made' : 'call_received'}</span>{dir}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-          <div><label style={lbl}>Customer Name</label><input value={name} onChange={e => setName(e.target.value)} placeholder="Full name" style={fld} /></div>
-          <div><label style={lbl}>Phone</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="080…" style={fld} /></div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-          <div><label style={lbl}>Outcome</label><select value={outcome} onChange={e => setOutcome(e.target.value)} style={fld}>{OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
-          <div><label style={lbl}>Duration (sec)</label><input type="number" min={0} value={duration} onChange={e => setDuration(e.target.value)} placeholder="e.g. 120" style={fld} /></div>
-        </div>
-        {dispositions.length > 0 && (
-          <div>
-            <label style={lbl}>Disposition <span style={{ textTransform: 'none', color: 'var(--txt3)', fontWeight: FW.normal }}>(business result)</span></label>
-            <select value={disposition} onChange={e => setDisposition(e.target.value)} style={fld}>
-              <option value="">— none —</option>
-              {dispositions.map(dsp => <option key={dsp.code} value={dsp.code}>{dsp.label}</option>)}
-            </select>
-          </div>
-        )}
-        {isCallback && (
-          <div>
-            <label style={lbl}>Call back at <span style={{ textTransform: 'none', color: 'var(--txt3)', fontWeight: FW.normal }}>(blank = ASAP)</span></label>
-            <input type="datetime-local" value={callbackAt} onChange={e => setCallbackAt(e.target.value)} style={fld} />
-          </div>
-        )}
-        <div>
-          <label style={lbl}>Notes</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="What was discussed…" style={{ ...fld, height: 'auto', padding: '9px 11px', resize: 'vertical', fontFamily: 'inherit' }} />
-        </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt)' }}>
-          <input type="checkbox" checked={makeTicket} onChange={e => setMakeTicket(e.target.checked)} />
-          Create a follow-up ticket for this customer
-        </label>
-      </div>
-    </Modal>
-  )
-}
