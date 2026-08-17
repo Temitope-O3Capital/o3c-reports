@@ -329,7 +329,7 @@ function ImportLeadsModal({ open, onClose, onDone, campaigns, onCampaignCreated 
 
         <div>
           <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-            Leads — one per line: name, phone, cif, employer (or upload a file above)
+            Or paste leads — one per line
           </label>
           <textarea
             spellCheck={false}
