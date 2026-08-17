@@ -3,9 +3,10 @@ import {
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
-import { Page, KpiCard, SectionCard, Spinner, ErrBanner } from '../../components/UI'
+import { Page, KpiCard, SectionCard, Spinner, ErrBanner, Modal } from '../../components/UI'
 import QAHub from './QAHub'
 import PerformancePanel from './PerformancePanel'
+import { AgentMatchingPanel } from '../call-center/AgentMatching'
 import { BAND_COLOR, qaBand } from '../../lib/qa'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtPct, today } from '../../lib/fmt'
@@ -98,6 +99,7 @@ export default function Supervisor() {
   const [targetInput, setTargetInput] = useState('60')
   const [view, setView] = useState<'live' | 'perf' | 'qa'>('live')
   const [distributing, setDistributing] = useState(false)
+  const [agentMatchOpen, setAgentMatchOpen] = useState(false)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async (silent = false) => {
@@ -228,6 +230,10 @@ export default function Supervisor() {
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>flag</span>Goal: {target}/day
             </button>
           )}
+          <button onClick={() => setAgentMatchOpen(true)} title="Reconcile Zoho agents to workspace users"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: RADIUS['2xl'], border: '1px solid var(--card-bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>link</span>Agent Matching
+          </button>
           {(sup?.totals.unassigned ?? 0) > 0 && (
             <button onClick={distribute} disabled={distributing} title="Load-balance unowned open tickets across active agents"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: RADIUS['2xl'], border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: distributing ? 'wait' : 'pointer', opacity: distributing ? .7 : 1 }}>
@@ -376,6 +382,10 @@ export default function Supervisor() {
       </SectionCard>
 
       <style>{`@keyframes svpulse { 0% { box-shadow: 0 0 0 0 rgba(192,0,0,.5) } 70% { box-shadow: 0 0 0 6px rgba(192,0,0,0) } 100% { box-shadow: 0 0 0 0 rgba(192,0,0,0) } }`}</style>
+
+      <Modal open={agentMatchOpen} onClose={() => setAgentMatchOpen(false)} title="Agent Matching" width={780} maxHeight="82vh">
+        <AgentMatchingPanel />
+      </Modal>
     </Page>
   )
 }

@@ -763,8 +763,9 @@ func execSalesHandler(db *core.DB) http.HandlerFunc {
 
 // execCollectionsHandler returns the Collections drilldown shape derived from the CBS
 // loan book (native collections tables are empty). DPD buckets are computed from days
-// past maturity_date on the open book. There is no collections-activity ledger (agent
-// contacts, promises, collected amounts), so those KPIs / trend / agents are zero/empty.
+// the rebuilt amortisation schedule on the open book (app.cbs_loan_dpd, migration 151).
+// There is no collections-activity ledger (agent contacts, promises, collected amounts),
+// so those KPIs / trend / agents are zero/empty.
 func execCollectionsHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cs, ce, _, _ := execRange(r)
@@ -774,7 +775,7 @@ func execCollectionsHandler(db *core.DB) http.HandlerFunc {
 		var c30, c60, c6190, c90p, cCurCnt int64
 		if rows, e := db.PGQuery(ctx, `
 			WITH b AS (
-				SELECT outstanding_principal_kobo AS op, (CURRENT_DATE - maturity_date::date) AS od
+				SELECT outstanding_principal_kobo AS op, `+cbsLoanDPDBare+` AS od
 				FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
 			SELECT
 				COUNT(*) FILTER (WHERE od <= 0)             AS c_cur,
@@ -968,7 +969,7 @@ func execRiskHandler(db *core.DB) http.HandlerFunc {
 		// DPD "trend" — current point-in-time buckets (no per-month history stored).
 		dpdTrend := make([]map[string]any, 0)
 		if rows, e := db.PGQuery(ctx, `
-			WITH b AS (SELECT (CURRENT_DATE - maturity_date::date) AS od
+			WITH b AS (SELECT `+cbsLoanDPDBare+` AS od
 			           FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
 			SELECT
 				COUNT(*) FILTER (WHERE od BETWEEN 1 AND 30)  AS par30,

@@ -291,6 +291,72 @@ func bdGetEmployer(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// ── Individual leads — unified on crm_contacts ────────────────────────────────
+//
+// BD no longer keeps its own bd_leads table. Individual leads live in crm_contacts
+// (the single lead store Sales works too); BD reads/writes the BD-sourced subset so a
+// BD user and a Sales officer see the same records. The employer register and the
+// BD → Sales assignment flow above are unchanged — they already write crm_contacts.
+//
+// The "BD-sourced subset" is any contact tagged as coming from Business Development.
+const bdLeadSubset = `(c.lead_source = 'business_dev' OR c.source_type IN ('bd_assigned','bd_self_sourced') OR c.bd_assignment_id IS NOT NULL)`
+
+// bdLeadSelect projects crm_contacts into the exact JSON shape bd/Pipeline.tsx expects
+// (title, entity_type, company_name, stage, potential_value_kobo, contact_* …). Columns
+// crm_contacts does not carry (lead_type, lead_score) are returned NULL — the frontend
+// already renders those as “—”. Kept as one constant so GET, POST-echo and PATCH-echo
+// cannot drift apart.
+const bdLeadSelect = `
+	SELECT c.id,
+	       TRIM(BOTH ' ' FROM COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS title,
+	       CASE WHEN c.employer_id IS NOT NULL OR NULLIF(c.employer,'') IS NOT NULL
+	            THEN 'individual_at_company' ELSE 'individual' END AS entity_type,
+	       COALESCE(NULLIF(c.employer,''), e.name)  AS company_name,
+	       c.employer_id,
+	       e.name                                   AS employer_name,
+	       c.lead_stage                             AS stage,
+	       NULL::text                               AS lead_type,
+	       NULL::int                                AS lead_score,
+	       COALESCE(c.estimated_value_kobo, 0)      AS potential_value_kobo,
+	       TRIM(BOTH ' ' FROM COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS contact_name,
+	       c.email                                  AS contact_email,
+	       c.phone                                  AS contact_phone,
+	       c.assigned_to,
+	       u.full_name                              AS assigned_name,
+	       c.notes, c.created_at, c.updated_at
+	  FROM crm_contacts c
+	  LEFT JOIN o3c_users u ON u.id = c.assigned_to
+	  LEFT JOIN employers e ON e.id = c.employer_id`
+
+// bdStageToLead reconciles the two stage vocabularies. crm_contacts.lead_stage is guarded
+// by crm_contacts_lead_stage_chk (new | contacted | qualified | converted | disqualified),
+// so every restage must land on one of those. The current pipeline uses exactly those
+// codes; the legacy BD kanban codes are also accepted so old CSV exports still import:
+//
+//	prospect              → new
+//	contacted             → contacted
+//	qualified|proposal|negotiation → qualified   (crm has no proposal/negotiation stage)
+//	won                   → converted
+//	lost                  → disqualified
+//
+// Returns "" for an unrecognised code so callers can reject or default it.
+func bdStageToLead(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "new", "prospect":
+		return "new"
+	case "contacted":
+		return "contacted"
+	case "qualified", "proposal", "negotiation":
+		return "qualified"
+	case "converted", "won":
+		return "converted"
+	case "disqualified", "lost":
+		return "disqualified"
+	default:
+		return ""
+	}
+}
+
 func bdListLeads(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		stage := qstr(r, "stage")
@@ -298,44 +364,37 @@ func bdListLeads(db *core.DB) http.HandlerFunc {
 		search := qstr(r, "search")
 		limit := qint(r, "limit", 100, 1, 500)
 
-		q := `SELECT l.id, l.title, l.entity_type, l.company_name, l.employer_id, l.stage,
-		             l.potential_value_kobo, l.lead_type, l.lead_score,
-		             l.contact_name, l.contact_phone, l.contact_email, l.assigned_to,
-		             l.expected_close_date, l.notes, l.created_at, l.updated_at,
-		             u.full_name AS assigned_name,
-		             e.name AS employer_name
-		      FROM bd_leads l
-		      LEFT JOIN o3c_users u ON u.id = l.assigned_to
-		      LEFT JOIN employers e ON e.id = l.employer_id
-		      WHERE 1=1`
+		q := bdLeadSelect + " WHERE " + bdLeadSubset
 		var args []any
 		n := 1
 
 		if stage != "" {
-			q += fmt.Sprintf(" AND l.stage=$%d", n)
-			args = append(args, stage)
-			n++
+			if ls := bdStageToLead(stage); ls != "" {
+				q += fmt.Sprintf(" AND c.lead_stage=$%d", n)
+				args = append(args, ls)
+				n++
+			}
 		}
 		if assignedTo != "" {
-			q += fmt.Sprintf(" AND l.assigned_to=$%d", n)
+			q += fmt.Sprintf(" AND c.assigned_to=$%d", n)
 			args = append(args, assignedTo)
 			n++
 		}
 		if search != "" {
-			q += fmt.Sprintf(" AND (l.title ILIKE $%d OR l.company_name ILIKE $%d OR l.contact_name ILIKE $%d)", n, n, n)
+			q += fmt.Sprintf(" AND (c.first_name ILIKE $%d OR c.last_name ILIKE $%d OR c.email ILIKE $%d OR c.employer ILIKE $%d)", n, n, n, n)
 			args = append(args, "%"+search+"%")
 			n++
 		}
 		if from := qstr(r, "from"); from != "" {
-			q += fmt.Sprintf(" AND l.created_at::date >= $%d::date", n)
+			q += fmt.Sprintf(" AND c.created_at::date >= $%d::date", n)
 			args = append(args, from); n++
 		}
 		if to := qstr(r, "to"); to != "" {
-			q += fmt.Sprintf(" AND l.created_at::date <= $%d::date", n)
+			q += fmt.Sprintf(" AND c.created_at::date <= $%d::date", n)
 			args = append(args, to); n++
 		}
 		args = append(args, limit)
-		q += fmt.Sprintf(" ORDER BY l.updated_at DESC LIMIT $%d", n)
+		q += fmt.Sprintf(" ORDER BY c.updated_at DESC LIMIT $%d", n)
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
@@ -370,28 +429,67 @@ func bdCreateLead(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if b.Stage == "" {
-			b.Stage = "prospect"
+			b.Stage = "new"
 		}
-		validBDStages := map[string]bool{"prospect": true, "qualified": true, "proposal": true, "negotiation": true, "won": true, "lost": true}
-		if !validBDStages[b.Stage] {
+		leadStage := bdStageToLead(b.Stage)
+		if leadStage == "" {
 			respondErr(w, 422, "invalid stage")
 			return
 		}
-		if b.EntityType == "" {
-			b.EntityType = "company"
-		}
 		user := core.UserFromCtx(r.Context())
-		rows, err := db.PGQuery(r.Context(),
-			`INSERT INTO bd_leads
-			 (title, entity_type, company_name, employer_id, stage, potential_value_kobo,
-			  lead_type, contact_name, contact_phone, contact_email,
-			  assigned_to, expected_close_date, notes, created_by)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-			b.Title, b.EntityType, b.CompanyName, b.EmployerID, b.Stage,
-			b.PotentialValueKobo, b.LeadType,
-			b.ContactName, b.ContactPhone, b.ContactEmail,
-			b.AssignedTo, b.ExpectedCloseDate, b.Notes, user.ID)
+
+		// crm_contacts requires first_name/last_name (NOT NULL). Derive them from the
+		// posted contact name, falling back to the organisation/title so a company lead
+		// still carries a name.
+		get := func(p *string) string {
+			if p != nil {
+				return strings.TrimSpace(*p)
+			}
+			return ""
+		}
+		name := get(b.ContactName)
+		if name == "" {
+			name = get(b.CompanyName)
+		}
+		if name == "" {
+			name = strings.TrimSpace(b.Title)
+		}
+		parts := strings.SplitN(name, " ", 2)
+		firstName := parts[0]
+		lastName := ""
+		if len(parts) > 1 {
+			lastName = parts[1]
+		}
+
+		// The BD officer owns what they raise unless an explicit assignee is supplied;
+		// lead_owner_id mirrors assigned_to so the lead also surfaces in the Sales queue.
+		var assignedTo any = user.ID
+		if b.AssignedTo != nil && *b.AssignedTo != 0 {
+			assignedTo = *b.AssignedTo
+		}
+
+		var newID int64
+		err := db.PG.QueryRowContext(r.Context(),
+			`INSERT INTO crm_contacts
+			 (first_name, last_name, phone, email, employer, employer_id, notes, status,
+			  lead_stage, lead_source, source, source_type, estimated_value_kobo,
+			  assigned_to, lead_owner_id, created_by, created_at, updated_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,'lead',
+			         $8,'business_dev','business_dev','bd_self_sourced',$9,
+			         $10,$10,$11,NOW(),NOW())
+			 RETURNING id`,
+			firstName, lastName, b.ContactPhone, b.ContactEmail,
+			nullIfEmpty(get(b.CompanyName)), b.EmployerID, b.Notes,
+			leadStage, b.PotentialValueKobo,
+			assignedTo, user.ID).Scan(&newID)
 		if err != nil {
+			respondErr(w, 500, "Insert failed")
+			return
+		}
+
+		// Echo the created row in the same shape as GET.
+		rows, err := db.PGQuery(r.Context(), bdLeadSelect+" WHERE c.id=$1", newID)
+		if err != nil || len(rows) == 0 {
 			respondErr(w, 500, "Insert failed")
 			return
 		}
@@ -401,6 +499,10 @@ func bdCreateLead(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// NOTE: bdGetLead and bdLogActivity below still read the legacy bd_leads / bd_activities
+// tables. They are not on the Pipeline page's active call paths (the detail modal renders
+// from the in-memory list row), so they are left as-is; the list/create/restage/kpi/import
+// endpoints are the ones repointed onto crm_contacts.
 func bdGetLead(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -432,12 +534,13 @@ func bdGetLead(db *core.DB) http.HandlerFunc {
 func bdUpdateLead(db *core.DB) http.HandlerFunc {
 	type body struct {
 		Stage              *string `json:"stage"`
-		LeadType           *string `json:"lead_type"`
-		EntityType         *string `json:"entity_type"`
 		Notes              *string `json:"notes"`
 		AssignedTo         *int64  `json:"assigned_to"`
 		PotentialValueKobo *int64  `json:"potential_value_kobo"`
-		ExpectedCloseDate  *string `json:"expected_close_date"`
+		// lead_type / entity_type are accepted (the kanban can group by them) but
+		// silently ignored: crm_contacts has no such columns to restage against.
+		LeadType   *string `json:"lead_type"`
+		EntityType *string `json:"entity_type"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -446,7 +549,7 @@ func bdUpdateLead(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		q := `UPDATE bd_leads SET updated_at=NOW()`
+		q := `UPDATE crm_contacts c SET updated_at=NOW(), last_activity_at=NOW()`
 		var args []any
 		n := 1
 		add := func(col string, v any) {
@@ -455,29 +558,40 @@ func bdUpdateLead(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if b.Stage != nil {
-			add("stage", *b.Stage)
+			// Drag-restage: map the kanban stage onto lead_stage, honouring the
+			// crm_contacts_lead_stage_chk CHECK constraint.
+			ls := bdStageToLead(*b.Stage)
+			if ls == "" {
+				respondErr(w, 422, "invalid stage")
+				return
+			}
+			add("lead_stage", ls)
 		}
-		if b.LeadType != nil {
-			add("lead_type", *b.LeadType)
-		}
-		if b.EntityType != nil {
-			add("entity_type", *b.EntityType)
+		if b.AssignedTo != nil {
+			// Keep assigned_to and lead_owner_id in step so BD and Sales agree on owner.
+			add("assigned_to", *b.AssignedTo)
+			add("lead_owner_id", *b.AssignedTo)
 		}
 		if b.Notes != nil {
 			add("notes", *b.Notes)
 		}
-		if b.AssignedTo != nil {
-			add("assigned_to", *b.AssignedTo)
-		}
 		if b.PotentialValueKobo != nil {
-			add("potential_value_kobo", *b.PotentialValueKobo)
-		}
-		if b.ExpectedCloseDate != nil {
-			add("expected_close_date", *b.ExpectedCloseDate)
+			add("estimated_value_kobo", *b.PotentialValueKobo)
 		}
 		args = append(args, id)
-		q += fmt.Sprintf(" WHERE id=$%d RETURNING *", n)
-		rows, err := db.PGQuery(r.Context(), q, args...)
+		// AND-guard on the BD subset so BD only edits BD-sourced leads.
+		q += fmt.Sprintf(" WHERE c.id=$%d AND %s", n, bdLeadSubset)
+		res, err := db.PGExec(r.Context(), q, args...)
+		if err != nil {
+			respondErr(w, 500, "Update failed")
+			return
+		}
+		if aff, _ := res.RowsAffected(); aff == 0 {
+			respondErr(w, 404, "Lead not found")
+			return
+		}
+		// Echo the updated row in the same shape as GET.
+		rows, err := db.PGQuery(r.Context(), bdLeadSelect+" WHERE c.id=$1", id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Lead not found")
 			return
@@ -592,7 +706,7 @@ func bdSectorAnalytics(db *core.DB) http.HandlerFunc {
 // a question nobody asked.
 func bdPipelineKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		where := ""
+		where := " WHERE " + bdLeadSubset
 		var args []any
 		if q := qstr(r, "assigned_to"); q != "" {
 			id, err := parseUserID(q)
@@ -600,18 +714,18 @@ func bdPipelineKPIs(db *core.DB) http.HandlerFunc {
 				respondErr(w, 400, err.Error())
 				return
 			}
-			where = " WHERE assigned_to = $1"
+			where += " AND c.assigned_to = $1"
 			args = append(args, id)
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-			  COUNT(*)                                                                         AS total_leads,
-			  COUNT(*) FILTER (WHERE created_at >= date_trunc('month', CURRENT_DATE))         AS this_month,
+			  COUNT(*)                                                                            AS total_leads,
+			  COUNT(*) FILTER (WHERE c.created_at >= date_trunc('month', CURRENT_DATE))          AS this_month,
 			  CASE WHEN COUNT(*) > 0 THEN
-			    ROUND(100.0 * COUNT(*) FILTER (WHERE stage = 'won') / COUNT(*), 1)
-			  ELSE 0 END                                                                       AS conversion_rate_pct,
-			  COALESCE(AVG(potential_value_kobo) FILTER (WHERE potential_value_kobo > 0), 0)  AS avg_deal_kobo
-			FROM bd_leads`+where, args...)
+			    ROUND(100.0 * COUNT(*) FILTER (WHERE c.lead_stage = 'converted') / COUNT(*), 1)
+			  ELSE 0 END                                                                          AS conversion_rate_pct,
+			  COALESCE(AVG(c.estimated_value_kobo) FILTER (WHERE c.estimated_value_kobo > 0), 0) AS avg_deal_kobo
+			FROM crm_contacts c`+where, args...)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"total_leads": 0, "this_month": 0,
@@ -662,16 +776,13 @@ func bdImportLeads(db *core.DB) http.HandlerFunc {
 		}
 
 		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
 		imported, skipped := 0, 0
 
 		for {
 			row, err := reader.Read()
 			if err != nil {
 				break
-			}
-			entityType := col(row, "entity_type")
-			if entityType == "" {
-				entityType = "company"
 			}
 			companyName := col(row, "company_name")
 			contactName := col(row, "contact_name")
@@ -680,25 +791,32 @@ func bdImportLeads(db *core.DB) http.HandlerFunc {
 			if contactName == "" {
 				contactName = strings.TrimSpace(col(row, "first_name") + " " + col(row, "last_name"))
 			}
-			title := col(row, "title")
-			if title == "" {
-				if contactName != "" {
-					title = contactName
-				} else {
-					title = companyName
-				}
+			// A crm_contacts row must carry a name. Prefer the contact, fall back to the
+			// company/title so a company-only row still lands with a name.
+			name := contactName
+			if name == "" {
+				name = companyName
 			}
-			if title == "" {
+			if name == "" {
+				name = col(row, "title")
+			}
+			if name == "" {
 				skipped++
 				continue
+			}
+			parts := strings.SplitN(name, " ", 2)
+			firstName := parts[0]
+			lastName := ""
+			if len(parts) > 1 {
+				lastName = parts[1]
 			}
 
 			email := col(row, "contact_email")
 			phone := col(row, "contact_phone")
-			leadType := col(row, "lead_type")
-			stage := col(row, "stage")
-			if stage == "" {
-				stage = "prospect"
+			// stage maps onto lead_stage; anything unrecognised defaults to 'new'.
+			leadStage := bdStageToLead(col(row, "stage"))
+			if leadStage == "" {
+				leadStage = "new"
 			}
 			notes := col(row, "notes")
 			valStr := col(row, "potential_value_naira")
@@ -709,14 +827,19 @@ func bdImportLeads(db *core.DB) http.HandlerFunc {
 				valueKobo = int64(math.Round(v * 100))
 			}
 
+			// Insert into the unified store, tagged as BD self-sourced. The company name
+			// (and entity_type/lead_type from the CSV) have no dedicated crm_contacts
+			// column beyond employer, which carries the organisation.
 			_, err = db.PGExec(ctx, `
-				INSERT INTO bd_leads
-					(entity_type, title, company_name, contact_name, contact_email,
-					 contact_phone, lead_type, stage, potential_value_kobo, notes, created_at, updated_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())`,
-				entityType, title, coalesce(companyName, ""), coalesce(contactName, ""),
-				coalesce(email, ""), coalesce(phone, ""), coalesce(leadType, ""),
-				stage, valueKobo, coalesce(notes, ""))
+				INSERT INTO crm_contacts
+					(first_name, last_name, phone, email, employer, notes, status, lead_stage,
+					 lead_source, source, source_type, estimated_value_kobo,
+					 assigned_to, lead_owner_id, created_by, created_at, updated_at)
+				VALUES ($1,$2,$3,$4,$5,$6,'lead',$7,
+				        'business_dev','business_dev','bd_self_sourced',$8,
+				        $9,$9,$9,NOW(),NOW())`,
+				firstName, lastName, coalesce(phone, ""), coalesce(email, ""),
+				nullIfEmpty(companyName), coalesce(notes, ""), leadStage, valueKobo, user.ID)
 			if err != nil {
 				skipped++
 			} else {

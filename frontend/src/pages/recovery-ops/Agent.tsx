@@ -2,12 +2,14 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
-import { Page, SectionCard, KpiCard, DataTable, ErrBanner, Spinner, ExpandableFilterBar } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Spinner, ExpandableFilterBar } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { LogPaymentModal } from '../../components/LogPaymentModal'
 import { apiFetch } from '../../lib/api'
+import { toast } from 'sonner'
 import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
-import { RED, AMBER, NAVY, GREEN, NUM, TEXT, FW, RADIUS, SP, SORA } from '../../lib/design'
+import { RED, AMBER, NAVY, GREEN, BLUE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { WorkspaceHero, MyDaySection, MyDayTile, PresenceControl, StatusPill, HeroButton, myUserId } from '../../components/MyWorkspace'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,14 +34,6 @@ interface RecoveryAgentDash {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function StatusPill({ label, color }: { label: string; color: string }) {
-  return (
-    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'], background: `${color}18`, color, whiteSpace: 'nowrap', textTransform: 'capitalize' }}>
-      {label}
-    </span>
-  )
-}
-
 function DpdCell({ dpd }: { dpd: number }) {
   const color = dpd > 90 ? RED : dpd > 30 ? AMBER : 'var(--txt)'
   return <span style={{ color, fontWeight: dpd > 30 ? FW.semibold : FW.normal, ...NUM }}>{dpd}d</span>
@@ -52,6 +46,7 @@ function outcomeColor(o: string) {
   return AMBER
 }
 
+// Money tooltip on white cards.
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
@@ -74,9 +69,10 @@ export default function RecoveryAgentDashboard() {
   const [searchCases, setSearchCases] = useState('')
   const [searchVisits, setSearchVisits] = useState('')
   const [payCase, setPayCase] = useState<Case | null>(null)
+  const [status, setStatus] = useState('available')
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null)
+    setError(null)
     try {
       const r = await apiFetch<{ data: RecoveryAgentDash }>('/api/recovery-ops/agent-dashboard')
       setData(r.data)
@@ -86,6 +82,15 @@ export default function RecoveryAgentDashboard() {
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['recovery'] })
+  useEffect(() => { const id = setInterval(load, 60000); return () => clearInterval(id) }, [load])
+
+  const changeStatus = useCallback(async (s: string) => {
+    setStatus(s)
+    const uid = myUserId()
+    if (!uid) return
+    try { await apiFetch(`/api/helpdesk/agents/${uid}/status`, { method: 'PUT', body: JSON.stringify({ status: s }) }) }
+    catch (e: any) { toast.error(e?.message || 'Could not update status') }
+  }, [])
 
   const displayedCases = useMemo(() => {
     const rows = data?.cases ?? []
@@ -105,17 +110,16 @@ export default function RecoveryAgentDashboard() {
     )
   }, [data?.recent_visits, searchVisits])
 
-  if (loading) return (
-    <Page title="My Recovery Dashboard" back={{ label: 'Recovery', to: '/recovery' }}>
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}><Spinner size={32} /></div>
-    </Page>
+  if (loading && !data) return (
+    <Page title="My Workspace"><div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}><Spinner size={32} /></div></Page>
   )
-  if (error) return (
-    <Page title="My Recovery Dashboard" back={{ label: 'Recovery', to: '/recovery' }}>
-      <ErrBanner error={error} onRetry={load} />
-    </Page>
-  )
+  if (error && !data) return <Page title="My Workspace"><ErrBanner error={error} onRetry={load} /></Page>
   if (!data) return null
+
+  const now = Date.now()
+  const actionsDue = data.cases.filter(c => c.next_action_date && new Date(c.next_action_date).getTime() <= now).length
+  const severe = data.cases.filter(c => c.dpd > 90).length
+  const clearMax = Math.max(1, data.assigned_cases + data.cases_closed_mtd)
 
   const caseCols: TableCol<Case>[] = [
     { key: 'case_ref', label: 'Case Ref', render: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs }}>{r.case_ref}</span> },
@@ -160,17 +164,42 @@ export default function RecoveryAgentDashboard() {
   ]
 
   return (
-    <Page title="My Recovery Dashboard" subtitle="Your assigned cases, visits and collection performance" back={{ label: 'Recovery', to: '/recovery' }}>
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="Assigned Cases" value={fmtNum(data.assigned_cases)} icon="folder_open" />
-        <KpiCard label="Closed MTD" value={fmtNum(data.cases_closed_mtd)} icon="check_circle" accent={GREEN} />
-        <KpiCard label="Calls Made MTD" value={fmtNum(data.calls_made_mtd)} icon="call" accent={NAVY} />
-        <KpiCard label="Collected MTD" value={fmtKobo(data.amount_collected_mtd_kobo)} icon="payments" accent={RED} />
-      </div>
+    <Page title="My Workspace" subtitle="Your recovery station — cases, visits and collections">
+      <ErrBanner error={error} onRetry={load} />
+
+      <WorkspaceHero
+        presence={<PresenceControl status={status} onChange={changeStatus} />}
+        subline={<>You've collected <strong style={{ color: '#fff' }}>{fmtKobo(data.amount_collected_mtd_kobo)}</strong> this month · {fmtNum(data.cases_closed_mtd)} case{data.cases_closed_mtd === 1 ? '' : 's'} closed{severe > 0 ? <> · <strong style={{ color: '#FCA5A5' }}>{severe}</strong> at 90+ DPD</> : ''}</>}
+        ring={{ value: data.cases_closed_mtd, max: clearMax, unit: 'cases' }}
+        stats={[
+          { label: 'Assigned Cases', value: fmtNum(data.assigned_cases) },
+          { label: 'Closed MTD', value: fmtNum(data.cases_closed_mtd), color: '#4ADE80' },
+          { label: 'Calls MTD', value: fmtNum(data.calls_made_mtd) },
+          { label: 'Collected MTD', value: fmtKobo(data.amount_collected_mtd_kobo), color: '#4ADE80' },
+        ]}
+        actions={<>
+          <HeroButton icon="folder_open" label="My Cases" primary onClick={() => navigate('/recovery/cases')} />
+          <HeroButton icon="gavel" label="Legal Tracker" onClick={() => navigate('/recovery/legal')} />
+          <HeroButton icon="sell" label="Debt Sales" onClick={() => navigate('/recovery/debt-sales')} />
+        </>}
+      />
+
+      {/* ── My Day ── */}
+      <MyDaySection hint="cases to work today">
+        <MyDayTile icon="event_available" count={fmtNum(actionsDue)} label="Actions due"
+          sub={actionsDue > 0 ? 'follow-ups scheduled by now' : 'nothing due'}
+          color={AMBER} urgent={actionsDue > 0} onClick={() => navigate('/recovery/cases')} />
+        <MyDayTile icon="priority_high" count={fmtNum(severe)} label="Severe (90+ DPD)"
+          sub={severe > 0 ? 'escalate or push hard' : 'none at 90+ DPD'}
+          color={severe > 0 ? RED : GREEN} urgent={severe > 0} onClick={() => navigate('/recovery/cases')} />
+        <MyDayTile icon="directions_walk" count={fmtNum(data.recent_visits.length)} label="Recent visits"
+          sub="field visits logged" color={BLUE} />
+        <MyDayTile icon="payments" count={fmtKobo(data.amount_collected_mtd_kobo)} label="Collected MTD"
+          sub="recovered this month" color={GREEN} />
+      </MyDaySection>
 
       {/* Cases table */}
-      <SectionCard title="My Cases" badge={data.cases.length} padding={false} style={{ marginBottom: 14 }}>
+      <SectionCard title="My Cases" badge={data.cases.length} padding={false} style={{ marginBottom: SP[4] }}>
         <ExpandableFilterBar
           search={searchCases}
           onSearch={setSearchCases}

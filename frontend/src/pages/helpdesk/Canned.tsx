@@ -6,6 +6,7 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import { canManageScripts } from '../../hooks/useAuth'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -100,6 +101,9 @@ export default function Canned() {
   // Module-scoped: Care manages email templates, Call Center manages call scripts.
   const isCare = useLocation().pathname.startsWith('/care')
   const channel = isCare ? 'email' : 'call'
+
+  // Reference content: supervisors curate, line agents read-only (enforced server-side).
+  const canManage = useMemo(() => canManageScripts(), [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -235,8 +239,10 @@ export default function Canned() {
       render: r => (
         <ActionRow actions={[
           { icon: 'preview', label: 'Preview', onClick: () => setPreviewItem(r) },
-          { icon: 'edit', label: 'Edit', onClick: () => openEdit(r) },
-          { icon: 'delete', label: 'Delete', onClick: () => setDeleteItem(r), danger: true },
+          ...(canManage ? [
+            { icon: 'edit', label: 'Edit', onClick: () => openEdit(r) },
+            { icon: 'delete', label: 'Delete', onClick: () => setDeleteItem(r), danger: true },
+          ] : []),
         ]} />
       ),
     },
@@ -268,10 +274,12 @@ export default function Canned() {
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
-            New Response
-          </button>
+          {canManage && (
+            <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
+              New Response
+            </button>
+          )}
         </div>
       }
     >

@@ -116,6 +116,7 @@ func StartSLABreachMonitor(db *core.DB) {
 					Body:      fmt.Sprintf("Ticket %s has breached its SLA and requires immediate attention.", ticketRef),
 					ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 					EntityRef: ticketRef,
+					Priority:  "urgent",
 				}
 				if assignedTo > 0 {
 					go Notify(ctx, db, NotifPayload{EventType: payload.EventType, UserID: assignedTo, Title: payload.Title, Body: payload.Body, ActionURL: payload.ActionURL, EntityRef: payload.EntityRef})
@@ -149,28 +150,72 @@ func StartSLABreachMonitor(db *core.DB) {
 				go NotifyRole(ctx, db, "call_center_head", p)
 			}
 
-			// Unassigned alert: tickets open > 1 hour with no assigned agent
-			unassignRows, _ := db.PGQuery(ctx, `
-				UPDATE helpdesk_tickets
-				SET unassigned_alert_sent=TRUE, updated_at=NOW()
-				WHERE assigned_to IS NULL
-				  AND status NOT IN ('resolved','closed')
-				  AND created_at < NOW() - INTERVAL '1 hour'
-				  AND (unassigned_alert_sent IS NULL OR unassigned_alert_sent=FALSE)
-				RETURNING id, ticket_ref`)
-			for _, row := range unassignRows {
-				ticketID := toInt64(row["id"])
-				ticketRef := str(row["ticket_ref"])
-				go NotifyRole(ctx, db, "call_center_head", NotifPayload{
-					EventType: EvtTicketUnassignedAlert,
-					Title:     fmt.Sprintf("Unassigned ticket: %s", ticketRef),
-					Body:      fmt.Sprintf("Ticket %s has been open for over 1 hour with no assigned agent.", ticketRef),
-					ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
-					EntityRef: ticketRef,
-				})
-			}
+			// The per-ticket unassigned alert used to live here. It sent one
+			// notification per ticket to call_center_head and produced 4,133 rows for
+			// two people, who then read none of them. It is now a grouped digest on a
+			// slower cadence — see hdUnassignedDigest below.
 		}
 	}()
+
+	// ── Unassigned-pool digest ──────────────────────────────────────────────
+	// Every 15 minutes, ONE notification per recipient describing the whole
+	// unowned pool, collapsed by GroupKey so repeat sends update the existing
+	// unread row in place instead of stacking. Supervisors get it because it is
+	// their backlog to distribute; agents get it because unowned tickets are
+	// claimable work, and previously nobody told them any existed.
+	go func() {
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			hdUnassignedDigest(context.Background(), db)
+		}
+	}()
+}
+
+// hdUnassignedDigest sends a single rolled-up alert about the unowned pool.
+func hdUnassignedDigest(ctx context.Context, db *core.DB) {
+	rows, err := db.PGQuery(ctx, `
+		SELECT COUNT(*)                                          AS n,
+		       COUNT(*) FILTER (WHERE sla_breached)              AS breached,
+		       COUNT(*) FILTER (WHERE priority IN ('urgent','high')) AS urgent
+		  FROM helpdesk_tickets
+		 WHERE assigned_to IS NULL
+		   AND status NOT IN ('resolved','closed')
+		   AND created_at < NOW() - INTERVAL '1 hour'`)
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	n := toInt64(rows[0]["n"])
+	if n == 0 {
+		return
+	}
+	breached := toInt64(rows[0]["breached"])
+
+	body := fmt.Sprintf("%d ticket(s) have been waiting over an hour with no owner", n)
+	if breached > 0 {
+		body += fmt.Sprintf(", %d already past SLA", breached)
+	}
+	prio := "normal"
+	if breached > 0 {
+		prio = "high"
+	}
+
+	p := NotifPayload{
+		EventType: EvtTicketUnassignedAlert,
+		Title:     fmt.Sprintf("%d unassigned tickets", n),
+		Body:      body + ".",
+		ActionURL: "/helpdesk/tickets?bucket=unassigned",
+		EntityRef: "tickets:unassigned",
+		GroupKey:  "tickets:unassigned",
+		Priority:  prio,
+	}
+	go NotifyRole(context.WithoutCancel(ctx), db, "call_center_head", p)
+
+	// Agents get the claimable-work version of the same fact.
+	agentP := p
+	agentP.Title = fmt.Sprintf("%d tickets waiting to be picked up", n)
+	agentP.Body = body + ". Open the queue to claim one."
+	NotifyUsers(context.WithoutCancel(ctx), db, activeAgentIDs(ctx, db), agentP)
 }
 
 func RegisterHelpdesk(r chi.Router, db *core.DB) {
@@ -194,6 +239,12 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Post("/tickets/bulk-priority", hdBulkPriorityTickets(db))
 		r.Post("/tickets/distribute", hdDistributeTickets(db))
 		r.Post("/tickets/{id}/claim", hdClaimTicket(db))
+		// Escalation + cross-team assist
+		r.Get("/escalations", hdListEscalations(db))
+		r.Post("/tickets/{id}/escalate", hdEscalateTicket(db))
+		r.Post("/tickets/{id}/escalation/resolve", hdResolveEscalation(db))
+		r.Post("/tickets/{id}/take-over", hdTakeOverTicket(db))
+		r.Get("/tickets/{id}/assists", hdTicketAssists(db))
 		r.Get("/tickets/{id}", hdGetTicket(db))
 		r.Patch("/tickets/{id}", hdUpdateTicket(db))
 		r.Post("/tickets/{id}/messages", hdSendMessage(db))
@@ -222,6 +273,7 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 
 		// Analytics endpoints consumed by Stats page
 		r.Get("/agents", hdListAgents(db))
+		r.Get("/agents/{id}/detail", hdAgentDetail(db))
 		r.Get("/csat-trend", hdCSATTrend(db))
 		r.Get("/handle-time-by-type", hdHandleTimeByType(db))
 		r.Get("/resolution-by-agent", hdResolutionByAgent(db))
@@ -825,38 +877,64 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			handleByType = []core.Row{}
 		}
 
-		// ── This agent's call activity (Zoho calls, matched by agent name) ────────
+		// ── This agent's call activity (Zoho calls) ──────────────────────────────
+		// Match on agent_id when the import captured it (~90% of rows) OR the display
+		// name — some Zoho agents have no linked user id, and some names don't match a
+		// user, so either key alone silently drops calls. $1 = user id, $2 = full name.
 		agentName := ""
+		var uid int64
 		if user != nil {
 			agentName = user.FullName
+			uid = user.ID
 		}
 		callToday, _ := db.PGQuery(ctx, `
 			SELECT
 			  COUNT(*)                                                                                  AS calls_today,
+			  COUNT(*) FILTER (WHERE lower(direction)='outbound')                                       AS outbound_today,
+			  COUNT(*) FILTER (WHERE lower(direction)='inbound')                                        AS inbound_today,
 			  COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected_today,
-			  COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail'))                     AS missed_today,
-			  COALESCE(ROUND(AVG(duration_sec)),0)::int                                                 AS avg_talk_sec
+			  -- A "missed call" is an INBOUND call we failed to answer. An unanswered
+			  -- OUTBOUND dial is "no answer" — the customer didn't pick, not the agent's miss.
+			  COUNT(*) FILTER (WHERE lower(direction)='inbound'  AND outcome IN ('missed','no_answer','voicemail')) AS missed_today,
+			  COUNT(*) FILTER (WHERE lower(direction)='outbound' AND outcome IN ('missed','no_answer','voicemail')) AS no_answer_today,
+			  COALESCE(ROUND(AVG(duration_sec) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail',''))),0)::int AS avg_talk_sec,
+			  COALESCE(SUM(duration_sec),0)::int                                                        AS talk_time_sec
 			FROM helpdesk_calls
-			WHERE agent_name = $1 AND started_at::date = CURRENT_DATE`, agentName)
+			WHERE (agent_id = $1 OR agent_name = $2) AND started_at::date = CURRENT_DATE`, uid, agentName)
 
-		callByDay, _ := db.PGQuery(ctx, `
-			SELECT started_at::date AS day,
-			       COUNT(*)                                                              AS total,
-			       COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail')) AS missed
-			FROM helpdesk_calls
-			WHERE agent_name = $1 AND started_at >= CURRENT_DATE - INTERVAL '13 days'
-			GROUP BY day ORDER BY day`, agentName)
-		if callByDay == nil {
-			callByDay = []core.Row{}
+		// This week's call volume by day, Sunday→Saturday, zero-filled so every weekday
+		// appears. Missed = inbound-only (an unanswered outbound isn't a "missed call").
+		callThisWeek, _ := db.PGQuery(ctx, `
+			WITH days AS (
+			  SELECT generate_series(
+			    CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE)::int,
+			    CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE)::int + 6,
+			    INTERVAL '1 day')::date AS day
+			)
+			SELECT TO_CHAR(d.day,'YYYY-MM-DD') AS day,
+			       TO_CHAR(d.day,'Dy')          AS dow,
+			       COUNT(hc.id)                                                                                                  AS total,
+			       COUNT(hc.id) FILTER (WHERE lower(hc.direction)='inbound' AND hc.outcome IN ('missed','no_answer','voicemail')) AS missed
+			FROM days d
+			LEFT JOIN helpdesk_calls hc
+			  ON hc.started_at::date = d.day AND (hc.agent_id = $1 OR hc.agent_name = $2)
+			GROUP BY d.day ORDER BY d.day`, uid, agentName)
+		if callThisWeek == nil {
+			callThisWeek = []core.Row{}
 		}
 
+		// Recent calls = the on-dashboard call log. Enriched with phone, purpose and the
+		// linked ticket so an agent can work from it without leaving the page.
 		recentCalls, _ := db.PGQuery(ctx, `
 			SELECT id, INITCAP(direction) AS direction,
 			       COALESCE(NULLIF(customer_name,''), NULLIF(customer_phone,''), 'Unknown') AS customer,
-			       outcome, duration_sec, started_at
+			       COALESCE(customer_phone,'') AS phone,
+			       LOWER(COALESCE(NULLIF(purpose,''),'')) AS purpose,
+			       COALESCE(customer_cif,'') AS customer_cif,
+			       outcome, duration_sec, started_at, ticket_id
 			FROM helpdesk_calls
-			WHERE agent_name = $1
-			ORDER BY started_at DESC LIMIT 15`, agentName)
+			WHERE (agent_id = $1 OR agent_name = $2)
+			ORDER BY started_at DESC LIMIT 20`, uid, agentName)
 		if recentCalls == nil {
 			recentCalls = []core.Row{}
 		}
@@ -871,8 +949,8 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 		var callsYesterday int64
 		if rows, _ := db.PGQuery(ctx, `
 			SELECT COUNT(*) AS n FROM helpdesk_calls
-			WHERE agent_name=$1 AND started_at::date = CURRENT_DATE - 1
-			  AND started_at::time <= NOW()::time`, agentName); len(rows) > 0 {
+			WHERE (agent_id = $1 OR agent_name = $2) AND started_at::date = CURRENT_DATE - 1
+			  AND started_at::time <= NOW()::time`, uid, agentName); len(rows) > 0 {
 			callsYesterday = toInt64(rows[0]["n"])
 		}
 
@@ -895,8 +973,8 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			       COUNT(*)                                                              AS total,
 			       COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail')) AS missed
 			FROM helpdesk_calls
-			WHERE agent_name = $1 AND started_at::date = CURRENT_DATE
-			GROUP BY hour ORDER BY hour`, agentName)
+			WHERE (agent_id = $1 OR agent_name = $2) AND started_at::date = CURRENT_DATE
+			GROUP BY hour ORDER BY hour`, uid, agentName)
 		if byHourToday == nil {
 			byHourToday = []core.Row{}
 		}
@@ -912,7 +990,7 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			"csat_trend":           csatTrend,
 			"handle_time_by_type":  handleByType,
 			"my_calls":             myCalls,
-			"call_by_day":          callByDay,
+			"call_this_week":       callThisWeek,
 			"recent_calls":         recentCalls,
 			"calls_yesterday":      callsYesterday,
 			"rank_today":           rankToday,
@@ -1078,12 +1156,19 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 
-		// Row-level scope: leaf agents see their own tickets (any status) plus the
-		// still-open unassigned pool they can claim; senior/head roles see all.
-		if u := core.UserFromCtx(r.Context()); u != nil && !u.CanSeeAllRows() {
-			where += fmt.Sprintf(" AND (t.assigned_to=$%d OR (t.assigned_to IS NULL AND t.status NOT IN ('resolved','closed')))", n)
-			args = append(args, u.ID)
-			n++
+		// Row-level scope, now driven by an explicit ?scope= rather than by role.
+		//
+		// This previously pinned a leaf agent to `assigned_to = me` while
+		// hdQueueSummary counted own + unassigned, so the "unassigned" chip showed a
+		// number that the list underneath could never display. Both sides now use
+		// hdScopeClause, so the count and the rows always describe the same set.
+		//
+		// scope=all is open to agents because cross-team assist requires being able
+		// to FIND a colleague's ticket, not just open one you already have a link to.
+		if u := core.UserFromCtx(r.Context()); u != nil {
+			clause, scopeArgs := hdScopeClause(u, qstr(r, "scope"), &n)
+			where += clause
+			args = append(args, scopeArgs...)
 		}
 
 		if v := normalizeHelpdeskFilter(qstr(r, "status")); v != "" {
@@ -1171,6 +1256,11 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			where += " AND t.status NOT IN ('resolved','closed') AND (SELECT m.direction FROM helpdesk_messages m WHERE m.ticket_id=t.id ORDER BY m.created_at DESC LIMIT 1) = 'outbound'"
 		case "overdue":
 			where += " AND t.sla_due_at IS NOT NULL AND t.sla_due_at < NOW() AND t.status NOT IN ('resolved','closed')"
+		case "escalated":
+			// A bucket, not a status filter: escalation is orthogonal to status, and
+			// the old "Escalated" status chip matched a value the DB check constraint
+			// forbids, so it could only ever return nothing.
+			where += " AND t.escalated_at IS NOT NULL AND t.escalation_resolved_at IS NULL"
 		}
 
 		filterArgs := append([]any(nil), args...)
@@ -1252,11 +1342,13 @@ func hdQueueSummary(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 
-		// Same leaf-agent scoping as the list: own tickets + claimable pool.
-		if u := core.UserFromCtx(r.Context()); u != nil && !u.CanSeeAllRows() {
-			where += fmt.Sprintf(" AND (t.assigned_to=$%d OR (t.assigned_to IS NULL AND t.status NOT IN ('resolved','closed')))", n)
-			args = append(args, u.ID)
-			n++
+		// Identical scoping to the list, via the same helper — these two used to
+		// disagree (summary counted own + unassigned, the list showed own only), so
+		// an agent saw a non-zero "unassigned" chip over rows that never appeared.
+		if u := core.UserFromCtx(r.Context()); u != nil {
+			clause, scopeArgs := hdScopeClause(u, qstr(r, "scope"), &n)
+			where += clause
+			args = append(args, scopeArgs...)
 		}
 		where += channelExcludeClause(qstr(r, "exclude_channel"), "t")
 		if v := normalizeHelpdeskFilter(qstr(r, "channel")); v != "" {
@@ -1509,23 +1601,27 @@ func hdAutoAssignTicket(ctx context.Context, db *core.DB, ticketID, actorID int6
 	if agent == nil {
 		return nil
 	}
-	res, err := db.PGExec(ctx, `
-		UPDATE helpdesk_tickets SET assigned_to=$1, assigned_at=NOW(), updated_at=NOW()
-		WHERE id=$2 AND assigned_to IS NULL AND status NOT IN ('resolved','closed')`,
-		*agent, ticketID)
-	if err != nil {
-		return nil
+	// assign_notified_at is stamped in the same statement: without it a later sync
+	// that reports an assignee for this ticket would announce it a second time.
+	rows, err := db.PGQuery(ctx, `
+		UPDATE helpdesk_tickets
+		   SET assigned_to=$1, assigned_at=NOW(), assign_notified_at=NOW(), updated_at=NOW()
+		 WHERE id=$2 AND assigned_to IS NULL AND status NOT IN ('resolved','closed')
+		 RETURNING ticket_ref, subject`, *agent, ticketID)
+	if err != nil || len(rows) == 0 {
+		return nil // error, or someone claimed it first / it closed — no-op
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return nil // someone claimed it first, or it closed — no-op
-	}
+	ref := str(rows[0]["ticket_ref"])
 	hdRecordEvent(ctx, db, ticketID, actorID, "assigned", "", "auto:load_balanced")
+	// Deep-link to the ticket, not the list. "A ticket has been auto-assigned to
+	// you" pointing at /helpdesk/tickets left the agent to go and find which one.
 	go Notify(context.Background(), db, NotifPayload{
-		EventType: "ticket_assigned",
+		EventType: EvtTicketAssigned,
 		UserID:    *agent,
-		Title:     "Ticket assigned to you",
-		Body:      "A ticket has been auto-assigned to you.",
-		ActionURL: "/helpdesk/tickets",
+		Title:     fmt.Sprintf("Ticket assigned to you: %s", ref),
+		Body:      str(rows[0]["subject"]),
+		ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
+		EntityRef: ref,
 	})
 	return agent
 }
@@ -1726,16 +1822,153 @@ func hdClaimTicket(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid ticket ID")
 			return
 		}
-		if _, err := db.PGExec(ctx,
-			`UPDATE helpdesk_tickets SET assigned_to=$1, assigned_at=NOW(), updated_at=NOW() WHERE id=$2`,
-			user.ID, ticketID); err != nil {
+		// Claim only what is genuinely unowned. Without the assigned_to IS NULL
+		// guard two agents clicking Claim at the same moment BOTH got
+		// {"claimed":true} and the second silently took the ticket off the first.
+		// A claim that loses the race must say so, not lie.
+		rows, err := db.PGQuery(ctx,
+			`UPDATE helpdesk_tickets
+			    SET assigned_to=$1, assigned_at=NOW(), updated_at=NOW()
+			  WHERE id=$2 AND assigned_to IS NULL AND status NOT IN ('resolved','closed')
+			  RETURNING ticket_ref`, user.ID, ticketID)
+		if err != nil {
 			respondErr(w, 500, "Claim failed")
 			return
 		}
+		if len(rows) == 0 {
+			// Report who actually holds it so the UI can say something useful.
+			cur, _ := db.PGQuery(ctx,
+				`SELECT COALESCE(u.full_name,'another agent') AS holder, t.status
+				   FROM helpdesk_tickets t LEFT JOIN o3c_users u ON u.id=t.assigned_to
+				  WHERE t.id=$1`, ticketID)
+			holder := "another agent"
+			if len(cur) > 0 {
+				if s := str(cur[0]["status"]); s == "resolved" || s == "closed" {
+					respondErr(w, 409, "That ticket is already "+s)
+					return
+				}
+				holder = str(cur[0]["holder"])
+			}
+			respondErr(w, 409, "Already claimed by "+holder)
+			return
+		}
+
 		hdRecordEvent(ctx, db, ticketID, user.ID, "assigned", "", fmt.Sprintf("%d", user.ID))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"claimed": true, "assigned_to": user.ID}) //nolint:errcheck
 	}
+}
+
+// hdScopeClause builds the row-level filter for the ticket queue from an explicit
+// ?scope=, and is shared by the list and the summary so their numbers can never
+// diverge. It appends to the caller's placeholder counter and returns the args to
+// add.
+//
+//	mine        — assigned to me (the default for a leaf agent)
+//	unassigned  — the claimable pool
+//	assisting   — tickets I have helped on but do not own
+//	all         — everything (default for supervisors; available to agents so they
+//	              can find a colleague's ticket in order to assist on it)
+func hdScopeClause(u *core.Claims, scope string, n *int) (string, []any) {
+	supervisor := u.CanSeeAllRows() || u.HasPage("call_center_stats")
+	if scope == "" {
+		if supervisor {
+			scope = "all"
+		} else {
+			scope = "mine"
+		}
+	}
+	switch scope {
+	case "unassigned":
+		return " AND t.assigned_to IS NULL AND t.status NOT IN ('resolved','closed')", nil
+	case "assisting":
+		c := fmt.Sprintf(` AND t.assigned_to IS DISTINCT FROM $%d
+		                   AND EXISTS (SELECT 1 FROM ticket_assists a
+		                                WHERE a.ticket_id=t.id AND a.helper_user_id=$%d)`, *n, *n)
+		*n++
+		return c, []any{u.ID}
+	case "all":
+		return "", nil
+	default: // mine
+		c := fmt.Sprintf(" AND t.assigned_to=$%d", *n)
+		*n++
+		return c, []any{u.ID}
+	}
+}
+
+// ── Cross-team assist ────────────────────────────────────────────────────────
+//
+// Agents used to get a flat 403 opening a colleague's ticket, so nobody could
+// help with another team's work — the thing the business actually needs when one
+// person is off or a customer calls about someone else's case.
+//
+// The rule now: anyone who can reach the Helpdesk module may OPEN and WORK any
+// ticket, but ownership does not move silently. Acting on someone else's ticket
+// records an assist and notifies the owner, so accountability survives the
+// openness. Taking the ticket over is a separate, explicit action.
+
+// hdLogAssist records a helper's action on a ticket they do not own and tells
+// the owner. No-ops when the actor IS the owner (that is ordinary work, not an
+// assist) and when the ticket is unowned (nobody to inform).
+func hdLogAssist(ctx context.Context, db *core.DB, ticketID, helperID int64, action, detail string) {
+	if ticketID == 0 || helperID == 0 {
+		return
+	}
+	rows, _ := db.PGQuery(ctx,
+		`SELECT assigned_to, ticket_ref, subject FROM helpdesk_tickets WHERE id=$1`, ticketID)
+	if len(rows) == 0 {
+		return
+	}
+	ownerID := toInt64(rows[0]["assigned_to"])
+	if ownerID == 0 || ownerID == helperID {
+		return
+	}
+
+	// 'viewed' is deduped to one row per helper per ticket per day by
+	// idx_ticket_assists_view_daily, so opening a ticket repeatedly does not
+	// bloat the ledger or re-ping the owner.
+	res, err := db.PGExec(ctx,
+		`INSERT INTO ticket_assists (ticket_id, helper_user_id, owner_user_id, action, detail)
+		 VALUES ($1,$2,$3,$4,NULLIF($5,''))
+		 ON CONFLICT DO NOTHING`, ticketID, helperID, ownerID, action, detail)
+	if err != nil {
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return // deduped — already recorded today
+	}
+
+	// A view is worth logging but not worth interrupting the owner for.
+	if action == "viewed" {
+		return
+	}
+
+	helper := "A colleague"
+	if hr, _ := db.PGQuery(ctx, `SELECT full_name FROM o3c_users WHERE id=$1`, helperID); len(hr) > 0 {
+		if fn := str(hr[0]["full_name"]); fn != "" {
+			helper = fn
+		}
+	}
+	ref := str(rows[0]["ticket_ref"])
+	verb := map[string]string{
+		"replied":   "replied to",
+		"noted":     "added a note to",
+		"resolved":  "resolved",
+		"took_over": "took over",
+		"escalated": "escalated",
+	}[action]
+	if verb == "" {
+		verb = "worked on"
+	}
+
+	go Notify(context.WithoutCancel(ctx), db, NotifPayload{
+		EventType: "ticket_assisted",
+		UserID:    ownerID,
+		Title:     fmt.Sprintf("%s %s %s", helper, verb, ref),
+		Body:      fmt.Sprintf("%s — %s. You are still the owner.", str(rows[0]["subject"]), verb),
+		ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
+		EntityRef: ref,
+	})
 }
 
 func hdGetTicket(db *core.DB) http.HandlerFunc {
@@ -1743,9 +1976,15 @@ func hdGetTicket(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 
 		tRows, err := db.PGQuery(r.Context(), `
-			SELECT t.*, u.full_name AS assigned_to_name
+			SELECT t.*, u.full_name AS assigned_to_name,
+			       eb.full_name AS escalated_by_name,
+			       et.full_name AS escalated_to_name,
+			       rb.full_name AS resolved_by_name
 			FROM helpdesk_tickets t
-			LEFT JOIN o3c_users u ON t.assigned_to=u.id
+			LEFT JOIN o3c_users u  ON u.id  = t.assigned_to
+			LEFT JOIN o3c_users eb ON eb.id = t.escalated_by
+			LEFT JOIN o3c_users et ON et.id = t.escalated_to
+			LEFT JOIN o3c_users rb ON rb.id = t.resolved_by
 			WHERE t.id=$1`, id)
 		if err != nil || len(tRows) == 0 {
 			respondErr(w, 404, "Ticket not found")
@@ -1753,12 +1992,22 @@ func hdGetTicket(db *core.DB) http.HandlerFunc {
 		}
 		ticket := tRows[0]
 
-		// Row-level scope: a leaf agent may open only their own tickets or
-		// unassigned ones (which they can claim), not another agent's.
-		if u := core.UserFromCtx(r.Context()); u != nil && !u.CanSeeAllRows() {
-			if at := toInt64(ticket["assigned_to"]); at != 0 && at != u.ID {
-				respondErr(w, 403, "This ticket is assigned to another agent")
-				return
+		// Cross-team assist: any user who can reach the Helpdesk module may OPEN any
+		// ticket. This used to 403 with "This ticket is assigned to another agent",
+		// which made it impossible for anyone to help with a colleague's or another
+		// team's case — including when the owner was away and the customer was on
+		// the phone.
+		//
+		// Openness is paid for with accountability, not with a lock: viewing
+		// someone else's ticket is recorded as an assist (deduped to once per day)
+		// and the response carries is_mine / owner so the UI can show whose it is
+		// and offer Take over rather than pretending it is theirs.
+		if u := core.UserFromCtx(r.Context()); u != nil {
+			owner := toInt64(ticket["assigned_to"])
+			ticket["is_mine"] = owner == u.ID
+			ticket["is_assist"] = owner != 0 && owner != u.ID
+			if owner != 0 && owner != u.ID {
+				go hdLogAssist(context.WithoutCancel(r.Context()), db, toInt64(ticket["id"]), u.ID, "viewed", "")
 			}
 		}
 
@@ -1894,31 +2143,61 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 			oldStatus := str(ticket["status"])
 			setParts = append(setParts, fmt.Sprintf("status=$%d", n))
 			args = append(args, newStatus)
+			statusArgIdx := len(args) - 1 // rewritten below if 'escalated' was requested
 			n++
 			switch newStatus {
 			case "resolved":
-				setParts = append(setParts, "resolved_at=NOW()")
+				// resolved_by, not just resolved_at: "who fixed this" was recoverable
+				// from nowhere — helpdesk_events held one status_changed row in total
+				// across 35,035 tickets.
+				setParts = append(setParts, fmt.Sprintf("resolved_at=NOW(), resolved_by=NULLIF($%d,0)::bigint", n))
+				args = append(args, callerID)
+				n++
+				// Closing someone else's ticket is the assist that matters most —
+				// record it and tell the owner they can stop chasing it.
+				go hdLogAssist(context.WithoutCancel(ctx), db, ticketID, callerID, "resolved", "")
 				// Send CSAT
 				go hdSendCSATEmail(context.Background(), db, ticket)
 			case "closed":
-				setParts = append(setParts, "closed_at=NOW()")
+				setParts = append(setParts, fmt.Sprintf("closed_at=NOW(), closed_by=NULLIF($%d,0)::bigint", n))
+				args = append(args, callerID)
+				n++
+				go hdLogAssist(context.WithoutCancel(ctx), db, ticketID, callerID, "resolved", "")
 			case "open", "in_progress", "pending", "escalated":
 				// Reopening a resolved/closed ticket must clear the terminal
 				// timestamps, or it stays counted as resolved/closed in every report
 				// even though it's active again (P5).
 				if oldStatus == "resolved" || oldStatus == "closed" {
-					setParts = append(setParts, "resolved_at=NULL", "closed_at=NULL")
+					setParts = append(setParts, "resolved_at=NULL", "closed_at=NULL",
+						"resolved_by=NULL", "closed_by=NULL")
 				}
 			}
 			// Escalation is a first-class state now (P4) — alert the supervisors so it
 			// doesn't just sit in the queue unseen.
 			if newStatus == "escalated" {
+				// 'escalated' is not a legal status — helpdesk_tickets_status_check
+				// allows only open/pending/in_progress/resolved/closed, so this branch
+				// used to throw a constraint violation and 500 the whole PATCH. That is
+				// why no ticket in 35,035 was ever escalated.
+				//
+				// Escalation is a flag instead, kept orthogonal to status so an
+				// escalated ticket still counts as open everywhere else in the app.
+				// The status write is rewritten to in_progress and the escalation
+				// fields are stamped, so this path lands on the same worklist as the
+				// richer POST /tickets/{id}/escalate (named target + reason).
+				args[statusArgIdx] = "in_progress"
+				newStatus = "in_progress"
+				setParts = append(setParts, fmt.Sprintf(
+					"escalated_at=COALESCE(escalated_at,NOW()), escalated_by=COALESCE(escalated_by,NULLIF($%d,0)::bigint), escalation_resolved_at=NULL", n))
+				args = append(args, callerID)
+				n++
 				go NotifyRole(context.Background(), db, "call_center_head", NotifPayload{
 					EventType: "ticket_escalated",
 					Title:     fmt.Sprintf("Ticket escalated: %s", str(ticket["ticket_ref"])),
 					Body:      fmt.Sprintf("Ticket %s (%s) has been escalated and needs review.", str(ticket["ticket_ref"]), str(ticket["subject"])),
 					ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 					EntityRef: fmt.Sprintf("ticket:%d", ticketID),
+					Priority:  "high",
 				})
 			}
 			hdRecordEvent(ctx, db, ticketID, callerID, "status_changed", oldStatus, newStatus)
@@ -1961,6 +2240,20 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 				newAssignID = v
 			}
 			if newAssignID > 0 {
+				// Don't assign into a dead end. The assignee picker lists every active
+				// user regardless of role, but 'helpdesk' is granted only to the
+				// call-centre and Care roles — so a ticket could be handed to someone
+				// in Finance or Settlements who would be 403'd on the link in their own
+				// notification, while the SLA monitor kept chasing them for it.
+				if can, who := hdUserCanWorkTickets(ctx, db, newAssignID); !can {
+					if who == "" {
+						respondErr(w, 422, "That person is not an active user")
+						return
+					}
+					respondErr(w, 422, who+" does not have Helpdesk access and could not open this ticket. "+
+						"Ask an admin to grant them the Helpdesk page, or escalate instead so a supervisor picks it up.")
+					return
+				}
 				setParts = append(setParts, fmt.Sprintf("assigned_to=$%d, assigned_at=NOW()", n))
 				args = append(args, newAssignID)
 				n++
@@ -1978,6 +2271,18 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 						UserID:    newAssignID,
 						Title:     fmt.Sprintf("Ticket assigned: %s", str(ticket["ticket_ref"])),
 						Body:      fmt.Sprintf("You've been assigned ticket %s: %s", str(ticket["ticket_ref"]), str(ticket["subject"])),
+						ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
+						EntityRef: fmt.Sprintf("ticket:%d", ticketID),
+					})
+				}
+				// The PREVIOUS owner was never told their ticket had moved, so work
+				// silently vanished from someone's queue with no explanation.
+				if prev := toInt64(ticket["assigned_to"]); prev > 0 && prev != newAssignID && prev != callerID {
+					go Notify(context.WithoutCancel(ctx), db, NotifPayload{
+						EventType: "ticket_reassigned_away",
+						UserID:    prev,
+						Title:     fmt.Sprintf("Reassigned: %s", str(ticket["ticket_ref"])),
+						Body:      fmt.Sprintf("%s is now handling %s. It has left your queue.", newAssignName, str(ticket["ticket_ref"])),
 						ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 						EntityRef: fmt.Sprintf("ticket:%d", ticketID),
 					})
@@ -2254,6 +2559,25 @@ func ensureCannedSchema(ctx context.Context, db *core.DB) {
 	db.PGExec(ctx, `ALTER TABLE helpdesk_canned_responses ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ`) //nolint:errcheck
 }
 
+// canCurateCanned answers "may this user create/edit/delete shared scripts &
+// templates". The library is reference content: supervisors and management own it,
+// line agents are read-only. Mirrors canManageScripts() on the frontend, which only
+// decides whether to render the buttons — this is the actual enforcement.
+func canCurateCanned(c *core.Claims) bool {
+	if c == nil {
+		return false
+	}
+	if core.IsManagement(c.Role) {
+		return true
+	}
+	for _, r := range append([]string{c.Role}, c.ExtraRoles...) {
+		if r == "call_center_head" || r == "care_head" {
+			return true
+		}
+	}
+	return false
+}
+
 // hdUseCanned bumps last_used_at so the most-used templates surface (called when
 // an agent inserts a canned response into a reply).
 func hdUseCanned(db *core.DB) http.HandlerFunc {
@@ -2312,6 +2636,10 @@ func hdListCanned(db *core.DB) http.HandlerFunc {
 
 func hdCreateCanned(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !canCurateCanned(core.UserFromCtx(r.Context())) {
+			respondErr(w, 403, "Only supervisors can modify the script library")
+			return
+		}
 		var b struct {
 			Name     string  `json:"name"`
 			Channel  string  `json:"channel"`
@@ -2352,6 +2680,10 @@ func hdCreateCanned(db *core.DB) http.HandlerFunc {
 
 func hdUpdateCanned(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !canCurateCanned(core.UserFromCtx(r.Context())) {
+			respondErr(w, 403, "Only supervisors can modify the script library")
+			return
+		}
 		id := chi.URLParam(r, "id")
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -2379,6 +2711,10 @@ func hdUpdateCanned(db *core.DB) http.HandlerFunc {
 
 func hdDeleteCanned(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !canCurateCanned(core.UserFromCtx(r.Context())) {
+			respondErr(w, 403, "Only supervisors can modify the script library")
+			return
+		}
 		id := chi.URLParam(r, "id")
 		rows, _ := db.PGQuery(r.Context(), "SELECT id FROM helpdesk_canned_responses WHERE id=$1", id)
 		if len(rows) == 0 {
@@ -3298,6 +3634,7 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		Disposition     string  `json:"disposition"`  // business result of the call
 		TicketRef       string  `json:"ticket_ref"`
 		TicketType      string  `json:"ticket_type"`
+		Purpose         string  `json:"purpose"`      // which book the call falls under (marketing/collections/support/…)
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := ensureCallLogSchema(r.Context(), db); err != nil {
@@ -3363,14 +3700,18 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		if user != nil {
 			agentID = &user.ID
 		}
+		// Purpose = which book the call belongs to (marketing/collections/support/sales),
+		// stored lower-case to match the queue + Zoho-import convention so a manually
+		// logged call sorts alongside the ones the dialer recorded.
+		purpose := strings.ToLower(strings.TrimSpace(b.Purpose))
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO helpdesk_calls
-			  (agent_id, agent_name, customer_name, customer_cif, customer_email, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref, ticket_type, resolution, disposition)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+			  (agent_id, agent_name, customer_name, customer_cif, customer_email, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref, ticket_type, resolution, disposition, purpose)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 			RETURNING id`,
 			agentID, agentName, b.CustomerName, b.CustomerCIF, b.CustomerEmail, b.CustomerPhone,
 			direction, durationSec, outcome, b.Notes, ticketID, ptrOrNilStr(b.TicketRef), ptrOrNilStr(b.TicketType),
-			b.Resolution, ptrOrNilStr(b.Disposition))
+			b.Resolution, ptrOrNilStr(b.Disposition), ptrOrNilStr(purpose))
 		if err != nil {
 			respondErr(w, 500, "Insert failed: "+err.Error())
 			return
@@ -3442,15 +3783,28 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 		directionFilter := r.URL.Query().Get("direction")
 		limit := qint(r, "limit", 200, 1, 500)
 
+		// Row-level scope: an agent sees ONLY her own call log; call-centre heads (they
+		// hold call_center_stats) and admins see everyone's. Match on agent_id or name
+		// so calls the import linked either way are all captured.
+		args := []any{dateFrom, dateTo, customerCIF, agentFilter}
+		scope := ""
+		if user := core.UserFromCtx(r.Context()); user != nil && !user.HasPage("call_center_stats") {
+			scope = fmt.Sprintf(" AND (hc.agent_id = $%d OR hc.agent_name = $%d)", len(args)+1, len(args)+2)
+			args = append(args, user.ID, user.FullName)
+		}
+		limitIdx := len(args) + 1
+		args = append(args, limit)
+
 		// direction + outcome accept comma-separated multi-select (e.g. "Inbound,Outbound").
 		extra := sqlInLower("direction", directionFilter) + sqlInLower("outcome", outcomeFilter)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT hc.id, hc.agent_name, hc.customer_name,
+			SELECT hc.id, hc.agent_id, hc.agent_name, hc.customer_name,
 			       hc.customer_phone AS phone,
 			       hc.customer_cif, hc.customer_email,
 			       INITCAP(hc.direction) AS direction,
 			       hc.duration_sec AS duration_seconds,
 			       hc.outcome, hc.notes, hc.resolution, hc.disposition,
+			       LOWER(COALESCE(NULLIF(hc.purpose,''),'')) AS purpose,
 			       hc.ticket_id, hc.ticket_ref, hc.recording_url, hc.ticket_type,
 			       hc.started_at AS called_at,
 			       qa.id AS qa_evaluation_id, qa.total_score AS qa_score, qa.rating_band AS qa_band, qa.passed AS qa_passed
@@ -3462,14 +3816,106 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 			WHERE ($1 = '' OR hc.started_at::date >= $1::date)
 			  AND ($2 = '' OR started_at::date <= $2::date)
 			  AND ($3 = '' OR customer_cif = $3)
-			  AND ($4 = '' OR agent_name ILIKE '%%' || $4 || '%%')%s
+			  AND ($4 = '' OR agent_name ILIKE '%%' || $4 || '%%')%s%s
 			ORDER BY started_at DESC
-			LIMIT $5`, extra), dateFrom, dateTo, customerCIF, agentFilter, limit)
+			LIMIT $%d`, extra, scope, limitIdx), args...)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
 		}
 		jsonRows(w, rows)
+	}
+}
+
+// hdAgentDetail returns a single agent's snapshot for the supervisor's "view agent"
+// drawer on the call log — profile + call performance (from the real helpdesk_calls,
+// with the inbound-only "missed" rule), live ticket load, QA summary and recent calls.
+// Head/supervisor only (call_center_stats) — an agent can't inspect peers.
+func hdAgentDetail(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if u := core.UserFromCtx(r.Context()); u != nil && !u.HasPage("call_center_stats") && !u.CanSeeAllRows() {
+			respondErr(w, 403, "Supervisor access required")
+			return
+		}
+		id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if id <= 0 {
+			respondErr(w, 400, "Invalid agent id")
+			return
+		}
+		ctx := r.Context()
+		dateFrom, _ := validDate(r, "date_from")
+		dateTo, _ := validDate(r, "date_to")
+
+		agentRows, _ := db.PGQuery(ctx, `
+			SELECT id, full_name,
+			       COALESCE(helpdesk_status,'available') AS status,
+			       COALESCE(role,'') AS role, COALESCE(department,'') AS department,
+			       COALESCE(email,'') AS email, COALESCE(phone,'') AS phone
+			FROM o3c_users WHERE id=$1`, id)
+		if len(agentRows) == 0 {
+			respondErr(w, 404, "Agent not found")
+			return
+		}
+		agent := agentRows[0]
+		fullName := str(agent["full_name"])
+
+		// Call performance over the (optional) date range — matched by id or name.
+		var calls core.Row = core.Row{}
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(*)                                                                                                  AS total,
+			  COUNT(*) FILTER (WHERE lower(direction)='outbound')                                                       AS outbound,
+			  COUNT(*) FILTER (WHERE lower(direction)='inbound')                                                        AS inbound,
+			  COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail',''))                 AS connected,
+			  COUNT(*) FILTER (WHERE lower(direction)='inbound'  AND outcome IN ('missed','no_answer','voicemail'))     AS missed,
+			  COUNT(*) FILTER (WHERE lower(direction)='outbound' AND outcome IN ('missed','no_answer','voicemail'))     AS no_answer,
+			  COALESCE(ROUND(AVG(duration_sec) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail',''))),0)::int AS avg_talk_sec,
+			  COALESCE(SUM(duration_sec),0)::int                                                                        AS talk_time_sec
+			FROM helpdesk_calls
+			WHERE (agent_id=$1 OR agent_name=$2)
+			  AND ($3='' OR started_at::date >= $3::date)
+			  AND ($4='' OR started_at::date <= $4::date)`, id, fullName, dateFrom, dateTo); len(rows) > 0 {
+			calls = rows[0]
+		}
+
+		var openT, resolvedT int64
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM helpdesk_tickets
+			WHERE assigned_to=$1 AND status NOT IN ('resolved','closed')
+			  AND (channel IS NULL OR channel NOT IN ('email','call'))`, id); len(rows) > 0 {
+			openT = toInt64(rows[0]["n"])
+		}
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM helpdesk_tickets
+			WHERE assigned_to=$1 AND status='resolved'
+			  AND ($2='' OR updated_at::date >= $2::date) AND ($3='' OR updated_at::date <= $3::date)`,
+			id, dateFrom, dateTo); len(rows) > 0 {
+			resolvedT = toInt64(rows[0]["n"])
+		}
+
+		var qa core.Row = core.Row{"evaluations": int64(0), "avg_score": nil, "pass_rate": nil}
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS evaluations,
+			ROUND(AVG(total_score)::numeric,1) AS avg_score,
+			ROUND(100.0*COUNT(*) FILTER (WHERE passed)/NULLIF(COUNT(*),0),0) AS pass_rate
+			FROM qa_evaluations WHERE agent_id=$1`, id); len(rows) > 0 {
+			qa = rows[0]
+		}
+
+		recent, _ := db.PGQuery(ctx, `
+			SELECT id, INITCAP(direction) AS direction,
+			       COALESCE(NULLIF(customer_name,''), NULLIF(customer_phone,''), 'Unknown') AS customer,
+			       COALESCE(customer_phone,'') AS phone, outcome, duration_sec, started_at, ticket_id
+			FROM helpdesk_calls WHERE (agent_id=$1 OR agent_name=$2)
+			ORDER BY started_at DESC LIMIT 12`, id, fullName)
+		if recent == nil {
+			recent = []core.Row{}
+		}
+
+		respond(w, map[string]any{
+			"agent":        agent,
+			"calls":        calls,
+			"tickets":      map[string]any{"open": openT, "resolved": resolvedT},
+			"qa":           qa,
+			"recent_calls": recent,
+		}, "pg")
 	}
 }
 
@@ -3619,6 +4065,11 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 			  AND ($3 = '' OR agent_name ILIKE '%' || $3 || '%')` +
 			sqlInLower("direction", directionFilter) + sqlInLower("outcome", outcomeFilter)
 		fargs := []any{dateFrom, dateTo, agentFilter}
+		// Agents see only their own KPIs/charts; heads (call_center_stats) see the team's.
+		if user := core.UserFromCtx(ctx); user != nil && !user.HasPage("call_center_stats") && !user.CanSeeAllRows() {
+			filter += ` AND (agent_id = $4 OR agent_name = $5)`
+			fargs = append(fargs, user.ID, user.FullName)
+		}
 
 		// Outcome vocabulary varies by source (Zoho uses missed/completed; the live
 		// AT flow used no_answer/voicemail/resolved). Treat any of the "no contact"
@@ -4068,11 +4519,25 @@ func hdKBSetStatus(db *core.DB) http.HandlerFunc {
 
 func hdListAgents(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Only people who can actually open a ticket. This used to return EVERY
+		// active user, so Settlements and Finance staff appeared in the assignee
+		// dropdown — picking one moved the ticket to somebody whose own
+		// notification link would 403. can_work_tickets is returned as well so a
+		// caller that wants the full directory can still show who is excluded.
 		rows, _ := db.PGQuery(r.Context(),
-			`SELECT id, full_name FROM o3c_users WHERE deleted_at IS NULL AND is_active=TRUE ORDER BY full_name`)
+			`SELECT id, full_name, role FROM o3c_users
+			  WHERE deleted_at IS NULL AND is_active=TRUE ORDER BY full_name`)
 		if rows == nil {
 			rows = []core.Row{}
 		}
+		eligible := make([]core.Row, 0, len(rows))
+		for _, u := range rows {
+			if ok, _ := hdUserCanWorkTickets(r.Context(), db, toInt64(u["id"])); ok {
+				u["can_work_tickets"] = true
+				eligible = append(eligible, u)
+			}
+		}
+		rows = eligible
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows) //nolint:errcheck
 	}

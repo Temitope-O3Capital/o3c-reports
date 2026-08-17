@@ -10,36 +10,40 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch, apiExport } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, DARKRED, AMBER, GREEN, BLUE, INTER, SORA, NUM } from '../../lib/design'
+import { bandColor, bandLabel, scoreColor, fmtScore } from '../../lib/riskScale'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ReviewKPIs {
   reviewed: number; approved: number; declined: number; pending: number
+  origination_live?: boolean
 }
 interface PortfolioKPIs {
   npl_ratio_pct: number; par30_rate_pct: number; par60_rate_pct: number
   avg_credit_score: number; total_book_kobo: number; total_active_loans: number
+  total_arrears_kobo: number; top_obligor_exposure_kobo: number
 }
 interface EyeKPIs {
   scored_today: number; avg_score_month: number; high_risk_count: number; requests_month: number
+  origination_live?: boolean
 }
 interface PARPoint { month: string; par30_kobo: number; par60_kobo: number; par90_kobo: number }
 interface BandRow  { band: string; count: number; pct: number }
-interface SectorRow { sector: string; book_pct: number }
-interface EmployerRow {
-  company: string; staff_loans_count: number; book_kobo: number; pct_of_total: number; par30_count: number
+interface SectorRow { sector: string; sector_code: string; loan_count: number; book_kobo: number; book_pct: number }
+/** Concentration row. `basis` decides whether `company` is an employer or a borrower. */
+interface ConcentrationRow {
+  company: string; applicant_cif?: string
+  staff_loans_count: number; book_kobo: number; pct_of_total: number; par30_count: number
 }
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
+// bandColor / scoreColor / bandLabel now come from lib/riskScale — this page used to
+// declare its own Prime/Near-Prime map against an API that emits A-E, so the donut
+// rendered a single flat NAVY and the legend read "A, B, C, E".
 
-const BAND_COLORS: Record<string, string> = {
-  'Prime': GREEN, 'Near-Prime': BLUE, 'Sub-Prime': AMBER, 'High-Risk': RED,
-}
-function bandColor(b: string) { return BAND_COLORS[b] ?? NAVY }
-
-function scoreColor(s: number) {
-  if (s >= 700) return GREEN; if (s >= 500) return AMBER; if (s > 0) return RED; return 'var(--txt3)'
-}
+// Single-obligor concentration limit. Hardcoded here as it was before; it belongs in
+// a risk-appetite settings table once the policy engine exists.
+const CONCENTRATION_LIMIT_PCT = 20
 
 function sectorFill(i: number, total: number) {
   const op = 0.95 - (i / Math.max(total - 1, 1)) * 0.55
@@ -71,12 +75,20 @@ function Tip({ active, payload, label, fmt }: {
   )
 }
 
-// ── Employer table ────────────────────────────────────────────────────────────
+// ── Concentration table ───────────────────────────────────────────────────────
+// The column header follows the basis the API reports. When origination is not live
+// the rows are BORROWERS off the live CBS book, not employers — showing those under
+// an "Employer" heading is how this table used to lie when it had data at all.
 
-const empCols: TableCol<EmployerRow>[] = [
+function concentrationCols(basis: string): TableCol<ConcentrationRow>[] { return [
   {
-    key: 'company', label: 'Employer', sortable: true,
-    render: r => <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.company}</span>,
+    key: 'company', label: basis === 'employer' ? 'Employer' : 'Borrower', sortable: true,
+    render: r => (
+      <div>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.company}</div>
+        {r.applicant_cif && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.applicant_cif}</div>}
+      </div>
+    ),
   },
   {
     key: 'staff_loans_count', label: 'Loans', align: 'right', sortable: true,
@@ -90,13 +102,14 @@ const empCols: TableCol<EmployerRow>[] = [
     key: 'pct_of_total', label: '% of Book', align: 'right', sortable: true,
     render: r => {
       const pct = Number(r.pct_of_total)
-      const color = pct > 20 ? RED : pct > 10 ? AMBER : NAVY
+      const breach = pct > CONCENTRATION_LIMIT_PCT
+      const color = breach ? RED : pct > CONCENTRATION_LIMIT_PCT / 2 ? AMBER : NAVY
       return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
           <div style={{ width: 56, height: 6, borderRadius: 3, background: 'var(--bdr)', overflow: 'hidden' }}>
             <div style={{ height: '100%', borderRadius: 3, width: `${Math.min(100, pct)}%`, background: color }} />
           </div>
-          <span style={{ ...NUM, fontSize: TEXT.sm, minWidth: 38, textAlign: 'right', color, fontWeight: pct > 20 ? FW.bold : FW.normal }}>
+          <span style={{ ...NUM, fontSize: TEXT.sm, minWidth: 38, textAlign: 'right', color, fontWeight: breach ? FW.bold : FW.normal }}>
             {fmtPct(pct)}
           </span>
         </div>
@@ -107,7 +120,7 @@ const empCols: TableCol<EmployerRow>[] = [
     key: 'par30_count', label: 'PAR30', align: 'right', sortable: true,
     render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: r.par30_count > 0 ? AMBER : 'var(--txt3)' }}>{r.par30_count > 0 ? r.par30_count : '—'}</span>,
   },
-]
+]}
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -120,7 +133,8 @@ export default function RiskOverview() {
   const [parTrend,      setParTrend]      = useState<PARPoint[]>([])
   const [bands,         setBands]         = useState<BandRow[]>([])
   const [sectors,       setSectors]       = useState<SectorRow[]>([])
-  const [employers,     setEmployers]     = useState<EmployerRow[]>([])
+  const [concentration, setConcentration] = useState<ConcentrationRow[]>([])
+  const [concBasis,     setConcBasis]     = useState<string>('obligor')
   const [empSearch,     setEmpSearch]     = useState('')
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState<string | null>(null)
@@ -135,19 +149,25 @@ export default function RiskOverview() {
         apiFetch<{ data: PARPoint[]    }>('/api/risk/par-trend').catch(() => ({ data: [] })),
         apiFetch<{ data: BandRow[]     }>('/api/risk/band-distribution'),
         apiFetch<{ data: SectorRow[]   }>('/api/risk/sector-concentration'),
-        apiFetch<{ data: EmployerRow[] }>('/api/risk/top-employers'),
+        apiFetch<{ data: { basis: string; rows: ConcentrationRow[] } }>('/api/risk/top-employers'),
       ])
       setReviewKPIs(rk.data); setPortfolioKPIs(pk.data); setEyeKPIs(ek.data)
       setParTrend(Array.isArray(pt.data) ? pt.data : [])
       setBands(Array.isArray(bd.data) ? bd.data : [])
       setSectors(Array.isArray(sc.data) ? sc.data : [])
-      setEmployers(Array.isArray(em.data) ? em.data : [])
+      setConcBasis(em.data?.basis ?? 'obligor')
+      setConcentration(Array.isArray(em.data?.rows) ? em.data.rows : [])
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['loans'] })
+
+  // Origination is not live on this deployment, so review/eye KPIs are structurally
+  // zero rather than "a quiet day". The API says which, and the page says so too
+  // instead of showing a confident 0% approval rate off an empty table.
+  const originationLive = reviewKPIs?.origination_live !== false
 
   const approvalRate = reviewKPIs
     ? (reviewKPIs.approved + reviewKPIs.declined > 0
@@ -156,13 +176,15 @@ export default function RiskOverview() {
     : null
 
   const totalBandCount = bands.reduce((s, b) => s + b.count, 0)
-  const concentrationAlerts = employers.filter(e => Number(e.pct_of_total) > 20)
-  const filteredEmployers = empSearch
-    ? employers.filter(e => e.company.toLowerCase().includes(empSearch.toLowerCase()))
-    : employers
+  const concentrationAlerts = concentration.filter(e => Number(e.pct_of_total) > CONCENTRATION_LIMIT_PCT)
+  const filteredConcentration = empSearch
+    ? concentration.filter(e => e.company.toLowerCase().includes(empSearch.toLowerCase()))
+    : concentration
+  const concLabel = concBasis === 'employer' ? 'Employer' : 'Borrower'
+  const concCols = concentrationCols(concBasis)
 
   function exportCsv() {
-    apiExport('/api/risk/top-employers/export', 'employer-exposure.csv')
+    apiExport('/api/risk/top-employers/export', `${concBasis}-concentration.csv`)
   }
 
   if (loading) return (
@@ -200,13 +222,30 @@ export default function RiskOverview() {
           <span className="material-symbols-rounded" style={{ fontSize: 18, color: RED, flexShrink: 0, marginTop: 1 }}>corporate_fare</span>
           <div>
             <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: RED }}>
-              Employer concentration breach{concentrationAlerts.length > 1 ? 'es' : ''}
+              {concLabel} concentration breach{concentrationAlerts.length > 1 ? 'es' : ''}
             </span>
             {concentrationAlerts.map(e => (
               <div key={e.company} style={{ fontSize: TEXT.xs, color: RED, marginTop: 2 }}>
-                {e.company} — {fmtPct(e.pct_of_total)} of book · Policy limit 20%
+                {e.company} — {fmtPct(e.pct_of_total)} of book · Policy limit {CONCENTRATION_LIMIT_PCT}%
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Origination not live — say so once, rather than three KPIs quietly reading 0 */}
+      {!originationLive && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: SP[4],
+          padding: `${SP[2]} ${SP[4]}`,
+          background: 'var(--th-bg)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt3)', flexShrink: 0, marginTop: 1 }}>info</span>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.6 }}>
+            <strong style={{ color: 'var(--txt)' }}>No applications in the pipeline yet.</strong>{' '}
+            Pending Review, Approval Rate and High-Risk Loans read “n/a” rather than zero
+            until the first application is raised here or synced from Phoenix. Portfolio,
+            delinquency and concentration figures below are live off the Udara book.
           </div>
         </div>
       )}
@@ -216,11 +255,21 @@ export default function RiskOverview() {
         <KpiCard label="Active Book"    value={portfolioKPIs ? fmtKobo(portfolioKPIs.total_book_kobo) : '—'} sub={portfolioKPIs ? `${fmtNum(portfolioKPIs.total_active_loans)} loans` : undefined} icon="account_balance_wallet" accent={NAVY} />
         <KpiCard label="NPL Ratio"      value={portfolioKPIs ? `${portfolioKPIs.npl_ratio_pct}%` : '—'} sub="DPD > 90 days" icon="trending_down" accent={(portfolioKPIs?.npl_ratio_pct ?? 0) > 5 ? RED : (portfolioKPIs?.npl_ratio_pct ?? 0) > 2 ? AMBER : GREEN} />
         <KpiCard label="PAR 30"         value={portfolioKPIs ? `${portfolioKPIs.par30_rate_pct}%` : '—'} sub="DPD > 30 days" icon="schedule" accent={(portfolioKPIs?.par30_rate_pct ?? 0) > 10 ? RED : (portfolioKPIs?.par30_rate_pct ?? 0) > 5 ? AMBER : GREEN} />
-        <KpiCard label="PAR 60"         value={portfolioKPIs ? `${portfolioKPIs.par60_rate_pct}%` : '—'} sub="DPD > 60 days" icon="warning_amber" accent={(portfolioKPIs?.par60_rate_pct ?? 0) > 7 ? RED : (portfolioKPIs?.par60_rate_pct ?? 0) > 3 ? AMBER : GREEN} />
-        <KpiCard label="Pending Review" value={String(reviewKPIs?.pending ?? '—')} sub="Awaiting decision" icon="pending_actions" accent={(reviewKPIs?.pending ?? 0) > 0 ? AMBER : GREEN} />
-        <KpiCard label="Approval Rate"  value={approvalRate !== null ? `${approvalRate}%` : '—'} sub={reviewKPIs ? `${reviewKPIs.approved} of ${reviewKPIs.approved + reviewKPIs.declined} decided` : undefined} icon="check_circle" accent={(approvalRate ?? 0) >= 70 ? GREEN : (approvalRate ?? 0) >= 50 ? AMBER : RED} />
-        <KpiCard label="High-Risk Loans" value={String(eyeKPIs?.high_risk_count ?? '—')} sub="Eye band: High-Risk" icon="error_outline" accent={(eyeKPIs?.high_risk_count ?? 0) > 0 ? RED : GREEN} />
-        <KpiCard label="Avg Eye Score"  value={portfolioKPIs ? String(portfolioKPIs.avg_credit_score) : '—'} sub="Active book" icon="psychology" accent={scoreColor(portfolioKPIs?.avg_credit_score ?? 0)} />
+        <KpiCard label="Total Arrears"  value={portfolioKPIs ? fmtKobo(portfolioKPIs.total_arrears_kobo) : '—'} sub="Behind schedule" icon="warning_amber" accent={(portfolioKPIs?.total_arrears_kobo ?? 0) > 0 ? AMBER : GREEN} />
+        {originationLive ? (
+          <>
+            <KpiCard label="Pending Review" value={String(reviewKPIs?.pending ?? '—')} sub="Awaiting decision" icon="pending_actions" accent={(reviewKPIs?.pending ?? 0) > 0 ? AMBER : GREEN} />
+            <KpiCard label="Approval Rate"  value={approvalRate !== null ? `${approvalRate}%` : '—'} sub={reviewKPIs ? `${reviewKPIs.approved} of ${reviewKPIs.approved + reviewKPIs.declined} decided` : undefined} icon="check_circle" accent={(approvalRate ?? 0) >= 70 ? GREEN : (approvalRate ?? 0) >= 50 ? AMBER : RED} />
+            <KpiCard label="High-Risk Loans" value={String(eyeKPIs?.high_risk_count ?? '—')} sub="Eye band: High-Risk" icon="error_outline" accent={(eyeKPIs?.high_risk_count ?? 0) > 0 ? RED : GREEN} />
+          </>
+        ) : (
+          <>
+            <KpiCard label="Pending Review"  value="n/a" sub="Origination not live" icon="pending_actions" accent={NAVY} />
+            <KpiCard label="Approval Rate"   value="n/a" sub="Origination not live" icon="check_circle"    accent={NAVY} />
+            <KpiCard label="Top Exposure"    value={portfolioKPIs ? fmtKobo(portfolioKPIs.top_obligor_exposure_kobo) : '—'} sub={`Largest single ${concLabel.toLowerCase()}`} icon="corporate_fare" accent={NAVY} />
+          </>
+        )}
+        <KpiCard label="Avg Risk Score"  value={fmtScore(portfolioKPIs?.avg_credit_score)} sub="Active book · 0-100" icon="psychology" accent={scoreColor(portfolioKPIs?.avg_credit_score)} />
       </div>
 
       {/* Charts row 1 — PAR area trend + risk band donut */}
@@ -263,7 +312,7 @@ export default function RiskOverview() {
         </SectionCard>
 
         {/* Risk band donut */}
-        <SectionCard title="Risk Band Distribution" subtitle="Active loan book scored by Eye">
+        <SectionCard title="Risk Band Distribution" subtitle="Active book, banded A (Prime) → E (High-Risk)">
           {bands.length === 0 ? (
             <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No scored loans</div>
           ) : (
@@ -284,7 +333,7 @@ export default function RiskOverview() {
                 {bands.map(b => (
                   <div key={b.band} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{ width: 10, height: 10, borderRadius: RADIUS.xs, background: bandColor(b.band), flexShrink: 0 }} />
-                    <span style={{ flex: 1, fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium }}>{b.band}</span>
+                    <span style={{ flex: 1, fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium }}>{bandLabel(b.band)}</span>
                     <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: bandColor(b.band) }}>{fmtPct(b.pct)}</span>
                   </div>
                 ))}
@@ -309,11 +358,11 @@ export default function RiskOverview() {
         </ResponsiveContainer>
       </SectionCard>
 
-      {/* Top employers */}
+      {/* Concentration — employer when origination is live, otherwise single-obligor */}
       <SectionCard
-        title="Top Employers by Exposure"
-        subtitle="Concentration policy: no single employer to exceed 20% of active book"
-        badge={filteredEmployers.length}
+        title={`Top ${concLabel}s by Exposure`}
+        subtitle={`Concentration policy: no single ${concLabel.toLowerCase()} to exceed ${CONCENTRATION_LIMIT_PCT}% of active book`}
+        badge={filteredConcentration.length}
         padding={false}
         actions={
           <button onClick={exportCsv} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
@@ -321,8 +370,8 @@ export default function RiskOverview() {
           </button>
         }
       >
-        <ExpandableFilterBar search={empSearch} onSearch={setEmpSearch} groups={[]} onReset={() => setEmpSearch('')} resultCount={filteredEmployers.length} totalCount={employers.length} />
-        <DataTable cols={empCols} rows={filteredEmployers} keyFn={(r, i) => r.company ?? i} emptyText="No employer data" pageSize={15} />
+        <ExpandableFilterBar search={empSearch} onSearch={setEmpSearch} groups={[]} onReset={() => setEmpSearch('')} resultCount={filteredConcentration.length} totalCount={concentration.length} />
+        <DataTable cols={concCols} rows={filteredConcentration} keyFn={(r, i) => r.applicant_cif ?? r.company ?? i} emptyText={`No ${concLabel.toLowerCase()} data`} pageSize={15} />
       </SectionCard>
     </Page>
   )

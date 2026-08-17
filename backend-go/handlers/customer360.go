@@ -441,7 +441,10 @@ func c360Collections(db *core.DB) http.HandlerFunc {
 // c360Activity assembles a unified, time-sorted interaction timeline for a
 // customer: calls, support tickets, and collections touches. Records are matched
 // by CIF and — so interactions logged with only a phone/email still surface — by
-// the customer's normalised phone and email. This is what makes the profile "live".
+// the customer's normalised phone and email. The phone set spans both the customer
+// master (app.customers) and any matching CRM lead (app.crm_contacts), so a call
+// centre row keyed only by customer_phone still lands on the right person. This is
+// what makes the profile "live".
 func c360Activity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cif := chi.URLParam(r, "cif")
@@ -454,14 +457,28 @@ func c360Activity(db *core.DB) http.HandlerFunc {
 		// one card. Falls back to the single CIF when there's no party link.
 		rows, err := db.PGQuery(ctx, `
 			WITH me AS (SELECT party_id FROM app.customers WHERE cif = $1 LIMIT 1),
+			cust AS (
+			  -- The whole person: every CIF/card the party holds (or just this CIF
+			  -- when it isn't linked to a party yet).
+			  SELECT c.cif, c.phone, c.email
+			  FROM app.customers c
+			  WHERE ((SELECT party_id FROM me) IS NOT NULL AND c.party_id = (SELECT party_id FROM me))
+			     OR ((SELECT party_id FROM me) IS NULL AND c.cif = $1)
+			),
 			ids AS (
 			  SELECT
-			    array_agg(DISTINCT c.cif) FILTER (WHERE c.cif IS NOT NULL AND c.cif <> '')               AS cifs,
-			    array_agg(DISTINCT app.norm_phone(c.phone)) FILTER (WHERE app.norm_phone(c.phone) <> '') AS phones,
-			    array_agg(DISTINCT lower(c.email)) FILTER (WHERE c.email IS NOT NULL AND c.email <> '')  AS emails
-			  FROM app.customers c
-			  WHERE (SELECT party_id FROM me) IS NOT NULL AND c.party_id = (SELECT party_id FROM me)
-			     OR ((SELECT party_id FROM me) IS NULL AND c.cif = $1)
+			    (SELECT array_agg(DISTINCT cif) FILTER (WHERE cif IS NOT NULL AND cif <> '') FROM cust) AS cifs,
+			    -- Union of last-10 phone keys across the customer master AND any CRM
+			    -- lead whose cif_number/converted_cif is one of the person's CIFs, so a
+			    -- helpdesk_calls row keyed only by customer_phone still matches.
+			    (SELECT array_agg(DISTINCT p) FROM (
+			       SELECT app.norm_phone(phone) AS p FROM cust
+			       UNION
+			       SELECT app.norm_phone(cc.phone) FROM app.crm_contacts cc
+			       WHERE cc.cif_number    IN (SELECT cif FROM cust WHERE cif <> '')
+			          OR cc.converted_cif IN (SELECT cif FROM cust WHERE cif <> '')
+			     ) ph WHERE p <> '') AS phones,
+			    (SELECT array_agg(DISTINCT lower(email)) FILTER (WHERE email IS NOT NULL AND email <> '') FROM cust) AS emails
 			)
 			SELECT * FROM (
 				SELECT 'call'::text AS kind, h.started_at AS ts,

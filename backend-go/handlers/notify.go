@@ -96,6 +96,9 @@ const (
 	// Payroll events
 	EvtPayrollPaid = "payroll_paid"
 
+	// Call-centre: a scheduled call-back has come due for the assigned agent.
+	EvtCallbackDue = "callback_due"
+
 	// Sales account-manager portfolio alerts (daily worker)
 	EvtLoanRepaymentDueSoon  = "loan_repayment_due_soon"  // 7 days before next_due_date
 	EvtLoanRepaymentDue3Days = "loan_repayment_due_3days" // 3 days before next_due_date
@@ -113,6 +116,19 @@ type NotifPayload struct {
 	Body      string
 	ActionURL string
 	EntityRef string
+
+	// GroupKey collapses a class of events into ONE live in-app notification per
+	// user. While an unread row with the same key exists it is updated in place
+	// and its group_count incremented, instead of a new row being inserted.
+	//
+	// This exists because the unassigned-ticket alert fired once per ticket and
+	// produced 4,133 notifications for two people, who then stopped reading any of
+	// them. A digest ("1,000 tickets unassigned") stays useful at any volume.
+	// Email/SMS are suppressed on a grouped re-send so only the first one pings.
+	GroupKey string
+
+	// Priority drives ordering and styling in the bell: low | normal | high | urgent.
+	Priority string
 }
 
 // Notify dispatches a notification to one user across all channels they have enabled.
@@ -131,37 +147,45 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 	//   2. notification_event_config(event_type, channel, enabled)             — admin global per-channel
 	//   3. notification_preferences(user_id, event_type, channels jsonb)       — per-user override
 	// Precedence: role defaults → admin config → user prefs (later wins).
-	// Default when nothing is configured: in_app AND email both ON, so every event
-	// reaches people on both channels unless an admin explicitly mutes one in
-	// notification_event_config (Admin → Notification Settings).
-	inApp, email := true, true
+	//
+	// Resolution is table-driven across ALL FOUR channels. It used to track only
+	// in_app and email in two bools, with a channelOn() that returned false for
+	// anything else — so the sms and whatsapp blocks below were unreachable dead
+	// code. Nine event/channel pairs were switched ON in notification_event_config
+	// (including ticket_sla_breach → sms) and had never once sent.
+	//
+	// Defaults: in-app and email on; sms and whatsapp off, because they cost money
+	// and reach people out of hours — they stay opt-in per event via
+	// Admin → Notification Settings.
+	chans := map[string]bool{"in_app": true, "email": true, "sms": false, "whatsapp": false}
+	apply := func(m map[string]bool) {
+		for k, v := range m {
+			if _, known := chans[k]; known {
+				chans[k] = v
+			}
+		}
+	}
 
 	// Layer 1: role defaults (channels jsonb), gated by is_enabled.
 	if rows, _ := db.PGQuery(ctx,
 		`SELECT channels, is_enabled FROM notification_defaults WHERE role=$1 AND event_type=$2`,
 		str(u["role"]), p.EventType); len(rows) > 0 {
 		if rows[0]["is_enabled"] == false {
-			inApp, email = false, false
+			for k := range chans {
+				chans[k] = false
+			}
 		} else {
-			ch := parseChannelMap(rows[0]["channels"])
-			if v, ok := ch["in_app"]; ok {
-				inApp = v
-			}
-			if v, ok := ch["email"]; ok {
-				email = v
-			}
+			apply(parseChannelMap(rows[0]["channels"]))
 		}
 	}
 	// Layer 2: admin per-channel event config (overrides defaults).
 	if rows, _ := db.PGQuery(ctx,
 		`SELECT channel, enabled FROM notification_event_config WHERE event_type=$1`, p.EventType); len(rows) > 0 {
 		for _, row := range rows {
-			on := row["enabled"] == true
-			switch str(row["channel"]) {
-			case "in_app":
-				inApp = on
-			case "email":
-				email = on
+			if k := str(row["channel"]); k != "" {
+				if _, known := chans[k]; known {
+					chans[k] = row["enabled"] == true
+				}
 			}
 		}
 	}
@@ -169,34 +193,56 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 	if rows, _ := db.PGQuery(ctx,
 		`SELECT channels FROM notification_preferences WHERE user_id=$1 AND event_type=$2`,
 		p.UserID, p.EventType); len(rows) > 0 {
-		ch := parseChannelMap(rows[0]["channels"])
-		if v, ok := ch["in_app"]; ok {
-			inApp = v
-		}
-		if v, ok := ch["email"]; ok {
-			email = v
-		}
+		apply(parseChannelMap(rows[0]["channels"]))
 	}
 
-	channelOn := func(ch string) bool {
-		switch ch {
-		case "in_app":
-			return inApp
-		case "email":
-			return email
-		}
-		return false
-	}
+	channelOn := func(ch string) bool { return chans[ch] }
+
+	// grouped reports whether this send folded into an existing unread digest row.
+	// When it does, the noisy channels are skipped — the user has already been
+	// pinged once for this group and does not need a second email per ticket.
+	grouped := false
 
 	// ── In-app ────────────────────────────────────────────────────────────────
 	if channelOn("in_app") {
-		// C3: use the full unified column set; entity_type and entity_id are NULL for this path.
-		if _, err := db.PGExec(ctx,
-			`INSERT INTO notifications (user_id, type, title, body, action_url, entity_ref, entity_type, entity_id, is_read, created_at)
-			 VALUES ($1,$2,$3,$4,$5,$6, NULL, NULL, FALSE, NOW())`,
-			p.UserID, p.EventType, p.Title, p.Body, p.ActionURL, p.EntityRef); err != nil {
+		prio := p.Priority
+		if prio == "" {
+			prio = "normal"
+		}
+		if p.GroupKey != "" {
+			// Upsert onto idx_notifications_group_unread (unique on user_id+group_key
+			// WHERE unread). xmax=0 distinguishes a fresh INSERT from an UPDATE, which
+			// is how we know whether the user has already been pinged for this group.
+			rows, err := db.PGQuery(ctx,
+				`INSERT INTO notifications
+				   (user_id, type, title, body, action_url, entity_ref, group_key, group_count, priority, is_read, created_at)
+				 VALUES ($1,$2,$3,$4,$5,$6,$7,1,$8,FALSE,NOW())
+				 ON CONFLICT (user_id, group_key) WHERE group_key IS NOT NULL AND is_read = FALSE
+				 DO UPDATE SET title       = EXCLUDED.title,
+				               body        = EXCLUDED.body,
+				               action_url  = EXCLUDED.action_url,
+				               group_count = notifications.group_count + 1,
+				               priority    = EXCLUDED.priority,
+				               created_at  = NOW()
+				 RETURNING (xmax = 0) AS inserted`,
+				p.UserID, p.EventType, p.Title, p.Body, p.ActionURL, p.EntityRef, p.GroupKey, prio)
+			if err != nil {
+				slog.Error("notify: grouped in_app upsert failed", "error", err, "event", p.EventType)
+			} else if len(rows) > 0 && rows[0]["inserted"] != true {
+				grouped = true
+			}
+		} else if _, err := db.PGExec(ctx,
+			`INSERT INTO notifications (user_id, type, title, body, action_url, entity_ref, entity_type, entity_id, priority, is_read, created_at)
+			 VALUES ($1,$2,$3,$4,$5,$6, NULL, NULL, $7, FALSE, NOW())`,
+			p.UserID, p.EventType, p.Title, p.Body, p.ActionURL, p.EntityRef, prio); err != nil {
 			slog.Error("notify: in_app insert failed", "error", err, "event", p.EventType)
 		}
+	}
+
+	// A repeat ping for a group the user has already been told about is noise on
+	// every channel that leaves the app.
+	if grouped {
+		return
 	}
 
 	// ── Email ──────────────────────────────────────────────────────────────────
@@ -286,6 +332,75 @@ func NotifyRoles(ctx context.Context, db *core.DB, roles []string, p NotifPayloa
 			go Notify(context.WithoutCancel(ctx), db, cp)
 		}
 	}
+}
+
+// NotifyUsers sends to an explicit set of user ids, de-duplicated, skipping
+// zeros. This is the recipient path that was missing: almost every alert in the
+// app routed through NotifyRole("call_center_head"), so 4,133 of 4,455
+// notifications landed on two people and the eleven agents doing the work were
+// told nothing. Anything addressed to specific people should use this.
+func NotifyUsers(ctx context.Context, db *core.DB, ids []int64, p NotifPayload) {
+	seen := map[int64]bool{}
+	for _, id := range ids {
+		if id == 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		cp := p
+		cp.UserID = id
+		go Notify(context.WithoutCancel(ctx), db, cp)
+	}
+}
+
+// NotifyExcept is NotifyUsers minus one person — normally the actor, who does
+// not need telling about something they just did themselves.
+func NotifyExcept(ctx context.Context, db *core.DB, ids []int64, except int64, p NotifPayload) {
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id != except {
+			out = append(out, id)
+		}
+	}
+	NotifyUsers(ctx, db, out, p)
+}
+
+// ticketAudience resolves everyone with a legitimate interest in a ticket:
+// its owner, whoever it is escalated to, and anyone who has assisted on it.
+// Used so a reply or a resolution reaches the people actually involved rather
+// than only the supervisor.
+func ticketAudience(ctx context.Context, db *core.DB, ticketID int64) []int64 {
+	rows, _ := db.PGQuery(ctx, `
+		SELECT t.assigned_to AS id FROM helpdesk_tickets t WHERE t.id=$1 AND t.assigned_to IS NOT NULL
+		UNION
+		SELECT t.escalated_to FROM helpdesk_tickets t
+		 WHERE t.id=$1 AND t.escalated_to IS NOT NULL AND t.escalation_resolved_at IS NULL
+		UNION
+		SELECT a.helper_user_id FROM ticket_assists a
+		 WHERE a.ticket_id=$1 AND a.action <> 'viewed'`, ticketID)
+	out := make([]int64, 0, len(rows))
+	for _, r := range rows {
+		if id := toInt64(r["id"]); id > 0 {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// activeAgentIDs returns the call-centre agents who actually work the queues.
+// Leaf agents only — supervisors are notified separately and do not need a copy
+// of every agent-level alert.
+func activeAgentIDs(ctx context.Context, db *core.DB) []int64 {
+	rows, _ := db.PGQuery(ctx, `
+		SELECT id FROM o3c_users
+		 WHERE is_active = TRUE AND deleted_at IS NULL AND role = 'call_center_agent'
+		 ORDER BY id`)
+	out := make([]int64, 0, len(rows))
+	for _, r := range rows {
+		if id := toInt64(r["id"]); id > 0 {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func buildNotifEmail(title, body, actionURL, logoURL string) string {

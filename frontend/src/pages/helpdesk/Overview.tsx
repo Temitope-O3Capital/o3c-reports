@@ -27,7 +27,6 @@ interface CallSummary {
   total_talk_sec: number; agents: number
   avg_duration_sec: number | null; avg_inbound_sec: number | null; avg_outbound_sec: number | null
 }
-interface CallOutcome { outcome: string; count: number }
 interface CallDay   { day: string; inbound: number; outbound: number }
 interface CallHour  { hour: number; total: number; inbound: number; outbound: number }
 interface CallAgent { agent_name: string; total: number; connected: number; avg_duration_sec: number | null }
@@ -47,17 +46,6 @@ function fmtHours(sec: number | null | undefined): string {
   return h >= 10 ? `${Math.round(h)}h` : `${h.toFixed(1)}h`
 }
 const pct = (n: number, d: number) => (d > 0 ? n / d : 0)
-
-const OUTCOME_LABEL: Record<string, string> = {
-  completed: 'Completed', missed: 'Missed', resolved: 'Resolved',
-  no_answer: 'No Answer', voicemail: 'Voicemail', transferred: 'Transferred', escalated: 'Escalated',
-}
-const OUTCOME_COLOR: Record<string, string> = {
-  completed: GREEN, resolved: GREEN, missed: RED,
-  no_answer: AMBER, voicemail: PURPLE, transferred: BLUE, escalated: AMBER,
-}
-const outcomeLabel = (o: string) => OUTCOME_LABEL[o] ?? (o ? o.replace(/_/g, ' ') : 'Unknown')
-const DONUT_FALLBACK = [BLUE, NAVY, AMBER, GREEN, RED, PURPLE]
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
@@ -84,7 +72,6 @@ export default function CallCenterOverview() {
   const [to, setTo]       = useState(today())
   const [tk, setTk]       = useState<TicketStats | null>(null)
   const [cs, setCs]       = useState<CallSummary | null>(null)
-  const [outcomes, setOutcomes] = useState<CallOutcome[]>([])
   const [byDay, setByDay]       = useState<CallDay[]>([])
   const [byHour, setByHour]     = useState<CallHour[]>([])
   const [callAgents, setCallAgents] = useState<CallAgent[]>([])
@@ -104,7 +91,6 @@ export default function CallCenterOverview() {
       setTk(obj(tkRes))
       const cd = obj(callRes)
       setCs(obj(cd?.summary))
-      setOutcomes(arr(cd?.by_outcome))
       setByDay(arr(cd?.by_day))
       setByHour(arr(cd?.by_hour))
       setCallAgents(arr(cd?.by_agent))
@@ -120,11 +106,31 @@ export default function CallCenterOverview() {
 
   const total     = cs?.total ?? 0
   const connected = cs?.connected ?? 0
+  const inbound   = cs?.inbound ?? 0
+  const outbound  = cs?.outbound ?? 0
   const connectRate = pct(connected, total)
-  const inAns   = pct(cs?.inbound_connected ?? 0, cs?.inbound ?? 0)
-  const outConn = pct(cs?.outbound_connected ?? 0, cs?.outbound ?? 0)
+  const inAns   = pct(cs?.inbound_connected ?? 0, inbound)
+  const outConn = pct(cs?.outbound_connected ?? 0, outbound)
   const activeAgents = cs?.agents ?? 0
   const avgPerAgent = activeAgents > 0 ? Math.round(total / activeAgents) : 0
+
+  // Direction-aware disposition — the DB stores every unanswered call (inbound or
+  // outbound) as outcome 'missed', but an unanswered *outbound dial* is a "no answer",
+  // not a missed customer call. Splitting them keeps the Overview honest and consistent
+  // with My Dashboard / the Call Log (which are already direction-aware). This is an
+  // outbound-heavy centre, so the lumped figure otherwise reads as a 5-figure "missed"
+  // alarm when almost all of it is just dials that didn't pick up.
+  const inboundMissed = Math.max(0, inbound  - (cs?.inbound_connected  ?? 0))
+  const outboundNoAns = Math.max(0, outbound - (cs?.outbound_connected ?? 0))
+  const inMissRate    = pct(inboundMissed, inbound)
+
+  // Outcome donut, rebuilt direction-aware so the three slices add up to total calls
+  // (Connected + Missed-inbound + No-answer-outbound) instead of a single 'missed' blob.
+  const outcomeBreakdown = [
+    { key: 'connected', label: 'Connected',            count: connected,     color: GREEN },
+    { key: 'missed_in', label: 'Missed (inbound)',     count: inboundMissed, color: RED },
+    { key: 'noans_out', label: 'No answer (outbound)', count: outboundNoAns, color: AMBER },
+  ].filter(o => o.count > 0)
 
   // Fill all 24 hours so gaps render as zero.
   const hourData = Array.from({ length: 24 }, (_, h) => {
@@ -133,7 +139,7 @@ export default function CallCenterOverview() {
     const label = h === 0 ? '12am' : h === 12 ? '12pm' : h < 12 ? `${h}am` : `${h - 12}pm`
     return { label, inbound, outbound }
   })
-  const donutTotal = outcomes.reduce((s, o) => s + o.count, 0)
+  const donutTotal = outcomeBreakdown.reduce((s, o) => s + o.count, 0)
 
   // Merge call + ticket activity per agent for the team-lead performance table.
   const agentMap = new Map<string, AgentPerf>()
@@ -167,12 +173,12 @@ export default function CallCenterOverview() {
         <>
           {/* ── KPI strip ─────────────────────────────────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[3] }}>
-            <KpiCard label="Total Calls"   value={fmtNum(total)}                accent={NAVY} />
-            <KpiCard label="Connected"     value={fmtNum(connected)}            accent={GREEN} sub={fmtPct(connectRate)} />
-            <KpiCard label="Missed"        value={fmtNum(cs?.missed ?? 0)}      accent={(cs?.missed ?? 0) > connected ? RED : AMBER} />
-            <KpiCard label="Avg Handle"    value={fmtDur(cs?.avg_duration_sec)} accent={PURPLE} />
-            <KpiCard label="Talk Time"     value={fmtHours(cs?.total_talk_sec)} accent={BLUE} />
-            <KpiCard label="Open Tickets"  value={fmtNum(tk?.open ?? 0)}        accent={(tk?.sla_breached ?? 0) > 5 ? RED : BLUE} sub={`${fmtNum(tk?.sla_breached ?? 0)} SLA breached`} />
+            <KpiCard label="Total Calls"    value={fmtNum(total)}                accent={NAVY}  sub={`${fmtNum(outbound)} out · ${fmtNum(inbound)} in`} />
+            <KpiCard label="Connected"      value={fmtNum(connected)}            accent={GREEN} sub={`${fmtPct(connectRate)} connect rate`} />
+            <KpiCard label="Missed Inbound" value={fmtNum(inboundMissed)}        accent={inMissRate >= 0.2 ? RED : AMBER} sub={`${fmtNum(outboundNoAns)} outbound no-answer`} />
+            <KpiCard label="Avg Handle"     value={fmtDur(cs?.avg_duration_sec)} accent={PURPLE} />
+            <KpiCard label="Talk Time"      value={fmtHours(cs?.total_talk_sec)} accent={BLUE} />
+            <KpiCard label="Open Tickets"   value={fmtNum(tk?.open ?? 0)}        accent={(tk?.sla_breached ?? 0) > 5 ? RED : BLUE} sub={`${fmtNum(tk?.sla_breached ?? 0)} past SLA`} />
           </div>
 
           {/* ── Team-lead metric strip ────────────────────────────────────── */}
@@ -236,15 +242,15 @@ export default function CallCenterOverview() {
 
           {/* ── Row 2: Outcomes doughnut + Agent performance ──────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: SP[4] }}>
-            <SectionCard title="Call Outcomes" subtitle="How calls ended">
-              {outcomes.length === 0 ? (
+            <SectionCard title="Call Outcomes" subtitle="Connected vs unanswered, by direction">
+              {donutTotal === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls yet</div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: SP[4] }}>
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     <PieChart width={160} height={160}>
-                      <Pie data={outcomes} cx={76} cy={76} innerRadius={48} outerRadius={74} dataKey="count" nameKey="outcome" stroke="none" paddingAngle={2} startAngle={90} endAngle={-270}>
-                        {outcomes.map((o, i) => <Cell key={i} fill={OUTCOME_COLOR[o.outcome] ?? DONUT_FALLBACK[i % DONUT_FALLBACK.length]} />)}
+                      <Pie data={outcomeBreakdown} cx={76} cy={76} innerRadius={48} outerRadius={74} dataKey="count" nameKey="label" stroke="none" paddingAngle={2} startAngle={90} endAngle={-270}>
+                        {outcomeBreakdown.map((o) => <Cell key={o.key} fill={o.color} />)}
                       </Pie>
                       <Tooltip content={(p: any) => <Tip {...p} />} />
                     </PieChart>
@@ -254,10 +260,10 @@ export default function CallCenterOverview() {
                     </div>
                   </div>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: SP[2], minWidth: 0 }}>
-                    {outcomes.map((o, i) => (
-                      <div key={o.outcome} style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-                        <span style={{ width: 9, height: 9, borderRadius: 3, background: OUTCOME_COLOR[o.outcome] ?? DONUT_FALLBACK[i % DONUT_FALLBACK.length], flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontSize: TEXT.sm, color: 'var(--txt)' }}>{outcomeLabel(o.outcome)}</span>
+                    {outcomeBreakdown.map((o) => (
+                      <div key={o.key} style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+                        <span style={{ width: 9, height: 9, borderRadius: 3, background: o.color, flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: TEXT.sm, color: 'var(--txt)' }}>{o.label}</span>
                         <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', ...NUM }}>{fmtNum(o.count)}</span>
                         <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', ...NUM, width: 40, textAlign: 'right' }}>{fmtPct(pct(o.count, donutTotal))}</span>
                       </div>

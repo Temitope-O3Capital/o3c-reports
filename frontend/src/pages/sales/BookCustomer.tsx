@@ -53,6 +53,10 @@ interface Application {
 interface Ticket {
   id: number; ticket_ref: string; subject: string; status: string; priority: string; created_at: string
 }
+interface RecentCall {
+  id: number; called_at: string; direction: string; duration_seconds: number
+  agent_name: string; outcome: string; purpose: string
+}
 interface Profile {
   customer: Customer
   accounts: Account[]
@@ -60,6 +64,15 @@ interface Profile {
   fixed_deposits: FixedDeposit[]
   applications: Application[]
   tickets: Ticket[]
+  recent_calls: RecentCall[]
+}
+
+// Call length as m:ss — helpdesk_calls stores it in whole seconds.
+function fmtDuration(sec: number) {
+  if (!sec || sec < 0) return '—'
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 // How firm the acquisition date is. cust_file carries no date, so most of the book
@@ -117,6 +130,7 @@ export default function SalesBookCustomer() {
   const accounts = profile?.accounts ?? []
   const apps = profile?.applications ?? []
   const tickets = profile?.tickets ?? []
+  const recentCalls = profile?.recent_calls ?? []
 
   const cardBalance = accounts.reduce((s, a) => s + n(a.current_dr_balance), 0)
   const outstanding = loans.reduce(
@@ -172,6 +186,17 @@ export default function SalesBookCustomer() {
     { key: 'amount_requested_kobo', label: 'Requested', align: 'right', render: r => <span style={NUM}>{fmtKobo(n(r.amount_requested_kobo))}</span> },
     { key: 'amount_approved_kobo', label: 'Approved', align: 'right', render: r => <span style={NUM}>{fmtKobo(n(r.amount_approved_kobo))}</span> },
     { key: 'created_at', label: 'Raised', render: r => fmtDate(r.created_at) },
+  ]
+
+  const CALL_COLS: TableCol<RecentCall>[] = [
+    { key: 'called_at', label: 'When', render: r => fmtDate(r.called_at) },
+    {
+      key: 'direction', label: 'Direction',
+      render: r => <Pill text={r.direction || '—'} tone={(r.direction || '').toLowerCase() === 'inbound' ? BLUE : GREEN} />,
+    },
+    { key: 'duration_seconds', label: 'Duration', align: 'right', render: r => <span style={NUM}>{fmtDuration(n(r.duration_seconds))}</span> },
+    { key: 'agent_name', label: 'Agent', render: r => r.agent_name || '—' },
+    { key: 'outcome', label: 'Outcome', render: r => r.outcome || '—' },
   ]
 
   const TICKET_COLS: TableCol<Ticket>[] = [
@@ -272,6 +297,13 @@ export default function SalesBookCustomer() {
           onRowClick={r => navigate(`/sales/applications/${r.id}`)}
           emptyText="Nothing raised for this customer yet"
         />
+      </SectionCard>
+
+      {/* Recent calls: telephony matched to this person by phone (last 10 digits),
+          across every card they hold. Context for the officer's next conversation. */}
+      <div style={{ height: SP[4] }} />
+      <SectionCard title="Recent calls" badge={recentCalls.length} padding={false}>
+        <DataTable cols={CALL_COLS} rows={recentCalls} keyFn={r => r.id} emptyText="No calls logged for this customer" />
       </SectionCard>
 
       {/* Support history is context, not the officer's queue — hence last, and only

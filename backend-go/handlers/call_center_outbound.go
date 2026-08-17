@@ -7,10 +7,60 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
 )
+
+// StartCallbackReminderWorker alerts an agent when a call-back they scheduled comes
+// due. Every minute it finds pending callbacks whose time has arrived and that haven't
+// been alerted yet, pushes an in-app + email notification to the assigned agent, and
+// stamps callback_notified_at so the alarm fires exactly once per callback.
+func StartCallbackReminderWorker(db *core.DB) {
+	run := func() {
+		ctx := context.Background()
+		WorkerBeat(ctx, db, "callback_reminders", "running", "", "")
+		rows, err := db.PGQuery(ctx, `
+			SELECT id, assigned_to, COALESCE(NULLIF(customer_name,''), phone) AS who, phone
+			FROM call_center_contacts
+			WHERE status='pending' AND assigned_to IS NOT NULL
+			  AND callback_at IS NOT NULL AND callback_at <= NOW()
+			  AND callback_notified_at IS NULL
+			ORDER BY callback_at
+			LIMIT 200`)
+		if err != nil {
+			WorkerBeat(ctx, db, "callback_reminders", "error", err.Error(), err.Error())
+			return
+		}
+		n := 0
+		for _, r := range rows {
+			uid := toInt64(r["assigned_to"])
+			if uid == 0 {
+				continue
+			}
+			who, phone := str(r["who"]), str(r["phone"])
+			Notify(ctx, db, NotifPayload{
+				EventType: EvtCallbackDue,
+				UserID:    uid,
+				Title:     "Call-back due now",
+				Body:      "Time to call " + who + " · " + phone,
+				ActionURL: "/call-center/queue?bucket=ready",
+				EntityRef: "callback:" + str(r["id"]),
+				Priority:  "high", // stands out in the bell — it's an alarm
+			})
+			db.PGExec(ctx, `UPDATE call_center_contacts SET callback_notified_at=NOW() WHERE id=$1`, toInt64(r["id"])) //nolint:errcheck
+			n++
+		}
+		WorkerBeat(ctx, db, "callback_reminders", "ok", fmt.Sprintf("%d callback(s) alerted", n), "")
+	}
+	run()
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		run()
+	}
+}
 
 // ensureCCContactColumns adds provenance columns so the queue can distinguish
 // where each contact came from (zoho_crm | collections | manual | support) and
@@ -76,6 +126,7 @@ func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
 	// Leads
 	r.Get("/leads", ccListLeads(db))
 	r.Post("/leads", ccCreateLead(db))
+	r.Post("/leads/import", ccImportLeads(db)) // bulk upload a lead list (heads)
 	r.Post("/leads/bulk-assign", ccBulkAssign(db))
 	r.Post("/leads/distribute", ccDistribute(db))
 	r.Patch("/leads/{id}", ccUpdateLead(db))
@@ -90,6 +141,8 @@ func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
 	r.Post("/queue/sync-collections", ccSyncCollections(db))   // collections (overdue accounts)
 	r.Post("/queue/import", ccImportContacts(db))              // manual / CSV upload
 	r.Post("/queue/add-callback", ccAddCallback(db))           // support call-back (from a ticket/customer)
+	r.Post("/queue/assign-batch", ccAssignBatch(db))
+	r.Post("/queue/distribute", ccDistributeQueue(db)) // round-robin the whole pool
 	r.Post("/queue/bulk-skip", ccBulkSkip(db))
 	r.Post("/queue/export", ccExportQueue(db))
 	r.Get("/queue/export", ccExportQueue(db)) // GET for blob download (apiExport)
@@ -196,6 +249,14 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 		      WHERE 1=1`
 		var args []any
 		n := 1
+
+		// An agent sees only her own assigned leads; heads (call_center_stats) and the
+		// exec see-all roles see everyone's and can distribute/assign.
+		if user := core.UserFromCtx(r.Context()); user != nil && !user.HasPage("call_center_stats") && !user.CanSeeAllRows() {
+			q += fmt.Sprintf(" AND l.assigned_to=$%d", n)
+			args = append(args, user.ID)
+			n++
+		}
 
 		if campaignID != "" {
 			q += fmt.Sprintf(" AND l.campaign_id=$%d", n)
@@ -561,6 +622,168 @@ func ccListAgents(db *core.DB) http.HandlerFunc {
 			return
 		}
 		jsonRows(w, rows)
+	}
+}
+
+// ccAssignBatch hands a BATCH of the outbound queue to a single agent — the supervisor
+// picks a count (e.g. 20/50/100) and optionally a purpose, and that many still-pending,
+// unassigned contacts (high priority first, then oldest queued) get assigned to them.
+// Head/supervisor only (call_center_stats).
+func ccAssignBatch(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if u := core.UserFromCtx(r.Context()); u != nil && !u.HasPage("call_center_stats") && !u.CanSeeAllRows() {
+			respondErr(w, 403, "Only team heads can assign the queue")
+			return
+		}
+		var b struct {
+			AgentID int64  `json:"agent_id"`
+			Count   int    `json:"count"`
+			Purpose string `json:"purpose"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if b.AgentID <= 0 {
+			respondErr(w, 422, "agent_id is required")
+			return
+		}
+		if b.Count <= 0 || b.Count > 1000 {
+			respondErr(w, 422, "count must be between 1 and 1000")
+			return
+		}
+		if rows, _ := db.PGQuery(r.Context(),
+			`SELECT 1 FROM o3c_users WHERE id=$1 AND deleted_at IS NULL AND role IN ('call_center_agent','call_center_head')`,
+			b.AgentID); len(rows) == 0 {
+			respondErr(w, 422, "Unknown agent")
+			return
+		}
+
+		where := "status='pending' AND assigned_to IS NULL"
+		args := []any{b.AgentID}
+		n := 2
+		if b.Purpose != "" && b.Purpose != "all" {
+			where += fmt.Sprintf(" AND purpose=$%d", n)
+			args = append(args, b.Purpose)
+			n++
+		}
+		args = append(args, b.Count)
+		res, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			UPDATE call_center_contacts SET assigned_to=$1, updated_at=NOW()
+			WHERE id IN (
+			  SELECT id FROM call_center_contacts
+			  WHERE %s
+			  ORDER BY CASE lower(priority) WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, created_at
+			  LIMIT $%d
+			) RETURNING id`, where, n), args...)
+		if err != nil {
+			respondErr(w, 500, "Assign failed")
+			return
+		}
+		// Tell the agent. Queue assignment was silent, which is why all 14,709
+		// contacts sat with assigned_to NULL and nobody worked an owned list.
+		if len(res) > 0 {
+			go Notify(context.WithoutCancel(r.Context()), db, NotifPayload{
+				EventType: "queue_contacts_assigned",
+				UserID:    b.AgentID,
+				Title:     fmt.Sprintf("%d contacts assigned to you", len(res)),
+				Body:      "New contacts are waiting in your outbound queue.",
+				ActionURL: "/call-center/queue?bucket=mine",
+				EntityRef: "queue:assigned",
+				GroupKey:  "queue:assigned",
+			})
+		}
+		respond(w, map[string]any{"assigned": len(res)}, "pg")
+	}
+}
+
+// ccDistributeQueue round-robins the unowned queue across active agents, so a
+// supervisor can hand the whole pool out in one action instead of assigning a
+// batch per agent. Complements ccAssignBatch (manual, one agent at a time) —
+// both are needed: round-robin for the bulk case, manual for the deliberate one.
+func ccDistributeQueue(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Limit   int    `json:"limit"`
+		Purpose string `json:"purpose"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		if user == nil || (user.Role != "call_center_head" && !core.IsManagement(user.Role)) {
+			respondErr(w, 403, "Only team heads can distribute the queue")
+			return
+		}
+		var b body
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+		if b.Limit <= 0 || b.Limit > 20000 {
+			b.Limit = 20000
+		}
+
+		agents := activeAgentIDs(ctx, db)
+		if len(agents) == 0 {
+			respondErr(w, 422, "No active call-centre agents to distribute to")
+			return
+		}
+
+		where := "status='pending' AND assigned_to IS NULL"
+		args := []any{}
+		n := 1
+		if b.Purpose != "" && b.Purpose != "all" {
+			where += fmt.Sprintf(" AND purpose=$%d", n)
+			args = append(args, b.Purpose)
+			n++
+		}
+		args = append(args, b.Limit)
+		rows, err := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT id FROM call_center_contacts
+			 WHERE %s
+			 ORDER BY CASE lower(priority) WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+			          dpd DESC NULLS LAST, created_at
+			 LIMIT $%d`, where, n), args...)
+		if err != nil {
+			respondErr(w, 500, "Could not read the queue")
+			return
+		}
+		if len(rows) == 0 {
+			respond(w, map[string]any{"assigned": 0, "per_agent": map[string]int{}}, "json")
+			return
+		}
+
+		// Deal the pool out round-robin, then write one UPDATE per agent.
+		buckets := make(map[int64][]int64, len(agents))
+		for i, row := range rows {
+			a := agents[i%len(agents)]
+			buckets[a] = append(buckets[a], toInt64(row["id"]))
+		}
+
+		total := 0
+		perAgent := map[string]int{}
+		for agentID, ids := range buckets {
+			// Re-check assigned_to IS NULL in the write so a concurrent manual
+			// assignment cannot be silently overwritten.
+			res, err := db.PGExec(ctx, `
+				UPDATE call_center_contacts SET assigned_to=$1, updated_at=NOW()
+				 WHERE id = ANY($2) AND assigned_to IS NULL AND status='pending'`, agentID, ids)
+			if err != nil {
+				continue
+			}
+			cnt, _ := res.RowsAffected()
+			if cnt == 0 {
+				continue
+			}
+			total += int(cnt)
+			perAgent[fmt.Sprintf("%d", agentID)] = int(cnt)
+			go Notify(context.WithoutCancel(ctx), db, NotifPayload{
+				EventType: "queue_contacts_assigned",
+				UserID:    agentID,
+				Title:     fmt.Sprintf("%d contacts assigned to you", cnt),
+				Body:      "New contacts are waiting in your outbound queue.",
+				ActionURL: "/call-center/queue?bucket=mine",
+				EntityRef: "queue:assigned",
+				GroupKey:  "queue:assigned",
+			})
+		}
+		respond(w, map[string]any{"assigned": total, "per_agent": perAgent, "agents": len(agents)}, "json")
 	}
 }
 
@@ -944,21 +1167,91 @@ func ccImportContacts(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// ccImportLeads bulk-uploads a marketing lead list onto the Leads board. Heads run
+// this to seed a campaign's leads from a spreadsheet — the page had no way to get
+// leads in except "push from a campaign report", so a supervisor with a CSV was stuck.
+//
+// Deduped by phone within call_center_leads so re-uploading the same file doesn't
+// double the board. A row with no name AND no phone is skipped (nothing to dial).
+func ccImportLeads(db *core.DB) http.HandlerFunc {
+	type lead struct {
+		Name     string `json:"name"`
+		Phone    string `json:"phone"`
+		CIF      string `json:"cif"`
+		Employer string `json:"employer"`
+	}
+	type body struct {
+		CampaignID *int64 `json:"campaign_id"`
+		Leads      []lead `json:"leads"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || len(b.Leads) == 0 {
+			respondErr(w, 400, "leads are required")
+			return
+		}
+		inserted, skipped := 0, 0
+		for _, l := range b.Leads {
+			name := strings.TrimSpace(l.Name)
+			phone := strings.TrimSpace(l.Phone)
+			if name == "" && phone == "" {
+				skipped++
+				continue
+			}
+			if name == "" {
+				name = phone
+			}
+			// Dedupe on the last-10-digits key, but only when a phone is present — a
+			// no-phone lead can't collide and shouldn't be dropped.
+			res, err := db.PGExec(r.Context(),
+				`INSERT INTO call_center_leads
+				   (campaign_id, customer_cif, customer_name, customer_phone, employer, lead_score, status)
+				 SELECT $1, NULLIF($2,''), $3, NULLIF($4,''), NULLIF($5,''), 0, 'pending'
+				 WHERE $4 = ''
+				    OR NOT EXISTS (
+				      SELECT 1 FROM call_center_leads t
+				      WHERE right(regexp_replace(COALESCE(t.customer_phone,''),'\D','','g'),10)
+				          = right(regexp_replace($4,'\D','','g'),10)
+				        AND right(regexp_replace($4,'\D','','g'),10) <> ''
+				    )`,
+				b.CampaignID, strings.TrimSpace(l.CIF), name, phone, strings.TrimSpace(l.Employer))
+			if err != nil {
+				skipped++
+				continue
+			}
+			if k, _ := res.RowsAffected(); k > 0 {
+				inserted++
+			} else {
+				skipped++
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"inserted": inserted, "skipped": skipped}) //nolint:errcheck
+	}
+}
+
 // ccAddCallback queues a support call-back — an explicit push from a ticket (or an
 // ad-hoc customer) so the agent who owns the conversation can get them called back.
 // When a ticket_id is given, the customer + ref are pulled from the ticket.
 func ccAddCallback(db *core.DB) http.HandlerFunc {
 	type body struct {
-		TicketID int64  `json:"ticket_id"`
-		Name     string `json:"name"`
-		Phone    string `json:"phone"`
-		CIF      string `json:"cif"`
+		TicketID   int64  `json:"ticket_id"`
+		Name       string `json:"name"`
+		Phone      string `json:"phone"`
+		CIF        string `json:"cif"`
+		CallbackAt string `json:"callback_at"` // scheduled time (optional); empty = call-back ASAP
+		Notes      string `json:"notes"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
 			return
+		}
+		// Assign the callback to whoever scheduled it, so it lands in THEIR queue when due.
+		var assignedTo *int64
+		if u := core.UserFromCtx(r.Context()); u != nil {
+			assignedTo = &u.ID
 		}
 		name, phone, cif, ref := strings.TrimSpace(b.Name), strings.TrimSpace(b.Phone), strings.TrimSpace(b.CIF), ""
 		if b.TicketID != 0 {
@@ -982,10 +1275,10 @@ func ccAddCallback(db *core.DB) http.HandlerFunc {
 		}
 		rows, err := db.PGQuery(r.Context(),
 			`INSERT INTO call_center_contacts
-			   (customer_name, phone, cif, product_name, priority, is_existing_customer, status, purpose, source, ref)
-			 VALUES ($1,$2,NULLIF($3,''),'Support Call-back','High',(NULLIF($3,'') IS NOT NULL),'pending','support','support',NULLIF($4,''))
+			   (customer_name, phone, cif, product_name, priority, is_existing_customer, status, purpose, source, ref, callback_at, notes, assigned_to)
+			 VALUES ($1,$2,NULLIF($3,''),'Support Call-back','High',(NULLIF($3,'') IS NOT NULL),'pending','support','support',NULLIF($4,''),NULLIF($5,'')::timestamptz,NULLIF($6,''),$7)
 			 RETURNING id`,
-			name, phone, cif, ref)
+			name, phone, cif, ref, strings.TrimSpace(b.CallbackAt), strings.TrimSpace(b.Notes), assignedTo)
 		if err != nil {
 			respondErr(w, 500, "Could not add call-back: "+err.Error())
 			return
@@ -1035,6 +1328,18 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		cond := ""
+
+		// Row scope: an agent's queue shows ONLY the contacts assigned to her; heads
+		// (call_center_stats) see the whole queue and may focus one agent via ?agent_id=.
+		if user := core.UserFromCtx(r.Context()); user != nil && !user.HasPage("call_center_stats") && !user.CanSeeAllRows() {
+			cond += fmt.Sprintf(" AND assigned_to=$%d", n)
+			args = append(args, user.ID)
+			n++
+		} else if av := qstr(r, "agent_id"); av != "" {
+			cond += fmt.Sprintf(" AND assigned_to=$%d", n)
+			args = append(args, av)
+			n++
+		}
 
 		if priority != "" {
 			cond += fmt.Sprintf(" AND priority=$%d", n)

@@ -39,7 +39,7 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'corporate_fare', label: 'Business Dev', to: '/bd',
-        vis: ['sales_officer','sales_head','sales_head','bd_officer','bd_head'],
+        vis: ['bd_officer','bd_head'],
         subs: [
           { label: 'My Dashboard',      to: '/bd/my-dashboard',  vis: ['bd_officer'] },
           // Same page, two scopes: My Pipeline is filtered to the signed-in officer,
@@ -52,7 +52,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'mark_email_read', label: 'Mail', to: '/mail/overview',
-        vis: ['sales_officer','sales_head','sales_head','bd_officer','bd_head'],
+        vis: ['sales_officer','sales_head','bd_officer','bd_head'],
         subs: [
           { label: 'Overview',  to: '/mail/overview' },
           { label: 'Inbox',     to: '/mail/inbox' },
@@ -65,7 +65,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'campaign', label: 'Campaigns & Marketing', to: '/marketing/overview',
-        vis: ['sales_head','sales_head','bd_officer','bd_head','call_center_head'],
+        vis: ['sales_head','bd_officer','bd_head','call_center_head'],
         subs: [
           { label: 'Overview',           to: '/marketing/overview' },
           { label: 'All Campaigns',      to: '/campaigns' },
@@ -82,16 +82,19 @@ const SECTIONS: Section[] = [
         // routes onto the same idea and are now one — My Book — and 'Cohort Analysis'
         // moved under Reports rather than standing alone.
         icon: 'trending_up', label: 'Sales & CRM', to: '/sales/overview',
-        vis: ['sales_officer','sales_head','sales_head'],
+        vis: ['sales_officer','sales_head'],
         subs: [
           { label: 'Overview',         to: '/sales/overview' },
+          { label: 'My Dashboard',     to: '/sales/my-dashboard', vis: ['sales_officer'] },
           { label: 'My Book',          to: '/sales/book' },
           { label: 'Leads',            to: '/sales/leads' },
+          { label: 'Contacts',         to: '/sales/customers' },
           { label: 'Pipeline',         to: '/sales/crm' },
           { label: 'Tasks',            to: '/sales/tasks' },
           { label: 'Applications',     to: '/sales/applications' },
           { label: 'Targets',          to: '/sales/targets' },
           { label: 'Reports',          to: '/sales/reports' },
+          { label: 'Cohort Analysis',  to: '/sales/cohort' },
         ],
       },
     ],
@@ -107,6 +110,7 @@ const SECTIONS: Section[] = [
           { label: 'My Dashboard',     to: '/helpdesk/my-dashboard' },
           { label: 'Customer Directory', to: '/customers' },
           { label: 'Ticket Queue',     to: '/helpdesk/tickets' },
+          { label: 'Escalations',      to: '/helpdesk/escalations' },
           { label: 'Call Log',         to: '/helpdesk/calls' },
           { label: 'Inbound Calls',    to: '/call-center/inbound' },
           { label: 'Outbound Queue',   to: '/call-center/queue' },
@@ -114,16 +118,25 @@ const SECTIONS: Section[] = [
           { label: 'DNC List',         to: '/call-center/dnc' },
           // leadership
           { label: 'Performance',      to: '/call-center/performance',  vis: ['call_center_head'] },
-          { label: 'Agent Matching',   to: '/call-center/agent-matching', vis: ['call_center_head'] },
+          // Agent Matching is now a modal inside the Supervisor view (not a nav page).
           { label: 'Supervisor View',  to: '/helpdesk/supervisor',      vis: ['call_center_head'] },
           // resources
           { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
           { label: 'Call Scripts',     to: '/helpdesk/canned' },
         ],
       },
+    ],
+  },
+  {
+    // Care is its own module (own module_config toggle + 'care' permission key),
+    // separate from Contact Centre. Worked by dedicated care_agent/care_head roles —
+    // call-centre staff no longer see Care (and Care staff don't see Call Center).
+    key: 'care',
+    header: 'Care',
+    items: [
       {
         icon: 'mark_email_unread', label: 'Care', to: '/care',
-        vis: ['call_center_agent','call_center_head'],
+        vis: ['care_agent','care_head'],
         subs: [
           // Care handles customer mail — email-channel tickets shown as an inbox.
           // Dashboard + Supervisor + Analytics are now tabs in the /care hub.
@@ -170,13 +183,21 @@ const SECTIONS: Section[] = [
     header: 'Operations',
     items: [
       {
+        // Every role holding credit_portfolio belongs here — the API now accepts that
+        // page too. collections_head was listed twice and recovery_head/coo were
+        // missing entirely, so the COO could not see a module they hold every page for.
         icon: 'shield', label: 'Risk', to: '/operations/risk',
-        vis: ['risk_officer','risk_head','finance_officer','finance_head','collections_head','collections_head'],
+        vis: ['risk_officer','risk_head','finance_officer','finance_head',
+              'collections_head','recovery_head','settlement_officer','coo'],
         subs: [
-          { label: 'Overview',         to: '/operations/risk',              vis: ['risk_officer','risk_head'] },
-          { label: 'App Review',       to: '/operations/risk/applications', vis: ['risk_officer','risk_head'] },
+          { label: 'My Dashboard',     to: '/operations/risk/my-dashboard', vis: ['risk_officer'] },
+          { label: 'Overview',         to: '/operations/risk' },
+          { label: 'App Review',       to: '/operations/risk/applications', vis: ['risk_officer','risk_head','coo'] },
           { label: 'Portfolio',        to: '/operations/risk/portfolio' },
-          { label: 'Vintage Analysis', to: '/operations/risk/vintage',      vis: ['risk_officer','risk_head'] },
+          { label: 'Vintage Analysis', to: '/operations/risk/vintage' },
+          { label: 'Eye Score',        to: '/operations/risk/eye-scores',   vis: ['risk_officer','risk_head','coo'] },
+          { label: 'Credit File',      to: '/operations/risk/credit-file' },
+          { label: 'Sector Codes',     to: '/operations/risk/sector-codes',  vis: ['risk_officer','risk_head','coo'] },
         ],
       },
       {
@@ -218,6 +239,7 @@ const SECTIONS: Section[] = [
         // both folded into Exceptions and the run log. Their routes still resolve
         // for anyone holding a bookmark.
         subs: [
+          { label: 'My Dashboard',             to: '/settlements/my-dashboard', vis: ['settlement_officer'] },
           { label: 'Recon Workbench',          to: '/settlements/workbench' },
           { label: 'Exceptions & Failures',    to: '/settlements/exceptions' },
           { label: 'Settlement Position',      to: '/settlements/position' },
@@ -239,6 +261,7 @@ const SECTIONS: Section[] = [
         icon: 'account_balance', label: 'Finance', to: '/finance',
         vis: ['finance_officer','finance_head','finance_head'],
         subs: [
+          { label: 'My Dashboard',      to: '/finance/my-dashboard', vis: ['finance_officer'] },
           { label: 'Transactions',      to: '/finance/transactions' },
           { label: 'Income',            to: '/finance/income' },
           { label: 'Fixed Deposits',    to: '/deposits' },
@@ -256,6 +279,7 @@ const SECTIONS: Section[] = [
         icon: 'verified_user', label: 'Compliance', to: '/compliance',
         vis: ['compliance_officer','compliance_head','compliance_head'],
         subs: [
+          { label: 'My Dashboard',        to: '/compliance/my-dashboard', vis: ['compliance_officer'] },
           { label: 'Credit Audit Trail',  to: '/compliance/credit-audit-trail' },
           { label: 'AML Watchlist',       to: '/compliance/watchlist' },
           { label: 'Regulatory Calendar', to: '/compliance/regulatory' },
@@ -286,6 +310,7 @@ const SECTIONS: Section[] = [
         icon: 'analytics', label: 'Reports & BI', to: '/reports',
         vis: ['bi_analyst','bi_head','compliance_head','finance_head'],
         subs: [
+          { label: 'My Dashboard',        to: '/reports/my-dashboard', vis: ['bi_analyst'] },
           { label: 'KPI Tracker',         to: '/reports/kpi' },
           { label: 'Analytics Dashboard', to: '/reports' },
           { label: 'CBN Complaints Report', to: '/reports/cbn-report' },
@@ -337,18 +362,20 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/mail/overview': 'mail', '/mail/inbox': 'mail', '/mail/sent': 'mail', '/mail/drafts': 'mail',
   '/marketing/overview': 'campaigns', '/campaigns': 'campaigns', '/campaigns/templates': 'campaigns',
   '/campaigns/lists': 'campaigns', '/contact-segments': 'campaigns', '/marketing/analytics': 'campaigns',
-  '/sales/overview': 'sales', '/sales/book': 'crm_contacts', '/sales/leads': 'crm_contacts',
+  '/sales/overview': 'sales', '/sales/my-dashboard': 'sales', '/sales/book': 'crm_contacts',
+  '/sales/leads': 'crm_contacts', '/sales/customers': 'crm_contacts',
   '/sales/crm': 'crm_pipeline', '/sales/tasks': 'crm_tasks', '/sales/applications': 'loans',
-  '/sales/targets': 'sales', '/sales/reports': 'crm_reports',
+  '/sales/targets': 'sales', '/sales/reports': 'crm_reports', '/sales/cohort': 'cohort',
   // Contact Centre
   '/helpdesk': 'helpdesk', '/helpdesk/my-dashboard': 'helpdesk', '/helpdesk/tickets': 'helpdesk',
+  '/helpdesk/escalations': 'helpdesk',
   '/helpdesk/calls': 'helpdesk', '/helpdesk/supervisor': 'helpdesk',
   '/helpdesk/knowledge-base': 'helpdesk', '/helpdesk/canned': 'helpdesk_canned',
   '/customers': 'customer360',
   '/call-center/queue': 'call_center', '/call-center/leads': 'call_center', '/call-center/dnc': 'call_center',
   '/call-center/inbound': 'call_center',
-  '/call-center/performance': 'call_center_stats', '/call-center/agent-matching': 'call_center_stats',
-  '/care': 'helpdesk', '/care/inbox': 'helpdesk', '/care/customers': 'customer360',
+  '/call-center/performance': 'call_center_stats',
+  '/care': 'care', '/care/inbox': 'care', '/care/customers': 'customer360',
   '/care/knowledge-base': 'helpdesk', '/care/canned': 'helpdesk_canned',
   // Cards
   '/cards': 'cards', '/cards/my-queue': 'cards', '/cards/credit-portfolio': 'cards',
@@ -357,8 +384,10 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/cards/credit-limit': 'cards', '/cards/billing': 'cards', '/blink-card': 'blink_card',
   '/mobile-app': 'mobile_app',
   // Operations
-  '/operations/risk': 'credit_portfolio', '/operations/risk/applications': 'credit_portfolio',
+  '/operations/risk': 'credit_portfolio', '/operations/risk/my-dashboard': 'credit_portfolio', '/operations/risk/applications': 'credit_portfolio',
   '/operations/risk/portfolio': ['credit_portfolio', 'active_loan_book'], '/operations/risk/vintage': 'credit_portfolio',
+  '/operations/risk/eye-scores': 'credit_portfolio', '/operations/risk/credit-file': 'credit_portfolio',
+  '/operations/risk/sector-codes': 'credit_portfolio',
   '/collections': 'collections', '/collections/portfolio': 'collections', '/collections/watchlist': 'collections',
   '/collections/queue': 'collections', '/collections/promises': 'collections',
   '/collections/repayment-plans': 'collections', '/collections/writeoffs': 'collections',
@@ -366,17 +395,18 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/collections/activity-log': 'collections', '/collections-ops/agent': 'collections',
   '/recovery': 'recovery', '/recovery-ops/agent': 'recovery', '/recovery/cases': 'recovery',
   '/recovery/legal': 'recovery', '/recovery/activity-log': 'recovery', '/recovery/debt-sales': 'recovery',
-  '/settlements': 'settlement',
+  '/settlements': 'settlement', '/settlements/my-dashboard': 'settlement',
   '/settlements/workbench': ['settlement', 'reconciliation'], '/settlements/exceptions': ['settlement', 'reconciliation'],
   '/settlements/position': ['settlement', 'reconciliation'], '/settlements/runs': ['settlement', 'reconciliation'],
   '/settlements/reconciliation': 'reconciliation', '/settlements/manual-postings': 'settlement',
   '/settlements/interswitch': ['settlement', 'cards'], '/settlements/interswitch/half-year': ['settlement', 'cards'],
   '/settlements/interswitch/import': ['settlement', 'cards'],
   // Finance
-  '/finance': 'income', '/finance/transactions': 'transactions', '/finance/income': 'income',
+  '/finance': 'income', '/finance/my-dashboard': ['income', 'finance'], '/finance/transactions': 'transactions', '/finance/income': 'income',
   '/deposits': 'fixed_deposit', '/finance/eod': 'eod', '/finance/fx-rates': 'fx_rates',
   // Compliance
-  '/compliance': 'watch_list', '/compliance/credit-audit-trail': 'audit_trail',
+  '/compliance': 'watch_list', '/compliance/my-dashboard': ['watch_list', 'audit_findings', 'compliance_checklists', 'compliance_all'],
+  '/compliance/credit-audit-trail': 'audit_trail',
   '/compliance/watchlist': 'watch_list', '/compliance/regulatory': 'watch_list',
   '/compliance/findings': 'audit_findings', '/compliance/checklists': 'compliance_checklists',
   '/compliance/audit-trail': 'audit_trail', '/compliance/kyc-expiry': 'watch_list',
@@ -387,7 +417,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/compliance/credit-bureau': 'watch_list', '/compliance/breach-incidents': 'compliance_all',
   '/compliance/board-pack': 'compliance_all',
   // Analytics
-  '/reports': 'reports', '/reports/kpi': 'reports', '/reports/cbn-report': 'reports',
+  '/reports': 'reports', '/reports/my-dashboard': 'reports', '/reports/kpi': 'reports', '/reports/cbn-report': 'reports',
   '/reports/export': 'reports', '/bi': 'reports', '/bi/builder': 'reports', '/bi/scheduled': 'reports',
   '/statements': 'statements', '/statements/credit-cards': 'statements', '/core-banking': 'core-banking',
   // Admin

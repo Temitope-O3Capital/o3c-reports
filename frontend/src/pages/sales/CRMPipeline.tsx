@@ -252,6 +252,23 @@ export default function CRMPipeline() {
   const [search,      setSearch]      = useState('')
   const [fStages,     setFStages]     = useState<Set<string>>(new Set())
   const [fAssignees,  setFAssignees]  = useState<Set<string>>(new Set())
+  const [users,       setUsers]       = useState<{ id: number; full_name: string }[]>([])
+
+  // Edit-stage modal
+  const [editStageId, setEditStageId] = useState('')
+  const [savingStage, setSavingStage] = useState(false)
+
+  // Log-activity modal
+  const [actType, setActType] = useState('call')
+  const [actSubj, setActSubj] = useState('')
+  const [actBody, setActBody] = useState('')
+  const [actOutc, setActOutc] = useState('')
+  const [savingAct, setSavingAct] = useState(false)
+
+  // Bulk-assign modal
+  const [assignOpen,   setAssignOpen]   = useState(false)
+  const [assignTo,     setAssignTo]     = useState('')
+  const [assignSaving, setAssignSaving] = useState(false)
 
   // No date filter here, deliberately. The endpoint filters on the deal's
   // created_at, and the board used to default to the current month — so a deal
@@ -263,15 +280,84 @@ export default function CRMPipeline() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
-      const [p, d] = await Promise.all([
+      const [p, d, us] = await Promise.all([
         apiFetch<PipelineResponse>('/api/crm/pipeline'),
         apiFetch<Deal[]>('/api/crm/deals'),
+        apiFetch<{ id: number; full_name: string }[]>('/api/crm/users'),
       ])
       setPipeline(p)
       setAllDeals(Array.isArray(d) ? d : [])
+      setUsers(Array.isArray(us) ? us : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
   }, [])
+
+  async function saveStage() {
+    if (!editing) return
+    setSavingStage(true)
+    try {
+      await apiFetch(`/api/crm/deals/${editing.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ stage_id: Number(editStageId) }),
+        headers: { 'Content-Type': 'application/json' },
+      })
+      toast.success('Stage updated')
+      setEditing(null); load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSavingStage(false) }
+  }
+
+  async function saveActivity() {
+    if (!activity) return
+    if (!activity.contact_id) { toast.error('This deal has no linked contact to log against'); return }
+    setSavingAct(true)
+    try {
+      await apiPost('/api/crm/activities', {
+        contact_id: activity.contact_id,
+        deal_id:    activity.id,
+        type:       actType,
+        subject:    actSubj,
+        body:       actBody,
+        outcome:    actOutc,
+      })
+      toast.success('Activity logged')
+      setActivity(null); setActSubj(''); setActBody(''); setActOutc(''); load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSavingAct(false) }
+  }
+
+  async function bulkAssignDeals() {
+    if (!assignTo || bulkSel.size === 0) return
+    setAssignSaving(true)
+    try {
+      await Promise.all([...bulkSel].map(id => apiFetch(`/api/crm/deals/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ assigned_to: Number(assignTo) }),
+        headers: { 'Content-Type': 'application/json' },
+      })))
+      toast.success(`${bulkSel.size} deal${bulkSel.size > 1 ? 's' : ''} reassigned`)
+      setAssignOpen(false); setAssignTo(''); setBulkSel(new Set()); load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setAssignSaving(false) }
+  }
+
+  function exportDealsCsv(data: Deal[]) {
+    const header = ['Deal', 'Contact', 'Stage', 'Est. Value', 'Owner', 'Close Date', 'Last Activity']
+    const lines = data.map(r => [
+      `"${String(r.title ?? '').replace(/"/g, '""')}"`,
+      `"${`${r.first_name ?? ''} ${r.last_name ?? ''}`.trim().replace(/"/g, '""')}"`,
+      `"${String(r.stage_name ?? '').replace(/"/g, '""')}"`,
+      r.expected_value ?? '',
+      `"${String(r.assigned_name ?? '').replace(/"/g, '""')}"`,
+      r.expected_close_date ?? '',
+      r.updated_at ?? '',
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `deals-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['deals','crm'] })
@@ -317,8 +403,8 @@ export default function CRMPipeline() {
       key: '_actions', label: '', sortable: false,
       render: r => <ActionRow actions={[
         { icon: 'visibility', label: 'View', onClick: () => setSelected(r) },
-        { icon: 'edit', label: 'Edit Stage', onClick: () => setEditing(r) },
-        { icon: 'add_call', label: 'Log Activity', onClick: () => setActivity(r) },
+        { icon: 'edit', label: 'Edit Stage', onClick: () => { setEditing(r); setEditStageId(String(r.stage_id ?? '')) } },
+        { icon: 'add_call', label: 'Log Activity', onClick: () => { setActivity(r); setActType('call'); setActSubj(''); setActBody(''); setActOutc('') } },
       ]} />,
     },
   ]
@@ -419,8 +505,10 @@ export default function CRMPipeline() {
             onSelect={setBulkSel}
             bulkBar={
               <>
-                <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
-                <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
+                <button onClick={() => exportDealsCsv(bulkSel.size ? filteredDeals.filter(d => bulkSel.has(d.id)) : filteredDeals)}
+                  style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
+                <button onClick={() => setAssignOpen(true)}
+                  style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
               </>
             }
           />
@@ -518,7 +606,10 @@ export default function CRMPipeline() {
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
             <button
-              onClick={() => { setSelected(null); navigate('/sales/applications/new') }}
+              onClick={() => {
+                const q = selected?.contact_id ? `?contact=${selected.contact_id}` : ''
+                setSelected(null); navigate(`/sales/applications/new${q}`)
+              }}
               style={{ ...btnPrimary, background: GREEN }}
             >
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>receipt_long</span>
@@ -562,6 +653,99 @@ export default function CRMPipeline() {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* Edit stage modal */}
+      <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit Stage" width={420}
+        footer={
+          <>
+            <button onClick={() => setEditing(null)} style={btnSecondary}>Cancel</button>
+            <button onClick={saveStage} disabled={savingStage || !editStageId}
+              style={{ ...btnPrimary, opacity: (savingStage || !editStageId) ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {savingStage && <Spinner size={14} color="#fff" />}Save
+            </button>
+          </>
+        }
+      >
+        {editing && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{editing.title}</div>
+            <div>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Stage</label>
+              <select value={editStageId} onChange={e => setEditStageId(e.target.value)}
+                style={{ ...filterInputStyle, width: '100%', height: 38 }}>
+                <option value="">— Select stage —</option>
+                {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Log activity modal */}
+      <Modal open={!!activity} onClose={() => setActivity(null)} title="Log Activity" width={440}
+        footer={
+          <>
+            <button onClick={() => setActivity(null)} style={btnSecondary}>Cancel</button>
+            <button onClick={saveActivity} disabled={savingAct}
+              style={{ ...btnPrimary, opacity: savingAct ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {savingAct && <Spinner size={14} color="#fff" />}Log
+            </button>
+          </>
+        }
+      >
+        {activity && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+              {activity.title}
+              {(activity.first_name || activity.last_name) && ` · ${`${activity.first_name ?? ''} ${activity.last_name ?? ''}`.trim()}`}
+            </div>
+            <div>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Type</label>
+              <select value={actType} onChange={e => setActType(e.target.value)}
+                style={{ ...filterInputStyle, width: '100%', height: 38 }}>
+                {['call', 'email', 'meeting', 'note', 'other'].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Subject</label>
+              <input value={actSubj} onChange={e => setActSubj(e.target.value)}
+                style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38 }} />
+            </div>
+            <div>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Notes</label>
+              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={actBody} onChange={e => setActBody(e.target.value)} rows={3}
+                style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, resize: 'vertical' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Outcome</label>
+              <input value={actOutc} onChange={e => setActOutc(e.target.value)}
+                style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38 }} />
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Bulk-assign modal */}
+      <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title={`Assign ${bulkSel.size} deal${bulkSel.size > 1 ? 's' : ''}`} width={420}
+        footer={
+          <>
+            <button onClick={() => setAssignOpen(false)} style={btnSecondary}>Cancel</button>
+            <button onClick={bulkAssignDeals} disabled={assignSaving || !assignTo}
+              style={{ ...btnPrimary, opacity: (assignSaving || !assignTo) ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {assignSaving && <Spinner size={14} color="#fff" />}Assign
+            </button>
+          </>
+        }
+      >
+        <div>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Owner</label>
+          <select value={assignTo} onChange={e => setAssignTo(e.target.value)}
+            style={{ ...filterInputStyle, width: '100%', height: 38 }}>
+            <option value="">— Select owner —</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+          </select>
+        </div>
       </Modal>
     </Page>
   )

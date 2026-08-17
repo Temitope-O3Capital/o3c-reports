@@ -21,6 +21,8 @@ interface SalesTarget {
   period:           string
   loan_count:       number
   disbursement_kobo: number
+  fd_count:         number
+  fd_amount_kobo:   number
   notes:            string
 }
 
@@ -29,8 +31,12 @@ interface Actual {
   full_name:    string
   target_loans: number
   target_kobo:  number
+  target_fds:   number
+  target_fd_kobo: number
   actual_loans: number
   actual_kobo:  number
+  actual_fds:   number
+  actual_fd_kobo: number
 }
 
 interface User { id: number; full_name: string; role: string }
@@ -93,6 +99,8 @@ export default function SalesTargets() {
   const [fUserId,  setFUserId]  = useState('')
   const [fLoans,   setFLoans]   = useState('')
   const [fDisb,    setFDisb]    = useState('')
+  const [fFds,     setFFds]     = useState('')
+  const [fFdAmt,   setFFdAmt]   = useState('')
   const [fNotes,   setFNotes]   = useState('')
 
   const load = useCallback(async () => {
@@ -109,7 +117,10 @@ export default function SalesTargets() {
       // The sales officers endpoint is the right source anyway: it lists who can
       // actually hold a book rather than filtering on a role label that nobody carries.
       if (canEdit) {
-        const usr = await apiFetch<{ data: User[] }>('/api/sales/book/officers')
+        // /api/sales/officers is the shared officer list (id, full_name, role) that
+        // Book.tsx and Leads.tsx use; /book/officers does not exist and falls through
+        // to /book/{cif}.
+        const usr = await apiFetch<{ data: User[] }>('/api/sales/officers')
         setUsers(Array.isArray(usr) ? usr : (usr?.data ?? []))
       }
     } catch (e: any) { setError(e.message) }
@@ -127,10 +138,12 @@ export default function SalesTargets() {
         period,
         loan_count:        parseInt(fLoans) || 0,
         disbursement_kobo: Math.round(parseFloat(fDisb) * 100) || 0,
+        fd_count:          parseInt(fFds) || 0,
+        fd_amount_kobo:    Math.round(parseFloat(fFdAmt) * 100) || 0,
         notes:             fNotes,
       })
       toast.success('Target saved')
-      setShowForm(false); setFUserId(''); setFLoans(''); setFDisb(''); setFNotes('')
+      setShowForm(false); setFUserId(''); setFLoans(''); setFDisb(''); setFFds(''); setFFdAmt(''); setFNotes('')
       load()
     } catch (e: any) { toast.error(e.message) }
     finally { setSaving(false) }
@@ -139,7 +152,13 @@ export default function SalesTargets() {
   // Merge actuals with any targets not yet in actuals — then search-filter
   const leaderboard: Actual[] = actuals.map(a => {
     const t = targets.find(t => t.user_id === a.user_id)
-    return { ...a, target_loans: t?.loan_count ?? a.target_loans, target_kobo: t?.disbursement_kobo ?? a.target_kobo }
+    return {
+      ...a,
+      target_loans:   t?.loan_count ?? a.target_loans,
+      target_kobo:    t?.disbursement_kobo ?? a.target_kobo,
+      target_fds:     t?.fd_count ?? a.target_fds,
+      target_fd_kobo: t?.fd_amount_kobo ?? a.target_fd_kobo,
+    }
   })
 
   const myRow = useMemo(
@@ -153,10 +172,34 @@ export default function SalesTargets() {
     return leaderboard.filter(r => r.full_name.toLowerCase().includes(q))
   }, [leaderboard, search])
 
+  function exportBoardCsv(data: Actual[]) {
+    const header = ['Officer', 'Actual Loans', 'Target Loans', 'Actual Disbursement (kobo)', 'Target Disbursement (kobo)', 'Actual FDs', 'Target FDs', 'Actual FD Amount (kobo)', 'Target FD Amount (kobo)']
+    const lines = data.map(r => [
+      `"${String(r.full_name ?? '').replace(/"/g, '""')}"`,
+      r.actual_loans,
+      r.target_loans,
+      r.actual_kobo,
+      r.target_kobo,
+      r.actual_fds,
+      r.target_fds,
+      r.actual_fd_kobo,
+      r.target_fd_kobo,
+    ].join(','))
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `sales-targets-${period}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
   const totalTargetLoans = leaderboard.reduce((s, r) => s + Number(r.target_loans), 0)
   const totalActualLoans = leaderboard.reduce((s, r) => s + Number(r.actual_loans), 0)
   const totalTargetKobo  = leaderboard.reduce((s, r) => s + Number(r.target_kobo), 0)
   const totalActualKobo  = leaderboard.reduce((s, r) => s + Number(r.actual_kobo), 0)
+  const totalTargetFds   = leaderboard.reduce((s, r) => s + Number(r.target_fds), 0)
+  const totalActualFds   = leaderboard.reduce((s, r) => s + Number(r.actual_fds), 0)
+  const totalTargetFdKobo = leaderboard.reduce((s, r) => s + Number(r.target_fd_kobo), 0)
+  const totalActualFdKobo = leaderboard.reduce((s, r) => s + Number(r.actual_fd_kobo), 0)
 
   const COLS: TableCol<Actual>[] = [
     {
@@ -182,6 +225,28 @@ export default function SalesTargets() {
             {fmtNaira(r.actual_kobo)} / {fmtNaira(r.target_kobo)}
           </div>
           <RagBar actual={r.actual_kobo} target={r.target_kobo} />
+        </div>
+      ),
+    },
+    {
+      key: 'actual_fds', label: 'Fixed Deposits',
+      render: r => (
+        <div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: ragColor(r.target_fds > 0 ? (r.actual_fds / r.target_fds) * 100 : 100) }}>
+            {r.actual_fds} / {r.target_fds}
+          </div>
+          <RagBar actual={r.actual_fds} target={r.target_fds} />
+        </div>
+      ),
+    },
+    {
+      key: 'actual_fd_kobo', label: 'FD Amount',
+      render: r => (
+        <div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: ragColor(r.target_fd_kobo > 0 ? (r.actual_fd_kobo / r.target_fd_kobo) * 100 : 100) }}>
+            {fmtNaira(r.actual_fd_kobo)} / {fmtNaira(r.target_fd_kobo)}
+          </div>
+          <RagBar actual={r.actual_fd_kobo} target={r.target_fd_kobo} />
         </div>
       ),
     },
@@ -237,6 +302,18 @@ export default function SalesTargets() {
               </div>
               <RagBar actual={Number(myRow.actual_kobo)} target={Number(myRow.target_kobo)} />
             </div>
+            <div>
+              <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
+                {myRow.actual_fds} / {myRow.target_fds} FDs
+              </div>
+              <RagBar actual={Number(myRow.actual_fds)} target={Number(myRow.target_fds)} />
+            </div>
+            <div>
+              <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
+                {fmtNaira(Number(myRow.actual_fd_kobo))} / {fmtNaira(Number(myRow.target_fd_kobo))}
+              </div>
+              <RagBar actual={Number(myRow.actual_fd_kobo)} target={Number(myRow.target_fd_kobo)} />
+            </div>
           </div>
         </div>
       )}
@@ -253,6 +330,10 @@ export default function SalesTargets() {
           { label: 'Actual Loans',    value: totalActualLoans,              fmt: (v: number) => v.toLocaleString(),      color: ragColor(totalTargetLoans > 0 ? (totalActualLoans / totalTargetLoans) * 100 : 100) },
           { label: 'Target Disb.',    value: totalTargetKobo,               fmt: fmtNaira },
           { label: 'Actual Disb.',    value: totalActualKobo,               fmt: fmtNaira,                               color: ragColor(totalTargetKobo > 0 ? (totalActualKobo / totalTargetKobo) * 100 : 100) },
+          { label: 'Target FDs',      value: totalTargetFds,                fmt: (v: number) => v.toLocaleString() },
+          { label: 'Actual FDs',      value: totalActualFds,                fmt: (v: number) => v.toLocaleString(),      color: ragColor(totalTargetFds > 0 ? (totalActualFds / totalTargetFds) * 100 : 100) },
+          { label: 'Target FD Amt.',  value: totalTargetFdKobo,             fmt: fmtNaira },
+          { label: 'Actual FD Amt.',  value: totalActualFdKobo,             fmt: fmtNaira,                               color: ragColor(totalTargetFdKobo > 0 ? (totalActualFdKobo / totalTargetFdKobo) * 100 : 100) },
         ].map(({ label, value, fmt, color }) => (
           <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
@@ -283,7 +364,8 @@ export default function SalesTargets() {
             selectedIds={bulkSel}
             onSelect={setBulkSel}
             bulkBar={
-              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
+              <button onClick={() => exportBoardCsv(bulkSel.size ? filteredBoard.filter(r => bulkSel.has(r.user_id)) : filteredBoard)}
+                style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
             }
           />
         </SectionCard>
@@ -316,6 +398,8 @@ export default function SalesTargets() {
           {[
             { label: 'Loan Count Target', value: fLoans, set: setFLoans, type: 'number', placeholder: '0' },
             { label: 'Disbursement Target (₦)', value: fDisb, set: setFDisb, type: 'number', placeholder: '0.00' },
+            { label: 'FD Count Target', value: fFds, set: setFFds, type: 'number', placeholder: '0' },
+            { label: 'FD Amount Target (₦)', value: fFdAmt, set: setFFdAmt, type: 'number', placeholder: '0.00' },
           ].map(({ label, value, set, type, placeholder }) => (
             <div key={label}>
               <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>

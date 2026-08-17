@@ -20,12 +20,33 @@ func RegisterActiveLoanBook(r chi.Router, db *core.DB) {
 }
 
 // The active loan book is the LIVE Udara/CBS credit book (app owns no origination).
-// cbs_loans has no instalment schedule, so DPD = days past maturity_date; the "active"
-// book is every open loan (status NOT IN Closed/Revoked). Customer name/phone come from
-// the Sage master by CIF (cbs_customer_id == cif), falling back to the CBS record's name.
+// The "active" book is every open loan (status NOT IN Closed/Revoked). Customer
+// name/phone come from the Sage master by CIF (cbs_customer_id == cif), falling
+// back to the CBS record's name.
 const cbsLoanName = `COALESCE((SELECT NULLIF(trim(a.first_name||' '||COALESCE(a.last_name,'')),'')
 	         FROM app.customers a WHERE a.cif = cl.cbs_customer_id LIMIT 1), cl.raw->>'name')`
-const cbsLoanDPD = `GREATEST(0, (CURRENT_DATE - cl.maturity_date::date))::int`
+
+// DPD is derived from the rebuilt amortisation schedule, NOT from days past final
+// maturity. The old proxy scored a loan four instalments in arrears as "Current"
+// until its maturity date passed — it reported PAR30 at 12% when the real figure
+// was 48%, and hid all six loans CBS had flagged 'Defaulting'. See migration
+// 151_real_dpd_and_sectors.sql for the derivation and its validation.
+//
+// The `cl.`-qualified forms are for queries that alias cbs_loans as cl; the Bare
+// forms are for queries that select from cbs_loans unaliased.
+const cbsLoanDPD = `app.cbs_loan_dpd(cl.status, cl.start_date, cl.maturity_date,
+	         cl.first_installment_date, cl.loan_amount_kobo, cl.outstanding_principal_kobo)`
+const cbsLoanArrears = `app.cbs_loan_arrears_kobo(cl.start_date, cl.maturity_date,
+	         cl.first_installment_date, cl.loan_amount_kobo, cl.outstanding_principal_kobo)`
+const cbsLoanBand = `app.cbs_risk_band_dpd(cl.status, ` + cbsLoanDPD + `)`
+const cbsLoanScore = `app.cbs_risk_score_dpd(cl.status, ` + cbsLoanDPD + `)`
+
+const cbsLoanDPDBare = `app.cbs_loan_dpd(status, start_date, maturity_date,
+	         first_installment_date, loan_amount_kobo, outstanding_principal_kobo)`
+const cbsLoanArrearsBare = `app.cbs_loan_arrears_kobo(start_date, maturity_date,
+	         first_installment_date, loan_amount_kobo, outstanding_principal_kobo)`
+const cbsLoanBandBare = `app.cbs_risk_band_dpd(status, ` + cbsLoanDPDBare + `)`
+const cbsLoanScoreBare = `app.cbs_risk_score_dpd(status, ` + cbsLoanDPDBare + `)`
 
 func albList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +126,7 @@ func albStats(db *core.DB) http.HandlerFunc {
 			  COUNT(*) FILTER (WHERE dpd > 90)                      AS dpd_90plus,
 			  COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE dpd > 0), 0) AS npl_outstanding_kobo
 			FROM (SELECT outstanding_principal_kobo, loan_amount_kobo,
-			             GREATEST(0,(CURRENT_DATE - maturity_date::date))::int AS dpd
+			             `+cbsLoanDPDBare+` AS dpd
 			      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) x`)
 
 		byProduct, _ := db.PGQuery(r.Context(), `

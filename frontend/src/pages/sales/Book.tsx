@@ -22,6 +22,7 @@ import { RED, GREEN, AMBER, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../
 
 interface BookRow {
   cif: string
+  party_id: number | null
   full_name: string
   email: string
   phone: string
@@ -76,6 +77,12 @@ export default function SalesBook() {
   const [assignTo, setAssignTo] = useState('')
   const [assignReason, setAssignReason] = useState('')
   const [assigning, setAssigning] = useState(false)
+
+  // Party (whole-person) assignment — one row's every CIF onto one officer.
+  const [partyRow, setPartyRow] = useState<BookRow | null>(null)
+  const [partyAssignTo, setPartyAssignTo] = useState('')
+  const [partyReason, setPartyReason] = useState('')
+  const [partyAssigning, setPartyAssigning] = useState(false)
 
   const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
   const query = useMemo(() => {
@@ -134,6 +141,35 @@ export default function SalesBook() {
       setErr(e?.message ?? 'Assignment failed')
     } finally {
       setAssigning(false)
+    }
+  }
+
+  // Assign a whole person: every CIF the party holds moves to one officer in a single
+  // call, so a relationship never fragments across desks. Distinct from bulk-assign,
+  // which moves the exact CIFs the head ticked.
+  async function doAssignParty() {
+    if (!partyRow?.party_id || !partyAssignTo) return
+    setPartyAssigning(true)
+    try {
+      const res = await apiFetch<{ data: { assigned: number } }>(
+        '/api/sales/book/assign-party',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            party_id: partyRow.party_id,
+            officer_id: Number(partyAssignTo),
+            reason: partyReason,
+          }),
+        },
+      )
+      setPartyRow(null); setPartyAssignTo(''); setPartyReason('')
+      await load()
+      const nCif = res.data?.assigned ?? 0
+      setErr(`${nCif} card${nCif === 1 ? '' : 's'} for this person reassigned`)
+    } catch (e: any) {
+      setErr(e?.message ?? 'Assignment failed')
+    } finally {
+      setPartyAssigning(false)
     }
   }
 
@@ -230,6 +266,30 @@ export default function SalesBook() {
         ? <span style={{ color: 'var(--txt2)' }}>{r.officer_name}</span>
         : <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: `${AMBER}1A`, color: AMBER }}>Unassigned</span>,
     },
+    ...(isHead ? [{
+      key: 'assign_person',
+      label: '',
+      sortable: false,
+      align: 'right' as const,
+      width: 140,
+      // Whole-person assignment: moves every CIF this party holds, not just this row.
+      // Only offered when the row is linked to a party.
+      render: (r: BookRow) => r.party_id ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          icon="group_add"
+          onClick={e => {
+            e.stopPropagation()
+            setPartyRow(r)
+            setPartyAssignTo(r.officer_id ? String(r.officer_id) : '')
+            setPartyReason('')
+          }}
+        >
+          Assign person
+        </Button>
+      ) : null,
+    } as TableCol<BookRow>] : []),
   ]
 
   const pageFrom = total === 0 ? 0 : offset + 1
@@ -370,6 +430,44 @@ export default function SalesBook() {
             value={assignReason}
             onChange={e => setAssignReason(e.target.value)}
             placeholder="e.g. Territory rebalance, officer departure"
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!partyRow}
+        onClose={() => setPartyRow(null)}
+        title={`Assign ${partyRow?.full_name || 'this person'}`}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button variant="secondary" onClick={() => setPartyRow(null)}>Cancel</Button>
+            <Button variant="primary" loading={partyAssigning} disabled={!partyAssignTo} onClick={doAssignParty}>
+              Assign person
+            </Button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+            Every card this person holds moves to the chosen officer together, so the whole
+            relationship stays on one desk — not just the row you clicked.
+          </div>
+          <Select
+            label="Account officer"
+            value={partyAssignTo}
+            onChange={e => setPartyAssignTo(e.target.value)}
+          >
+            <option value="">Choose an officer…</option>
+            {officers.filter(o => o.is_active).map(o => (
+              <option key={o.id} value={o.id}>{o.full_name} — {o.book_size} customers</option>
+            ))}
+          </Select>
+          <Input
+            label="Reason"
+            hint="Recorded against every CIF moved, so the trail explains itself later"
+            value={partyReason}
+            onChange={e => setPartyReason(e.target.value)}
+            placeholder="e.g. Consolidating a person's book onto one officer"
           />
         </div>
       </Modal>

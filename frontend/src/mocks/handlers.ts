@@ -846,36 +846,45 @@ const FINANCE = [
 
 // ── Risk ──────────────────────────────────────────────────────────────────────
 
+// Risk mocks mirror the live contract: bands are the letters A-E that
+// app.cbs_risk_band_dpd emits (NOT Prime/Near-Prime — that vocabulary belongs to the
+// origination Eye Score only), scores are 0-100, and concentration is wrapped in
+// { basis, rows } so the UI can label the column Employer vs Borrower.
 const RISK = [
   http.get(u('/api/risk/portfolio-kpis'), () => wd({
-    par30_rate_pct: 5.0, par60_pct: 2.0, par90_pct: 0.9, npl_ratio_pct: 1.4,
+    par30_rate_pct: 48.0, par60_pct: 20.0, par90_pct: 8.0, npl_ratio_pct: 8.0,
     coverage_ratio_pct: 142.0, total_outstanding_kobo: 4_820_000_000_00, provision_kobo: 67_500_000_00,
-    avg_credit_score: 672, top_employer_exposure_kobo: 480_000_000_00,
+    total_book_kobo: 4_820_000_000_00, total_arrears_kobo: 1_240_000_000_00, total_active_loans: 25,
+    avg_credit_score: 54, top_obligor_exposure_kobo: 480_000_000_00,
   })),
   http.get(u('/api/risk/par-trend'), () => wd(
     MONTHS_ISO.map(m => ({ month: m, par30_kobo: rng(4,8)*1_000_000_00, par60_kobo: rng(1,4)*1_000_000_00, par90_kobo: rng(0,2)*1_000_000_00 }))
   )),
   http.get(u('/api/risk/band-distribution'), () => wd([
-    { band:'Prime',       count: 2184, pct: 52.1 },
-    { band:'Near-Prime',  count: 1241, pct: 29.6 },
-    { band:'Sub-Prime',   count: 583,  pct: 13.9 },
-    { band:'High-Risk',   count: 188,  pct: 4.4  },
+    { band:'A', count: 2184, pct: 52.1 },
+    { band:'B', count: 1241, pct: 29.6 },
+    { band:'C', count: 583,  pct: 13.9 },
+    { band:'D', count: 188,  pct: 3.0  },
+    { band:'E', count: 60,   pct: 1.4  },
   ])),
   http.get(u('/api/risk/sector-concentration'), () => wd([
-    { sector:'Salary Earners', outstanding_kobo: 2_840_000_000_00, count: 2814, book_pct: 58.9 },
-    { sector:'SME',            outstanding_kobo: 980_000_000_00,   count: 612,  book_pct: 20.3 },
-    { sector:'Civil Servants', outstanding_kobo: 640_000_000_00,   count: 492,  book_pct: 13.3 },
-    { sector:'Pensioners',     outstanding_kobo: 360_000_000_00,   count: 300,  book_pct: 7.5  },
+    { sector:'Sector 41000', sector_code:'41000', book_kobo: 2_840_000_000_00, loan_count: 2814, book_pct: 58.9 },
+    { sector:'Sector 40800', sector_code:'40800', book_kobo: 980_000_000_00,   loan_count: 612,  book_pct: 20.3 },
+    { sector:'Sector 40700', sector_code:'40700', book_kobo: 640_000_000_00,   loan_count: 492,  book_pct: 13.3 },
+    { sector:'Sector 40900', sector_code:'40900', book_kobo: 360_000_000_00,   loan_count: 300,  book_pct: 7.5  },
   ])),
-  http.get(u('/api/risk/top-employers'), () => wd(
-    Array.from({ length: 10 }, (_, i) => ({
-      company: pick(['Shell Nigeria','MTN Nigeria','Dangote Group','Access Bank','NNPC','NLNG']),
+  http.get(u('/api/risk/top-employers'), () => wd({
+    basis: 'obligor',
+    rows: Array.from({ length: 10 }, () => ({
+      company: name(),
+      applicant_cif: String(rng(10000, 99999)),
       book_kobo: rng(50,500)*1_000_000_00,
       staff_loans_count: rng(20,200),
       pct_of_total: rng(2,12),
       par30_count: rng(0,15),
-    }))
-  )),
+    })),
+  })),
+  http.get(u('/api/risk/top-employers/export'), () => new HttpResponse(new Blob(['company,book_kobo\n'], { type: 'text/csv' }))),
   http.get(u('/api/risk/eye-kpis'), () => wd({
     scored_today: 42, avg_score_month: 682, high_risk_count: 124, requests_month: 847,
   })),
@@ -905,16 +914,18 @@ const RISK = [
   )),
   http.get(u('/api/risk/credit-file/:cif'), () => ok({
     cif: 'CIF1000001', customer_name: name(), phone: `0801${rng(1000000,9999999)}`,
-    eye_score: 682, eye_band: 'Near-Prime', bureau_score: 651,
+    eye_score: 68, eye_band: 'B', bureau_score: null, score_basis: 'cbs_derived',
     total_loan_count: 3, active_loan_count: 1,
-    total_outstanding_kobo: 85_000_000_00, worst_dpd: 14,
+    total_outstanding_kobo: 85_000_000_00, total_arrears_kobo: 12_000_000_00, worst_dpd: 14,
     dti_pct: 28.4, kyc_status: 'verified', bvn: `2234${rng(10000000,99999999)}`,
     loans: Array.from({ length: 3 }, (_, i) => ({
-      id: i+1, ref: `LN${rng(10000,99999)}`,
+      id: String(i+1), ref: `LN${rng(10000,99999)}`,
       product: pick(LOS_PRODUCTS), principal_kobo: rng(10,150)*1_000_000_00,
       outstanding_kobo: i === 0 ? 85_000_000_00 : 0,
-      dpd: i === 0 ? 14 : 0, status: i === 0 ? 'active' : 'closed',
-      disbursed_at: isoDate(rng(30, 730)),
+      arrears_kobo: i === 0 ? 12_000_000_00 : 0,
+      risk_band: i === 0 ? 'B' : 'A', eye_score: i === 0 ? 68 : 95,
+      dpd: i === 0 ? 14 : 0, status: i === 0 ? 'Active' : 'Closed',
+      disbursed_at: isoDate(rng(30, 730)), source: 'cbs',
     })),
   })),
   http.get(u('/api/risk/applications'), () => ok({
@@ -2475,6 +2486,42 @@ const USER_MISC = [
 // ── Unified Contact Profile ───────────────────────────────────────────────────
 
 const CONTACTS_EXTRA = [
+  // Paged transaction ledger — filterable to a single card via ?card=<cif>.
+  // Registered BEFORE /api/contacts/:cif so the bare profile route can't swallow it.
+  http.get(u('/api/contacts/:cif/transactions'), ({ request }) => {
+    const url  = new URL(request.url)
+    const card = url.searchParams.get('card') ?? ''
+    const page = Number(url.searchParams.get('page') ?? 1)
+    const size = Number(url.searchParams.get('size') ?? 50)
+    const total = card ? rng(20, 900) : rng(200, 5000)
+    const rows = Array.from({ length: Math.min(size, Math.max(0, total - (page - 1) * size)) }, (_, i) => {
+      const money_in = Math.random() > 0.72
+      return {
+        txn_id: `TX${page}${i}${rng(1000,9999)}`,
+        cif: card || `${rng(10000,99999)}`,
+        date: isoDate(rng(0, 400)),
+        post_date: isoDate(rng(0, 400)),
+        amount: rng(500, 2_000_000),
+        money_in,
+        description: pick(['Web Transfer Out','Cash Payment Bank','Purchase Txn Interest','POS Purchase','Total Interest','Membership Fee']),
+        merchant: pick([null, 'JUMIA', 'SHOPRITE', 'O3 CAPITAL', null]),
+        channel: pick(['interswitch','internal','collection']),
+        city: pick([null, 'LAGOS', 'ABUJA']),
+        txn_code: pick(['300','402','423','601']),
+        card_product: pick(['PREP','Classic Accounts','Amex Naira']),
+        card_pan: `506124*********${rng(1000,9999)}`,
+        currency: 'NGN' as const,
+      }
+    })
+    const money_in  = rows.filter(r => r.money_in).reduce((s, r) => s + r.amount, 0) * (total / Math.max(rows.length, 1))
+    const money_out = rows.filter(r => !r.money_in).reduce((s, r) => s + r.amount, 0) * (total / Math.max(rows.length, 1))
+    return ok({
+      data: rows, total, page, size,
+      pages: Math.ceil(total / size),
+      summary: { count: total, money_in, money_out, net: money_in - money_out, usd_count: 0, usd_in: 0, usd_out: 0 },
+    })
+  }),
+
   // Aggregated contact profile (all lifecycle data in one call)
   http.get(u('/api/contacts/:cif'), ({ params }) => {
     const cif = String(params.cif)
@@ -2539,14 +2586,30 @@ const CONTACTS_EXTRA = [
         },
       ] : [],
 
-      cards: hasCard ? [
-        { id: rng(1,999), card_number_masked: `****${rng(1000,9999)}`,
-          scheme: pick(['Visa','Mastercard','Verve']),
-          status: pick(['active','active','blocked']),
-          balance_kobo: rng(0,500)*1_000_000_00,
+      // One card = one CIF; `cif` is what the Transactions tab filters on.
+      cards: hasCard ? Array.from({ length: rng(1,4) }, (_, i) => {
+        const limit = rng(1,20)*100_000
+        return {
+          id: `ACC${rng(100000,999999)}${i}`,
+          cif: `${rng(10000,99999)}${i}`,
+          account_no: `${rng(1000000000,1999999999)}`,
+          card_number_masked: `506124*********${rng(1000,9999)}`,
+          name_on_card: name().toUpperCase(),
+          product_name: pick(['PREP','Classic Accounts','Prestige Accounts','Amex Naira','Platinum Accounts']),
+          scheme: pick([null,'Amex Green','Amex Gold','Amex Platinum']),
+          status: pick(['Active','Active','Open','TERMINATED']),
+          balance: rng(0, limit),
+          credit_limit: limit,
+          utilisation: null,
+          min_payment: rng(1,50)*1000,
+          days_overdue: pick([0,0,0,rng(1,90)]),
+          expiry_date: isoDate(-rng(180,1400)),
+          payment_due: isoDate(-rng(1,30)),
           issued_at: isoDate(rng(90,730)),
-        },
-      ] : [],
+          txn_count: rng(0,4000),
+          last_txn_date: isoDate(rng(0,120)),
+        }
+      }) : [],
 
       collections: hasDelinquent ? {
         dpd, dpd_bucket: dpd >= 90 ? '90+' : dpd >= 60 ? '61-90' : dpd >= 30 ? '31-60' : '1-30',

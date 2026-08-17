@@ -1,13 +1,15 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { LogPaymentModal } from '../../components/LogPaymentModal'
 import { BatchPaymentModal } from '../../components/BatchPaymentModal'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
-import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { fmtKobo, fmtNum, fmtDate, monthStart, today } from '../../lib/fmt'
+import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
+import { WorkspaceHero, MyDaySection, MyDayTile, PresenceControl, HeroButton, myUserId, ordinal } from '../../components/MyWorkspace'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -59,25 +61,15 @@ function dpdColour(bucket: string | null): string {
   return GREEN
 }
 
-// ── Stat tile ─────────────────────────────────────────────────────────────────
-
-function Tile({ label, value, colour, sub }: { label: string; value: string | number; colour?: string; sub?: string }) {
-  return (
-    <div style={{ flex: 1, minWidth: 110, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: `${SP[3]} ${SP[4]}` }}>
-      <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: colour ?? 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3 }}>{sub}</div>}
-    </div>
-  )
-}
-
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function AgentDashboard() {
+  const navigate = useNavigate()
   const [agents,   setAgents]   = useState<AgentRow[]>([])
   const [queue,    setQueue]    = useState<QueueRow[]>([])
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
+  const [status,   setStatus]   = useState('available')
 
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
@@ -96,7 +88,7 @@ export default function AgentDashboard() {
   const [batchOpen, setBatchOpen] = useState(false)
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null)
+    setError(null)
     const qs = `?from=${dateFrom}&to=${dateTo}`
     try {
       const [aRes, qRes] = await Promise.all([
@@ -110,7 +102,15 @@ export default function AgentDashboard() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(load, { topics: ['collections', 'loans'] })
+
+  const changeStatus = useCallback(async (s: string) => {
+    setStatus(s)
+    const uid = myUserId()
+    if (!uid) return
+    try { await apiFetch(`/api/helpdesk/agents/${uid}/status`, { method: 'PUT', body: JSON.stringify({ status: s }) }) }
+    catch (e: any) { toast.error(e?.message || 'Could not update status') }
+  }, [])
 
   async function handleLogContact() {
     if (!logRow) return
@@ -129,16 +129,29 @@ export default function AgentDashboard() {
     finally { setLogging(false) }
   }
 
-  // Totals across all visible agents
-  const totalAssigned  = agents.reduce((s, a) => s + Number(a.assigned ?? 0), 0)
-  const totalContacts  = agents.reduce((s, a) => s + Number(a.contacts_today ?? 0), 0)
-  const totalPTPs      = agents.reduce((s, a) => s + Number(a.ptps_today ?? 0), 0)
-  const totalPortfolio = agents.reduce((s, a) => s + Number(a.portfolio_kobo ?? 0), 0)
+  // Personal view: pick the signed-in agent's own row out of the team array, and
+  // rank them among peers by today's contacts (mirrors the Call Center leaderboard).
+  const uid = myUserId()
+  const myRow = agents.find(a => a.id === uid) ?? null
+  const myAssigned  = Number(myRow?.assigned ?? 0)
+  const myContacts  = Number(myRow?.contacts_today ?? 0)
+  const myPtps      = Number(myRow?.ptps_today ?? 0)
+  const myPtpsKept  = Number(myRow?.ptps_honoured_today ?? 0)
+  const myPortfolio = Number(myRow?.portfolio_kobo ?? 0)
+  const ranked = [...agents].sort((a, b) => Number(b.contacts_today) - Number(a.contacts_today))
+  const myRank = myRow ? ranked.findIndex(a => a.id === myRow.id) + 1 : 0
+  const untouched = Math.max(0, myAssigned - myContacts)
+  const ptpsToChase = Math.max(0, myPtps - myPtpsKept)
 
   const agentCols: TableCol<AgentRow>[] = [
     {
       key: 'full_name', label: 'Agent',
-      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.full_name}</span>,
+      render: r => (
+        <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+          {r.full_name}
+          {r.id === uid && <span style={{ marginLeft: 7, fontSize: TEXT['2xs'], fontWeight: FW.bold, color: NAVY, background: `${NAVY}14`, borderRadius: RADIUS['2xl'], padding: '1px 7px' }}>You</span>}
+        </span>
+      ),
     },
     {
       key: 'assigned', label: 'Queue', align: 'right',
@@ -213,15 +226,15 @@ export default function AgentDashboard() {
   // Only block the whole page on the very first load; live reloads keep the
   // tables visible and use their own skeleton state instead of blanking.
   if (loading && agents.length === 0 && queue.length === 0) return (
-    <Page title="Collections Dashboard">
+    <Page title="My Workspace">
       <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div>
     </Page>
   )
 
   return (
     <Page
-      title="Collections Agent Dashboard"
-      subtitle="Agent performance and account queue"
+      title="My Workspace"
+      subtitle="Your collections station — queue, promises and payments"
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
@@ -242,34 +255,43 @@ export default function AgentDashboard() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* Summary tiles */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        <Tile label="Total Queue"       value={totalAssigned}  />
-        <Tile label="Contacts Today"    value={totalContacts}  colour={totalContacts > 0 ? GREEN : undefined} />
-        <Tile label="PTPs Today"        value={totalPTPs}      colour={totalPTPs > 0 ? AMBER : undefined} />
-        <Tile label="Portfolio at Risk"
-          value={fmtKobo(totalPortfolio)}
-          colour={RED}
-          sub={`${agents.length} agent${agents.length !== 1 ? 's' : ''}`}
-        />
-      </div>
+      <WorkspaceHero
+        presence={<PresenceControl status={status} onChange={changeStatus} />}
+        subline={myRank > 0
+          ? <>You're <strong style={{ color: '#fff' }}>{ordinal(myRank)}</strong> on the team today of {agents.length} · <strong style={{ color: '#fff' }}>{fmtKobo(myPortfolio)}</strong> in your book</>
+          : <>{fmtKobo(myPortfolio)} in your book — start working it down 💪</>}
+        ring={{ value: myContacts, max: Math.max(1, myAssigned), unit: 'contacted' }}
+        stats={[
+          { label: 'My Queue', value: fmtNum(myAssigned) },
+          { label: 'Contacts Today', value: fmtNum(myContacts), color: '#4ADE80' },
+          { label: 'PTPs Today', value: fmtNum(myPtps) },
+          { label: 'PTPs Kept', value: fmtNum(myPtpsKept), color: '#4ADE80' },
+          { label: 'Portfolio', value: fmtKobo(myPortfolio), color: '#FCA5A5' },
+        ]}
+        actions={<>
+          <HeroButton icon="upload_file" label="Batch Upload" primary onClick={() => setBatchOpen(true)} />
+          <HeroButton icon="format_list_bulleted" label="Agent Queue" onClick={() => navigate('/collections/queue')} />
+          <HeroButton icon="handshake" label="Promises to Pay" onClick={() => navigate('/collections/promises')} />
+          <HeroButton icon="account_balance_wallet" label="Credit Portfolio" onClick={() => navigate('/collections/portfolio')} />
+        </>}
+      />
 
-      {/* Agent performance table */}
-      <SectionCard title="Agent Performance" badge={agents.length} padding={false} style={{ marginBottom: 16 }}>
-        <DataTable
-          cols={agentCols}
-          rows={agents}
-          keyFn={r => r.id}
-          loading={loading}
-          skeletonRows={6}
-          emptyText="No agent data"
-          searchKeys={['full_name']}
-          searchPlaceholder="Search agent…"
-        />
-      </SectionCard>
+      {/* ── My Day ── */}
+      <MyDaySection hint="accounts to work today">
+        <MyDayTile icon="phone_forwarded" count={fmtNum(untouched)} label="Not contacted today"
+          sub={untouched > 0 ? 'reach them before day-end' : 'whole queue touched'}
+          color={AMBER} urgent={untouched > 0} onClick={() => navigate('/collections/queue')} />
+        <MyDayTile icon="handshake" count={fmtNum(ptpsToChase)} label="PTPs to chase"
+          sub={ptpsToChase > 0 ? 'promises not yet kept' : 'all promises kept'}
+          color={PURPLE} urgent={ptpsToChase > 0} onClick={() => navigate('/collections/promises')} />
+        <MyDayTile icon="trending_up" count={fmtNum(myContacts)} label="Contacts today"
+          sub="calls & visits logged" color={GREEN} />
+        <MyDayTile icon="warning" count={fmtKobo(myPortfolio)} label="Portfolio at risk"
+          sub="outstanding in your book" color={RED} onClick={() => navigate('/collections/portfolio')} />
+      </MyDaySection>
 
-      {/* Queue */}
-      <SectionCard title="Account Queue" badge={queue.length} padding={false}>
+      {/* Account queue — the accounts you work */}
+      <SectionCard title="My Account Queue" badge={queue.length} padding={false} style={{ marginBottom: 16 }}>
         <DataTable
           cols={queueCols}
           rows={queue}
@@ -280,6 +302,20 @@ export default function AgentDashboard() {
           pageSize={20}
           searchKeys={['account_cif', 'agent_name', 'dpd_bucket']}
           searchPlaceholder="Search CIF, agent, DPD…"
+        />
+      </SectionCard>
+
+      {/* Team leaderboard — see where you rank */}
+      <SectionCard title="Team Leaderboard" subtitle="Today's activity across the collections team" badge={agents.length} padding={false}>
+        <DataTable
+          cols={agentCols}
+          rows={ranked}
+          keyFn={r => r.id}
+          loading={loading}
+          skeletonRows={6}
+          emptyText="No agent data"
+          searchKeys={['full_name']}
+          searchPlaceholder="Search agent…"
         />
       </SectionCard>
 

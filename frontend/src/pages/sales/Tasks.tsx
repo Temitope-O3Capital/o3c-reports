@@ -100,15 +100,20 @@ export default function CRMTasks() {
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
+      // listTasks filters on created_at via from/to — pass the page date filter through
+      // so the DateFilter control actually narrows the list rather than sitting dead.
+      const p = new URLSearchParams()
+      if (dateFrom) p.set('from', dateFrom)
+      if (dateTo)   p.set('to',   dateTo)
       const [ts, us] = await Promise.all([
-        apiFetch<Task[]>('/api/crm/tasks'),
+        apiFetch<Task[]>(`/api/crm/tasks?${p}`),
         apiFetch<CRMUser[]>('/api/crm/users'),
       ])
       setTasks(Array.isArray(ts) ? ts : [])
       setUsers(Array.isArray(us) ? us : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
   useLiveData(load, { topics: ['deals','crm'] })

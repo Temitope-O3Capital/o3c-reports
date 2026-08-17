@@ -328,18 +328,46 @@ func updateContact(db *core.DB) http.HandlerFunc {
 			}
 			delete(body, "id_number")
 		}
-		// When converting to customer, auto-assign account_manager_id from assigned_to
-		// if caller hasn't explicitly set it.
+		// When converting to customer, reconcile the customer onto an account officer's
+		// book — the same close-the-loop that sales_leads.go convertLead performs. We
+		// auto-assign account_manager_id, set converted_cif, and (in one transaction)
+		// upsert customer_officers so the customer actually lands on someone's book.
+		// Without this, a conversion done in the CRM contact editor lands nowhere.
 		if st, ok := body["status"].(string); ok && st == "customer" {
-			if _, hasAM := body["account_manager_id"]; !hasAM {
-				existing, _ := db.PGQuery(r.Context(),
-					`SELECT assigned_to, account_manager_id FROM crm_contacts WHERE id=$1`, id)
-				if len(existing) > 0 {
-					if am := existing[0]["account_manager_id"]; am == nil {
-						if at := existing[0]["assigned_to"]; at != nil {
-							body["account_manager_id"] = at
-						}
+			existing, _ := db.PGQuery(r.Context(),
+				`SELECT status, assigned_to, account_manager_id,
+				        COALESCE(NULLIF(converted_cif,''), NULLIF(cif_number,'')) AS cif
+				   FROM crm_contacts WHERE id=$1`, id)
+			if len(existing) > 0 {
+				// Auto-assign account_manager_id from assigned_to if caller hasn't set it.
+				if _, hasAM := body["account_manager_id"]; !hasAM {
+					if existing[0]["account_manager_id"] == nil && existing[0]["assigned_to"] != nil {
+						body["account_manager_id"] = existing[0]["assigned_to"]
 					}
+				}
+				// The CIF may arrive in this same edit (cif_number) or already sit on the
+				// row. Only a genuine transition (not already a customer) with a known CIF
+				// reconciles the book; otherwise we keep the plain status-change behaviour.
+				cif := ""
+				if bc, ok := body["cif_number"].(string); ok {
+					cif = strings.TrimSpace(bc)
+				}
+				if cif == "" {
+					cif = str(existing[0]["cif"])
+				}
+				if str(existing[0]["status"]) != "customer" && cif != "" {
+					officerID := int64(0)
+					if am, ok := body["account_manager_id"]; ok {
+						officerID = toInt64(am)
+					}
+					if officerID == 0 {
+						officerID = toInt64(existing[0]["account_manager_id"])
+					}
+					if officerID == 0 {
+						officerID = toInt64(existing[0]["assigned_to"])
+					}
+					convertContactToCustomer(w, r, db, id, cif, officerID, body)
+					return
 				}
 			}
 		}
@@ -367,9 +395,145 @@ func updateContact(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// convertContactToCustomer reconciles a CRM contact that is being flipped to
+// status='customer' onto an account officer's book, mirroring sales_leads.go
+// convertLead: it applies the caller's field changes, forces converted_cif, and — in
+// the same transaction — upserts customer_officers (+ history) so the customer lands on
+// someone's book. Called only when a real CIF is known. An existing officer assignment
+// (which a head may have set deliberately) is never overwritten.
+func convertContactToCustomer(w http.ResponseWriter, r *http.Request, db *core.DB,
+	id string, cif string, officerID int64, body map[string]any) {
+
+	ctx := r.Context()
+	var actor any
+	if u := core.UserFromCtx(ctx); u != nil && u.ID != 0 {
+		actor = u.ID
+	}
+
+	tx, err := db.PG.BeginTx(ctx, nil)
+	if err != nil {
+		respondErr(w, 500, "Could not start transaction"); return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Apply the caller's whitelisted field changes and force converted_cif / cif_number
+	// so the conversion is complete even when the editor only sent status=customer.
+	allowedCols := append(contactUpdateCols, "id_number_enc", "id_number_hmac")
+	parts, args := buildSet(body, allowedCols, 1)
+	parts = append(parts, fmt.Sprintf("converted_cif=$%d", len(args)+1))
+	args = append(args, cif)
+	parts = append(parts, fmt.Sprintf("cif_number=COALESCE(NULLIF(cif_number,''),$%d)", len(args)+1))
+	args = append(args, cif)
+	parts = append(parts, "updated_at=NOW()")
+	args = append(args, id)
+	if _, err := tx.ExecContext(ctx,
+		fmt.Sprintf("UPDATE crm_contacts SET %s WHERE id=$%d", strings.Join(parts, ","), len(args)), args...); err != nil {
+		respondErr(w, 500, "Update failed"); return
+	}
+
+	// The account manager inherits the customer, but never overwrite an officer already
+	// on record for this CIF.
+	if officerID != 0 {
+		var prev *int64
+		_ = tx.QueryRowContext(ctx,
+			`SELECT officer_id FROM customer_officers WHERE cif=$1`, cif).Scan(&prev)
+		if prev == nil {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO customer_officers (cif, officer_id, assigned_by, source, note)
+				VALUES ($1,$2,$3,'converted','Converted via CRM contact editor')
+				ON CONFLICT (cif) DO NOTHING`, cif, officerID, actor); err != nil {
+				respondErr(w, 500, "Could not assign account officer"); return
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO customer_officer_history (cif, to_officer_id, changed_by, reason)
+				VALUES ($1,$2,$3,'Converted via CRM contact editor')`, cif, officerID, actor); err != nil {
+				respondErr(w, 500, "History write failed"); return
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondErr(w, 500, "Commit failed"); return
+	}
+
+	// Re-read for the response, matching the plain update path's shape.
+	rows, err := db.PGQuery(ctx, "SELECT * FROM crm_contacts WHERE id=$1", id)
+	if err != nil || len(rows) == 0 {
+		respondErr(w, 404, "Contact not found"); return
+	}
+	row := rows[0]
+	if plain := decryptIDNumber(str(row["id_number_enc"])); plain != "" {
+		row["id_number"] = plain
+	}
+	delete(row, "id_number_enc")
+	delete(row, "id_number_hmac")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(row) //nolint:errcheck
+}
+
 func deleteContact(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		db.PGExec(r.Context(), "DELETE FROM crm_contacts WHERE id=$1", chi.URLParam(r, "id")) //nolint:errcheck
+		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+
+		// Load the contact so we can scope the delete and check for dependents.
+		rows, err := db.PGQuery(r.Context(),
+			`SELECT assigned_to, created_by,
+			        COALESCE(NULLIF(converted_cif,''), NULLIF(cif_number,'')) AS cif
+			   FROM crm_contacts WHERE id=$1`, id)
+		if err != nil {
+			respondErr(w, 500, "Query failed"); return
+		}
+		if len(rows) == 0 {
+			respondErr(w, 404, "Contact not found"); return
+		}
+
+		// Non-heads may only delete contacts assigned to or created by themselves.
+		if !isSalesHead(user) {
+			if toInt64(rows[0]["assigned_to"]) != user.ID && toInt64(rows[0]["created_by"]) != user.ID {
+				respondErr(w, 403, "You can only delete contacts assigned to or created by you"); return
+			}
+		}
+
+		// Guard against orphaning. crm_contacts has no soft-delete column, so a hard
+		// delete would silently cascade tasks/activities and strip officer ownership.
+		// Block instead, listing what still hangs off the contact.
+		cif := str(rows[0]["cif"])
+		count := func(q string, arg any) int64 {
+			if cr, e := db.PGQuery(r.Context(), q, arg); e == nil && len(cr) > 0 {
+				return toInt64(cr[0]["n"])
+			}
+			return 0
+		}
+		var deps []string
+		if n := count("SELECT COUNT(*) AS n FROM crm_deals WHERE contact_id=$1", id); n > 0 {
+			deps = append(deps, fmt.Sprintf("%d deal(s)", n))
+		}
+		if n := count("SELECT COUNT(*) AS n FROM crm_lead_events WHERE contact_id=$1", id); n > 0 {
+			deps = append(deps, fmt.Sprintf("%d lead event(s)", n))
+		}
+		if n := count("SELECT COUNT(*) AS n FROM crm_tasks WHERE contact_id=$1", id); n > 0 {
+			deps = append(deps, fmt.Sprintf("%d task(s)", n))
+		}
+		if cif != "" {
+			if n := count("SELECT COUNT(*) AS n FROM customer_officers WHERE cif=$1", cif); n > 0 {
+				deps = append(deps, "an account-officer assignment")
+			}
+		}
+		if len(deps) > 0 {
+			respondErr(w, 409,
+				"Cannot delete this contact: it still has "+strings.Join(deps, ", ")+
+					". Remove or reassign them first.")
+			return
+		}
+
+		res, err := db.PGExec(r.Context(), "DELETE FROM crm_contacts WHERE id=$1", id)
+		if err != nil {
+			respondErr(w, 500, "Delete failed"); return
+		}
+		if aff, _ := res.RowsAffected(); aff == 0 {
+			respondErr(w, 404, "Contact not found"); return
+		}
 		w.WriteHeader(204)
 	}
 }
@@ -689,7 +853,7 @@ func updateDeal(db *core.DB) http.HandlerFunc {
 						UserID:    ownerID,
 						Title:     "Deal stage updated",
 						Body:      fmt.Sprintf(`Deal "%s" has moved to a new stage`, str(updated["title"])),
-						ActionURL: "/crm/pipeline",
+						ActionURL: "/sales/crm",
 						EntityRef: fmt.Sprintf("deal:%v", updated["id"]),
 					})
 				}
@@ -702,7 +866,31 @@ func updateDeal(db *core.DB) http.HandlerFunc {
 
 func deleteDeal(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		db.PGExec(r.Context(), "DELETE FROM crm_deals WHERE id=$1", chi.URLParam(r, "id")) //nolint:errcheck
+		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+
+		// Non-heads may only delete deals assigned to or created by themselves.
+		if !isSalesHead(user) {
+			owner, err := db.PGQuery(r.Context(),
+				`SELECT assigned_to, created_by FROM crm_deals WHERE id=$1`, id)
+			if err != nil {
+				respondErr(w, 500, "Query failed"); return
+			}
+			if len(owner) == 0 {
+				respondErr(w, 404, "Deal not found"); return
+			}
+			if toInt64(owner[0]["assigned_to"]) != user.ID && toInt64(owner[0]["created_by"]) != user.ID {
+				respondErr(w, 403, "You can only delete deals assigned to or created by you"); return
+			}
+		}
+
+		res, err := db.PGExec(r.Context(), "DELETE FROM crm_deals WHERE id=$1", id)
+		if err != nil {
+			respondErr(w, 500, "Delete failed"); return
+		}
+		if aff, _ := res.RowsAffected(); aff == 0 {
+			respondErr(w, 404, "Deal not found"); return
+		}
 		w.WriteHeader(204)
 	}
 }
@@ -779,7 +967,31 @@ func createActivity(db *core.DB) http.HandlerFunc {
 
 func deleteActivity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		db.PGExec(r.Context(), "DELETE FROM crm_activities WHERE id=$1", chi.URLParam(r, "id")) //nolint:errcheck
+		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+
+		// Non-heads may only delete activities they logged.
+		if !isSalesHead(user) {
+			owner, err := db.PGQuery(r.Context(),
+				`SELECT created_by FROM crm_activities WHERE id=$1`, id)
+			if err != nil {
+				respondErr(w, 500, "Query failed"); return
+			}
+			if len(owner) == 0 {
+				respondErr(w, 404, "Activity not found"); return
+			}
+			if toInt64(owner[0]["created_by"]) != user.ID {
+				respondErr(w, 403, "You can only delete activities you logged"); return
+			}
+		}
+
+		res, err := db.PGExec(r.Context(), "DELETE FROM crm_activities WHERE id=$1", id)
+		if err != nil {
+			respondErr(w, 500, "Delete failed"); return
+		}
+		if aff, _ := res.RowsAffected(); aff == 0 {
+			respondErr(w, 404, "Activity not found"); return
+		}
 		w.WriteHeader(204)
 	}
 }
@@ -793,11 +1005,8 @@ var taskUpdateCols = []string{
 
 func listTasks(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Ensure linked_type / linked_id columns exist (idempotent)
-		_, _ = db.PGExec(context.Background(),
-			`ALTER TABLE crm_tasks ADD COLUMN IF NOT EXISTS linked_type TEXT;
-			 ALTER TABLE crm_tasks ADD COLUMN IF NOT EXISTS linked_id BIGINT;`)
-
+		// crm_tasks.linked_type / linked_id are provided by migration 152 (previously
+		// this handler ran ALTER TABLE on every request — moved to a migration).
 		limit := qint(r, "limit", 200, 1, 500)
 		user := core.UserFromCtx(r.Context())
 		where := "1=1"
@@ -934,7 +1143,31 @@ func updateTask(db *core.DB) http.HandlerFunc {
 
 func deleteTask(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		db.PGExec(r.Context(), "DELETE FROM crm_tasks WHERE id=$1", chi.URLParam(r, "id")) //nolint:errcheck
+		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+
+		// Non-heads may only delete tasks assigned to or created by themselves.
+		if !isSalesHead(user) {
+			owner, err := db.PGQuery(r.Context(),
+				`SELECT assigned_to, created_by FROM crm_tasks WHERE id=$1`, id)
+			if err != nil {
+				respondErr(w, 500, "Query failed"); return
+			}
+			if len(owner) == 0 {
+				respondErr(w, 404, "Task not found"); return
+			}
+			if toInt64(owner[0]["assigned_to"]) != user.ID && toInt64(owner[0]["created_by"]) != user.ID {
+				respondErr(w, 403, "You can only delete tasks assigned to or created by you"); return
+			}
+		}
+
+		res, err := db.PGExec(r.Context(), "DELETE FROM crm_tasks WHERE id=$1", id)
+		if err != nil {
+			respondErr(w, 500, "Delete failed"); return
+		}
+		if aff, _ := res.RowsAffected(); aff == 0 {
+			respondErr(w, 404, "Task not found"); return
+		}
 		w.WriteHeader(204)
 	}
 }
@@ -1136,7 +1369,7 @@ func runBirthdayNotifications(db *core.DB) {
 				UserID:    uid,
 				Title:     "Birthday in 3 days",
 				Body:      name + "'s birthday is in 3 days. Consider reaching out!",
-				ActionURL: fmt.Sprintf("/crm/contacts/%v", row["id"]),
+				ActionURL: fmt.Sprintf("/sales/customers/%v", row["id"]),
 				EntityRef: fmt.Sprintf("contact:%v", row["id"]),
 			})
 		}
@@ -1162,7 +1395,7 @@ func runBirthdayNotifications(db *core.DB) {
 				UserID:    uid,
 				Title:     "🎂 Birthday today!",
 				Body:      name + "'s birthday is today. Great time to reach out!",
-				ActionURL: fmt.Sprintf("/crm/contacts/%v", row["id"]),
+				ActionURL: fmt.Sprintf("/sales/customers/%v", row["id"]),
 				EntityRef: fmt.Sprintf("contact:%v", row["id"]),
 			})
 		}
@@ -1306,6 +1539,12 @@ func createRequest(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Create failed"); return
 		}
 		created := rows[0]
+		// There is no requests page under /sales; deep-link to the linked contact's
+		// detail when known, otherwise the CRM tasks list.
+		reqURL := "/sales/tasks"
+		if created["contact_id"] != nil {
+			reqURL = fmt.Sprintf("/sales/customers/%v", created["contact_id"])
+		}
 		go NotifyRoles(context.Background(), db,
 			[]string{"call_center_agent", "call_center_head"},
 			NotifPayload{
@@ -1313,7 +1552,7 @@ func createRequest(db *core.DB) http.HandlerFunc {
 				Title:     "New customer request",
 				Body: fmt.Sprintf("%s: %s",
 					str(created["request_type"]), str(created["subject"])),
-				ActionURL: fmt.Sprintf("/crm/requests/%v", created["id"]),
+				ActionURL: reqURL,
 				EntityRef: fmt.Sprintf("request:%v", created["id"]),
 			})
 		w.Header().Set("Content-Type", "application/json")

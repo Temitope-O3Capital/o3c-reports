@@ -118,6 +118,7 @@ func RegisterSalesBook(r chi.Router, db *core.DB) {
 	headOnly := core.RequirePages("sales")
 	r.With(headOnly).Post("/book/assign", assignOfficer(db))
 	r.With(headOnly).Post("/book/bulk-assign", bulkAssignOfficers(db))
+	r.With(headOnly).Post("/book/assign-party", assignParty(db))
 }
 
 // listBook returns the customers an officer owns, or the whole book for a head.
@@ -192,7 +193,7 @@ func listBook(db *core.DB) http.HandlerFunc {
 		}
 
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT a.cif, a.full_name, a.email, a.phone, a.state, a.city,
+			SELECT a.cif, a.party_id, a.full_name, a.email, a.phone, a.state, a.city,
 			       a.account_status, a.acquired_on, a.acquired_on_source,
 			       a.account_count, a.officer_id, a.officer_assigned_at,
 			       u.full_name AS officer_name,
@@ -349,6 +350,38 @@ func bookCustomer(db *core.DB) http.HandlerFunc {
 				continue
 			}
 			out[s.key] = rows
+		}
+
+		// Recent calls. Telephony lives in helpdesk_calls, keyed on the last 10 digits of
+		// the phone rather than on CIF (the same convention used across the call-centre
+		// code). We resolve the phone set from app.customers for this CIF and every sibling
+		// CIF of the same party, so a person's whole call trail shows even when a call was
+		// logged against another of their cards.
+		calls, err := db.PGQuery(r.Context(), `
+			WITH phones AS (
+			    SELECT DISTINCT right(regexp_replace(COALESCE(c.phone,''),'\D','','g'),10) AS np
+			      FROM app.customers c
+			     WHERE c.phone IS NOT NULL AND c.phone <> ''
+			       AND ( c.cif = $1
+			          OR c.party_id = (SELECT party_id FROM app.customers WHERE cif = $1 AND party_id IS NOT NULL LIMIT 1) )
+			)
+			SELECT hc.id,
+			       hc.started_at                                AS called_at,
+			       hc.direction                                 AS direction,
+			       COALESCE(hc.duration_sec,0)                  AS duration_seconds,
+			       COALESCE(NULLIF(hc.agent_name,''),'Unknown') AS agent_name,
+			       COALESCE(NULLIF(hc.outcome,''),'Call')       AS outcome,
+			       hc.purpose                                   AS purpose
+			  FROM helpdesk_calls hc
+			  JOIN phones p
+			    ON length(p.np) = 10
+			   AND right(regexp_replace(COALESCE(hc.customer_phone,''),'\D','','g'),10) = p.np
+			 ORDER BY hc.started_at DESC NULLS LAST
+			 LIMIT 25`, cif)
+		if err != nil {
+			out["recent_calls"] = []any{}
+		} else {
+			out["recent_calls"] = calls
 		}
 
 		respond(w, out, "pg")
@@ -547,6 +580,72 @@ func doAssign(w http.ResponseWriter, r *http.Request, db *core.DB, req assignReq
 		return
 	}
 	respond(w, map[string]any{"assigned": assigned, "skipped": skipped}, "pg")
+}
+
+type assignPartyReq struct {
+	PartyID   int64  `json:"party_id"`
+	OfficerID int64  `json:"officer_id"`
+	Reason    string `json:"reason"`
+}
+
+// assignParty assigns every CIF of one person to an officer in a single call, keeping a
+// relationship on one desk. A CIF is a card, not a person (migration 130): a customer can
+// hold many CIFs, and per-CIF assignment lets them fragment across officers. Migration
+// 154's assign_party_officer expands the party to all its CIFs and upserts both
+// customer_officers and customer_officer_history in one transaction, returning the number
+// of CIFs (re)assigned (idempotent — CIFs already on the target officer are skipped).
+func assignParty(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if !isSalesHead(user) {
+			respondErr(w, 403, "Only a sales head can assign account officers")
+			return
+		}
+		var req assignPartyReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if req.PartyID == 0 {
+			respondErr(w, 400, "party_id is required")
+			return
+		}
+		// Party-level assignment has no unassign (the function requires an officer).
+		if req.OfficerID == 0 {
+			respondErr(w, 400, "officer_id is required")
+			return
+		}
+
+		// The officer must exist and be active — mirror doAssign's validation.
+		var ok bool
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT is_active FROM o3c_users WHERE id=$1`, req.OfficerID).Scan(&ok); err != nil {
+			respondErr(w, 400, "No such officer")
+			return
+		}
+		if !ok {
+			respondErr(w, 400, "That user is deactivated and cannot hold a book")
+			return
+		}
+
+		var actor sql.NullInt64
+		if user != nil && user.ID != 0 {
+			actor = sql.NullInt64{Int64: user.ID, Valid: true}
+		}
+		reason := strings.TrimSpace(req.Reason)
+		if reason == "" {
+			reason = "Party-level assignment"
+		}
+
+		var assigned int
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT assign_party_officer($1,$2,$3,$4)`,
+			req.PartyID, req.OfficerID, actor, reason).Scan(&assigned); err != nil {
+			respondErrLog(w, 500, "Party assignment failed", err)
+			return
+		}
+		respond(w, map[string]any{"assigned": assigned}, "pg")
+	}
 }
 
 // parseUserID converts a user-id query parameter to the integer the column actually is.

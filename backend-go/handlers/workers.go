@@ -70,6 +70,8 @@ var workerRegistry = []workerDef{
 		"Polls the helpdesk mailbox and turns new mail into tickets.", "heartbeat", ""},
 	{"care_mail", "Care Mailbox Poller", "Integration", "Every 1 min",
 		"Polls care@ via Microsoft Graph and raises Care tickets.", "heartbeat", ""},
+	{"phoenix_outbox", "Phoenix · Decisioning Submissions", "Integration", "Every 30 sec",
+		"Submits workspace-originated loan applications to Phoenix for a credit decision, with backoff and retry. Idles until Phoenix is configured.", "heartbeat", "/api/phoenix/retry"},
 	{"fx_rates", "FX Parallel-Market Rates", "Integration", "Hourly",
 		"Scrapes parallel-market FX rates for treasury reporting.", "heartbeat", ""},
 	{"bounce_monitor", "Mail Bounce Monitor", "Integration", "Every 30 min",

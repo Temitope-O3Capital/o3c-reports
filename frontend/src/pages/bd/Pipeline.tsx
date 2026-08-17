@@ -36,11 +36,14 @@ interface Lead {
   updated_at: string
 }
 
-const STAGES = ['prospect', 'qualified', 'proposal', 'negotiation', 'won', 'lost'] as const
+// Stage vocabulary is crm_contacts.lead_stage — the single lead store now shared with
+// Sales, so BD and Sales speak the same stages. Matches the crm_contacts_lead_stage_chk
+// CHECK constraint exactly (new | contacted | qualified | converted | disqualified).
+const STAGES = ['new', 'contacted', 'qualified', 'converted', 'disqualified'] as const
 
 const STAGE_COLORS: Record<string, string> = {
-  prospect: '#6B7280', qualified: BLUE, proposal: AMBER,
-  negotiation: '#7C3AED', won: GREEN, lost: RED,
+  new: '#6B7280', contacted: BLUE, qualified: '#7C3AED',
+  converted: GREEN, disqualified: RED,
 }
 
 const AVATAR_PALETTE = [RED, BLUE, GREEN, AMBER, '#7C3AED', '#0891B2', '#DB2777', '#EA580C']
@@ -153,12 +156,7 @@ const PRODUCT_OPTIONS = [
 type GroupBy = 'stage' | 'product' | 'type'
 const GROUP_LABELS: Record<GroupBy, string> = { stage: 'Stage', product: 'Product', type: 'Type' }
 
-const BULK_ACTIONS = [
-  { label: 'Assign to Sales', primary: true  },
-  { label: 'Export',          primary: false },
-  { label: 'Add to Campaign', primary: false },
-  { label: 'Archive',         primary: false },
-]
+interface BDAgent { id: number; full_name: string; role: string }
 
 const PER_PAGE = 25
 // Matches the cap the endpoint enforces (qint(r,"limit",100,1,500)). Kept as a named
@@ -168,7 +166,7 @@ const FETCH_LIMIT = 500
 
 const EMPTY_LEAD = {
   entity_type: 'company' as EntityType,
-  company_name: '', lead_type: '', stage: 'prospect',
+  company_name: '', lead_type: '', stage: 'new',
   first_name: '', last_name: '', contact_email: '', contact_phone: '',
   potential_value_kobo: '', notes: '',
 }
@@ -224,6 +222,12 @@ export default function BDPipeline() {
   const [csvPreview, setCsvPreview] = useState<{ valid: number; invalid: number; errors: string[] } | null>(null)
   const [csvImporting, setCsvImporting] = useState(false)
   const csvFileRef = useRef<HTMLInputElement>(null)
+  // Bulk assign (bulk bar) — assign the selected leads to one sales agent via
+  // PATCH /api/bd/leads/{id} { assigned_to }, the same endpoint drag-restage uses.
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
+  const [agents,      setAgents]      = useState<BDAgent[]>([])
+  const [bulkAgentId, setBulkAgentId] = useState('')
+  const [bulkSaving,  setBulkSaving]  = useState(false)
 
   async function load() {
     setLoading(true); setErr(null)
@@ -253,6 +257,13 @@ export default function BDPipeline() {
     apiFetch<{ data: { name: string }[] }>('/api/bd/employers?limit=500')
       .then(r => setEmployerNames(((r as any)?.data ?? r ?? []).map((e: any) => e.name).filter(Boolean)))
       .catch(() => setEmployerNames([]))
+  }, [])
+
+  // Sales agents for the bulk-assign picker (same source/roles as the Employers page).
+  useEffect(() => {
+    apiFetch<BDAgent[]>('/api/admin/users?limit=200')
+      .then(r => setAgents((r ?? []).filter(u => u.role === 'sales_officer' || u.role === 'sales_head')))
+      .catch(() => setAgents([]))
   }, [])
 
   const uniqueTypes     = useMemo(() => [...new Set(leads.map(l => l.lead_type).filter(Boolean))] as string[], [leads])
@@ -315,12 +326,37 @@ export default function BDPipeline() {
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
+  // Rows behind the current selection (selection survives paging, so resolve from
+  // the full loaded set, not just the visible page).
+  const selectedLeads = useMemo(() => leads.filter(l => selected.has(l.id)), [leads, selected])
+
+  function exportSelectedCsv() {
+    const rows = selectedLeads.length ? selectedLeads : filtered
+    exportLeadsCsv(rows)
+  }
+
+  async function doBulkAssign() {
+    if (!bulkAgentId) { toast.error('Select a sales agent'); return }
+    const ids = [...selected]
+    if (ids.length === 0) { toast.error('No leads selected'); return }
+    setBulkSaving(true)
+    try {
+      await Promise.all(ids.map(id => apiPatch(`/api/bd/leads/${id}`, { assigned_to: Number(bulkAgentId) })))
+      toast.success(`Assigned ${ids.length} lead${ids.length !== 1 ? 's' : ''} to sales`)
+      setBulkAssignOpen(false); setBulkAgentId(''); setSelected(new Set()); load()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to assign leads')
+    } finally {
+      setBulkSaving(false)
+    }
+  }
+
   function downloadLeadTemplate() {
     const csv = [
       'entity_type,first_name,last_name,company_name,contact_email,contact_phone,lead_type,stage,potential_value_naira,notes',
-      'company,Chidi,Okeke,Acme Limited,chidi@acme.ng,+2348001234567,Salary Loan,prospect,500000,',
+      'company,Chidi,Okeke,Acme Limited,chidi@acme.ng,+2348001234567,Salary Loan,new,500000,',
       'individual,Fatima,Ibrahim,,fatima@email.ng,+2348091234567,Personal Loan,qualified,250000,Referred by staff',
-      'individual_at_company,Bello,Ahmed,First Bank,bello@firstbank.ng,+2348071234567,Business Loan,prospect,1000000,',
+      'individual_at_company,Bello,Ahmed,First Bank,bello@firstbank.ng,+2348071234567,Business Loan,new,1000000,',
     ].join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -627,15 +663,6 @@ export default function BDPipeline() {
 
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{filtered.length} of {leads.length}</span>
-              <button style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                padding: '7px 11px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
-                border: '1.5px solid var(--input-bdr)', background: 'transparent',
-                color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA,
-              }}>
-                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>view_column</span>
-                Columns
-              </button>
             </div>
           </div>
 
@@ -814,15 +841,22 @@ export default function BDPipeline() {
             onSelect={setSelected}
             bulkBar={
               <>
-                {BULK_ACTIONS.map(b => (
-                  <button key={b.label} style={{
+                <button
+                  onClick={() => { setBulkAgentId(''); setBulkAssignOpen(true) }}
+                  style={{
                     padding: '5px 12px', borderRadius: RADIUS.md,
                     fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA,
-                    border: b.primary ? 'none' : '1.5px solid var(--input-bdr)',
-                    background: b.primary ? RED : 'transparent',
-                    color: b.primary ? '#fff' : 'var(--txt2)',
-                  }}>{b.label}</button>
-                ))}
+                    border: 'none', background: RED, color: '#fff',
+                  }}
+                >Assign to Sales</button>
+                <button
+                  onClick={exportSelectedCsv}
+                  style={{
+                    padding: '5px 12px', borderRadius: RADIUS.md,
+                    fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA,
+                    border: '1.5px solid var(--input-bdr)', background: 'transparent', color: 'var(--txt2)',
+                  }}
+                >Export</button>
               </>
             }
           />
@@ -1216,6 +1250,39 @@ export default function BDPipeline() {
             </div>
           )
         })()}
+      </Modal>
+
+      {/* Bulk Assign Modal — assigns every selected lead to one sales agent */}
+      <Modal
+        open={bulkAssignOpen}
+        onClose={() => { setBulkAssignOpen(false); setBulkAgentId('') }}
+        title="Assign to Sales"
+        width={440}
+        footer={
+          <>
+            <button onClick={() => { setBulkAssignOpen(false); setBulkAgentId('') }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={doBulkAssign} disabled={bulkSaving || !bulkAgentId} style={{ padding: `${SP[2]} 18px`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (bulkSaving || !bulkAgentId) ? 'not-allowed' : 'pointer', opacity: (bulkSaving || !bulkAgentId) ? 0.6 : 1 }}>
+              {bulkSaving ? 'Assigning…' : `Assign ${selected.size} Lead${selected.size !== 1 ? 's' : ''}`}
+            </button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+            {selected.size} lead{selected.size !== 1 ? 's' : ''} selected. Pick the sales agent to own {selected.size !== 1 ? 'them' : 'it'}.
+          </div>
+          <SelectField
+            label="Sales Agent"
+            placeholder="Select agent…"
+            value={bulkAgentId}
+            onChange={setBulkAgentId}
+            options={agents.map(a => ({ value: String(a.id), label: a.full_name }))}
+            fullWidth
+          />
+          {agents.length === 0 && (
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>No sales agents found.</span>
+          )}
+        </div>
       </Modal>
     </Page>
   )

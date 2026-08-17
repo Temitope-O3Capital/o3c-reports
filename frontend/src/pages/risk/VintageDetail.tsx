@@ -10,19 +10,20 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum, fmtDate } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, INTER, SORA, NUM } from '../../lib/design'
+import { bandColor, bandLabel, bandShort, scoreColor, fmtScore } from '../../lib/riskScale'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface HistoricalPAR { age_label: string; par30_pct: number | null }
 interface DPDBucket     { label: string; count: number }
-interface EmployerRow   { employer: string; count: number; book_kobo: number; par30_count: number }
+interface SectorRow     { sector: string; count: number; book_kobo: number; par30_count: number }
 interface ProductRow    { product_type: string; count: number; book_kobo: number; par30_pct: number }
 interface LoanRow {
   id: number
   reference: string
   applicant_name: string
   applicant_cif: string
-  employer: string
+  sector: string
   product_type: string
   outstanding_kobo: number
   dpd: number
@@ -44,7 +45,7 @@ interface CohortDetail {
   avg_eye_score:    number
   historical_par:   HistoricalPAR[]
   dpd_buckets:      DPDBucket[]
-  employers:        EmployerRow[]
+  sectors:          SectorRow[]
   products:         ProductRow[]
   loans:            LoanRow[]
 }
@@ -66,19 +67,14 @@ function dpdLabel(dpd: number): string {
   return 'NPL'
 }
 
-const BAND_COLORS: Record<string, { bg: string; txt: string }> = {
-  'Prime':      { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  'Near-Prime': { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
-  'Sub-Prime':  { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
-  'High-Risk':  { bg: 'rgba(192,0,0,.10)',    txt: '#C00000' },
-}
-
+// Bands come from lib/riskScale — the local Prime/Near-Prime map never matched the
+// A-E letters this API emits, so every pill fell through to grey.
 function BandPill({ band }: { band: string }) {
   if (!band) return <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>—</span>
-  const s = BAND_COLORS[band] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280' }
+  const c = bandColor(band)
   return (
-    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full, background: s.bg, color: s.txt, whiteSpace: 'nowrap' }}>
-      {band}
+    <span title={bandLabel(band)} style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full, background: `${c}1F`, color: c, whiteSpace: 'nowrap' }}>
+      {bandShort(band)}
     </span>
   )
 }
@@ -140,8 +136,8 @@ function loanCols(navigate: ReturnType<typeof useNavigate>): TableCol<LoanRow>[]
       ),
     },
     {
-      key: 'employer', label: 'Employer',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.employer || '—'}</span>,
+      key: 'sector', label: 'Sector',
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.sector || '—'}</span>,
     },
     {
       key: 'product_type', label: 'Product',
@@ -173,12 +169,12 @@ function loanCols(navigate: ReturnType<typeof useNavigate>): TableCol<LoanRow>[]
       render: r => <BandPill band={r.risk_band} />,
     },
     {
-      key: 'eye_score', label: 'Eye', align: 'right', sortable: true,
-      render: r => {
-        const s = r.eye_score
-        const c = s === null ? 'var(--txt3)' : s >= 700 ? GREEN : s >= 500 ? AMBER : RED
-        return <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: c }}>{s ?? '—'}</span>
-      },
+      key: 'eye_score', label: 'Score', align: 'right', sortable: true,
+      render: r => (
+        <span title={fmtScore(r.eye_score)} style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: scoreColor(r.eye_score) }}>
+          {r.eye_score ?? '—'}
+        </span>
+      ),
     },
     {
       key: 'maturity_date', label: 'Maturity',
@@ -398,14 +394,14 @@ export default function VintageDetail() {
       {/* ── Breakdown tables (Employers + Products) ──────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
         {/* Top Employers */}
-        <SectionCard title="Top Employers" badge={detail?.employers?.length} padding={false}>
+        <SectionCard title="Top Sectors" badge={detail?.sectors?.length} padding={false}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
               <thead>
                 <tr style={{ background: 'var(--th-bg)' }}>
-                  {['Employer', 'Loans', 'Book', 'PAR30'].map(h => (
+                  {['Sector', 'Loans', 'Book', 'PAR30'].map(h => (
                     <th key={h} style={{
-                      padding: '9px 14px', textAlign: h === 'Employer' ? 'left' : 'right',
+                      padding: '9px 14px', textAlign: h === 'Sector' ? 'left' : 'right',
                       fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)',
                       borderBottom: '1px solid var(--bdr)', whiteSpace: 'nowrap',
                     }}>{h}</th>
@@ -415,14 +411,14 @@ export default function VintageDetail() {
               <tbody>
                 {(loading || !detail) ? (
                   <tr><td colSpan={4} style={{ padding: '32px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>Loading…</td></tr>
-                ) : detail.employers.length === 0 ? (
+                ) : detail.sectors.length === 0 ? (
                   <tr><td colSpan={4} style={{ padding: '32px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No data</td></tr>
-                ) : detail.employers.map((r, i) => (
+                ) : detail.sectors.map((r, i) => (
                   <tr key={i}
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                   >
-                    <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.employer}</td>
+                    <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.sector}</td>
                     <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM }}>{fmtNum(r.count)}</td>
                     <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM }}>{fmtKobo(r.book_kobo)}</td>
                     <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM, color: r.par30_count > 0 ? AMBER : 'var(--txt3)' }}>

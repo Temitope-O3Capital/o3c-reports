@@ -49,6 +49,79 @@ func RegisterSettlementOps(r chi.Router, db *core.DB) {
 	r.With(access).Put("/manual-postings/{id}/reject", soaManualPostingsReject(db))
 	r.With(access).Put("/manual-postings/{id}/post", soaManualPostingsPost(db))
 	r.With(access).Put("/manual-postings/{id}/return", soaManualPostingsReturn(db))
+
+	// My Dashboard — the settlement officer's personal station
+	r.With(access).Get("/my-dashboard", soaMyDashboard(db))
+}
+
+// soaMyDashboard — the settlement officer's station: recon exceptions assigned to
+// them (plus aging), failed transactions, manual postings awaiting action, the
+// last recon run and today's settlement position. Defensive: a missing table
+// simply omits that field.
+func soaMyDashboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		var uid int64
+		if u := core.UserFromCtx(ctx); u != nil {
+			uid = u.ID
+		}
+		dash := map[string]any{}
+
+		// Recon exceptions assigned to me (open/investigating), with aging + value
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS cnt,
+			       COALESCE(SUM(amount_kobo), 0) AS value,
+			       COUNT(*) FILTER (WHERE created_at < CURRENT_DATE - INTERVAL '3 days') AS aging
+			FROM recon_exceptions WHERE assigned_to=$1 AND status IN ('open','investigating')`, uid); len(rows) > 0 {
+			dash["my_exceptions"] = rows[0]["cnt"]
+			dash["my_exceptions_value_kobo"] = rows[0]["value"]
+			dash["my_exceptions_aging"] = rows[0]["aging"]
+		}
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS count FROM recon_exceptions WHERE status IN ('open','investigating')`); len(rows) > 0 {
+			dash["team_exceptions_open"] = rows[0]["count"]
+		}
+
+		// Failed transactions (NIP/NIBSS exceptions queue)
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS cnt, COALESCE(SUM(amount_kobo), 0) AS value FROM settlement_exceptions WHERE status='open'`); len(rows) > 0 {
+			dash["failed_txns"] = rows[0]["cnt"]
+			dash["failed_txns_value_kobo"] = rows[0]["value"]
+		}
+
+		// Manual postings awaiting action (team pending + mine)
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS count FROM manual_postings WHERE status='pending'`); len(rows) > 0 {
+			dash["postings_pending"] = rows[0]["count"]
+		}
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS count FROM manual_postings WHERE initiated_by=$1 AND status='pending'`, uid); len(rows) > 0 {
+			dash["my_postings_pending"] = rows[0]["count"]
+		}
+
+		// Last recon run + today's settlement position
+		if rows, _ := db.PGQuery(ctx, `SELECT status, kind, source, counterparty, unmatched_n, matched_n, finished_at, started_at FROM recon_runs ORDER BY started_at DESC LIMIT 1`); len(rows) > 0 {
+			dash["last_run"] = rows[0]
+		}
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(total_credits), 0) - COALESCE(SUM(total_debits), 0) AS net,
+			       COALESCE(SUM(total_credits) FILTER (WHERE status='pending'), 0) AS pending
+			FROM settlement_batches WHERE batch_date = CURRENT_DATE`); len(rows) > 0 {
+			dash["position_net_kobo"] = rows[0]["net"]
+			dash["position_pending_kobo"] = rows[0]["pending"]
+		}
+
+		// Lists: my exceptions + recent runs
+		exc, _ := db.PGQuery(ctx, `SELECT source, source_ref, reason, amount_kobo, txn_date, status, created_at FROM recon_exceptions WHERE assigned_to=$1 AND status IN ('open','investigating') ORDER BY created_at ASC LIMIT 8`, uid)
+		if exc == nil {
+			exc = []core.Row{}
+		}
+		dash["my_exception_list"] = exc
+		runs, _ := db.PGQuery(ctx, `SELECT kind, source, counterparty, status, unmatched_n, matched_n, started_at FROM recon_runs ORDER BY started_at DESC LIMIT 8`)
+		if runs == nil {
+			runs = []core.Row{}
+		}
+		dash["recent_runs"] = runs
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(dash) //nolint:errcheck
+	}
 }
 
 /* ── Settlement KPIs ─────────────────────────────────────────────────────── */

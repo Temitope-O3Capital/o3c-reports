@@ -72,6 +72,17 @@ interface Ticket {
   sla_due_at?: string
   sla_breached?: boolean
   created_at: string
+  // Set by the backend on open: is_assist means someone else owns this and I am
+  // helping. Acting on it is allowed and is recorded, but ownership does not move
+  // unless Take over is pressed.
+  is_mine?: boolean
+  is_assist?: boolean
+  // Escalation is a flag, not a status — an escalated ticket is still open.
+  escalated_at?: string
+  escalation_reason?: string
+  escalation_resolved_at?: string
+  escalated_by_name?: string
+  escalated_to_name?: string
 }
 
 interface CustomerContext {
@@ -281,6 +292,8 @@ export default function TicketDetail() {
   const [agents, setAgents] = useState<AgentItem[]>([])
   const [transferTarget, setTransferTarget] = useState('')
   const [escalateReason, setEscalateReason] = useState('')
+  // 0 = escalate to the supervisor pool rather than a named person.
+  const [escalateTo, setEscalateTo] = useState<number>(0)
   const [escalateHeadReason, setEscalateHeadReason] = useState('')
   const [ptpAmount, setPtpAmount] = useState('')
   const [ptpDate, setPtpDate] = useState('')
@@ -470,21 +483,59 @@ export default function TicketDetail() {
     }
   }
 
+  // Escalation goes through POST /escalate, which records who escalated, to whom
+  // and why, and puts the ticket on the supervisor's escalation worklist.
+  //
+  // This used to PATCH {status:'escalated'}. 'escalated' is not an allowed value
+  // in helpdesk_tickets_status_check, so that call failed with a constraint
+  // violation every single time — the internal note was written and the
+  // escalation itself never happened. Zero of 35,035 tickets were ever escalated.
   async function handleEscalate() {
     if (!escalateReason.trim()) return
     setActionLoading(true)
     try {
+      await apiPost(`/api/helpdesk/tickets/${id}/escalate`, {
+        reason: escalateReason,
+        to_user_id: escalateTo || 0,
+      })
+      // Keep the reason on the conversation as an internal note too, so the next
+      // person reading the thread sees it without opening the escalation panel.
       await apiPost(`/api/helpdesk/tickets/${id}/messages`, {
         body_text: `[ESCALATED] ${escalateReason}`,
         is_internal_note: true,
       })
-      await apiFetch(`/api/helpdesk/tickets/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: 'escalated', priority: 'urgent' }),
-      })
       setEscalateOpen(false)
       setEscalateReason('')
-      toast.success('Ticket escalated')
+      setEscalateTo(0)
+      toast.success('Escalated — the supervisor has been notified')
+      await load()
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleResolveEscalation() {
+    setActionLoading(true)
+    try {
+      await apiPost(`/api/helpdesk/tickets/${id}/escalation/resolve`, {})
+      toast.success('Escalation cleared')
+      await load()
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // Taking a ticket off a colleague is deliberate and tells them it happened —
+  // distinct from claim (unowned only) and from assisting (ownership unchanged).
+  async function handleTakeOver() {
+    setActionLoading(true)
+    try {
+      await apiPost(`/api/helpdesk/tickets/${id}/take-over`, { reason: '' })
+      toast.success('You now own this ticket')
       await load()
     } catch (e: any) {
       toast.error(e.message)
@@ -678,6 +729,50 @@ export default function TicketDetail() {
     >
       <style>{HD_STYLE}</style>
       <ErrBanner error={err} onRetry={load} />
+
+      {/* Assisting on someone else's ticket. Opening it is allowed — the old
+          behaviour was a flat 403 — but the page must never let you think it is
+          yours. Everything you do here is recorded and the owner is told. */}
+      {ticket.is_assist && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: SP[3], padding: '11px 16px', background: `${AMBER}0F`, border: `1px solid ${AMBER}40`, borderRadius: RADIUS.lg }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 20, color: AMBER }}>volunteer_activism</span>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+              You&rsquo;re assisting on {ticket.assigned_to_name || 'another agent'}&rsquo;s ticket
+            </div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+              Reply, note and resolve as normal — they stay the owner and are notified of what you do.
+            </div>
+          </div>
+          <button onClick={handleTakeOver} disabled={actionLoading}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', border: `1px solid ${AMBER}`, borderRadius: RADIUS.md, background: 'var(--card)', color: AMBER, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>swap_horiz</span>
+            Take over
+          </button>
+        </div>
+      )}
+
+      {/* Open escalation. Shown as its own band rather than a status pill,
+          because the ticket is still open — escalation is orthogonal to status. */}
+      {ticket.escalated_at && !ticket.escalation_resolved_at && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: SP[3], padding: '11px 16px', background: `${RED}0D`, border: `1px solid ${RED}40`, borderRadius: RADIUS.lg }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 20, color: RED }}>priority_high</span>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+              Escalated{ticket.escalated_by_name ? ` by ${ticket.escalated_by_name}` : ''}
+              {ticket.escalated_to_name ? ` → ${ticket.escalated_to_name}` : ' → supervisors'}
+            </div>
+            {ticket.escalation_reason && (
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{ticket.escalation_reason}</div>
+            )}
+          </div>
+          <button onClick={handleResolveEscalation} disabled={actionLoading}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', border: `1px solid ${RED}`, borderRadius: RADIUS.md, background: 'var(--card)', color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check</span>
+            Clear escalation
+          </button>
+        </div>
+      )}
 
       <div className="hd-fade" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: SP[4], alignItems: 'start' }}>
 
@@ -1152,10 +1247,20 @@ export default function TicketDetail() {
       </Modal>
 
       {/* ── Escalate ────────────────────────────────────────────────────────── */}
-      <Modal open={escalateOpen} onClose={() => { setEscalateOpen(false); setEscalateReason('') }} title="Escalate Ticket" width={440}
+      <Modal open={escalateOpen} onClose={() => { setEscalateOpen(false); setEscalateReason(''); setEscalateTo(0) }} title="Escalate Ticket" width={440}
         footer={<ModalFooter onConfirm={handleEscalate} label="Escalate" disabled={!escalateReason.trim()} />}>
-        <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', margin: '0 0 12px' }}>Provide a reason. This will be logged as an internal note and the ticket priority set to Urgent.</p>
-        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={escalateReason} onChange={e => setEscalateReason(e.target.value)} rows={4} placeholder="Escalation reason…"
+        <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', margin: '0 0 12px' }}>
+          The reason is required — it is what the person receiving this has to act on. They are notified immediately, and the
+          escalation stays on the supervisor&rsquo;s worklist until someone closes it.
+        </p>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Escalate to</label>
+          <select value={escalateTo} onChange={e => setEscalateTo(Number(e.target.value))} style={inputStyle}>
+            <option value={0}>Supervisors (whoever is free)</option>
+            {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+          </select>
+        </div>
+        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={escalateReason} onChange={e => setEscalateReason(e.target.value)} rows={4} placeholder="What is blocking this? e.g. customer disputes the fee and wants a supervisor"
           style={{ ...inputStyle, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }} />
       </Modal>
 

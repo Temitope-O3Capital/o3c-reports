@@ -24,6 +24,7 @@ interface EyeKPIs {
   avg_score_month: number
   high_risk_count: number
   requests_month: number
+  origination_live?: boolean
 }
 
 // ── Risk band pill ────────────────────────────────────────────────────────────
@@ -251,7 +252,7 @@ export default function EyeScore() {
           keyFn={r => r.id}
           loading={loading}
           skeletonRows={8}
-          emptyText="No score requests found"
+          emptyText={kpis?.origination_live === false ? 'No scored applications yet. Eye Score runs at application time — scores appear here once applications are raised or synced from Phoenix. Live-book risk scores are on the Portfolio page.' : 'No score requests found'}
         />
 
         {pages > 1 && (

@@ -124,6 +124,17 @@ function fmtUsd(cents: number): string {
   return `$${Math.round(cents / 100).toLocaleString('en-NG')}`
 }
 
+// Card ledger balances (card_cycle_data) are net figures: cardholders carrying credit
+// or prepaid float make a tier's "outstanding" go negative, and a tier with cards but
+// no synced cycle rows reads as 0. A bare "-₦343m outstanding" / "₦0 outstanding" on
+// an exec card visual reads as a bug, so present the sign honestly instead:
+//   negative → a credit/float balance   ·   zero-with-cards → balance not synced yet.
+function bookAmount(kobo: number, hasCards: boolean): { text: string; label: string } {
+  if (kobo < 0)              return { text: fmtKobo(-kobo), label: 'in credit' }
+  if (kobo === 0 && hasCards) return { text: '—',           label: 'balance not synced' }
+  return { text: fmtKobo(kobo), label: 'outstanding' }
+}
+
 function fmtRelTime(date: Date): string {
   const diff = Math.floor((Date.now() - date.getTime()) / 1000)
   if (diff < 60)   return 'just now'
@@ -209,8 +220,10 @@ function ATMCard({ tier, gradient, count, outstanding, lastFour }: {
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'rgba(255,255,255,0.5)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 1.4, marginBottom: 4 }}>O3 {tier}</div>
-          <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.extrabold, color: '#fff', fontFamily: INTER, lineHeight: 1, letterSpacing: -0.5 }}>{fmtKobo(outstanding)}</div>
-          <div style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,0.45)', fontFamily: INTER, marginTop: 3 }}>outstanding</div>
+          {(() => { const b = bookAmount(outstanding, count > 0); return <>
+            <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.extrabold, color: '#fff', fontFamily: INTER, lineHeight: 1, letterSpacing: -0.5 }}>{b.text}</div>
+            <div style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,0.45)', fontFamily: INTER, marginTop: 3 }}>{b.label}</div>
+          </> })()}
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ ...NUM, fontSize: 26, fontWeight: FW.extrabold, color: '#fff', fontFamily: INTER, lineHeight: 1 }}>{fmtNum(count)}</div>
@@ -324,6 +337,18 @@ function DeptPanel({ icon, label, color, metrics, to }: {
   )
 }
 
+// ── Empty state (for sections whose source lives in Udara, not the workspace) ──
+
+function EmptyState({ icon, title, body }: { icon: string; title: string; body: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '34px 16px', textAlign: 'center' }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 30, color: 'var(--txt3)' }}>{icon}</span>
+      <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: SORA }}>{title}</div>
+      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER, maxWidth: 340 }}>{body}</div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Overview() {
@@ -380,7 +405,14 @@ export default function Overview() {
     const stl = ok<SettlementsSummary>(results[11] as PromiseSettledResult<{ data: SettlementsSummary }>)
     if (k?.data)          setKpis(k.data)
     if (m?.data?.length)  setMonthly(m.data)
-    if (pr?.data?.length) setProducts(pr.data)
+    // volume_kobo / count arrive as JSON *strings* (pg bigint/numeric serialisation).
+    // Coerce to Number here or the downstream reduce concatenates strings instead of
+    // summing — which silently corrupted the donut total and every percentage.
+    if (pr?.data?.length) setProducts(pr.data.map(p => ({
+      product: p.product,
+      count: Number(p.count),
+      volume_kobo: Number(p.volume_kobo),
+    })))
     if (d?.data?.length)  setDpd(d.data)
     setPerformers(tp?.data ?? [])   // period-scoped: clear when the new window has none
     if (ls?.data)         setLosStages(ls.data)
@@ -399,13 +431,27 @@ export default function Overview() {
   const totalVolume = products.reduce((s, p) => s + p.volume_kobo, 0) || 1
   const perfMax     = performers[0]?.amount_kobo ?? 1
 
+  // Origination pipelines & the acquisition funnel are fed by workspace-native tables
+  // (loan_applications / bd_leads / card_issuance_requests) that are empty by design —
+  // origination is booked in Udara. Detect "no pipeline data" so we show an explanation
+  // instead of dead all-zero bars.
+  const losTotal    = losStages ? LOS_STAGES.reduce((s, st) => s + (losStages[st.key] ?? 0), 0) : 0
+  const ccPipeTotal = ccStages  ? CC_STAGES.reduce((s, st) => s + (ccStages[st.key] ?? 0), 0)  : 0
+  const funnelTotal = funnel ? funnel.leads + funnel.applications + funnel.approved + funnel.disbursed : 0
+
+  // Loan-performing change reads as a rate, so express its delta in percentage POINTS
+  // (last snapshot − first), not the relative %-change the backend sends — a 42%→91%
+  // move is "+49 pts", not a misleading "+117%".
+  const perfSeries = kpis?.performing_series ?? []
+  const perfPts    = perfSeries.length >= 2 ? perfSeries[perfSeries.length - 1] - perfSeries[0] : null
+
   // Three product-line books + one portfolio-health metric — O3 is a multi-product
   // business (Credit, Fixed Deposits, Cards), so each line gets a headline slot.
   const KPI_CARDS = [
-    { lbl: 'Loan Book',        sub: 'outstanding',   icon: 'account_balance_wallet', color: NAVY,   val: kpis ? fmtKobo(kpis.portfolio_outstanding_kobo) : '—', chg: kpis?.portfolio_change_pct  ?? null, spark: kpis?.portfolio_series  ?? [] },
-    { lbl: 'FD Book',          sub: 'deposits',      icon: 'savings',                color: AMBER,  val: kpis ? fmtKobo(kpis.fd_book_kobo)               : '—', chg: kpis?.fd_change_pct         ?? null, spark: kpis?.fd_series         ?? [] },
-    { lbl: 'Active Cards',     sub: 'cardholders',   icon: 'credit_card',            color: PURPLE, val: kpis ? fmtNum(kpis.active_cards)                : '—', chg: null,                               spark: [] },
-    { lbl: 'Loan Performing',  sub: 'portfolio health', icon: 'monitoring',          color: GREEN,  val: kpis ? fmtPct(kpis.performing_rate_pct)         : '—', chg: kpis?.performing_change_pct ?? null, spark: kpis?.performing_series ?? [] },
+    { lbl: 'Loan Book',        sub: 'outstanding',   icon: 'account_balance_wallet', color: NAVY,   val: kpis ? fmtKobo(kpis.portfolio_outstanding_kobo) : '—', chg: kpis?.portfolio_change_pct  ?? null, spark: kpis?.portfolio_series  ?? [], unit: '%' as const },
+    { lbl: 'FD Book',          sub: 'deposits',      icon: 'savings',                color: AMBER,  val: kpis ? fmtKobo(kpis.fd_book_kobo)               : '—', chg: kpis?.fd_change_pct         ?? null, spark: kpis?.fd_series         ?? [], unit: '%' as const },
+    { lbl: 'Active Cards',     sub: 'cardholders',   icon: 'credit_card',            color: PURPLE, val: kpis ? fmtNum(kpis.active_cards)                : '—', chg: null,                               spark: [],                            unit: '%' as const },
+    { lbl: 'Loan Performing',  sub: 'portfolio health', icon: 'monitoring',          color: GREEN,  val: kpis ? fmtPct(kpis.performing_rate_pct)         : '—', chg: perfPts,                            spark: kpis?.performing_series ?? [], unit: 'pts' as const },
   ]
 
   const dateSlicer = <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
@@ -443,7 +489,7 @@ export default function Overview() {
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], marginTop: 8, fontSize: TEXT.xs, fontWeight: FW.semibold, color: k.chg >= 0 ? GREEN : RED, fontFamily: INTER }}>
                 <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>{k.chg >= 0 ? 'arrow_upward' : 'arrow_downward'}</span>
-                <span>{k.chg >= 0 ? '+' : ''}{k.chg.toFixed(1)}% vs last period</span>
+                <span>{k.chg >= 0 ? '+' : ''}{k.chg.toFixed(1)}{k.unit === 'pts' ? ' pts' : '%'} vs last period</span>
               </div>
             )}
             <div style={{ marginTop: 14, height: 28 }}><Spark data={k.spark} color={k.color} /></div>
@@ -461,7 +507,11 @@ export default function Overview() {
           icon="credit_card" label="Cards" color={PURPLE} to="/executive/cards"
           metrics={[
             { label: 'Active Cards',   value: cards ? fmtNum((cards.green_count) + (cards.gold_count) + (cards.platinum_count)) : '—' },
-            { label: 'Credit Book',    value: cards ? fmtKobo((cards.green_outstanding_kobo) + (cards.gold_outstanding_kobo) + (cards.platinum_outstanding_kobo)) : '—' },
+            // Real NGN credit book from card_cycle_data — the per-tier outstandings only
+            // match cards whose product_name contains the tier word, so summing them
+            // under-captures the book and can even net negative. credit_ngn_balance_kobo
+            // is the whole credit category.
+            { label: 'Credit Book',    value: cards ? fmtKobo(cards.credit_ngn_balance_kobo) : '—' },
             { label: 'Open Disputes',  value: cards ? String(cards.disputes_open) : '—' },
           ]}
         />
@@ -566,8 +616,8 @@ export default function Overview() {
                 <span style={{ fontSize: TEXT['2xl'], lineHeight: 1 }}>🇳🇬</span>
                 <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5 }}>Prepaid ₦</div>
               </div>
-              <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', fontFamily: INTER, lineHeight: 1, letterSpacing: -0.5 }}>{cards ? fmtKobo(cards.prepaid_ngn_balance_kobo) : '—'}</div>
-              <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER, marginTop: 5 }}>{cards ? fmtNum(cards.prepaid_ngn_count) : '—'} active</div>
+              <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', fontFamily: INTER, lineHeight: 1, letterSpacing: -0.5 }}>{cards ? bookAmount(cards.prepaid_ngn_balance_kobo, cards.prepaid_ngn_count > 0).text : '—'}</div>
+              <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER, marginTop: 5 }}>{cards ? `${fmtNum(cards.prepaid_ngn_count)} active · float held` : '—'}</div>
             </div>
 
             {/* Prepaid USD */}
@@ -585,29 +635,41 @@ export default function Overview() {
       </div>
 
       {/* ── Origination Pipelines — LOS + CC in one card ─────────────────── */}
-      {losStages && ccStages && (
+      {(losStages || ccStages) && (
       <SectionCard title="Origination Pipelines" style={{ marginBottom: 14 }}>
-        <div style={{ padding: '4px 0 6px' }}>
-          <PipelineSegments
-            stages={LOS_STAGES}
-            data={losStages as unknown as Record<keyof LOSStages, number>}
-            label="Credit Applications"
-          />
-        </div>
-        <div style={{ borderTop: '1px solid var(--bdr)', margin: '16px 0 6px' }} />
-        <div style={{ paddingBottom: 4 }}>
-          <PipelineSegments
-            stages={CC_STAGES}
-            data={ccStages as unknown as Record<keyof CCStages, number>}
-            label="Credit Card Applications"
-            activeBadge={{ count: ccStages.active, color: PURPLE, label: 'active cards' }}
-          />
-        </div>
+        {losTotal > 0 || ccPipeTotal > 0 ? (
+          <>
+            {losStages && (
+              <div style={{ padding: '4px 0 6px' }}>
+                <PipelineSegments
+                  stages={LOS_STAGES}
+                  data={losStages as unknown as Record<keyof LOSStages, number>}
+                  label="Credit Applications"
+                />
+              </div>
+            )}
+            {losStages && ccStages && <div style={{ borderTop: '1px solid var(--bdr)', margin: '16px 0 6px' }} />}
+            {ccStages && (
+              <div style={{ paddingBottom: 4 }}>
+                <PipelineSegments
+                  stages={CC_STAGES}
+                  data={ccStages as unknown as Record<keyof CCStages, number>}
+                  label="Credit Card Applications"
+                  activeBadge={{ count: ccStages.active, color: PURPLE, label: 'active cards' }}
+                />
+              </div>
+            )}
+          </>
+        ) : (
+          <EmptyState icon="conveyor_belt"
+            title="No applications in the workspace pipeline"
+            body="Loan and card originations are booked in Udara core banking; they appear in the books above once active, not as workspace pipeline stages." />
+        )}
       </SectionCard>
       )}
 
       {/* ── Acquisition Funnel ──────────────────────────────────────────────── */}
-      {funnel && (
+      {funnel && funnelTotal > 0 && (
       <SectionCard title="Acquisition Funnel" subtitle="Lead to disbursement conversion" style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '8px 0', gap: 0 }}>
           {[
@@ -754,6 +816,13 @@ export default function Overview() {
         </SectionCard>
 
         <SectionCard title="Top Performers" subtitle="By disbursement amount this period">
+          {performers.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '44px 16px', textAlign: 'center' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 30, color: 'var(--txt3)' }}>leaderboard</span>
+              <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: SORA }}>No disbursements in this period</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER, maxWidth: 260 }}>Widen the date range to rank officers over a period with loan activity.</div>
+            </div>
+          ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], paddingTop: 4 }}>
             {performers.map((p, i) => {
               const color    = PERF_COLORS[i % PERF_COLORS.length]
@@ -781,6 +850,7 @@ export default function Overview() {
               )
             })}
           </div>
+          )}
         </SectionCard>
 
       </div>

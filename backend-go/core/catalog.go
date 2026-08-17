@@ -100,6 +100,9 @@ var PageCatalog = []CatalogModule{
 		{"customer_service", "Customer Service"},
 		{"customer360", "Customer 360"},
 	}},
+	{Key: "care", Label: "Care", Icon: "mark_email_unread", Pages: []CatalogPage{
+		{"care", "Care Inbox"},
+	}},
 	{Key: "risk", Label: "Risk", Icon: "shield", Pages: []CatalogPage{
 		{"risk_all", "Risk (All)"},
 		{"risk_officer", "Risk Officer View"},

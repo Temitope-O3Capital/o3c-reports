@@ -1,17 +1,16 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useDebouncedValue } from '../../hooks/useDebounce'
-import { useState, useEffect, useCallback, lazy, Suspense, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
-  Page, SectionCard, DataTable, ExpandableFilterBar,
+  Page, SectionCard, DataTable, ExpandableFilterBar, Modal,
   ErrBanner, Spinner, KpiCard, DateFilter, NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPut } from '../../lib/api'
 import { fmtDatetime, fmtNum, monthStart, today } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, BLUE, PURPLE, RED, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
-
-const C360 = lazy(() => import('../../components/C360Drawer'))
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,8 +95,17 @@ export default function CRMContacts() {
   const [fAssignees,    setFAssignees]    = useState<Set<string>>(new Set())
   const [fSourceTypes,  setFSourceTypes]  = useState<Set<string>>(new Set())
 
-  const [c360Open, setC360Open] = useState(false)
   const [bulkSel,  setBulkSel]  = useState<Set<string | number>>(new Set())
+
+  // Edit contact modal
+  const [editing,    setEditing]    = useState<Contact | null>(null)
+  const [editForm,   setEditForm]   = useState({ first_name: '', last_name: '', phone: '', email: '', status: '' })
+  const [editSaving, setEditSaving] = useState(false)
+
+  // Bulk-assign modal
+  const [assignOpen,   setAssignOpen]   = useState(false)
+  const [assignTo,     setAssignTo]     = useState('')
+  const [assignSaving, setAssignSaving] = useState(false)
 
   // Search runs on the SERVER (name, CIF, phone, email) so it spans every contact, not
   // just the first 500 that happen to be loaded. Debounced to one request per pause.
@@ -171,6 +179,51 @@ export default function CRMContacts() {
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
 
+  function openEdit(c: Contact) {
+    setEditing(c)
+    setEditForm({
+      first_name: c.first_name ?? '', last_name: c.last_name ?? '',
+      phone: c.phone ?? '', email: c.email ?? '', status: c.status ?? 'lead',
+    })
+  }
+
+  async function saveEdit() {
+    if (!editing) return
+    setEditSaving(true)
+    try {
+      await apiPut(`/api/crm/contacts/${editing.id}`, {
+        first_name: editForm.first_name,
+        last_name:  editForm.last_name,
+        phone:      editForm.phone,
+        email:      editForm.email,
+        status:     editForm.status,
+      })
+      toast.success('Contact updated')
+      setEditing(null); load()
+    } catch (ex: any) { toast.error(ex.message) }
+    finally { setEditSaving(false) }
+  }
+
+  async function archiveContact(c: Contact) {
+    if (!window.confirm(`Archive ${`${c.first_name} ${c.last_name}`.trim()}? This removes the contact from the list.`)) return
+    try {
+      await apiFetch(`/api/crm/contacts/${c.id}`, { method: 'DELETE' })
+      toast.success('Contact archived')
+      setContacts(cs => cs.filter(x => x.id !== c.id))
+    } catch (ex: any) { toast.error(ex.message) }
+  }
+
+  async function bulkAssign() {
+    if (!assignTo || bulkSel.size === 0) return
+    setAssignSaving(true)
+    try {
+      await Promise.all([...bulkSel].map(id => apiPut(`/api/crm/contacts/${id}`, { assigned_to: Number(assignTo) })))
+      toast.success(`${bulkSel.size} contact${bulkSel.size > 1 ? 's' : ''} assigned`)
+      setAssignOpen(false); setAssignTo(''); setBulkSel(new Set()); load()
+    } catch (ex: any) { toast.error(ex.message) }
+    finally { setAssignSaving(false) }
+  }
+
   const cols: TableCol<Contact>[] = [
     {
       key: 'first_name', label: 'Name',
@@ -210,14 +263,14 @@ export default function CRMContacts() {
       key: '_actions', label: '', sortable: false,
       render: r => <ActionRow actions={[
         { icon: 'visibility', label: 'View', onClick: () => navigate(`/sales/customers/${r.id}`) },
-        { icon: 'edit', label: 'Edit', onClick: () => {} },
-        { icon: 'archive', label: 'Archive', onClick: () => {} },
+        { icon: 'edit', label: 'Edit', onClick: () => openEdit(r) },
+        { icon: 'archive', label: 'Archive', danger: true, onClick: () => archiveContact(r) },
       ]} />,
     },
   ]
 
   return (
-    <Page title="Leads" subtitle={`${fmtNum(total)} leads & prospects`}
+    <Page title="Contacts" subtitle={`${fmtNum(total)} contacts & prospects`}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={err} onRetry={load} />
@@ -230,7 +283,7 @@ export default function CRMContacts() {
         <KpiCard label="Conversion Rate" value={kpis ? `${kpis.conversion_rate_pct.toFixed(1)}%` : '—'} icon="trending_up" accent={AMBER} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="Leads & Prospects" badge={contacts.length} padding={false} actions={<button onClick={() => exportContactsCsv(filteredContacts)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Contacts & Prospects" badge={contacts.length} padding={false} actions={<button onClick={() => exportContactsCsv(filteredContacts)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}
@@ -286,7 +339,7 @@ export default function CRMContacts() {
           cols={cols}
           rows={filteredContacts}
           keyFn={r => r.id}
-          onRowClick={() => setC360Open(true)}
+          onRowClick={r => navigate(`/sales/customers/${r.id}`)}
           emptyText="No contacts found."
           skeletonRows={loading ? 8 : 0}
           pageSize={20}
@@ -295,16 +348,73 @@ export default function CRMContacts() {
           onSelect={setBulkSel}
           bulkBar={
             <>
-              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
-              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
+              <button onClick={() => exportContactsCsv(bulkSel.size ? filteredContacts.filter(c => bulkSel.has(c.id)) : filteredContacts)}
+                style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
+              <button onClick={() => setAssignOpen(true)}
+                style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
             </>
           }
         />
       </SectionCard>
 
-      <Suspense fallback={null}>
-        <C360 open={c360Open} onClose={() => setC360Open(false)} />
-      </Suspense>
+      {/* Edit contact modal */}
+      <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit Contact" width={460}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setEditing(null)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={saveEdit} disabled={editSaving} style={{ padding: '8px 20px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: editSaving ? 'wait' : 'pointer', opacity: editSaving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {editSaving && <Spinner size={13} color="#fff" />}Save
+            </button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {([['First Name', 'first_name'], ['Last Name', 'last_name']] as const).map(([label, key]) => (
+              <div key={key}>
+                <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
+                <input value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                  style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+              </div>
+            ))}
+          </div>
+          {([['Phone', 'phone'], ['Email', 'email']] as const).map(([label, key]) => (
+            <div key={key}>
+              <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
+              <input value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+            </div>
+          ))}
+          <div>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Status</label>
+            <select value={editForm.status} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
+              style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
+              {['lead', 'prospect', 'inactive'].map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+            </select>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Bulk-assign modal */}
+      <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title={`Assign ${bulkSel.size} contact${bulkSel.size > 1 ? 's' : ''}`} width={420}
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setAssignOpen(false)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={bulkAssign} disabled={assignSaving || !assignTo} style={{ padding: '8px 20px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: assignSaving ? 'wait' : 'pointer', opacity: (assignSaving || !assignTo) ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {assignSaving && <Spinner size={13} color="#fff" />}Assign
+            </button>
+          </div>
+        }
+      >
+        <div>
+          <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Officer</label>
+          <select value={assignTo} onChange={e => setAssignTo(e.target.value)}
+            style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
+            <option value="">— Select officer —</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+          </select>
+        </div>
+      </Modal>
     </Page>
   )
 }

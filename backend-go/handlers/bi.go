@@ -31,6 +31,70 @@ func RegisterBI(r chi.Router, db *core.DB) {
 	r.With(bi).Get("/scheduled",                  biListScheduled(db))
 	r.With(bi).Delete("/scheduled/{sid}",         biDeleteSchedule(db))
 	r.With(bi).Get("/runs",                       biListRuns(db))
+	r.With(bi).Get("/my-dashboard",               biMyDashboard(db))
+}
+
+// biMyDashboard — the analyst's personal station: their saved reports, schedules
+// (active / due), recent run health, and their exports. Defensive: a missing
+// table simply omits that field.
+func biMyDashboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		var uid int64
+		if u := core.UserFromCtx(ctx); u != nil {
+			uid = u.ID
+		}
+		dash := map[string]any{}
+		scalar := func(key, sql string, args ...any) {
+			rows, _ := db.PGQuery(ctx, sql, args...)
+			if len(rows) > 0 {
+				dash[key] = rows[0]["count"]
+			}
+		}
+
+		scalar("my_reports", `SELECT COUNT(*) AS count FROM bi_report_definitions WHERE created_by=$1`, uid)
+		scalar("public_reports", `SELECT COUNT(*) AS count FROM bi_report_definitions WHERE is_public=TRUE`)
+		scalar("scheduled_active", `SELECT COUNT(*) AS count FROM bi_scheduled_reports WHERE is_active=TRUE`)
+		scalar("scheduled_due", `SELECT COUNT(*) AS count FROM bi_scheduled_reports WHERE is_active=TRUE AND next_run_at IS NOT NULL AND next_run_at <= NOW()`)
+		scalar("runs_today", `SELECT COUNT(*) AS count FROM bi_report_runs WHERE started_at::date = CURRENT_DATE`)
+		scalar("runs_failed_7d", `SELECT COUNT(*) AS count FROM bi_report_runs WHERE status IN ('failed','error') AND started_at >= NOW() - INTERVAL '7 days'`)
+		scalar("my_exports_7d", `SELECT COUNT(*) AS count FROM report_export_log WHERE created_by=$1 AND created_at >= NOW() - INTERVAL '7 days'`, uid)
+
+		if rows, _ := db.PGQuery(ctx, `SELECT MIN(next_run_at) AS next FROM bi_scheduled_reports WHERE is_active=TRUE AND next_run_at IS NOT NULL AND next_run_at > NOW()`); len(rows) > 0 {
+			dash["next_scheduled_at"] = rows[0]["next"]
+		}
+
+		runs, _ := db.PGQuery(ctx, `
+			SELECT r.status, r.row_count, r.started_at, d.name AS report_name, u.full_name AS run_by_name
+			FROM bi_report_runs r
+			LEFT JOIN bi_report_definitions d ON d.id = r.report_id
+			LEFT JOIN o3c_users u ON u.id = r.run_by
+			ORDER BY r.started_at DESC LIMIT 8`)
+		if runs == nil {
+			runs = []core.Row{}
+		}
+		dash["recent_runs"] = runs
+
+		sched, _ := db.PGQuery(ctx, `
+			SELECT s.cron_expr, s.next_run_at, s.last_run_at, d.name AS report_name
+			FROM bi_scheduled_reports s
+			LEFT JOIN bi_report_definitions d ON d.id = s.report_id
+			WHERE s.is_active=TRUE
+			ORDER BY (s.next_run_at IS NULL), s.next_run_at ASC LIMIT 8`)
+		if sched == nil {
+			sched = []core.Row{}
+		}
+		dash["upcoming_schedules"] = sched
+
+		mine, _ := db.PGQuery(ctx, `SELECT id, name, module, is_public, updated_at FROM bi_report_definitions WHERE created_by=$1 ORDER BY updated_at DESC LIMIT 8`, uid)
+		if mine == nil {
+			mine = []core.Row{}
+		}
+		dash["my_report_list"] = mine
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(dash) //nolint:errcheck
+	}
 }
 
 // ── Report Definitions ────────────────────────────────────────────────────────

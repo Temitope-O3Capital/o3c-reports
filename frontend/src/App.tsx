@@ -27,6 +27,7 @@ const CSATSurvey   = lazy(() => import('./pages/helpdesk/CSATSurvey'))
 const UserSettings = lazy(() => import('./pages/Settings'))
 
 // Intelligence
+const ReportsMyDashboard = lazy(() => import('./pages/reports/MyDashboard'))
 const ReportsBI       = lazy(() => import('./pages/reports/BI'))
 const ReportsKPI      = lazy(() => import('./pages/reports/KPITracker'))
 const ReportsExport   = lazy(() => import('./pages/reports/Export'))
@@ -81,6 +82,7 @@ const CRMContacts    = lazy(() => import('./pages/sales/Customers'))
 const SalesBook      = lazy(() => import('./pages/sales/Book'))
 const SalesBookCustomer = lazy(() => import('./pages/sales/BookCustomer'))
 const TaskModal      = lazy(() => import('./components/TaskModal'))
+const ScriptsDrawer  = lazy(() => import('./components/ScriptsDrawer'))
 const SalesLeads     = lazy(() => import('./pages/sales/Leads'))
 const CRMContactDetail = lazy(() => import('./pages/sales/ContactDetail'))
 const ContactProfile   = lazy(() => import('./pages/contacts/ContactProfile'))
@@ -113,11 +115,18 @@ const RecoveryActivityLog     = lazy(() => import('./pages/recovery/ActivityLog'
 const CreditAuditTrail        = lazy(() => import('./pages/compliance/CreditAuditTrail'))
 
 // Risk
+const RiskMyDashboard   = lazy(() => import('./pages/risk/MyDashboard'))
 const RiskOverview      = lazy(() => import('./pages/risk/Overview'))
 const RiskAppReview     = lazy(() => import('./pages/risk/AppReview'))
 const RiskPortfolio     = lazy(() => import('./pages/risk/Portfolio'))
 const RiskVintage       = lazy(() => import('./pages/risk/VintageAnalysis'))
 const RiskVintageDetail = lazy(() => import('./pages/risk/VintageDetail'))
+// Previously orphaned: both files existed and were imported nowhere, so the routes
+// below did not exist and the code was dead. CreditFile is the only implementation
+// that matches the /api/risk/credit-file contract.
+const RiskEyeScore      = lazy(() => import('./pages/risk/EyeScore'))
+const RiskCreditFile    = lazy(() => import('./pages/risk/CreditFile'))
+const RiskSectorCodes   = lazy(() => import('./pages/risk/SectorCodes'))
 
 // Recovery
 const RecoveryOverview    = lazy(() => import('./pages/recovery/Overview'))
@@ -139,6 +148,7 @@ const CardsMyQueue        = lazy(() => import('./pages/cards/MyQueue'))
 
 // Helpdesk
 const HelpdeskTickets     = lazy(() => import('./pages/helpdesk/Tickets'))
+const HelpdeskEscalations = lazy(() => import('./pages/helpdesk/Escalations'))
 const HelpdeskTicketDetail = lazy(() => import('./pages/helpdesk/TicketDetail'))
 const HelpdeskNewTicket   = lazy(() => import('./pages/helpdesk/NewTicketPage'))
 const CareInbox           = lazy(() => import('./pages/care/Inbox'))
@@ -148,6 +158,7 @@ const HelpdeskCalls       = lazy(() => import('./pages/helpdesk/Calls'))
 const HelpdeskStats       = lazy(() => import('./pages/helpdesk/Stats'))
 const HelpdeskKB          = lazy(() => import('./pages/helpdesk/KnowledgeBase'))
 const HelpdeskCanned      = lazy(() => import('./pages/helpdesk/Canned'))
+const HelpdeskCallScripts = lazy(() => import('./pages/helpdesk/CallScripts'))
 const HelpdeskCBNReport   = lazy(() => import('./pages/helpdesk/CBNReport'))
 
 // Cards
@@ -179,6 +190,7 @@ const AdminWorkflowTemplates     = lazy(() => import('./pages/admin/WorkflowTemp
 const AdminModules               = lazy(() => import('./pages/admin/Modules'))
 
 // Finance
+const FinanceMyDashboard  = lazy(() => import('./pages/finance/MyDashboard'))
 const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
 const FinanceTxns         = lazy(() => import('./pages/finance/Transactions'))
 const FinanceIncome       = lazy(() => import('./pages/finance/Income'))
@@ -187,6 +199,7 @@ const FinanceEOD          = lazy(() => import('./pages/finance/Eod'))
 const FinanceFXRates      = lazy(() => import('./pages/finance/FXRates'))
 
 // Settlements
+const SettleMyDashboard = lazy(() => import('./pages/settlements/MyDashboard'))
 const SettleOverview   = lazy(() => import('./pages/settlements/Overview'))
 const SettleBatches    = lazy(() => import('./pages/settlements/Batches'))
 const SettleNIP        = lazy(() => import('./pages/settlements/NIP'))
@@ -204,7 +217,7 @@ const CallCenterQueue          = lazy(() => import('./pages/call-center/Queue'))
 const CallCenterLeads          = lazy(() => import('./pages/call-center/Leads'))
 const CallCenterDNC            = lazy(() => import('./pages/call-center/DNC'))
 const CallCenterPerformance    = lazy(() => import('./pages/call-center/Performance'))
-const CallCenterAgentMatching  = lazy(() => import('./pages/call-center/AgentMatching'))
+const CallCenterVoiceSpike     = lazy(() => import('./pages/call-center/VoiceSpike'))
 const CallCenterInbound        = lazy(() => import('./pages/call-center/Inbound'))
 
 // Marketing
@@ -217,6 +230,7 @@ const PayrollRunDetail = lazy(() => import('./pages/payroll/RunDetail'))
 const PayslipView     = lazy(() => import('./pages/payroll/PayslipView'))
 
 // Compliance
+const ComplianceMyDashboard    = lazy(() => import('./pages/compliance/MyDashboard'))
 const ComplianceWatchlist      = lazy(() => import('./pages/compliance/WatchList'))
 const ComplianceRegCalendar    = lazy(() => import('./pages/compliance/RegulatoryCalendar'))
 const ComplianceFindings       = lazy(() => import('./pages/compliance/Findings'))
@@ -257,7 +271,7 @@ function homeFor(role: string): string {
     head_collections: '/collections',
     recovery_agent: '/recovery',   recovery_head: '/recovery',
     head_recovery: '/recovery',
-    call_center_agent: '/helpdesk', call_center_head: '/helpdesk',
+    call_center_agent: '/helpdesk/my-dashboard', call_center_head: '/helpdesk',
     compliance_officer: '/compliance', compliance_head: '/compliance',
     internal_control_head: '/compliance',
     it_admin: '/admin/overview',
@@ -345,6 +359,7 @@ const MODULE_TITLES: [string, string, string][] = [
   ['/sales',           'Sales & BD',        'Sales'],
   ['/call-center',     'Call Center',       'Call Center'],
   ['/helpdesk',        'Call Center',       'Overview'],
+  ['/care',            'Care',              'Care'],
   ['/blink-card',      'Cards',             'Blink Card'],
   ['/mobile-app',      'Cards',             'Mobile App Analytics'],
   ['/cards',           'Cards',             'Card Operations'],
@@ -996,7 +1011,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/call-center/leads"              element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterLeads /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/dnc"                element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterDNC /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/performance"        element={<RequireAccess page="call_center_stats" user={user}><PageErrorBoundary><CallCenterPerformance /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/call-center/agent-matching"     element={<RequireAccess page="call_center_stats" user={user}><PageErrorBoundary><CallCenterAgentMatching /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/call-center/voice-spike"        element={<RequireAccess page="call_center_stats" user={user}><PageErrorBoundary><CallCenterVoiceSpike /></PageErrorBoundary></RequireAccess>} />
+                  {/* Agent Matching is a modal in the Supervisor view, not a standalone route. */}
                   {/* Inbound is agent-level work (returning missed calls), not a head-only view */}
                   <Route path="/call-center/inbound"            element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterInbound /></PageErrorBoundary></RequireAccess>} />
                   {/* Predictive-dialer pages retired — no in-app dialer (agents dial via carrier); redirect to the queue */}
@@ -1011,16 +1027,17 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   <Route path="/helpdesk"                element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/tickets"        element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTickets /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/escalations"    element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskEscalations /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/new"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskNewTicket /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/care"                    element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><CareHub /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/care/inbox"              element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><CareInbox /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/care"                    element={<RequireAccess page="care" user={user}><PageErrorBoundary><CareHub /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/care/inbox"              element={<RequireAccess page="care" user={user}><PageErrorBoundary><CareInbox /></PageErrorBoundary></RequireAccess>} />
                   {/* Supervisor is now a tab in the Care hub — keep the old path working. */}
                   <Route path="/care/supervisor"         element={<Navigate to="/care?tab=supervisor" replace />} />
                   <Route path="/helpdesk/calls"          element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskCalls /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/supervisor"     element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskSupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/stats"          element={<RequireAccess page="helpdesk_stats" user={user}><PageErrorBoundary><HelpdeskStats /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/knowledge-base" element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskKB /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/helpdesk/canned"         element={<RequireAccess page="helpdesk_canned" user={user}><PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/helpdesk/canned"         element={<RequireAccess page="helpdesk_canned" user={user}><PageErrorBoundary><HelpdeskCallScripts /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/care/canned"             element={<RequireAccess page="helpdesk_canned" user={user}><PageErrorBoundary><HelpdeskCanned /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/cbn-report"      element={<RequireAccess page="reports" user={user}><PageErrorBoundary><HelpdeskCBNReport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/:id"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTicketDetail /></PageErrorBoundary></RequireAccess>} />
@@ -1043,12 +1060,16 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/loans/active" element={<Navigate to="/operations/risk/portfolio" replace />} />
 
                   {/* Operations — Risk */}
+                  <Route path="/operations/risk/my-dashboard"      element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk"                   element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/applications"      element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskAppReview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/applications/:id"  element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><LOSAppDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/portfolio"         element={<RequireAccess page={['credit_portfolio','active_loan_book']} user={user}><PageErrorBoundary><RiskPortfolio /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/vintage"           element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintage /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/vintage/:month"    element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintageDetail /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/eye-scores"        element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskEyeScore /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/credit-file"       element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskCreditFile /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/sector-codes"      element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskSectorCodes /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Collections */}
                   <Route path="/collections"                 element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsOverview /></PageErrorBoundary></RequireAccess>} />
@@ -1082,6 +1103,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/cards/my-queue"         element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMyQueue /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Settlements */}
+                  <Route path="/settlements/my-dashboard"             element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements"                          element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/batches"                  element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleBatches /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/nip"                      element={<RequireAccess page="settlement" user={user}><PageErrorBoundary><SettleNIP /></PageErrorBoundary></RequireAccess>} />
@@ -1096,6 +1118,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/settlements/runs"                     element={<RequireAccess page={['settlement','reconciliation']} user={user}><PageErrorBoundary><SettleRuns /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Finance */}
+                  <Route path="/finance/my-dashboard"       element={<RequireAccess page={['income','finance']} user={user}><PageErrorBoundary><FinanceMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance"                    element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/transactions"       element={<RequireAccess page="transactions" user={user}><PageErrorBoundary><FinanceTxns /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/income"             element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceIncome /></PageErrorBoundary></RequireAccess>} />
@@ -1108,6 +1131,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/finance/fx-rates"           element={<RequireAccess page="fx_rates" user={user}><PageErrorBoundary><FinanceFXRates /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Compliance */}
+                  <Route path="/compliance/my-dashboard" element={<RequireAccess page={['watch_list','audit_findings','compliance_checklists','compliance_all']} user={user}><PageErrorBoundary><ComplianceMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance"             element={<RequireAccess page="watch_list" user={user}><Navigate to="/compliance/watchlist" replace /></RequireAccess>} />
                   <Route path="/compliance/watchlist"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceWatchlist /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/regulatory"  element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceRegCalendar /></PageErrorBoundary></RequireAccess>} />
@@ -1136,6 +1160,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/payroll/runs/:runId/items/:itemId" element={<RequireAccess page="payroll" user={user}><PageErrorBoundary><PayslipView /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Intelligence */}
+                  <Route path="/reports/my-dashboard" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports"        element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsBI /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/kpi"    element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsKPI /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/export" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsExport /></PageErrorBoundary></RequireAccess>} />
@@ -1191,6 +1216,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
             user is already on rather than sending them to a task list. Mounted here
             once so notification deep links work from anywhere in the app. */}
         <Suspense fallback={null}><TaskModal /></Suspense>
+
+        {/* Call Scripts launcher — global, self-gates to Call Centre staff so an agent
+            can pull up a talk-track from any screen while on a live call. */}
+        <Suspense fallback={null}><ScriptsDrawer /></Suspense>
 
         {/* C360 drawer */}
         <C360Drawer open={c360Open} onClose={() => { setC360Open(false); setC360Customer(null) }} initialCustomer={c360Customer} />

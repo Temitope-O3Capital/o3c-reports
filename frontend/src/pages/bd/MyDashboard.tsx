@@ -1,12 +1,13 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, SectionCard, KpiCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, DateFilter, Spinner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { Drawer } from '../../components/Drawer'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtDate, fmtKobo } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, BLUE, RED, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { WorkspaceHero, MyDaySection, MyDayTile, HeroButton } from '../../components/MyWorkspace'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,14 @@ function changePct(cur: number, prev: number): number | undefined {
 function pct(num: number, denom: number) {
   if (!denom) return '—'
   return `${Math.round((num / denom) * 100)}%`
+}
+
+// A small MoM delta pill for the hero stats (white-on-navy).
+function moMDelta(cur: number, prev: number): React.ReactNode {
+  const c = changePct(cur, prev)
+  if (c == null) return <span style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.5)' }}>new</span>
+  const up = c >= 0
+  return <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: up ? '#4ADE80' : '#FCA5A5' }}>{up ? '▲' : '▼'} {Math.abs(Math.round(c))}%</span>
 }
 
 // ── Referral Funnel ───────────────────────────────────────────────────────────
@@ -583,54 +592,50 @@ export default function BDMyDashboard() {
     </Drawer>
 
     <Page
-      title="My BD Dashboard"
-      subtitle="Employer relationships, referral pipeline and monthly activity"
-      back={{ label: 'Business Dev', to: '/bd' }}
+      title="My Workspace"
+      subtitle="Your BD station — employers, referral pipeline and monthly activity"
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* ── KPI strip ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[3] }}>
-        <KpiCard
-          label="Employers"
-          value={fmtNum(k?.employers_managed ?? 0)}
-          icon="business" accent={NAVY} loading={loading}
+      {/* ── Hero ── */}
+      {!data || !k ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '70px 0' }}><Spinner size={32} /></div>
+      ) : (
+        <WorkspaceHero
+          subline={<>You've referred <strong style={{ color: '#fff' }}>{fmtNum(k.staff_referred_mtd)}</strong> staff this month · {fmtNum(k.conversions_mtd)} converted{k.mou_expiring_soon > 0 ? <> · <strong style={{ color: '#FCA5A5' }}>{fmtNum(k.mou_expiring_soon)}</strong> MOU{k.mou_expiring_soon === 1 ? '' : 's'} expiring soon</> : ''}</>}
+          ring={{ value: k.staff_referred_mtd > 0 ? Math.round((k.conversions_mtd / k.staff_referred_mtd) * 100) : 0, max: 100, unit: '% conv' }}
+          stats={[
+            { label: 'Employers', value: fmtNum(k.employers_managed) },
+            { label: 'Active MOUs', value: fmtNum(k.mou_signed), color: '#4ADE80' },
+            { label: 'Referred MTD', value: fmtNum(k.staff_referred_mtd), delta: moMDelta(k.staff_referred_mtd, k.staff_referred_lm) },
+            { label: 'Converted MTD', value: fmtNum(k.conversions_mtd), color: '#4ADE80', delta: moMDelta(k.conversions_mtd, k.conversions_lm) },
+            { label: 'Calls MTD', value: fmtNum(k.calls_made_mtd), delta: moMDelta(k.calls_made_mtd, k.calls_lm) },
+            { label: 'Meetings MTD', value: fmtNum(k.meetings_mtd), delta: moMDelta(k.meetings_mtd, k.meetings_lm) },
+          ]}
+          actions={<>
+            <HeroButton icon="business" label="Employers" primary onClick={() => navigate('/bd/employers')} />
+            <HeroButton icon="assignment_ind" label="Assignments" onClick={() => navigate('/bd/assignments')} />
+            <HeroButton icon="view_kanban" label="Pipeline" onClick={() => navigate('/bd/pipeline')} />
+            <HeroButton icon="contacts" label="All Leads" onClick={() => navigate('/bd/leads')} />
+          </>}
         />
-        <KpiCard
-          label="Active MOUs"
-          value={fmtNum(k?.mou_signed ?? 0)}
-          icon="handshake" accent={GREEN} loading={loading}
-        />
-        <KpiCard
-          label="Referred MTD"
-          value={fmtNum(k?.staff_referred_mtd ?? 0)}
-          change={changePct(k?.staff_referred_mtd ?? 0, k?.staff_referred_lm ?? 0)}
-          changePeriod="vs last month"
-          icon="person_add" accent={BLUE} loading={loading}
-        />
-        <KpiCard
-          label="Converted MTD"
-          value={fmtNum(k?.conversions_mtd ?? 0)}
-          change={changePct(k?.conversions_mtd ?? 0, k?.conversions_lm ?? 0)}
-          changePeriod="vs last month"
-          icon="verified_user" accent={GREEN} loading={loading}
-        />
-        <KpiCard
-          label="Calls MTD"
-          value={fmtNum(k?.calls_made_mtd ?? 0)}
-          change={changePct(k?.calls_made_mtd ?? 0, k?.calls_lm ?? 0)}
-          changePeriod="vs last month"
-          icon="phone" accent={AMBER} loading={loading}
-        />
-        <KpiCard
-          label="Meetings MTD"
-          value={fmtNum(k?.meetings_mtd ?? 0)}
-          change={changePct(k?.meetings_mtd ?? 0, k?.meetings_lm ?? 0)}
-          changePeriod="vs last month"
-          icon="groups" accent={PURPLE} loading={loading}
-        />
-      </div>
+      )}
+
+      {/* ── My Day ── */}
+      {data && k && (
+        <MyDaySection hint="relationships that need action">
+          <MyDayTile icon="warning" count={fmtNum(k.mou_expiring_soon)} label="MOUs expiring soon"
+            sub={k.mou_expiring_soon > 0 ? 'renew before they lapse' : 'none expiring'}
+            color={k.mou_expiring_soon > 0 ? RED : GREEN} urgent={k.mou_expiring_soon > 0} onClick={() => navigate('/bd/employers')} />
+          <MyDayTile icon="schedule" count={fmtNum(data.urgency.stale_assignments.length)} label="Sales not engaged"
+            sub="assignments going cold" color={AMBER} urgent={data.urgency.stale_assignments.length > 0} onClick={() => navigate('/bd/assignments')} />
+          <MyDayTile icon="bedtime" count={fmtNum(data.urgency.dormant.length)} label="Dormant partnerships"
+            sub="signed but no referrals" color={PURPLE} urgent={data.urgency.dormant.length > 0} onClick={() => navigate('/bd/employers')} />
+          <MyDayTile icon="person_add" count={fmtNum(k.staff_referred_mtd)} label="Referred this month"
+            sub="staff sent to sales" color={BLUE} onClick={() => navigate('/bd/pipeline')} />
+        </MyDaySection>
+      )}
 
       {/* ── Urgency tray ── */}
       {data && (

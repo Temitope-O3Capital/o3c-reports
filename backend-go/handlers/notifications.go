@@ -101,6 +101,7 @@ func notificationsListHandler(db *core.DB) http.HandlerFunc {
 		n := len(args) + 1
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT id, type, title, body, entity_type, entity_id, action_url,
+			              priority, group_count,
 			       is_read, read_at, created_at
 			FROM notifications
 			WHERE %s
@@ -267,6 +268,7 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 			case <-poll.C:
 				rows, err := db.PGQuery(ctx, `
 					SELECT id, type, title, body, entity_type, entity_id, action_url,
+					              priority, group_count,
 					       is_read, read_at, created_at
 					FROM notifications
 					WHERE user_id = $1 AND id > $2

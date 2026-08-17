@@ -33,6 +33,9 @@ func cleanNameStr(s string) string {
 
 func RegisterContactProfile(r chi.Router, db *core.DB) {
 	access := core.RequirePages("customer360", "los", "recovery", "helpdesk", "collections")
+	// The more specific path must be registered before the bare "/{cif}" or chi
+	// would never reach it.
+	r.With(access).Get("/{cif}/transactions", contactTransactionsHandler(db))
 	r.With(access).Get("/{cif}", contactProfileHandler(db))
 }
 
@@ -59,10 +62,28 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			FROM app.customers WHERE cif = $1 LIMIT 1`, cif)
 
 		// ── Cards / accounts — ALL of the person's cards across their CIFs ─────
+		//    Each card carries its OWN cif (a CIF is a card, not a person), which is
+		//    what the transactions ledger is keyed by — so the cif returned here is
+		//    the handle the Transactions tab filters on.
 		prodRows, _ := db.PGQuery(ctx, `
-			SELECT product_name AS product_name, status AS status,
-			       name_on_card AS name_on_card, COALESCE(card_product,card_program) AS scheme
-			FROM app.accounts WHERE cif IN `+personCIFs, cif)
+			SELECT a.account_id AS account_id, a.cif AS cif, a.account_no AS account_no,
+			       a.product_name AS product_name, a.status AS status,
+			       a.name_on_card AS name_on_card, a.card_pan AS card_pan,
+			       COALESCE(NULLIF(a.card_product,''), NULLIF(a.card_program,'')) AS scheme,
+			       a.card_limit, a.current_dr_balance, a.card_utilisation,
+			       a.min_payment_due, a.days_overdue,
+			       a.card_expiry_date::text AS card_expiry_date,
+			       a.payment_due_date::text AS payment_due_date,
+			       a.opened_date::text      AS opened_date,
+			       COALESCE(t.n, 0)         AS txn_count,
+			       t.last_txn::text         AS last_txn_date
+			FROM app.accounts a
+			LEFT JOIN LATERAL (
+			  SELECT COUNT(*) AS n, MAX(txn_date) AS last_txn
+			    FROM core.transaction t WHERE t.cif = a.cif
+			) t ON TRUE
+			WHERE a.cif IN `+personCIFs+`
+			ORDER BY (LOWER(a.status) IN ('active','open')) DESC, COALESCE(t.n,0) DESC, a.cif`, cif)
 
 		// ── Loans from the CBS/Udara book ─────────────────────────────────────
 		cbsLoans, _ := db.PGQuery(ctx, `
@@ -364,20 +385,37 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			profile["is_delinquent"] = true
 		}
 
-		// Cards / accounts from the "Products" view.
+		// Cards / accounts. The card's own CIF is the id — name_on_card is not
+		// unique (one person's 21 cards can all read "ABIMBOLA PINHEIRO") and is
+		// not what transactions are keyed by.
 		cardList := make([]any, 0)
 		hasActiveCard := false
 		for _, p := range prodRows {
 			status := str(p["status"])
 			cardList = append(cardList, map[string]any{
-				"id":                 p["name_on_card"],
-				"card_number_masked": p["name_on_card"],
+				// account_id is the only unique key on the card book; two card rows can
+				// share one cif, so cif alone would collide as a list key.
+				"id":  p["account_id"],
+				"cif": p["cif"],
+				"account_no":         p["account_no"],
+				"card_number_masked": p["card_pan"],
+				"name_on_card":       p["name_on_card"],
+				"product_name":       p["product_name"],
 				"scheme":             p["scheme"],
 				"status":             status,
-				"balance_kobo":       0,
-				"issued_at":          nil,
+				// Balances here are naira numerics from the card book, not kobo.
+				"balance":       p["current_dr_balance"],
+				"credit_limit":  p["card_limit"],
+				"utilisation":   p["card_utilisation"],
+				"min_payment":   p["min_payment_due"],
+				"days_overdue":  p["days_overdue"],
+				"expiry_date":   p["card_expiry_date"],
+				"payment_due":   p["payment_due_date"],
+				"issued_at":     p["opened_date"],
+				"txn_count":     p["txn_count"],
+				"last_txn_date": p["last_txn_date"],
 			})
-			if status == "Open" || status == "Active" {
+			if lc := strings.ToLower(status); lc == "open" || lc == "active" {
 				hasActiveCard = true
 			}
 		}
@@ -445,7 +483,9 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			}
 		}
 		for _, p := range prodRows {
-			if s := str(p["status"]); s == "Open" || s == "Active" {
+			// The card book stores both "Active" and "active" — match case-insensitively
+			// or the strip under-counts by the 541 lowercase rows.
+			if s := strings.ToLower(str(p["status"])); s == "open" || s == "active" {
 				activeCards++
 			}
 		}

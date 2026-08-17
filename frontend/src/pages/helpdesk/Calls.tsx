@@ -18,6 +18,7 @@ import QAEvaluation from './QAEvaluation'
 import { BAND_COLOR } from '../../lib/qa'
 import { toast } from 'sonner'
 import { CustomerSearch, CustSuggest, cleanName, initialsOf } from '../../components/CustomerSearch'
+import ScheduleCallbackModal from '../../components/ScheduleCallbackModal'
 
 function myRole(): string { try { return String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '') } catch { return '' } }
 const CAN_EVALUATE = /head|admin|super|manager|lead|supervisor/i.test(myRole())
@@ -26,6 +27,7 @@ const CAN_EVALUATE = /head|admin|super|manager|lead|supervisor/i.test(myRole())
 
 interface CallLog {
   id: number
+  agent_id: number | null
   agent_name: string
   customer_name: string | null
   phone: string
@@ -34,6 +36,8 @@ interface CallLog {
   duration_seconds: number
   outcome: string
   disposition: string | null
+  purpose: string | null
+  ticket_type: string | null
   ticket_id: number | null
   ticket_ref: string | null
   called_at: string
@@ -70,17 +74,34 @@ const num = (v: any): number => Number(v ?? 0) || 0
 const TICKET_TYPES_CALL = [
   'General Enquiry', 'Balance Enquiry', 'Payment Confirmation', 'Failed Transaction',
   'Card Dispute', 'Statement Request', 'Loan Complaint', 'Collection',
-  'FD Enquiry', 'App Download', 'Technical / App Issue',
+  'FD Enquiry', 'App Download', 'Technical / App Issue', 'Pitching / Marketing',
   'Complaint (CBN reportable)', 'Others',
 ]
 
 // Call disposition = the business result of the call. Kept distinct from Outcome
 // (connection status: completed/missed/…), which drives the KPIs and Zoho mapping.
 const DISPOSITIONS = [
-  'Resolved', 'Information Provided', 'Callback Scheduled', 'Escalated',
+  'Resolved', 'Closed', 'Information Provided', 'Callback Scheduled', 'Escalated',
   'Complaint Logged', 'Pending / Follow-up', 'Unreachable / No Answer',
   'Wrong Number', 'Not Interested',
 ]
+
+// Call purpose = which book/queue the call belongs to. Lets a call logged here be
+// linked to where it actually falls (a marketing/leads dial, a collections chase, an
+// outbound sales pitch) rather than every call reading as generic "support". Codes are
+// stored lower-case to match the outbound queue + Zoho voice import.
+const PURPOSES: { value: string; label: string }[] = [
+  { value: '',            label: 'Support / Service' },   // default — no explicit book
+  { value: 'marketing',   label: 'Marketing / Leads' },
+  { value: 'sales',       label: 'Outbound Sales' },
+  { value: 'collections', label: 'Collections' },
+]
+const PURPOSE_META: Record<string, { label: string; color: string }> = {
+  marketing:   { label: 'Marketing / Leads', color: BLUE },
+  sales:       { label: 'Outbound Sales',    color: PURPLE },
+  collections: { label: 'Collections',       color: RED },
+  support:     { label: 'Support',           color: GREEN },
+}
 
 // Dispositions that imply the call needs follow-up work — these pre-check the
 // "open a linked ticket" box (the agent can still override it either way).
@@ -150,15 +171,24 @@ function DirectionBadge({ direction }: { direction: string }) {
 
 // ── Outcome pill ──────────────────────────────────────────────────────────────
 
-function OutcomePill({ outcome }: { outcome: string | null }) {
+function OutcomePill({ outcome, direction }: { outcome: string | null; direction?: string }) {
   const o = (outcome ?? '').toLowerCase()
-  const cfg = OUTCOME_CFG[o] ?? { bg: 'var(--chip-bg)', txt: 'var(--txt2)', label: outcome || '—' }
+  const base = OUTCOME_CFG[o]
+  let bg = base?.bg ?? 'var(--chip-bg)'
+  let txt = base?.txt ?? 'var(--txt2)'
+  let label = base?.label ?? (outcome || '—')
+  // A no-answer outcome is a "Missed" call only on INBOUND. An unanswered OUTBOUND
+  // dial is "No Answer" — the customer didn't pick, not the agent's miss.
+  if (['missed', 'no_answer', 'voicemail'].includes(o)) {
+    if ((direction ?? '').toLowerCase() === 'inbound') { bg = `${RED}12`; txt = RED; label = 'Missed' }
+    else { bg = 'var(--chip-bg)'; txt = 'var(--txt2)'; label = 'No Answer' }
+  }
   return (
     <span style={{
       fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 9px', borderRadius: RADIUS['2xl'],
-      background: cfg.bg, color: cfg.txt, whiteSpace: 'nowrap',
+      background: bg, color: txt, whiteSpace: 'nowrap',
     }}>
-      {cfg.label}
+      {label}
     </span>
   )
 }
@@ -303,6 +333,11 @@ export default function Calls() {
   const [stats, setStats]   = useState<CallStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState<string | null>(null)
+  // Supervisor "view agent" drawer target.
+  const [viewAgent, setViewAgent] = useState<{ id: number; name: string } | null>(null)
+  // Per-call detail modal (everything logged about one call).
+  const [viewCall, setViewCall] = useState<CallLog | null>(null)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
   // Filters
   const [agentFilter, setAgentFilter] = useState('')
   const [fDirs,       setFDirs]       = useState(new Set<string>())
@@ -320,7 +355,7 @@ export default function Calls() {
   const [logForm, setLogForm] = useState({
     customer_name: '', phone: '', customer_cif: '', direction: 'Inbound',
     outcome_val: 'completed', disposition: '', duration_seconds: '',
-    ticket_type: '', notes: '', resolution: '',
+    purpose: '', ticket_type: '', notes: '', resolution: '',
   })
   // Customer picker state: picked = a customer chosen (chip); manual = typing a
   // walk-in by hand; otherwise the search typeahead shows.
@@ -419,7 +454,7 @@ export default function Calls() {
     setLogForm({
       customer_name: '', phone: '', customer_cif: '', direction: 'Inbound',
       outcome_val: 'completed', disposition: '', duration_seconds: '',
-      ticket_type: '', notes: '', resolution: '',
+      purpose: '', ticket_type: '', notes: '', resolution: '',
     })
     setCustPicked(false); setCustManual(false); setCreateTicket(false)
   }
@@ -461,6 +496,7 @@ export default function Calls() {
         direction:        logForm.direction,
         outcome:          logForm.outcome_val,
         disposition:      logForm.disposition || undefined,
+        purpose:          logForm.purpose || undefined,
         duration_seconds: logForm.duration_seconds ? Number(logForm.duration_seconds) : undefined,
         ticket_type:      logForm.ticket_type || undefined,
         notes:            logForm.notes || undefined,
@@ -478,7 +514,7 @@ export default function Calls() {
   }
 
   function exportCsv() {
-    const header = ['Agent', 'Customer', 'Phone', 'Direction', 'Duration (s)', 'Outcome', 'Disposition', 'Ticket', 'Called At', 'Complaint / Summary', 'Resolution']
+    const header = ['Agent', 'Customer', 'Phone', 'Direction', 'Duration (s)', 'Outcome', 'Disposition', 'Purpose', 'Ticket', 'Called At', 'Complaint / Summary', 'Resolution']
     const lines = rows.map(r => [
       `"${(r.agent_name ?? '').replace(/"/g, '""')}"`,
       `"${(r.customer_name ?? '').replace(/"/g, '""')}"`,
@@ -487,6 +523,7 @@ export default function Calls() {
       r.duration_seconds ?? 0,
       r.outcome ?? '',
       `"${(r.disposition ?? '').replace(/"/g, '""')}"`,
+      `"${(PURPOSE_META[(r.purpose ?? '').toLowerCase()]?.label ?? '')}"`,
       r.ticket_ref ?? '',
       r.called_at ?? '',
       `"${(r.notes ?? '').replace(/"/g, '""')}"`,
@@ -519,7 +556,7 @@ export default function Calls() {
     {
       key: 'outcome',
       label: 'Outcome',
-      render: r => <OutcomePill outcome={r.outcome} />,
+      render: r => <OutcomePill outcome={r.outcome} direction={r.direction} />,
     },
     {
       key: 'disposition' as any,
@@ -527,6 +564,16 @@ export default function Calls() {
       render: r => r.disposition ? (
         <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{r.disposition}</span>
       ) : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>,
+    },
+    {
+      key: 'purpose' as any,
+      label: 'Purpose',
+      render: r => {
+        const meta = PURPOSE_META[(r.purpose ?? '').toLowerCase()]
+        return meta ? (
+          <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${meta.color}14`, color: meta.color, whiteSpace: 'nowrap' }}>{meta.label}</span>
+        ) : <span style={{ color: 'var(--txt3)', fontSize: TEXT.sm }}>—</span>
+      },
     },
     {
       key: 'qa_score' as any,
@@ -587,6 +634,33 @@ export default function Calls() {
       width: 64,
       render: r => (
         <ActionRow actions={[
+          // Open the full record of THIS call — every field plus exactly what the
+          // agent logged (complaint, resolution, disposition, purpose, QA, recording).
+          {
+            icon: 'info', label: 'View call details',
+            onClick: () => setViewCall(r),
+          },
+          // Supervisors can additionally open the agent's overall snapshot.
+          ...(CAN_EVALUATE && r.agent_id ? [{
+            icon: 'badge', label: 'Agent snapshot',
+            onClick: () => setViewAgent({ id: r.agent_id as number, name: r.agent_name }),
+          }] : []),
+          // Log a report for this number — pre-fills the Log-a-Call form so the agent
+          // just records the outcome/notes for that customer.
+          {
+            icon: 'edit_note', label: 'Log a report',
+            onClick: () => {
+              setLogForm(f => ({
+                ...f,
+                customer_name: r.customer_name || '',
+                phone: (r.phone as string) || '',
+                customer_cif: (r.customer_cif as string) || '',
+                direction: r.direction || 'Inbound',
+              }))
+              setCustPicked(false); setCustManual(true)
+              setLogOpen(true)
+            },
+          },
           // Evaluators can score the call against the QA rubric.
           ...(CAN_EVALUATE ? [{
             icon: 'grade', label: r.qa_evaluation_id ? 'Re-evaluate call (QA)' : 'Evaluate call (QA)',
@@ -625,7 +699,7 @@ export default function Calls() {
   return (
     <Page
       title="Call Log"
-      subtitle="All inbound and outbound calls across agents"
+      subtitle={CAN_EVALUATE ? 'All inbound and outbound calls across agents' : 'Your inbound and outbound calls'}
       actions={
         <div style={{ display: 'flex', gap: SP[2] }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
@@ -633,6 +707,11 @@ export default function Calls() {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
             Export CSV
+          </button>
+          <button onClick={() => setScheduleOpen(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>event_upcoming</span>
+            Schedule Callback
           </button>
           <button onClick={() => setLogOpen(true)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
@@ -811,11 +890,20 @@ export default function Calls() {
               </select>
             </div>
             <div>
-              <label style={labelSt}>Duration (seconds)</label>
+              <label style={labelSt} title="Auto-captured from Zoho Voice on synced calls; enter it only for a manually logged call">Duration (sec)</label>
               <input type="number" min={0} value={logForm.duration_seconds}
                 onChange={e => setLogForm(f => ({ ...f, duration_seconds: e.target.value }))}
-                placeholder="e.g. 145" style={inputSt} />
+                placeholder="auto for voice" style={inputSt} />
             </div>
+          </div>
+
+          {/* Purpose — links the call to the book it belongs to (leads, outbound
+              sales, collections, support) so it isn't filed as generic "support". */}
+          <div>
+            <label style={labelSt}>Call purpose / links to</label>
+            <select value={logForm.purpose} onChange={e => setLogForm(f => ({ ...f, purpose: e.target.value }))} style={inputSt}>
+              {PURPOSES.map(p => <option key={p.value || 'support'} value={p.value}>{p.label}</option>)}
+            </select>
           </div>
 
           {/* Ticket type + Disposition */}
@@ -903,6 +991,218 @@ export default function Calls() {
           onSaved={() => { load(); loadStats() }}
         />
       )}
+
+      <CallDetailModal call={viewCall} onClose={() => setViewCall(null)}
+        onEvaluate={CAN_EVALUATE ? c => { setViewCall(null); setEvalCall(c) } : undefined}
+        onOpenTicket={id => { setViewCall(null); navigate(`/helpdesk/${id}`) }} />
+      <AgentDetailModal agent={viewAgent} dateFrom={dateFrom} dateTo={dateTo} onClose={() => setViewAgent(null)} onOpenTicket={id => { setViewAgent(null); navigate(`/helpdesk/${id}`) }} />
+      <ScheduleCallbackModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} onSaved={() => { load(); loadStats() }} />
     </Page>
+  )
+}
+
+// ── Call detail (per-call read view) ──────────────────────────────────────────
+// Everything logged about a single call — the identifiers, the connection facts,
+// and the two things the agent actually wrote (the complaint and the resolution) —
+// so a supervisor can read a call without hunting across columns.
+
+function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
+  call: CallLog | null
+  onClose: () => void
+  onEvaluate?: (c: CallLog) => void
+  onOpenTicket: (id: number) => void
+}) {
+  if (!call) return null
+  const purpose = PURPOSE_META[(call.purpose ?? '').toLowerCase()]
+
+  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div>
+      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: TEXT.base, fontWeight: FW.medium, color: 'var(--txt)' }}>{children}</div>
+    </div>
+  )
+  const secLbl: React.CSSProperties = { fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 7 }
+  const noteBox: React.CSSProperties = { fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.55, background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '10px 12px', whiteSpace: 'pre-wrap' }
+
+  return (
+    <Modal open={!!call} onClose={onClose} title={`Call · ${call.customer_name ?? 'Unknown Caller'}`} width={620}
+      footer={
+        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', width: '100%' }}>
+          {call.recording_url && (
+            <button onClick={() => window.open(call.recording_url as string, '_blank', 'noopener')}
+              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>play_circle</span>Recording
+            </button>
+          )}
+          {onEvaluate && (
+            <button onClick={() => onEvaluate(call)}
+              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>grade</span>{call.qa_evaluation_id ? 'Re-evaluate (QA)' : 'Evaluate (QA)'}
+            </button>
+          )}
+          <button onClick={onClose}
+            style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
+            Close
+          </button>
+        </div>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4], fontFamily: SORA }}>
+        {/* Header chips */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <DirectionBadge direction={call.direction} />
+          <OutcomePill outcome={call.outcome} direction={call.direction} />
+          {call.disposition && (
+            <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', color: 'var(--txt2)' }}>{call.disposition}</span>
+          )}
+          {purpose && (
+            <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${purpose.color}14`, color: purpose.color }}>{purpose.label}</span>
+          )}
+          {call.qa_score != null && (
+            <span style={{ ...NUM, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${BAND_COLOR[call.qa_band ?? ''] ?? NAVY}18`, color: BAND_COLOR[call.qa_band ?? ''] ?? NAVY }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{call.qa_passed ? 'verified' : 'error'}</span>{call.qa_score}%
+            </span>
+          )}
+        </div>
+
+        {/* Facts grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '14px 20px' }}>
+          <Field label="Agent">{call.agent_name || '—'}</Field>
+          <Field label="Caller">{call.customer_name || 'Unknown Caller'}</Field>
+          <Field label="Phone"><span style={{ fontFamily: 'var(--font-mono)' }}>{call.phone || '—'}</span></Field>
+          <Field label="CIF">{call.customer_cif ? <span style={{ fontFamily: 'var(--font-mono)' }}>{call.customer_cif}</span> : '—'}</Field>
+          <Field label="Duration">{fmtDuration(call.duration_seconds)}</Field>
+          <Field label="When">{fmtDatetime(call.called_at)}</Field>
+          <Field label="Ticket type">{call.ticket_type || '—'}</Field>
+          <Field label="Ticket">
+            {call.ticket_id && call.ticket_ref ? (
+              <span onClick={() => onOpenTicket(call.ticket_id as number)}
+                style={{ ...NUM, color: NAVY, fontWeight: FW.bold, cursor: 'pointer', textDecoration: 'underline' }}>{call.ticket_ref}</span>
+            ) : '—'}
+          </Field>
+        </div>
+
+        {/* What the agent logged */}
+        <div>
+          <div style={secLbl}>Customer complaint / summary</div>
+          <div style={noteBox}>{(call.notes ?? '').trim() || <span style={{ color: 'var(--txt3)' }}>Nothing logged.</span>}</div>
+        </div>
+        <div>
+          <div style={secLbl}>Agent response / resolution</div>
+          <div style={noteBox}>{(call.resolution ?? '').trim() || <span style={{ color: 'var(--txt3)' }}>Nothing logged.</span>}</div>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ── Agent detail (supervisor drawer) ──────────────────────────────────────────
+
+interface AgentDetail {
+  agent:   { id: number; full_name: string; status: string; role: string; department: string; email: string; phone: string }
+  calls:   { total: number; outbound: number; inbound: number; connected: number; missed: number; no_answer: number; avg_talk_sec: number; talk_time_sec: number }
+  tickets: { open: number; resolved: number }
+  qa:      { evaluations: number; avg_score: number | null; pass_rate: number | null }
+  recent_calls: { id: number; direction: string; customer: string; phone: string; outcome: string; duration_sec: number | null; started_at: string; ticket_id: number | null }[]
+}
+
+function AgentDetailModal({ agent, dateFrom, dateTo, onClose, onOpenTicket }: {
+  agent: { id: number; name: string } | null; dateFrom: string; dateTo: string
+  onClose: () => void; onOpenTicket: (id: number) => void
+}) {
+  const [data, setData] = useState<AgentDetail | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!agent) { setData(null); return }
+    let alive = true
+    setLoading(true)
+    apiFetch<AgentDetail>(`/api/helpdesk/agents/${agent.id}/detail?date_from=${dateFrom}&date_to=${dateTo}`)
+      .then(d => { if (alive) setData(d) })
+      .catch(() => { if (alive) setData(null) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [agent, dateFrom, dateTo])
+
+  if (!agent) return null
+  const c = data?.calls
+  const connectRate = c && num(c.total) > 0 ? Math.round((num(c.connected) / num(c.total)) * 100) : 0
+
+  const Stat = ({ label, value, color }: { label: string; value: React.ReactNode; color?: string }) => (
+    <div style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '9px 11px' }}>
+      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+      <div style={{ ...NUM, fontSize: 19, fontWeight: FW.extrabold, color: color ?? 'var(--txt)', marginTop: 3, lineHeight: 1 }}>{value}</div>
+    </div>
+  )
+  const secLbl: React.CSSProperties = { fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 7 }
+
+  return (
+    <Modal open={!!agent} onClose={onClose} title={`Agent · ${agent.name}`} width={660}>
+      {loading && !data ? (
+        <div style={{ padding: 44, textAlign: 'center' }}><Spinner size={26} /></div>
+      ) : data ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.semibold }}>{data.agent.role || '—'}{data.agent.department ? ` · ${data.agent.department}` : ''}</span>
+            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '2px 9px', borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', color: 'var(--chip-txt)', textTransform: 'capitalize' }}>{data.agent.status}</span>
+            {data.agent.email && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{data.agent.email}</span>}
+            {data.agent.phone && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: 'var(--font-mono)' }}>{data.agent.phone}</span>}
+          </div>
+
+          <div>
+            <div style={secLbl}>Call performance{dateFrom || dateTo ? ' · selected range' : ''}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(104px, 1fr))', gap: SP[2] }}>
+              <Stat label="Total"          value={num(c?.total).toLocaleString()} />
+              <Stat label="Outbound"       value={num(c?.outbound).toLocaleString()} color={BLUE} />
+              <Stat label="Inbound"        value={num(c?.inbound).toLocaleString()} color={NAVY} />
+              <Stat label="Connected"      value={num(c?.connected).toLocaleString()} color={GREEN} />
+              <Stat label="Connect rate"   value={`${connectRate}%`} color={GREEN} />
+              <Stat label="Missed (in)"    value={num(c?.missed).toLocaleString()} color={RED} />
+              <Stat label="No answer (out)" value={num(c?.no_answer).toLocaleString()} color={AMBER} />
+              <Stat label="Talk time"      value={fmtDuration(num(c?.talk_time_sec))} color={PURPLE} />
+            </div>
+          </div>
+
+          <div>
+            <div style={secLbl}>Tickets & QA</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(104px, 1fr))', gap: SP[2] }}>
+              <Stat label="Open tickets" value={num(data.tickets.open).toLocaleString()} />
+              <Stat label="Resolved"     value={num(data.tickets.resolved).toLocaleString()} color={GREEN} />
+              <Stat label="QA avg"       value={data.qa.avg_score != null ? `${data.qa.avg_score}%` : '—'} />
+              <Stat label="QA pass"      value={data.qa.pass_rate != null ? `${data.qa.pass_rate}%` : '—'} />
+              <Stat label="Evaluations"  value={num(data.qa.evaluations).toLocaleString()} />
+            </div>
+          </div>
+
+          <div>
+            <div style={secLbl}>Recent calls</div>
+            {data.recent_calls.length === 0 ? (
+              <div style={{ color: 'var(--txt3)', fontSize: TEXT.sm, padding: '6px 0' }}>No calls in range.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 236, overflowY: 'auto' }}>
+                {data.recent_calls.map((rc, i) => {
+                  const inbound = (rc.direction || '').toLowerCase() === 'inbound'
+                  const answered = !['missed', 'no_answer', 'voicemail'].includes((rc.outcome || '').toLowerCase())
+                  const label = answered ? 'Done' : inbound ? 'Missed' : 'No answer'
+                  const col = answered ? GREEN : inbound ? RED : 'var(--txt3)'
+                  return (
+                    <div key={rc.id} onClick={() => { if (rc.ticket_id) onOpenTicket(rc.ticket_id) }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 2px', borderBottom: i < data.recent_calls.length - 1 ? '1px solid var(--bdr)' : 'none', cursor: rc.ticket_id ? 'pointer' : 'default' }}>
+                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rc.customer}</span>
+                      {rc.phone && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: 'var(--font-mono)' }}>{rc.phone}</span>}
+                      <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{inbound ? 'In' : 'Out'} · {fmtDuration(rc.duration_sec)}</span>
+                      <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: col, width: 62, textAlign: 'right' }}>{label}</span>
+                      <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', width: 74, textAlign: 'right' }}>{fmtDate(rc.started_at)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{ padding: 24, color: 'var(--txt3)' }}>Could not load this agent.</div>
+      )}
+    </Modal>
   )
 }

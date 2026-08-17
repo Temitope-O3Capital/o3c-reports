@@ -2,12 +2,17 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, DateFilter, NameCell,
+  Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, Modal, DateFilter, NameCell,
 } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
+
+// Heads/supervisors distribute and (re)assign leads; agents only work their own book.
+function isHeadRole(): boolean {
+  try { return /head|admin|super|manager|lead|supervisor/i.test(String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '')) } catch { return false }
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -197,6 +202,78 @@ function DetailPanel({ lead, onRefresh }: { lead: Lead; onRefresh: () => void })
   )
 }
 
+// ── Import leads modal (heads/supervisors) ─────────────────────────────────────
+
+function ImportLeadsModal({ open, onClose, onDone, campaigns }: {
+  open: boolean; onClose: () => void; onDone: () => void; campaigns: CCCampaign[]
+}) {
+  const [campaignId, setCampaignId] = useState('')
+  const [raw, setRaw] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  // One lead per line: "name, phone, cif?, employer?" — a name or a phone is enough.
+  const parsed = raw.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+    const [name = '', phone = '', cif = '', employer = ''] = line.split(',').map(s => s.trim())
+    return { name, phone, cif, employer }
+  }).filter(l => l.name || l.phone)
+
+  async function submit() {
+    if (parsed.length === 0) { setErr('Add at least one row with a name or phone'); return }
+    setSaving(true); setErr(null)
+    try {
+      const body: Record<string, any> = { leads: parsed }
+      if (campaignId) body.campaign_id = Number(campaignId)
+      const res = await apiPost<{ inserted: number; skipped: number }>('/api/call-center/leads/import', body)
+      toast.success(`${res.inserted ?? 0} lead(s) uploaded${res.skipped ? ` · ${res.skipped} skipped` : ''}`)
+      setRaw(''); setCampaignId(''); onDone(); onClose()
+    } catch (e: any) { setErr(e.message ?? 'Upload failed') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Upload Lead List" width={480}
+      footer={
+        <>
+          <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving || parsed.length === 0}
+            style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (saving || !parsed.length) ? 'not-allowed' : 'pointer', opacity: (saving || !parsed.length) ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {saving && <Spinner size={13} color="#fff" />}Upload{parsed.length ? ` ${parsed.length}` : ''}
+          </button>
+        </>
+      }
+    >
+      <ErrBanner error={err} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {campaigns.length > 0 && (
+          <div>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Campaign (optional)</label>
+            <select value={campaignId} onChange={e => setCampaignId(e.target.value)}
+              style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}>
+              <option value="">No campaign</option>
+              {campaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+            </select>
+          </div>
+        )}
+        <div>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+            Leads — one per line: name, phone, cif, employer
+          </label>
+          <textarea
+            spellCheck={false}
+            value={raw}
+            onChange={e => setRaw(e.target.value)}
+            rows={9}
+            placeholder={'Jane Doe, 08012345678\nJohn Smith, 08087654321, 00012345, Acme Corp'}
+            style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: INTER }}
+          />
+        </div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{parsed.length} valid row(s) detected · duplicates by phone are skipped</div>
+      </div>
+    </Modal>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function CallCenterLeads() {
@@ -214,6 +291,8 @@ export default function CallCenterLeads() {
   const [dateFrom, setDateFrom]     = useState(monthStart())
   const [dateTo,   setDateTo]       = useState(today())
 
+  const isHead = isHeadRole()
+
   // Selection
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
   const [assignAgentId, setAssignAgentId] = useState('')
@@ -222,6 +301,7 @@ export default function CallCenterLeads() {
   const [assigning, setAssigning]       = useState(false)
   const [distributing, setDistributing] = useState(false)
   const [distributeConfirm, setDistributeConfirm] = useState(false)
+  const [importOpen, setImportOpen]     = useState(false)
 
   const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
   const load = useCallback(async (refreshSelected?: number) => {
@@ -322,8 +402,19 @@ export default function CallCenterLeads() {
   const selectedCampaignName = campaigns.find(c => String(c.id) === campaignId)?.name ?? 'All Campaigns'
 
   return (
-    <Page title="Leads" subtitle="Contacts pushed from email & SMS campaigns" noPad
-      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+    <Page title="Leads" subtitle="Contacts pushed from email & SMS campaigns, or uploaded here" noPad
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          {isHead && (
+            <button onClick={() => setImportOpen(true)} title="Upload a lead list"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: NAVY, color: '#fff', border: `1px solid ${NAVY}`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
+              Upload leads
+            </button>
+          )}
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        </div>
+      }
     >
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
@@ -337,7 +428,8 @@ export default function CallCenterLeads() {
               <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'var(--chip-bg)', color: 'var(--chip-txt)', padding: '1px 7px', borderRadius: RADIUS['2xl'] }}>
                 {leads.length}
               </span>
-              {/* Distribute button */}
+              {/* Distribute button — heads/supervisors only. */}
+              {isHead && (
               <button
                 onClick={() => setDistributeConfirm(true)}
                 disabled={distributing || unassigned === 0}
@@ -355,6 +447,7 @@ export default function CallCenterLeads() {
                 )}
                 Distribute
               </button>
+              )}
             </div>
 
             {/* Mini stats */}
@@ -414,8 +507,8 @@ export default function CallCenterLeads() {
             </div>
           </div>
 
-          {/* Batch bar */}
-          {checkedIds.size > 0 && (
+          {/* Batch (re)assign bar — heads/supervisors only. */}
+          {isHead && checkedIds.size > 0 && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 6,
               padding: '7px 10px', background: '#F0F4FF',
@@ -544,6 +637,9 @@ export default function CallCenterLeads() {
           )}
         </div>
       </div>
+
+      {/* Upload lead list — heads/supervisors */}
+      <ImportLeadsModal open={importOpen} onClose={() => setImportOpen(false)} onDone={load} campaigns={campaigns} />
 
       {/* Distribute confirm modal */}
       <ConfirmModal

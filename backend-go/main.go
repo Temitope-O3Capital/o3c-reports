@@ -99,6 +99,10 @@ func main() {
 	// Push due-soon / overdue task notifications hourly.
 	go handlers.ScheduleTaskNotifications(db)
 
+	// Call-back reminders — every minute, alert the assigned agent when a scheduled
+	// call-back comes due (in-app bell + email), exactly once per callback.
+	go handlers.StartCallbackReminderWorker(db)
+
 	// Birthday worker — fires daily at 08:00.
 	go handlers.ScheduleBirthdayWorker(db)
 
@@ -130,6 +134,12 @@ func main() {
 	// it the customer master stays frozen at the mssql_baseline snapshot and every
 	// acquisition figure in Sales & CRM understates reality.
 	go handlers.StartCustomerFeedWorker(db)
+
+	// Phoenix — drain the credit-decisioning submission queue every 30s. Submission is
+	// queued rather than done inline so a Phoenix restart or a slow decision can never
+	// fail a risk officer's click or drop an application. Idles until PHOENIX_BASE_URL
+	// and PHOENIX_API_KEY are set, so this is safe to run before Phoenix is deployed.
+	go handlers.StartPhoenixOutboxWorker(db)
 
 	// Paystack — mirror the live account (funding in, transfers out, settlements,
 	// disputes) into the local snapshot tables every PAYSTACK_SYNC_INTERVAL
@@ -270,6 +280,13 @@ func main() {
 	// authenticated on ?key=ZOHO_WEBHOOK_SECRET). Records the event and triggers an
 	// incremental sync. Dormant until the secret + public ingress are configured.
 	r.Post("/api/zoho/webhook", handlers.ZohoWebhook(db))
+
+	// Phoenix (credit decisioning) — inbound events for applications originated in
+	// Phoenix and for decisions on applications we submitted. Authenticated by
+	// HMAC-SHA256 over the raw body (X-Phoenix-Signature), so it sits outside the JWT
+	// middleware. Returns 503 until PHOENIX_WEBHOOK_SECRET is set, rather than
+	// accepting unauthenticated writes into the risk queue.
+	r.Post("/api/phoenix/webhook", handlers.PhoenixWebhook(db))
 
 	// Email open-pixel and click-redirect tracking (embedded in campaign emails — no JWT)
 	r.Get("/t/o/{tracking_id}", handlers.TrackOpen(db))
@@ -520,6 +537,9 @@ func main() {
 		})
 		r.Route("/api/risk", func(r chi.Router) {
 			handlers.RegisterRisk(r, db)
+		})
+		r.Route("/api/phoenix", func(r chi.Router) {
+			handlers.RegisterPhoenix(r, db)
 		})
 		r.Route("/api/me", func(r chi.Router) {
 			handlers.RegisterMe(r, db)

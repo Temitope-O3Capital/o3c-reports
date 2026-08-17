@@ -67,7 +67,18 @@ function messageLine(t: Ticket): string {
   return (t.last_message_preview || '').trim() || s || '(no message)'
 }
 
-const STATUS_CHIPS = [{ value: 'open', label: 'Open' }, { value: 'pending', label: 'Pending' }, { value: 'in_progress', label: 'In Progress' }, { value: 'escalated', label: 'Escalated' }]
+// 'escalated' is deliberately NOT here. It is not a legal value in
+// helpdesk_tickets_status_check, so this chip matched nothing and always showed
+// an empty list. Escalation is a flag now and has its own bucket chip below.
+const STATUS_CHIPS = [{ value: 'open', label: 'Open' }, { value: 'pending', label: 'Pending' }, { value: 'in_progress', label: 'In Progress' }]
+// Scope tabs — available to everyone, including leaf agents, because assisting on
+// another team's ticket first requires being able to find it.
+const SCOPE_TABS = [
+  { value: 'mine',      label: 'Mine',       icon: 'assignment_ind' },
+  { value: 'unassigned',label: 'Unclaimed',  icon: 'person_off' },
+  { value: 'assisting', label: 'Assisting',  icon: 'volunteer_activism' },
+  { value: 'all',       label: 'All tickets',icon: 'inbox' },
+] as const
 const CHANNEL_CHIPS = [{ value: '', label: 'All' }, { value: 'web', label: 'Web' }, { value: 'social', label: 'Social' }]
 const SORT_OPTS = [
   { value: 'waiting', label: 'Longest waiting on us' }, { value: 'newest', label: 'Newest first' },
@@ -269,7 +280,10 @@ export default function Tickets() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [channelFilter, setChannelFilter] = useState('')
-  const [view, setView] = useState<'all' | 'unassigned' | 'mine'>('all')
+  // Maps 1:1 onto the backend's ?scope=. "all" is now genuinely all tickets for
+  // an agent too — cross-team assist needs you to be able to FIND a colleague's
+  // ticket, not only open one you were sent a link to.
+  const [view, setView] = useState<'all' | 'unassigned' | 'mine' | 'assisting'>('all')
   const [agentFilter, setAgentFilter] = useState('')
   const [bucket, setBucket] = useState('')
   const [sort, setSort] = useState('waiting')
@@ -288,9 +302,10 @@ export default function Tickets() {
       if (statusFilter) p.set('status', statusFilter)
       if (channelFilter) p.set('channel', channelFilter)
       if (debouncedSearch) p.set('search', debouncedSearch)
+      // scope drives row-level visibility server-side; assigned_to stays as the
+      // explicit "show me THIS agent's tickets" filter a supervisor picks.
       if (agentFilter) p.set('assigned_to', agentFilter)
-      else if (view === 'unassigned') p.set('assigned_to', 'unassigned')
-      else if (view === 'mine') p.set('assigned_to', 'me')
+      else p.set('scope', view)
       if (bucket) p.set('bucket', bucket)
       if (sort) p.set('sort', sort)
       p.set('exclude_channel', 'email,call'); p.set('page', String(page)); p.set('per_page', String(PER_PAGE))
@@ -303,7 +318,10 @@ export default function Tickets() {
 
   const loadSummary = useCallback(async () => {
     try {
-      const p = new URLSearchParams({ exclude_channel: 'email,call' })
+      // Same scope as the list, or the chips count a set the list can't show —
+      // that mismatch is why the "unassigned" chip used to display a number over
+      // an empty list for leaf agents.
+      const p = new URLSearchParams({ exclude_channel: 'email,call', scope: 'all' })
       if (channelFilter) p.set('channel', channelFilter)
       const raw = await apiFetch<any>(`/api/helpdesk/tickets/summary?${p}`)
       setSummary((raw?.data ?? raw) as QueueSummary)
@@ -323,7 +341,7 @@ export default function Tickets() {
     }
   }, [reassignOpen, privileged, agents.length])
 
-  function pickView(v: 'all' | 'unassigned' | 'mine') { setView(v); setAgentFilter(''); setBucket(''); setPage(1) }
+  function pickView(v: 'all' | 'unassigned' | 'mine' | 'assisting') { setView(v); setAgentFilter(''); setBucket(''); setPage(1) }
   function pickBucket(b: string) { setBucket(prev => prev === b ? '' : b); setView('all'); setAgentFilter(''); setPage(1) }
   function toggleCheck(id: number, e: React.MouseEvent) { e.stopPropagation(); setCheckedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
 
@@ -379,7 +397,9 @@ export default function Tickets() {
         </div>
       </div>
 
-      {/* KPI cards */}
+      {/* KPI cards — team triage; agents only see their own queue, so these team-wide
+          buckets (and the by-agent filter) are shown to heads/supervisors only. */}
+      {privileged && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: SP[3], padding: '16px 24px 0', flexShrink: 0 }}>
         <TriageCard icon="inbox" label="Open" value={summary?.open} color={NAVY} active={!bucket && view === 'all' && !agentFilter} onClick={() => pickView('all')} />
         <TriageCard icon="alarm" label="Overdue" value={summary?.overdue} color={RED} active={bucket === 'overdue'} onClick={() => pickBucket('overdue')} />
@@ -387,6 +407,42 @@ export default function Tickets() {
         <TriageCard icon="schedule_send" label="Awaiting customer" value={summary?.awaiting_customer} color={BLUE} active={bucket === 'awaiting_customer'} onClick={() => pickBucket('awaiting_customer')} />
         <TriageCard icon="person_off" label="Unassigned" value={summary?.unassigned} color={AMBER} active={view === 'unassigned'} onClick={() => pickView(view === 'unassigned' ? 'all' : 'unassigned')} />
         <TriageCard icon="assignment_ind" label="Assigned to me" value={summary?.mine} color={PURPLE} active={view === 'mine'} onClick={() => pickView(view === 'mine' ? 'all' : 'mine')} />
+      </div>
+      )}
+
+      {/* Scope tabs — shown to EVERYONE. An agent used to be pinned to their own
+          rows with no way to reach a colleague's ticket, so nobody could cover for
+          anyone. "All tickets" is now reachable by agents; ownership is still
+          protected by the assist model on the ticket itself. */}
+      <div style={{ display: 'flex', gap: 6, padding: '16px 24px 0', flexShrink: 0, flexWrap: 'wrap' }}>
+        {SCOPE_TABS.map(t => {
+          const active = view === t.value && !agentFilter && !bucket
+          return (
+            <button key={t.value} onClick={() => pickView(t.value)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 13px',
+                border: `1px solid ${active ? NAVY : 'var(--bdr)'}`, borderRadius: RADIUS['2xl'],
+                background: active ? NAVY : 'var(--card)', color: active ? '#fff' : 'var(--txt2)',
+                fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+              }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{t.icon}</span>
+              {t.label}
+              {t.value === 'unassigned' && summary?.unassigned ? ` (${summary.unassigned})` : ''}
+              {t.value === 'mine' && summary?.mine ? ` (${summary.mine})` : ''}
+            </button>
+          )
+        })}
+        <button onClick={() => pickBucket('escalated')}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 13px',
+            border: `1px solid ${bucket === 'escalated' ? RED : 'var(--bdr)'}`, borderRadius: RADIUS['2xl'],
+            background: bucket === 'escalated' ? RED : 'var(--card)',
+            color: bucket === 'escalated' ? '#fff' : 'var(--txt2)',
+            fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+          }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>priority_high</span>
+          Escalated
+        </button>
       </div>
 
       <div style={{ padding: '0 24px 16px', flexShrink: 0 }}><ErrBanner error={err} onRetry={load} /></div>

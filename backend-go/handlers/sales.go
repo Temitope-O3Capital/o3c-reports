@@ -25,49 +25,63 @@ const salesOfficerPredicate = `
 	OR EXISTS (SELECT 1 FROM sales_targets st WHERE st.user_id = u.id)`
 
 func RegisterSales(r chi.Router, db *core.DB) {
-	r.Use(core.RequirePages("sales"))
-	r.Get("/kpis", salesKPIs(db))
-	r.Get("/loan-kpis", salesLoanKPIs(db))                         // loan-platform KPIs for Sales Overview
-	r.Get("/monthly-disbursements", salesMonthlyDisbursements(db)) // 12-month disbursements trend
-	r.Get("/recent-applications", salesRecentApplications(db))     // recent LOS applications
-	r.Get("/top-performers", salesTopPerformers(db))               // top officers by disbursements
-	r.Get("/contact-kpis", salesContactKPIs(db))                   // CRM contact KPIs
-	r.Get("/task-kpis", salesTaskKPIs(db))                         // CRM task KPIs
-	r.Get("/funnel", salesFunnel(db))
-	r.Get("/accounts-trend", salesAccountsTrend(db))
-	r.Get("/by-state", salesByState(db))
-	r.Get("/by-city", salesByCity(db))
-	r.Get("/manager-performance", salesManagerPerformance(db))
-	r.Get("/product-mix", salesProductMix(db))
-	r.Get("/customers", salesCustomers(db))
-
-	// Sales Targets (Wave 5G)
+	// This is only the FIRST of several registrars mounted on the shared
+	// /api/sales router (main.go also mounts RegisterSalesBook, RegisterSalesLeads,
+	// RegisterSalesOverview, RegisterSalesApplications on this same router). A bare
+	// `r.Use(core.RequirePages("sales"))` here would apply to ALL of them and
+	// override the wider per-route guards those files declare (sales+crm_contacts,
+	// sales+crm_contacts+bd, …) — locking BD/call-centre users who hold
+	// crm_contacts/bd but not `sales` out of the entire /api/sales tree.
 	//
-	// Reading a target is open to the team — an officer must be able to see the
-	// number they are held to, and the league table is deliberately visible to
-	// everyone. Writing is not: a target is set for you by your supervisor, never
-	// by yourself. Until now every write here was reachable by any user holding
-	// the `sales` page, so an officer could raise, lower or delete their own
-	// target — and the actuals they are measured against came from the same page.
-	r.Get("/targets", salesTargetList(db))
-	r.Get("/targets/actuals", salesTargetActuals(db))
+	// Confine the `sales` page requirement to THIS registrar's own routes with an
+	// inline r.Group sub-router. In chi, r.Group's middleware applies only to the
+	// routes registered inside the closure; it does not touch routes the sibling
+	// registrars add to the parent router.
 	r.Group(func(r chi.Router) {
-		r.Use(requireSalesHead)
-		r.Post("/targets", salesTargetCreate(db))
-		r.Patch("/targets/{id}", salesTargetUpdate(db))
-		r.Delete("/targets/{id}", salesTargetDelete(db))
+		r.Use(core.RequirePages("sales"))
+		r.Get("/kpis", salesKPIs(db))
+		r.Get("/loan-kpis", salesLoanKPIs(db))                         // loan-platform KPIs for Sales Overview
+		r.Get("/monthly-disbursements", salesMonthlyDisbursements(db)) // 12-month disbursements trend
+		r.Get("/recent-applications", salesRecentApplications(db))     // recent LOS applications
+		r.Get("/top-performers", salesTopPerformers(db))               // top officers by disbursements
+		r.Get("/contact-kpis", salesContactKPIs(db))                   // CRM contact KPIs
+		r.Get("/task-kpis", salesTaskKPIs(db))                         // CRM task KPIs
+		r.Get("/funnel", salesFunnel(db))
+		r.Get("/accounts-trend", salesAccountsTrend(db))
+		r.Get("/by-state", salesByState(db))
+		r.Get("/by-city", salesByCity(db))
+		r.Get("/manager-performance", salesManagerPerformance(db))
+		r.Get("/product-mix", salesProductMix(db))
+		r.Get("/customers", salesCustomers(db))
+
+		// Sales Targets (Wave 5G)
+		//
+		// Reading a target is open to the team — an officer must be able to see the
+		// number they are held to, and the league table is deliberately visible to
+		// everyone. Writing is not: a target is set for you by your supervisor, never
+		// by yourself. Until now every write here was reachable by any user holding
+		// the `sales` page, so an officer could raise, lower or delete their own
+		// target — and the actuals they are measured against came from the same page.
+		r.Get("/targets", salesTargetList(db))
+		r.Get("/targets/actuals", salesTargetActuals(db))
+		r.Group(func(r chi.Router) {
+			r.Use(requireSalesHead)
+			r.Post("/targets", salesTargetCreate(db))
+			r.Patch("/targets/{id}", salesTargetUpdate(db))
+			r.Delete("/targets/{id}", salesTargetDelete(db))
+		})
+
+		// Marketing analytics (Wave 5G)
+		r.Get("/by-lead-source", salesByLeadSource(db))
+		r.Get("/campaign-attribution", salesCampaignAttribution(db))
+
+		// Cohort heatmap
+		r.Get("/cohort-matrix", salesCohortMatrix(db))
+		r.Get("/cohort-detail", salesCohortDetail(db))
+
+		// Agent dashboard
+		r.Get("/my-dashboard", salesMyDashboard(db))
 	})
-
-	// Marketing analytics (Wave 5G)
-	r.Get("/by-lead-source", salesByLeadSource(db))
-	r.Get("/campaign-attribution", salesCampaignAttribution(db))
-
-	// Cohort heatmap
-	r.Get("/cohort-matrix", salesCohortMatrix(db))
-	r.Get("/cohort-detail", salesCohortDetail(db))
-
-	// Agent dashboard
-	r.Get("/my-dashboard", salesMyDashboard(db))
 }
 
 func salesMyDashboard(db *core.DB) http.HandlerFunc {
@@ -450,17 +464,43 @@ func salesByCity(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// salesManagerPerformance ranks each account officer ("Account Manager") by the
+// applications they carry and how many of those actually booked. There is no
+// manager hierarchy on o3c_users, so the officer who owns the application is the
+// unit of measure here — the same officer/user join salesTopPerformers and
+// salesTargetActuals use. "active_accounts" counts booked/disbursed loans using
+// the file-wide booked definition (stage='active'), so activation_rate is the
+// share of an officer's book that actually funded. Kept Postgres-only because
+// loan_applications / o3c_users are PG tables (as elsewhere in this file), and
+// the declared column shape (Account Manager / total / active / rate) is
+// preserved so any future consumer sees the contract it expects.
 func salesManagerPerformance(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		data, src, err := db.DualQuery(r.Context(),
-			`SELECT NULL::text AS "Account Manager", 0::bigint AS total_accounts,
-			        0::bigint AS active_accounts, 0::numeric AS activation_rate
-			 WHERE false`)
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT u.full_name AS "Account Manager",
+			       COUNT(la.id)                                          AS total_accounts,
+			       COUNT(la.id) FILTER (WHERE la.stage = 'active')       AS active_accounts,
+			       CASE WHEN COUNT(la.id) = 0 THEN 0::numeric
+			            ELSE ROUND(
+			                COUNT(la.id) FILTER (WHERE la.stage = 'active')::numeric
+			                / COUNT(la.id)::numeric * 100, 1)
+			       END                                                   AS activation_rate
+			FROM loan_applications la
+			JOIN o3c_users u ON u.id = COALESCE(la.sales_officer_id, la.created_by)
+			WHERE ($1 = '' OR la.created_at::date >= $1::date)
+			  AND ($2 = '' OR la.created_at::date <= $2::date)
+			GROUP BY u.id, u.full_name
+			ORDER BY active_accounts DESC, total_accounts DESC`, from, to)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
-		respond(w, data, src)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
 	}
 }
 
@@ -522,7 +562,8 @@ func salesTargetList(db *core.DB) http.HandlerFunc {
 		}
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT st.id, st.user_id, u.full_name, u.email, st.period,
-			       st.loan_count, st.disbursement_kobo, st.notes, st.updated_at
+			       st.loan_count, st.disbursement_kobo,
+			       st.fd_count, st.fd_amount_kobo, st.notes, st.updated_at
 			FROM sales_targets st
 			JOIN o3c_users u ON u.id = st.user_id
 			%s ORDER BY st.period DESC, u.full_name`, where), args...)
@@ -544,6 +585,8 @@ func salesTargetCreate(db *core.DB) http.HandlerFunc {
 			Period           string `json:"period"`
 			LoanCount        int    `json:"loan_count"`
 			DisbursementKobo int64  `json:"disbursement_kobo"`
+			FDCount          int    `json:"fd_count"`
+			FDAmountKobo     int64  `json:"fd_amount_kobo"`
 			Notes            string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -552,12 +595,12 @@ func salesTargetCreate(db *core.DB) http.HandlerFunc {
 		}
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(),
-			`INSERT INTO sales_targets (user_id, period, loan_count, disbursement_kobo, notes, created_by)
-			 VALUES ($1,$2,$3,$4,$5,$6)
+			`INSERT INTO sales_targets (user_id, period, loan_count, disbursement_kobo, fd_count, fd_amount_kobo, notes, created_by)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 			 ON CONFLICT (user_id, period) DO UPDATE
-			   SET loan_count=$3, disbursement_kobo=$4, notes=$5, updated_at=NOW()
+			   SET loan_count=$3, disbursement_kobo=$4, fd_count=$5, fd_amount_kobo=$6, notes=$7, updated_at=NOW()
 			 RETURNING *`,
-			body.UserID, body.Period, body.LoanCount, body.DisbursementKobo, body.Notes, user.ID)
+			body.UserID, body.Period, body.LoanCount, body.DisbursementKobo, body.FDCount, body.FDAmountKobo, body.Notes, user.ID)
 		if err != nil {
 			respondErrLog(w, 500, "DB error", err)
 			return
@@ -576,6 +619,8 @@ func salesTargetUpdate(db *core.DB) http.HandlerFunc {
 		var body struct {
 			LoanCount        int    `json:"loan_count"`
 			DisbursementKobo int64  `json:"disbursement_kobo"`
+			FDCount          int    `json:"fd_count"`
+			FDAmountKobo     int64  `json:"fd_amount_kobo"`
 			Notes            string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -583,9 +628,9 @@ func salesTargetUpdate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		rows, err := db.PGQuery(r.Context(),
-			`UPDATE sales_targets SET loan_count=$1, disbursement_kobo=$2, notes=$3, updated_at=NOW()
-			 WHERE id=$4 RETURNING *`,
-			body.LoanCount, body.DisbursementKobo, body.Notes, id)
+			`UPDATE sales_targets SET loan_count=$1, disbursement_kobo=$2, fd_count=$3, fd_amount_kobo=$4, notes=$5, updated_at=NOW()
+			 WHERE id=$6 RETURNING *`,
+			body.LoanCount, body.DisbursementKobo, body.FDCount, body.FDAmountKobo, body.Notes, id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Not found")
 			return
@@ -615,24 +660,52 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			}
 			periodExpr = fmt.Sprintf("DATE_TRUNC('month', '%s-01'::date)", period)
 		}
+		// Actuals now come from the Udara CBS snapshot (cbs_loans / cbs_fixed_deposits),
+		// not loan_applications. Both books key on cbs_customer_id, which carries the
+		// CIF, and officer attribution flows through customer_officers (officer_id owns a
+		// cif). The two book aggregations are pre-grouped per officer in subqueries and
+		// LEFT JOINed onto o3c_users so the every-officer-with-a-target-shows-up
+		// behaviour is preserved: the anchor is still the officer row, and an officer
+		// with a target but no booked loans/FDs comes back with zeros rather than
+		// dropping out. customer_officers may be empty today (0 officers) — that just
+		// yields all-zero actuals, which is correct.
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT u.id AS user_id, u.full_name,
 			       COALESCE(t.loan_count,0)        AS target_loans,
 			       COALESCE(t.disbursement_kobo,0) AS target_kobo,
-			       COUNT(a.id)                     AS actual_loans,
-			       COALESCE(SUM(a.amount_approved_kobo),0) AS actual_kobo
+			       COALESCE(t.fd_count,0)          AS target_fds,
+			       COALESCE(t.fd_amount_kobo,0)    AS target_fd_kobo,
+			       COALESCE(la.actual_loans,0)     AS actual_loans,
+			       COALESCE(la.actual_kobo,0)      AS actual_kobo,
+			       COALESCE(fd.actual_fds,0)       AS actual_fds,
+			       COALESCE(fd.actual_fd_kobo,0)   AS actual_fd_kobo
 			FROM o3c_users u
 			LEFT JOIN sales_targets t
 			    ON t.user_id=u.id AND DATE_TRUNC('month',(t.period||'-01')::date)=%s
-			LEFT JOIN loan_applications a
-			    ON COALESCE(a.sales_officer_id, a.created_by)=u.id
-			    AND DATE_TRUNC('month',a.created_at)=%s
-			    AND ($1 = '' OR a.created_at::date >= $1::date)
-			    AND ($2 = '' OR a.created_at::date <= $2::date)
-			    AND a.stage NOT IN ('withdrawn')
+			LEFT JOIN (
+			    SELECT co.officer_id,
+			           COUNT(l.cbs_id)                     AS actual_loans,
+			           COALESCE(SUM(l.loan_amount_kobo),0) AS actual_kobo
+			    FROM customer_officers co
+			    JOIN cbs_loans l ON l.cbs_customer_id = co.cif
+			    WHERE DATE_TRUNC('month', l.start_date) = %s
+			      AND ($1 = '' OR l.start_date::date >= $1::date)
+			      AND ($2 = '' OR l.start_date::date <= $2::date)
+			    GROUP BY co.officer_id
+			) la ON la.officer_id = u.id
+			LEFT JOIN (
+			    SELECT co.officer_id,
+			           COUNT(f.cbs_id)                   AS actual_fds,
+			           COALESCE(SUM(f.principal_kobo),0) AS actual_fd_kobo
+			    FROM customer_officers co
+			    JOIN cbs_fixed_deposits f ON f.cbs_customer_id = co.cif
+			    WHERE DATE_TRUNC('month', f.commencement_date) = %s
+			      AND ($1 = '' OR f.commencement_date::date >= $1::date)
+			      AND ($2 = '' OR f.commencement_date::date <= $2::date)
+			    GROUP BY co.officer_id
+			) fd ON fd.officer_id = u.id
 			WHERE u.deleted_at IS NULL AND (`+salesOfficerPredicate+`)
-			GROUP BY u.id, u.full_name, t.loan_count, t.disbursement_kobo
-			ORDER BY actual_kobo DESC`, periodExpr, periodExpr), from, to)
+			ORDER BY actual_kobo DESC`, periodExpr, periodExpr, periodExpr), from, to)
 		if err != nil {
 			respondErrLog(w, 500, "DB error", err)
 			return

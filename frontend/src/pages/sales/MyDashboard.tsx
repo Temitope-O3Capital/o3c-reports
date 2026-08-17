@@ -2,11 +2,12 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
-import { Page, SectionCard, KpiCard, DataTable, ErrBanner, Spinner } from '../../components/UI'
+import { Page, SectionCard, DataTable, ErrBanner, Spinner } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, fmtDate } from '../../lib/fmt'
-import { RED, AMBER, BLUE, GREEN, NAVY, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { WorkspaceHero, MyDaySection, MyDayTile, StatusPill, HeroButton } from '../../components/MyWorkspace'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,22 +28,13 @@ interface SalesAgentDash {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function StatusPill({ label, color }: { label: string; color: string }) {
-  return (
-    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'], background: `${color}18`, color, whiteSpace: 'nowrap', textTransform: 'capitalize' }}>
-      {label}
-    </span>
-  )
-}
-
 const STAGE_COLORS: Record<string, string> = {
-  Prospect: BLUE, Qualified: AMBER, Proposal: NAVY, Negotiation: '#7C3AED', Won: GREEN,
+  Prospect: BLUE, Qualified: AMBER, Proposal: NAVY, Negotiation: PURPLE, Won: GREEN,
 }
-
 function stageColor(s: string) { return STAGE_COLORS[s] ?? NAVY }
-
 function targetColor(pct: number) { return pct >= 100 ? GREEN : pct >= 70 ? AMBER : RED }
 
+// Charts sit on white cards, so keep the light tooltip variant here.
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
@@ -64,7 +56,7 @@ export default function SalesMyDashboard() {
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null)
+    setError(null)
     try {
       const r = await apiFetch<{ data: SalesAgentDash }>('/api/sales/my-dashboard')
       setData(r.data)
@@ -73,22 +65,21 @@ export default function SalesMyDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(load, { topics: ['deals', 'crm'] })
+  useEffect(() => { const id = setInterval(load, 60000); return () => clearInterval(id) }, [load])
 
-  if (loading) return (
-    <Page title="My Sales Dashboard" back={{ label: 'Sales', to: '/sales/overview' }}>
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}><Spinner size={32} /></div>
-    </Page>
+  if (loading && !data) return (
+    <Page title="My Workspace"><div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}><Spinner size={32} /></div></Page>
   )
-  if (error) return (
-    <Page title="My Sales Dashboard" back={{ label: 'Sales', to: '/sales/overview' }}>
-      <ErrBanner error={error} onRetry={load} />
-    </Page>
-  )
+  if (error && !data) return <Page title="My Workspace"><ErrBanner error={error} onRetry={load} /></Page>
   if (!data) return null
 
   const tColor = targetColor(data.target_pct)
   const achievedPct = Math.min(100, data.target_pct)
+  const remaining = Math.max(0, data.target_kobo - data.achieved_kobo)
+  const stageCount = (name: string) => data.pipeline.find(p => p.stage.toLowerCase() === name)?.count ?? 0
+  const openPipelineValue = data.pipeline.filter(p => p.stage.toLowerCase() !== 'won').reduce((s, p) => s + Number(p.value_kobo), 0)
+  const toProgress = stageCount('prospect') + stageCount('qualified')
 
   const leadCols: TableCol<Lead>[] = [
     { key: 'company_name', label: 'Company', render: r => (
@@ -104,32 +95,54 @@ export default function SalesMyDashboard() {
   ]
 
   return (
-    <Page title="My Sales Dashboard" subtitle="Your pipeline, leads and monthly performance" back={{ label: 'Sales', to: '/sales/overview' }}>
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="My Leads" value={fmtNum(data.my_leads)} icon="contacts" />
-        <KpiCard label="Won MTD" value={fmtNum(data.won_mtd)} icon="emoji_events" accent={GREEN} />
-        <KpiCard label="Conversion Rate" value={fmtPct(data.conversion_rate_pct)} icon="trending_up" accent={BLUE} />
-        <KpiCard
-          label="Target Achievement"
-          value={fmtPct(data.target_pct)}
-          icon="flag"
-          accent={tColor}
-        />
-      </div>
+    <Page title="My Workspace" subtitle="Your sales station — pipeline, targets and leads">
+      <ErrBanner error={error} onRetry={load} />
+
+      <WorkspaceHero
+        subline={data.target_pct >= 100
+          ? <>Target smashed — <strong style={{ color: '#fff' }}>{fmtPct(data.target_pct)}</strong> of your monthly goal 🎉</>
+          : <>You're at <strong style={{ color: '#fff' }}>{fmtPct(data.target_pct)}</strong> of your monthly target · {fmtKobo(remaining)} to go</>}
+        ring={{ value: Math.round(data.target_pct), max: 100, unit: '% target' }}
+        stats={[
+          { label: 'Won MTD', value: fmtNum(data.won_mtd), color: '#4ADE80' },
+          { label: 'My Leads', value: fmtNum(data.my_leads) },
+          { label: 'Conversion', value: fmtPct(data.conversion_rate_pct) },
+          { label: 'Achieved', value: fmtKobo(data.achieved_kobo), color: '#4ADE80' },
+          { label: 'Target', value: fmtKobo(data.target_kobo) },
+          { label: 'Open Pipeline', value: fmtKobo(openPipelineValue) },
+        ]}
+        actions={<>
+          <HeroButton icon="view_kanban" label="Pipeline" primary onClick={() => navigate('/sales/crm')} />
+          <HeroButton icon="contacts" label="My Leads" onClick={() => navigate('/sales/leads')} />
+          <HeroButton icon="account_balance_wallet" label="My Book" onClick={() => navigate('/sales/book')} />
+          <HeroButton icon="note_add" label="New Application" onClick={() => navigate('/sales/applications')} />
+          <HeroButton icon="checklist" label="Tasks" onClick={() => navigate('/sales/tasks')} />
+          <HeroButton icon="flag" label="Targets" onClick={() => navigate('/sales/targets')} />
+        </>}
+      />
+
+      {/* ── My Day ─────────────────────────────────────────────────────────── */}
+      <MyDaySection hint="deals to move today">
+        <MyDayTile icon="handshake" count={fmtNum(stageCount('negotiation'))} label="In negotiation"
+          sub={stageCount('negotiation') > 0 ? 'close these to win' : 'nothing in negotiation'}
+          color={PURPLE} urgent={stageCount('negotiation') > 0} onClick={() => navigate('/sales/crm')} />
+        <MyDayTile icon="description" count={fmtNum(stageCount('proposal'))} label="Proposals out"
+          sub="awaiting a decision" color={BLUE} onClick={() => navigate('/sales/crm')} />
+        <MyDayTile icon="person_search" count={fmtNum(toProgress)} label="To progress"
+          sub="qualify & advance" color={AMBER} onClick={() => navigate('/sales/leads')} />
+        <MyDayTile icon="flag" count={data.target_pct >= 100 ? 'Met' : fmtKobo(remaining)} label="Gap to target"
+          sub={data.target_pct >= 100 ? 'target achieved' : 'still to book this month'}
+          color={tColor} urgent={data.target_pct < 70} onClick={() => navigate('/sales/targets')} />
+      </MyDaySection>
 
       {/* Target progress bar */}
-      <SectionCard title="Target Progress" style={{ marginBottom: 14 }}>
+      <SectionCard title="Target Progress" style={{ marginBottom: SP[4] }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: SP[2] }}>
           <span>Achieved: <strong style={{ color: 'var(--txt)' }}>{fmtKobo(data.achieved_kobo)}</strong></span>
           <span>Target: <strong style={{ color: 'var(--txt)' }}>{fmtKobo(data.target_kobo)}</strong></span>
         </div>
         <div style={{ height: 12, background: 'var(--th-bg)', borderRadius: RADIUS.full, overflow: 'hidden' }}>
-          <div style={{
-            height: '100%', width: `${achievedPct}%`,
-            background: tColor, borderRadius: RADIUS.full,
-            transition: 'width 0.4s ease',
-          }} />
+          <div style={{ height: '100%', width: `${achievedPct}%`, background: tColor, borderRadius: RADIUS.full, transition: 'width 0.4s ease' }} />
         </div>
         <div style={{ textAlign: 'right', fontSize: TEXT.xs, color: tColor, fontWeight: FW.semibold, marginTop: SP[1] }}>
           {fmtPct(data.target_pct)} of target
@@ -137,7 +150,7 @@ export default function SalesMyDashboard() {
       </SectionCard>
 
       {/* Pipeline + Trend charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: SP[4] }}>
         <SectionCard title="Pipeline by Stage">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data.pipeline} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
@@ -175,12 +188,12 @@ export default function SalesMyDashboard() {
       </div>
 
       {/* Recent leads */}
-      <SectionCard title="Recent Leads" badge={data.recent_leads.length}>
+      <SectionCard title="My Recent Leads" badge={data.recent_leads.length}>
         <DataTable
           cols={leadCols}
           rows={data.recent_leads}
           keyFn={r => r.id}
-          onRowClick={r => navigate("/sales/crm")}
+          onRowClick={r => navigate(`/sales/customers/${r.id}`)}
           searchKeys={['company_name', 'contact_name', 'stage']}
           searchPlaceholder="Search leads…"
           pageSize={10}

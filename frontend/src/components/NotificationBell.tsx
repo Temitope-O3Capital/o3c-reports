@@ -17,12 +17,28 @@ interface Notification {
   action_url?: string   // backend field name
   read_at:     string | null
   created_at:  string
+  // Set by the dispatcher. priority drives the accent; group_count is how many
+  // events a digest row has absorbed — the unassigned-ticket alert used to insert
+  // one row per ticket and produced 4,133 of them for two people.
+  priority?:    'low' | 'normal' | 'high' | 'urgent'
+  group_count?: number
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const SEVERITY_COLOR: Record<string, string> = {
   red: RED, blue: BLUE, amber: AMBER, green: GREEN,
+}
+
+// Priority is the dispatcher's own signal and takes precedence over the older
+// per-type severity, so an urgent SLA breach reads as urgent whatever its type.
+const PRIORITY_COLOR: Record<string, string> = {
+  urgent: RED, high: AMBER, normal: BLUE, low: 'var(--txt3)',
+}
+
+function accentFor(n: Notification): string {
+  if (n.priority && PRIORITY_COLOR[n.priority]) return PRIORITY_COLOR[n.priority]
+  return SEVERITY_COLOR[n.severity ?? ''] ?? BLUE
 }
 
 function fmtTime(iso: string): string {
@@ -224,19 +240,29 @@ export default function NotificationBell() {
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = n.read_at ? 'transparent' : `${BLUE}0A` }}
               >
-                {/* Severity dot */}
+                {/* Priority dot */}
                 <div style={{
                   width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 5,
-                  background: SEVERITY_COLOR[n.severity ?? ''] ?? GREEN,
+                  background: accentFor(n),
                 }} />
                 {/* Content */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
+                    display: 'flex', alignItems: 'baseline', gap: 6,
                     fontSize: 13, fontWeight: 600, color: 'var(--txt)',
                     marginBottom: 3, fontFamily: "'Sora', sans-serif",
                     lineHeight: 1.35,
                   }}>
-                    {n.title}
+                    <span style={{ flex: 1, minWidth: 0 }}>{n.title}</span>
+                    {/* A digest that has absorbed repeats says so, rather than
+                        silently looking like a single event. */}
+                    {(n.group_count ?? 1) > 1 && (
+                      <span style={{
+                        flexShrink: 0, fontSize: 10, fontWeight: 700, fontFamily: MONO,
+                        padding: '1px 6px', borderRadius: 10,
+                        background: `${accentFor(n)}1F`, color: accentFor(n),
+                      }}>×{n.group_count}</span>
+                    )}
                   </div>
                   <div style={{
                     fontSize: 11.5, color: 'var(--txt2)', lineHeight: 1.4,

@@ -163,7 +163,7 @@ const cbsSnapshotLiveSQL = `
 	       COALESCE(SUM(op) FILTER (WHERE dpd > 90),0)::bigint AS par90_kobo,
 	       0::bigint AS new_disbursements_kobo, 0::bigint AS repayments_kobo
 	FROM (SELECT status, outstanding_principal_kobo AS op,
-	             GREATEST(0,(CURRENT_DATE - maturity_date::date))::int AS dpd
+	             ` + cbsLoanDPDBare + ` AS dpd
 	      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) x`
 
 // cbsDPDBucketsSQL returns DPD-bucket loan counts/exposure live off the CBS book.
@@ -174,7 +174,7 @@ const cbsDPDBucketsSQL = `
 	         WHEN dpd <= 60 THEN '31-60'  WHEN dpd <= 90  THEN '61-90'
 	         WHEN dpd <= 180 THEN '91-180' WHEN dpd <= 360 THEN '181-360' ELSE '360+' END AS dpd_bucket
 	      FROM (SELECT outstanding_principal_kobo,
-	                   GREATEST(0,(CURRENT_DATE - maturity_date::date))::int AS dpd
+	                   ` + cbsLoanDPDBare + ` AS dpd
 	            FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) a) b
 	GROUP BY dpd_bucket ORDER BY dpd_bucket`
 

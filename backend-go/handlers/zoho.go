@@ -901,8 +901,13 @@ func upsertZohoTicket(ctx context.Context, db *core.DB, t map[string]any, status
 		  status              = EXCLUDED.status,
 		  priority            = EXCLUDED.priority,
 		  channel             = EXCLUDED.channel,
-		  resolved_at         = EXCLUDED.resolved_at,
-		  closed_at           = EXCLUDED.closed_at,
+		  -- COALESCE, not a bare overwrite: Zoho does not return a resolve/close
+		  -- time on every payload, and the unconditional assignment was NULLing
+		  -- timestamps we already knew. It ate ~1,900 resolution times out of the
+		  -- backfill within minutes of it being written. Zoho still wins when it
+		  -- HAS a value; it just can no longer erase one.
+		  resolved_at         = COALESCE(EXCLUDED.resolved_at, helpdesk_tickets.resolved_at),
+		  closed_at           = COALESCE(EXCLUDED.closed_at, helpdesk_tickets.closed_at),
 		  updated_at          = EXCLUDED.updated_at,
 		  zoho_assignee_id    = EXCLUDED.zoho_assignee_id,
 		  zoho_assignee_name  = EXCLUDED.zoho_assignee_name,
@@ -931,7 +936,42 @@ func upsertZohoTicket(ctx context.Context, db *core.DB, t map[string]any, status
 	if ins, _ := rows[0]["inserted"].(bool); ins && assignedTo == nil && (status == "open" || status == "pending") {
 		hdAutoAssignTicket(ctx, db, toInt64(rows[0]["id"]), 0)
 	}
+	// A ticket that arrives from Zoho ALREADY assigned reached its agent through
+	// no path at all — this importer held zero Notify calls while being the source
+	// of every one of the 35,035 tickets in the system. Tell the owner now.
+	if assignedTo != nil && (status == "open" || status == "pending") {
+		zohoNotifyAssignee(ctx, db, toInt64(rows[0]["id"]), *assignedTo, ref, subject)
+	}
 	return 1, 0, 0
+}
+
+// zohoNotifyAssignee tells an agent that Zoho has put a ticket in their name.
+//
+// assign_notified_at is claimed with a conditional UPDATE, so the notification is
+// sent by whichever caller wins and never re-sent on the next sync cycle — the
+// importer re-upserts every ticket it sees, so an unguarded notify here would
+// re-announce the same ticket every hour, forever.
+func zohoNotifyAssignee(ctx context.Context, db *core.DB, ticketID, userID int64, ref, subject string) {
+	if ticketID == 0 || userID == 0 {
+		return
+	}
+	res, err := db.PGExec(ctx, `
+		UPDATE helpdesk_tickets SET assign_notified_at = NOW()
+		 WHERE id = $1 AND assigned_to = $2 AND assign_notified_at IS NULL`, ticketID, userID)
+	if err != nil {
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return // already announced, or reassigned under us
+	}
+	go Notify(context.WithoutCancel(ctx), db, NotifPayload{
+		EventType: EvtTicketAssigned,
+		UserID:    userID,
+		Title:     fmt.Sprintf("Ticket assigned to you: %s", ref),
+		Body:      subject,
+		ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
+		EntityRef: ref,
+	})
 }
 
 // channelFromZoho maps a Zoho channel label to O3's widened channel vocabulary

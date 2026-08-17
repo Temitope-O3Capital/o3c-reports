@@ -33,6 +33,80 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 	// Treasury & transaction reporting (derived from EOD + FD positions)
 	r.With(access).Get("/treasury",         finTreasury(db))
 	r.With(access).Get("/transaction-kpis", finTransactionKPIs(db))
+
+	// My Dashboard — the finance desk's personal station
+	r.With(access).Get("/my-dashboard", finMyDashboard(db))
+}
+
+// finMyDashboard — the finance desk station: cash position, today's EOD load
+// status, income month-to-date, the fixed-deposit register and maturities coming
+// due. Every query is defensive; a missing table simply omits that field.
+func finMyDashboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		dash := map[string]any{}
+
+		// Cash position — net EOD (CR − DR) over the last 30 days
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(amount) FILTER (WHERE sign='CR'), 0)
+			     - COALESCE(SUM(amount) FILTER (WHERE sign='DR'), 0) AS net
+			FROM eod_transactions WHERE txn_date >= CURRENT_DATE - INTERVAL '30 days'`); len(rows) > 0 {
+			dash["cash_position_kobo"] = rows[0]["net"]
+		}
+
+		// EOD load status — is today's file in, and the recent run list
+		if rows, _ := db.PGQuery(ctx, `SELECT txn_date, txn_count FROM eod_uploads ORDER BY txn_date DESC LIMIT 1`); len(rows) > 0 {
+			dash["eod_last_date"] = rows[0]["txn_date"]
+			dash["eod_last_count"] = rows[0]["txn_count"]
+		}
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS count FROM eod_uploads WHERE txn_date = CURRENT_DATE`); len(rows) > 0 {
+			dash["eod_today_loaded"] = toInt64(rows[0]["count"]) > 0
+		}
+		recent, _ := db.PGQuery(ctx, `SELECT txn_date, filename, txn_count, uploaded_at FROM eod_uploads ORDER BY txn_date DESC LIMIT 8`)
+		if recent == nil {
+			recent = []core.Row{}
+		}
+		dash["recent_uploads"] = recent
+
+		// Income month-to-date (card cycle interest + fees + penalty)
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(interest_charged_kobo + fees_kobo + penalty_kobo), 0) AS income
+			FROM card_cycle_data WHERE DATE_TRUNC('month', cycle_date) = DATE_TRUNC('month', CURRENT_DATE)`); len(rows) > 0 {
+			dash["income_mtd_kobo"] = rows[0]["income"]
+		}
+
+		// Fixed-deposit register + maturities coming due
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT
+			    COUNT(*) FILTER (WHERE maturity_date >= CURRENT_DATE)                                       AS active,
+			    COALESCE(SUM(principal_kobo) FILTER (WHERE maturity_date >= CURRENT_DATE), 0)               AS principal,
+			    COUNT(*) FILTER (WHERE DATE_TRUNC('month', maturity_date) = DATE_TRUNC('month', CURRENT_DATE)) AS matured_month,
+			    COUNT(*) FILTER (WHERE maturity_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days') AS maturing_7d,
+			    COALESCE(SUM(principal_kobo) FILTER (WHERE maturity_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'), 0) AS maturing_7d_kobo
+			FROM cbs_fixed_deposits`); len(rows) > 0 {
+			dash["fd_active"] = rows[0]["active"]
+			dash["fd_principal_kobo"] = rows[0]["principal"]
+			dash["fd_matured_this_month"] = rows[0]["matured_month"]
+			dash["fd_maturing_7d"] = rows[0]["maturing_7d"]
+			dash["fd_maturing_7d_kobo"] = rows[0]["maturing_7d_kobo"]
+		}
+		maturities, _ := db.PGQuery(ctx, `
+			SELECT
+			    COALESCE((SELECT NULLIF(trim(a.first_name||' '||COALESCE(a.last_name,'')),'')
+			              FROM app.customers a WHERE a.cif = cf.cbs_customer_id LIMIT 1),
+			             cf.raw->>'name') AS customer_name,
+			    cf.principal_kobo, cf.maturity_date, cf.interest_rate
+			FROM cbs_fixed_deposits cf
+			WHERE cf.maturity_date >= CURRENT_DATE AND cf.principal_kobo IS NOT NULL AND cf.principal_kobo > 0
+			ORDER BY cf.maturity_date ASC LIMIT 8`)
+		if maturities == nil {
+			maturities = []core.Row{}
+		}
+		dash["upcoming_maturities"] = maturities
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(dash) //nolint:errcheck
+	}
 }
 
 /* ── Treasury ────────────────────────────────────────────────────────────── */

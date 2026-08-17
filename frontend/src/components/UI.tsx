@@ -1368,25 +1368,36 @@ interface ConfirmModalProps {
 
 export function ConfirmModal({ open, title, body, confirmLabel = 'Confirm', danger, loading, onConfirm, onClose, children }: ConfirmModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  // See Modal: onClose is usually an inline arrow, so keep it in a ref rather than as
+  // an effect dependency — otherwise every keystroke in a child field re-ran the focus
+  // effect and yanked focus back to the first control.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
     if (!open) return
     const el = dialogRef.current
     if (!el) return
-    const focusable = el.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
-    const first = focusable[0]
-    const last  = focusable[focusable.length - 1]
-    first?.focus()
+    el.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus()
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { onClose(); return }
+      if (e.key === 'Escape') { onCloseRef.current(); return }
       if (e.key !== 'Tab') return
+      const el = dialogRef.current
+      if (!el) return
+      const focusable = el.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
       if (focusable.length === 0) { e.preventDefault(); return }
+      const first = focusable[0]
+      const last  = focusable[focusable.length - 1]
       if (e.shiftKey) { if (document.activeElement === first) { e.preventDefault(); last?.focus() } }
       else            { if (document.activeElement === last)  { e.preventDefault(); first?.focus() } }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
   return (
@@ -1426,28 +1437,45 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, width = 520, maxHeight, children, footer }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  // Keep the latest onClose without making it a dependency of the effects below.
+  // onClose is almost always an inline arrow (`() => setOpen(false)`), so it gets a
+  // fresh identity on every parent re-render — including every keystroke in a field.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
+  // Autofocus the first field ONCE, when the dialog opens. This used to also depend
+  // on `onClose`, so a keystroke → parent re-render → new onClose → effect re-ran →
+  // focus was yanked back to the first field mid-typing ("it jumps when typing").
   useEffect(() => {
     if (!open) return
     const el = dialogRef.current
     if (!el) return
-    const focusable = el.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
-    const first = focusable[0]
-    const last  = focusable[focusable.length - 1]
     // Prefer the first form field (skip the header ✕) so create/edit forms land
     // ready to type; fall back to the first focusable for field-less dialogs.
     const firstField = el.querySelector<HTMLElement>('input:not([type="hidden"]), select, textarea')
+    const first = el.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
     ;(firstField ?? first)?.focus()
+  }, [open])
+
+  // Escape-to-close + tab focus trap. Recomputes the focusable set on each keypress
+  // (cheap, and correct as the form's fields change) so it never goes stale.
+  useEffect(() => {
+    if (!open) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { onClose(); return }
+      if (e.key === 'Escape') { onCloseRef.current(); return }
       if (e.key !== 'Tab') return
+      const el = dialogRef.current
+      if (!el) return
+      const focusable = el.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
       if (focusable.length === 0) { e.preventDefault(); return }
+      const first = focusable[0]
+      const last  = focusable[focusable.length - 1]
       if (e.shiftKey) { if (document.activeElement === first) { e.preventDefault(); last?.focus() } }
       else            { if (document.activeElement === last)  { e.preventDefault(); first?.focus() } }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
   return (

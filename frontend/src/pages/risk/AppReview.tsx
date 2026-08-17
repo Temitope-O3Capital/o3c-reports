@@ -14,6 +14,7 @@ interface ReviewKPIs {
   approved: number
   declined: number
   pending: number
+  origination_live?: boolean
 }
 
 interface RiskApp {
@@ -69,17 +70,42 @@ function eyeScoreColor(score: number | null): string {
 
 // ── AdvanceModal ──────────────────────────────────────────────────────────────
 
+// The LOS pipeline is linear; this mirrors allowedTransitions in handlers/los.go so
+// the modal can name the destination. The server still resolves the destination
+// itself when to_stage is omitted, so this map being stale can only affect the label,
+// never the outcome.
+const NEXT_STAGE: Record<string, string> = {
+  draft:               'submitted',
+  submitted:           'document_collection',
+  document_collection: 'risk_review',
+  risk_review:         'risk_head_review',
+  risk_head_review:    'pending_conditions',
+  pending_conditions:  'finance_approval',
+  finance_approval:    'booking',
+  booking:             'active',
+}
+
+const prettyStage = (s?: string | null) =>
+  s ? s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—'
+
 function AdvanceModal({ app, open, onClose, onDone }: { app: RiskApp | null; open: boolean; onClose: () => void; onDone: () => void }) {
   const [notes,   setNotes]   = useState('')
   const [saving,  setSaving]  = useState(false)
 
   useEffect(() => { if (open) setNotes('') }, [open])
 
+  const nextStage = app?.stage ? NEXT_STAGE[app.stage] : undefined
+
   async function handleSubmit() {
     if (!app) return
     setSaving(true)
     try {
-      await apiPut(`/api/los/${app.id}/advance`, { notes })
+      // to_stage is required by the API. This used to send only { notes }, so every
+      // click returned 422 and the button had never worked.
+      await apiPut(`/api/los/${app.id}/advance`, {
+        notes,
+        ...(nextStage ? { to_stage: nextStage } : {}),
+      })
       toast.success(`Application ${app.reference} advanced`)
       onClose(); onDone()
     } catch (e: any) {
@@ -93,7 +119,9 @@ function AdvanceModal({ app, open, onClose, onDone }: { app: RiskApp | null; ope
     <Modal open={open} onClose={onClose} title={`Advance — ${app?.reference ?? ''}`} width={480}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
         <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>
-          Move <strong>{app?.applicant_name}</strong> to the next stage. Add optional review notes below.
+          Move <strong>{app?.applicant_name}</strong> from{' '}
+          <strong>{prettyStage(app?.stage)}</strong> to{' '}
+          <strong>{prettyStage(nextStage)}</strong>. Add optional review notes below.
         </p>
         <textarea
           value={notes}
@@ -420,7 +448,7 @@ export default function RiskAppReview() {
           selectedIds={selected}
           onSelect={setSelected}
           bulkBar={bulkBar}
-          emptyText={view === 'pending' ? 'No pending applications' : 'No applications found'}
+          emptyText={kpis?.origination_live === false ? 'No applications yet. Applications raised in the workspace or synced from Phoenix will appear here for review.' : view === 'pending' ? 'No pending applications' : 'No applications found'}
         />
 
         {pages > 1 && (

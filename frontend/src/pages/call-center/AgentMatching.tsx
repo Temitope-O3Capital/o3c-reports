@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, SectionCard, Spinner, ErrBanner } from '../../components/UI'
+import { SectionCard, Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtNum } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, FW, RADIUS, SP, TEXT } from '../../lib/design'
@@ -38,7 +38,8 @@ function MethodBadge({ method, matched }: { method: string; matched: boolean }) 
   )
 }
 
-export default function AgentMatching() {
+// Rendered inside a modal from the Supervisor view (not a standalone page).
+export function AgentMatchingPanel() {
   const [agents, setAgents] = useState<ZAgent[]>([])
   const [users, setUsers] = useState<WUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -78,7 +79,7 @@ export default function AgentMatching() {
   const shown = onlyUnmatched ? agents.filter(a => !a.o3c_user_id) : agents
 
   return (
-    <Page title="Agent Matching" subtitle="Reconcile Zoho agents to workspace users">
+    <div>
       <ErrBanner error={err} onRetry={load} />
 
       {loading && agents.length === 0 ? (
@@ -147,6 +148,6 @@ export default function AgentMatching() {
           </SectionCard>
         </>
       )}
-    </Page>
+    </div>
   )
 }

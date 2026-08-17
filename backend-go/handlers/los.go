@@ -414,20 +414,34 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.ToStage == "" {
-			respondErr(w, 422, "to_stage is required")
-			return
-		}
 
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		apps, err := db.PGQuery(ctx, `SELECT stage, status, reference, amount_approved_kobo, amount_requested_kobo, sales_officer_id FROM loan_applications WHERE id = $1`, id)
+		// source_system is read so the Phoenix hand-off below can skip applications
+		// Phoenix originated — sending one back would create a duplicate over there.
+		apps, err := db.PGQuery(ctx, `SELECT stage, status, reference, amount_approved_kobo, amount_requested_kobo, sales_officer_id, COALESCE(source_system,'workspace') AS source_system FROM loan_applications WHERE id = $1`, id)
 		if err != nil || len(apps) == 0 {
 			respondErr(w, 404, "Application not found")
 			return
 		}
 		fromStage := str(apps[0]["stage"])
+
+		// The pipeline is linear — every stage has exactly one successor — so an omitted
+		// to_stage resolves to that successor rather than failing. The Risk App Review
+		// screen posted only {notes} and got a 422 on every click; rather than teach one
+		// caller the stage machine, the server answers the question it already knows.
+		// Ambiguity (0 or >1 successors) still 422s, so branching stages added later
+		// cannot silently pick a path.
+		if b.ToStage == "" {
+			next := allowedTransitions[fromStage]
+			if len(next) != 1 {
+				respondErr(w, 422, fmt.Sprintf(
+					"to_stage is required: stage '%s' has %d possible next stages", fromStage, len(next)))
+				return
+			}
+			b.ToStage = next[0]
+		}
 		loanRef := str(apps[0]["reference"])
 		loanKobo := toInt64(apps[0]["amount_approved_kobo"])
 		if loanKobo == 0 {
@@ -556,6 +570,21 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 					ActionURL: fmt.Sprintf("/sales/applications/%d", id),
 					EntityRef: fmt.Sprintf("loan_application:%d", id),
 				})
+			}
+			// Hand off to Phoenix for a credit decision. risk_review is the right
+			// trigger: documents have been collected, so this is the first moment the
+			// application is complete enough to decide on.
+			//
+			// Queued, not called inline — a Phoenix restart or a slow decision must not
+			// fail the officer's click. Skipped for applications Phoenix originated
+			// (they are already decisioned there) and a no-op until Phoenix is
+			// configured, at which point the worker drains the backlog.
+			if str(apps[0]["source_system"]) != "phoenix" {
+				go func() {
+					if err := phoenixEnqueue(context.WithoutCancel(ctx), db, id); err != nil {
+						slog.Error("phoenix enqueue failed", "application_id", id, "err", err)
+					}
+				}()
 			}
 		case "pending_conditions":
 			go NotifyRole(context.Background(), db, "risk_head", NotifPayload{

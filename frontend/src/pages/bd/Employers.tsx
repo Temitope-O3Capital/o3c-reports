@@ -585,6 +585,14 @@ export default function Employers() {
   const [detailRow,    setDetailRow]    = useState<Employer | null>(null)
   const [staffModal,   setStaffModal]   = useState<Employer | null>(null)
   const [assignModal,  setAssignModal]  = useState<{ employer: Employer; staff: StaffMember[] } | null>(null)
+  // Bulk assign (bulk bar) — assign every selected employer (full company) to one
+  // sales agent via POST /api/bd/employers/{id}/assign, the same endpoint the
+  // single-employer AssignToSalesModal uses.
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
+  const [bulkAgents,    setBulkAgents]    = useState<SalesAgent[]>([])
+  const [bulkAgentId,   setBulkAgentId]   = useState('')
+  const [bulkNotes,     setBulkNotes]     = useState('')
+  const [bulkSaving,    setBulkSaving]    = useState(false)
   // A register lists ALL employers by default; the date range is optional (all-time).
   const [dateFrom,   setDateFrom]   = useState('')
   const [dateTo,     setDateTo]     = useState('')
@@ -602,6 +610,13 @@ export default function Employers() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
+
+  // Sales agents for the bulk-assign picker (same source/roles as AssignToSalesModal).
+  useEffect(() => {
+    apiFetch<SalesAgent[]>('/api/admin/users?limit=200')
+      .then(r => setBulkAgents((r ?? []).filter(u => u.role === 'sales_officer' || u.role === 'sales_head')))
+      .catch(() => setBulkAgents([]))
+  }, [])
 
   const uniqueSectors = useMemo(() => [...new Set(employers.map(e => e.sector).filter(Boolean))].sort() as string[], [employers])
 
@@ -658,6 +673,35 @@ export default function Employers() {
     const a = document.createElement('a'); a.href = url
     a.download = `employers-${new Date().toISOString().slice(0, 10)}.csv`
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
+  // Rows behind the current selection (selection survives paging, so resolve from
+  // the full loaded set, not just the visible page).
+  const selectedEmployers = useMemo(() => employers.filter(e => selected.has(e.id)), [employers, selected])
+
+  function exportSelectedCsv() {
+    exportEmployersCsv(selectedEmployers.length ? selectedEmployers : filtered)
+  }
+
+  async function doBulkAssign() {
+    if (!bulkAgentId) { toast.error('Select a sales agent'); return }
+    const ids = [...selected]
+    if (ids.length === 0) { toast.error('No employers selected'); return }
+    setBulkSaving(true)
+    try {
+      await Promise.all(ids.map(id => apiPost(`/api/bd/employers/${id}/assign`, {
+        sales_agent_id: Number(bulkAgentId),
+        assignment_type: 'full_company',
+        staff_ids: [],
+        notes: bulkNotes.trim() || null,
+      })))
+      toast.success(`Assigned ${ids.length} employer${ids.length !== 1 ? 's' : ''} to sales`)
+      setBulkAssignOpen(false); setBulkAgentId(''); setBulkNotes(''); setSelected(new Set()); load()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to assign employers')
+    } finally {
+      setBulkSaving(false)
+    }
   }
 
   const cols: TableCol<Employer>[] = [
@@ -812,8 +856,8 @@ export default function Employers() {
           onSelect={setSelected}
           bulkBar={
             <>
-              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
-              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: 'none', background: NAVY, color: '#fff', cursor: 'pointer' }}>Bulk Assign</button>
+              <button onClick={exportSelectedCsv} style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
+              <button onClick={() => { setBulkAgentId(''); setBulkNotes(''); setBulkAssignOpen(true) }} style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: 'none', background: NAVY, color: '#fff', cursor: 'pointer' }}>Bulk Assign</button>
             </>
           }
         />
@@ -879,6 +923,43 @@ export default function Employers() {
           onDone={() => { setAssignModal(null); load() }}
         />
       )}
+
+      {/* Bulk Assign Modal — assigns every selected employer (full company) to one agent */}
+      <Modal
+        open={bulkAssignOpen}
+        title="Bulk Assign to Sales"
+        width={460}
+        onClose={() => { setBulkAssignOpen(false); setBulkAgentId(''); setBulkNotes('') }}
+        footer={
+          <>
+            <button onClick={() => { setBulkAssignOpen(false); setBulkAgentId(''); setBulkNotes('') }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={doBulkAssign} disabled={bulkSaving || !bulkAgentId} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (bulkSaving || !bulkAgentId) ? 'not-allowed' : 'pointer', opacity: (bulkSaving || !bulkAgentId) ? 0.6 : 1 }}>
+              {bulkSaving && <Spinner size={14} color="#fff" />}
+              {bulkSaving ? 'Assigning…' : `Assign ${selected.size} Employer${selected.size !== 1 ? 's' : ''}`}
+            </button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+            {selected.size} employer{selected.size !== 1 ? 's' : ''} selected. Each will be assigned as a full company — all current and future staff go to the chosen agent.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Sales Agent *</label>
+            <select value={bulkAgentId} onChange={e => setBulkAgentId(e.target.value)} style={{ ...IS, height: 36 }}>
+              <option value="">Select agent…</option>
+              {bulkAgents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
+            </select>
+            {bulkAgents.length === 0 && (
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>No sales agents found.</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Notes</label>
+            <textarea value={bulkNotes} onChange={e => setBulkNotes(e.target.value)} rows={3} placeholder="Optional context for the Sales Agent…" style={{ ...IS, height: 'auto', resize: 'vertical', padding: '8px 10px' }} />
+          </div>
+        </div>
+      </Modal>
     </Page>
   )
 }

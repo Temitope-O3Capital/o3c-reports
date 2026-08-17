@@ -624,10 +624,25 @@ func buildRolePages() map[string][]string {
 	// helpdesk/canned/kb keys; the "care" key + sidebar gate the module itself.
 	careAgent := []string{"care", "helpdesk", "helpdesk_canned", "helpdesk_kb", "crm_contacts"}
 	careHead := []string{"helpdesk_stats", "message_templates", "kpi_dashboard", "statements", "executive"}
-	riskAgent := []string{"credit_portfolio", "loans", "los_risk_review", "risk_officer"}
+	// "los" is the base page guard on every /api/los route. Without it a risk officer
+	// could open App Review, see the queue, and then 403 on Advance AND Decline — the
+	// two actions the page exists for. los_risk_review only authorises the specific
+	// risk_review→risk_head_review transition; it does not get you through the door.
+	riskAgent := []string{"credit_portfolio", "loans", "los", "los_risk_review", "risk_officer"}
 	riskHead := []string{"los_risk_head", "los_assign", "risk_head", "risk_all", "active_loan_book", "kpi_dashboard", "statements", "executive"}
 	compAgent := []string{"compliance_checklists", "audit_findings", "watch_list"}
 	compHead := []string{"compliance_all", "cbn_reports", "sars", "audit_trail", "audit_export", "kpi_dashboard", "reports", "executive"}
+	// ticketWorker is the minimum needed to RESOLVE a ticket someone hands you:
+	// the queue itself, canned responses and the knowledge base. Deliberately does
+	// NOT include "call_center" (the outbound dialler/queue) or the *_stats
+	// oversight pages — an ops specialist works tickets, they don't run the floor.
+	//
+	// Granted to the operational roles outside the contact centre because a
+	// settlement or card issue has to be able to reach the person who can actually
+	// fix it. Before this, assigning such a ticket to Settlements or Finance
+	// succeeded, sent them a notification, and then 403'd them on the link.
+	ticketWorker := []string{"helpdesk", "helpdesk_canned", "helpdesk_kb"}
+
 	itAdmin := []string{"admin_users", "admin_api_keys", "settings", "sync_status"}
 	biAnalyst := []string{"reports", "kpi_dashboard", "cohort"}
 	biHead := []string{"executive", "statements"}
@@ -648,12 +663,14 @@ func buildRolePages() map[string][]string {
 		"recovery_agent":    union(util, recAgent),
 		"recovery_head":     union(util, recAgent, recHead),
 		// ── Cards ──
-		"cards_agent": union(util, cardsAgent),
-		"cards_head":  union(util, cardsAgent, cardsHead),
+		// Card disputes and chargebacks arrive as tickets, so the cards team needs
+		// to be able to work them rather than only read the card book.
+		"cards_agent": union(util, cardsAgent, ticketWorker),
+		"cards_head":  union(util, cardsAgent, cardsHead, ticketWorker),
 		// ── Finance ──
-		"finance_officer":    union(util, finAgent),
-		"finance_head":       union(util, finAgent, finHead),
-		"settlement_officer": union(util, []string{"settlement", "reconciliation", "eod", "transactions", "credit_portfolio"}),
+		"finance_officer":    union(util, finAgent, ticketWorker),
+		"finance_head":       union(util, finAgent, finHead, ticketWorker),
+		"settlement_officer": union(util, ticketWorker, []string{"settlement", "reconciliation", "eod", "transactions", "credit_portfolio"}),
 		// ── Contact Centre ──
 		"call_center_agent": union(util, ccAgent),
 		"call_center_head":  union(util, ccAgent, ccHead),

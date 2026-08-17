@@ -753,6 +753,8 @@ export default function CallCenterQueue() {
   const [syncLoading, setSyncLoading] = useState(false)
   const [collLoading, setCollLoading] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [assignOpen, setAssignOpen] = useState(false)
+  const isHead = isHeadRole()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -844,11 +846,14 @@ export default function CallCenterQueue() {
   }
 
   return (
-    <Page title="Outbound Queue" subtitle="Marketing, collections & support calls — from Zoho, our accounts, and manual lists" noPad
+    <Page title="Outbound Queue" subtitle={isHead ? 'Marketing, collections & support calls — from Zoho, our accounts, and manual lists' : 'Your assigned calls to make — dial through your list'} noPad
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
           {(() => {
             const feedBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }
+            // Feeding and assigning the queue are supervisor actions; agents just work
+            // the list they were given.
+            if (!isHead) return null
             return (
               <>
                 <button onClick={handleSyncCRM} disabled={syncLoading} title="Pull Zoho CRM leads (Marketing)" style={{ ...feedBtn, cursor: syncLoading ? 'wait' : 'pointer', opacity: syncLoading ? 0.7 : 1 }}>
@@ -863,6 +868,13 @@ export default function CallCenterQueue() {
                   <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
                   Import
                 </button>
+                {isHead && (
+                  <button onClick={() => setAssignOpen(true)} title="Assign a batch of the queue to one agent"
+                    style={{ ...feedBtn, background: NAVY, color: '#fff', border: `1px solid ${NAVY}` }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>assignment_ind</span>
+                    Assign to agent
+                  </button>
+                )}
               </>
             )
           })()}
@@ -1172,6 +1184,112 @@ export default function CallCenterQueue() {
       />
 
       <ImportContactsModal open={importOpen} onClose={() => setImportOpen(false)} onDone={load} />
+      <AssignBatchModal open={assignOpen} defaultPurpose={purposeF || 'all'} available={summary}
+        onClose={() => setAssignOpen(false)} onDone={load} />
     </Page>
+  )
+}
+
+// ── Assign-a-batch modal (supervisor) ─────────────────────────────────────────
+// Hand a chunk of the queue to one agent by count — 20/50/100 or a custom number,
+// optionally scoped to a purpose. Assigns the still-pending, unassigned contacts.
+
+function isHeadRole(): boolean {
+  try { return /head|admin|super|manager|lead|supervisor/i.test(String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '')) } catch { return false }
+}
+
+const ASSIGN_PRESETS = [20, 50, 100, 200]
+
+function AssignBatchModal({ open, onClose, onDone, defaultPurpose, available }: {
+  open: boolean; onClose: () => void; onDone: () => void
+  defaultPurpose: string; available: QueueSummary | null
+}) {
+  const [agents, setAgents] = useState<{ id: number; full_name: string }[]>([])
+  const [agentId, setAgentId] = useState('')
+  const [count, setCount] = useState(50)
+  const [purpose, setPurpose] = useState(defaultPurpose)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setPurpose(defaultPurpose)
+    apiFetch<any>('/api/call-center/agents')
+      .then(r => setAgents(Array.isArray(r) ? r : (r?.data ?? [])))
+      .catch(() => setAgents([]))
+  }, [open, defaultPurpose])
+
+  // Best-effort "available" count for the chosen purpose, from the queue summary.
+  const availText = (() => {
+    const s = available as any
+    if (!s) return ''
+    const per = s.by_purpose as Record<string, number> | undefined
+    const n = purpose === 'all' ? (s.pending ?? s.total) : per?.[purpose]
+    return n != null ? `${Number(n).toLocaleString()} pending available` : ''
+  })()
+
+  async function submit() {
+    if (!agentId) { toast.error('Pick an agent'); return }
+    if (!count || count < 1) { toast.error('Enter a count'); return }
+    setSaving(true)
+    try {
+      const res = await apiPost<{ assigned: number }>('/api/call-center/queue/assign-batch', {
+        agent_id: Number(agentId), count, purpose: purpose === 'all' ? '' : purpose,
+      })
+      const name = agents.find(a => a.id === Number(agentId))?.full_name ?? 'agent'
+      toast.success(`Assigned ${res.assigned} contact(s) to ${name}`)
+      onClose(); onDone()
+    } catch (e: any) { toast.error(e?.message || 'Assign failed') }
+    finally { setSaving(false) }
+  }
+
+  const fld: React.CSSProperties = { width: '100%', height: 38, padding: '0 11px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }
+  const lbl: React.CSSProperties = { display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.03em' }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Assign queue to an agent" width={460}
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer' }}>
+            {saving && <Spinner size={13} color="#fff" />}Assign {count}
+          </button>
+        </div>
+      }>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+        <div>
+          <label style={lbl}>Agent</label>
+          <select value={agentId} onChange={e => setAgentId(e.target.value)} style={fld}>
+            <option value="">Select an agent…</option>
+            {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={lbl}>How many</label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {ASSIGN_PRESETS.map(p => (
+              <button key={p} onClick={() => setCount(p)} style={{
+                padding: '7px 13px', borderRadius: RADIUS.md, cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold,
+                border: `1px solid ${count === p ? NAVY : 'var(--bdr)'}`, background: count === p ? `${NAVY}0e` : 'var(--card)', color: count === p ? NAVY : 'var(--txt2)',
+              }}>{p}</button>
+            ))}
+            <input type="number" min={1} max={1000} value={count} onChange={e => setCount(Math.max(1, Math.min(1000, Number(e.target.value) || 0)))}
+              style={{ ...fld, width: 90, height: 34 }} title="Custom count" />
+          </div>
+        </div>
+        <div>
+          <label style={lbl}>Purpose</label>
+          <select value={purpose} onChange={e => setPurpose(e.target.value)} style={fld}>
+            <option value="all">All purposes</option>
+            <option value="marketing">Marketing</option>
+            <option value="collections">Collections</option>
+            <option value="support">Support</option>
+          </select>
+          {availText && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 5 }}>{availText}</div>}
+        </div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+          Assigns the highest-priority, oldest-queued pending contacts that aren’t already assigned.
+        </div>
+      </div>
+    </Modal>
   )
 }

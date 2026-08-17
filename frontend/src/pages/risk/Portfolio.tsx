@@ -5,6 +5,7 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
+import { bandColor, bandLabel, bandShort, scoreColor, fmtScore, RISK_BANDS, BAND_COLOR, BAND_LABEL } from '../../lib/riskScale'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,15 +21,16 @@ interface LoanSummary {
 }
 
 interface LoanRow {
-  id: number
+  id: string
   reference: string
   applicant_name: string
   applicant_cif: string
-  employer: string
+  sector: string
   product_type: string
   amount_kobo: number
   outstanding_kobo: number
   dpd: number
+  arrears_kobo: number
   risk_band: string | null
   eye_score: number | null
   status: string
@@ -36,12 +38,23 @@ interface LoanRow {
   maturity_date: string | null
 }
 
+/** Mirrors what GET /api/risk/credit-file/{cif} actually returns.
+ *  The previous shape here (eye_rating, bureau_summary, monthly_income_kobo,
+ *  employer, tenor_months, interest_rate_bps…) was never sent by the API, so the
+ *  drawer rendered em-dashes for almost every field even when it loaded. */
+interface CreditFileLoan {
+  id: string; ref: string; product: string
+  principal_kobo: number; outstanding_kobo: number; arrears_kobo: number
+  dpd: number; risk_band: string | null; eye_score: number | null
+  status: string; disbursed_at: string; source: string
+}
 interface CreditFileData {
-  eye_score: number | null; eye_rating: string | null; bureau_summary: string | null
-  dti_pct: number | null; monthly_income_kobo: number; monthly_obligation_kobo: number | null
-  amount_requested_kobo: number; amount_approved_kobo: number; tenor_months: number
-  interest_rate_bps: number; outstanding_kobo: number; dpd: number
-  employer: string; applicant_name: string; applicant_cif: string
+  cif: string; customer_name: string; phone: string
+  eye_score: number | null; eye_band: string | null; score_basis: string
+  total_loan_count: number; active_loan_count: number
+  total_outstanding_kobo: number; total_arrears_kobo: number
+  worst_dpd: number; dti_pct: number | null; kyc_status: string; bvn: string
+  loans: CreditFileLoan[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -61,19 +74,17 @@ function dpdLabel(dpd: number): string {
   return 'NPL'
 }
 
-const BAND_COLORS: Record<string, { bg: string; txt: string }> = {
-  'Prime':      { bg: 'rgba(22,163,74,.12)',  txt: '#16A34A' },
-  'Near-Prime': { bg: 'rgba(37,99,235,.12)',  txt: '#2563EB' },
-  'Sub-Prime':  { bg: 'rgba(217,119,6,.12)',  txt: '#D97706' },
-  'High-Risk':  { bg: 'rgba(192,0,0,.10)',    txt: '#C00000' },
-}
-
+// Bands come from lib/riskScale. This page used to declare a Prime/Near-Prime map
+// against an API that emits A-E, so every pill fell through to the grey default.
 function BandPill({ band }: { band: string | null }) {
   if (!band) return <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>—</span>
-  const s = BAND_COLORS[band] ?? { bg: 'rgba(75,85,99,.1)', txt: '#6B7280' }
+  const c = bandColor(band)
   return (
-    <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full, background: s.bg, color: s.txt, whiteSpace: 'nowrap' }}>
-      {band}
+    <span
+      title={bandLabel(band)}
+      style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full, background: `${c}1F`, color: c, whiteSpace: 'nowrap' }}
+    >
+      {bandShort(band)}
     </span>
   )
 }
@@ -94,57 +105,79 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
       .finally(() => setLoading(false))
   }, [cif, open])
 
-  const scoreColor = (s: number | null) => {
-    if (!s) return 'var(--txt3)'; if (s >= 700) return GREEN; if (s >= 500) return AMBER; return RED
-  }
-
   return (
-    <Modal open={open} onClose={onClose} title={`Credit File — ${cif}`} width={540}>
+    <Modal open={open} onClose={onClose} title={`Credit File — ${data?.customer_name || cif}`} width={620}>
       {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={24} /></div>}
       {error && <div style={{ color: RED, fontSize: TEXT.sm, padding: SP[3] }}>{error}</div>}
       {data && !loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-          {/* Eye Score */}
+          {/* Score */}
           <div style={{ display: 'flex', gap: SP[4], alignItems: 'center', padding: SP[3], borderRadius: RADIUS.md, background: 'var(--th-bg)', border: '1px solid var(--bdr)' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ ...NUM, fontSize: 48, fontWeight: FW.extrabold, color: scoreColor(data.eye_score), lineHeight: 1 }}>
+            <div style={{ textAlign: 'center', minWidth: 96 }}>
+              <div style={{ ...NUM, fontSize: 44, fontWeight: FW.extrabold, color: scoreColor(data.eye_score), lineHeight: 1 }}>
                 {data.eye_score ?? '—'}
               </div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>Eye Score</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
+                {data.score_basis === 'eye_score' ? 'Eye Score' : 'Risk Score · 0-100'}
+              </div>
             </div>
             <div style={{ flex: 1 }}>
-              {data.eye_rating && (
-                <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 6 }}>
-                  Rating: {data.eye_rating}
+              {data.eye_band && (
+                <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: bandColor(data.eye_band), marginBottom: 6 }}>
+                  {bandLabel(data.eye_band)}
                 </div>
               )}
-              {data.bureau_summary && (
-                <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>{data.bureau_summary}</div>
-              )}
-              {!data.eye_score && !data.bureau_summary && (
-                <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No score on file</div>
-              )}
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.5 }}>
+                {data.score_basis === 'eye_score'
+                  ? 'Scored at origination.'
+                  : data.score_basis === 'cbs_derived'
+                    ? 'Derived from repayment behaviour on the live book — no origination score on file.'
+                    : 'No score on file.'}
+              </div>
+              {data.phone && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>{data.phone}</div>}
             </div>
           </div>
 
-          {/* Income & DTI */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+          {/* Exposure summary — every field below is one the API actually returns */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: SP[3] }}>
             {[
-              { label: 'Monthly Income',      value: fmtKobo(data.monthly_income_kobo) },
-              { label: 'Monthly Obligations', value: data.monthly_obligation_kobo ? fmtKobo(data.monthly_obligation_kobo) : '—' },
-              { label: 'DTI Ratio',           value: data.dti_pct !== null ? `${Number(data.dti_pct).toFixed(1)}%` : '—' },
-              { label: 'Employer',            value: data.employer || '—' },
-              { label: 'Amount Disbursed',    value: fmtKobo(data.amount_approved_kobo || data.amount_requested_kobo) },
-              { label: 'Outstanding',         value: fmtKobo(data.outstanding_kobo) },
-              { label: 'Tenor',               value: data.tenor_months ? `${data.tenor_months} months` : '—' },
-              { label: 'DPD',                 value: String(data.dpd ?? 0) + ' days' },
+              { label: 'Total Outstanding', value: fmtKobo(data.total_outstanding_kobo) },
+              { label: 'Arrears',           value: fmtKobo(data.total_arrears_kobo), warn: data.total_arrears_kobo > 0 },
+              { label: 'Worst DPD',         value: `${data.worst_dpd ?? 0} days`, warn: (data.worst_dpd ?? 0) > 30 },
+              { label: 'Loans',             value: `${data.active_loan_count} open / ${data.total_loan_count} total` },
+              { label: 'DTI Ratio',         value: data.dti_pct !== null && data.dti_pct !== undefined ? `${Number(data.dti_pct).toFixed(1)}%` : '—' },
+              { label: 'BVN',               value: data.bvn || '—' },
             ].map(row => (
               <div key={row.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{row.label}</span>
-                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{row.value}</span>
+                <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: row.warn ? AMBER : 'var(--txt)' }}>{row.value}</span>
               </div>
             ))}
           </div>
+
+          {/* Facilities */}
+          {data.loans?.length > 0 && (
+            <div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: SP[2] }}>
+                Facilities ({data.loans.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {data.loans.map(l => (
+                  <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.product}</div>
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{l.ref} · {fmtDate(l.disbursed_at)}</div>
+                    </div>
+                    <BandPill band={l.risk_band} />
+                    <div style={{ textAlign: 'right', minWidth: 96 }}>
+                      <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKobo(l.outstanding_kobo)}</div>
+                      <div style={{ ...NUM, fontSize: TEXT.xs, color: dpdColor(l.dpd) }}>{l.dpd} dpd</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Modal>
@@ -187,14 +220,15 @@ export default function RiskPortfolio() {
     abortRef.current?.abort(); abortRef.current = new AbortController()
     setLoading(true); setError(null)
     try {
-      const res = await apiFetch<any>(
+      // The endpoint now uses respondPaginated, so the envelope is a flat
+      // { data, total } instead of the double-wrapped { data: { data, total } }
+      // this had to unpick.
+      const res = await apiFetch<{ data: LoanRow[]; total: number }>(
         `/api/risk/loan-book?${buildQS(off)}`,
         { signal: abortRef.current.signal },
       )
-      // Endpoint double-wraps: respond({data:rows,total}) -> res.data.data
-      const payload = res?.data
-      setRows(Array.isArray(payload) ? payload : (payload?.data ?? []))
-      setTotal((Array.isArray(payload) ? res?.total : payload?.total) ?? 0)
+      setRows(Array.isArray(res?.data) ? res.data : [])
+      setTotal(res?.total ?? 0)
       setOffset(off)
     } catch (e: any) {
       if (e.name !== 'AbortError') setError(e.message ?? 'Failed')
@@ -220,13 +254,10 @@ export default function RiskPortfolio() {
       onChange: setFDpd,
     },
     {
+      // Values must be the letters the API emits — the old Prime/Near-Prime chips
+      // could never match a row, and the backend discarded the filter anyway.
       key: 'band', label: 'RISK BAND',
-      options: [
-        { value: 'Prime',       color: '#16A34A' },
-        { value: 'Near-Prime',  color: '#2563EB' },
-        { value: 'Sub-Prime',   color: '#D97706' },
-        { value: 'High-Risk',   color: RED },
-      ],
+      options: RISK_BANDS.map(b => ({ value: b, label: `${b} — ${BAND_LABEL[b]}`, color: BAND_COLOR[b] })),
       selected: fBand,
       onChange: setFBand,
     },
@@ -242,9 +273,21 @@ export default function RiskPortfolio() {
         </div>
       ),
     },
-    { key: 'employer', label: 'Employer', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.employer || '—'}</span> },
+    // CBS carries no employer; this column has always been economic sector, now
+    // resolved to a name server-side instead of showing a raw CBN code.
+    { key: 'sector', label: 'Sector', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.sector || '—'}</span> },
     { key: 'product_type', label: 'Product', render: r => <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>{r.product_type || '—'}</span> },
-    { key: 'outstanding_kobo', label: 'Outstanding', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKobo(r.outstanding_kobo)}</span> },
+    {
+      key: 'outstanding_kobo', label: 'Outstanding', align: 'right', sortable: true,
+      render: r => (
+        <div style={{ textAlign: 'right' }}>
+          <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKobo(r.outstanding_kobo)}</span>
+          {r.arrears_kobo > 0 && (
+            <div style={{ ...NUM, fontSize: TEXT.xs, color: AMBER }}>{fmtKobo(r.arrears_kobo)} behind</div>
+          )}
+        </div>
+      ),
+    },
     {
       key: 'dpd', label: 'DPD', align: 'right', sortable: true,
       render: r => (
@@ -256,10 +299,9 @@ export default function RiskPortfolio() {
     },
     { key: 'risk_band', label: 'Band', render: r => <BandPill band={r.risk_band} /> },
     {
-      key: 'eye_score', label: 'Eye', align: 'right', sortable: true,
+      key: 'eye_score', label: 'Score', align: 'right', sortable: true,
       render: r => {
-        const c = r.eye_score === null ? 'var(--txt3)' : r.eye_score >= 700 ? GREEN : r.eye_score >= 500 ? AMBER : RED
-        return <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: c }}>{r.eye_score ?? '—'}</span>
+        return <span title={fmtScore(r.eye_score)} style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: scoreColor(r.eye_score) }}>{r.eye_score ?? '—'}</span>
       },
     },
     { key: 'maturity_date', label: 'Maturity', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>{r.maturity_date ? fmtDate(r.maturity_date) : '—'}</span> },

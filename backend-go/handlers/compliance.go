@@ -70,6 +70,10 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	// Dashboard
 	r.With(all).Get("/dashboard", complianceDashboard(db))
 
+	// My Dashboard — personal compliance station (any compliance staff)
+	mine := core.RequirePages("watch_list", "audit_findings", "compliance_checklists", "compliance_all")
+	r.With(mine).Get("/my-dashboard", complianceMyDashboard(db))
+
 	// Phase 12 — Regulatory
 	r.With(cbn).Get("/prudential-ratios",            compliancePrudentialRatios(db))
 	r.With(cbn).Get("/credit-bureau-export",         complianceCreditBureauExport(db))
@@ -1263,6 +1267,62 @@ func complianceDashboard(db *core.DB) http.HandlerFunc {
 		if len(watchRows) > 0 {
 			dash["active_watch_list"] = watchRows[0]["count"]
 		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(dash) //nolint:errcheck
+	}
+}
+
+// complianceMyDashboard — the signed-in officer's personal station: findings and
+// checklists assigned to them, regulatory deadlines they own, plus team-wide
+// context (KYC expiries, active watch-list, pending SARs). Every query is
+// defensive — a missing table simply yields no rows and that key is omitted.
+func complianceMyDashboard(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		var uid int64
+		if u := core.UserFromCtx(ctx); u != nil {
+			uid = u.ID
+		}
+		dash := map[string]any{}
+		scalar := func(key, sql string, args ...any) {
+			rows, _ := db.PGQuery(ctx, sql, args...)
+			if len(rows) > 0 {
+				dash[key] = rows[0]["count"]
+			}
+		}
+
+		// Findings assigned to me
+		scalar("my_open_findings", `SELECT COUNT(*) AS count FROM audit_findings WHERE assigned_to=$1 AND status='open'`, uid)
+		scalar("my_findings_overdue", `SELECT COUNT(*) AS count FROM audit_findings WHERE assigned_to=$1 AND status='open' AND due_date < CURRENT_DATE`, uid)
+		sev, _ := db.PGQuery(ctx, `SELECT severity, COUNT(*) AS count FROM audit_findings WHERE assigned_to=$1 AND status='open' GROUP BY severity`, uid)
+		if sev == nil {
+			sev = []core.Row{}
+		}
+		dash["my_findings_by_severity"] = sev
+		recent, _ := db.PGQuery(ctx, `SELECT finding_ref, description, severity, status, due_date FROM audit_findings WHERE assigned_to=$1 AND status='open' ORDER BY (due_date IS NULL), due_date ASC LIMIT 8`, uid)
+		if recent == nil {
+			recent = []core.Row{}
+		}
+		dash["my_findings"] = recent
+
+		// Checklists assigned to me
+		scalar("my_checklists_due", `SELECT COUNT(*) AS count FROM compliance_checklists WHERE assigned_to=$1 AND status='pending'`, uid)
+		scalar("my_checklists_overdue", `SELECT COUNT(*) AS count FROM compliance_checklists WHERE assigned_to=$1 AND status='pending' AND due_date < CURRENT_DATE`, uid)
+
+		// Regulatory deadlines I own (CBN reports not yet filed)
+		scalar("my_reg_open", `SELECT COUNT(*) AS count FROM cbn_reports WHERE owner_id=$1 AND COALESCE(status,'') NOT IN ('submitted','signed_off')`, uid)
+		scalar("my_reg_overdue", `SELECT COUNT(*) AS count FROM cbn_reports WHERE owner_id=$1 AND COALESCE(status,'') NOT IN ('submitted','signed_off') AND due_date < CURRENT_DATE`, uid)
+		deadlines, _ := db.PGQuery(ctx, `SELECT report_name, regulatory_body, due_date, status FROM cbn_reports WHERE owner_id=$1 AND COALESCE(status,'') NOT IN ('submitted','signed_off') ORDER BY (due_date IS NULL), due_date ASC LIMIT 8`, uid)
+		if deadlines == nil {
+			deadlines = []core.Row{}
+		}
+		dash["my_deadlines"] = deadlines
+
+		// Team-wide context
+		scalar("kyc_expiring_30d", `SELECT COUNT(*) AS count FROM kyc_records WHERE expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`)
+		scalar("active_watch_list", `SELECT COUNT(*) AS count FROM watch_list_entries WHERE is_active = TRUE`)
+		scalar("pending_sars", `SELECT COUNT(*) AS count FROM sars WHERE status='draft'`)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(dash) //nolint:errcheck

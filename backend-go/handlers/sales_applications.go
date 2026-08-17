@@ -196,14 +196,90 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		seqRow, err := db.PGQuery(ctx, `SELECT nextval('los_ref_seq') AS seq`)
-		if err != nil || len(seqRow) == 0 {
+		// Idempotency. A double-submit — the officer double-clicks, or the browser
+		// silently retries the POST — must not raise two applications with two
+		// references. Honour a client idempotency header when one is sent, and in every
+		// case fall back to a short server-side window keyed on customer+product+officer:
+		// a second genuine application for the same product within seconds is not
+		// something an officer does on purpose, whereas a retried request is.
+		idemKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+		if idemKey == "" {
+			idemKey = strings.TrimSpace(r.Header.Get("Request-Reference"))
+		}
+
+		// The whole raise is one transaction: the loan_applications row and its opening
+		// event commit together or not at all, so an application can never exist without
+		// the submission event that explains how it reached Risk.
+		tx, err := db.PG.BeginTx(ctx, nil)
+		if err != nil {
+			respondErr(w, 500, "Could not start transaction")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		// Serialise concurrent submissions for the same customer+product+officer (and the
+		// same idempotency key, when one is supplied) so two near-simultaneous POSTs
+		// cannot both slip past the duplicate check below. The advisory lock is
+		// transaction-scoped and is released automatically on commit or rollback.
+		lockKey := fmt.Sprintf("sales_app:%d:%s:%s:%s", user.ID, req.CIF, req.ProductType, idemKey)
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, lockKey); err != nil {
+			respondErr(w, 500, "Could not acquire application lock")
+			return
+		}
+
+		// If an identical application was raised in the last 60 seconds, treat this as a
+		// retry: hand back the existing one untouched rather than minting a second
+		// reference and notifying Risk twice.
+		var (
+			dupID                       int64
+			dupRef, dupStage, dupStatus string
+			dupSubmitted                sql.NullTime
+		)
+		dupErr := tx.QueryRowContext(ctx, `
+			SELECT id, reference, stage, status, submitted_at
+			  FROM loan_applications
+			 WHERE applicant_cif = $1 AND product_type = $2 AND sales_officer_id = $3
+			   AND created_at >= NOW() - INTERVAL '60 seconds'
+			 ORDER BY created_at DESC
+			 LIMIT 1`, req.CIF, req.ProductType, user.ID).
+			Scan(&dupID, &dupRef, &dupStage, &dupStatus, &dupSubmitted)
+		if dupErr == nil {
+			// Commit to release the advisory lock; nothing was written on this path.
+			if err := tx.Commit(); err != nil {
+				respondErr(w, 500, "Commit failed")
+				return
+			}
+			existing := map[string]any{
+				"id": dupID, "reference": dupRef, "stage": dupStage,
+				"status": dupStatus, "duplicate": true,
+			}
+			if dupSubmitted.Valid {
+				existing["submitted_at"] = dupSubmitted.Time
+			}
+			respond(w, existing, "pg")
+			return
+		}
+		if dupErr != sql.ErrNoRows {
+			respondErr(w, 500, "Duplicate check failed")
+			return
+		}
+
+		// Allocate the reference inside the transaction. los_ref_seq is a Postgres
+		// sequence, so a rolled-back application simply leaves a gap in the numbering —
+		// acceptable, and far preferable to two applications racing for a number.
+		var seq int64
+		if err := tx.QueryRowContext(ctx, `SELECT nextval('los_ref_seq')`).Scan(&seq); err != nil {
 			respondErr(w, 500, "Reference generation failed")
 			return
 		}
-		ref := fmt.Sprintf("LOS-%s-%04d", time.Now().UTC().Format("200601"), toInt64(seqRow[0]["seq"]))
+		ref := fmt.Sprintf("LOS-%s-%04d", time.Now().UTC().Format("200601"), seq)
 
-		rows, err := db.PGQuery(ctx, `
+		var (
+			appID                       int64
+			appRef, appStage, appStatus string
+			appSubmitted                time.Time
+		)
+		if err := tx.QueryRowContext(ctx, `
 			INSERT INTO loan_applications (
 			    reference, applicant_name, applicant_cif, applicant_email, applicant_phone,
 			    product_type, amount_requested_kobo, tenor_months,
@@ -217,30 +293,49 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 			) RETURNING id, reference, stage, status, submitted_at`,
 			ref, name, req.CIF, email, phone,
 			req.ProductType, req.AmountRequested, req.TenorMonths,
-			req.Purpose, req.Employer, req.MonthlyIncome, user.ID)
-		if err != nil {
+			req.Purpose, req.Employer, req.MonthlyIncome, user.ID).
+			Scan(&appID, &appRef, &appStage, &appStatus, &appSubmitted); err != nil {
 			respondErr(w, 500, "Could not raise the application: "+err.Error())
 			return
 		}
-		app := rows[0]
 
-		// Record the submission on the application's own event trail so LOS shows the
-		// same history a Risk officer would expect for any other route in.
-		_, _ = db.PGExec(ctx, `
-			INSERT INTO application_events (application_id, event, to_stage, note, created_by, created_at)
+		// Record the submission on the application's own event trail so LOS shows the same
+		// history a Risk officer would expect for any other route in. This writes the
+		// canonical application_events columns (event_type / actor_user_id / notes) that
+		// los.go and batch.go use; the previous code wrote non-existent columns
+		// (event / note / created_by) and swallowed the resulting error, so no sales-raised
+		// application ever recorded its submission event. The error is now propagated: if
+		// the event cannot be written the whole application is rolled back rather than
+		// committed with no trail.
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO application_events (application_id, event_type, to_stage, actor_user_id, notes, created_at)
 			VALUES ($1,'submitted','risk_review',$2,$3,NOW())`,
-			toInt64(app["id"]),
-			strings.TrimSpace("Raised by Sales for "+name+". "+req.Note), user.ID)
+			appID, user.ID,
+			strings.TrimSpace("Raised by Sales for "+name+". "+req.Note)); err != nil {
+			respondErr(w, 500, "Could not record the application event: "+err.Error())
+			return
+		}
 
-		// Risk is told immediately. Detached from the request context deliberately: the
-		// application is already committed, and a slow mail hop must not fail the call
-		// or be cancelled when the officer's browser moves on.
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+
+		app := map[string]any{
+			"id": appID, "reference": appRef, "stage": appStage,
+			"status": appStatus, "submitted_at": appSubmitted,
+		}
+
+		// Risk is told immediately, and only for a genuinely new application. Detached from
+		// the request context deliberately: the application is already committed, and a
+		// slow mail hop must not fail the call or be cancelled when the officer's browser
+		// moves on.
 		go NotifyRoles(context.Background(), db, []string{"risk_officer", "risk_head"}, NotifPayload{
 			EventType: "los_application_submitted",
 			Title:     fmt.Sprintf("New %s application", salesProductTypes[req.ProductType]),
 			Body: fmt.Sprintf("%s raised %s for %s (CIF %s) — %s",
 				user.FullName, ref, name, req.CIF, fmtKoboServer(req.AmountRequested)),
-			ActionURL: fmt.Sprintf("/los/applications/%d", toInt64(app["id"])),
+			ActionURL: fmt.Sprintf("/los/applications/%d", appID),
 			EntityRef: ref,
 		})
 
