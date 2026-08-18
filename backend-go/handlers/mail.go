@@ -69,12 +69,12 @@ type SendMailOptions struct {
 	SenderCopyEmail    string
 	SenderCopyName     string
 	SendViaUserMailbox bool
-	Attachments          []MailAttachment
-	CustomArgs           map[string]string
-	TrackOpensAndLinks   bool
+	Attachments        []MailAttachment
+	CustomArgs         map[string]string
+	TrackOpensAndLinks bool
 	// InReplyToMessageID sets the RFC 5322 In-Reply-To and References headers on the outgoing email.
 	// Pass the Message-ID of the email being replied to (value from inbound_mail.message_id).
-	InReplyToMessageID   string
+	InReplyToMessageID string
 }
 
 type SendMailResult struct {
@@ -117,7 +117,6 @@ func RegisterMail(r chi.Router, db *core.DB) {
 	r.With(admin).Post("/test", mailSendTest(db))
 	r.With(admin).Get("/suppressions", mailListSuppressions(db))
 	r.With(admin).Post("/suppressions/import", mailImportSuppressions(db))
-	r.With(admin).Get("/suppressions/export", mailExportSuppressions(db))
 	r.With(admin).Delete("/suppressions/{email}", mailRemoveSuppression(db))
 	// Drafts
 	r.With(access).Get("/drafts", mailListDrafts(db))
@@ -152,10 +151,13 @@ func sendgridEventWebhook(db *core.DB) http.HandlerFunc {
 		}
 
 		// Verify signature when key is configured (optional but recommended).
+		// SendGrid's Signed Event Webhook signs with ECDSA (not HMAC) — verify with the
+		// EC public key, exactly as the campaign event webhook (emailWebhook) does. Using
+		// HMAC here 401'd every genuine event, so opens/deliveries never recorded.
 		if pubKey := resolveSendGridWebhookPublicKey(r.Context(), db); pubKey != "" {
 			timestamp := r.Header.Get("X-Twilio-Email-Event-Webhook-Timestamp")
 			signature := r.Header.Get("X-Twilio-Email-Event-Webhook-Signature")
-			if !verifyInboundWebhookHMAC(pubKey, timestamp, signature, body) {
+			if !verifySendGridSignature(pubKey, timestamp, signature, body) {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
@@ -371,7 +373,7 @@ func mailMetrics(db *core.DB) http.HandlerFunc {
 			return
 		}
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 		where := "WHERE 1=1"
 		var args []any
 		if from != "" {
@@ -603,7 +605,7 @@ func mailListSuppressions(db *core.DB) http.HandlerFunc {
 			return
 		}
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 		q := `SELECT email, reason, source, is_active, updated_at FROM mail_suppressions WHERE 1=1`
 		var args []any
 		if from != "" {
@@ -667,31 +669,6 @@ func mailImportSuppressions(db *core.DB) http.HandlerFunc {
 			inserted++
 		}
 		respond(w, map[string]any{"inserted": inserted}, "postgres")
-	}
-}
-
-func mailExportSuppressions(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := ensureMailSchema(r.Context(), db); err != nil {
-			respondErr(w, 500, "Mail storage setup failed: "+err.Error())
-			return
-		}
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT email, reason, source, is_active, updated_at
-			FROM mail_suppressions
-			ORDER BY updated_at DESC`)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="mail-suppressions.csv"`)
-		cw := csv.NewWriter(w)
-		_ = cw.Write([]string{"email", "reason", "source", "is_active", "updated_at"})
-		for _, row := range rows {
-			_ = cw.Write([]string{str(row["email"]), str(row["reason"]), str(row["source"]), fmt.Sprintf("%v", row["is_active"]), timeString(row["updated_at"])})
-		}
-		cw.Flush()
 	}
 }
 
@@ -1264,8 +1241,9 @@ func ensureMailSchema(ctx context.Context, db *core.DB) error {
 }
 
 // generateUnsubToken builds a signed unsubscribe token:
-//   payload  = base64url("{mailID}:{email}")
-//   token    = payload + "." + base64url(HMAC-SHA256(secretKey, payload))
+//
+//	payload  = base64url("{mailID}:{email}")
+//	token    = payload + "." + base64url(HMAC-SHA256(secretKey, payload))
 func generateUnsubToken(mailID int64, email, secretKey string) string {
 	payload := fmt.Sprintf("%d:%s", mailID, email)
 	payloadEnc := base64.RawURLEncoding.EncodeToString([]byte(payload))
