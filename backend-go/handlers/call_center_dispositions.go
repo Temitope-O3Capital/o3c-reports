@@ -46,6 +46,13 @@ var ccDispositions = []ccDisposition{
 		Hint: "Served again at the time you set, ahead of everything else"},
 	{Code: "ptp", Label: "Promise to Pay", Status: "", Connected: true,
 		Hint: "Recorded in the Collections promise book"},
+	// "Not eligible" and "not ready" were being forced into "Not Interested",
+	// which CLOSES the contact. They are different outcomes with different
+	// follow-ups, and collapsing them lost every not-yet lead worth calling back.
+	{Code: "not_eligible", Label: "Not Eligible", Status: "closed", Connected: true,
+		Hint: "Does not qualify (age, employer, exposure) — closes the contact"},
+	{Code: "not_ready", Label: "Not Ready Yet", Status: "", Connected: true,
+		Hint: "Interested but not now — stays in the queue for a later cycle"},
 	{Code: "no_answer", Label: "No Answer", Status: "", Connected: false,
 		Hint: "Rests for the cooldown, then returns to the queue"},
 	{Code: "wrong_number", Label: "Wrong Number", Status: "invalid", Connected: false,
@@ -133,4 +140,17 @@ func ccApplyDisposition(ctx context.Context, db *core.DB, contactID string,
 			 VALUES ($1, 'Agent disposition: Do Not Call', $2)
 			 ON CONFLICT (phone) DO NOTHING`, phone, userID)
 	}
+}
+
+// isRawCallOutcome reports whether a string is a telephony outcome rather than a
+// business disposition. The two live in different columns and mean different
+// things: an outcome says whether the phone connected, a disposition says what
+// the agent concluded. Storing one as the other is how 'completed' ended up
+// rendered to agents as the result of a call.
+func isRawCallOutcome(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "completed", "missed", "no_answer", "no answer", "voicemail", "answered", "resolved":
+		return true
+	}
+	return false
 }

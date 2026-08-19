@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
-  Page, SectionCard, DataTable, ExpandableFilterBar, Modal,
+  Page, SectionCard, DataTable, ExpandableFilterBar, Modal, ConfirmModal,
   ErrBanner, Spinner, KpiCard, DateFilter, NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
@@ -99,6 +99,8 @@ export default function CRMContacts() {
 
   // Edit contact modal
   const [editing,    setEditing]    = useState<Contact | null>(null)
+  const [archiving,  setArchiving]  = useState<Contact | null>(null)
+  const [archiveBusy, setArchiveBusy] = useState(false)
   const [editForm,   setEditForm]   = useState({ first_name: '', last_name: '', phone: '', email: '', status: '' })
   const [editSaving, setEditSaving] = useState(false)
 
@@ -111,8 +113,8 @@ export default function CRMContacts() {
   // just the first 500 that happen to be loaded. Debounced to one request per pause.
   const dq = useDebouncedValue(search, 300)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       // Leads page only shows pre-conversion contacts; customers live in My Accounts.
       const p = new URLSearchParams({ limit: '500', exclude_status: 'customer' })
@@ -132,7 +134,7 @@ export default function CRMContacts() {
   }, [dateFrom, dateTo, dq])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   const uniqueAssigneeNames = useMemo(
     () => [...new Set(contacts.map(c => c.assigned_name).filter(Boolean))] as string[],
@@ -159,25 +161,6 @@ export default function CRMContacts() {
       .finally(() => setKpiLoading(false))
   }, [dateFrom, dateTo])
 
-  function exportContactsCsv(data: Contact[]) {
-    const header = ['CIF', 'First Name', 'Last Name', 'Email', 'Phone', 'Source', 'Status', 'Assigned', 'Updated At']
-    const lines = data.map(r => [
-      `"${String(r.cif_number ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.first_name ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.last_name ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.email ?? '').replace(/"/g, '""')}"`,
-      r.phone ?? '',
-      r.source ?? '',
-      r.status ?? '',
-      `"${String(r.assigned_name ?? '').replace(/"/g, '""')}"`,
-      r.updated_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `contacts-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   function openEdit(c: Contact) {
     setEditing(c)
@@ -204,13 +187,16 @@ export default function CRMContacts() {
     finally { setEditSaving(false) }
   }
 
-  async function archiveContact(c: Contact) {
-    if (!window.confirm(`Archive ${`${c.first_name} ${c.last_name}`.trim()}? This removes the contact from the list.`)) return
+  async function confirmArchive() {
+    if (!archiving) return
+    setArchiveBusy(true)
     try {
-      await apiFetch(`/api/crm/contacts/${c.id}`, { method: 'DELETE' })
+      await apiFetch(`/api/crm/contacts/${archiving.id}`, { method: 'DELETE' })
       toast.success('Contact archived')
-      setContacts(cs => cs.filter(x => x.id !== c.id))
+      setContacts(cs => cs.filter(x => x.id !== archiving.id))
+      setArchiving(null)
     } catch (ex: any) { toast.error(ex.message) }
+    finally { setArchiveBusy(false) }
   }
 
   async function bulkAssign() {
@@ -264,7 +250,7 @@ export default function CRMContacts() {
       render: r => <ActionRow actions={[
         { icon: 'visibility', label: 'View', onClick: () => navigate(`/sales/customers/${r.id}`) },
         { icon: 'edit', label: 'Edit', onClick: () => openEdit(r) },
-        { icon: 'archive', label: 'Archive', danger: true, onClick: () => archiveContact(r) },
+        { icon: 'archive', label: 'Archive', danger: true, onClick: () => setArchiving(r) },
       ]} />,
     },
   ]
@@ -280,10 +266,10 @@ export default function CRMContacts() {
         <KpiCard label="Total Contacts" value={kpis ? fmtNum(kpis.total) : '—'} icon="contacts" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Active This Month" value={kpis ? fmtNum(kpis.active_this_month) : '—'} icon="how_to_reg" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="New This Month" value={kpis ? fmtNum(kpis.new_this_month) : '—'} icon="person_add" accent={BLUE} loading={kpiLoading} />
-        <KpiCard label="Conversion Rate" value={kpis ? `${kpis.conversion_rate_pct.toFixed(1)}%` : '—'} icon="trending_up" accent={AMBER} loading={kpiLoading} />
+        <KpiCard label="Conversion Rate" value={kpis ? `${Number(kpis.conversion_rate_pct ?? 0).toFixed(1)}%` : '—'} icon="trending_up" accent={AMBER} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="Contacts & Prospects" badge={contacts.length} padding={false} actions={<button onClick={() => exportContactsCsv(filteredContacts)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Contacts & Prospects" badge={contacts.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}
@@ -348,8 +334,6 @@ export default function CRMContacts() {
           onSelect={setBulkSel}
           bulkBar={
             <>
-              <button onClick={() => exportContactsCsv(bulkSel.size ? filteredContacts.filter(c => bulkSel.has(c.id)) : filteredContacts)}
-                style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
               <button onClick={() => setAssignOpen(true)}
                 style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
             </>
@@ -415,6 +399,17 @@ export default function CRMContacts() {
           </select>
         </div>
       </Modal>
+
+      <ConfirmModal
+        open={!!archiving}
+        title="Archive contact"
+        body={archiving ? `Archive ${`${archiving.first_name} ${archiving.last_name}`.trim()}? This removes them from the contact list.` : ''}
+        confirmLabel="Archive"
+        danger
+        loading={archiveBusy}
+        onConfirm={confirmArchive}
+        onClose={() => setArchiving(null)}
+      />
     </Page>
   )
 }

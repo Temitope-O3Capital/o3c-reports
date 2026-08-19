@@ -170,22 +170,77 @@ export async function apiDelete(path: string): Promise<void> {
   await apiFetch(path, { method: 'DELETE' })
 }
 
-export async function apiExport(path: string, filename: string): Promise<void> {
-  const res = await fetch(`${API}${path}`, { credentials: 'include' })
-  if (res.status === 401) { signOut(); return }
+export interface ExportResult {
+  filename: string
+  rows: number
+  truncated: boolean
+}
+
+/**
+ * Download a file from the export engine.
+ *
+ * Three things this fixes over the previous version:
+ *  - A 401 now refreshes and retries, as apiFetch does. It used to sign the user
+ *    straight out, so starting an export with an expired access token but a
+ *    perfectly valid refresh cookie threw you to the login screen.
+ *  - POST is supported, so a request can carry a body (column selection,
+ *    filters) instead of being squeezed into a query string.
+ *  - The filename comes from the server's Content-Disposition rather than being
+ *    guessed client-side, so a .xlsx is not saved as ".csv" — which is exactly
+ *    what the old hardcoded `${filename}_${date}.csv` did to every format.
+ */
+export async function apiExport(
+  path: string,
+  opts?: { method?: string; body?: unknown; fallbackName?: string },
+): Promise<ExportResult> {
+  const method = (opts?.method ?? 'GET').toUpperCase()
+  const isMutation = method !== 'GET' && method !== 'HEAD'
+
+  const send = () => fetch(`${API}${path}`, {
+    method,
+    credentials: 'include',
+    headers: {
+      ...(opts?.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(isMutation ? { 'X-CSRF-Token': getCsrfToken() } : {}),
+    },
+    body: opts?.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  })
+
+  let res = await send()
+  if (res.status === 401) {
+    // The handler never ran, so nothing partially succeeded — safe to replay.
+    if (await refreshSession()) {
+      res = await send()
+    }
+    if (res.status === 401) { signOut(); throw new Error('Session expired') }
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Export failed' }))
-    throw new Error(err.detail || 'Export failed')
+    throw new Error((err as any).detail || `Export failed (${res.status})`)
   }
+
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const match = /filename="?([^"';]+)"?/i.exec(disposition)
+  const filename = res.headers.get('X-Export-Filename')
+    || match?.[1]
+    || opts?.fallbackName
+    || 'export'
+
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   a.remove()
   URL.revokeObjectURL(url)
+
+  return {
+    filename,
+    rows: Number(res.headers.get('X-Export-Rows') ?? 0),
+    truncated: res.headers.get('X-Export-Truncated') === 'true',
+  }
 }
 
 // ── Response-envelope helpers ───────────────────────────────────────────────

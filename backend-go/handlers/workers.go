@@ -84,6 +84,11 @@ var workerRegistry = []workerDef{
 		"Advances multi-step message sequences.", "heartbeat", ""},
 	{"task_notifications", "Task Notifications", "Scheduled Job", "Hourly",
 		"Pushes due-soon and overdue task reminders.", "heartbeat", ""},
+	{"reporting_rollups", "Reporting Rollups", "Scheduled Job", "Nightly (batch)",
+		"Rebuilds collections_daily_kpi over a rolling 35-day window (what Collections " +
+			"Performance and Agent Performance read), and registers any new CCS transaction " +
+			"code so it surfaces as unclassified instead of dropping out of revenue.",
+		"heartbeat", "/api/reports/rollups/collections-kpi"},
 	{"birthday", "Birthday Greetings", "Scheduled Job", "Daily · 08:00",
 		"Sends customer birthday greetings.", "heartbeat", ""},
 	{"account_alerts", "Account Alerts", "Scheduled Job", "Daily · 08:00",
@@ -119,8 +124,8 @@ type workerOut struct {
 	Detail      *string `json:"detail"`
 	Manual      bool    `json:"manual"`
 	Trigger     string  `json:"trigger"`
-	IntervalSec int     `json:"interval_sec"`  // 0 = no fixed interval (on-demand/always-on)
-	NextRunAt   *string `json:"next_run_at"`   // last_run + interval, when both known
+	IntervalSec int     `json:"interval_sec"` // 0 = no fixed interval (on-demand/always-on)
+	NextRunAt   *string `json:"next_run_at"`  // last_run + interval, when both known
 }
 
 // cadenceSecs maps a registry cadence string to its interval in seconds so the UI

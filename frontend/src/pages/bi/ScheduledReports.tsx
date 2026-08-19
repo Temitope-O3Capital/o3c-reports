@@ -59,8 +59,8 @@ export default function ScheduledReports() {
   const [formFormat,    setFormFormat]    = useState('csv')
   const [saving,        setSaving]        = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const [scheds, reps] = await Promise.all([
         apiFetch<Schedule[]>(`/api/bi/scheduled?from=${dateFrom}&to=${dateTo}`),
@@ -76,7 +76,7 @@ export default function ScheduledReports() {
   }, [formReport, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   const createSchedule = async () => {
     if (!formReport || !formCron.trim()) { toast.error('Select a report and enter a cron expression'); return }

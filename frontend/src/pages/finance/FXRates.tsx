@@ -122,7 +122,7 @@ export default function FXRates() {
   return (
     <Page
       title="FX Parallel Rates"
-      subtitle="Indicative Naira parallel-market rates — scraped hourly, display refreshes every 5 minutes."
+      subtitle="Indicative Naira parallel-market rates. Scraped hourly, display refreshes every 5 minutes."
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
           {lastUpdatedLabel && (
@@ -236,8 +236,8 @@ export default function FXRates() {
               {/* Inline legend */}
               <div style={{ display: 'flex', gap: SP[5], marginTop: SP[3] }}>
                 {[
-                  { color: NAVY,        label: 'Sell — you pay' },
-                  { color: accentColor, label: 'Buy — you receive' },
+                  { color: NAVY,        label: 'Sell: you pay' },
+                  { color: accentColor, label: 'Buy: you receive' },
                 ].map(({ color, label }) => (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                     <div style={{ width: 22, height: 3, borderRadius: 2, background: color }} />
@@ -293,7 +293,7 @@ export default function FXRates() {
         {/* Disclaimer */}
         <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.7, margin: 0 }}>
           <strong>Disclaimer:</strong> Rates are sourced from community-aggregated BDC quotes (NgnRates.com).
-          They are indicative of the Naira parallel market only — not a licensed or regulated FX feed.
+          They are indicative of the Naira parallel market only. Not a licensed or regulated FX feed.
           Not suitable for settlement or customer-facing rate quotes without compliance review.
         </p>
 

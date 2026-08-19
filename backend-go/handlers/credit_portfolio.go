@@ -14,29 +14,29 @@ func RegisterCreditPortfolio(r chi.Router, db *core.DB) {
 	access := core.RequirePages("credit_portfolio")
 
 	// Applications
-	r.With(access).Get("/applications",        cpListApplications(db))
-	r.With(access).Post("/applications",        cpCreateApplication(db))
-	r.With(access).Get("/applications/{id}",   cpGetApplication(db))
-	r.With(access).Put("/applications/{id}",   cpUpdateApplication(db))
+	r.With(access).Get("/applications", cpListApplications(db))
+	r.With(access).Post("/applications", cpCreateApplication(db))
+	r.With(access).Get("/applications/{id}", cpGetApplication(db))
+	r.With(access).Put("/applications/{id}", cpUpdateApplication(db))
 	r.With(access).Delete("/applications/{id}", cpDeleteApplication(db))
 
 	// Repayments (nested under application)
-	r.With(access).Get("/applications/{id}/repayments",  cpListRepayments(db))
+	r.With(access).Get("/applications/{id}/repayments", cpListRepayments(db))
 	r.With(access).Post("/applications/{id}/repayments", cpAddRepayment(db))
-	r.With(access).Put("/repayments/{rid}",              cpUpdateRepayment(db))
-	r.With(access).Delete("/repayments/{rid}",           cpDeleteRepayment(db))
+	r.With(access).Put("/repayments/{rid}", cpUpdateRepayment(db))
+	r.With(access).Delete("/repayments/{rid}", cpDeleteRepayment(db))
 
 	// Collateral (nested under application)
-	r.With(access).Get("/applications/{id}/collateral",  cpListCollateral(db))
+	r.With(access).Get("/applications/{id}/collateral", cpListCollateral(db))
 	r.With(access).Post("/applications/{id}/collateral", cpAddCollateral(db))
-	r.With(access).Put("/collateral/{cid}",              cpUpdateCollateral(db))
-	r.With(access).Delete("/collateral/{cid}",           cpDeleteCollateral(db))
+	r.With(access).Put("/collateral/{cid}", cpUpdateCollateral(db))
+	r.With(access).Delete("/collateral/{cid}", cpDeleteCollateral(db))
 
 	// Analytics
-	r.With(access).Get("/summary",   cpSummary(db))
-	r.With(access).Get("/pipeline",  cpPipeline(db))
+	r.With(access).Get("/summary", cpSummary(db))
+	r.With(access).Get("/pipeline", cpPipeline(db))
 	r.With(access).Get("/by-officer", cpByOfficer(db))
-	r.With(access).Get("/overdue",   cpOverdue(db))
+	r.With(access).Get("/overdue", cpOverdue(db))
 }
 
 /* ── Applications ─────────────────────────────────────────────────────────── */
@@ -48,22 +48,34 @@ func cpListApplications(db *core.DB) http.HandlerFunc {
 		n := 1
 
 		if v := qstr(r, "type"); v != "" {
-			where += fmt.Sprintf(" AND type=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND type=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "status"); v != "" {
-			where += fmt.Sprintf(" AND status=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND status=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "location"); v != "" {
-			where += fmt.Sprintf(" AND location=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND location=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "account_officer"); v != "" {
-			where += fmt.Sprintf(" AND account_officer ILIKE $%d", n); args = append(args, "%"+v+"%"); n++
+			where += fmt.Sprintf(" AND account_officer ILIKE $%d", n)
+			args = append(args, "%"+v+"%")
+			n++
 		}
 		if v := qstr(r, "date_from"); v != "" {
-			where += fmt.Sprintf(" AND date_received >= $%d::date", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND date_received >= $%d::date", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "date_to"); v != "" {
-			where += fmt.Sprintf(" AND date_received <= $%d::date", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND date_received <= $%d::date", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "q"); v != "" {
 			if clause, sargs, nn := buildCustomerSearch(v,
@@ -74,7 +86,7 @@ func cpListApplications(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		limit  := qint(r, "limit", 100, 1, 500)
+		limit := qint(r, "limit", 100, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		// total count
@@ -90,7 +102,8 @@ func cpListApplications(db *core.DB) http.HandlerFunc {
 			`SELECT * FROM credit_applications WHERE %s ORDER BY date_received DESC, id DESC LIMIT $%d OFFSET $%d`,
 			where, n, n+1), args2...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"data": rows, "total": total}) //nolint:errcheck
@@ -124,13 +137,16 @@ func cpCreateApplication(db *core.DB) http.HandlerFunc {
 			Notes           string   `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.CustomerName == "" {
-			respondErr(w, 422, "customer_name is required"); return
+			respondErr(w, 422, "customer_name is required")
+			return
 		}
 		if b.DateReceived == "" {
-			respondErr(w, 422, "date_received is required"); return
+			respondErr(w, 422, "date_received is required")
+			return
 		}
 		if b.Type != "loan" && b.Type != "card" {
 			b.Type = "loan"
@@ -144,7 +160,9 @@ func cpCreateApplication(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 
 		nullStr := func(s string) any {
-			if s == "" { return nil }
+			if s == "" {
+				return nil
+			}
 			return s
 		}
 
@@ -164,7 +182,8 @@ func cpCreateApplication(db *core.DB) http.HandlerFunc {
 			nullStr(b.MaturityDate), nullStr(b.Location), nullStr(b.AccountOfficer),
 			nullStr(b.Introducer), b.ApplicationType, nullStr(b.Notes), user.ID)
 		if err != nil {
-			respondErr(w, 500, "Create failed: "+err.Error()); return
+			respondErr(w, 500, "Create failed: "+err.Error())
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -177,7 +196,8 @@ func cpGetApplication(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		rows, err := db.PGQuery(r.Context(), `SELECT * FROM credit_applications WHERE id=$1`, id)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Application not found"); return
+			respondErr(w, 404, "Application not found")
+			return
 		}
 		// Also fetch repayments and collateral
 		reps, _ := db.PGQuery(r.Context(), `SELECT * FROM loan_repayments WHERE application_id=$1 ORDER BY created_at`, id)
@@ -202,11 +222,13 @@ func cpUpdateApplication(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		parts, args := buildSet(body, allowed, 1)
 		if len(parts) == 0 {
-			respondErr(w, 422, "No updatable fields provided"); return
+			respondErr(w, 422, "No updatable fields provided")
+			return
 		}
 		parts = append(parts, "updated_at=NOW()")
 		args = append(args, id)
@@ -214,7 +236,8 @@ func cpUpdateApplication(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("UPDATE credit_applications SET %s WHERE id=$%d RETURNING *",
 				strings.Join(parts, ","), len(args)), args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Application not found"); return
+			respondErr(w, 404, "Application not found")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -262,17 +285,21 @@ func cpAddRepayment(db *core.DB) http.HandlerFunc {
 			ActionTaken    string `json:"action_taken"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.PaymentMonth == "" {
-			respondErr(w, 422, "payment_month is required"); return
+			respondErr(w, 422, "payment_month is required")
+			return
 		}
 		if b.PaymentStatus == "" {
 			b.PaymentStatus = "pending"
 		}
 		user := core.UserFromCtx(r.Context())
 		nullStr := func(s string) any {
-			if s == "" { return nil }
+			if s == "" {
+				return nil
+			}
 			return s
 		}
 		rows, err := db.PGQuery(r.Context(), `
@@ -284,7 +311,8 @@ func cpAddRepayment(db *core.DB) http.HandlerFunc {
 			nullStr(b.PaymentDate), b.DPD, b.PaymentStatus,
 			nullStr(b.Comment), nullStr(b.ActionTaken), user.ID)
 		if err != nil {
-			respondErr(w, 500, "Create failed: "+err.Error()); return
+			respondErr(w, 500, "Create failed: "+err.Error())
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -303,14 +331,16 @@ func cpUpdateRepayment(db *core.DB) http.HandlerFunc {
 		json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
 		parts, args := buildSet(body, allowed, 1)
 		if len(parts) == 0 {
-			respondErr(w, 422, "No updatable fields"); return
+			respondErr(w, 422, "No updatable fields")
+			return
 		}
 		args = append(args, rid)
 		rows, err := db.PGQuery(r.Context(),
 			fmt.Sprintf("UPDATE loan_repayments SET %s WHERE id=$%d RETURNING *",
 				strings.Join(parts, ","), len(args)), args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Repayment not found"); return
+			respondErr(w, 404, "Repayment not found")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -358,10 +388,13 @@ func cpAddCollateral(db *core.DB) http.HandlerFunc {
 			Notes            string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		ns := func(s string) any {
-			if s == "" { return nil }
+			if s == "" {
+				return nil
+			}
 			return s
 		}
 		rows, err := db.PGQuery(r.Context(), `
@@ -373,7 +406,8 @@ func cpAddCollateral(db *core.DB) http.HandlerFunc {
 			ns(b.GuarantorName), ns(b.GuarantorPhone), ns(b.GuarantorEmail),
 			ns(b.GuarantorAddress), ns(b.Notes))
 		if err != nil {
-			respondErr(w, 500, "Create failed: "+err.Error()); return
+			respondErr(w, 500, "Create failed: "+err.Error())
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -392,14 +426,16 @@ func cpUpdateCollateral(db *core.DB) http.HandlerFunc {
 		json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
 		parts, args := buildSet(body, allowed, 1)
 		if len(parts) == 0 {
-			respondErr(w, 422, "No updatable fields"); return
+			respondErr(w, 422, "No updatable fields")
+			return
 		}
 		args = append(args, cid)
 		rows, err := db.PGQuery(r.Context(),
 			fmt.Sprintf("UPDATE loan_collateral SET %s WHERE id=$%d RETURNING *",
 				strings.Join(parts, ","), len(args)), args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Collateral record not found"); return
+			respondErr(w, 404, "Collateral record not found")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -427,24 +463,32 @@ func cpDeleteCollateral(db *core.DB) http.HandlerFunc {
 func cpSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
-		loc  := qstr(r, "location")
-		typ  := qstr(r, "type")
+		dateTo, _ := validDate(r, "date_to")
+		loc := qstr(r, "location")
+		typ := qstr(r, "type")
 
 		where := "1=1"
 		var args []any
 		n := 1
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND date_received >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND date_received >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND date_received <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND date_received <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		if loc != "" {
-			where += fmt.Sprintf(" AND location=$%d", n); args = append(args, loc); n++
+			where += fmt.Sprintf(" AND location=$%d", n)
+			args = append(args, loc)
+			n++
 		}
 		if typ != "" {
-			where += fmt.Sprintf(" AND type=$%d", n); args = append(args, typ); n++
+			where += fmt.Sprintf(" AND type=$%d", n)
+			args = append(args, typ)
+			n++
 		}
 
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -462,7 +506,8 @@ func cpSummary(db *core.DB) http.HandlerFunc {
 				COUNT(*) FILTER (WHERE type='card')                             AS card_count
 			FROM credit_applications WHERE %s`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Summary failed"); return
+			respondErr(w, 500, "Summary failed")
+			return
 		}
 		if len(rows) == 0 {
 			rows = []core.Row{{
@@ -500,24 +545,32 @@ func cpSummary(db *core.DB) http.HandlerFunc {
 func cpPipeline(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
-		loc         := qstr(r, "location")
-		typ         := qstr(r, "type")
+		dateTo, _ := validDate(r, "date_to")
+		loc := qstr(r, "location")
+		typ := qstr(r, "type")
 
 		where := "1=1"
 		var args []any
 		n := 1
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND date_received >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND date_received >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND date_received <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND date_received <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		if loc != "" {
-			where += fmt.Sprintf(" AND location=$%d", n); args = append(args, loc); n++
+			where += fmt.Sprintf(" AND location=$%d", n)
+			args = append(args, loc)
+			n++
 		}
 		if typ != "" {
-			where += fmt.Sprintf(" AND type=$%d", n); args = append(args, typ); n++
+			where += fmt.Sprintf(" AND type=$%d", n)
+			args = append(args, typ)
+			n++
 		}
 		_ = n
 
@@ -538,16 +591,20 @@ func cpPipeline(db *core.DB) http.HandlerFunc {
 func cpByOfficer(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
+		dateTo, _ := validDate(r, "date_to")
 
 		where := "1=1"
 		var args []any
 		n := 1
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND date_received >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND date_received >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND date_received <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND date_received <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		_ = n
 

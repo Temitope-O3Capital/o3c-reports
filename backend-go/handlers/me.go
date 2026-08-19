@@ -47,30 +47,30 @@ func meDashboard(db *core.DB) http.HandlerFunc {
 			Created       string  `json:"created_at"`
 		}
 		type leadRow struct {
-			ID       int64   `json:"id"`
-			Title    string  `json:"title"`
-			Stage    string  `json:"stage"`
+			ID        int64   `json:"id"`
+			Title     string  `json:"title"`
+			Stage     string  `json:"stage"`
 			ValueKobo float64 `json:"potential_value_kobo"`
-			Created  string  `json:"created_at"`
+			Created   string  `json:"created_at"`
 		}
 		type collRow struct {
-			ID       int64  `json:"id"`
-			CIF      string `json:"account_cif"`
-			Name     string `json:"customer_name"`
-			DPD      int64  `json:"dpd"`
-			Status   string `json:"status"`
+			ID     int64  `json:"id"`
+			CIF    string `json:"account_cif"`
+			Name   string `json:"customer_name"`
+			DPD    int64  `json:"dpd"`
+			Status string `json:"status"`
 		}
 
 		out := map[string]any{
-			"user_id":         uid,
-			"full_name":       claims.FullName,
-			"role":            claims.Role,
-			"kpi":             map[string]int{},
-			"tickets":         []ticketRow{},
-			"applications":    []applicationRow{},
-			"leads":           []leadRow{},
-			"collections":     []collRow{},
-			"activity":        []actRow{},
+			"user_id":      uid,
+			"full_name":    claims.FullName,
+			"role":         claims.Role,
+			"kpi":          map[string]int{},
+			"tickets":      []ticketRow{},
+			"applications": []applicationRow{},
+			"leads":        []leadRow{},
+			"collections":  []collRow{},
+			"activity":     []actRow{},
 		}
 
 		// ── KPIs ─────────────────────────────────────────────────────────────
@@ -89,10 +89,10 @@ func meDashboard(db *core.DB) http.HandlerFunc {
 			  (SELECT COUNT(*) FROM bd_leads WHERE assigned_to=$1 AND stage NOT IN ('won','lost')) AS my_leads,
 			  (SELECT COUNT(*) FROM collection_assignments WHERE agent_user_id=$1 AND status='active') AS my_queue
 		`, uid); err == nil && len(rows) > 0 {
-			kpi["open_tickets"]    = int(toInt64(rows[0]["open_tickets"]))
+			kpi["open_tickets"] = int(toInt64(rows[0]["open_tickets"]))
 			kpi["my_applications"] = int(toInt64(rows[0]["my_apps"]))
-			kpi["my_leads"]        = int(toInt64(rows[0]["my_leads"]))
-			kpi["my_queue"]        = int(toInt64(rows[0]["my_queue"]))
+			kpi["my_leads"] = int(toInt64(rows[0]["my_leads"]))
+			kpi["my_queue"] = int(toInt64(rows[0]["my_queue"]))
 		}
 		out["kpi"] = kpi
 

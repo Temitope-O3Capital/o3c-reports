@@ -396,6 +396,7 @@ func main() {
 			r.Route("/workers", func(r chi.Router) { handlers.RegisterWorkers(r, db) })
 			handlers.RegisterNotificationSettings(r, db)
 			handlers.RegisterEmailSenders(r, db)
+			handlers.RegisterTermiiAdmin(r, db) // Termii SMS status + test-send
 			r.Route("/modules", func(r chi.Router) {
 				handlers.RegisterModules(r, db)
 			})
@@ -864,6 +865,12 @@ func corsMiddleware(allowed []string) func(http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Token, Idempotency-Key, X-Request-ID")
+				// A browser cannot read any response header beyond the CORS-safelisted
+				// set unless it is exposed. Without this the Data Export page cannot
+				// see the real filename, the row count, or the truncation warning —
+				// so a capped export would download looking like the complete book.
+				w.Header().Set("Access-Control-Expose-Headers",
+					"Content-Disposition, X-Export-Filename, X-Export-Rows, X-Export-Truncated")
 				w.Header().Set("Vary", "Origin")
 			}
 			if r.Method == http.MethodOptions {

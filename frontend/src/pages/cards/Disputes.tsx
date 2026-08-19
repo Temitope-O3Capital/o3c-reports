@@ -58,7 +58,7 @@ function AdvanceBtn({ dispute, onReload }: { dispute: Dispute; onReload: () => v
         method: 'PATCH',
         body: JSON.stringify({ status: nextStatus }),
       })
-      toast.success(`Status → ${STATUS_LABELS[nextStatus]}`)
+      toast.success(`Status to ${STATUS_LABELS[nextStatus]}`)
       onReload()
     } catch (e: any) {
       toast.error(e.message)
@@ -72,7 +72,7 @@ function AdvanceBtn({ dispute, onReload }: { dispute: Dispute; onReload: () => v
       padding: '3px 10px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'transparent',
       color: 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: busy ? 'default' : 'pointer',
     }}>
-      → {STATUS_LABELS[nextStatus]}
+      {STATUS_LABELS[nextStatus]}
     </button>
   )
 }
@@ -163,27 +163,7 @@ function NewDisputeModal({ onClose, onCreated }: { onClose: () => void; onCreate
   )
 }
 
-// ── Export CSV ────────────────────────────────────────────────────────────────
 
-function exportDisputesCsv(rows: Dispute[]) {
-  const header = ['Dispute #', 'Customer', 'CIF Number', 'Card Type', 'Amount (NGN)', 'Type', 'Status', 'Filed Date', 'Days Open']
-  const lines = rows.map(r => [
-    `"${String(r.ref ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.cif_number ?? '').replace(/"/g, '""')}"`,
-    r.card_type ?? '',
-    r.amount_kobo !== undefined ? (r.amount_kobo / 100).toFixed(2) : '',
-    `"${String(r.dispute_type ?? '').replace(/"/g, '""')}"`,
-    r.status ?? '',
-    r.filed_date ? r.filed_date.slice(0, 10) : '',
-    r.days_open ?? '',
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `disputes-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -199,8 +179,8 @@ export default function CardsDisputes() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<Dispute[]>(`/api/cards/disputes?from=${dateFrom}&to=${dateTo}`)
@@ -213,7 +193,7 @@ export default function CardsDisputes() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['cards'] })
+  useLiveData(() => load(true), { topics: ['cards'] })
 
   const cols: TableCol<Dispute>[] = useMemo(() => [
     { key: 'customer_name', label: 'Customer',
@@ -284,7 +264,7 @@ export default function CardsDisputes() {
         ))}
       </div>
 
-      <SectionCard title="All Disputes" badge={displayed.length} padding={false} actions={<button onClick={() => exportDisputesCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="All Disputes" badge={displayed.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

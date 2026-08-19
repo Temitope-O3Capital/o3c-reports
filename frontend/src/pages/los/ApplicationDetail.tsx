@@ -313,7 +313,7 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
   const scoreColor = (s: number | null) => !s ? 'var(--txt3)' : s >= 700 ? GREEN : s >= 500 ? AMBER : RED
 
   return (
-    <Modal open={open} onClose={onClose} title={`Credit File — ${cif}`} width={540}>
+    <Modal open={open} onClose={onClose} title={`Credit File: ${cif}`} width={540}>
       {cfLoading && <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={24} /></div>}
       {cfError   && <div style={{ color: RED, fontSize: TEXT.sm, padding: SP[3] }}>{cfError}</div>}
       {cfData && !cfLoading && (
@@ -1219,7 +1219,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
         <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
         <StagePill stage={app.stage} />
         <div style={{ marginLeft: 'auto' }}>
-          <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 12px', borderRadius: 20, background: 'rgba(124,58,237,.08)', color: '#7C3AED' }}>Compliance View — Read Only</span>
+          <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 12px', borderRadius: 20, background: 'rgba(124,58,237,.08)', color: '#7C3AED' }}>Compliance View, Read Only</span>
         </div>
       </div>
 
@@ -1372,7 +1372,7 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
           </span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: allConditionsMet ? GREEN : RED }}>
-              {allConditionsMet ? 'All conditions satisfied — disbursement cleared' : `${unmetCount} condition${unmetCount !== 1 ? 's' : ''} not yet satisfied`}
+              {allConditionsMet ? 'All conditions satisfied: disbursement cleared' : `${unmetCount} condition${unmetCount !== 1 ? 's' : ''} not yet satisfied`}
             </div>
             {!allConditionsMet && <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>Pending conditions must be met before this application can be disbursed</div>}
           </div>
@@ -1538,7 +1538,7 @@ function TimelineTab({ events, notes }: { events: AppEvent[]; notes: AppNote[] }
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
                     {isStage && ev.from_stage && ev.to_stage ? (
                       <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
-                        Stage moved: <StagePill stage={ev.from_stage} size="sm" /> → <StagePill stage={ev.to_stage} size="sm" />
+                        Stage moved: <StagePill stage={ev.from_stage} size="sm" /> to <StagePill stage={ev.to_stage} size="sm" />
                       </span>
                     ) : (
                       <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', textTransform: 'capitalize' }}>
@@ -2083,9 +2083,9 @@ export default function ApplicationDetail() {
   const [committeeNote, setCommitteeNote] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!id) return
-    setLoading(true); setError(null)
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch<{ data: DetailData }>(`/api/los/${id}`)
       setData(res.data)
@@ -2094,7 +2094,7 @@ export default function ApplicationDetail() {
   }, [id])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['loans'] })
+  useLiveData(() => load(true), { topics: ['loans'] })
 
   async function doAdvance() {
     if (!toStage) { toast.error('Select a target stage'); return }
@@ -2159,7 +2159,7 @@ export default function ApplicationDetail() {
     return (
       <Page title="Application" subtitle="Error">
         <div style={{ padding: '14px 18px', borderRadius: 10, background: 'rgba(192,0,0,0.08)', border: '1px solid rgba(192,0,0,0.2)', fontSize: 13, color: RED }}>
-          {error} — <button onClick={load} style={{ textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 'inherit' }}>Retry</button>
+          {error}. <button onClick={() => load()} style={{ textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 'inherit' }}>Retry</button>
         </div>
       </Page>
     )

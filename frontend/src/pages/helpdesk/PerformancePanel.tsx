@@ -79,7 +79,7 @@ export default function PerformancePanel() {
 
       {/* Connect-rate trend + talk distribution (not on the Overview) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: SP[4] }}>
-        <SectionCard title="Connect Rate Trend" subtitle="Daily connect rate — quality of contact over time">
+        <SectionCard title="Connect Rate Trend" subtitle="Daily connect rate: quality of contact over time">
           {trend.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls in range</div> : (
             <ResponsiveContainer width="100%" height={200}>
               <ComposedChart data={trend} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>

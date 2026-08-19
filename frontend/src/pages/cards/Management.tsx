@@ -153,7 +153,7 @@ function ActionCell({ row, onDone }: { row: Cardholder; onDone: () => void }) {
 
       {/* Block reason modal */}
       {showBlock && (
-        <Modal open={showBlock} title={`Block card — ${row.cif_number}`} onClose={() => { setShowBlock(false); setReason('') }}>
+        <Modal open={showBlock} title={`Block card: ${row.cif_number}`} onClose={() => { setShowBlock(false); setReason('') }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <p style={{ margin: 0, fontSize: TEXT.base, color: 'var(--txt2)' }}>
               This will block all card activity for <strong>{row.cif_number}</strong>. Provide a reason for audit.
@@ -185,7 +185,7 @@ function ActionCell({ row, onDone }: { row: Cardholder; onDone: () => void }) {
 
       {/* Block log modal */}
       {showLog && (
-        <Modal open={showLog} title={`Block history — ${row.cif_number}`} onClose={() => setShowLog(false)}>
+        <Modal open={showLog} title={`Block history: ${row.cif_number}`} onClose={() => setShowLog(false)}>
           {logLoading ? (
             <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>Loading…</div>
           ) : log.length === 0 ? (
@@ -243,23 +243,7 @@ function makeCols(onDone: () => void, navigate: (path: string) => void): TableCo
   ]
 }
 
-// ── Export CSV ────────────────────────────────────────────────────────────────
 
-function exportCardholdersCsv(rows: Cardholder[]) {
-  const header = ['CIF Number', 'Product', 'Card Programme', 'Status', 'Issued Date']
-  const lines = rows.map(r => [
-    `"${String(r.cif_number ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.product_name ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.card_product ?? '').replace(/"/g, '""')}"`,
-    r.status ?? '',
-    r.created_at ? r.created_at.slice(0, 10) : '',
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `cardholders-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -326,7 +310,7 @@ export default function CardsManagement() {
 
       <ErrBanner error={error} onRetry={() => load(page)} />
 
-      <SectionCard title="Cardholders" badge={total} padding={false} actions={<button onClick={() => exportCardholdersCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Cardholders" badge={total} padding={false}>
 
         <ExpandableFilterBar
           search={search}

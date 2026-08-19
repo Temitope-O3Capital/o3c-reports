@@ -131,10 +131,10 @@ func cbsSyncStatus(db *core.DB) http.HandlerFunc {
 
 		// Current snapshot row counts (independent of last run record).
 		counts := map[string]any{
-			"products":        scalarCount(ctx, db, "cbs_products"),
-			"loans":           scalarCount(ctx, db, "cbs_loans"),
-			"fixed_deposits":  scalarCount(ctx, db, "cbs_fixed_deposits"),
-			"linked":          scalarCount(ctx, db, "cbs_links"),
+			"products":       scalarCount(ctx, db, "cbs_products"),
+			"loans":          scalarCount(ctx, db, "cbs_loans"),
+			"fixed_deposits": scalarCount(ctx, db, "cbs_fixed_deposits"),
+			"linked":         scalarCount(ctx, db, "cbs_links"),
 		}
 		cbsWriteJSON(w, http.StatusOK, map[string]any{"last_run": last, "snapshot": counts})
 	}

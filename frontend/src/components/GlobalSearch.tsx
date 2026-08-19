@@ -13,9 +13,9 @@ interface SearchResult {
 }
 
 const MODULE_SHORTCUTS = [
-  { label: 'Collections — today\'s queue', url: '/collections', kbd: 'G C' },
-  { label: 'Mail — inbox',                 url: '/mail/inbox',  kbd: 'G M' },
-  { label: 'Overview — dashboard',         url: '/',            kbd: 'G O' },
+  { label: 'Collections: today\'s queue', url: '/collections', kbd: 'G C' },
+  { label: 'Mail: inbox',                 url: '/mail/inbox',  kbd: 'G M' },
+  { label: 'Overview: dashboard',         url: '/',            kbd: 'G O' },
   { label: 'Reports & BI',                 url: '/reports',     kbd: 'G R' },
 ]
 

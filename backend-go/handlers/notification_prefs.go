@@ -43,11 +43,11 @@ func getUserNotifPrefs(db *core.DB) http.HandlerFunc {
 			`SELECT event_type, channel, enabled
 			 FROM notification_preferences WHERE user_id=$1`, user.ID)
 
-		overrides   := map[string]bool{}
+		overrides := map[string]bool{}
 		overrideSet := map[string]bool{}
 		for _, row := range prefRows {
 			k := str(row["event_type"]) + ":" + str(row["channel"])
-			overrides[k]   = row["enabled"] == true
+			overrides[k] = row["enabled"] == true
 			overrideSet[k] = true
 		}
 
@@ -77,7 +77,8 @@ func putUserNotifPrefs(db *core.DB) http.HandlerFunc {
 			Enabled   bool   `json:"enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		for _, item := range items {
 			db.PGExec(r.Context(), //nolint:errcheck
@@ -96,7 +97,8 @@ func getAdminNotifSettings(db *core.DB) http.HandlerFunc {
 			`SELECT event_type, channel, enabled, label, description
 			 FROM notification_event_config ORDER BY event_type, channel`)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows) //nolint:errcheck
@@ -113,7 +115,8 @@ func putAdminNotifSettings(db *core.DB) http.HandlerFunc {
 			Enabled   bool   `json:"enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		for _, item := range items {
 			db.PGExec(r.Context(), //nolint:errcheck

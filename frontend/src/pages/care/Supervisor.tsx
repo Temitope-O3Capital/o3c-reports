@@ -60,8 +60,8 @@ export default function CareSupervisor() {
   const [distBusy, setDistBusy] = useState(false)
   const [batch, setBatch] = useState(200)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const r = await apiFetch<any>('/api/helpdesk/care-supervisor')
       setD((r?.data ?? r) as CareSup)
@@ -80,7 +80,7 @@ export default function CareSupervisor() {
       toast.success(
         res.assigned > 0
           ? `Assigned ${res.assigned} mail${res.assigned === 1 ? '' : 's'} across ${res.agents} agent${res.agents === 1 ? '' : 's'}.`
-          : 'Nothing to distribute — the pool is empty.'
+          : 'Nothing to distribute. The pool is empty.'
       )
       setDistOpen(false)
       await load()
@@ -90,7 +90,7 @@ export default function CareSupervisor() {
   }, [batch, load])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
 
   return (
     <>
@@ -154,7 +154,7 @@ export default function CareSupervisor() {
             {/* Unassigned pool */}
             <SectionCard title="Unassigned Pool" badge={d.unassigned}>
               {d.unassigned_tickets.length === 0 ? (
-                <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>Nothing waiting — all mail is owned.</div>
+                <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>Nothing waiting. All mail is owned.</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   {d.unassigned_tickets.map((t, i) => {
@@ -201,7 +201,7 @@ export default function CareSupervisor() {
           style={{ width: '100%', padding: '8px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base }}
         />
         <p style={{ margin: '8px 0 0', fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-          Up to 1,000 per pass — run it again to keep clearing the backlog.
+          Up to 1,000 per pass. Run it again to keep clearing the backlog.
         </p>
       </ConfirmModal>
     </>

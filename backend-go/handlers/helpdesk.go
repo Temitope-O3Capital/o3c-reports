@@ -32,7 +32,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/mail"
+	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -259,7 +261,13 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Put("/sla-policies/{id}", hdUpdateSLA(db))
 		r.Get("/calls", hdListCalls(db))
 		r.Post("/calls", hdLogCall(db))
+		// Auto-match: the real duration of the call the agent has just finished.
+		r.Get("/calls/latest", hdLatestCall(db))
+		// Candidate calls the agent might be writing up — the picker behind
+		// "which call is this?".
+		r.Get("/calls/candidates", hdCallCandidates(db))
 		r.Get("/calls/stats", hdCallStats(db))
+		r.Get("/calls/{id}/recording", hdCallRecording(db)) // streams Zoho Voice audio on demand
 
 		// Knowledge Base
 		r.Get("/kb", hdKBList(db))
@@ -1058,7 +1066,22 @@ func hdCreateTicket(db *core.DB) http.HandlerFunc {
 
 		priority := "normal"
 		if b.Priority != nil && *b.Priority != "" {
-			priority = *b.Priority
+			priority = strings.ToLower(strings.TrimSpace(*b.Priority))
+		}
+		// The UI says "medium"; the table says "normal". helpdesk_tickets_priority_check
+		// allows low|normal|high|urgent, so every ticket raised from the Log-a-Call form
+		// (which sends "medium" for any disposition short of Escalated) failed on the
+		// constraint and reached the agent as a bare "Internal server error". Normalise
+		// to the stored vocabulary rather than widening it, so the column keeps one word
+		// for one meaning.
+		if priority == "medium" {
+			priority = "normal"
+		}
+		switch priority {
+		case "low", "normal", "high", "urgent":
+		default:
+			respondErr(w, 422, "priority must be one of low, medium, high, urgent")
+			return
 		}
 
 		// Look up SLA for priority (DB trigger will also set it from ticket_type)
@@ -3629,12 +3652,23 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		DurationSec     *int    `json:"duration_sec"`
 		DurationSeconds *int    `json:"duration_seconds"` // client sends this name
 		Outcome         string  `json:"outcome"`
-		Notes           *string `json:"notes"`        // customer complaint / summary
-		Resolution      *string `json:"resolution"`   // agent response / resolution
-		Disposition     string  `json:"disposition"`  // business result of the call
+		Notes           *string `json:"notes"`       // customer complaint / summary
+		Resolution      *string `json:"resolution"`  // agent response / resolution
+		Disposition     string  `json:"disposition"` // business result of the call
 		TicketRef       string  `json:"ticket_ref"`
 		TicketType      string  `json:"ticket_type"`
-		Purpose         string  `json:"purpose"`      // which book the call falls under (marketing/collections/support/…)
+		Purpose         string  `json:"purpose"` // which book the call falls under (marketing/collections/support/…)
+		// LeadID links the call to a call-centre lead. Set when the call is logged
+		// from the Leads page, which used to have its own reduced form writing to a
+		// different endpoint — so a lead call never carried a CIF, a disposition or
+		// a ticket, and the two pages could drift apart indefinitely.
+		LeadID     *int64 `json:"lead_id"`
+		CallbackAt string `json:"callback_at"`
+		// MergeCallID attaches these notes to a call that already exists — the real
+		// Voice record the agent is writing up. Without it, logging a call the agent
+		// has just had creates a SECOND row: the recording and duration on one, the
+		// notes and disposition on the other, and neither complete on its own.
+		MergeCallID *int64 `json:"merge_call_id"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := ensureCallLogSchema(r.Context(), db); err != nil {
@@ -3665,6 +3699,15 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		outcome := b.Outcome
 		if outcome == "" {
 			outcome = "resolved"
+		}
+		// The disposition column holds the AGENT's vocabulary — "Interested",
+		// "Not Eligible", "Unreachable / No Answer". A raw telephony outcome in it
+		// is a client posting the wrong field, and it surfaces to the user as a
+		// bare "completed" on the lead panel. 19 rows had reached the database
+		// that way. Drop it rather than store it: the outcome column already
+		// carries this value, so nothing is lost.
+		if isRawCallOutcome(b.Disposition) {
+			b.Disposition = ""
 		}
 		// Look up ticket by ref if provided
 		var ticketID *int64
@@ -3704,18 +3747,84 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		// stored lower-case to match the queue + Zoho-import convention so a manually
 		// logged call sorts alongside the ones the dialer recorded.
 		purpose := strings.ToLower(strings.TrimSpace(b.Purpose))
+		// Attach to an existing call rather than creating a duplicate.
+		//
+		// The agent has just finished a call that Zoho Voice already recorded; this
+		// writes their account of it onto that record. COALESCE so a re-log never
+		// erases what is already there, and the merge is only honoured for a call
+		// the agent could legitimately be writing up.
+		if b.MergeCallID != nil {
+			upd, err := db.PGQuery(r.Context(), `
+				UPDATE helpdesk_calls
+				   SET notes         = COALESCE($2, notes),
+				       resolution    = COALESCE($3, resolution),
+				       disposition   = COALESCE(NULLIF($4,''), disposition),
+				       purpose       = COALESCE(NULLIF($5,''), purpose),
+				       -- NOT NULL DEFAULT '': preferring a non-empty value must not fall
+				       -- through to NULL when both are empty, which is the common case on an
+				       -- outbound dial Zoho could not put a name to.
+				       customer_name = COALESCE(NULLIF($6,''), NULLIF(customer_name,''), ''),
+				       customer_cif  = COALESCE(NULLIF($7,''), NULLIF(customer_cif,''), ''),
+				       ticket_id     = COALESCE($8, ticket_id),
+				       ticket_ref    = COALESCE($9, ticket_ref),
+				       ticket_type   = COALESCE($10, ticket_type),
+				       lead_id       = COALESCE($11, lead_id)
+				 WHERE id = $1
+				   AND merged_into_call_id IS NULL
+				 RETURNING id`,
+				*b.MergeCallID, b.Notes, b.Resolution, ptrOrNilStr(b.Disposition),
+				ptrOrNilStr(purpose), b.CustomerName, b.CustomerCIF,
+				ticketID, ptrOrNilStr(b.TicketRef), ptrOrNilStr(b.TicketType), b.LeadID)
+			if err != nil {
+				respondErrLog(w, 500, "Could not attach the call notes", err)
+				return
+			}
+			if len(upd) > 0 {
+				if b.LeadID != nil {
+					syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID)
+				}
+				if ticketID != nil {
+					db.PGExec(r.Context(), "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", *ticketID) //nolint:errcheck
+				}
+				jsonRows(w, upd)
+				return
+			}
+			// The target vanished or was itself merged: fall through and insert, so
+			// the agent's notes are never silently dropped.
+		}
+
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO helpdesk_calls
-			  (agent_id, agent_name, customer_name, customer_cif, customer_email, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref, ticket_type, resolution, disposition, purpose)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+			  (agent_id, agent_name, customer_name, customer_cif, customer_email, customer_phone, direction, duration_sec, outcome, notes, ticket_id, ticket_ref, ticket_type, resolution, disposition, purpose, lead_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 			RETURNING id`,
 			agentID, agentName, b.CustomerName, b.CustomerCIF, b.CustomerEmail, b.CustomerPhone,
 			direction, durationSec, outcome, b.Notes, ticketID, ptrOrNilStr(b.TicketRef), ptrOrNilStr(b.TicketType),
-			b.Resolution, ptrOrNilStr(b.Disposition), ptrOrNilStr(purpose))
+			b.Resolution, ptrOrNilStr(b.Disposition), ptrOrNilStr(purpose), b.LeadID)
 		if err != nil {
-			respondErr(w, 500, "Insert failed: "+err.Error())
+			// A constraint violation here is a vocabulary mismatch between this form
+			// and the table — a value the agent was offered that the database will not
+			// accept. That is a 422 with something actionable in it, not a bare 500:
+			// "Internal server error" is what agents saw for every Outbound Sales call
+			// while purpose 'sales' was missing from helpdesk_calls_purpose_chk.
+			if strings.Contains(err.Error(), "violates check constraint") {
+				slog.Error("hdLogCall: rejected by constraint",
+					"purpose", purpose, "outcome", outcome, "direction", direction, "err", err)
+				respondErr(w, 422, "This call could not be saved: "+err.Error())
+				return
+			}
+			respondErrLog(w, 500, "Could not save the call", err)
 			return
 		}
+		// When the call came from the Leads page, advance the lead in the same
+		// request. Previously the Leads page posted to its own endpoint, which meant
+		// a lead call and a normal call were two different records written two
+		// different ways; now there is one write path and the lead is a side-effect
+		// of it. Failures here are logged, never fatal: the call itself is recorded.
+		if b.LeadID != nil {
+			syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID)
+		}
+
 		if ticketID != nil {
 			db.PGExec(r.Context(), "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", *ticketID) //nolint:errcheck
 		}
@@ -3769,6 +3878,139 @@ func hdTicketPromise(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// hdCallRecording streams a call's Zoho Voice recording on demand.
+//
+// We store only the recording_filename (migration 157), never the audio. The Voice
+// recording endpoint 302-redirects (within voice.zoho.com) to the file, so we let a
+// dedicated client follow the redirect while re-carrying the Voice token on
+// voice.zoho.com hops (Go strips Authorization across hosts by default; a signed
+// final URL on another host doesn't need it, and we deliberately don't leak it there).
+func hdCallRecording(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var fname string
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT COALESCE(recording_filename,'') FROM helpdesk_calls WHERE id=$1`, id).Scan(&fname); err != nil {
+			respondErr(w, 404, "Call not found")
+			return
+		}
+		if fname == "" {
+			respondErr(w, 404, "No recording for this call")
+			return
+		}
+
+		token, err := zohoVoiceAccessToken(r.Context(), db)
+		if err != nil {
+			respondErr(w, 503, "Zoho Voice is not configured")
+			return
+		}
+
+		// Zoho Voice recording-download API (per Zoho docs): the /voicerecording
+		// endpoint streams the raw audio for a filename obtained from /zv/logs. The
+		// similarly-named /recording endpoint is a web route that bounces to login.
+		recURL := "https://voice.zoho.com/rest/json/zv/logs/voicerecording?recording_filename=" + url.QueryEscape(fname)
+		req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, recURL, nil)
+		req.Header.Set("Authorization", "Zoho-oauthtoken "+token)
+
+		// errLoginRedirect signals that Zoho bounced the download to a web login —
+		// i.e. the OAuth token is not accepted on the recording route. We stop the
+		// redirect chain there rather than stream back an HTML login page as "audio".
+		errLoginRedirect := fmt.Errorf("zoho voice recording requires web session (login redirect)")
+		client := &http.Client{
+			Timeout: 60 * time.Second,
+			CheckRedirect: func(rq *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return fmt.Errorf("too many redirects")
+				}
+				if strings.Contains(rq.URL.Path, "login") || rq.URL.Host == "accounts.zoho.com" {
+					return errLoginRedirect
+				}
+				if rq.URL.Hostname() == "voice.zoho.com" {
+					rq.Header.Set("Authorization", "Zoho-oauthtoken "+token)
+				}
+				return nil
+			},
+		}
+
+		// Cache the audio on first fetch and serve it locally afterwards.
+		//
+		// Every play used to cost a Voice token check plus two round trips to Zoho
+		// (the endpoint 302-redirects to the file), and re-listening repeated the
+		// lot — which is why scrubbing back in a QA review felt so slow. A recording
+		// never changes once written, so the only correct cache lifetime is forever.
+		ct := "audio/wav"
+		if strings.HasSuffix(strings.ToLower(fname), ".mp3") {
+			ct = "audio/mpeg"
+		}
+		cachePath := callRecordingCachePath(id, fname)
+		if cachePath != "" {
+			if f, err := os.Open(cachePath); err == nil {
+				defer f.Close()
+				if st, err := f.Stat(); err == nil && st.Size() > 0 {
+					w.Header().Set("Content-Type", ct)
+					w.Header().Set("Content-Disposition", "inline")
+					w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
+					w.Header().Set("X-Recording-Cache", "hit")
+					// ServeContent gives us range requests for free, so the player can
+					// seek without refetching the whole file.
+					http.ServeContent(w, r, fname, st.ModTime(), f)
+					return
+				}
+			}
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			if strings.Contains(err.Error(), "login redirect") {
+				slog.Warn("hdCallRecording: login redirect — Voice token lacks recording access", "call", id)
+				respondErr(w, 502, "Recording is not downloadable with the current Zoho Voice authorization")
+				return
+			}
+			slog.Warn("hdCallRecording: fetch", "call", id, "err", err)
+			respondErr(w, 502, "Could not fetch the recording")
+			return
+		}
+		defer resp.Body.Close()
+
+		upCT := resp.Header.Get("Content-Type")
+		// Guard against Zoho returning an HTML/JSON error body with a 200: only real
+		// audio is streamed through; anything else is surfaced as unavailable.
+		if resp.StatusCode != http.StatusOK || strings.Contains(upCT, "html") || strings.Contains(upCT, "json") {
+			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			slog.Warn("hdCallRecording: upstream not audio", "call", id, "status", resp.StatusCode, "ct", upCT, "body", string(raw))
+			respondErr(w, 502, "Recording unavailable")
+			return
+		}
+		// Zoho serves the audio as octet-stream; give the browser a concrete audio
+		// MIME (from the filename) so an <audio> element plays it without a download.
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("Content-Disposition", "inline")
+		w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
+		w.Header().Set("X-Recording-Cache", "miss")
+		if cl := resp.Header.Get("Content-Length"); cl != "" {
+			w.Header().Set("Content-Length", cl)
+		}
+		// Tee to the cache while streaming, so the listener waits for one fetch and
+		// every later play is local. A cache write that fails is not the listener's
+		// problem — the audio still reaches them.
+		var sink io.Writer = w
+		if cachePath != "" {
+			if cf, err := os.Create(cachePath + ".part"); err == nil {
+				defer func() {
+					cf.Close()
+					// Rename only on a clean finish, so a dropped connection can't
+					// leave a truncated file to be served as if it were whole.
+					if os.Rename(cachePath+".part", cachePath) != nil {
+						os.Remove(cachePath + ".part")
+					}
+				}()
+				sink = io.MultiWriter(w, cf)
+			}
+		}
+		io.Copy(sink, resp.Body) //nolint:errcheck
+	}
+}
+
 func hdListCalls(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := ensureCallLogSchema(r.Context(), db); err != nil {
@@ -3806,6 +4048,8 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 			       hc.outcome, hc.notes, hc.resolution, hc.disposition,
 			       LOWER(COALESCE(NULLIF(hc.purpose,''),'')) AS purpose,
 			       hc.ticket_id, hc.ticket_ref, hc.recording_url, hc.ticket_type,
+			       hc.recording_filename,
+			       (hc.recording_filename IS NOT NULL) AS has_recording,
 			       hc.started_at AS called_at,
 			       qa.id AS qa_evaluation_id, qa.total_score AS qa_score, qa.rating_band AS qa_band, qa.passed AS qa_passed
 			FROM helpdesk_calls hc
@@ -3813,7 +4057,11 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 			  SELECT id, total_score, rating_band, passed FROM qa_evaluations q
 			  WHERE q.call_id = hc.id ORDER BY q.created_at DESC LIMIT 1
 			) qa ON true
-			WHERE ($1 = '' OR hc.started_at::date >= $1::date)
+			-- A manually logged call whose notes have been merged onto the real Voice
+			-- call is hidden: showing both listed the same conversation twice, once
+			-- with the recording and once with the notes.
+			WHERE hc.merged_into_call_id IS NULL
+			  AND ($1 = '' OR hc.started_at::date >= $1::date)
 			  AND ($2 = '' OR started_at::date <= $2::date)
 			  AND ($3 = '' OR customer_cif = $3)
 			  AND ($4 = '' OR agent_name ILIKE '%%' || $4 || '%%')%s%s
@@ -5745,4 +5993,177 @@ func httpPatchBearer(url, token string, body map[string]any) error {
 	}
 	resp.Body.Close()
 	return nil
+}
+
+// hdLatestCall returns the most recent real call record matching a phone number
+// (or, failing that, the signed-in agent's own most recent call) within a short
+// window.
+//
+// Why this exists: agents talk to customers through Zoho Voice, then log the call
+// in the workspace afterwards. The log form asked them to type the duration in
+// seconds, so nobody did — every one of the 14 manually logged calls in the book
+// has a NULL duration. The real duration is already sitting in helpdesk_calls,
+// imported from Voice; this hands it back so the form can fill itself in.
+//
+// The window matters. An hour-old call is not the one the agent just finished, and
+// silently attaching its duration would be worse than leaving the field blank.
+func hdLatestCall(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Reuses the workspace-wide phone matcher (searchcore.go): last 10 digits,
+		// so +234…, 0… and bare numbers all compare equal.
+		phone := normalizePhone(qstr(r, "phone"))
+		// 15 minutes, not 120.
+		//
+		// Measured on this book, a Zoho call reaches us 35–186 seconds after it
+		// started (mean 69s). So the call an agent is writing up appears within about
+		// three minutes; anything older is a DIFFERENT call. The original 120-minute
+		// window reached back 21 and 55 minutes on the two merges it performed, which
+		// is how a second attempt on a number ended up carrying the first attempt's
+		// outcome.
+		withinMin := qint(r, "within_minutes", 15, 2, 240)
+
+		var agentID int64
+		if u := core.UserFromCtx(r.Context()); u != nil {
+			agentID = u.ID
+		}
+
+		// Match on the last 10 digits: the book holds numbers in several formats
+		// (+234…, 0…, bare) and an exact-string match finds almost nothing.
+		var (
+			rows []core.Row
+			err  error
+		)
+		if phone != "" {
+			rows, err = db.PGQuery(r.Context(), `
+				SELECT id, direction, outcome, duration_sec, started_at, customer_name,
+				       customer_cif, customer_phone, agent_name, source_system,
+				       (recording_filename IS NOT NULL) AS has_recording
+				FROM helpdesk_calls
+				WHERE `+normalizedPhoneExpr("customer_phone")+` = $1
+				  AND started_at >= NOW() - make_interval(mins => $2)
+				  AND merged_into_call_id IS NULL
+				  -- Not already written up. This is what stops a second attempt on a
+				  -- number inheriting the first attempt's notes: once a call carries an
+				  -- agent's account of it, it is no longer a candidate for another one.
+				  AND COALESCE(NULLIF(TRIM(notes), ''), NULLIF(TRIM(disposition), '')) IS NULL
+				  -- Same agent. Two agents can work the same number on the same day and
+				  -- neither should be writing up the other's conversation.
+				  AND ($3 = 0 OR agent_id = $3)
+				-- MOST RECENT, not longest.
+				--
+				-- The agent is writing up the call they have just finished, so recency is
+				-- the signal. Ordering by duration made an older, longer conversation beat
+				-- the one that had actually just happened. (Duration ranking is right for
+				-- pairing a RECORDING to a call — see runZohoVoiceImport — because there
+				-- the recording's own length is the evidence. It is wrong here.)
+				ORDER BY started_at DESC LIMIT 1`,
+				phone, withinMin, agentID)
+		}
+		// Deliberately NO fallback to "this agent's last call on any number".
+		//
+		// That fallback existed so a log with no phone number could still find
+		// something, but it is the most dangerous match in the system: it will
+		// happily attach the write-up of one customer's call to a different
+		// customer's call. When there is no number, there is no safe match — the
+		// form creates its own record and the Zoho row is absorbed later by
+		// absorbPendingManualLog once it syncs.
+		if err != nil {
+			respondErrLog(w, 500, "Lookup failed", err)
+			return
+		}
+		if len(rows) == 0 {
+			respond(w, nil, "pg")
+			return
+		}
+		respond(w, rows[0], "pg")
+	}
+}
+
+// hdCallCandidates lists the real calls on a number that an agent could be
+// writing up, most recent first.
+//
+// Why a picker rather than a guess. The auto-match has to choose a window, and no
+// single window is right:
+//
+//   - Too wide (the original 120 minutes) and a second attempt on a number
+//     inherits the first attempt's write-up. Measured reaching back 21 and 55
+//     minutes before it was narrowed.
+//   - Too narrow (15 minutes) and an agent writing up a call an hour later — which
+//     they do, between dials — gets a bare row with no duration and no recording.
+//     Real example: call at 12:46 (165s, recorded), written up at 13:31.
+//
+// Both are the same question: WHICH call is this? The agent knows. So the form
+// still auto-selects when the answer is obvious (one recent, un-written-up call)
+// and otherwise shows them the day's calls on that number and lets them say.
+//
+// Only calls that have not already been written up are offered: one that already
+// carries notes belongs to a write-up someone has done.
+func hdCallCandidates(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		phone := normalizePhone(qstr(r, "phone"))
+		if phone == "" {
+			respond(w, []core.Row{}, "pg")
+			return
+		}
+		hours := qint(r, "hours", 12, 1, 72)
+
+		var agentID int64
+		if u := core.UserFromCtx(r.Context()); u != nil {
+			agentID = u.ID
+		}
+
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT id, direction, outcome, duration_sec, started_at,
+			       customer_name, customer_cif, customer_phone, agent_name,
+			       (recording_filename IS NOT NULL) AS has_recording,
+			       (agent_id IS NOT DISTINCT FROM $3) AS is_mine
+			FROM helpdesk_calls
+			WHERE `+normalizedPhoneExpr("customer_phone")+` = $1
+			  AND started_at >= NOW() - make_interval(hours => $2)
+			  AND merged_into_call_id IS NULL
+			  -- Not already written up.
+			  AND COALESCE(NULLIF(TRIM(notes), ''), NULLIF(TRIM(disposition), '')) IS NULL
+			  -- A call the workspace itself created has nothing to contribute: it has
+			  -- no duration and no recording, so attaching to it gains nothing.
+			  AND zoho_call_id IS NOT NULL
+			ORDER BY started_at DESC
+			LIMIT 12`, phone, hours, agentID)
+		if err != nil {
+			respondErrLog(w, 500, "Could not list calls for this number", err)
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+// callRecordingCachePath returns where a call's audio is cached on disk, or ""
+// when caching is unavailable.
+//
+// Recordings are immutable, so this is a permanent store rather than an expiring
+// cache. Keyed by call id and the Zoho filename's extension — the id alone is
+// enough to be unique, and taking nothing else from the filename keeps a hostile
+// value from escaping the directory.
+func callRecordingCachePath(callID, zohoFilename string) string {
+	dir := filepath.Join(UploadRoot(), "call-recordings")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		slog.Warn("recording cache unavailable", "dir", dir, "err", err)
+		return ""
+	}
+	ext := ".wav"
+	if strings.HasSuffix(strings.ToLower(zohoFilename), ".mp3") {
+		ext = ".mp3"
+	}
+	safe := make([]rune, 0, len(callID))
+	for _, r := range callID {
+		if r >= '0' && r <= '9' {
+			safe = append(safe, r)
+		}
+	}
+	if len(safe) == 0 {
+		return ""
+	}
+	return filepath.Join(dir, string(safe)+ext)
 }

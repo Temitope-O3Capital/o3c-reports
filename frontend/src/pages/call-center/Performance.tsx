@@ -7,7 +7,7 @@ export default function CallCenterPerformance() {
   return (
     <Page
       title="Call Center Performance"
-      subtitle="Agent performance, call volumes, connect rates & QA — from live call activity"
+      subtitle="Agent performance, call volumes, connect rates & QA: from live call activity"
     >
       <PerformancePanel />
     </Page>

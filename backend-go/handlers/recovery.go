@@ -22,7 +22,6 @@ func RegisterRecovery(r chi.Router, db *core.DB) {
 	r.Get("/by-agent", recoveryByAgent(db))
 	r.Get("/monthly-trend", recoveryMonthlyTrend(db))
 	r.Get("/cases", recoveryCases(db))
-	r.Get("/export", recoveryExport(db))
 	r.Get("/legal", recoveryLegal(db))
 	r.Get("/legal-kpis", recoveryLegalKPIs(db))
 	r.Get("/cases/{id}/legal-milestones", recoveryLegalMilestones(db))
@@ -172,38 +171,6 @@ func recoveryCases(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, data, src)
-	}
-}
-
-func recoveryExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		dateFrom, err := validDate(r, "date_from")
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
-		dateTo, err := validDate(r, "date_to")
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
-		var f Filter
-		f.Date("r.[Recovery Date]", `r."Recovery Date"`, dateFrom, dateTo)
-		data, _, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT r."CIF Number", a.first_name AS "First Name", a.last_name AS "Last Name",
-			        r."Recovery Amount", r."Recovery Method", r."Legal Stage",
-			        r."Agent", r."Status", r."Recovery Date"
-			 FROM "Recovery Master Sheet" r
-			 LEFT JOIN app.customers a ON r."CIF Number"=a.cif
-			 WHERE 1=1%s ORDER BY r."Recovery Date" DESC`, f.PG()),
-			f.Args()...)
-		if err != nil {
-			respondErr(w, 500, "Export failed")
-			return
-		}
-		name := fmt.Sprintf("recovery_%s_%s.csv",
-			coalesce(dateFrom, "all"), coalesce(dateTo, "all"))
-		streamCSV(w, name, data)
 	}
 }
 

@@ -183,9 +183,9 @@ func zohoWrite(ctx context.Context, method, path string, body io.Reader) (*http.
 // runZohoVoiceImport fetches call logs from Zoho Voice and inserts them into
 // helpdesk_calls. Called by the HTTP handler and the hourly auto-sync goroutine.
 func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate string) (imported, skipped, failed int, err error) {
-	token, err := zohoAccessToken(ctx)
+	token, err := zohoVoiceAccessToken(ctx, db)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("token error: %w", err)
+		return 0, 0, 0, fmt.Errorf("voice token error: %w", err)
 	}
 
 	voiceBase := "https://voice.zoho.com/rest/json/zv"
@@ -246,72 +246,101 @@ func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate strin
 		}
 
 		for _, c := range logs {
-			voiceID := zohoStr(c["logid"])
-			if voiceID == "" {
-				voiceID = zohoStr(c["id"])
-				if voiceID == "" {
-					voiceID = zohoStr(c["call_id"])
-				}
+			// This importer's job is recordings, not another copy of the call log.
+			// The Desk /calls sync already owns the call ledger (~110k rows); Zoho
+			// Voice is where the AUDIO lives. So we only care about logs that carry a
+			// recording, and we ATTACH that recording onto the matching Desk row
+			// rather than insert a duplicate.
+			cr, _ := c["call_recording"].(map[string]any)
+			recFile := ""
+			if cr != nil {
+				recFile = strings.TrimSpace(zohoStr(cr["recording_filename"]))
 			}
-			if voiceID == "" {
-				skipped++
+			if recFile == "" {
+				skipped++ // unanswered / no recording — nothing to attach
 				continue
 			}
 
-			callType := zohoStr(c["call_type"])
+			voiceID := zohoStr(c["logid"])
 			direction := "inbound"
-			if strings.Contains(strings.ToLower(callType), "outgoing") ||
-				strings.Contains(strings.ToLower(callType), "outbound") {
+			if strings.Contains(strings.ToLower(zohoStr(c["call_type"])), "out") {
 				direction = "outbound"
 			}
-
-			outcome := "missed"
-			hangup := zohoStr(c["hangup_cause_displayname"])
-			if strings.Contains(strings.ToLower(hangup), "normal") ||
-				zohoStr(c["answer_time"]) != "" {
-				outcome = "resolved"
+			// The customer is the far end of the call: the destination on an outbound
+			// call, the caller on an inbound one.
+			custPhone := zohoStr(c["destination_number"])
+			if direction == "inbound" {
+				custPhone = zohoStr(c["caller_id_number"])
 			}
-
-			durSec := zohoParseDurationSec(c["duration"])
-
-			agentName := zohoStr(c["destination_name"])
-			if agentName == "" {
-				agentName = zohoStr(c["agent_number"])
+			last10 := normalizePhone(custPhone)
+			didNum := zohoStr(c["did_number"])
+			startedAt := zohoParseMillisTime(c["start_time"])
+			if startedAt.IsZero() || last10 == "" {
+				// Without a usable phone + timestamp there is no safe way to match a
+				// recording to the right call — skip rather than mis-attach.
+				skipped++
+				continue
 			}
-			customerPhone := zohoStr(c["caller_id_number"])
-			callTo := zohoStr(c["destination_number"])
-			if callTo == "" {
-				callTo = zohoStr(c["did_number"])
-			}
+			// Voice knows how long the conversation actually lasted. Desk does not:
+			// its duration is completedTime − startTime on the RECORD, a proxy. So
+			// this value is used twice — to pick the right row, and to correct it.
+			voiceDur := zohoCallDuration(c)
 
-			startedAt := time.Now()
-			if ts := zohoParseMillisTime(c["start_time"]); !ts.IsZero() {
-				startedAt = ts
-			} else if st := zohoStr(c["start_time"]); st != "" {
-				if ts, err2 := time.Parse("2006-01-02 15:04:05", st); err2 == nil {
-					startedAt = ts
-				} else if ts, err2 := time.Parse(time.RFC3339, st); err2 == nil {
-					startedAt = ts
-				}
-			}
-
-			res, insErr := db.PGExec(ctx, `
-				INSERT INTO helpdesk_calls
-				    (agent_name, customer_phone, call_to, direction, duration_sec,
-				     outcome, started_at, zoho_voice_id, source_system)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'zoho_voice')
-				ON CONFLICT DO NOTHING`,
-				ptrOrNilStr(agentName), ptrOrNilStr(customerPhone),
-				ptrOrNilStr(callTo), direction, durSec, outcome, startedAt, voiceID)
-			if insErr != nil {
-				slog.Warn("runZohoVoiceImport: insert", "voice_id", voiceID, "err", insErr)
+			// Attach to the RIGHT Desk call: same direction, same customer number
+			// (last 10 digits — the app's canonical phone key), within a 3-minute
+			// window. Purely additive: only fills a row whose recording_filename is
+			// still NULL, so re-running never disturbs an existing attachment.
+			//
+			// Ordering by time alone put recordings on the wrong row. Agents redial,
+			// so one conversation leaves several Desk rows seconds apart — this
+			// sequence on a single number today:
+			//
+			//     10:48:08   34s   recorded
+			//     10:48:46    1s   recorded
+			//     10:49:10  548s   NOT recorded   ← the actual 9-minute call
+			//
+			// A 1-second blip sat closer in time to some recording than the real
+			// conversation did, took the slot, and the 548-second call was left with
+			// nothing. Duration is the far stronger signal: match on how long the
+			// call lasted first, and fall back to time only when a duration cannot be
+			// compared (uncomparable rows sort last via the large sentinel).
+			//
+			// Voice duration also CORRECTS the row. Desk's duration is
+			// completedTime − startTime on the record; Voice measured the
+			// conversation. Where they disagree, Voice is right.
+			res, upErr := db.PGExec(ctx, `
+				UPDATE helpdesk_calls h
+				   SET recording_filename = $1,
+				       zoho_voice_id      = COALESCE(h.zoho_voice_id, NULLIF($2,'')),
+				       call_to            = COALESCE(NULLIF(h.call_to,''), NULLIF($3,'')),
+				       duration_sec       = COALESCE(NULLIF($7, 0), h.duration_sec)
+				 WHERE h.id = (
+				   SELECT id FROM helpdesk_calls
+				    WHERE recording_filename IS NULL
+				      AND direction = $4
+				      AND `+normalizedPhoneExpr("customer_phone")+` = $5
+				      AND started_at BETWEEN $6::timestamptz - interval '180 seconds'
+				                         AND $6::timestamptz + interval '180 seconds'
+				      -- Already attached elsewhere? Then this recording is placed; skip
+				      -- it so the hourly re-sync is a true no-op instead of matching a
+				      -- different row and colliding on the unique zoho_voice_id.
+				      AND NOT EXISTS (SELECT 1 FROM helpdesk_calls z WHERE z.zoho_voice_id = $2)
+				    ORDER BY
+				      CASE WHEN $7 > 0 AND duration_sec IS NOT NULL
+				           THEN abs(duration_sec - $7) ELSE 999999 END ASC,
+				      abs(extract(epoch FROM (started_at - $6::timestamptz))) ASC
+				    LIMIT 1
+				 )`,
+				recFile, voiceID, didNum, direction, last10, startedAt, voiceDur)
+			if upErr != nil {
+				slog.Warn("runZohoVoiceImport: attach", "voice_id", voiceID, "err", upErr)
 				failed++
+				continue
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				imported++ // recording attached to a Desk call
 			} else {
-				if n, _ := res.RowsAffected(); n > 0 {
-					imported++
-				} else {
-					skipped++
-				}
+				skipped++ // has audio, but no Desk row matched (blank-phone rows, etc.)
 			}
 		}
 
@@ -498,6 +527,17 @@ func runZohoVoiceSyncCycle(db *core.DB, cap int) {
 				slog.Info("zoho auto-sync: done", "imported", imported, "attempt", i+1)
 				recordZohoSyncResult(ctx, db, "calls", imported, nil)
 				WorkerBeat(ctx, db, "zoho_calls", "ok", fmt.Sprintf("%d imported", imported), "")
+			}
+			// Attach new Zoho Voice call recordings onto the Desk rows just synced.
+			// Deep cycle only (hourly): recordings tolerate up to an hour of latency
+			// and paging the Voice logs is comparatively expensive. Isolated from the
+			// Desk result — a Voice failure is logged, never fails the call sync.
+			if cap >= 1000 && zohoVoiceConfigured(ctx, db) {
+				if att, skip, vfail, verr := runZohoVoiceImport(ctx, db, from, to); verr != nil {
+					slog.Warn("zoho auto-sync: voice recordings", "err", verr)
+				} else {
+					slog.Info("zoho auto-sync: voice recordings", "attached", att, "skipped", skip, "failed", vfail)
+				}
 			}
 			return
 		}
@@ -748,8 +788,23 @@ func zohoImportTickets(db *core.DB) http.HandlerFunc {
 func runZohoTicketImportJob(ctx context.Context, db *core.DB, j *zohoJob, maxTickets int, desc bool) {
 	ensureHelpdeskColumns(ctx, db)
 
+	// Zoho's statuses mapped onto ours. helpdesk_tickets_status_check allows
+	// open | pending | in_progress | resolved | closed, and nothing else.
+	//
+	// "escalated" is the trap: Zoho treats escalation as a STATUS, this workspace
+	// treats it as a FLAG (escalated_at / escalated_by, set by our own escalation
+	// flow). Mapping it through as "escalated" produced a constraint violation on
+	// every such ticket, so they were dropped on import — silently, because the
+	// importer logs a warning and moves on. 22 in the current log alone, and the
+	// same ticket retried on every cycle.
+	//
+	// It maps to in_progress: a Zoho-escalated ticket is one somebody is actively
+	// working. The escalation FLAG is deliberately not set from here — Zoho gives
+	// no escalation timestamp in this payload, and inventing one would put a
+	// fabricated time on a compliance-visible field.
 	statusMap := map[string]string{
-		"open": "open", "on hold": "pending", "escalated": "escalated",
+		"open": "open", "on hold": "pending", "escalated": "in_progress",
+		"in progress": "in_progress", "on-hold": "pending",
 		"resolved": "resolved", "closed": "closed",
 	}
 	priorityMap := map[string]string{
@@ -831,18 +886,17 @@ func upsertZohoTicket(ctx context.Context, db *core.DB, t map[string]any, status
 	}
 	body := zohoStr(t["description"])
 
-	status := statusMap[strings.ToLower(zohoStr(t["status"]))]
-	if status == "" {
-		status = "open"
-	}
-	priority := priorityMap[strings.ToLower(zohoStr(t["priority"]))]
-	if priority == "" {
-		priority = "normal"
-	}
-	channel := channelFromZoho(zohoStr(t["channel"]))
-	if channel == "" {
-		channel = "web"
-	}
+	// Every value below is validated against what the table will actually accept,
+	// not merely mapped. A mapping that produces something the constraint rejects
+	// drops the ticket on import and only ever shows up as a warning in a log
+	// nobody is reading — which is how 22 escalated tickets went missing. A wrong
+	// but valid status is recoverable; a ticket that never arrived is not.
+	status := coerceToAllowed(statusMap[strings.ToLower(zohoStr(t["status"]))],
+		ticketStatuses, "open", "status", zohoStr(t["status"]))
+	priority := coerceToAllowed(priorityMap[strings.ToLower(zohoStr(t["priority"]))],
+		ticketPriorities, "normal", "priority", zohoStr(t["priority"]))
+	channel := coerceToAllowed(channelFromZoho(zohoStr(t["channel"])),
+		ticketChannels, "web", "channel", zohoStr(t["channel"]))
 
 	dept := zohoStr(t["departmentName"])
 	createdAt := zohoParseTime(t["createdTime"])
@@ -1680,15 +1734,24 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 					outcome = "missed"
 				}
 
-				// Duration = completedTime - startTime (no explicit duration field).
-				// Cap at 4h: some Zoho records carry a bogus completedTime (call left
-				// open and closed days later), yielding absurd multi-day durations that
-				// would poison talk-time averages. Above the cap → leave duration unknown.
+				// Duration = completedTime - startTime (Zoho exposes no explicit duration).
+				//
+				// Two guards, both of which this used to get wrong:
+				//
+				// 1. A MISSED call has no talk time. completedTime - startTime on an
+				//    unanswered record is how long the record stayed open — typically a
+				//    second — and storing that in duration_sec meant the Call Log showed
+				//    43,025 missed calls as one-second conversations. NULL is the honest
+				//    value: no conversation happened, which is not the same as 0 seconds.
+				// 2. Cap at 4h: some records carry a bogus completedTime (call left open
+				//    and closed days later), which would poison talk-time averages.
 				var durSec *int
-				if comp := zohoParseTime(c["completedTime"]); !comp.IsZero() && comp.After(startedAt) {
-					d := int(comp.Sub(startedAt).Seconds())
-					if d >= 0 && d <= 14400 {
-						durSec = &d
+				if outcome != "missed" {
+					if comp := zohoParseTime(c["completedTime"]); !comp.IsZero() && comp.After(startedAt) {
+						d := int(comp.Sub(startedAt).Seconds())
+						if d >= 0 && d <= 14400 {
+							durSec = &d
+						}
 					}
 				}
 
@@ -1745,26 +1808,58 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 					       LIMIT 1), ''),  -- '' fallback: customer_cif is NOT NULL DEFAULT ''; unresolved call = '' not NULL (else 23502 drops it)
 					    $6,$7,$8,$9,$10,
 					    CASE
+					      -- Which book does this call belong to?
+					      --
+					      -- The old rule called it COLLECTIONS whenever the number belonged to
+					      -- an existing customer. Being a customer is not a debt: of 67 calls
+					      -- filed as collections in one day, only 6 had a collections
+					      -- assignment and 19 were agents working a marketing lead list. The
+					      -- rule also never looked at call_center_leads at all, so a lead who
+					      -- happened to also hold a card was filed as collections.
+					      --
+					      -- Order is by strength of evidence: what the agent is actually
+					      -- working (a lead list), then a real debt, then a known customer.
 					      WHEN $6 = 'inbound' THEN 'support'
+					      -- On an active lead list: this is the agent working that list.
+					      WHEN app.norm_phone($4) <> '' AND EXISTS (
+					              SELECT 1 FROM call_center_leads d
+					               WHERE app.norm_phone(d.customer_phone) = app.norm_phone($4))
+					        THEN 'marketing'
+					      -- A real collections case — an open assignment, not merely a customer.
+					      WHEN EXISTS (
+					              SELECT 1 FROM collection_assignments ca
+					               WHERE ($5 <> '' AND ca.cif_number = $5)
+					                  OR (app.norm_phone($4) <> '' AND ca.cif_number = (
+					                        SELECT c.cif FROM app.customers c
+					                         WHERE app.norm_phone(c.phone) = app.norm_phone($4) LIMIT 1)))
+					        THEN 'collections'
+					      -- An existing customer with no debt is a service call, not a chase.
 					      WHEN ($5 <> '' AND EXISTS (SELECT 1 FROM app.customers c WHERE c.cif = $5))
 					        OR (app.norm_phone($4) <> '' AND EXISTS (
 					              SELECT 1 FROM app.customers c WHERE app.norm_phone(c.phone) = app.norm_phone($4)))
-					        THEN 'collections'
+					        THEN 'support'
 					      WHEN app.norm_phone($4) <> '' AND EXISTS (
-					              SELECT 1 FROM app.crm_contacts l WHERE app.norm_phone(l.phone) = app.norm_phone($4))
+					              SELECT 1 FROM crm_contacts l WHERE app.norm_phone(l.phone) = app.norm_phone($4))
 					        THEN 'marketing'
 					      ELSE 'marketing'
 					    END,
 					    'zoho_desk', NULLIF($11,''))
+					-- Re-sync must not blank what the workspace knows and Zoho does not.
+					-- Zoho carries no customer name for an outbound dial to a number that
+					-- is not one of its contacts, which is exactly the call an agent types
+					-- a name onto. Overwriting unconditionally wiped that name on the very
+					-- next sync, so the call reverted to an anonymous number.
 					ON CONFLICT (zoho_call_id) WHERE zoho_call_id IS NOT NULL DO UPDATE SET
-					  agent_name     = EXCLUDED.agent_name,
+					  agent_name     = COALESCE(NULLIF(EXCLUDED.agent_name,''), helpdesk_calls.agent_name),
 					  agent_id       = COALESCE(EXCLUDED.agent_id, helpdesk_calls.agent_id),
 					  zoho_agent_id  = COALESCE(EXCLUDED.zoho_agent_id, helpdesk_calls.zoho_agent_id),
-					  customer_name  = EXCLUDED.customer_name,
-					  customer_phone = EXCLUDED.customer_phone,
-					  customer_cif   = EXCLUDED.customer_cif,
+					  customer_name  = COALESCE(NULLIF(EXCLUDED.customer_name,''), helpdesk_calls.customer_name),
+					  customer_phone = COALESCE(NULLIF(EXCLUDED.customer_phone,''), helpdesk_calls.customer_phone),
+					  customer_cif   = COALESCE(NULLIF(EXCLUDED.customer_cif,''), helpdesk_calls.customer_cif),
 					  direction      = EXCLUDED.direction,
-					  duration_sec   = EXCLUDED.duration_sec,
+					  -- A re-sync that no longer resolves a duration must not erase one we
+					  -- already captured.
+					  duration_sec   = COALESCE(EXCLUDED.duration_sec, helpdesk_calls.duration_sec),
 					  outcome        = EXCLUDED.outcome,
 					  started_at     = EXCLUDED.started_at,
 					  purpose        = COALESCE(helpdesk_calls.purpose, EXCLUDED.purpose)`,
@@ -1783,6 +1878,16 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 				// keeps offering numbers that were dialled minutes ago (migration 144).
 				if err == nil {
 					ccStampQueueForPhone(ctx, db, custPhone)
+
+					// Resolve the caller against our own records and fold in any
+					// write-up the agent filed before this row existed. Both need the
+					// row's id, so they run here rather than inside the upsert.
+					if idRows, idErr := db.PGQuery(ctx,
+						`SELECT id FROM helpdesk_calls WHERE zoho_call_id = $1`, zohoID); idErr == nil && len(idRows) > 0 {
+						callID := toInt64(idRows[0]["id"])
+						resolveCallCustomerName(ctx, db, callID)
+						absorbPendingManualLog(ctx, db, callID)
+					}
 				}
 			}()
 
@@ -2050,5 +2155,229 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 			"dc":           zohoDC,
 			"phone_number": b.PhoneNumber,
 		})
+	}
+}
+
+// ── Ticket vocabulary guards ─────────────────────────────────────────────────
+//
+// These mirror the CHECK constraints on helpdesk_tickets. They exist because the
+// importer's job is to get the ticket IN: a value the column rejects turns an
+// import into a silent data-loss bug, and the failure surfaces only as a warning
+// on a line nobody reads.
+//
+// Keep them in step with the constraints. TestTicketVocabularyMatchesConstraints
+// fails the build if they drift.
+var (
+	ticketStatuses   = []string{"open", "pending", "in_progress", "resolved", "closed"}
+	ticketPriorities = []string{"low", "normal", "high", "urgent"}
+	ticketChannels   = []string{"email", "sms", "whatsapp", "phone", "in_app", "call",
+		"mobile", "web", "social", "chat"}
+)
+
+// coerceToAllowed returns v when the column accepts it, otherwise fallback.
+//
+// An out-of-vocabulary value is logged once with the ORIGINAL upstream value, so
+// a new Zoho status shows up as something to map rather than as a ticket that
+// quietly never arrived.
+func coerceToAllowed(v string, allowed []string, fallback, field, upstream string) string {
+	if v != "" {
+		for _, a := range allowed {
+			if v == a {
+				return v
+			}
+		}
+		slog.Warn("zoho import: value not accepted by the column, using fallback",
+			"field", field, "mapped", v, "upstream", upstream, "fallback", fallback)
+	}
+	return fallback
+}
+
+// zohoCallDuration reads the talk time off a Zoho Voice call log, in seconds.
+//
+// Deliberately defensive: the Voice API is not versioned in this integration and
+// has been seen to return the duration under different keys and in two shapes —
+// a number of seconds, or a clock string ("09:08", "01:09:08"). Anything it
+// cannot read returns 0, which every caller treats as "unknown" and falls back
+// to the previous behaviour. An unreadable duration must never be worse than no
+// duration at all.
+func zohoCallDuration(c map[string]any) int {
+	for _, key := range []string{"call_duration", "duration", "callduration", "billing_duration"} {
+		v, ok := c[key]
+		if !ok || v == nil {
+			continue
+		}
+		if n := parseDurationValue(v); n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+// parseDurationValue converts a duration expressed as a number or a clock string
+// into seconds. Returns 0 for anything unrecognised or implausible.
+func parseDurationValue(v any) int {
+	switch t := v.(type) {
+	case float64:
+		return sanitiseDurationSec(int(t))
+	case int:
+		return sanitiseDurationSec(t)
+	case int64:
+		return sanitiseDurationSec(int(t))
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return 0
+		}
+		// Plain seconds.
+		if n, err := strconv.Atoi(s); err == nil {
+			return sanitiseDurationSec(n)
+		}
+		// Clock form: mm:ss or hh:mm:ss.
+		parts := strings.Split(s, ":")
+		if len(parts) < 2 || len(parts) > 3 {
+			return 0
+		}
+		total := 0
+		for _, p := range parts {
+			n, err := strconv.Atoi(strings.TrimSpace(p))
+			if err != nil || n < 0 {
+				return 0
+			}
+			total = total*60 + n
+		}
+		return sanitiseDurationSec(total)
+	}
+	return 0
+}
+
+// sanitiseDurationSec rejects values the calls table would refuse anyway
+// (helpdesk_calls_duration_sane_chk: 0..14400), so a bad reading is dropped here
+// rather than failing the whole attach.
+func sanitiseDurationSec(n int) int {
+	if n <= 0 || n > 14400 {
+		return 0
+	}
+	return n
+}
+
+// absorbPendingManualLog folds a manually logged call into the Zoho row that has
+// just arrived for the same conversation.
+//
+// The two halves of the same problem:
+//
+//	forward  — agent logs AFTER the Zoho row lands. The form finds it via
+//	           /api/helpdesk/calls/latest and writes the notes onto it.
+//	backward — agent logs BEFORE it lands, which is the common case: a Zoho call
+//	           reaches us 35–186 seconds after it starts, and an agent writes up a
+//	           call the moment they hang up. The form has nothing to attach to, so
+//	           it creates its own row. This is that row being absorbed.
+//
+// Without this, every promptly-logged call leaves two records: the agent's notes on
+// one, the duration and recording on the other, and neither complete.
+//
+// Conservative by construction: same agent, same number, the manual row must be
+// within 15 minutes of the call, must carry an actual write-up, and must not
+// already be merged. Anything short of that is left alone.
+func absorbPendingManualLog(ctx context.Context, db *core.DB, callID int64) {
+	rows, err := db.PGQuery(ctx, `
+		WITH target AS (
+		  SELECT id, agent_id, started_at,
+		         `+normalizedPhoneExpr("customer_phone")+` AS ph
+		    FROM helpdesk_calls WHERE id = $1
+		),
+		pending AS (
+		  SELECT m.id
+		    FROM helpdesk_calls m, target t
+		   WHERE m.id <> t.id
+		     AND m.source_system <> 'zoho_desk'
+		     AND m.merged_into_call_id IS NULL
+		     AND m.zoho_call_id IS NULL
+		     AND m.agent_id IS NOT DISTINCT FROM t.agent_id
+		     AND t.ph <> ''
+		     AND `+normalizedPhoneExpr("m.customer_phone")+` = t.ph
+		     -- Logged around the call: after it started, and not long after.
+		     AND m.created_at BETWEEN t.started_at - interval '2 minutes'
+		                          AND t.started_at + interval '15 minutes'
+		     AND COALESCE(NULLIF(TRIM(m.notes),''), NULLIF(TRIM(m.disposition),'')) IS NOT NULL
+		   ORDER BY m.created_at ASC
+		   LIMIT 1
+		)
+		UPDATE helpdesk_calls v
+		   SET notes         = COALESCE(v.notes, m.notes),
+		       resolution    = COALESCE(v.resolution, m.resolution),
+		       disposition   = COALESCE(NULLIF(v.disposition,''), m.disposition),
+		       purpose       = COALESCE(NULLIF(v.purpose,''), m.purpose),
+		       customer_name = COALESCE(NULLIF(v.customer_name,''), NULLIF(m.customer_name,''), ''),
+		       customer_cif  = COALESCE(NULLIF(v.customer_cif,''),  NULLIF(m.customer_cif,''),  ''),
+		       ticket_id     = COALESCE(v.ticket_id, m.ticket_id),
+		       ticket_ref    = COALESCE(v.ticket_ref, m.ticket_ref),
+		       ticket_type   = COALESCE(v.ticket_type, m.ticket_type),
+		       lead_id       = COALESCE(v.lead_id, m.lead_id)
+		  FROM helpdesk_calls m
+		 WHERE v.id = $1 AND m.id = (SELECT id FROM pending)
+		 RETURNING m.id AS absorbed`, callID)
+	if err != nil {
+		slog.Warn("absorbPendingManualLog", "call", callID, "err", err)
+		return
+	}
+	if len(rows) == 0 {
+		return
+	}
+	absorbed := toInt64(rows[0]["absorbed"])
+	if _, err := db.PGExec(ctx,
+		`UPDATE helpdesk_calls SET merged_into_call_id = $1 WHERE id = $2`, callID, absorbed); err != nil {
+		slog.Warn("absorbPendingManualLog: mark merged", "call", callID, "absorbed", absorbed, "err", err)
+		return
+	}
+	slog.Info("absorbed a manual call log into the synced call", "call", callID, "log", absorbed)
+}
+
+// resolveCallCustomerName names a call from our own records when Zoho could not.
+//
+// Zoho only carries a customer name when the number is one of ITS contacts. For an
+// outbound dial to a lead, or an inbound call from a customer Zoho has never seen,
+// it sends nothing — so 8,614 of the last 9,181 calls arrived anonymous, showing
+// agents a bare phone number on a customer they are already doing business with.
+//
+// The workspace knows perfectly well who most of them are: 711 of those could be
+// named from data we already hold. Resolution order is by strength of claim —
+// the customer master first (a real, booked customer), then the lead the number
+// was dialled FROM, then the wider CRM contact book.
+//
+// Works for both directions: the number matched is the customer's end of the
+// call, which the importer has already normalised into customer_phone.
+//
+// Only ever fills a blank. A name a human typed is never overwritten.
+func resolveCallCustomerName(ctx context.Context, db *core.DB, callID int64) {
+	if _, err := db.PGExec(ctx, `
+		WITH t AS (
+		  SELECT id, `+normalizedPhoneExpr("customer_phone")+` AS ph
+		    FROM helpdesk_calls
+		   WHERE id = $1
+		     AND NULLIF(TRIM(customer_name), '') IS NULL
+		)
+		UPDATE helpdesk_calls h
+		   SET customer_name = COALESCE(
+		         -- Only when the number identifies ONE person. A shared line (family,
+		         -- or a placeholder like 08012345678 which 4,008 customers carry)
+		         -- would otherwise hand the agent an arbitrary name to read out on a
+		         -- live call. No name is honest; a wrong name is not.
+		         (SELECT MIN(NULLIF(TRIM(c.full_name), '')) FROM app.customers c
+		           WHERE `+normalizedPhoneExpr("c.phone")+` = t.ph
+		           HAVING COUNT(DISTINCT NULLIF(TRIM(c.full_name), '')) = 1),
+		         (SELECT NULLIF(TRIM(d.customer_name), '') FROM call_center_leads d
+		           WHERE `+normalizedPhoneExpr("d.customer_phone")+` = t.ph LIMIT 1),
+		         (SELECT NULLIF(TRIM(k.first_name || ' ' || COALESCE(k.last_name, '')), '')
+		            FROM crm_contacts k
+		           WHERE `+normalizedPhoneExpr("k.phone")+` = t.ph LIMIT 1),
+		         h.customer_name),
+		       customer_cif = COALESCE(NULLIF(h.customer_cif, ''),
+		         (SELECT MIN(NULLIF(TRIM(c.cif), '')) FROM app.customers c
+		           WHERE `+normalizedPhoneExpr("c.phone")+` = t.ph
+		           HAVING COUNT(DISTINCT NULLIF(TRIM(c.cif), '')) = 1),
+		         '')
+		  FROM t
+		 WHERE h.id = t.id AND t.ph <> ''`, callID); err != nil {
+		slog.Warn("resolveCallCustomerName", "call", callID, "err", err)
 	}
 }

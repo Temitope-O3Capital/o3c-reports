@@ -208,4 +208,3 @@ func notifyTaskAssigned(ctx context.Context, db *core.DB, taskID, assignee int64
 		EntityRef: fmt.Sprintf("task:%d", taskID),
 	})
 }
-

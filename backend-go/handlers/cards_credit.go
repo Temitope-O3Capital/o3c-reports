@@ -32,20 +32,20 @@ const ccLatestCycle = `(SELECT MAX(d2.cycle_date)
 func ccKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		out := map[string]any{
-			"cycle_date":            nil,
-			"accounts":              int64(0),
-			"total_receivables_kobo": int64(0),
+			"cycle_date":              nil,
+			"accounts":                int64(0),
+			"total_receivables_kobo":  int64(0),
 			"total_credit_limit_kobo": int64(0),
-			"utilization_pct":       0.0,
-			"interest_income_kobo":  int64(0),
-			"min_payment_due_kobo":  int64(0),
-			"overdue_kobo":          int64(0),
-			"overdue_accounts":      int64(0),
-			"delinquency_rate_pct":  0.0,
-			"avg_balance_kobo":      int64(0),
-			"purchases_kobo":        int64(0),
-			"cash_advance_kobo":     int64(0),
-			"over_limit_accounts":   int64(0),
+			"utilization_pct":         0.0,
+			"interest_income_kobo":    int64(0),
+			"min_payment_due_kobo":    int64(0),
+			"overdue_kobo":            int64(0),
+			"overdue_accounts":        int64(0),
+			"delinquency_rate_pct":    0.0,
+			"avg_balance_kobo":        int64(0),
+			"purchases_kobo":          int64(0),
+			"cash_advance_kobo":       int64(0),
+			"over_limit_accounts":     int64(0),
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
@@ -225,7 +225,7 @@ func ccAtRisk(db *core.DB) http.HandlerFunc {
 				COALESCE(SUM(GREATEST(d.outstanding_balance_kobo - d.credit_limit_kobo, 0)) FILTER (WHERE d.credit_limit_kobo > 0),0)::bigint AS over_limit_excess_kobo
 			FROM card_cycle_data d
 			JOIN card_products p ON p.product_code = d.product_code AND p.category='credit'
-			WHERE d.cycle_date = `+ccLatestCycle+` AND `+riskClause, ); err == nil && len(sr) > 0 {
+			WHERE d.cycle_date = `+ccLatestCycle+` AND `+riskClause); err == nil && len(sr) > 0 {
 			for k := range summary {
 				summary[k] = toInt64(sr[0][k])
 			}

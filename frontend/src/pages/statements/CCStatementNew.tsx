@@ -212,7 +212,7 @@ function SingleUploadTab() {
       form.append('file', file)
       const d = await apiFetch<any>('/api/cc-statements/upload', { method: 'POST', body: form })
       const stmtId = d?.data?.id ?? d?.id
-      toast.success(`Statement saved — ${d?.data?.txn_count ?? d?.txn_count ?? 0} transactions`)
+      toast.success(`Statement saved: ${d?.data?.txn_count ?? d?.txn_count ?? 0} transactions`)
       navigate(`/statements/credit-cards/${stmtId ?? ''}`)
     } catch (e: any) {
       toast.error(e.message)
@@ -237,7 +237,7 @@ function SingleUploadTab() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: NAVY }}>
-              Preview — {preview.transactions.length} transactions
+              Preview: {preview.transactions.length} transactions
             </div>
             <div style={{ display: 'flex', gap: SP[2] }}>
               <Button variant="secondary" onClick={() => { setFile(null); setPreview(null) }}>
@@ -406,7 +406,7 @@ function FromDBTab() {
         }),
       })
       const payload = d.data ?? d
-      toast.success(`Statement built — ${payload.txn_count} transactions`)
+      toast.success(`Statement built: ${payload.txn_count} transactions`)
       navigate(`/statements/credit-cards/${payload.id}`)
     } catch (e: any) {
       toast.error(e.message)

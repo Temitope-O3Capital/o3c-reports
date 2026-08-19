@@ -41,7 +41,7 @@ export default function RiskMyDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     setError(null)
     try {
       const r = await apiFetch<any>('/api/risk/my-dashboard')
@@ -51,7 +51,7 @@ export default function RiskMyDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['loans'] })
+  useLiveData(() => load(true), { topics: ['loans'] })
   useEffect(() => { const id = setInterval(load, 60000); return () => clearInterval(id) }, [load])
 
   if (loading && !d) return (
@@ -91,15 +91,15 @@ export default function RiskMyDashboard() {
   ]
 
   return (
-    <Page title="My Workspace" subtitle="Your risk station — review pipeline and portfolio">
+    <Page title="My Workspace" subtitle="Your risk station: review pipeline and portfolio">
       <ErrBanner error={error} onRetry={load} />
 
       <WorkspaceHero
         subline={!live
-          ? 'Origination review isn’t live on this deployment yet — showing the credit book.'
+          ? 'Origination review isn’t live on this deployment yet. Showing the credit book.'
           : pending > 0
             ? <><strong style={{ color: '#fff' }}>{fmtNum(pending)}</strong> application{pending === 1 ? '' : 's'} awaiting your review{oldest > 0 ? <> · oldest <strong style={{ color: oldest >= 3 ? '#FCA5A5' : '#fff' }}>{fmtNum(oldest)}d</strong></> : ''}</>
-            : 'Review queue is clear — nothing waiting on you.'}
+            : 'Review queue is clear. Nothing waiting on you.'}
         ring={live ? { value: reviewedToday, max: clearMax, unit: 'reviewed' } : undefined}
         stats={[
           { label: 'Pending Review', value: fmtNum(pending), color: oldest >= 3 ? '#FCA5A5' : '#fff' },
@@ -139,7 +139,7 @@ export default function RiskMyDashboard() {
           keyFn={r => r.reference}
           onRowClick={() => navigate('/operations/risk/applications')}
           pageSize={8}
-          emptyText={live ? 'Nothing awaiting your review 🎉' : 'Origination review pipeline is not live here'}
+          emptyText={live ? 'Nothing awaiting your review' : 'Origination review pipeline is not live here'}
         />
       </SectionCard>
 

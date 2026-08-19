@@ -332,7 +332,7 @@ function LogCallForm({ contactId, onDone }: { contactId: number; onDone: () => v
       }
       if (chosen?.needs_callback && callbackAt) body.callback_at = new Date(callbackAt).toISOString()
       await apiPost(`/api/call-center/contacts/${contactId}/log-call`, body)
-      toast.success(chosen?.hint ? `Call logged — ${chosen.hint.toLowerCase()}` : 'Call logged')
+      toast.success(chosen?.hint ? `Call logged, ${chosen.hint.toLowerCase()}` : 'Call logged')
       setNotes('')
       setDisposition(options[0]?.code ?? '')
       setPtpAmountNaira('')
@@ -626,8 +626,8 @@ function DetailPanel({ contact, onAction }: { contact: CallCenterContact; onActi
                   : 'Never called'
               } />
               <InfoField label="Dial Status" value={
-                contact.is_exhausted ? <span style={{ color: RED, fontWeight: FW.bold }}>Exhausted — 6+ tries, no answer</span>
-                : contact.is_cooling ? <span style={{ color: AMBER, fontWeight: FW.bold }}>Cooling — called in last 7 days</span>
+                contact.is_exhausted ? <span style={{ color: RED, fontWeight: FW.bold }}>Exhausted: 6+ tries, no answer</span>
+                : contact.is_cooling ? <span style={{ color: AMBER, fontWeight: FW.bold }}>Cooling: called in last 7 days</span>
                 : <span style={{ color: GREEN, fontWeight: FW.bold }}>Ready to call</span>
               } />
             </div>
@@ -713,7 +713,7 @@ function ImportContactsModal({ open, onClose, onDone }: { open: boolean; onClose
         </div>
         <div>
           <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-            Contacts — one per line: name, phone, cif, product
+            Contacts, one per line: name, phone, cif, product
           </label>
           <textarea
             spellCheck={false}
@@ -756,8 +756,8 @@ export default function CallCenterQueue() {
   const [distributeConfirm, setDistributeConfirm] = useState(false)
   const isHead = isHeadRole()
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setErr(null)
     // A work queue is a live list, not a date-bounded report — no date filter.
     const params = new URLSearchParams({ limit: '200' })
@@ -778,7 +778,7 @@ export default function CallCenterQueue() {
   }, [purposeF, bucket, priority, disposition, dq])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true), { topics: ['calls', 'crm'] })
 
   const anyFilter = priority !== 'All' || disposition !== 'All' || search !== ''
 
@@ -820,7 +820,7 @@ export default function CallCenterQueue() {
       if (!res.assigned) {
         toast.info('No unassigned contacts to distribute')
       } else {
-        toast.success(`${res.assigned} contact(s) distributed${res.online_only ? ' to online agents' : ' — nobody online, spread across all agents'}`)
+        toast.success(`${res.assigned} contact(s) distributed${res.online_only ? ' to online agents' : ': nobody online, spread across all agents'}`)
         load()
       }
     } catch (e: any) {
@@ -831,7 +831,7 @@ export default function CallCenterQueue() {
   }
 
   return (
-    <Page title="Outbound Queue" subtitle={isHead ? 'Marketing, collections & support calls — from Zoho, our accounts, and manual lists' : 'Your assigned calls to make — dial through your list'} noPad
+    <Page title="Outbound Queue" subtitle={isHead ? 'Marketing, collections & support calls: from Zoho, our accounts, and manual lists' : 'Your assigned calls to make: dial through your list'} noPad
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
           {(() => {
@@ -912,13 +912,13 @@ export default function CallCenterQueue() {
               {!!summary?.callbacks_due && (
                 <StatChip
                   label="Callbacks Due" value={summary.callbacks_due} color={AMBER}
-                  title="A customer agreed a time and it has passed — call these first"
+                  title="A customer agreed a time and it has passed. Call these first"
                 />
               )}
               <StatChip
                 label="Ready to Call" value={summary?.ready ?? 0} color={GREEN}
                 active={bucket === 'ready'} onClick={() => setBucket(bucket === 'ready' ? '' : 'ready')}
-                title="Never called, or rested past the 7-day cooldown — and not an exhausted number"
+                title="Never called, or rested past the 7-day cooldown, and not an exhausted number"
               />
               <StatChip
                 label="Never Called" value={summary?.uncalled ?? 0} color={BLUE}
@@ -928,12 +928,12 @@ export default function CallCenterQueue() {
               <StatChip
                 label="Cooling" value={summary?.cooling ?? 0} color={AMBER}
                 active={bucket === 'cooling'} onClick={() => setBucket(bucket === 'cooling' ? '' : 'cooling')}
-                title="Called within the last 7 days — resting before the next attempt"
+                title="Called within the last 7 days, resting before the next attempt"
               />
               <StatChip
                 label="Exhausted" value={summary?.exhausted ?? 0} color={RED}
                 active={bucket === 'exhausted'} onClick={() => setBucket(bucket === 'exhausted' ? '' : 'exhausted')}
-                title="6+ attempts and never once answered — consider skipping these"
+                title="6+ attempts and never once answered. Consider skipping these"
               />
             </div>
 
@@ -1117,7 +1117,7 @@ export default function CallCenterQueue() {
                               Exhausted
                             </span>
                           ) : item.is_cooling ? (
-                            <span title={`Called ${fmtDate(item.last_called_at!)} — resting`} style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: AMBER, background: `${AMBER}14`, padding: '1px 7px', borderRadius: RADIUS.full }}>
+                            <span title={`Called ${fmtDate(item.last_called_at!)}, resting`} style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: AMBER, background: `${AMBER}14`, padding: '1px 7px', borderRadius: RADIUS.full }}>
                               Cooling
                             </span>
                           ) : item.last_called_at ? (

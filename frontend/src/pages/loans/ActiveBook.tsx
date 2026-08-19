@@ -81,7 +81,7 @@ const LOAN_COLS: TableCol<LoanRow>[] = [
         {r.product_type ?? r.loan_product ?? '—'}
         {r.collateral_type && (
           <span
-            title={`Secured: ${r.collateral_type}${r.collateral_description ? ' — ' + r.collateral_description : ''}`}
+            title={`Secured: ${r.collateral_type}${r.collateral_description ? ', ' + r.collateral_description : ''}`}
             style={{
               fontSize: 10, fontWeight: FW.semibold, letterSpacing: 0.3,
               padding: '1px 6px', borderRadius: RADIUS.full,
@@ -238,7 +238,7 @@ function LoanDetailPanel({ loan, onClose }: { loan: LoanRow; onClose: () => void
           <DetailRow label="Lending Model"    value={loan.lending_model} />
           <DetailRow label="Interest Freq."   value={loan.interest_frequency} />
           <DetailRow label="Ledger Balance"   value={loan.ledger_balance_kobo != null ? fmtKobo(loan.ledger_balance_kobo) : '—'} mono />
-          <DetailRow label="Collateral"       value={loan.collateral_type ? `${loan.collateral_type} — ${loan.collateral_description ?? ''}`.trim().replace(/—\s*$/, '') : 'Unsecured'} />
+          <DetailRow label="Collateral"       value={loan.collateral_type ? `${loan.collateral_type}, ${loan.collateral_description ?? ''}`.trim().replace(/,\s*$/, '') : 'Unsecured'} />
           {loan.collateral_valuation_kobo != null && loan.collateral_valuation_kobo > 0 && (
             <DetailRow label="Collateral Value" value={fmtKobo(loan.collateral_valuation_kobo)} mono />
           )}
@@ -260,8 +260,8 @@ export default function ActiveLoanBook() {
   const [selected,  setSelected]  = useState<LoanRow | null>(null)
   const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const params: Record<string, string> = { limit: '200' }
@@ -283,7 +283,7 @@ export default function ActiveLoanBook() {
   }, [dq, dpdBucket])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   // Compute avg DPD from loaded rows (only over current visible set)
   const avgDpd = loans.length > 0

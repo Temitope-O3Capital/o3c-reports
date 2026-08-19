@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import { Page, KpiCard, SectionCard, ErrBanner, Spinner, DataTable, ExpandableFilterBar } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiExport } from '../../lib/api'
+import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtPct, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, DARKRED, AMBER, GREEN, BLUE, INTER, SORA, NUM } from '../../lib/design'
 import { bandColor, bandLabel, scoreColor, fmtScore } from '../../lib/riskScale'
@@ -139,8 +139,8 @@ export default function RiskOverview() {
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const [rk, pk, ek, pt, bd, sc, em] = await Promise.all([
         apiFetch<{ data: ReviewKPIs    }>('/api/risk/review-kpis'),
@@ -162,7 +162,7 @@ export default function RiskOverview() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['loans'] })
+  useLiveData(() => load(true), { topics: ['loans'] })
 
   // Origination is not live on this deployment, so review/eye KPIs are structurally
   // zero rather than "a quiet day". The API says which, and the page says so too
@@ -182,10 +182,6 @@ export default function RiskOverview() {
     : concentration
   const concLabel = concBasis === 'employer' ? 'Employer' : 'Borrower'
   const concCols = concentrationCols(concBasis)
-
-  function exportCsv() {
-    apiExport('/api/risk/top-employers/export', `${concBasis}-concentration.csv`)
-  }
 
   if (loading) return (
     <Page title="Overview">
@@ -208,7 +204,7 @@ export default function RiskOverview() {
           <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: AMBER }}>
             {reviewKPIs?.pending} application{reviewKPIs?.pending !== 1 ? 's' : ''} awaiting risk review
           </span>
-          <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: AMBER, fontWeight: FW.semibold }}>Review now →</span>
+          <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: AMBER, fontWeight: FW.semibold }}>Review now</span>
         </div>
       )}
 
@@ -226,7 +222,7 @@ export default function RiskOverview() {
             </span>
             {concentrationAlerts.map(e => (
               <div key={e.company} style={{ fontSize: TEXT.xs, color: RED, marginTop: 2 }}>
-                {e.company} — {fmtPct(e.pct_of_total)} of book · Policy limit {CONCENTRATION_LIMIT_PCT}%
+                {e.company}: {fmtPct(e.pct_of_total)} of book · Policy limit {CONCENTRATION_LIMIT_PCT}%
               </div>
             ))}
           </div>
@@ -276,7 +272,7 @@ export default function RiskOverview() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
 
         {/* PAR area trend — 12 months */}
-        <SectionCard title="PAR Trend — 12 Months" subtitle="Outstanding balance in each delinquency band">
+        <SectionCard title="PAR Trend: 12 Months" subtitle="Outstanding balance in each delinquency band">
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={parTrend} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
               <defs>
@@ -312,7 +308,7 @@ export default function RiskOverview() {
         </SectionCard>
 
         {/* Risk band donut */}
-        <SectionCard title="Risk Band Distribution" subtitle="Active book, banded A (Prime) → E (High-Risk)">
+        <SectionCard title="Risk Band Distribution" subtitle="Active book, banded A (Prime) to E (High-Risk)">
           {bands.length === 0 ? (
             <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No scored loans</div>
           ) : (
@@ -344,7 +340,7 @@ export default function RiskOverview() {
       </div>
 
       {/* Sector concentration bar */}
-      <SectionCard title="Sector Concentration" subtitle="Top 8 sectors by share of active loan book — flag any exceeding 30%" style={{ marginBottom: SP[4] }}>
+      <SectionCard title="Sector Concentration" subtitle="Top 8 sectors by share of active loan book. Flag any exceeding 30%" style={{ marginBottom: SP[4] }}>
         <ResponsiveContainer width="100%" height={190}>
           <BarChart data={sectors.slice(0, 8)} margin={{ top: 4, right: 8, bottom: 4, left: -18 }} barCategoryGap="28%">
             <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} />
@@ -364,11 +360,6 @@ export default function RiskOverview() {
         subtitle={`Concentration policy: no single ${concLabel.toLowerCase()} to exceed ${CONCENTRATION_LIMIT_PCT}% of active book`}
         badge={filteredConcentration.length}
         padding={false}
-        actions={
-          <button onClick={exportCsv} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export
-          </button>
-        }
       >
         <ExpandableFilterBar search={empSearch} onSearch={setEmpSearch} groups={[]} onReset={() => setEmpSearch('')} resultCount={filteredConcentration.length} totalCount={concentration.length} />
         <DataTable cols={concCols} rows={filteredConcentration} keyFn={(r, i) => r.applicant_cif ?? r.company ?? i} emptyText={`No ${concLabel.toLowerCase()} data`} pageSize={15} />

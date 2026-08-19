@@ -217,8 +217,8 @@ export default function DebtSales() {
   const [dateFrom,    setDateFrom]    = useState(monthStart())
   const [dateTo,      setDateTo]      = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const qs = `from=${dateFrom}&to=${dateTo}`
       const res = await apiFetch<DebtSale[] | { data: DebtSale[] }>(`/api/recovery/debt-sales?${qs}`)
@@ -229,7 +229,7 @@ export default function DebtSales() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['recovery'] })
+  useLiveData(() => load(true), { topics: ['recovery'] })
 
   const displayed = useMemo(() => {
     if (!search.trim()) return sales

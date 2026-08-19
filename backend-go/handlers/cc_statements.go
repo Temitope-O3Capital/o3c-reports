@@ -658,7 +658,8 @@ func ccBulk(db *core.DB) http.HandlerFunc {
 
 // POST /api/cc-statements/from-db
 // Body: { cif, account_number, customer_name, date_from, date_to,
-//         line_of_credit_kobo, opening_balance_kobo, payment_due_date }
+//
+//	line_of_credit_kobo, opening_balance_kobo, payment_due_date }
 func ccFromDB(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

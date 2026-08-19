@@ -48,7 +48,7 @@ function IssuanceActions({ row, onReload }: { row: IssuanceRequest; onReload: ()
         method: 'PATCH',
         body: JSON.stringify({ status }),
       })
-      toast.success(`Status → ${status}`)
+      toast.success(`Status to ${status}`)
       onReload()
     } catch (e: any) {
       toast.error(e.message)
@@ -157,25 +157,7 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
   )
 }
 
-// ── Export CSV ────────────────────────────────────────────────────────────────
 
-function exportIssuanceCsv(rows: IssuanceRequest[]) {
-  const header = ['Request #', 'Customer', 'CIF Number', 'Card Type', 'Status', 'Submitted Date', 'Days Pending']
-  const lines = rows.map(r => [
-    `"${String(r.ref ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.cif_number ?? '').replace(/"/g, '""')}"`,
-    r.card_type ?? '',
-    r.status ?? '',
-    r.submitted_date ? r.submitted_date.slice(0, 10) : '',
-    r.days_pending ?? '',
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `issuance-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -191,8 +173,8 @@ export default function CardsIssuance() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<IssuanceRequest[]>(`/api/cards/issuance?from=${dateFrom}&to=${dateTo}`)
@@ -205,7 +187,7 @@ export default function CardsIssuance() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['cards'] })
+  useLiveData(() => load(true), { topics: ['cards'] })
 
   const cols: TableCol<IssuanceRequest>[] = useMemo(() => [
     { key: 'customer_name', label: 'Customer',
@@ -254,7 +236,7 @@ export default function CardsIssuance() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="Issuance Requests" badge={displayed.length} padding={false} actions={<button onClick={() => exportIssuanceCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Issuance Requests" badge={displayed.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

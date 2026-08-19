@@ -24,17 +24,17 @@ func RegisterFDBook(r chi.Router, db *core.DB) {
 func fdBookKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		out := map[string]any{
-			"total_principal_kobo":            int64(0),
-			"total_ledger_kobo":               int64(0),
-			"total_accrued_interest_kobo":     int64(0),
-			"active_count":                    int64(0),
-			"unique_customers":                int64(0),
-			"weighted_avg_rate":               0.0,
-			"weighted_avg_tenor_days":         0.0,
+			"total_principal_kobo":             int64(0),
+			"total_ledger_kobo":                int64(0),
+			"total_accrued_interest_kobo":      int64(0),
+			"active_count":                     int64(0),
+			"unique_customers":                 int64(0),
+			"weighted_avg_rate":                0.0,
+			"weighted_avg_tenor_days":          0.0,
 			"annualized_interest_expense_kobo": int64(0),
-			"maturing_30d_count":              int64(0),
-			"maturing_30d_kobo":               int64(0),
-			"new_this_month_count":            int64(0),
+			"maturing_30d_count":               int64(0),
+			"maturing_30d_kobo":                int64(0),
+			"new_this_month_count":             int64(0),
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT

@@ -240,7 +240,7 @@ function Coaching() {
         </div>
       }>
       {loading ? <div style={{ display: 'flex', justifyContent: 'center', padding: 30 }}><Spinner size={20} /></div>
-        : rows.length === 0 ? <div style={{ textAlign: 'center', padding: 34, color: 'var(--txt2)' }}>Nothing {status === 'open' ? 'open' : 'completed'} 🎉</div> : (
+        : rows.length === 0 ? <div style={{ textAlign: 'center', padding: 34, color: 'var(--txt2)' }}>Nothing {status === 'open' ? 'open' : 'completed'}</div> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {rows.map(r => (
               <div key={r.id} style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '11px 14px', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
@@ -314,8 +314,8 @@ function Settings({ config, onSaved }: { config: QAConfig | null; onSaved: () =>
       </SectionCard>
 
       <SectionCard title="Section weights & parameter points"
-        subtitle={`Section weights should total 100% — currently ${totalWeight}%`}
-        actions={totalWeight !== 100 ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: AMBER }}>⚠ {totalWeight}% (not 100)</span> : <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: GREEN }}>✓ 100%</span>}>
+        subtitle={`Section weights should total 100%, currently ${totalWeight}%`}
+        actions={totalWeight !== 100 ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: AMBER }}>{totalWeight}% (not 100)</span> : <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: GREEN }}>✓ 100%</span>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {secs.map(sec => (
             <div key={sec.key} style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.md, overflow: 'hidden' }}>
@@ -365,26 +365,6 @@ function MonthlyReport() {
   const evals = num(s.evaluations)
   const passRate = evals > 0 ? Math.round((num(s.passed) / evals) * 100) : 0
 
-  function exportCsv() {
-    const rows: any[][] = [
-      ['Call-Centre QA — Monthly Report'],
-      ['Month', month],
-      [],
-      ['Evaluations', evals],
-      ['Average Score %', num(s.avg_score)],
-      ['Pass Rate %', passRate],
-      ['Passed', num(s.passed)],
-      ['Failed', num(s.failed)],
-      ['Critical Errors', num(s.critical_errors)],
-      ['Agents Evaluated', num(s.agents_evaluated)],
-      [],
-      ['Agent', 'Evaluations', 'Avg Score %', 'Passed', 'Critical Errors'],
-      ...(d?.by_agent ?? []).map((a: any) => [a.agent_name, num(a.evaluations), num(a.avg_score), num(a.passed), num(a.critical_errors)]),
-    ]
-    const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), download: `qa-monthly-${month}.csv` })
-    document.body.appendChild(a); a.click(); a.remove()
-  }
 
   const kpi = (label: string, value: string, color: string) => (
     <div style={{ padding: '12px 14px', borderRadius: RADIUS.lg, border: '1px solid var(--card-bdr)', background: 'var(--card)', boxShadow: 'var(--card-shadow)' }}>
@@ -398,10 +378,7 @@ function MonthlyReport() {
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ height: 32, padding: '0 8px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, background: 'var(--input-bg)', color: 'var(--txt)' }} />
-          <button onClick={exportCsv} disabled={loading || evals === 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 32, padding: '0 12px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: evals === 0 ? 'not-allowed' : 'pointer', opacity: evals === 0 ? 0.6 : 1 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>Export CSV
-          </button>
-        </div>
+          </div>
       }>
       {loading ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={22} /></div>
         : evals === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No evaluations in {month}</div> : (

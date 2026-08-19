@@ -54,7 +54,7 @@ export function bandColor(b: string | null | undefined): string {
 /** "A — Prime". Unknown bands pass through unchanged rather than being mislabelled. */
 export function bandLabel(b: string | null | undefined): string {
   if (!b) return '—'
-  return isRiskBand(b) ? `${b} — ${BAND_LABEL[b]}` : b
+  return isRiskBand(b) ? `${b}: ${BAND_LABEL[b]}` : b
 }
 
 /** Short form for tight table cells: "A Prime". */

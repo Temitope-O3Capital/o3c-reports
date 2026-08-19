@@ -80,8 +80,8 @@ export default function CampaignTemplates() {
   const [preview, setPreview]     = useState<Template | StarterTemplate | null>(null)
   const [pickChannel, setPickChannel] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const res = await apiFetch<Template[]>('/api/message-templates')
       setTemplates(Array.isArray(res) ? res : [])
@@ -90,7 +90,7 @@ export default function CampaignTemplates() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   const displayed = useMemo(() => {
     let ts = templates
@@ -181,7 +181,7 @@ export default function CampaignTemplates() {
           </div>
         ) : displayed.length === 0 ? (
           <div style={{ padding: '32px 18px', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
-            {canWrite ? 'No templates yet — create one, or start from a starter below.' : 'No templates have been created yet.'}
+            {canWrite ? 'No templates yet. Create one, or start from a starter below.' : 'No templates have been created yet.'}
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
@@ -236,7 +236,7 @@ export default function CampaignTemplates() {
       )}
 
       {/* Channel picker modal */}
-      <Modal open={pickChannel} onClose={() => setPickChannel(false)} title="New template — choose a channel" width={460}>
+      <Modal open={pickChannel} onClose={() => setPickChannel(false)} title="New template: choose a channel" width={460}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
           {(['email', 'sms', 'whatsapp'] as Channel[]).map(ch => {
             const m = CHANNEL_META[ch]

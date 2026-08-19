@@ -39,7 +39,7 @@ export default function BIMyDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     setError(null)
     try {
       const r = await apiFetch<any>('/api/bi/my-dashboard')
@@ -49,7 +49,7 @@ export default function BIMyDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['reports'] })
+  useLiveData(() => load(true), { topics: ['reports'] })
   useEffect(() => { const id = setInterval(load, 60000); return () => clearInterval(id) }, [load])
 
   if (loading && !d) return (
@@ -88,7 +88,7 @@ export default function BIMyDashboard() {
   ]
 
   return (
-    <Page title="My Workspace" subtitle="Your analytics station — reports, schedules and runs">
+    <Page title="My Workspace" subtitle="Your analytics station: reports, schedules and runs">
       <ErrBanner error={error} onRetry={load} />
 
       <WorkspaceHero
@@ -96,7 +96,7 @@ export default function BIMyDashboard() {
           ? <><strong style={{ color: '#FCD34D' }}>{fmtNum(schedDue)}</strong> scheduled report{schedDue === 1 ? '' : 's'} due to run{runsFailed > 0 ? <> · <strong style={{ color: '#FCA5A5' }}>{fmtNum(runsFailed)}</strong> failed this week</> : ''}</>
           : d.next_scheduled_at
             ? <>All schedules on track · next run <strong style={{ color: '#fff' }}>{fmtDatetime(d.next_scheduled_at)}</strong></>
-            : 'No schedules pending — build or run a report to get started.'}
+            : 'No schedules pending. Build or run a report to get started.'}
         ring={schedActive > 0 ? { value: onSchedule, max: schedActive, unit: 'on schedule' } : undefined}
         stats={[
           { label: 'My Reports', value: fmtNum(myReports) },

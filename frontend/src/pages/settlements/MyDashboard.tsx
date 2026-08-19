@@ -40,7 +40,7 @@ export default function SettlementMyDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     setError(null)
     try {
       const r = await apiFetch<any>('/api/settlements/my-dashboard')
@@ -50,7 +50,7 @@ export default function SettlementMyDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['settlements'] })
+  useLiveData(() => load(true), { topics: ['settlements'] })
   useEffect(() => { const id = setInterval(load, 60000); return () => clearInterval(id) }, [load])
 
   if (loading && !d) return (

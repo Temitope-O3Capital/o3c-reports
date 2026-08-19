@@ -168,7 +168,7 @@ function TemplateForm({ open, editing, onClose, onSaved }: TemplateFormProps) {
 
         <div style={{ padding: '12px 14px', borderRadius: RADIUS.lg, background: 'var(--th-bg)', display: 'flex', gap: SP[2], fontSize: TEXT.sm, color: 'var(--txt2)', alignItems: 'flex-start' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 15, color: NAVY, marginTop: 1, flexShrink: 0 }}>info</span>
-          <span><strong style={{ color: 'var(--txt)' }}>Flow:</strong> Settlement officer raises posting → <strong style={{ color: 'var(--txt)' }}>Approver</strong> approves or rejects → <strong style={{ color: 'var(--txt)' }}>Poster</strong> posts to ledger or returns for revision</span>
+          <span><strong style={{ color: 'var(--txt)' }}>Flow:</strong> Settlement officer raises posting, <strong style={{ color: 'var(--txt)' }}>Approver</strong> approves or rejects, <strong style={{ color: 'var(--txt)' }}>Poster</strong> posts to ledger or returns for revision</span>
         </div>
 
         <RolePicker label="Notify on creation" hint="These roles receive a notification when a new posting is raised under this template."
@@ -265,8 +265,8 @@ export default function WorkflowTemplates() {
   const [deleting, setDeleting]   = useState<WorkflowTemplate | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const res = await apiFetch<WorkflowTemplate[]>('/api/admin/workflow-templates')
@@ -279,7 +279,7 @@ export default function WorkflowTemplates() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   async function handleDelete() {
     if (!deleting) return
@@ -299,7 +299,7 @@ export default function WorkflowTemplates() {
   return (
     <Page
       title="Workflow Templates"
-      subtitle="Configure approval chains for manual postings — who gets notified, who approves, who posts"
+      subtitle="Configure approval chains for manual postings: who gets notified, who approves, who posts"
       actions={
         <button onClick={() => { setEditing(null); setFormOpen(true) }} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>

@@ -21,7 +21,7 @@ import (
 // already requires the settlement/cards page; ingest is restricted further —
 // importing an EOD file rewrites the card transaction feed.
 func RegisterInterswitch(r chi.Router, db *core.DB) {
-	r.Get("/summary",   interswitchSummary(db))
+	r.Get("/summary", interswitchSummary(db))
 	r.Get("/half-year", interswitchReport(db))
 	r.With(core.RequirePages("uploads", "settlement")).Post("/import", interswitchImport(db))
 }
@@ -220,12 +220,12 @@ func interswitchSummary(db *core.DB) http.HandlerFunc {
 
 // Real H1 2026 monthly figures from the half-year transaction report (kobo).
 var baseMonths = []monthlyRow{
-	{Month: "January",  ATM: 168_500_000,   POS: 2_094_254_691,  WEB: 5_507_397_656,  Transfer: 5_515_403_000},
-	{Month: "February", ATM: 172_200_000,   POS: 1_142_586_698,  WEB: 4_336_613_728,  Transfer: 6_371_468_692},
-	{Month: "March",    ATM: 115_400_000,   POS: 1_435_062_160,  WEB: 2_825_917_248,  Transfer: 8_441_525_120},
-	{Month: "April",    ATM: 125_200_000,   POS: 1_164_520_084,  WEB: 3_775_154_082,  Transfer: 9_533_611_655},
-	{Month: "May",      ATM: 123_300_000,   POS: 1_141_592_869,  WEB: 3_923_585_065,  Transfer: 42_530_445_160},
-	{Month: "June",     ATM: 115_800_000,   POS: 1_497_544_357,  WEB: 3_324_723_845,  Transfer: 9_851_054_276},
+	{Month: "January", ATM: 168_500_000, POS: 2_094_254_691, WEB: 5_507_397_656, Transfer: 5_515_403_000},
+	{Month: "February", ATM: 172_200_000, POS: 1_142_586_698, WEB: 4_336_613_728, Transfer: 6_371_468_692},
+	{Month: "March", ATM: 115_400_000, POS: 1_435_062_160, WEB: 2_825_917_248, Transfer: 8_441_525_120},
+	{Month: "April", ATM: 125_200_000, POS: 1_164_520_084, WEB: 3_775_154_082, Transfer: 9_533_611_655},
+	{Month: "May", ATM: 123_300_000, POS: 1_141_592_869, WEB: 3_923_585_065, Transfer: 42_530_445_160},
+	{Month: "June", ATM: 115_800_000, POS: 1_497_544_357, WEB: 3_324_723_845, Transfer: 9_851_054_276},
 }
 
 type monthlyRow struct {
@@ -255,10 +255,14 @@ type channelTotals struct {
 
 func interswitchReport(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		year   := r.URL.Query().Get("year")
+		year := r.URL.Query().Get("year")
 		period := r.URL.Query().Get("period")
-		if year == ""   { year = "2026" }
-		if period == "" { period = "H1" }
+		if year == "" {
+			year = "2026"
+		}
+		if period == "" {
+			period = "H1"
+		}
 
 		ctx := r.Context()
 		// Try to serve live data from interswitch_txns
@@ -323,7 +327,9 @@ var periodRanges = map[string][2]int{
 
 func selectPeriod(all []monthlyRow, period string) []monthlyRow {
 	r, ok := periodRanges[strings.ToUpper(period)]
-	if !ok { r = [2]int{0, 5} }
+	if !ok {
+		r = [2]int{0, 5}
+	}
 	var out []monthlyRow
 	for _, m := range all {
 		if idx, exists := monthIndex[m.Month]; exists && idx >= r[0] && idx <= r[1] {
@@ -335,19 +341,27 @@ func selectPeriod(all []monthlyRow, period string) []monthlyRow {
 
 func computeTotals(months []monthlyRow) channelTotals {
 	n := int64(len(months))
-	if n == 0 { return channelTotals{} }
+	if n == 0 {
+		return channelTotals{}
+	}
 	var t channelTotals
 	for _, m := range months {
-		t.ATM += m.ATM; t.POS += m.POS; t.WEB += m.WEB; t.Transfer += m.Transfer
+		t.ATM += m.ATM
+		t.POS += m.POS
+		t.WEB += m.WEB
+		t.Transfer += m.Transfer
 	}
 	t.Total = t.ATM + t.POS + t.WEB + t.Transfer
 	if t.Total > 0 {
-		t.ATMPct      = math.Round(float64(t.ATM) / float64(t.Total) * 10000) / 100
-		t.POSPct      = math.Round(float64(t.POS) / float64(t.Total) * 10000) / 100
-		t.WEBPct      = math.Round(float64(t.WEB) / float64(t.Total) * 10000) / 100
-		t.TransferPct = math.Round(float64(t.Transfer) / float64(t.Total) * 10000) / 100
+		t.ATMPct = math.Round(float64(t.ATM)/float64(t.Total)*10000) / 100
+		t.POSPct = math.Round(float64(t.POS)/float64(t.Total)*10000) / 100
+		t.WEBPct = math.Round(float64(t.WEB)/float64(t.Total)*10000) / 100
+		t.TransferPct = math.Round(float64(t.Transfer)/float64(t.Total)*10000) / 100
 	}
-	t.ATMAvg = t.ATM / n; t.POSAvg = t.POS / n; t.WEBAvg = t.WEB / n; t.TransferAvg = t.Transfer / n
+	t.ATMAvg = t.ATM / n
+	t.POSAvg = t.POS / n
+	t.WEBAvg = t.WEB / n
+	t.TransferAvg = t.Transfer / n
 	return t
 }
 
@@ -374,16 +388,23 @@ type parsedTxn struct {
 }
 
 type importSummary struct {
-	FilesProcessed       int              `json:"files_processed"`
-	TransactionsImported int              `json:"transactions_imported"`
-	TotalVolumeKobo      int64            `json:"total_volume_kobo"`
-	Branches             []branchSum      `json:"branches"`
-	Products             []productSum     `json:"products"`
-	Errors               []string         `json:"errors"`
+	FilesProcessed       int          `json:"files_processed"`
+	TransactionsImported int          `json:"transactions_imported"`
+	TotalVolumeKobo      int64        `json:"total_volume_kobo"`
+	Branches             []branchSum  `json:"branches"`
+	Products             []productSum `json:"products"`
+	Errors               []string     `json:"errors"`
 }
 
-type branchSum  struct{ Branch string `json:"branch"`; TxnCount int `json:"txn_count"`; VolumeKobo int64 `json:"volume_kobo"` }
-type productSum struct{ Product string `json:"product"`; TxnCount int `json:"txn_count"` }
+type branchSum struct {
+	Branch     string `json:"branch"`
+	TxnCount   int    `json:"txn_count"`
+	VolumeKobo int64  `json:"volume_kobo"`
+}
+type productSum struct {
+	Product  string `json:"product"`
+	TxnCount int    `json:"txn_count"`
+}
 
 // CCS Report 620 line patterns
 var (
@@ -416,32 +437,44 @@ func interswitchImport(db *core.DB) http.HandlerFunc {
 			}
 			txns, errs := parseEODTXN(f, fh.Filename)
 			f.Close()
-			allTxns    = append(allTxns, txns...)
-			parseErrs  = append(parseErrs, errs...)
+			allTxns = append(allTxns, txns...)
+			parseErrs = append(parseErrs, errs...)
 		}
 
 		// Aggregate
-		branchMap  := map[string]*branchSum{}
+		branchMap := map[string]*branchSum{}
 		productMap := map[string]*productSum{}
 		var totalKobo int64
 
 		for _, t := range allTxns {
-			if t.Sign == "DR" { totalKobo += t.AmountKobo }
+			if t.Sign == "DR" {
+				totalKobo += t.AmountKobo
+			}
 
 			bk := fmt.Sprintf("%s - %s", t.BranchCode, t.BranchName)
-			if branchMap[bk] == nil { branchMap[bk] = &branchSum{Branch: bk} }
+			if branchMap[bk] == nil {
+				branchMap[bk] = &branchSum{Branch: bk}
+			}
 			branchMap[bk].TxnCount++
-			if t.Sign == "DR" { branchMap[bk].VolumeKobo += t.AmountKobo }
+			if t.Sign == "DR" {
+				branchMap[bk].VolumeKobo += t.AmountKobo
+			}
 
 			pk := fmt.Sprintf("%s (%s)", t.ProductName, t.ProductCode)
-			if productMap[pk] == nil { productMap[pk] = &productSum{Product: pk} }
+			if productMap[pk] == nil {
+				productMap[pk] = &productSum{Product: pk}
+			}
 			productMap[pk].TxnCount++
 		}
 
 		var branches []branchSum
-		for _, v := range branchMap { branches = append(branches, *v) }
+		for _, v := range branchMap {
+			branches = append(branches, *v)
+		}
 		var products []productSum
-		for _, v := range productMap { products = append(products, *v) }
+		for _, v := range productMap {
+			products = append(products, *v)
+		}
 
 		// Persist parsed transactions — use INSERT ON CONFLICT DO NOTHING to make re-uploads idempotent.
 		// De-duplicate on (trace_num, txn_date, branch_code) — same trace on same date from same branch is the same txn.
@@ -479,13 +512,13 @@ func interswitchImport(db *core.DB) http.HandlerFunc {
 // parseEODTXN reads a CCS Report 620 file and extracts all transactions.
 func parseEODTXN(r io.Reader, filename string) ([]parsedTxn, []string) {
 	var (
-		txns       []parsedTxn
-		errs       []string
+		txns                                                       []parsedTxn
+		errs                                                       []string
 		branchCode, branchName, prodCode, prodName, accountNo, cif string
 	)
 
 	scanner := bufio.NewScanner(r)
-	lineNum  := 0
+	lineNum := 0
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -512,7 +545,7 @@ func parseEODTXN(r io.Reader, filename string) ([]parsedTxn, []string) {
 
 		if m := reAccount.FindStringSubmatch(line); m != nil {
 			accountNo = strings.TrimSpace(m[1])
-			cif       = strings.TrimSpace(m[2])
+			cif = strings.TrimSpace(m[2])
 			continue
 		}
 
@@ -522,7 +555,9 @@ func parseEODTXN(r io.Reader, filename string) ([]parsedTxn, []string) {
 		}
 
 		m := reTxn.FindStringSubmatch(line)
-		if m == nil { continue }
+		if m == nil {
+			continue
+		}
 
 		date, err := time.Parse("02/01/2006", m[5])
 		if err != nil {

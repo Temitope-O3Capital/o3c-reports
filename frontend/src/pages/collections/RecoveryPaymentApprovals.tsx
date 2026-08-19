@@ -39,7 +39,7 @@ function ReviewModal({
     try {
       if (action === 'approve') {
         await apiPut(`/api/recovery-ops/payments/${payment.id}/approve`, {})
-        toast.success('Payment approved — GL entry posted to loan account')
+        toast.success('Payment approved. GL entry posted to loan account')
       } else {
         if (!rejectionReason.trim()) {
           toast.error('Provide a rejection reason')
@@ -71,7 +71,7 @@ function ReviewModal({
     <Modal
       open={payment !== null}
       onClose={() => { setRejectionReason(''); setAction('approve'); onClose() }}
-      title={`Review Recovery Payment — ${payment?.account_cif ?? ''}`}
+      title={`Review Recovery Payment: ${payment?.account_cif ?? ''}`}
       width={460}
       footer={
         <div style={{ display: 'flex', gap: 8 }}>
@@ -169,8 +169,8 @@ export default function RecoveryPaymentApprovals() {
   const [error, setError]       = useState<string | null>(null)
   const [reviewing, setReviewing] = useState<PendingPayment | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch<{ data: PendingPayment[] }>('/api/recovery-ops/payments/pending')
       setRows(res.data ?? [])
@@ -182,7 +182,7 @@ export default function RecoveryPaymentApprovals() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   const totalPendingKobo = rows.reduce((s, r) => s + r.amount_kobo, 0)
 

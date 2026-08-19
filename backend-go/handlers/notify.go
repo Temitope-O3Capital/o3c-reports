@@ -50,21 +50,21 @@ const (
 	EvtCRMRequestCreated = "crm_request_created"
 
 	// Wave 5H — extended event matrix
-	EvtTicketSLAWarning      = "ticket_sla_warning"
-	EvtTicketUnassignedAlert = "ticket_unassigned_alert"
-	EvtCSATLowScore          = "csat_low_score"
-	EvtAMLWatchlistHit       = "aml_watchlist_hit"
-	EvtSARFiled              = "sar_filed"
-	EvtPTPDueToday           = "ptp_due_today"
-	EvtPTPBroken             = "ptp_broken"
-	EvtAccountDPD90          = "account_dpd90"
-	EvtFDMaturing7Days       = "fd_maturing_7days"
-	EvtFDMaturedUnactioned   = "fd_matured_unactioned"
+	EvtTicketSLAWarning       = "ticket_sla_warning"
+	EvtTicketUnassignedAlert  = "ticket_unassigned_alert"
+	EvtCSATLowScore           = "csat_low_score"
+	EvtAMLWatchlistHit        = "aml_watchlist_hit"
+	EvtSARFiled               = "sar_filed"
+	EvtPTPDueToday            = "ptp_due_today"
+	EvtPTPBroken              = "ptp_broken"
+	EvtAccountDPD90           = "account_dpd90"
+	EvtFDMaturing7Days        = "fd_maturing_7days"
+	EvtFDMaturedUnactioned    = "fd_matured_unactioned"
 	EvtCampaignDeliveryFailed = "campaign_delivery_failed"
-	EvtAPIKeyExpiry          = "api_key_expiry"
-	EvtSystemAlert           = "system_alert"
-	EvtNewAccountCreated     = "new_account_created"
-	EvtFirstLogin            = "first_login"
+	EvtAPIKeyExpiry           = "api_key_expiry"
+	EvtSystemAlert            = "system_alert"
+	EvtNewAccountCreated      = "new_account_created"
+	EvtFirstLogin             = "first_login"
 
 	// Recovery events
 	EvtRecoveryCaseAssigned   = "recovery_case_assigned"
@@ -248,7 +248,7 @@ func Notify(ctx context.Context, db *core.DB, p NotifPayload) {
 	// ── Email ──────────────────────────────────────────────────────────────────
 	if channelOn("email") {
 		if email := str(u["email"]); email != "" {
-			name    := str(u["full_name"])
+			name := str(u["full_name"])
 			logoURL := resolveCredKey(ctx, db, "EMAIL_LOGO_URL")
 			htmlBody := buildNotifEmail(p.Title, p.Body, p.ActionURL, logoURL)
 			go func() {
@@ -404,7 +404,7 @@ func activeAgentIDs(ctx context.Context, db *core.DB) []int64 {
 }
 
 func buildNotifEmail(title, body, actionURL, logoURL string) string {
-	appURL   := workspaceURL() // APP_BASE_URL → https://crm.o3cards.pri:8443
+	appURL := workspaceURL() // APP_BASE_URL → https://crm.o3cards.pri:8443
 	prefsURL := appURL + "/settings/notifications"
 
 	logoTag := ""

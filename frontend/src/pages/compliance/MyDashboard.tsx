@@ -37,7 +37,7 @@ export default function ComplianceMyDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     setError(null)
     try {
       const r = await apiFetch<any>('/api/compliance/my-dashboard')
@@ -47,7 +47,7 @@ export default function ComplianceMyDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
   useEffect(() => { const id = setInterval(load, 60000); return () => clearInterval(id) }, [load])
 
   if (loading && !d) return (
@@ -92,15 +92,15 @@ export default function ComplianceMyDashboard() {
   ]
 
   return (
-    <Page title="My Workspace" subtitle="Your compliance station — findings, checklists and deadlines">
+    <Page title="My Workspace" subtitle="Your compliance station: findings, checklists and deadlines">
       <ErrBanner error={error} onRetry={load} />
 
       <WorkspaceHero
         subline={overdueTotal > 0
-          ? <><strong style={{ color: '#FCA5A5' }}>{fmtNum(overdueTotal)}</strong> item{overdueTotal === 1 ? '' : 's'} past deadline — clear {overdueTotal === 1 ? 'it' : 'them'} first</>
+          ? <><strong style={{ color: '#FCA5A5' }}>{fmtNum(overdueTotal)}</strong> item{overdueTotal === 1 ? '' : 's'} past deadline, clear {overdueTotal === 1 ? 'it' : 'them'} first</>
           : openTotal > 0
-            ? <>Everything's within deadline — <strong style={{ color: '#fff' }}>{fmtNum(openTotal)}</strong> open item{openTotal === 1 ? '' : 's'} on track</>
-            : 'Nothing outstanding — your compliance queue is clear.'}
+            ? <>Everything's within deadline, <strong style={{ color: '#fff' }}>{fmtNum(openTotal)}</strong> open item{openTotal === 1 ? '' : 's'} on track</>
+            : 'Nothing outstanding. Your compliance queue is clear.'}
         ring={{ value: onTime, max: Math.max(1, openTotal), unit: 'on time' }}
         stats={[
           { label: 'Open Findings', value: fmtNum(openFindings), color: findingsOverdue > 0 ? '#FCA5A5' : '#fff' },
@@ -142,7 +142,7 @@ export default function ComplianceMyDashboard() {
           keyFn={r => r.finding_ref}
           onRowClick={() => navigate('/compliance/findings')}
           pageSize={8}
-          emptyText="No findings assigned to you 🎉"
+          emptyText="No findings assigned to you"
         />
       </SectionCard>
 

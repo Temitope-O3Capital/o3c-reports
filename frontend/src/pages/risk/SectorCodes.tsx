@@ -116,7 +116,7 @@ export default function SectorCodes() {
   return (
     <Page
       title="Sector Codes"
-      subtitle="CBN economic sector code → name. Udara sends codes only, so these names are maintained here."
+      subtitle="CBN economic sector code to name. Udara sends codes only, so these names are maintained here."
     >
       <ErrBanner error={error} onRetry={load} />
 
@@ -130,8 +130,8 @@ export default function SectorCodes() {
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.6 }}>
             <strong style={{ color: AMBER }}>
               {unmapped} code{unmapped !== 1 ? 's' : ''} not yet named
-            </strong>{' '}
-            — {fmtKobo(unmappedExposure)} of the active book sits behind them. Until they are
+            </strong>:{' '}
+            {fmtKobo(unmappedExposure)} of the active book sits behind them. Until they are
             named, Sector Concentration and the vintage breakdowns show “Unmapped (code)”.
             {!canEdit && ' Ask a Risk Head to name them.'}
           </div>

@@ -543,11 +543,11 @@ func cleanStringPtr(v *string) *string {
 
 type segmentCriteria struct {
 	Name               string   `json:"name"`
-	DPDBuckets         []string `json:"dpd_buckets"`           // e.g. ["0","1-30","31-60","61-90","91+"]
-	Products           []string `json:"products"`              // e.g. ["Salary Loan","Business Loan"]
-	Stages             []string `json:"stages"`                // loan_applications.stage
-	Statuses           []string `json:"statuses"`              // loan_applications.status
-	Employers          []string `json:"employers"`             // employer name substring
+	DPDBuckets         []string `json:"dpd_buckets"` // e.g. ["0","1-30","31-60","61-90","91+"]
+	Products           []string `json:"products"`    // e.g. ["Salary Loan","Business Loan"]
+	Stages             []string `json:"stages"`      // loan_applications.stage
+	Statuses           []string `json:"statuses"`    // loan_applications.status
+	Employers          []string `json:"employers"`   // employer name substring
 	MinDPD             int      `json:"min_dpd"`
 	MaxDPD             int      `json:"max_dpd"`
 	MinOutstandingKobo int64    `json:"min_outstanding_kobo"`

@@ -122,14 +122,14 @@ func losStats(db *core.DB) http.HandlerFunc {
 			FROM loan_applications`)
 
 		resp := map[string]any{
-			"by_status":  byStatus,
-			"by_stage":   byStage,
+			"by_status": byStatus,
+			"by_stage":  byStage,
 		}
 		if len(totals) > 0 {
-			resp["total_pipeline_kobo"]  = totals[0]["total_pipeline_kobo"]
+			resp["total_pipeline_kobo"] = totals[0]["total_pipeline_kobo"]
 			resp["total_disbursed_kobo"] = totals[0]["total_disbursed_kobo"]
-			resp["open_count"]           = totals[0]["open_count"]
-			resp["avg_days_to_close"]    = totals[0]["avg_days_to_close"]
+			resp["open_count"] = totals[0]["open_count"]
+			resp["avg_days_to_close"] = totals[0]["avg_days_to_close"]
 		}
 		respond(w, resp, "pg")
 	}
@@ -295,17 +295,17 @@ func losGet(db *core.DB) http.HandlerFunc {
 
 func losCreate(db *core.DB) http.HandlerFunc {
 	type body struct {
-		ApplicantName     string `json:"applicant_name"`
-		ApplicantCIF      string `json:"applicant_cif"`
-		ApplicantEmail    string `json:"applicant_email"`
-		ApplicantPhone    string `json:"applicant_phone"`
-		ProductType       string `json:"product_type"`
-		AmountRequested   int64  `json:"amount_requested_kobo"`
-		TenorMonths       int    `json:"tenor_months"`
-		InterestRateBPS   int    `json:"interest_rate_bps"`
-		Purpose           string `json:"purpose"`
-		Employer          string `json:"employer"`
-		MonthlyIncome     int64  `json:"monthly_income_kobo"`
+		ApplicantName   string `json:"applicant_name"`
+		ApplicantCIF    string `json:"applicant_cif"`
+		ApplicantEmail  string `json:"applicant_email"`
+		ApplicantPhone  string `json:"applicant_phone"`
+		ProductType     string `json:"product_type"`
+		AmountRequested int64  `json:"amount_requested_kobo"`
+		TenorMonths     int    `json:"tenor_months"`
+		InterestRateBPS int    `json:"interest_rate_bps"`
+		Purpose         string `json:"purpose"`
+		Employer        string `json:"employer"`
+		MonthlyIncome   int64  `json:"monthly_income_kobo"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -962,24 +962,28 @@ func losOverview(db *core.DB) http.HandlerFunc {
 
 func losSaveCreditAssessment(db *core.DB) http.HandlerFunc {
 	type body struct {
-		EyeScore               *int     `json:"eye_score"`
-		EyeRating              string   `json:"eye_rating"`
-		BureauSummary          string   `json:"bureau_summary"`
-		DtiPct                 *float64 `json:"dti_pct"`
-		MonthlyIncomeKobo      *int64   `json:"monthly_income_kobo"`
-		MonthlyObligationKobo  *int64   `json:"monthly_obligation_kobo"`
+		EyeScore              *int     `json:"eye_score"`
+		EyeRating             string   `json:"eye_rating"`
+		BureauSummary         string   `json:"bureau_summary"`
+		DtiPct                *float64 `json:"dti_pct"`
+		MonthlyIncomeKobo     *int64   `json:"monthly_income_kobo"`
+		MonthlyObligationKobo *int64   `json:"monthly_obligation_kobo"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := losParseID(r)
 		if err != nil {
-			respondErr(w, 400, "Invalid application ID"); return
+			respondErr(w, 400, "Invalid application ID")
+			return
 		}
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		ns := func(s string) any {
-			if s == "" { return nil }
+			if s == "" {
+				return nil
+			}
 			return s
 		}
 		ctx := r.Context()
@@ -992,7 +996,8 @@ func losSaveCreditAssessment(db *core.DB) http.HandlerFunc {
 			b.EyeScore, ns(b.EyeRating), ns(b.BureauSummary),
 			b.DtiPct, b.MonthlyIncomeKobo, b.MonthlyObligationKobo, id)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 500, "Update failed"); return
+			respondErr(w, 500, "Update failed")
+			return
 		}
 		respond(w, rows[0], "json")
 	}
@@ -1018,7 +1023,8 @@ func losGetDocuments(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		appID, err := losParseID(r)
 		if err != nil {
-			respondErr(w, 400, "invalid application id"); return
+			respondErr(w, 400, "invalid application id")
+			return
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT d.id, d.application_id, d.doc_type, d.file_name, d.file_url,
@@ -1029,7 +1035,8 @@ func losGetDocuments(db *core.DB) http.HandlerFunc {
 			WHERE d.application_id = $1
 			ORDER BY d.created_at ASC`, appID)
 		if err != nil {
-			respondErr(w, 500, "query failed: "+err.Error()); return
+			respondErr(w, 500, "query failed: "+err.Error())
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -1039,27 +1046,32 @@ func losUploadDocument(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		appID, err := losParseID(r)
 		if err != nil {
-			respondErr(w, 400, "invalid application id"); return
+			respondErr(w, 400, "invalid application id")
+			return
 		}
 		user := core.UserFromCtx(r.Context())
 
 		if err := r.ParseMultipartForm(20 << 20); err != nil {
-			respondErr(w, 400, "failed to parse form"); return
+			respondErr(w, 400, "failed to parse form")
+			return
 		}
 		docType := r.FormValue("doc_type")
 		if docType == "" {
-			respondErr(w, 400, "doc_type is required"); return
+			respondErr(w, 400, "doc_type is required")
+			return
 		}
 
 		file, header, err := r.FormFile("file")
 		if err != nil {
-			respondErr(w, 400, "field 'file' is required"); return
+			respondErr(w, 400, "field 'file' is required")
+			return
 		}
 		defer file.Close()
 
 		data, err := io.ReadAll(file)
 		if err != nil {
-			respondErr(w, 500, "failed to read file"); return
+			respondErr(w, 500, "failed to read file")
+			return
 		}
 
 		contentType := header.Header.Get("Content-Type")
@@ -1084,7 +1096,8 @@ func losUploadDocument(db *core.DB) http.HandlerFunc {
 				accountID, bucketName, storageKey)
 			if err := r2Put(endpoint, accessKey, secretKey, accountID, bucketName, storageKey, contentType, data); err != nil {
 				slog.Warn("losUploadDocument: R2 upload failed", "err", err)
-				respondErr(w, 502, "file upload failed: "+err.Error()); return
+				respondErr(w, 502, "file upload failed: "+err.Error())
+				return
 			}
 			publicBase := strings.TrimRight(os.Getenv("R2_PUBLIC_BASE_URL"), "/")
 			if publicBase != "" {
@@ -1096,11 +1109,13 @@ func losUploadDocument(db *core.DB) http.HandlerFunc {
 			// Local fallback
 			dir := fmt.Sprintf("/tmp/los-documents/%d/%s", appID, uid)
 			if err := os.MkdirAll(dir, 0755); err != nil {
-				respondErr(w, 500, "storage error"); return
+				respondErr(w, 500, "storage error")
+				return
 			}
 			dest := fmt.Sprintf("%s/%s", dir, filename)
 			if err := os.WriteFile(dest, data, 0644); err != nil {
-				respondErr(w, 500, "write error"); return
+				respondErr(w, 500, "write error")
+				return
 			}
 			storageKey = dest
 			fileURL = fmt.Sprintf("/api/los/documents/file/%d/%s/%s", appID, uid, filename)
@@ -1113,10 +1128,12 @@ func losUploadDocument(db *core.DB) http.HandlerFunc {
 			RETURNING id, application_id, doc_type, file_name, file_url, file_size_bytes, created_at`,
 			appID, docType, filename, fileURL, storageKey, len(data), user.ID)
 		if err != nil {
-			respondErr(w, 500, "db insert failed: "+err.Error()); return
+			respondErr(w, 500, "db insert failed: "+err.Error())
+			return
 		}
 		if len(rows) == 0 {
-			respondErr(w, 500, "insert returned no rows"); return
+			respondErr(w, 500, "insert returned no rows")
+			return
 		}
 		respond(w, rows[0], "json")
 	}
@@ -1126,7 +1143,8 @@ func losDeleteDocument(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		docID, err := strconv.ParseInt(chi.URLParam(r, "doc_id"), 10, 64)
 		if err != nil {
-			respondErr(w, 400, "invalid doc id"); return
+			respondErr(w, 400, "invalid doc id")
+			return
 		}
 		user := core.UserFromCtx(r.Context())
 
@@ -1134,16 +1152,19 @@ func losDeleteDocument(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT id, uploaded_by FROM los_documents WHERE id = $1`, docID)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "document not found"); return
+			respondErr(w, 404, "document not found")
+			return
 		}
 		uploadedBy := toInt64(rows[0]["uploaded_by"])
 		if uploadedBy != user.ID && !user.HasPage("los_all") {
-			respondErr(w, 403, "cannot delete another user's upload"); return
+			respondErr(w, 403, "cannot delete another user's upload")
+			return
 		}
 
 		if _, err := db.PGExec(r.Context(),
 			`DELETE FROM los_documents WHERE id = $1`, docID); err != nil {
-			respondErr(w, 500, "delete failed: "+err.Error()); return
+			respondErr(w, 500, "delete failed: "+err.Error())
+			return
 		}
 		w.WriteHeader(204)
 	}

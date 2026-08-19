@@ -51,7 +51,9 @@ const (
 	cardAggSQL = `
 	    SELECT cif,
 	           COUNT(*) FILTER (WHERE status IN ('Open','Active'))                         AS active_cards,
-	           COALESCE(SUM(current_dr_balance) FILTER (WHERE status IN ('Open','Active')), 0)
+	           -- current_dr_balance is stored in NAIRA on the card book, so ×100 to kobo
+	           -- (the rest of the app treats *_kobo columns as kobo and ÷100 to display).
+	           COALESCE(ROUND(SUM(current_dr_balance) FILTER (WHERE status IN ('Open','Active')) * 100), 0)::bigint
 	                                                                                       AS card_balance_kobo,
 	           COALESCE(MAX(days_overdue), 0)                                              AS max_dpd
 	      FROM app.accounts
@@ -185,9 +187,24 @@ func listBook(db *core.DB) http.HandlerFunc {
 		offset := qint(r, "offset", 0, 0, 1_000_000)
 		cond := strings.Join(where, " AND ")
 
+		// Cross-sell segment: customers on exactly ONE product line and not in arrears —
+		// the natural expansion targets. References the product aggregates, so the count
+		// query needs the same joins the list query already has.
+		crossJoin, crossCond, crossCondList := "", "", ""
+		if qstr(r, "segment") == "cross_sell" {
+			crossJoin = ` LEFT JOIN (` + cardAggSQL + `) ck ON ck.cif=a.cif` +
+				` LEFT JOIN (` + loanAggSQL + `) cl ON cl.cif=a.cif` +
+				` LEFT JOIN (` + fdAggSQL + `) cf ON cf.cif=a.cif`
+			crossCond = ` AND ((COALESCE(ck.active_cards,0) > 0)::int + (COALESCE(cl.active_loans,0) > 0)::int + (COALESCE(cf.active_fds,0) > 0)::int) = 1` +
+				` AND COALESCE(ck.max_dpd,0) = 0`
+			// The list query already joins the aggregates as k/l/f, so it uses those.
+			crossCondList = ` AND ((COALESCE(k.active_cards,0) > 0)::int + (COALESCE(l.active_loans,0) > 0)::int + (COALESCE(f.active_fds,0) > 0)::int) = 1` +
+				` AND COALESCE(k.max_dpd,0) = 0`
+		}
+
 		var total int64
 		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT COUNT(*) FROM app.customer_acquisition a WHERE `+cond, args...).Scan(&total); err != nil {
+			`SELECT COUNT(*) FROM app.customer_acquisition a`+crossJoin+` WHERE `+cond+crossCond, args...).Scan(&total); err != nil {
 			respondErr(w, 500, "Count failed")
 			return
 		}
@@ -210,7 +227,7 @@ func listBook(db *core.DB) http.HandlerFunc {
 			  LEFT JOIN (`+cardAggSQL+`) k ON k.cif = a.cif
 			  LEFT JOIN (`+loanAggSQL+`) l ON l.cif = a.cif
 			  LEFT JOIN (`+fdAggSQL+`) f ON f.cif = a.cif
-			 WHERE `+cond+`
+			 WHERE `+cond+crossCondList+`
 			 ORDER BY a.acquired_on DESC NULLS LAST, a.cif
 			 LIMIT `+fmt.Sprintf("$%d OFFSET $%d", n, n+1),
 			append(args, limit, offset)...)

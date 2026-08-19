@@ -104,8 +104,8 @@ export default function HelpdeskStats() {
       .catch(() => setAgents([]))
   }, [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const qs = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
@@ -142,7 +142,7 @@ export default function HelpdeskStats() {
   }, [dateFrom, dateTo, agentFilter])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
 
   const donutTotal = typeDist.reduce((s, d) => s + d.count, 0)
 

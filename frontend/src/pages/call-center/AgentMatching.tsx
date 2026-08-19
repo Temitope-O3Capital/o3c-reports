@@ -96,10 +96,10 @@ export function AgentMatchingPanel() {
             </label>
           </div>
 
-          <SectionCard title="Zoho Agents" subtitle="Map each unmatched agent to a workspace user — historical calls re-link automatically">
+          <SectionCard title="Zoho Agents" subtitle="Map each unmatched agent to a workspace user: historical calls re-link automatically">
             {shown.length === 0 ? (
               <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
-                {onlyUnmatched ? 'Every Zoho agent is matched. 🎉' : 'No Zoho agents seen yet — they appear after the first sync.'}
+                {onlyUnmatched ? 'Every Zoho agent is matched.' : 'No Zoho agents seen yet. They appear after the first sync.'}
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>

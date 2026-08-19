@@ -251,7 +251,7 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 		}
 
 		fmt.Fprintf(w, ":keepalive\n\n") //nolint:errcheck
-		rc.Flush()                        //nolint:errcheck
+		rc.Flush()                       //nolint:errcheck
 
 		poll := time.NewTicker(4 * time.Second)
 		heartbeat := time.NewTicker(25 * time.Second)
@@ -264,7 +264,7 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 				return
 			case <-heartbeat.C:
 				fmt.Fprintf(w, ":keepalive\n\n") //nolint:errcheck
-				rc.Flush()                        //nolint:errcheck
+				rc.Flush()                       //nolint:errcheck
 			case <-poll.C:
 				rows, err := db.PGQuery(ctx, `
 					SELECT id, type, title, body, entity_type, entity_id, action_url,

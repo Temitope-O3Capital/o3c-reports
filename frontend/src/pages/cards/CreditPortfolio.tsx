@@ -60,8 +60,8 @@ export default function CreditCardPortfolio() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const [k, u, it, rt, p] = await Promise.all([
         apiFetch<any>('/api/cards-credit/kpis'),
@@ -80,7 +80,7 @@ export default function CreditCardPortfolio() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['cards'] })
+  useLiveData(() => load(true), { topics: ['cards'] })
 
   const noData = !loading && (!kpis || kpis.accounts === 0)
   const totalProdOutstanding = products.reduce((s, p) => s + p.outstanding_kobo, 0) || 1
@@ -88,7 +88,7 @@ export default function CreditCardPortfolio() {
   return (
     <Page
       title="Credit Card Portfolio"
-      subtitle={kpis?.cycle_date ? `Revolving credit — cycle ${kpis.cycle_date}` : 'Revolving credit-card book, utilization and delinquency'}
+      subtitle={kpis?.cycle_date ? `Revolving credit: cycle ${kpis.cycle_date}` : 'Revolving credit-card book, utilization and delinquency'}
       back={back}
     >
       <ErrBanner error={error} onRetry={load} />
@@ -104,8 +104,8 @@ export default function CreditCardPortfolio() {
                 <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: AMBER, marginBottom: 4, fontFamily: INTER }}>No cycle data ingested yet</div>
                 <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER, maxWidth: 620 }}>
                   This dashboard reports revolving-credit economics from imported billing-cycle files
-                  (balance, charge, interest and line-of-credit reports). No cycle data has been loaded yet —
-                  metrics will populate once cycle files are imported.
+                  (balance, charge, interest and line-of-credit reports). No cycle data has been loaded yet.
+                  Metrics will populate once cycle files are imported.
                 </div>
               </div>
             </div>
@@ -117,7 +117,7 @@ export default function CreditCardPortfolio() {
             <KpiCard label="Utilization" value={`${(kpis?.utilization_pct ?? 0).toFixed(1)}%`} icon="donut_large" accent={BLUE} sub={`of ${fmtKobo(kpis?.total_credit_limit_kobo ?? 0)} limit`} />
             <KpiCard label="Interest Income" value={fmtKobo(kpis?.interest_income_kobo ?? 0)} icon="trending_up" accent={GREEN} sub="this cycle" />
             <a href="/cards/at-risk" style={{ textDecoration: 'none', display: 'block' }} title="View at-risk accounts">
-              <KpiCard label="Delinquency" value={`${(kpis?.delinquency_rate_pct ?? 0).toFixed(1)}%`} icon="warning" accent={RED} sub={`${fmtNum(kpis?.overdue_accounts ?? 0)} overdue · ${fmtNum(kpis?.over_limit_accounts ?? 0)} over-limit →`} />
+              <KpiCard label="Delinquency" value={`${(kpis?.delinquency_rate_pct ?? 0).toFixed(1)}%`} icon="warning" accent={RED} sub={`${fmtNum(kpis?.overdue_accounts ?? 0)} overdue · ${fmtNum(kpis?.over_limit_accounts ?? 0)} over-limit`} />
             </a>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>

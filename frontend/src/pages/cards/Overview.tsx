@@ -88,8 +88,8 @@ export default function CardsOverview() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const [k, p, s, v] = await Promise.all([
@@ -110,7 +110,7 @@ export default function CardsOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['cards'] })
+  useLiveData(() => load(true), { topics: ['cards'] })
 
   const volumeData = volume.map(r => ({
     name: r.Product_Name ?? r.product_name ?? '?',

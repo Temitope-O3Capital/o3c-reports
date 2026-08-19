@@ -376,7 +376,7 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
           {block.src ? <img src={block.src} alt={block.alt} style={{ width: full ? '100%' : undefined, maxWidth: '100%', display: full ? 'block' : 'inline-block', borderRadius: block.rounded ? 8 : 0 }} />
             : <div style={{ height: 150, background: '#F3F4F6', borderRadius: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, border: '2px dashed #D1D5DB', color: '#9CA3AF' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 32, color: '#D1D5DB' }}>image</span>
-                <span style={{ fontSize: 12 }}>Upload in properties panel →</span>
+                <span style={{ fontSize: 12 }}>Upload in properties panel</span>
               </div>}
         </div>
       }
@@ -414,7 +414,7 @@ function CanvasBlock({ block, selected, idx, total, isDragging, dropAbove, onSel
         </div>
       case 'stats': {
         const cols = block.cols || []
-        if (!cols.length) return <div style={{ padding: '16px 32px', textAlign: 'center', color: '#9CA3AF', fontSize: 12 }}>Configure stats in properties panel →</div>
+        if (!cols.length) return <div style={{ padding: '16px 32px', textAlign: 'center', color: '#9CA3AF', fontSize: 12 }}>Configure stats in properties panel</div>
         return <div style={{ padding: '8px 32px' }}>
           <div style={{ display: 'flex', border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
             {cols.map((col, i) => (
@@ -472,7 +472,7 @@ function TemplateGallery({ onPick, onClose }: { onPick(t: typeof TEMPLATES[0]): 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px', borderBottom: '1px solid #F1F5F9' }}>
           <div>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: '0 0 3px' }}>Choose a Starting Template</h2>
-            <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>Pick a preset or start blank — you can change anything after</p>
+            <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>Pick a preset or start blank. You can change anything after</p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}>
             <span className="material-symbols-rounded" style={{ fontSize: 20 }}>close</span>

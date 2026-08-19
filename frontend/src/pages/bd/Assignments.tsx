@@ -114,7 +114,7 @@ function AssignmentDetailModal({
   return (
     <Modal
       open
-      title={`Assignment — ${assignment.employer_name}`}
+      title={`Assignment: ${assignment.employer_name}`}
       width={540}
       onClose={onClose}
       footer={
@@ -212,8 +212,8 @@ export default function BDAssignments() {
   const [page,       setPage]      = useState(1)
   const [detailRow,  setDetailRow] = useState<Assignment | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const data = await apiFetch<any>('/api/bd/assignments')
       setRows(Array.isArray(data) ? data : (data?.data ?? []))
@@ -225,7 +225,7 @@ export default function BDAssignments() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   const filtered = useMemo(() => rows.filter(r => {
     if (fStatuses.size && !fStatuses.has(r.status)) return false
@@ -397,7 +397,7 @@ export default function BDAssignments() {
           rows={pageRows}
           loading={loading}
           skeletonRows={6}
-          emptyText="No assignments yet — assign an employer from the Employer Register"
+          emptyText="No assignments yet. Assign an employer from the Employer Register"
           keyFn={r => r.id}
           onRowClick={r => setDetailRow(r)}
         />

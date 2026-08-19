@@ -199,8 +199,8 @@ export default function CreditPortfolio() {
   const [page,      setPage]      = useState(1)
   const PER_PAGE = 50
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const [sumRes, appsRes, overdueRes] = await Promise.all([
         apiFetch<Summary>('/api/credit-portfolio/summary'),
@@ -219,7 +219,7 @@ export default function CreditPortfolio() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   async function openDetail(id: number) {
     setDetailLoading(true)

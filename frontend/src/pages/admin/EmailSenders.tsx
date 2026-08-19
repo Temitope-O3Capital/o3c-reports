@@ -122,8 +122,8 @@ export default function AdminEmailSenders() {
   const [error,   setError]   = useState<string | null>(null)
   const [editing, setEditing] = useState<Partial<Sender> | null | false>(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<Sender[]>('/api/admin/email-senders')
@@ -136,7 +136,7 @@ export default function AdminEmailSenders() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   async function setDefault(id: string) {
     try {

@@ -55,8 +55,8 @@ export default function PrudentialRatios() {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch<Ratios>('/api/compliance/prudential-ratios')
       setData(res)
@@ -65,7 +65,7 @@ export default function PrudentialRatios() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   return (
     <Page title="Prudential Ratios" subtitle="CBN-required portfolio health indicators">

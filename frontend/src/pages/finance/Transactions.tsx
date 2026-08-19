@@ -142,24 +142,6 @@ export default function FinanceTransactions() {
     setDateFrom(monthStart()); setDateTo(today())
   }
 
-  async function handleExport() {
-    setExporting(true)
-    try {
-      const res = await fetch(`${API}/api/eod/transactions/export?${buildQS(0)}`, {
-        credentials: 'include',
-      })
-      if (!res.ok) throw new Error('Export failed')
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url; a.download = `transactions_${dateFrom}_${dateTo}.csv`
-      a.click(); URL.revokeObjectURL(url)
-    } catch (e: any) {
-      toast.error(e.message)
-    } finally {
-      setExporting(false)
-    }
-  }
 
   const totalPages   = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const currentPage  = Math.floor(offset / PAGE_SIZE) + 1
@@ -175,16 +157,7 @@ export default function FinanceTransactions() {
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          <button onClick={handleExport} disabled={exporting} style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '6px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
-            background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold,
-            cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.6 : 1,
-          }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
-            {exporting ? 'Exporting…' : 'Export CSV'}
-          </button>
-        </div>
+          </div>
       }
     >
       <ErrBanner error={error} onRetry={() => load(0)} />

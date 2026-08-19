@@ -281,11 +281,11 @@ func updateLoanStage(db *core.DB) http.HandlerFunc {
 			`SELECT reference, applicant_name, assigned_to_user_id, sales_officer_id
 			 FROM loan_applications WHERE id=$1`, id)
 		if len(appRows) > 0 {
-			app    := appRows[0]
-			ref    := str(app["reference"])
-			name   := str(app["applicant_name"])
+			app := appRows[0]
+			ref := str(app["reference"])
+			name := str(app["applicant_name"])
 			loanURL := fmt.Sprintf("/loans/%s", id)
-			eRef    := fmt.Sprintf("loan:%s", id)
+			eRef := fmt.Sprintf("loan:%s", id)
 
 			// Always notify the assigned officer if set
 			if assignedID, _ := app["assigned_to_user_id"].(int64); assignedID != 0 && assignedID != user.ID {
@@ -360,7 +360,7 @@ func addDocument(db *core.DB) http.HandlerFunc {
 func confirmDocument(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		docID := chi.URLParam(r, "docId")
-		user  := core.UserFromCtx(r.Context())
+		user := core.UserFromCtx(r.Context())
 		// migration 016 added confirmed_by / confirmed_at to application_documents
 		if _, err := db.PGExec(r.Context(),
 			`UPDATE application_documents
@@ -395,7 +395,9 @@ func getLoanComments(db *core.DB) http.HandlerFunc {
 }
 
 func addComment(db *core.DB) http.HandlerFunc {
-	type body struct{ Body string `json:"body"` }
+	type body struct {
+		Body string `json:"body"`
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		var b body

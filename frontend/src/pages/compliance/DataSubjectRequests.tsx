@@ -70,8 +70,8 @@ export default function DataSubjectRequests() {
   const [formNotes, setFormNotes] = useState('')
   const [saving,    setSaving]    = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     apiFetch<any>('/api/compliance/dsar-stats').then(s => setStats((s?.data ?? s) ?? null)).catch(() => {})
     try {
       const p = new URLSearchParams()
@@ -84,7 +84,7 @@ export default function DataSubjectRequests() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   const create = async () => {
     if (!formType) { toast.error('Request type is required'); return }

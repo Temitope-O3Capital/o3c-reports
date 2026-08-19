@@ -29,8 +29,8 @@ export default function Funnel() {
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const [cam, at, los, lc] = await Promise.all([
         apiFetch<{ summary?: CampaignSummary }>('/api/campaigns/analytics').catch(() => null),
@@ -47,7 +47,7 @@ export default function Funnel() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['campaigns'] })
+  useLiveData(() => load(true), { topics: ['campaigns'] })
 
   const conversions = attr.reduce((s, a) => s + (a.conversions ?? 0), 0)
   const attributed  = attr.reduce((s, a) => s + (a.attributed_disbursement_kobo ?? 0), 0)
@@ -98,20 +98,20 @@ export default function Funnel() {
       {trackingGap && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '9px 12px', background: `${AMBER}0e`, border: `1px solid ${AMBER}40`, borderRadius: 8, marginBottom: SP[4], fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.5 }}>
           <span className="material-symbols-rounded" style={{ fontSize: 16, color: AMBER }}>info</span>
-          <span><strong>Opened &amp; Clicked read 0</strong> until email open-tracking (the SendGrid Event Webhook) is live. The Sent → Delivered → Converted stages are accurate.</span>
+          <span><strong>Opened &amp; Clicked read 0</strong> until email open-tracking (the SendGrid Event Webhook) is live. The Sent, Delivered, Converted stages are accurate.</span>
         </div>
       )}
 
       {/* Hero: end-to-end acquisition funnel */}
       <div style={{ display: 'grid', gridTemplateColumns: '2.2fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
-        <SectionCard title="Acquisition Funnel" subtitle="Campaign send → engagement → booked loan">
+        <SectionCard title="Acquisition Funnel" subtitle="Campaign send, engagement, booked loan">
           {acquisition.some(s => s.value > 0)
             ? <FunnelChart steps={acquisition} showCumulative />
             : <div style={{ textAlign: 'center', padding: 40, color: 'var(--txt3)', fontSize: TEXT.base }}>No campaign data yet</div>}
         </SectionCard>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
-          <KpiCard label="Send → Convert" value={fmtPct(overallConv)} icon="conversion_path" accent={GREEN} sub="overall conversion" />
+          <KpiCard label="Send to Convert" value={fmtPct(overallConv)} icon="conversion_path" accent={GREEN} sub="overall conversion" />
           <KpiCard label="Conversions"    value={conversions.toLocaleString()} icon="how_to_reg" accent={AMBER} sub="loans booked" />
           <KpiCard label="Attributed ₦"   value={fmtKobo(attributed)} icon="payments" accent={NAVY} sub="originated value" />
         </div>
@@ -119,13 +119,13 @@ export default function Funnel() {
 
       {/* Supporting funnels */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
-        <SectionCard title="Loan Origination Pipeline" subtitle="Applications in flight — Submitted → Active">
+        <SectionCard title="Loan Origination Pipeline" subtitle="Applications in flight: Submitted to Active">
           {losSteps.length > 0
             ? <FunnelChart steps={losSteps} />
             : <div style={{ textAlign: 'center', padding: 32, color: 'var(--txt3)', fontSize: TEXT.base }}>No pipeline data</div>}
         </SectionCard>
 
-        <SectionCard title="Customer Lifecycle" subtitle="Whole book (not campaign-attributed) — Registered → Transacting">
+        <SectionCard title="Customer Lifecycle" subtitle="Whole book (not campaign-attributed): Registered to Transacting">
           {lifecycleSteps.some(s => s.value > 0)
             ? <FunnelChart steps={lifecycleSteps} />
             : <div style={{ textAlign: 'center', padding: 32, color: 'var(--txt3)', fontSize: TEXT.base }}>No lifecycle data</div>}

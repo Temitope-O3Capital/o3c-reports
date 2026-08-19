@@ -97,8 +97,8 @@ export default function CRMTasks() {
   const [editForm, setEditForm]   = useState(BLANK)
   const [editSaving, setEditSaving] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       // listTasks filters on created_at via from/to — pass the page date filter through
       // so the DateFilter control actually narrows the list rather than sitting dead.
@@ -116,7 +116,7 @@ export default function CRMTasks() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   // The modal completes, snoozes and reassigns without this page knowing, so refresh
   // the list once it closes — otherwise a task just marked done sits there looking open.
@@ -184,22 +184,6 @@ export default function CRMTasks() {
     finally { setCompleting(false) }
   }
 
-  function exportTasksCsv(data: Task[]) {
-    const header = ['Title', 'Status', 'Priority', 'Due Date', 'Assigned To', 'Related Contact']
-    const lines = data.map(r => [
-      `"${String(r.title ?? '').replace(/"/g, '""')}"`,
-      r.status ?? '',
-      r.priority ?? '',
-      r.due_date ?? '',
-      `"${String(r.assigned_name ?? '').replace(/"/g, '""')}"`,
-      `"${String((r.first_name ?? '') + ' ' + (r.last_name ?? '')).trim().replace(/"/g, '""')}"`,
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `tasks-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   async function deleteTask(id: number) {
     try {
@@ -269,7 +253,7 @@ export default function CRMTasks() {
 
   return (
     <Page
-      title="CRM Tasks"
+      title="Sales Tasks"
       subtitle="Activity tasks and follow-ups"
       actions={
         <button onClick={() => { setForm(BLANK); setNewOpen(true) }} style={btnPrimary}>
@@ -293,7 +277,7 @@ export default function CRMTasks() {
         <KpiCard label="Completed This Month" value={kpis ? fmtNum(kpis.completed_this_month) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="Tasks" badge={tasks.length} padding={false} actions={<button onClick={() => exportTasksCsv(filteredTasks)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="Tasks" badge={tasks.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

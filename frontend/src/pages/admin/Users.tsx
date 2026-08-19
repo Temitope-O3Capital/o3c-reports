@@ -222,7 +222,7 @@ function InviteModal({ onClose, onSaved }: {
           <div>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Email Address *</div>
             <input type="email" value={form.email} onChange={e => field('email', e.target.value)}
-              placeholder="auto-filled from name — edit to override"
+              placeholder="auto-filled from name, edit to override"
               style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             />
           </div>
@@ -244,7 +244,7 @@ function InviteModal({ onClose, onSaved }: {
           </div>
 
           <div>
-            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Additional teams <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(optional — for staff on more than one team)</span></div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Additional teams <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(optional, for staff on more than one team)</span></div>
             <MultiRoleSelect value={extraRoles} exclude={form.role} onChange={setExtraRoles}
               style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             />
@@ -474,7 +474,7 @@ function ApproveModal({ user, onClose, onDone }: {
         await apiFetch(`/api/admin/users/${user.id}`, { method: 'PUT', body: JSON.stringify({ role }) })
       }
       await apiFetch(`/api/admin/users/${user.id}/reactivate`, { method: 'PATCH' })
-      toast.success(`${user.full_name} approved — login details emailed`)
+      toast.success(`${user.full_name} approved. Login details emailed`)
       onDone()
       onClose()
     } catch (e: any) {
@@ -536,8 +536,8 @@ export default function AdminUsers() {
   const [approving, setApproving] = useState<User | null>(null)
   const [pendingOnly, setPendingOnly] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       // Backend returns a bare JSON array; tolerate a { data: [...] } wrapper too.
@@ -551,7 +551,7 @@ export default function AdminUsers() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
   useEffect(() => { setPage(1) }, [search, fRoles, fStatuses, fDepts, pendingOnly])
 
   async function resetUserPassword(userId: number) {
@@ -663,7 +663,7 @@ export default function AdminUsers() {
             <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>
               {pendingUsers.length} {pendingUsers.length === 1 ? 'user is' : 'users are'} pending approval
             </div>
-            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Access requests awaiting review — approve to activate and email their login.</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Access requests awaiting review. Approve to activate and email their login.</div>
           </div>
           <button onClick={() => setPendingOnly(v => !v)}
             style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: 'none', background: AMBER, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>

@@ -127,7 +127,7 @@ function PolicyRow({ doc, onSaved }: { doc: PolicyDoc; onSaved: (updated: Policy
         <td style={{ padding: '10px 12px', fontWeight: FW.semibold, color: 'var(--txt)', maxWidth: 240 }}>
           {doc.name}
           {isOverdue && doc.status === 'approved' && (
-            <span style={{ display: 'block', fontSize: TEXT.xs, color: RED, marginTop: 2 }}>⚠ Review overdue</span>
+            <span style={{ display: 'block', fontSize: TEXT.xs, color: RED, marginTop: 2 }}>Review overdue</span>
           )}
         </td>
         <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>
@@ -155,7 +155,7 @@ function PolicyRow({ doc, onSaved }: { doc: PolicyDoc; onSaved: (updated: Policy
         <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>v{doc.version}</td>
         <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
           {doc.document_url ? (
-            <a href={doc.document_url} target="_blank" rel="noreferrer" style={{ color: BLUE, fontSize: TEXT.sm }}>📄 Open</a>
+            <a href={doc.document_url} target="_blank" rel="noreferrer" style={{ color: BLUE, fontSize: TEXT.sm }}>Open</a>
           ) : (
             <span style={{ color: 'var(--txt-muted)', fontSize: TEXT.sm }}>—</span>
           )}
@@ -243,8 +243,8 @@ export default function PolicyDocuments() {
   const [filterSt, setFilterSt] = useState('')
   const [filterCat, setFilterCat] = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch<{ data: PolicyDoc[] }>('/api/compliance/soc2/policies')
       setDocs(res?.data ?? [])
@@ -253,7 +253,7 @@ export default function PolicyDocuments() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   function handleSaved(updated: PolicyDoc) {
     setDocs(prev => prev.map(d => d.id === updated.id ? updated : d))
@@ -325,9 +325,9 @@ export default function PolicyDocuments() {
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 14 }}>
           {[
-            { label: 'Priority 1 — Before Obs. Period', items: ['Information Security Policy', 'Incident Response Plan', 'Password and Access Control Policy'] },
-            { label: 'Priority 2 — Before Audit', items: ['Data Classification Policy', 'Change Management Policy', 'Risk Management Policy'] },
-            { label: 'Priority 3 — Year 1', items: ['Business Continuity and DR Plan', 'Vendor Management Policy', 'Data Retention and Disposal Policy'] },
+            { label: 'Priority 1: Before Obs. Period', items: ['Information Security Policy', 'Incident Response Plan', 'Password and Access Control Policy'] },
+            { label: 'Priority 2: Before Audit', items: ['Data Classification Policy', 'Change Management Policy', 'Risk Management Policy'] },
+            { label: 'Priority 3: Year 1', items: ['Business Continuity and DR Plan', 'Vendor Management Policy', 'Data Retention and Disposal Policy'] },
           ].map(group => (
             <div key={group.label} style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '12px 14px' }}>
               <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: NAVY, marginBottom: SP[2] }}>{group.label}</div>

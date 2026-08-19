@@ -2,7 +2,7 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiExport } from '../../lib/api'
+import { apiFetch } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, NUM } from '../../lib/design'
 import { toast } from 'sonner'
@@ -25,7 +25,6 @@ export default function AuditTrail() {
   const [allLogs, setAllLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [exporting, setExporting] = useState(false)
 
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -34,8 +33,8 @@ export default function AuditTrail() {
   const [fModule, setFModule]       = useState(new Set<string>())
   const [fAction, setFAction]       = useState(new Set<string>())
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
       if (from) p.set('date_from', from)
@@ -49,7 +48,7 @@ export default function AuditTrail() {
   }, [from, to])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   const uniqueModules = useMemo(() => [...new Set(allLogs.map(l => l.entity_type).filter(Boolean))] as string[], [allLogs])
   const uniqueActions = useMemo(() => [...new Set(allLogs.map(l => l.action).filter(Boolean))] as string[], [allLogs])
@@ -64,17 +63,6 @@ export default function AuditTrail() {
     return true
   }), [allLogs, fModule, fAction, search])
 
-  async function handleExport() {
-    setExporting(true)
-    try {
-      const p = new URLSearchParams()
-      if (from) p.set('date_from', from)
-      if (to)   p.set('date_to', to)
-      await apiExport(`/api/compliance/audit-log/export?${p}`, 'audit-trail.csv')
-    } catch (e: any) {
-      toast.error(e.message)
-    } finally { setExporting(false) }
-  }
 
   const cols: TableCol<AuditLog>[] = [
     {
@@ -123,14 +111,6 @@ export default function AuditTrail() {
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer', opacity: exporting ? 0.7 : 1 }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>download</span>
-            Export CSV
-          </button>
         </div>
       }
     >

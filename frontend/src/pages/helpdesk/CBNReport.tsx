@@ -19,22 +19,6 @@ interface CBNReportData {
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
 
-function exportByTypeCsv(data: CBNReportData) {
-  const total = data.by_type.reduce((s, r) => s + r.total, 0)
-  const header = ['Complaint Type', 'Total', 'Resolved', 'Resolution Rate %']
-  const lines = data.by_type.map(r => [
-    `"${r.type.replace(/"/g, '""')}"`,
-    r.total,
-    r.resolved,
-    total > 0 ? ((r.resolved / r.total) * 100).toFixed(1) : '0.0',
-  ].join(','))
-  const csv = [header.join(','), ...lines].join('\n')
-  const blob = new Blob([csv], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `cbn-report-${data.period_from}-${data.period_to}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -90,13 +74,6 @@ export default function CBNReport() {
         <div style={{ display: 'flex', gap: SP[2] }}>
           {data && (
             <>
-              <button
-                onClick={() => exportByTypeCsv(data)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>download</span>
-                Export CSV
-              </button>
               <button
                 onClick={() => window.print()}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}

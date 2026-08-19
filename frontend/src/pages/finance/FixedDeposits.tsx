@@ -33,7 +33,7 @@ export default function FixedDeposits() {
   return (
     <Page
       title="Fixed Deposits"
-      subtitle="Deposit book, register, maturities & interest accrual — Udara core banking"
+      subtitle="Deposit book, register, maturities & interest accrual. Udara core banking"
     >
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
       {tab === 'overview' && <DepositsOverview />}

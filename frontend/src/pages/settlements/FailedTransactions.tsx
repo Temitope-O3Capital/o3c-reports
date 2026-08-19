@@ -119,8 +119,8 @@ export default function FailedTransactions() {
   const [escalateRow, setEscalateRow] = useState<FailedTxn | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const p = new URLSearchParams()
@@ -142,7 +142,7 @@ export default function FailedTransactions() {
   }, [fReasons, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['settlement_exceptions'] })
+  useLiveData(() => load(true), { topics: ['settlement_exceptions'] })
 
   const filtered = useMemo(() => {
     if (!search) return rows
@@ -187,32 +187,11 @@ export default function FailedTransactions() {
     }
   }
 
-  function handleExportCsv() {
-    const toExport = checkedIds.size > 0 ? filtered.filter(r => checkedIds.has(r.id)) : filtered
-    const header = ['Txn Ref', 'Amount (NGN)', 'Customer', 'Channel', 'Failure Reason', 'Failed Date', 'Retry Count']
-    const lines = toExport.map(r => [
-      `"${String(r.txn_ref ?? '').replace(/"/g, '""')}"`,
-      r.amount_kobo !== undefined ? (r.amount_kobo / 100).toFixed(2) : '',
-      `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-      r.channel ?? '',
-      `"${String(r.failure_reason ?? '').replace(/"/g, '""')}"`,
-      r.failed_at ? r.failed_at.slice(0, 19).replace('T', ' ') : '',
-      r.retry_count ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `failed-transactions-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   const bulkBar = checkedIds.size > 0 ? (
     <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
       <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{checkedIds.size} selected</span>
-      <button onClick={handleExportCsv} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
-        Export CSV
-      </button>
-    </div>
+      </div>
   ) : undefined
 
   const cols: TableCol<FailedTxn>[] = [
@@ -267,7 +246,7 @@ export default function FailedTransactions() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="Failed Transactions" badge={filtered.length} padding={false} actions={<button onClick={handleExportCsv} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Failed Transactions" badge={filtered.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

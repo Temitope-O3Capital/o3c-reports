@@ -61,7 +61,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
             </p>
             <p style={{ color: '#7f1d1d', fontSize: 14, marginBottom: 12 }}>
               {isTransient
-                ? 'A browser extension may have interfered with the page. Try again — if this keeps happening, disable extensions or contact IT support.'
+                ? 'A browser extension may have interfered with the page. Try again. If this keeps happening, disable extensions or contact IT support.'
                 : 'Please reload the page. If this keeps happening, contact IT support.'}
             </p>
             <div style={{ display: 'flex', gap: 8 }}>

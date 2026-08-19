@@ -103,7 +103,7 @@ function RowActions({ apiKey, onEdit, onReload }: { apiKey: ApiKey; onEdit: () =
   const [testing, setTesting] = useState(false)
 
   async function test() {
-    if (!apiKey.has_value) { toast.error('No value stored — save a value first'); return }
+    if (!apiKey.has_value) { toast.error('No value stored. Save a value first'); return }
     setTesting(true)
     try {
       const res = await apiFetch<{ status: string; detail: string }>(
@@ -144,21 +144,6 @@ function RowActions({ apiKey, onEdit, onReload }: { apiKey: ApiKey; onEdit: () =
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
-function exportApiKeysCsv(rows: ApiKey[]) {
-  const header = ['Key Name', 'Category', 'Has Value', 'Test Status', 'Updated At']
-  const lines = rows.map(r => [
-    `"${String(r.key_name ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.category ?? '').replace(/"/g, '""')}"`,
-    r.has_value ? 'Yes' : 'No',
-    r.test_status ?? '',
-    r.updated_at ?? '',
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `api-keys-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -170,8 +155,8 @@ export default function AdminApiKeys() {
   const [search,  setSearch]  = useState('')
   const [catFilter, setCatFilter] = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<ApiKey[]>('/api/admin/api-keys')
@@ -184,7 +169,7 @@ export default function AdminApiKeys() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   const categories = [...new Set(rows.map(r => r.category))].sort()
 
@@ -257,7 +242,7 @@ export default function AdminApiKeys() {
         ))}
       </div>
 
-      <SectionCard title="API Credentials" badge={displayed.length} padding={false} actions={<button onClick={() => exportApiKeysCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="API Credentials" badge={displayed.length} padding={false}>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: SP[2], alignItems: 'center' }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
           <select value={catFilter} onChange={e => setCatFilter(e.target.value)}

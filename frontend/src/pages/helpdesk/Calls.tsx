@@ -11,7 +11,7 @@ import {
   ErrBanner, DateFilter, Modal, Spinner, KpiCard, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
+import { apiFetch, apiPost, API, refreshSession } from '../../lib/api'
 import { fmtDatetime, fmtDate, today } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import QAEvaluation from './QAEvaluation'
@@ -44,6 +44,8 @@ interface CallLog {
   resolution: string | null
   customer_cif: string | null
   recording_url: string | null
+  recording_filename: string | null
+  has_recording: boolean
   qa_evaluation_id: number | null
   qa_score: number | null
   qa_band: string | null
@@ -136,8 +138,14 @@ function DirectionBadge({ direction }: { direction: string }) {
 
 // ── Outcome pill ──────────────────────────────────────────────────────────────
 
-function OutcomePill({ outcome, direction }: { outcome: string | null; direction?: string }) {
-  const o = (outcome ?? '').toLowerCase()
+function OutcomePill({ outcome, direction, durationSec, hasRecording }: {
+  outcome: string | null; direction?: string; durationSec?: number | null; hasRecording?: boolean
+}) {
+  let o = (outcome ?? '').toLowerCase()
+  // Zoho Desk writes a call record for activity that never reached the phone.
+  // A 'completed' row with no duration and no recording did not connect, and
+  // showing it as "Connected" tells the agent a conversation happened.
+  if (o === 'completed' && !durationSec && !hasRecording) o = 'missed'
   const base = OUTCOME_CFG[o]
   let bg = base?.bg ?? 'var(--chip-bg)'
   let txt = base?.txt ?? 'var(--txt2)'
@@ -285,7 +293,7 @@ function ZohoSyncBar({ onSynced }: { onSynced: () => void }) {
         </span>
       )}
       <div style={{ flex: 1 }} />
-      <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Managed in Admin → Sync &amp; Workers</span>
+      <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Managed in Admin to Sync &amp; Workers</span>
     </div>
   )
 }
@@ -301,6 +309,7 @@ export default function Calls() {
   // Supervisor "view agent" drawer target.
   // Per-call detail modal (everything logged about one call).
   const [viewCall, setViewCall] = useState<CallLog | null>(null)
+  const [playCall, setPlayCall] = useState<CallLog | null>(null)
   // Filters
   const [agentFilter, setAgentFilter] = useState('')
   const [fDirs,       setFDirs]       = useState(new Set<string>())
@@ -330,10 +339,14 @@ export default function Calls() {
     return p
   }, [agentFilter, fDirs, fOutcomes, dateFrom, dateTo])
 
-  const load = useCallback(async () => {
+  // silent: a background refresh must not blank the table. Showing skeletons every
+  // time the change-feed ticks is what made the page look like it was breaking
+  // underneath people — and worse, it discarded whatever they were reading.
+  const load = useCallback(async (silent = false) => {
     abortRef.current?.abort()
     abortRef.current = new AbortController()
-    setLoading(true); setError(null)
+    if (!silent) setLoading(true)
+    setError(null)
     try {
       const p = filterQS(); p.set('limit', '200')
       const data = await apiFetch<CallLog[]>(`/api/helpdesk/calls?${p}`, { signal: abortRef.current.signal })
@@ -353,7 +366,7 @@ export default function Calls() {
   }, [filterQS])
 
   useEffect(() => { load(); loadStats() }, [load, loadStats])
-  useLiveData(() => { load(); loadStats() }, { topics: ['tickets'] })
+  useLiveData(() => { load(true); loadStats() }, { topics: ['calls', 'tickets'] })
 
   // ── KPIs computed from loaded rows ────────────────────────────────────────
 
@@ -422,7 +435,7 @@ export default function Calls() {
     {
       key: 'outcome',
       label: 'Outcome',
-      render: r => <OutcomePill outcome={r.outcome} direction={r.direction} />,
+      render: r => <OutcomePill outcome={r.outcome} direction={r.direction} durationSec={r.duration_seconds} hasRecording={r.has_recording} />,
     },
     {
       key: 'disposition' as any,
@@ -523,10 +536,11 @@ export default function Calls() {
             icon: 'grade', label: r.qa_evaluation_id ? 'Re-evaluate call (QA)' : 'Evaluate call (QA)',
             onClick: () => setEvalCall(r),
           }] : []),
-          // Only offer a recording when one actually exists on the call.
-          ...(r.recording_url ? [{
-            icon: 'play_circle', label: 'View Recording',
-            onClick: () => window.open(r.recording_url as string, '_blank', 'noopener'),
+          // Play the Zoho Voice recording in-app (streamed through our proxy) when
+          // one is attached to the call.
+          ...(r.has_recording ? [{
+            icon: 'play_circle', label: 'Play recording',
+            onClick: () => setPlayCall(r),
           }] : []),
           {
             icon: 'add_comment', label: 'Create Ticket',
@@ -639,7 +653,7 @@ export default function Calls() {
 
       {evalCall && (
         <QAEvaluation
-          call={{ id: evalCall.id, agent_name: evalCall.agent_name, customer_name: evalCall.customer_name, phone: evalCall.phone, direction: evalCall.direction, called_at: evalCall.called_at, duration_seconds: evalCall.duration_seconds }}
+          call={{ id: evalCall.id, agent_name: evalCall.agent_name, customer_name: evalCall.customer_name, phone: evalCall.phone, direction: evalCall.direction, called_at: evalCall.called_at, duration_seconds: evalCall.duration_seconds, has_recording: evalCall.has_recording }}
           onClose={() => setEvalCall(null)}
           onSaved={() => { load(); loadStats() }}
         />
@@ -650,6 +664,8 @@ export default function Calls() {
       <CallDetailModal call={viewCall} onClose={() => setViewCall(null)}
         onEvaluate={CAN_EVALUATE ? c => { setViewCall(null); setEvalCall(c) } : undefined}
         onOpenTicket={id => { setViewCall(null); navigate(`/helpdesk/${id}`) }} />
+
+      <RecordingModal call={playCall} onClose={() => setPlayCall(null)} />
     </Page>
   )
 }
@@ -658,6 +674,74 @@ export default function Calls() {
 // Everything logged about a single call — the identifiers, the connection facts,
 // and the two things the agent actually wrote (the complaint and the resolution) —
 // so a supervisor can read a call without hunting across columns.
+
+// Streams a call's Zoho Voice recording in-app. The audio is fetched as an
+// authenticated blob (the proxy needs the session cookie, and a bare <audio src>
+// on a cross-origin dev host wouldn't send it), then played from an object URL.
+// Shared by the row-menu modal and the call-detail modal.
+function RecordingPlayer({ callId, autoPlay = true }: { callId: number; autoPlay?: boolean }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    let objUrl: string | null = null
+    setLoading(true); setErr(null); setUrl(null)
+    const hit = () => fetch(`${API}/api/helpdesk/calls/${callId}/recording`, { credentials: 'include' })
+    ;(async () => {
+      try {
+        let res = await hit()
+        if (res.status === 401 && await refreshSession()) res = await hit()
+        if (!res.ok) throw new Error(res.status === 404 ? 'No recording found for this call.' : 'This recording could not be retrieved from Zoho Voice.')
+        const blob = await res.blob()
+        if (cancelled) return
+        objUrl = URL.createObjectURL(blob)
+        setUrl(objUrl)
+      } catch (e: any) {
+        if (!cancelled) setErr(e?.message ?? 'Could not load the recording.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true; if (objUrl) URL.revokeObjectURL(objUrl) }
+  }, [callId])
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {loading && (
+        <div style={{ padding: '18px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>Loading recording…</div>
+      )}
+      {err && (
+        <div style={{ padding: 12, borderRadius: RADIUS.md, background: `${RED}0F`, border: `1px solid ${RED}33`, color: RED, fontSize: TEXT.sm }}>{err}</div>
+      )}
+      {url && (
+        <>
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <audio controls autoPlay={autoPlay} src={url} style={{ width: '100%' }} />
+          <a href={url} download={`recording-${callId}.wav`}
+            style={{ fontSize: TEXT.xs, color: NAVY, fontWeight: FW.semibold, textDecoration: 'none', alignSelf: 'flex-end' }}>
+            Download
+          </a>
+        </>
+      )}
+    </div>
+  )
+}
+
+function RecordingModal({ call, onClose }: { call: CallLog | null; onClose: () => void }) {
+  if (!call) return null
+  return (
+    <Modal open={!!call} onClose={onClose} title={`Recording · ${call.customer_name ?? call.phone ?? 'Call'}`} width={460}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 4 }}>
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+          {call.direction}{call.phone ? ` · ${call.phone}` : ''}{call.agent_name ? ` · ${call.agent_name}` : ''}
+        </div>
+        <RecordingPlayer callId={call.id} />
+      </div>
+    </Modal>
+  )
+}
 
 function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
   call: CallLog | null
@@ -681,12 +765,6 @@ function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
     <Modal open={!!call} onClose={onClose} title={`Call · ${call.customer_name ?? 'Unknown Caller'}`} width={620}
       footer={
         <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end', width: '100%' }}>
-          {call.recording_url && (
-            <button onClick={() => window.open(call.recording_url as string, '_blank', 'noopener')}
-              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>play_circle</span>Recording
-            </button>
-          )}
           {onEvaluate && (
             <button onClick={() => onEvaluate(call)}
               style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -704,7 +782,7 @@ function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
         {/* Header chips */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <DirectionBadge direction={call.direction} />
-          <OutcomePill outcome={call.outcome} direction={call.direction} />
+          <OutcomePill outcome={call.outcome} direction={call.direction} durationSec={call.duration_seconds} hasRecording={call.has_recording} />
           {call.disposition && (
             <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', color: 'var(--txt2)' }}>{call.disposition}</span>
           )}
@@ -734,6 +812,14 @@ function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
             ) : '—'}
           </Field>
         </div>
+
+        {/* Call recording (Zoho Voice, streamed on demand) */}
+        {call.has_recording && (
+          <div>
+            <div style={secLbl}>Call recording</div>
+            <RecordingPlayer callId={call.id} autoPlay={false} />
+          </div>
+        )}
 
         {/* What the agent logged */}
         <div>

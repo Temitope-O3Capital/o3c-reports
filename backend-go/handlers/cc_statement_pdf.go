@@ -125,8 +125,8 @@ func (p *ccPDF) drawCustomerStrip(d ccData) {
 	p.fillRect(368, bot, 2, 90, 0.886, 0.910, 0.941)
 
 	type metaField struct {
-		label     string
-		val       string
+		label      string
+		val        string
 		vr, vg, vb float64
 	}
 	fields := []metaField{
@@ -159,11 +159,11 @@ func (p *ccPDF) drawSummaryTiles(d ccData, totalPurchDr, totalCr int64, drCount,
 	bot := top - h
 
 	type tileSpec struct {
-		label       string
-		val         string
-		sub         string
-		tr, tg, tb  float64 // top-border color
-		vr, vg, vb  float64 // value color
+		label      string
+		val        string
+		sub        string
+		tr, tg, tb float64 // top-border color
+		vr, vg, vb float64 // value color
 	}
 	tiles := []tileSpec{
 		{
@@ -241,7 +241,10 @@ func (p *ccPDF) drawPaymentCTA(d ccData) {
 		availWarn = true
 	}
 
-	type mi struct{ label, val string; warn bool }
+	type mi struct {
+		label, val string
+		warn       bool
+	}
 	items := []mi{
 		{"OUTSTANDING BALANCE", "NGN " + ccFmtKobo(d.closingBal), false},
 		{"FINANCE CHARGE", "NGN " + ccFmtKobo(d.financeCharge), false},
@@ -444,7 +447,10 @@ func (p *ccPDF) drawFooter(d ccData) {
 	p.hline(32, 580, 50, 0.20, 0.30, 0.45, 0.5) // divider above stamp
 
 	colW := 548.0 / 3
-	type ftCol struct{ head string; lines []string }
+	type ftCol struct {
+		head  string
+		lines []string
+	}
 	cols := []ftCol{
 		{
 			"CONTACT & SUPPORT",
@@ -492,8 +498,8 @@ func ccBuildPDF(stmt core.Row, txns []core.Row) []byte {
 	var totalPurchDr, totalCr, totalFCDr int64
 	var drCount, crCount int
 	for _, t := range txns {
-		dr   := toInt64(t["debit_kobo"])
-		cr   := toInt64(t["credit_kobo"])
+		dr := toInt64(t["debit_kobo"])
+		cr := toInt64(t["credit_kobo"])
 		isFC := toBool(t["is_finance_charge"])
 		totalCr += cr
 		if isFC {
@@ -517,9 +523,9 @@ func ccBuildPDF(stmt core.Row, txns []core.Row) []byte {
 	// ── Page 1 ────────────────────────────────────────────────────────────────
 	p.startPage(746)
 	p.drawBankBar(d, stmtPeriod)
-	p.drawCustomerStrip(d)                                           // curY → 656
-	p.drawSummaryTiles(d, totalPurchDr, totalCr, drCount, crCount)  // curY → 606
-	p.drawPaymentCTA(d)                                              // curY → ~544
+	p.drawCustomerStrip(d)                                         // curY → 656
+	p.drawSummaryTiles(d, totalPurchDr, totalCr, drCount, crCount) // curY → 606
+	p.drawPaymentCTA(d)                                            // curY → ~544
 	p.drawTxnSectionHead(len(txns), stmtPeriod)
 	p.drawTxnTableHeader()
 
@@ -527,11 +533,11 @@ func ccBuildPDF(stmt core.Row, txns []core.Row) []byte {
 	runBal := d.openingBal
 	rowIdx := 0
 	for _, t := range txns {
-		dr      := toInt64(t["debit_kobo"])
-		cr      := toInt64(t["credit_kobo"])
-		isFC    := toBool(t["is_finance_charge"])
-		desc    := getRowString(t, "description")
-		txnDate  := ccFmtDate(getRowString(t, "txn_date"))
+		dr := toInt64(t["debit_kobo"])
+		cr := toInt64(t["credit_kobo"])
+		isFC := toBool(t["is_finance_charge"])
+		desc := getRowString(t, "description")
+		txnDate := ccFmtDate(getRowString(t, "txn_date"))
 		postDate := ccFmtDate(getRowString(t, "post_date"))
 		if postDate == "—" {
 			postDate = txnDate

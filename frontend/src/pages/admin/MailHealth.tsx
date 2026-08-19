@@ -130,8 +130,8 @@ export default function AdminMailHealth() {
   const [dateTo,   setDateTo]   = useState(today())
   const [supSearch, setSupSearch] = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const [m, s, d] = await Promise.allSettled([
@@ -151,7 +151,7 @@ export default function AdminMailHealth() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   const displayedSups = useMemo(() =>
     supSearch

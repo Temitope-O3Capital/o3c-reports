@@ -114,8 +114,8 @@ export default function AdminIntegrations() {
   const [saving,     setSaving]     = useState(false)
   const [pinging,    setPinging]    = useState<number | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const data = await apiFetch<{ data: Integration[] }>('/api/admin/integrations')
       setList(data.data ?? [])
@@ -124,7 +124,7 @@ export default function AdminIntegrations() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   async function handleCreate(body: Partial<Integration>) {
     setSaving(true)
@@ -164,7 +164,7 @@ export default function AdminIntegrations() {
     try {
       const raw = await apiPost<any>(`/api/admin/integrations/${integ.id}/ping`, {})
       const result = (raw?.data ?? raw) as { status?: string; status_code?: number; note?: string }
-      const label = result.status_code ? ` (HTTP ${result.status_code})` : (result.note ? ` — ${result.note}` : '')
+      const label = result.status_code ? ` (HTTP ${result.status_code})` : (result.note ? ` (${result.note})` : '')
       toast.success(`${integ.name}: ${result.status}${label}`)
       load()
     } catch (e: any) { toast.error(e.message) }
@@ -180,7 +180,7 @@ export default function AdminIntegrations() {
     <Page
       back={{ label: 'Admin', to: '/admin' }}
       title="Integrations"
-      subtitle="External service registry — status, credentials, and health"
+      subtitle="External service registry: status, credentials, and health"
       actions={
         <button onClick={() => setShowNew(true)} style={{
           display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,
@@ -269,7 +269,7 @@ export default function AdminIntegrations() {
       </SectionCard>
 
       {/* Edit modal */}
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={`Edit — ${editing?.name ?? ''}`} width={480}>
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={`Edit: ${editing?.name ?? ''}`} width={480}>
         {editing && (
           <IntegForm
             initial={editing}

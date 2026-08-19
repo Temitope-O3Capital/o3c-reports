@@ -73,8 +73,8 @@ export default function CallScripts() {
   // Reference content: supervisors curate, line agents read-only (enforced server-side).
   const canManage = useMemo(() => canManageScripts(), [])
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const data = await apiFetch<CallScript[]>(`/api/helpdesk/canned-responses?channel=call`)
       setRows(Array.isArray(data) ? data : [])
@@ -86,7 +86,7 @@ export default function CallScripts() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
 
   // Category rail: canonical order first, then any extras present in data.
   const categories = useMemo(() => {
@@ -191,7 +191,7 @@ export default function CallScripts() {
   return (
     <Page
       title="Call Scripts"
-      subtitle="Ready-to-use talk-tracks for the Call Centre — search, read, and copy live on a call"
+      subtitle="Ready-to-use talk-tracks for the Call Centre: search, read, and copy live on a call"
       actions={canManage ? (
         <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: 'inherit' }}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>

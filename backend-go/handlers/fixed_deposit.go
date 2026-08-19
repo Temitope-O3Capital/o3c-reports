@@ -14,23 +14,23 @@ import (
 func RegisterFixedDeposit(r chi.Router, db *core.DB) {
 	access := core.RequirePages("fixed_deposit")
 
-	r.With(access).Get("/transactions",      fdListTransactions(db))
-	r.With(access).Post("/transactions",     fdCreateTransaction(db))
+	r.With(access).Get("/transactions", fdListTransactions(db))
+	r.With(access).Post("/transactions", fdCreateTransaction(db))
 	r.With(access).Get("/transactions/{id}", fdGetTransaction(db))
 	r.With(access).Put("/transactions/{id}", fdUpdateTransaction(db))
 	r.With(access).Delete("/transactions/{id}", fdDeleteTransaction(db))
 
 	r.With(access).Post("/transactions/{id}/early-withdrawal-request", fdEarlyWithdrawalRequest(db))
 	r.With(access).Patch("/transactions/{id}/early-withdrawal/{req_id}/approve", fdEarlyWithdrawalApprove(db))
-	r.With(access).Patch("/transactions/{id}/early-withdrawal/{req_id}/reject",  fdEarlyWithdrawalReject(db))
+	r.With(access).Patch("/transactions/{id}/early-withdrawal/{req_id}/reject", fdEarlyWithdrawalReject(db))
 
-	r.With(access).Post("/transactions/{id}/rollover",  fdRollover(db))
+	r.With(access).Post("/transactions/{id}/rollover", fdRollover(db))
 	r.With(access).Post("/transactions/{id}/liquidate", fdLiquidate(db))
 
-	r.With(access).Get("/summary",    fdSummary(db))
-	r.With(access).Get("/trend",      fdTrend(db))
+	r.With(access).Get("/summary", fdSummary(db))
+	r.With(access).Get("/trend", fdTrend(db))
 	r.With(access).Get("/by-location", fdByLocation(db))
-	r.With(access).Get("/by-officer",  fdByOfficer(db))
+	r.With(access).Get("/by-officer", fdByOfficer(db))
 }
 
 /* ── Transactions ─────────────────────────────────────────────────────────── */
@@ -42,16 +42,24 @@ func fdListTransactions(db *core.DB) http.HandlerFunc {
 		n := 1
 
 		if v := qstr(r, "type"); v != "" {
-			where += fmt.Sprintf(" AND transaction_type=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND transaction_type=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "location"); v != "" {
-			where += fmt.Sprintf(" AND location=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND location=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "date_from"); v != "" {
-			where += fmt.Sprintf(" AND transaction_date >= $%d::date", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND transaction_date >= $%d::date", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "date_to"); v != "" {
-			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "q"); v != "" {
 			if clause, sargs, nn := buildCustomerSearch(v,
@@ -62,7 +70,7 @@ func fdListTransactions(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		limit  := qint(r, "limit", 200, 1, 1000)
+		limit := qint(r, "limit", 200, 1, 1000)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		countRows, _ := db.PGQuery(r.Context(),
@@ -77,7 +85,8 @@ func fdListTransactions(db *core.DB) http.HandlerFunc {
 			`SELECT * FROM fd_transactions WHERE %s ORDER BY transaction_date DESC, id DESC LIMIT $%d OFFSET $%d`,
 			where, n, n+1), args2...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"data": rows, "total": total}) //nolint:errcheck
@@ -106,23 +115,29 @@ func fdCreateTransaction(db *core.DB) http.HandlerFunc {
 			Notes           string   `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.CustomerName == "" {
-			respondErr(w, 422, "customer_name is required"); return
+			respondErr(w, 422, "customer_name is required")
+			return
 		}
 		if b.TransactionDate == "" {
-			respondErr(w, 422, "transaction_date is required"); return
+			respondErr(w, 422, "transaction_date is required")
+			return
 		}
 		if b.TransactionType != "inflow" {
-			respondErr(w, 422, "transaction_type must be 'inflow'; use the /liquidate endpoint for liquidations"); return
+			respondErr(w, 422, "transaction_type must be 'inflow'; use the /liquidate endpoint for liquidations")
+			return
 		}
 		if b.Currency == "" {
 			b.Currency = "NGN"
 		}
 		user := core.UserFromCtx(r.Context())
 		ns := func(s string) any {
-			if s == "" { return nil }
+			if s == "" {
+				return nil
+			}
 			return s
 		}
 
@@ -139,7 +154,8 @@ func fdCreateTransaction(db *core.DB) http.HandlerFunc {
 			b.Currency, ns(b.Location), ns(b.AccountOfficer), b.SalesOfficerID,
 			ns(b.MaturityDate), b.TenorDays, b.Rate, ns(b.Notes), user.ID)
 		if err != nil {
-			respondErr(w, 500, "Create failed: "+err.Error()); return
+			respondErr(w, 500, "Create failed: "+err.Error())
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -152,7 +168,8 @@ func fdGetTransaction(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		rows, err := db.PGQuery(r.Context(), `SELECT * FROM fd_transactions WHERE id=$1`, id)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Transaction not found"); return
+			respondErr(w, 404, "Transaction not found")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -171,7 +188,8 @@ func fdUpdateTransaction(db *core.DB) http.HandlerFunc {
 		json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
 		parts, args := buildSet(body, allowed, 1)
 		if len(parts) == 0 {
-			respondErr(w, 422, "No updatable fields provided"); return
+			respondErr(w, 422, "No updatable fields provided")
+			return
 		}
 		parts = append(parts, "updated_at=NOW()")
 		args = append(args, id)
@@ -179,7 +197,8 @@ func fdUpdateTransaction(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("UPDATE fd_transactions SET %s WHERE id=$%d RETURNING *",
 				strings.Join(parts, ","), len(args)), args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Transaction not found"); return
+			respondErr(w, 404, "Transaction not found")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -199,20 +218,26 @@ func fdDeleteTransaction(db *core.DB) http.HandlerFunc {
 func fdSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
-		loc         := qstr(r, "location")
+		dateTo, _ := validDate(r, "date_to")
+		loc := qstr(r, "location")
 
 		where := "1=1"
 		var args []any
 		n := 1
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND transaction_date >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND transaction_date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		if loc != "" {
-			where += fmt.Sprintf(" AND location=$%d", n); args = append(args, loc); n++
+			where += fmt.Sprintf(" AND location=$%d", n)
+			args = append(args, loc)
+			n++
 		}
 		_ = n
 
@@ -228,7 +253,8 @@ func fdSummary(db *core.DB) http.HandlerFunc {
 				COUNT(*) AS total_transactions
 			FROM fd_transactions WHERE %s`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Summary failed"); return
+			respondErr(w, 500, "Summary failed")
+			return
 		}
 		if len(rows) == 0 {
 			// Table exists but no transactions yet — return zero summary
@@ -256,16 +282,20 @@ func fdSummary(db *core.DB) http.HandlerFunc {
 func fdTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
+		dateTo, _ := validDate(r, "date_to")
 
 		where := "1=1"
 		var args []any
 		n := 1
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND transaction_date >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND transaction_date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		_ = n
 
@@ -288,16 +318,20 @@ func fdTrend(db *core.DB) http.HandlerFunc {
 func fdByLocation(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
+		dateTo, _ := validDate(r, "date_to")
 
 		where := "1=1"
 		var args []any
 		n := 1
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND transaction_date >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND transaction_date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		_ = n
 
@@ -318,16 +352,20 @@ func fdByLocation(db *core.DB) http.HandlerFunc {
 func fdByOfficer(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
+		dateTo, _ := validDate(r, "date_to")
 
 		where := "account_officer IS NOT NULL"
 		var args []any
 		n := 1
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND transaction_date >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND transaction_date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND transaction_date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		_ = n
 
@@ -355,17 +393,20 @@ func fdEarlyWithdrawalRequest(db *core.DB) http.HandlerFunc {
 
 		fdRows, err := db.PGQuery(ctx, `SELECT id, principal, maturity_date, rate, transaction_type FROM fd_transactions WHERE id=$1`, id)
 		if err != nil || len(fdRows) == 0 {
-			respondErr(w, 404, "FD not found"); return
+			respondErr(w, 404, "FD not found")
+			return
 		}
 		fd := fdRows[0]
 		if str(fd["transaction_type"]) != "inflow" {
-			respondErr(w, 422, "Only active inflow FDs can be withdrawn early"); return
+			respondErr(w, 422, "Only active inflow FDs can be withdrawn early")
+			return
 		}
 
 		// Pending request check
 		existing, _ := db.PGQuery(ctx, `SELECT id FROM fd_early_withdrawal_requests WHERE fd_transaction_id=$1 AND status='pending'`, id)
 		if len(existing) > 0 {
-			respondErr(w, 422, "A pending withdrawal request already exists"); return
+			respondErr(w, 422, "A pending withdrawal request already exists")
+			return
 		}
 
 		principal := int64(0)
@@ -382,7 +423,8 @@ func fdEarlyWithdrawalRequest(db *core.DB) http.HandlerFunc {
 			 VALUES ($1,$2,'pending',$3,$4,$5) RETURNING *`,
 			id, user.ID, principal, penalty, netPayout)
 		if err != nil {
-			respondErr(w, 500, "Failed to create request"); return
+			respondErr(w, 500, "Failed to create request")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -399,31 +441,36 @@ func fdEarlyWithdrawalApprove(db *core.DB) http.HandlerFunc {
 		reqRows, err := db.PGQuery(ctx,
 			`SELECT id, fd_transaction_id, net_payout_kobo, status FROM fd_early_withdrawal_requests WHERE id=$1`, reqID)
 		if err != nil || len(reqRows) == 0 {
-			respondErr(w, 404, "Request not found"); return
+			respondErr(w, 404, "Request not found")
+			return
 		}
 		req := reqRows[0]
 		if str(req["status"]) != "pending" {
-			respondErr(w, 422, "Request is not pending"); return
+			respondErr(w, 422, "Request is not pending")
+			return
 		}
 
 		// C2: wrap both UPDATEs and the GL entry in a single transaction
 		tx, txErr := db.PG.BeginTx(ctx, nil)
 		if txErr != nil {
-			respondErr(w, 500, "Transaction failed"); return
+			respondErr(w, 500, "Transaction failed")
+			return
 		}
 		_, err = tx.ExecContext(ctx,
 			`UPDATE fd_early_withdrawal_requests SET status='approved', approved_by=$1, approved_at=NOW(), updated_at=NOW() WHERE id=$2`,
 			user.ID, reqID)
 		if err != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Approve failed"); return
+			respondErr(w, 500, "Approve failed")
+			return
 		}
 		_, err = tx.ExecContext(ctx,
 			`UPDATE fd_transactions SET transaction_type='liquidation', updated_at=NOW() WHERE id=$1`,
 			req["fd_transaction_id"])
 		if err != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "FD update failed"); return
+			respondErr(w, 500, "FD update failed")
+			return
 		}
 		netPayout := toInt64(req["net_payout_kobo"])
 		if netPayout > 0 {
@@ -440,11 +487,13 @@ func fdEarlyWithdrawalApprove(db *core.DB) http.HandlerFunc {
 				PostedBy:      user.ID,
 			}); glErr != nil {
 				tx.Rollback() //nolint:errcheck
-				respondErr(w, 500, "GL entry failed: "+glErr.Error()); return
+				respondErr(w, 500, "GL entry failed: "+glErr.Error())
+				return
 			}
 		}
 		if commitErr := tx.Commit(); commitErr != nil {
-			respondErr(w, 500, "Commit failed"); return
+			respondErr(w, 500, "Commit failed")
+			return
 		}
 
 		respond(w, map[string]any{"status": "approved", "net_payout_kobo": req["net_payout_kobo"]}, "json")
@@ -463,10 +512,12 @@ func fdEarlyWithdrawalReject(db *core.DB) http.HandlerFunc {
 
 		reqRows, err := db.PGQuery(ctx, `SELECT status FROM fd_early_withdrawal_requests WHERE id=$1`, reqID)
 		if err != nil || len(reqRows) == 0 {
-			respondErr(w, 404, "Request not found"); return
+			respondErr(w, 404, "Request not found")
+			return
 		}
 		if str(reqRows[0]["status"]) != "pending" {
-			respondErr(w, 422, "Request is not pending"); return
+			respondErr(w, 422, "Request is not pending")
+			return
 		}
 
 		db.PGExec(ctx, //nolint:errcheck
@@ -495,21 +546,31 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 		fdRows, err := db.PGQuery(ctx,
 			`SELECT * FROM fd_transactions WHERE id=$1`, id)
 		if err != nil || len(fdRows) == 0 {
-			respondErr(w, 404, "FD not found"); return
+			respondErr(w, 404, "FD not found")
+			return
 		}
 		fd := fdRows[0]
 		if str(fd["transaction_type"]) != "inflow" {
-			respondErr(w, 422, "Only active inflow FDs can be rolled over"); return
+			respondErr(w, 422, "Only active inflow FDs can be rolled over")
+			return
 		}
 
 		// rate is a PERCENTAGE (e.g. 12.5 for 12.5%) — not BPS (M41).
 		rate := float64(0)
-		if v, ok := fd["rate"].(float64); ok { rate = v }
-		if b.Rate != nil { rate = *b.Rate }
+		if v, ok := fd["rate"].(float64); ok {
+			rate = v
+		}
+		if b.Rate != nil {
+			rate = *b.Rate
+		}
 
 		tenor := 0
-		if v, ok := fd["tenor_days"].(float64); ok { tenor = int(v) }
-		if b.TenorDays != nil { tenor = *b.TenorDays }
+		if v, ok := fd["tenor_days"].(float64); ok {
+			tenor = int(v)
+		}
+		if b.TenorDays != nil {
+			tenor = *b.TenorDays
+		}
 
 		var principalVal float64
 		if v, ok := fd["principal"].(float64); ok {
@@ -534,14 +595,16 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 
 		tx, txErr := db.PG.BeginTx(ctx, nil)
 		if txErr != nil {
-			respondErr(w, 500, txErr.Error()); return
+			respondErr(w, 500, txErr.Error())
+			return
 		}
 		defer tx.Rollback() //nolint:errcheck
 
 		// Mark old FD as rolled over
 		if _, txErr = tx.ExecContext(ctx,
 			`UPDATE fd_transactions SET transaction_type='rolled_over', updated_at=NOW() WHERE id=$1`, id); txErr != nil {
-			respondErr(w, 500, "Rollover failed: "+txErr.Error()); return
+			respondErr(w, 500, "Rollover failed: "+txErr.Error())
+			return
 		}
 
 		// Create new FD starting today with the new (interest-inclusive) principal
@@ -559,7 +622,8 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 			fd["customer_name"], newPrincipal, fd["currency"],
 			fd["location"], fd["account_officer"], tenor, rate, user.ID).Scan(&newID)
 		if err != nil {
-			respondErr(w, 500, "Rollover insert failed: "+err.Error()); return
+			respondErr(w, 500, "Rollover insert failed: "+err.Error())
+			return
 		}
 		newRow["id"] = newID
 
@@ -578,12 +642,14 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 				SourceID:      newID,
 				PostedBy:      user.ID,
 			}); glErr != nil {
-				respondErr(w, 500, "GL entry for rollover failed: "+glErr.Error()); return
+				respondErr(w, 500, "GL entry for rollover failed: "+glErr.Error())
+				return
 			}
 		}
 
 		if txErr = tx.Commit(); txErr != nil {
-			respondErr(w, 500, txErr.Error()); return
+			respondErr(w, 500, txErr.Error())
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -603,10 +669,12 @@ func fdLiquidate(db *core.DB) http.HandlerFunc {
 		fdRows, err := db.PGQuery(ctx,
 			`SELECT id, transaction_type, COALESCE(ngn_amount, 0) AS ngn_amount, COALESCE(gross_amount, 0) AS gross_amount FROM fd_transactions WHERE id=$1`, id)
 		if err != nil || len(fdRows) == 0 {
-			respondErr(w, 404, "FD not found"); return
+			respondErr(w, 404, "FD not found")
+			return
 		}
 		if str(fdRows[0]["transaction_type"]) != "inflow" {
-			respondErr(w, 422, "FD is not active"); return
+			respondErr(w, 422, "FD is not active")
+			return
 		}
 
 		// C4: wrap liquidation and GL entry in a transaction
@@ -617,13 +685,15 @@ func fdLiquidate(db *core.DB) http.HandlerFunc {
 
 		tx, txErr := db.PG.BeginTx(ctx, nil)
 		if txErr != nil {
-			respondErr(w, 500, "Transaction failed"); return
+			respondErr(w, 500, "Transaction failed")
+			return
 		}
 		_, err = tx.ExecContext(ctx,
 			`UPDATE fd_transactions SET transaction_type='liquidation', updated_at=NOW() WHERE id=$1`, id)
 		if err != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Liquidation failed"); return
+			respondErr(w, 500, "Liquidation failed")
+			return
 		}
 		if amount > 0 {
 			ref := fmt.Sprintf("FD-%v", id)
@@ -639,11 +709,13 @@ func fdLiquidate(db *core.DB) http.HandlerFunc {
 				PostedBy:      user.ID,
 			}); glErr != nil {
 				tx.Rollback() //nolint:errcheck
-				respondErr(w, 500, "GL entry failed: "+glErr.Error()); return
+				respondErr(w, 500, "GL entry failed: "+glErr.Error())
+				return
 			}
 		}
 		if commitErr := tx.Commit(); commitErr != nil {
-			respondErr(w, 500, "Commit failed"); return
+			respondErr(w, 500, "Commit failed")
+			return
 		}
 
 		respond(w, map[string]any{"status": "liquidated"}, "json")

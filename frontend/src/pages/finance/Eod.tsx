@@ -144,8 +144,8 @@ export default function FinanceEOD() {
   const [productSearch, setProductSearch] = useState('')
   const [branchSearch,  setBranchSearch]  = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     const qs = `date_from=${dateFrom}&date_to=${dateTo}`
     try {
@@ -167,7 +167,7 @@ export default function FinanceEOD() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['finance','manual_postings'] })
+  useLiveData(() => load(true), { topics: ['finance','manual_postings'] })
 
   const filteredUploads = useMemo(() => {
     if (!uploadSearch) return uploads
@@ -187,56 +187,8 @@ export default function FinanceEOD() {
     return byBranch.filter(r => (r.branch_code || '').toLowerCase().includes(q) || (r.branch_name || '').toLowerCase().includes(q))
   }, [byBranch, branchSearch])
 
-  function exportUploadsCsv(data: EODUpload[]) {
-    const header = ['Date', 'Filename', 'Rows', 'Uploaded By', 'Loaded At', 'Status']
-    const lines = data.map(r => [
-      r.upload_date ?? '',
-      `"${String(r.filename ?? '').replace(/"/g, '""')}"`,
-      r.row_count ?? 0,
-      `"${String(r.loaded_by_name ?? '').replace(/"/g, '""')}"`,
-      r.loaded_at ?? '',
-      r.status ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `eod-uploads-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
-  function exportProductCsv(data: ByProductRow[]) {
-    const header = ['Code', 'Product', 'Txns', 'Credits NGN', 'Debits NGN', 'Volume NGN']
-    const lines = data.map(r => [
-      r.product_code ?? '',
-      `"${String(r.product_name ?? '').replace(/"/g, '""')}"`,
-      r.txn_count ?? 0,
-      ((r.total_cr ?? 0) / 100).toFixed(2),
-      ((r.total_dr ?? 0) / 100).toFixed(2),
-      ((r.total_volume ?? 0) / 100).toFixed(2),
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `eod-by-product-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
-  function exportBranchCsv(data: ByBranchRow[]) {
-    const header = ['Code', 'Branch', 'Accounts', 'Txns', 'Debits NGN', 'Credits NGN']
-    const lines = data.map(r => [
-      r.branch_code ?? '',
-      `"${String(r.branch_name ?? '').replace(/"/g, '""')}"`,
-      r.accounts ?? 0,
-      r.txn_count ?? 0,
-      ((r.total_dr ?? 0) / 100).toFixed(2),
-      ((r.total_cr ?? 0) / 100).toFixed(2),
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `eod-by-branch-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   return (
     <Page
@@ -245,7 +197,7 @@ export default function FinanceEOD() {
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          <button onClick={load} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
+          <button onClick={() => load()} style={{ height: 32, padding: '0 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Apply</button>
           <UploadButton onUploaded={load} />
         </div>
       }
@@ -279,12 +231,7 @@ export default function FinanceEOD() {
       </div>
 
       {tab === 'uploads' && (
-        <SectionCard padding={false} actions={
-          <button onClick={() => exportUploadsCsv(filteredUploads)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
-            Export CSV
-          </button>
-        }>
+        <SectionCard padding={false}>
           <ExpandableFilterBar
             search={uploadSearch}
             onSearch={setUploadSearch}
@@ -306,12 +253,7 @@ export default function FinanceEOD() {
       )}
 
       {tab === 'product' && (
-        <SectionCard padding={false} actions={
-          <button onClick={() => exportProductCsv(filteredProducts)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
-            Export CSV
-          </button>
-        }>
+        <SectionCard padding={false}>
           <ExpandableFilterBar
             search={productSearch}
             onSearch={setProductSearch}
@@ -333,12 +275,7 @@ export default function FinanceEOD() {
       )}
 
       {tab === 'branch' && (
-        <SectionCard padding={false} actions={
-          <button onClick={() => exportBranchCsv(filteredBranches)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
-            Export CSV
-          </button>
-        }>
+        <SectionCard padding={false}>
           <ExpandableFilterBar
             search={branchSearch}
             onSearch={setBranchSearch}

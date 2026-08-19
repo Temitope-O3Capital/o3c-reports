@@ -3,6 +3,23 @@ import { parseToken, type AuthUser } from '../hooks/useAuth'
 import { API, storeCsrfToken } from '../lib/api'
 import { TEXT, FW, RADIUS, SP, NAVY } from '../lib/design'
 
+// ── Remembered login details ────────────────────────────────────────────────
+// Small conveniences that make returning staff feel the app "remembers" them:
+// the last work email typed, and their "keep me signed in" preference. Passwords
+// are never kept here — that's the browser's password manager's job (see the
+// Credential Management call in finalise()).
+const LAST_EMAIL_KEY = 'o3c_last_email'
+const REMEMBER_KEY    = 'o3c_remember'
+
+function readLastEmail(): string {
+  try { return localStorage.getItem(LAST_EMAIL_KEY) ?? '' } catch { return '' }
+}
+function readRemember(): boolean {
+  // Defaults to true so a returning user on their own device gets a 30-day session;
+  // only an explicit previous "false" (they unticked it) turns it back off.
+  try { return localStorage.getItem(REMEMBER_KEY) !== 'false' } catch { return true }
+}
+
 
 // ── CSS (pseudo-selectors + keyframes must live outside inline styles) ─────────
 
@@ -19,13 +36,24 @@ const LOGIN_CSS = `
     16%,48% { transform: translateX(-8px); }
     32%,64% { transform: translateX(8px); }
   }
-  @keyframes o3float {
-    0%,100% { transform: translateY(0); }
-    50%     { transform: translateY(-9px); }
-  }
   @keyframes o3fade {
     from { opacity: 0; }
     to   { opacity: 1; }
+  }
+  /* Custom "keep me signed in" checkbox — real input, visually hidden for a11y */
+  .o3-check {
+    position: absolute;
+    opacity: 0;
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    cursor: pointer;
+  }
+  .o3-checkbox {
+    transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .o3-check:focus-visible + .o3-checkbox {
+    box-shadow: 0 0 0 3.5px rgba(14,40,65,0.14);
   }
 
   .o3-input {
@@ -100,10 +128,11 @@ interface FieldProps {
   onChange: (v: string) => void
   autoFocus?: boolean
   autoComplete?: string
+  name?: string
   delay?: number
 }
 
-function FloatingField({ id, label, type = 'text', value, onChange, autoFocus, autoComplete, delay = 0 }: FieldProps) {
+function FloatingField({ id, label, type = 'text', value, onChange, autoFocus, autoComplete, name, delay = 0 }: FieldProps) {
   const [focused, setFocused] = useState(false)
   const [reveal,  setReveal]  = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -148,6 +177,7 @@ function FloatingField({ id, label, type = 'text', value, onChange, autoFocus, a
           <input
             ref={inputRef}
             id={id}
+            name={name ?? id}
             type={isPw ? (reveal ? 'text' : 'password') : type}
             className={`o3-input${active ? '' : ' idle'}`}
             value={value}
@@ -328,91 +358,43 @@ function ErrorMsg({ msg }: { msg: string }) {
 function BrandPanel() {
   return (
     <div style={{
-      flex: '0 0 46%',
+      flex: '0 0 44%',
       position: 'relative',
       overflow: 'hidden',
-      background: '#050C18',
+      background: 'linear-gradient(180deg, #0E2841 0%, #0A1E31 100%)',
       display: 'flex',
       flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
+      padding: '52px 56px',
+      color: '#fff',
     }}>
-      {/* Depth gradient */}
-      <div style={{
-        position: 'absolute', inset: 0, pointerEvents: 'none',
-        background: 'radial-gradient(ellipse 70% 55% at 50% 46%, rgba(18,52,100,0.5) 0%, transparent 100%)',
-      }} />
-
-      {/* Noise grain */}
-      <svg style={{ position: 'absolute', width: 0, height: 0 }} aria-hidden>
-        <filter id="o3-noise">
-          <feTurbulence type="fractalNoise" baseFrequency="0.72" numOctaves="4" stitchTiles="stitch" />
-          <feColorMatrix type="saturate" values="0" />
-        </filter>
-      </svg>
-      <div style={{
-        position: 'absolute', inset: 0, pointerEvents: 'none',
-        filter: 'url(#o3-noise)', opacity: 0.032, mixBlendMode: 'overlay',
-      }} />
-
-      {/* Accent glow */}
-      <div style={{
-        position: 'absolute',
-        width: 440, height: 440, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(192,0,0,0.05) 0%, rgba(14,165,233,0.03) 40%, transparent 70%)',
-        pointerEvents: 'none',
-      }} />
-
-      {/* Content */}
-      <div style={{
-        position: 'relative', zIndex: 1,
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', textAlign: 'center',
-        padding: '0 52px', gap: 0,
-      }}>
-        {/* Hero logo */}
-        <div style={{ animation: 'o3float 7s ease-in-out infinite', marginBottom: 28 }}>
-          <img
-            src="/o3-logo.svg"
-            width={156}
-            height={92}
-            alt="O3 Capital"
-            style={{
-              display: 'block',
-              filter: 'drop-shadow(0 14px 44px rgba(0,0,0,0.55)) drop-shadow(0 4px 14px rgba(0,0,0,0.35))',
-            }}
-          />
-        </div>
-
-        {/* Wordmark */}
-        <div style={{ color: 'rgba(255,255,255,0.94)', fontWeight: FW.bold, fontSize: TEXT['2xl'], letterSpacing: '-0.3px', lineHeight: 1 }}>
-          O3 Capital
-        </div>
-        <div style={{ marginTop: 5, color: 'rgba(255,255,255,0.2)', fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.22em', textTransform: 'uppercase' }}>
-          Workspace
-        </div>
-
-        {/* Rule */}
-        <div style={{ marginTop: 40, width: 28, height: 1, background: 'rgba(255,255,255,0.1)' }} />
-
-        {/* Tagline */}
-        <p style={{ marginTop: 32, color: 'rgba(255,255,255,0.35)', fontSize: TEXT.md, lineHeight: 1.8, maxWidth: 260, letterSpacing: '-0.05px' }}>
-          The nerve centre of O3 Capital — loans, cards, fixed deposits, prepaid cards, collections, compliance, and everything in between.
-        </p>
-
-        {/* Stats */}
-        <div style={{ display: 'flex', gap: 32, marginTop: 40 }}>
-          {[['14', 'Depts'], ['24', 'Roles'], ['74+', 'Modules']].map(([n, l]) => (
-            <div key={l} style={{ textAlign: 'center' }}>
-              <div style={{ color: 'rgba(255,255,255,0.84)', fontWeight: FW.extrabold, fontSize: 19, letterSpacing: '-0.5px' }}>{n}</div>
-              <div style={{ color: 'rgba(255,255,255,0.22)', fontSize: 9.5, fontWeight: FW.semibold, letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 3 }}>{l}</div>
-            </div>
-          ))}
+      {/* Brand lockup, top-left */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+        <img src="/o3-logo.svg" width={46} height={27} alt="O3 Capital" style={{ display: 'block' }} />
+        <div>
+          <div style={{ fontWeight: FW.bold, fontSize: 15, letterSpacing: '-0.2px', lineHeight: 1.05 }}>O3 Capital</div>
+          <div style={{ marginTop: 3, fontSize: 9.5, fontWeight: FW.bold, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.42)' }}>Workspace</div>
         </div>
       </div>
 
-      <div style={{ position: 'absolute', bottom: 28, color: 'rgba(255,255,255,0.12)', fontSize: TEXT.xs, letterSpacing: '0.04em' }}>
-        Internal platform · Confidential
+      {/* Statement */}
+      <div style={{ marginTop: 'auto', maxWidth: 400 }}>
+        <div style={{ width: 32, height: 2, background: '#C00000', marginBottom: 26 }} />
+        <h2 style={{ margin: 0, fontSize: 27, lineHeight: 1.32, fontWeight: FW.semibold, letterSpacing: '-0.3px', color: '#fff' }}>
+          The internal workspace for O3 Capital.
+        </h2>
+        <p style={{ margin: '16px 0 0', fontSize: 14, lineHeight: 1.7, color: 'rgba(255,255,255,0.56)' }}>
+          Loans, cards, fixed deposits, collections and compliance, managed by every team in one place.
+        </p>
+      </div>
+
+      {/* Footer */}
+      <div style={{
+        marginTop: 44, paddingTop: 22, borderTop: '1px solid rgba(255,255,255,0.12)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontSize: TEXT.xs, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.01em',
+      }}>
+        <span>© {new Date().getFullYear()} O3 Capital Limited</span>
+        <span>Confidential</span>
       </div>
     </div>
   )
@@ -434,12 +416,12 @@ function PanelDivider() {
 interface LoginProps { onLogin: (u: AuthUser) => void }
 
 export default function Login({ onLogin }: LoginProps) {
-  const [email,        setEmail]        = useState('')
+  const [email,        setEmail]        = useState(readLastEmail)
   const [password,     setPassword]     = useState('')
-  // Opt-in, and deliberately not persisted across visits — the box starts unticked
-  // every time so staying signed in is always a fresh choice rather than something a
-  // previous user of a shared machine decided.
-  const [remember,     setRemember]     = useState(false)
+  // Prefill the last-used email and default "keep me signed in" to on, so returning
+  // staff land straight on the password field with a 30-day session. The choice is
+  // persisted (REMEMBER_KEY), so anyone who unticks it stays unticked next visit.
+  const [remember,     setRemember]     = useState(readRemember)
   const [step,         setStep]         = useState<'credentials' | 'totp'>('credentials')
   const [mfaToken,     setMfaToken]     = useState('')
   const [loading,      setLoading]      = useState(false)
@@ -502,7 +484,7 @@ export default function Login({ onLogin }: LoginProps) {
       })
       setForgotDone(true)
     } catch {
-      setForgotErr('Network error — please try again')
+      setForgotErr('Network error. Please try again')
     } finally {
       setForgotLoad(false)
     }
@@ -521,10 +503,13 @@ export default function Login({ onLogin }: LoginProps) {
       })
       const data = await res.json()
       if (!res.ok) { triggerErr(data.detail || 'Invalid credentials'); return }
+      // Credentials checked out — remember the email for next time (even if MFA is
+      // still pending, the identity is confirmed at this point).
+      try { localStorage.setItem(LAST_EMAIL_KEY, email.trim()) } catch { /* private mode */ }
       if (data.mfa_required) { setMfaToken(data.mfa_token); setStep('totp'); return }
       finalise(data)
     } catch {
-      triggerErr('Network error — is the backend reachable?')
+      triggerErr('Network error. Is the backend reachable?')
     } finally {
       setLoading(false)
     }
@@ -540,7 +525,7 @@ export default function Login({ onLogin }: LoginProps) {
         body: JSON.stringify({ mfa_token: mfaToken, code }),
       })
       const data = await res.json()
-      if (!res.ok) { triggerErr(data.detail || 'Incorrect code — try again'); return }
+      if (!res.ok) { triggerErr(data.detail || 'Incorrect code. Try again'); return }
       finalise(data)
     } catch {
       triggerErr('Network error')
@@ -564,6 +549,17 @@ export default function Login({ onLogin }: LoginProps) {
       must_change_password: data.user.must_change_password ?? false,
     }
     localStorage.setItem('o3c_user', JSON.stringify(user))
+    // Ask the browser's password manager to store these credentials so autofill
+    // works on return visits. Only fires in a secure context (HTTPS / localhost);
+    // on a plain-HTTP LAN it simply no-ops, and the form's autocomplete attributes
+    // still drive the native "save password?" prompt.
+    try {
+      const anyWin = window as any
+      if (navigator.credentials && anyWin.PasswordCredential && email.trim() && password) {
+        const cred = new anyWin.PasswordCredential({ id: email.trim(), password, name: user.name })
+        navigator.credentials.store(cred).catch(() => { /* user declined */ })
+      }
+    } catch { /* unsupported browser */ }
     onLogin(user)
   }
 
@@ -600,7 +596,7 @@ export default function Login({ onLogin }: LoginProps) {
         flex: 1,
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
-        background: wide ? '#fff' : '#050C18',
+        background: wide ? '#fff' : '#07131F',
         padding: '40px 24px',
         minHeight: '100vh',
         position: 'relative',
@@ -613,7 +609,7 @@ export default function Login({ onLogin }: LoginProps) {
             marginBottom: 44,
             animation: 'o3rise 400ms cubic-bezier(0.4,0,0.2,1) both',
           }}>
-            <div style={{ animation: 'o3float 7s ease-in-out infinite' }}>
+            <div>
               <img
                 src="/o3-logo.svg"
                 width={88}
@@ -664,20 +660,23 @@ export default function Login({ onLogin }: LoginProps) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
                   <FloatingField
                     id="login-email"
+                    name="username"
                     label="Work email"
                     type="email"
                     value={email}
                     onChange={setEmail}
-                    autoFocus
-                    autoComplete="email"
+                    autoFocus={!email}
+                    autoComplete="username"
                     delay={40}
                   />
                   <FloatingField
                     id="login-password"
+                    name="password"
                     label="Password"
                     type="password"
                     value={password}
                     onChange={setPassword}
+                    autoFocus={!!email}
                     autoComplete="current-password"
                     delay={80}
                   />
@@ -686,22 +685,39 @@ export default function Login({ onLogin }: LoginProps) {
                 <label
                   htmlFor="login-remember"
                   style={{
-                    marginTop: 14, display: 'flex', alignItems: 'flex-start', gap: 9,
+                    position: 'relative', marginTop: 16, display: 'flex', alignItems: 'center', gap: 11,
                     cursor: 'pointer', userSelect: 'none',
                   }}
                 >
                   <input
                     id="login-remember"
+                    name="remember"
                     type="checkbox"
+                    className="o3-check"
                     checked={remember}
-                    onChange={e => setRemember(e.target.checked)}
-                    style={{ width: 15, height: 15, marginTop: 1, accentColor: NAVY, cursor: 'pointer', flexShrink: 0 }}
+                    onChange={e => {
+                      setRemember(e.target.checked)
+                      try { localStorage.setItem(REMEMBER_KEY, String(e.target.checked)) } catch { /* private mode */ }
+                    }}
                   />
-                  <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.45 }}>
+                  <span
+                    aria-hidden
+                    className="o3-checkbox"
+                    style={{
+                      width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                      border: `1.5px solid ${remember ? NAVY : 'rgba(14,40,65,0.24)'}`,
+                      background: remember ? NAVY : '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    {remember && (
+                      <span className="material-symbols-rounded" style={{ fontSize: 15, color: '#fff', fontVariationSettings: "'wght' 600" }}>
+                        check
+                      </span>
+                    )}
+                  </span>
+                  <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium, lineHeight: 1.4 }}>
                     Keep me signed in for 30 days
-                    <span style={{ display: 'block', fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1 }}>
-                      Only on a device that is yours alone
-                    </span>
                   </span>
                 </label>
 
@@ -718,7 +734,7 @@ export default function Login({ onLogin }: LoginProps) {
                     Forgot your password?
                   </button>
                   <button type="button" className="o3-ghost" onClick={() => { setRegMode(true); setRegEmail(email); setRegErr(''); setRegDone(false) }}>
-                    New here? Request access →
+                    New here? Request access
                   </button>
                 </div>
               </form>
@@ -761,7 +777,7 @@ export default function Login({ onLogin }: LoginProps) {
 
               <div style={{ textAlign: 'center', marginTop: 20 }}>
                 <button type="button" className="o3-ghost" onClick={() => { setForgotMode(false); setForgotDone(false); setForgotErr('') }}>
-                  ← Back to sign in
+                  Back to sign in
                 </button>
               </div>
             </>
@@ -802,7 +818,7 @@ export default function Login({ onLogin }: LoginProps) {
 
               <div style={{ textAlign: 'center', marginTop: 20 }}>
                 <button type="button" className="o3-ghost" onClick={() => { setRegMode(false); setRegDone(false); setRegErr('') }}>
-                  ← Back to sign in
+                  Back to sign in
                 </button>
               </div>
             </>

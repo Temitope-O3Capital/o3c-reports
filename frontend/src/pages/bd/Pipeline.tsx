@@ -306,34 +306,11 @@ export default function BDPipeline() {
     setSearch(''); setFStages(new Set()); setFTypes(new Set()); setFAssignees(new Set())
   }
 
-  function exportLeadsCsv(data: Lead[]) {
-    const header = ['Title', 'Company', 'Contact', 'Type', 'Stage', 'Score', 'Est. Value', 'Assigned', 'Created At']
-    const lines = data.map(r => [
-      `"${String(r.title ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.company_name ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.contact_name ?? '').replace(/"/g, '""')}"`,
-      r.lead_type ?? '',
-      r.stage ?? '',
-      r.lead_score != null ? String(r.lead_score) : '',
-      r.potential_value_kobo != null ? String(Number(r.potential_value_kobo) / 100) : '',
-      `"${String(r.assigned_name ?? '').replace(/"/g, '""')}"`,
-      r.created_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   // Rows behind the current selection (selection survives paging, so resolve from
   // the full loaded set, not just the visible page).
   const selectedLeads = useMemo(() => leads.filter(l => selected.has(l.id)), [leads, selected])
 
-  function exportSelectedCsv() {
-    const rows = selectedLeads.length ? selectedLeads : filtered
-    exportLeadsCsv(rows)
-  }
 
   async function doBulkAssign() {
     if (!bulkAgentId) { toast.error('Select a sales agent'); return }
@@ -628,7 +605,7 @@ export default function BDPipeline() {
 
       {view === 'table' ? (
 
-        <SectionCard title={mineOnly ? "My Leads" : "All Leads"} badge={filtered.length} padding={false} actions={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{viewSwitch}<button onClick={() => exportLeadsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button></div>}>
+        <SectionCard title={mineOnly ? "My Leads" : "All Leads"} badge={filtered.length} padding={false} actions={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{viewSwitch}</div>}>
 
           {/* ── Filter bar ─────────────────────────────────────────────────── */}
           <div style={{
@@ -754,7 +731,7 @@ export default function BDPipeline() {
               }}>
                 <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: SORA }}>
                   {activeFilterCount === 0
-                    ? `No filters applied — showing all ${leads.length} leads`
+                    ? `No filters applied, showing all ${leads.length} leads`
                     : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
                 </span>
                 <button
@@ -849,15 +826,7 @@ export default function BDPipeline() {
                     border: 'none', background: RED, color: '#fff',
                   }}
                 >Assign to Sales</button>
-                <button
-                  onClick={exportSelectedCsv}
-                  style={{
-                    padding: '5px 12px', borderRadius: RADIUS.md,
-                    fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA,
-                    border: '1.5px solid var(--input-bdr)', background: 'transparent', color: 'var(--txt2)',
-                  }}
-                >Export</button>
-              </>
+                </>
             }
           />
 
@@ -877,7 +846,7 @@ export default function BDPipeline() {
                   must never have. */}
               {leads.length >= FETCH_LIMIT && (
                 <span style={{ color: AMBER, marginLeft: 6 }}>
-                  · showing the first {FETCH_LIMIT} only — narrow with search or filters
+                  · showing the first {FETCH_LIMIT} only, narrow with search or filters
                 </span>
               )}
             </span>
@@ -1121,7 +1090,7 @@ export default function BDPipeline() {
               <div>
                 <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>CSV Format</div>
                 <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.6 }}>
-                  Required: <code>entity_type</code> (company / individual / individual_at_company) and a name — <code>company_name</code> and/or <code>first_name</code> + <code>last_name</code>.<br />
+                  Required: <code>entity_type</code> (company / individual / individual_at_company) and a name: <code>company_name</code> and/or <code>first_name</code> + <code>last_name</code>.<br />
                   Optional: <code>contact_email</code>, <code>contact_phone</code>, <code>lead_type</code>, <code>stage</code>, <code>potential_value_naira</code>, <code>notes</code>
                 </div>
                 <button onClick={downloadLeadTemplate} style={{

@@ -116,7 +116,7 @@ function ResolveModal({
   }
 
   return (
-    <Modal open={!!entry} onClose={onClose} title={`Resolve — ${entry?.account_cif ?? ''}`} width={480}>
+    <Modal open={!!entry} onClose={onClose} title={`Resolve: ${entry?.account_cif ?? ''}`} width={480}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <ErrBanner error={resolveErr} />
         {entry && (
@@ -179,8 +179,8 @@ export default function Watchlist() {
   const [statusTab,  setStatusTab]  = useState('all')
   const [resolveEntry, setResolveEntry] = useState<WatchlistEntry | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setErr(null)
     try {
       const res = await apiFetch<{ data: WatchlistEntry[] }>('/api/collections/watchlist?status=all')
@@ -193,7 +193,7 @@ export default function Watchlist() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   // ── KPIs ──────────────────────────────────────────────────────────────────────
 

@@ -189,10 +189,10 @@ func iswFetch(ctx context.Context, db *core.DB, path string, params url.Values) 
 // ── EOD comparison helper ─────────────────────────────────────────────────────
 
 type eodTotals struct {
-	TxnCount   int64   `json:"txn_count"`
-	TotalDR    float64 `json:"total_dr"`
-	TotalCR    float64 `json:"total_cr"`
-	TotalVol   float64 `json:"total_volume"`
+	TxnCount int64   `json:"txn_count"`
+	TotalDR  float64 `json:"total_dr"`
+	TotalCR  float64 `json:"total_cr"`
+	TotalVol float64 `json:"total_volume"`
 }
 
 // eodTotalsForPeriod returns the internal EOD ledger totals, and ok=false when
@@ -301,27 +301,33 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 			return
 		}
 		dateFrom := qstr(r, "from")
-		dateTo   := qstr(r, "to")
-		status   := qstr(r, "status")
-		page     := coalesce(qstr(r, "page"), "1")
-		perPage  := coalesce(qstr(r, "per_page"), "50")
+		dateTo := qstr(r, "to")
+		status := qstr(r, "status")
+		page := coalesce(qstr(r, "page"), "1")
+		perPage := coalesce(qstr(r, "per_page"), "50")
 
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 
 		// Build transfer params — append full-day time bounds so `to` day is included
 		txfParams := url.Values{"page": {page}, "perPage": {perPage}}
-		if dateFrom != "" { txfParams.Set("from", dateFrom+"T00:00:00.000Z") }
-		if dateTo   != "" { txfParams.Set("to",   dateTo+"T23:59:59.000Z") }
-		if status   != "" { txfParams.Set("status", status) }
+		if dateFrom != "" {
+			txfParams.Set("from", dateFrom+"T00:00:00.000Z")
+		}
+		if dateTo != "" {
+			txfParams.Set("to", dateTo+"T23:59:59.000Z")
+		}
+		if status != "" {
+			txfParams.Set("status", status)
+		}
 
 		// Fetch transfers and ledger concurrently
 		type result struct {
 			data map[string]any
 			err  error
 		}
-		txfCh  := make(chan result, 1)
-		ledCh  := make(chan result, 1)
+		txfCh := make(chan result, 1)
+		ledCh := make(chan result, 1)
 
 		go func() {
 			d, e := paystackFetch(ctx, db, "/transfer", txfParams)
@@ -330,8 +336,12 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 		go func() {
 			// Fetch up to 100 ledger entries for the same day range
 			lp := url.Values{"perPage": {"100"}, "page": {"1"}}
-			if dateFrom != "" { lp.Set("from", dateFrom+"T00:00:00.000Z") }
-			if dateTo   != "" { lp.Set("to",   dateTo+"T23:59:59.000Z") }
+			if dateFrom != "" {
+				lp.Set("from", dateFrom+"T00:00:00.000Z")
+			}
+			if dateTo != "" {
+				lp.Set("to", dateTo+"T23:59:59.000Z")
+			}
 			d, e := paystackFetch(ctx, db, "/balance/ledger", lp)
 			ledCh <- result{d, e}
 		}()
@@ -356,7 +366,9 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 			if entries, ok := ledRes.data["data"].([]any); ok {
 				for _, entry := range entries {
 					e, ok := entry.(map[string]any)
-					if !ok { continue }
+					if !ok {
+						continue
+					}
 					reason := zohoStr(e["reason"])
 					// Extract TRF code from reason like "Charge for transfer: TRF_xxx"
 					// or "Stamp Duty for transfer: TRF_xxx"
@@ -367,7 +379,9 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 							break
 						}
 					}
-					if code == "" { continue }
+					if code == "" {
+						continue
+					}
 					if fees[code] == nil {
 						fees[code] = &feeBreakdown{}
 					}
@@ -395,7 +409,9 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 			loanRefs := []string{}
 			for _, item := range items {
 				t, ok := item.(map[string]any)
-				if !ok { continue }
+				if !ok {
+					continue
+				}
 				reason := zohoStr(t["reason"])
 				if idx := strings.Index(reason, disbPrefix); idx >= 0 {
 					ref := strings.TrimSpace(reason[idx+len(disbPrefix):])
@@ -411,7 +427,9 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 				placeholders := ""
 				args := make([]any, len(loanRefs))
 				for i, ref := range loanRefs {
-					if i > 0 { placeholders += "," }
+					if i > 0 {
+						placeholders += ","
+					}
 					placeholders += fmt.Sprintf("$%d", i+1)
 					args[i] = ref
 				}
@@ -432,7 +450,9 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 
 			for _, item := range items {
 				t, ok := item.(map[string]any)
-				if !ok { continue }
+				if !ok {
+					continue
+				}
 				// Attach fee breakdown
 				code := zohoStr(t["transfer_code"])
 				if fb, found := fees[code]; found {
@@ -488,14 +508,14 @@ func paystackWalletKobo(ctx context.Context, db *core.DB) int64 {
 
 func RegisterPaystackRecon(r chi.Router, db *core.DB) {
 	access := core.RequirePages("reconciliation")
-	r.With(access).Get("/summary",      psReconSummary(db))
+	r.With(access).Get("/summary", psReconSummary(db))
 	r.With(access).Get("/transactions", psReconTransactions(db))
-	r.With(access).Get("/settlements",  psReconSettlements(db))
-	r.With(access).Get("/balance",      psReconBalance(db))
-	r.With(access).Get("/ledger",       psProxy(db, "/balance/ledger", nil))
+	r.With(access).Get("/settlements", psReconSettlements(db))
+	r.With(access).Get("/balance", psReconBalance(db))
+	r.With(access).Get("/ledger", psProxy(db, "/balance/ledger", nil))
 	r.With(access).Get("/transfers", psTransfers(db))
-	r.With(access).Get("/refunds",   psProxy(db, "/refund", nil))
-	r.With(access).Get("/disputes",  psProxy(db, "/dispute", nil))
+	r.With(access).Get("/refunds", psProxy(db, "/refund", nil))
+	r.With(access).Get("/disputes", psProxy(db, "/dispute", nil))
 }
 
 func RegisterInterswitchRecon(r chi.Router, db *core.DB) {
@@ -518,7 +538,7 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 		}
 
 		dateFrom := qstr(r, "date_from")
-		dateTo   := qstr(r, "date_to")
+		dateTo := qstr(r, "date_to")
 		if dateFrom == "" || dateTo == "" {
 			respondErr(w, 422, "date_from and date_to are required")
 			return
@@ -530,7 +550,7 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 		// Fetch Paystack totals (first page + meta gives us total count)
 		// Paystack date format: ISO 8601 with time
 		psFrom := dateFrom + "T00:00:00.000Z"
-		psTo   := dateTo + "T23:59:59.000Z"
+		psTo := dateTo + "T23:59:59.000Z"
 
 		// Fetch overall totals (meta.total = full count, meta.total_volume = full volume).
 		psResult, psErr := paystackFetch(ctx, db, "/transaction", url.Values{
@@ -549,13 +569,13 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 		eod, ledgerOK := eodTotalsForPeriod(ctx, db, dateFrom, dateTo)
 
 		type psSummary struct {
-			Configured       bool    `json:"configured"`
-			TotalCount       int64   `json:"total_count"`
-			Success          int64   `json:"success"`
-			Failed           int64   `json:"failed"`
-			TotalVolumeKobo  float64 `json:"total_volume_kobo"`
-			TotalVolumeNGN   float64 `json:"total_volume_ngn"`
-			Error            string  `json:"error,omitempty"`
+			Configured      bool    `json:"configured"`
+			TotalCount      int64   `json:"total_count"`
+			Success         int64   `json:"success"`
+			Failed          int64   `json:"failed"`
+			TotalVolumeKobo float64 `json:"total_volume_kobo"`
+			TotalVolumeNGN  float64 `json:"total_volume_ngn"`
+			Error           string  `json:"error,omitempty"`
 		}
 
 		metaInt64 := func(result map[string]any, key string) int64 {
@@ -630,7 +650,7 @@ func psReconTransactions(db *core.DB) http.HandlerFunc {
 		}
 
 		dateFrom := qstr(r, "date_from")
-		dateTo   := qstr(r, "date_to")
+		dateTo := qstr(r, "date_to")
 		if dateFrom == "" || dateTo == "" {
 			respondErr(w, 422, "date_from and date_to are required")
 			return
@@ -711,7 +731,7 @@ func iswReconSummary(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		dateFrom := qstr(r, "date_from")
-		dateTo   := qstr(r, "date_to")
+		dateTo := qstr(r, "date_to")
 		if dateFrom == "" || dateTo == "" {
 			respondErr(w, 422, "date_from and date_to are required")
 			return
@@ -724,7 +744,7 @@ func iswReconSummary(db *core.DB) http.HandlerFunc {
 			SELECT COUNT(*) AS cnt, COALESCE(SUM(amount_kobo),0) AS vol_kobo
 			FROM interswitch_txns
 			WHERE txn_date >= $1::date AND txn_date <= $2::date`, dateFrom, dateTo); len(rows) > 0 {
-			iswCount   = toInt64(rows[0]["cnt"])
+			iswCount = toInt64(rows[0]["cnt"])
 			iswVolKobo = toInt64(rows[0]["vol_kobo"])
 		}
 
@@ -774,14 +794,14 @@ func iswReconTransactions(db *core.DB) http.HandlerFunc {
 		}
 
 		dateFrom := qstr(r, "date_from")
-		dateTo   := qstr(r, "date_to")
+		dateTo := qstr(r, "date_to")
 		if dateFrom == "" || dateTo == "" {
 			respondErr(w, 422, "date_from and date_to are required")
 			return
 		}
 
 		txnPath := coalesce(os.Getenv("INTERSWITCH_TRANSACTION_PATH"), "/api/v3/transactions")
-		params  := url.Values{
+		params := url.Values{
 			"from":    {dateFrom},
 			"to":      {dateTo},
 			"perPage": {coalesce(qstr(r, "per_page"), "100")},
@@ -804,4 +824,3 @@ func iswReconTransactions(db *core.DB) http.HandlerFunc {
 		})
 	}
 }
-

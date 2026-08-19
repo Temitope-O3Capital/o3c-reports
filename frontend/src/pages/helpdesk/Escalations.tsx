@@ -46,8 +46,8 @@ export default function Escalations() {
   const [includeResolved, setIncludeResolved] = useState(false)
   const [busy, setBusy] = useState<number | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const res = await apiFetch<any>(`/api/helpdesk/escalations${includeResolved ? '?include_resolved=1' : ''}`)
       setRows((res?.data ?? res ?? []) as Escalation[])
@@ -55,7 +55,7 @@ export default function Escalations() {
   }, [includeResolved])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
 
   async function clearEscalation(id: number) {
     setBusy(id)
@@ -128,7 +128,7 @@ export default function Escalations() {
                       <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 3 }}>{r.escalation_reason}</div>
                     )}
                     <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <span>{r.escalated_by_name || 'Someone'} → {r.escalated_to_name || 'supervisors'}</span>
+                      <span>{r.escalated_by_name || 'Someone'} to {r.escalated_to_name || 'supervisors'}</span>
                       <span>· {fmtDatetime(r.escalated_at)}</span>
                       {r.owner_name && <span>· owned by {r.owner_name}</span>}
                       {done && r.resolved_by_name && <span>· cleared by {r.resolved_by_name}</span>}

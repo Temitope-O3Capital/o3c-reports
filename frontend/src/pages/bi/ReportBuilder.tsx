@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, btnPrimary, btnSecondary, DateFilter } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
+import { apiFetch, apiPost, apiExport } from '../../lib/api'
 import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, MONO, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { fmtKobo, fmtNum, monthStart, today } from '../../lib/fmt'
 import { toast } from 'sonner'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MODULES = ['LOS', 'Collections', 'CRM', 'Finance', 'HR', 'Helpdesk', 'Campaigns', 'Compliance']
+// HR was removed from the workspace (migration 121 dropped its 19 tables) and
+// biQueryForReport has no HR case, so selecting it returned 422 "unsupported
+// module" with no explanation.
+const MODULES = ['LOS', 'Collections', 'CRM', 'Finance', 'Helpdesk', 'Campaigns', 'Compliance']
 
 const DATE_RANGES = [
   { value: 'today',         label: 'Today' },
@@ -22,22 +25,20 @@ const DATE_RANGES = [
 const MODULE_METRICS: Record<string, string[]> = {
   LOS:         ['applications', 'approvals', 'disbursement_kobo'],
   Collections: ['accounts', 'outstanding_kobo'],
-  CRM:         ['count', 'value_kobo'],
-  Finance:     ['count', 'amount_kobo'],
-  HR:          ['headcount'],
+  CRM:         ['leads', 'converted', 'value_kobo'],
+  Finance:     ['count', 'debit_ngn', 'credit_ngn', 'net_ngn'],
   Helpdesk:    ['tickets', 'avg_csat'],
-  Campaigns:   ['campaigns', 'sent', 'opened', 'clicked'],
-  Compliance:  ['findings', 'closed'],
+  Campaigns:   ['campaigns', 'sent', 'delivered', 'opened', 'clicked', 'bounced'],
+  Compliance:  ['findings', 'closed', 'overdue'],
 }
 
 const MODULE_DIMS: Record<string, string> = {
   LOS:         'Stage',
   Collections: 'DPD Bucket',
-  CRM:         'Deal Stage',
-  Finance:     'Transaction Type',
-  HR:          'Department',
+  CRM:         'Lead Stage',
+  Finance:     'Channel',
   Helpdesk:    'Status',
-  Campaigns:   'Campaign Type',
+  Campaigns:   'Type',
   Compliance:  'Severity',
 }
 
@@ -86,7 +87,7 @@ function PreviewTable({ rows }: { rows: Row[] }) {
       </table>
       {rows.length > 100 && (
         <div style={{ textAlign: 'center', padding: SP[3], fontSize: TEXT.sm, color: 'var(--txt3)' }}>
-          Showing 100 of {rows.length} rows — export CSV for full data
+          Showing 100 of {rows.length} rows. Export CSV for full data
         </div>
       )}
     </div>
@@ -187,7 +188,7 @@ export default function ReportBuilder() {
   return (
     <Page
       title={id ? 'Edit Report' : 'New Report'}
-      subtitle="Define module, date range, and metrics — then preview and save"
+      subtitle="Define module, date range, and metrics, then preview and save"
       back={{ label: 'All Reports', to: '/bi' }}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
@@ -277,17 +278,32 @@ export default function ReportBuilder() {
             <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
               <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
                 style={{ ...inpStyle, padding: '5px 8px', fontSize: TEXT.sm }} />
-              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>→</span>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>to</span>
               <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
                 style={{ ...inpStyle, padding: '5px 8px', fontSize: TEXT.sm }} />
               <button onClick={runPreview} disabled={running} style={{ ...btnPrimary, padding: '6px 14px', fontSize: TEXT.sm }}>
                 {running ? 'Running…' : 'Run Preview'}
               </button>
               {id && (
-                <button onClick={() => window.open(`/api/bi/reports/${id}/export`, '_blank')}
-                  style={{ ...btnSecondary, padding: '6px 14px', fontSize: TEXT.sm }}>
-                  Export CSV
-                </button>
+                <select
+                  aria-label="Export format"
+                  defaultValue=""
+                  onChange={e => {
+                    const f = e.target.value
+                    if (!f) return
+                    e.target.value = ''
+                    apiExport(`/api/bi/reports/${id}/export?format=${f}`).catch(err => toast.error(err.message))
+                  }}
+                  style={{
+                    ...btnSecondary, padding: '6px 14px', fontSize: TEXT.sm,
+                    appearance: 'none', cursor: 'pointer',
+                  }}
+                >
+                  <option value="">Export…</option>
+                  <option value="csv">CSV</option>
+                  <option value="xlsx">Excel (XLSX)</option>
+                  <option value="json">JSON</option>
+                </select>
               )}
             </div>
           }>

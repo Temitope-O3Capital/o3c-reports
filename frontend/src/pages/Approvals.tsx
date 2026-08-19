@@ -87,8 +87,8 @@ export default function Approvals() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const [pending, summ] = await Promise.all([
         apiFetch<{ data: ApprovalItem[] }>(`/api/approvals/pending?from=${dateFrom}&to=${dateTo}`),
@@ -101,7 +101,7 @@ export default function Approvals() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   const filtered = moduleFilter
     ? items.filter(i => i.module === moduleFilter)

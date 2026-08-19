@@ -76,8 +76,8 @@ export default function RegulatoryCalendar() {
   const [doneEntry, setDoneEntry] = useState<CBNReport | null>(null)
   const [doneing, setDoneing] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
       if (dateFrom) p.set('from', dateFrom)
@@ -91,7 +91,7 @@ export default function RegulatoryCalendar() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   const uniqueRegulators = useMemo(() => [...new Set(rawItems.map(r => r.regulatory_body).filter(Boolean))] as string[], [rawItems])
 
@@ -145,21 +145,6 @@ export default function RegulatoryCalendar() {
     finally { setDoneing(false) }
   }
 
-  function exportCalendarCsv(data: CBNReport[]) {
-    const header = ['Requirement', 'Regulatory Body', 'Due Date', 'Owner', 'Status']
-    const lines = data.map(r => [
-      `"${String(r.report_name ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.regulatory_body ?? '').replace(/"/g, '""')}"`,
-      r.due_date ?? '',
-      `"${String(r.owner_name ?? '').replace(/"/g, '""')}"`,
-      r.status ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `regulatory-calendar-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   const cols: TableCol<CBNReport>[] = [
     {
@@ -209,12 +194,7 @@ export default function RegulatoryCalendar() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <SectionCard title="Regulatory Requirements" badge={rawItems.length} padding={false} actions={
-        <button onClick={() => exportCalendarCsv(items)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
-          Export CSV
-        </button>
-      }>
+      <SectionCard title="Regulatory Requirements" badge={rawItems.length} padding={false}>
         <ExpandableFilterBar
           search={search} onSearch={setSearch}
           groups={[

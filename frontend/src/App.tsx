@@ -77,7 +77,6 @@ const MailThread     = lazy(() => import('./pages/mail/ThreadDetail'))
 const SalesOverview  = lazy(() => import('./pages/sales/Overview'))
 const SalesCohort    = lazy(() => import('./pages/sales/Cohort'))
 const SalesCohortDetail = lazy(() => import('./pages/sales/CohortDetail'))
-const SalesReports   = lazy(() => import('./pages/sales/Reports'))
 const SalesTargets   = lazy(() => import('./pages/sales/Targets'))
 const CRMContacts    = lazy(() => import('./pages/sales/Customers'))
 const SalesBook      = lazy(() => import('./pages/sales/Book'))
@@ -89,7 +88,6 @@ const CRMContactDetail = lazy(() => import('./pages/sales/ContactDetail'))
 const ContactProfile   = lazy(() => import('./pages/contacts/ContactProfile'))
 const CustomerDirectory = lazy(() => import('./pages/directory/Customers'))
 const ContactSegments  = lazy(() => import('./pages/contacts/Segments'))
-const CRMPipelinePg  = lazy(() => import('./pages/sales/CRMPipeline'))
 const CRMTasks       = lazy(() => import('./pages/sales/Tasks'))
 // LOS (loan origination)
 const LOSQueue         = lazy(() => import('./pages/los/Queue'))
@@ -286,7 +284,7 @@ function homeFor(role: string): string {
     internal_control_head: '/compliance',
     it_admin: '/admin/overview',
     bi_analyst: '/reports',        bi_head: '/reports',
-    settlement_officer: '/settlements',
+    settlement_officer: '/settlements', settlement_head: '/settlements',
     payroll_officer: '/payroll',   payroll_manager: '/payroll',
   }
   return map[role] ?? '/'
@@ -364,9 +362,9 @@ const MODULE_TITLES: [string, string, string][] = [
   ['/mail',            'Sales & BD',        'Mail'],
   ['/campaigns',       'Sales & BD',        'Campaigns & Marketing'],
   ['/marketing',       'Sales & BD',        'Marketing'],
-  ['/sales/crm',       'Sales & BD',        'CRM'],
-  ['/sales/customers', 'Sales & BD',        'Contacts'],
-  ['/sales',           'Sales & BD',        'Sales'],
+  ['/sales/crm',       'Sales',             'Pipeline'],
+  ['/sales/customers', 'Sales',             'Contacts'],
+  ['/sales',           'Sales',             'Sales'],
   ['/call-center',     'Call Center',       'Call Center'],
   ['/helpdesk',        'Call Center',       'Overview'],
   ['/care',            'Care',              'Care'],
@@ -665,7 +663,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
               onClick={() => { setOpen(false); navigate('/approvals') }}
               style={{ fontSize: 12, color: BLUE, border: 'none', background: 'none', cursor: 'pointer', fontFamily: "'Sora', sans-serif", padding: 0, fontWeight: 500 }}
             >
-              View all approvals →
+              View all approvals
             </button>
           </div>
         </div>
@@ -756,7 +754,7 @@ function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
         onFocus={() => { setFocused(true); if (query.trim().length >= 2) setShow(true) }}
         onBlur={() => setFocused(false)}
         onKeyDown={e => { if (e.key === 'Escape') { setShow(false); reset() } }}
-        placeholder="Customer 360 — name, CIF, phone or email…"
+        placeholder="Customer 360: name, CIF, phone or email…"
         style={{
           border: 'none', outline: 'none', background: 'none', flex: 1,
           fontFamily: "'Sora', sans-serif", fontSize: 12.5, color: 'var(--txt)',
@@ -978,7 +976,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/sales/overview" element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/cohort"         element={<RequireAccess page="cohort" user={user}><PageErrorBoundary><SalesCohort /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/cohort/:month"  element={<RequireAccess page="cohort" user={user}><PageErrorBoundary><SalesCohortDetail /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/sales/reports"   element={<RequireAccess page="crm_reports" user={user}><PageErrorBoundary><SalesReports /></PageErrorBoundary></RequireAccess>} />
+                  {/* Reports retired — its content lives on Overview + Team (Live). */}
+                  <Route path="/sales/reports"   element={<Navigate to="/sales/overview" replace />} />
                   <Route path="/sales/targets"   element={<RequireAccess page="sales" user={user}><PageErrorBoundary><SalesTargets /></PageErrorBoundary></RequireAccess>} />
                   {/* The account officer's book. /sales/accounts is kept as a redirect
                       so existing links and bookmarks do not break. */}
@@ -994,7 +993,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/contacts/:id"        element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><ContactProfile /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/contact-segments"    element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><ContactSegments /></PageErrorBoundary></RequireAccess>} />
 
-                  <Route path="/sales/crm"           element={<RequireAccess page="crm_pipeline" user={user}><PageErrorBoundary><CRMPipelinePg /></PageErrorBoundary></RequireAccess>} />
+                  {/* Pipeline retired — the Leads funnel (crm_contacts) is the one source of truth. */}
+                  <Route path="/sales/crm"           element={<Navigate to="/sales/leads" replace />} />
                   <Route path="/sales/tasks"         element={<RequireAccess page="crm_tasks" user={user}><PageErrorBoundary><CRMTasks /></PageErrorBoundary></RequireAccess>} />
 
                   <Route path="/sales/applications"     element={<RequireAccess page="loans" user={user}><PageErrorBoundary><LOSQueue /></PageErrorBoundary></RequireAccess>} />
@@ -1290,7 +1290,7 @@ function ForceChangePassword({ onDone }: { onDone: () => void }) {
         <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', marginBottom: 6 }}>Set your password</h1>
         <p style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 24 }}>Please set a new password before continuing.</p>
         {ok ? (
-          <p style={{ color: 'var(--nav-dot)', fontWeight: 600 }}>Password updated — logging you in…</p>
+          <p style={{ color: 'var(--nav-dot)', fontWeight: 600 }}>Password updated. Logging you in…</p>
         ) : (
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <input type="password" placeholder="New password (min. 12 characters)" value={pw} onChange={e => setPw(e.target.value)}

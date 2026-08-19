@@ -61,8 +61,8 @@ export default function PayrollOverview() {
   const [year, setYear] = useState(new Date().getFullYear())
   const [month, setMonth] = useState(new Date().getMonth() + 1)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const d = await apiFetch<SummaryData>(`/api/payroll/summary?from=${dateFrom}&to=${dateTo}`)
       setData(d)
@@ -71,7 +71,7 @@ export default function PayrollOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   async function handleCreate() {
     setCreating(true)
@@ -79,7 +79,7 @@ export default function PayrollOverview() {
       const res = await apiPost<{ id: number; headcount: number }>('/api/payroll/runs', {
         period_year: year, period_month: month,
       })
-      toast.success(`Payroll run created — ${res.headcount} employees included`)
+      toast.success(`Payroll run created: ${res.headcount} employees included`)
       setNewOpen(false)
       navigate(`/payroll/runs/${res.id}`)
     } catch (e: any) {
@@ -102,25 +102,6 @@ export default function PayrollOverview() {
     return true
   }), [runs, fStatuses, runSearch])
 
-  function exportRunsCsv(rows: PayrollRun[]) {
-    const header = ['Period', 'Status', 'Headcount', 'Gross', 'Net Pay', 'PAYE', 'Pension', 'Created', 'Paid']
-    const lines = rows.map(r => [
-      `${MONTHS[r.period_month]} ${r.period_year}`,
-      r.status ?? '',
-      r.headcount ?? 0,
-      r.total_gross_kobo / 100,
-      r.total_net_kobo / 100,
-      r.total_paye_kobo / 100,
-      r.total_pension_kobo / 100,
-      r.created_at ?? '',
-      r.paid_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `payroll-runs-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   const thisYear = new Date().getFullYear()
   const yearOptions = [thisYear - 1, thisYear, thisYear + 1]

@@ -428,7 +428,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                         padding: 0,
                       }}
                     >
-                      View all →
+                      View all
                     </button>
                   )}
                 </div>
@@ -497,7 +497,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                           fontSize: 12, color: NAVY, fontWeight: 600, fontFamily: SORA,
                         }}
                       >
-                        + {events.length - 12} more events — View full history
+                        + {events.length - 12} more events. View full history
                       </button>
                     )}
                   </div>
@@ -558,7 +558,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                 fontFamily: SORA, cursor: 'pointer', whiteSpace: 'nowrap',
               }}
             >
-              Full profile →
+              Full profile
             </button>
           </div>
         )}

@@ -82,8 +82,8 @@ export default function DPARegister() {
   const [fSecurity,   setFSecurity]   = useState('')
   const [fCategories, setFCategories] = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const p = new URLSearchParams()
       if (dateFrom) p.set('from', dateFrom)
@@ -95,7 +95,7 @@ export default function DPARegister() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   const create = async () => {
     if (!fName || !fPurpose || !fBasis) { toast.error('Name, purpose and legal basis are required'); return }
@@ -139,7 +139,7 @@ export default function DPARegister() {
   return (
     <Page
       title="Data Processing Register"
-      subtitle="NDPR Article 4.1 / FCCPC compliance — inventory of personal data processing activities"
+      subtitle="NDPR Article 4.1 / FCCPC compliance: inventory of personal data processing activities"
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -183,7 +183,7 @@ export default function DPARegister() {
                     <td style={{ ...td, fontWeight: FW.semibold, color: NAVY, maxWidth: 200 }}>
                       <div>{row.processing_name}</div>
                       {row.third_country_transfers && (
-                        <div style={{ fontSize: TEXT.xs, color: AMBER, fontWeight: FW.bold, marginTop: 2 }}>⚠ Third-country transfer</div>
+                        <div style={{ fontSize: TEXT.xs, color: AMBER, fontWeight: FW.bold, marginTop: 2 }}>Third-country transfer</div>
                       )}
                     </td>
                     <td style={{ ...td, color: 'var(--txt2)', maxWidth: 200, fontSize: TEXT.sm }}>{row.purpose}</td>

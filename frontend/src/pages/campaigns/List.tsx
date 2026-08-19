@@ -101,8 +101,8 @@ export default function CampaignsList() {
   const [actionErr, setActionErr] = useState<string | null>(null)
   const [summary, setSummary]     = useState<{ active: number; scheduled: number; completed: number; draft: number } | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null); setPage(1)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null); setPage(1)
     try {
       const p = new URLSearchParams({ limit: '50', offset: '0' })
       if (fTypes.size)    p.set('type',   [...fTypes].join(','))
@@ -146,7 +146,7 @@ export default function CampaignsList() {
   }
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   async function doAction(id: number, action: 'start' | 'pause' | 'cancel') {
     setActionErr(null)
@@ -185,25 +185,6 @@ export default function CampaignsList() {
   const completed = summary?.completed ?? campaigns.filter(c => c.status === 'completed').length
   const draft     = summary?.draft     ?? campaigns.filter(c => c.status === 'draft').length
 
-  function exportCampaignsCsv(data: Campaign[]) {
-    const header = ['Name', 'Type', 'Status', 'Audience', 'Sent', 'Delivered', 'Open Rate', 'Scheduled At', 'Created At']
-    const lines = data.map(r => [
-      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
-      r.type ?? '',
-      r.status ?? '',
-      r.total_contacts != null ? String(r.total_contacts) : '',
-      String(sentCount(r)),
-      String(deliveredCount(r)),
-      openRate(r).toFixed(1) + '%',
-      r.scheduled_at ?? '',
-      r.created_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `campaigns-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   const cols: TableCol<Campaign>[] = [
     {
@@ -298,7 +279,7 @@ export default function CampaignsList() {
         <KpiCard label="Draft"     value={fmtNum(draft)}     loading={loading} />
       </div>
 
-      <SectionCard title="All Campaigns" badge={displayed.length} padding={false} actions={<button onClick={() => exportCampaignsCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV</button>}>
+      <SectionCard title="All Campaigns" badge={displayed.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

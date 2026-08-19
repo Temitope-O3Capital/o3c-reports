@@ -24,6 +24,26 @@ export interface LogCallInitial {
   cif?: string
   direction?: string   // 'Inbound' | 'Outbound'
   purpose?: string     // '' | 'marketing' | 'sales' | 'collections' | 'support'
+  // leadId links the call to a call-centre lead, so logging it also advances the
+  // lead (status, callback, DNC) in the same request. The Leads page used to run
+  // its own four-field form against a separate endpoint, which is how the two
+  // flows drifted apart.
+  leadId?: number
+}
+
+// A real call on this number that the agent could be writing up — see
+// GET /api/helpdesk/calls/candidates.
+export interface CallCandidate {
+  id: number
+  direction: string
+  outcome: string
+  duration_sec: number | null
+  started_at: string
+  customer_name?: string | null
+  customer_cif?: string | null
+  agent_name?: string | null
+  has_recording?: boolean
+  is_mine?: boolean
 }
 
 // Purpose = which book the call belongs to. Kept in step with helpdesk/Calls.tsx.
@@ -43,8 +63,11 @@ const SUPPORT_DISPOSITIONS = [
 const DISPOSITIONS_BY_PURPOSE: Record<string, string[]> = {
   '':           SUPPORT_DISPOSITIONS,
   support:      SUPPORT_DISPOSITIONS,
-  marketing:    ['Interested', 'Not Interested', 'Converted', 'Callback Scheduled', 'Wrong Number', 'Do Not Call', 'Unreachable / No Answer'],
-  sales:        ['Interested', 'Not Interested', 'Converted', 'Callback Scheduled', 'Wrong Number', 'Do Not Call', 'Unreachable / No Answer'],
+  // 'Not Eligible' and 'Not Ready Yet' used to be forced into 'Not Interested',
+  // which closes the lead. They are different outcomes: not eligible is a decline
+  // on our side, not ready is a timing objection worth calling back.
+  marketing:    ['Interested', 'Not Ready Yet', 'Not Eligible', 'Not Interested', 'Converted', 'Callback Scheduled', 'Wrong Number', 'Do Not Call', 'Unreachable / No Answer'],
+  sales:        ['Interested', 'Not Ready Yet', 'Not Eligible', 'Not Interested', 'Converted', 'Callback Scheduled', 'Wrong Number', 'Do Not Call', 'Unreachable / No Answer'],
   collections:  ['Promise to Pay', 'Paid', 'Dispute', 'Callback Scheduled', 'Escalated', 'Wrong Number', 'Unreachable / No Answer'],
 }
 function dispositionsFor(purpose: string): string[] {
@@ -95,12 +118,21 @@ function autoDispositionFor(outcome: string, purpose: string): string | null {
 interface CallScriptStep { order: number; prompt: string; options?: string[] }
 interface CallScript { id: number; ticket_type: string; name: string; steps: CallScriptStep[]; is_active: boolean }
 
-export default function LogCallModal({ open, initial, onClose, onSaved }: {
+// CallLogForm is the single implementation of "log a call" — every field, every
+// auto-mapping rule and the submit itself. LogCallModal wraps it in a dialog; the
+// Leads page renders it inline. They are the same code, which is the point: the
+// Leads page used to carry a four-field copy that captured no CIF, no disposition
+// and no ticket, and the two could drift apart indefinitely.
+export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal' }: {
   open: boolean
   initial?: LogCallInitial
   onClose: () => void
   onSaved: () => void
+  /** 'inline' drops the dialog chrome and the customer picker for a page that
+   *  already shows who the call is with (the lead detail pane). */
+  variant?: 'modal' | 'inline'
 }) {
+  const inline = variant === 'inline'
   const [form, setForm] = useState({
     customer_name: '', phone: '', customer_cif: '', direction: 'Inbound',
     outcome: 'completed', disposition: '', purpose: '', duration_seconds: '',
@@ -113,23 +145,65 @@ export default function LogCallModal({ open, initial, onClose, onSaved }: {
   const [callScript, setCallScript] = useState<CallScript | null>(null)
   const [scriptExpanded, setScriptExpanded] = useState(false)
 
-  // Reset to the caller's context each time the modal opens.
+  // Draft key — one per call context, so two agents (or two leads) never share a
+  // draft and reopening the same lead restores that lead's own unsent notes.
+  const draftKey = `o3c_calldraft_${initial?.leadId ?? ''}_${initial?.cif ?? ''}_${initial?.phone ?? ''}`
+
+  // Seed the form when the context CHANGES — not on every re-render.
+  //
+  // This effect used to depend on `initial`, which callers build as an object
+  // literal, so it was a new reference on every parent render. A background
+  // refresh re-rendered the page, `initial` looked "new", and the form reset —
+  // wiping whatever the agent had typed mid-call. Depending on the primitive
+  // values means it fires only when the call being logged actually changes.
+  //
+  // Anything unsent is restored from the draft, so a refresh, a stray reload or a
+  // closed tab no longer costs an agent their notes.
+  const seedKey = `${open}|${initial?.leadId ?? ''}|${initial?.cif ?? ''}|${initial?.phone ?? ''}|${initial?.direction ?? ''}|${initial?.purpose ?? ''}`
   useEffect(() => {
     if (!open) return
     const dir = initial?.direction === 'Outbound' ? 'Outbound' : initial?.direction === 'Inbound' ? 'Inbound' : 'Inbound'
     const nm = initial?.name && initial.name !== 'Unknown' ? initial.name : ''
-    setForm({
+    const fresh = {
       customer_name: nm, phone: initial?.phone ?? '', customer_cif: initial?.cif ?? '',
       direction: dir, outcome: 'completed', disposition: '', purpose: initial?.purpose ?? '',
       duration_seconds: '', callback_at: '', ticket_type: '', notes: '', resolution: '',
-    })
-    // If we already know who this is (prefilled), skip straight to the manual view so
-    // the agent isn't forced back through search.
+    }
+    let restored = false
+    try {
+      const saved = localStorage.getItem(draftKey)
+      if (saved) {
+        const d = JSON.parse(saved)
+        // Only restore a draft with something actually in it; a blank one is noise.
+        if (d && (d.notes || d.resolution || d.disposition)) {
+          setForm({ ...fresh, ...d })
+          restored = true
+        }
+      }
+    } catch { /* a corrupt draft must never block logging a call */ }
+    if (!restored) setForm(fresh)
+
     setCustPicked(false)
     setCustManual(!!(initial?.name || initial?.phone || initial?.cif))
     setCreateTicket(false)
     setCallScript(null)
-  }, [open, initial])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedKey])
+
+
+  // Persist the draft as it is typed. Debounced so a fast typist is not writing to
+  // localStorage on every keystroke, and only for a form with real content.
+  useEffect(() => {
+    if (!open) return
+    const t = setTimeout(() => {
+      try {
+        if (form.notes || form.resolution || form.disposition || form.duration_seconds) {
+          localStorage.setItem(draftKey, JSON.stringify(form))
+        }
+      } catch { /* storage full or blocked — the form still works */ }
+    }, 400)
+    return () => clearTimeout(t)
+  }, [open, form, draftKey])
 
   // Load the call script for the chosen ticket type (shown only while a ticket type is set).
   useEffect(() => {
@@ -138,6 +212,76 @@ export default function LogCallModal({ open, initial, onClose, onSaved }: {
       .then(r => { const s = r?.data ?? r; setCallScript(s?.id ? s : null); setScriptExpanded(true) })
       .catch(() => setCallScript(null))
   }, [open, form.ticket_type])
+
+
+  // ── Duration ───────────────────────────────────────────────────────────────
+  //
+  // Agents talk through Zoho Voice and log the call here afterwards. Asking them
+  // to type the duration in seconds meant nobody ever did: every manually logged
+  // call in the book has a NULL duration. So the form fills it in two ways, and
+  // the agent can still override by typing.
+  //
+  //  1. Auto-match — look up the agent's most recent real call on this number and
+  //     take its duration. That is the call they are logging.
+  //  2. Live timer — for a call happening right now, start it and it fills as the
+  //     conversation runs.
+  const [durSource, setDurSource] = useState<'' | 'matched' | 'timer' | 'manual'>('')
+  const [matchedCall, setMatchedCall] = useState<CallCandidate | null>(null)
+  const [candidates, setCandidates] = useState<CallCandidate[]>([])
+  const [timerFrom, setTimerFrom] = useState<number | null>(null)
+
+  // Which call is this?
+  //
+  // The auto-match has to pick a window and no window is right: too wide and a
+  // second attempt on a number inherits the first attempt's write-up; too narrow
+  // and an agent writing up a call an hour later loses the duration and recording
+  // entirely. The agent knows which call it is, so ask them — but only when the
+  // answer is not obvious.
+  useEffect(() => {
+    if (!open) { setMatchedCall(null); setCandidates([]); return }
+    const phone = form.phone.trim()
+    if (!phone) { setMatchedCall(null); setCandidates([]); return }
+    let alive = true
+    apiFetch<any>(`/api/helpdesk/calls/candidates?phone=${encodeURIComponent(phone)}`)
+      .then(res => {
+        if (!alive) return
+        const list: CallCandidate[] = Array.isArray(res) ? res : (res?.data ?? [])
+        setCandidates(list)
+        // Auto-select only when it is genuinely unambiguous: the most recent call
+        // is recent AND actually connected. Otherwise leave it to the agent rather
+        // than stamping a guess on their work.
+        const best = list.find(c => (c.duration_sec ?? 0) > 5) ?? null
+        const fresh = best && (Date.now() - new Date(best.started_at).getTime()) < 15 * 60_000
+        if (best && fresh) selectCall(best)
+      })
+      .catch(() => { if (alive) { setMatchedCall(null); setCandidates([]) } })
+    return () => { alive = false }
+  }, [open, form.phone])
+
+  // Attach to a specific call: adopt its duration, and its identity if we have none.
+  function selectCall(c: CallCandidate | null) {
+    setMatchedCall(c)
+    if (!c) { setDurSource(s => (s === 'matched' ? '' : s)); return }
+    if (c.duration_sec != null && c.duration_sec > 0) {
+      setForm(f => ({ ...f, duration_seconds: String(c.duration_sec) }))
+      setDurSource('matched')
+    }
+    setForm(f => ({
+      ...f,
+      direction: c.direction ? (c.direction.toLowerCase() === 'inbound' ? 'Inbound' : 'Outbound') : f.direction,
+      customer_name: f.customer_name || c.customer_name || '',
+      customer_cif: f.customer_cif || c.customer_cif || '',
+    }))
+  }
+
+  // Live timer tick.
+  useEffect(() => {
+    if (timerFrom == null) return
+    const id = setInterval(() => {
+      setForm(f => ({ ...f, duration_seconds: String(Math.round((Date.now() - timerFrom) / 1000)) }))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [timerFrom])
 
   const dispositions = dispositionsFor(form.purpose)
 
@@ -223,6 +367,13 @@ export default function LogCallModal({ open, initial, onClose, onSaved }: {
         notes:            form.notes || undefined,
         resolution:       form.resolution || undefined,
         ticket_ref:       ticketRef,
+        // Advances the lead in the same write when the call came from Leads.
+        lead_id:          initial?.leadId,
+        // Attach these notes to the real Voice call rather than creating a second
+        // record. Without this the recording and duration live on one row and the
+        // notes on another, and neither is the whole call.
+        merge_call_id:    matchedCall?.id,
+        callback_at:      needsCallback && form.callback_at ? form.callback_at : undefined,
       })
       // A scheduled callback drops into the outbound queue for this number.
       if (needsCallback && form.phone.trim()) {
@@ -233,6 +384,8 @@ export default function LogCallModal({ open, initial, onClose, onSaved }: {
           })
         } catch { /* the call itself logged; surface only the primary result */ }
       }
+      // Submitted successfully — the draft has served its purpose.
+      try { localStorage.removeItem(draftKey) } catch { /* ignore */ }
       toast.success(ticketRef ? `Call logged · ticket ${ticketRef} opened`
         : needsCallback ? 'Call logged · callback scheduled' : 'Call logged')
       resetAndClose()
@@ -252,29 +405,19 @@ export default function LogCallModal({ open, initial, onClose, onSaved }: {
     display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5,
   }
 
-  return (
-    <Modal
-      open={open}
-      onClose={resetAndClose}
-      title="Log a Call"
-      width={500}
-      footer={
-        <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
-          <button onClick={resetAndClose}
-            style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
-            Cancel
-          </button>
-          <button onClick={submit} disabled={saving}
-            style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: SP[2] }}>
-            {saving && <Spinner size={13} color="#fff" />}
-            Log Call
-          </button>
-        </div>
-      }
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: SORA }}>
+  // ── Render ─────────────────────────────────────────────────────────────────
+  //
+  // The body is identical in both variants; only the chrome differs. Inline mode
+  // has no dialog, no Cancel, and no customer picker — the lead pane above it
+  // already names who is being called.
+  const body = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: SORA }}>
 
-        {/* Customer — search & autofill, with a manual (walk-in) fallback */}
+        {/* Customer — search & autofill, with a manual (walk-in) fallback.
+            Hidden inline: the lead pane directly above already shows the name,
+            number and CIF, so repeating a picker there is noise. The name is
+            still editable inline when the lead has none — see below. */}
+        {!inline && (
         <div>
           <label style={labelSt}>Customer</label>
           {custPicked ? (
@@ -283,7 +426,20 @@ export default function LogCallModal({ open, initial, onClose, onSaved }: {
                 {initialsOf(form.customer_name)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>{form.customer_name || 'Unknown customer'}</div>
+                {/* A linked record with no name still needs one — an inbound call
+                    from an unknown number used to render "Unknown customer" with
+                    no way to type who it actually was. */}
+                {form.customer_name ? (
+                  <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>{form.customer_name}</div>
+                ) : (
+                  <input
+                    value={form.customer_name}
+                    onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))}
+                    placeholder="Add the caller's name"
+                    autoFocus
+                    style={{ ...inputSt, height: 28, fontWeight: FW.bold, padding: '0 8px' }}
+                  />
+                )}
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>
                   {form.customer_cif && <span style={{ fontFamily: 'var(--font-mono)' }}>CIF {form.customer_cif}</span>}
                   {form.phone && <span>{form.phone}</span>}
@@ -322,9 +478,25 @@ export default function LogCallModal({ open, initial, onClose, onSaved }: {
             />
           )}
         </div>
+        )}
 
-        {/* Direction / Outcome / Duration */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: SP[3] }}>
+        {/* Inline: the lead may have no name yet, and the agent learns it on the
+            call. This is the one customer field worth keeping in the lead pane. */}
+        {inline && !form.customer_name && (
+          <div>
+            <label style={labelSt}>Caller name</label>
+            <input value={form.customer_name}
+              onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))}
+              placeholder="Add the name once you have it" style={inputSt} />
+          </div>
+        )}
+
+{/* Direction / Outcome / Duration.
+            Inline (leads) drops Direction: working a lead list is outbound dialling
+            by definition, and re-picking it on every call is a field the agent
+            would set identically a hundred times a day. */}
+        <div style={{ display: 'grid', gridTemplateColumns: inline ? '1fr 1fr' : '1fr 1fr 1fr', gap: SP[3] }}>
+          {!inline && (
           <div>
             <label style={labelSt}>Direction</label>
             <select value={form.direction} onChange={e => setForm(f => ({ ...f, direction: e.target.value }))} style={inputSt}>
@@ -332,6 +504,7 @@ export default function LogCallModal({ open, initial, onClose, onSaved }: {
               <option value="Outbound">Outbound</option>
             </select>
           </div>
+          )}
           <div>
             <label style={labelSt}>Outcome</label>
             <select value={form.outcome} onChange={e => setOutcome(e.target.value)} style={inputSt}>
@@ -343,21 +516,61 @@ export default function LogCallModal({ open, initial, onClose, onSaved }: {
             </select>
           </div>
           <div>
-            <label style={labelSt} title="Auto-captured from Zoho Voice on synced calls; enter it only for a manually logged call">Duration (sec)</label>
-            <input type="number" min={0} value={form.duration_seconds}
-              onChange={e => setForm(f => ({ ...f, duration_seconds: e.target.value }))}
-              placeholder="auto for voice" style={inputSt} />
+            <label style={labelSt}>Duration</label>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <input type="number" min={0} value={form.duration_seconds}
+                onChange={e => { setForm(f => ({ ...f, duration_seconds: e.target.value })); setDurSource('manual'); setTimerFrom(null) }}
+                placeholder="seconds" style={{ ...inputSt, flex: 1, minWidth: 0 }} />
+              <button type="button"
+                title={timerFrom == null ? 'Start timing this call' : 'Stop the timer'}
+                onClick={() => {
+                  if (timerFrom == null) { setTimerFrom(Date.now()); setDurSource('timer') }
+                  else { setTimerFrom(null); setDurSource('manual') }
+                }}
+                style={{
+                  flexShrink: 0, width: 34, borderRadius: RADIUS.md, cursor: 'pointer',
+                  border: `1px solid ${timerFrom == null ? 'var(--bdr)' : GREEN}`,
+                  background: timerFrom == null ? 'var(--card)' : `${GREEN}14`,
+                  color: timerFrom == null ? 'var(--txt2)' : GREEN,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 17 }}>
+                  {timerFrom == null ? 'timer' : 'stop_circle'}
+                </span>
+              </button>
+            </div>
+            {/* Say where the number came from — an auto-filled duration the agent
+                cannot account for is one they will not trust. */}
+{matchedCall && (
+              <div style={{ fontSize: TEXT['2xs'], color: GREEN, marginTop: 3, lineHeight: 1.4 }}>
+                Attaching to the {new Date(matchedCall.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} call
+                {matchedCall.has_recording && ' · recorded'}
+              </div>
+            )}
+            {durSource === 'timer' && (
+              <div style={{ fontSize: TEXT['2xs'], color: GREEN, marginTop: 3 }}>Timing…</div>
+            )}
+            {!durSource && (
+              <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 3 }}>
+                Auto-fills from Voice
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Purpose / Disposition — disposition list adapts to the purpose */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
+{/* Purpose / Disposition — the disposition list adapts to the purpose.
+            Inline (leads) drops Purpose: a lead call is a marketing call, set from
+            the lead itself, and the disposition list is already narrowed to that
+            book. */}
+        <div style={{ display: 'grid', gridTemplateColumns: inline ? '1fr' : '1fr 1fr', gap: SP[3] }}>
+          {!inline && (
           <div>
             <label style={labelSt}>Call purpose / links to</label>
             <select value={form.purpose} onChange={e => setPurpose(e.target.value)} style={inputSt}>
               {CALL_PURPOSES.map(p => <option key={p.value || 'support'} value={p.value}>{p.label}</option>)}
             </select>
           </div>
+          )}
           <div>
             <label style={labelSt}>Disposition</label>
             <select value={form.disposition} onChange={e => setDisposition(e.target.value)} style={inputSt}>
@@ -445,6 +658,176 @@ export default function LogCallModal({ open, initial, onClose, onSaved }: {
           </div>
         )}
       </div>
+  )
+
+  const actions = (
+    <div style={{ display: 'flex', gap: SP[2], justifyContent: inline ? 'stretch' : 'flex-end' }}>
+      {!inline && (
+        <button onClick={resetAndClose}
+          style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
+          Cancel
+        </button>
+      )}
+      <button onClick={submit} disabled={saving}
+        style={{
+          padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY,
+          color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold,
+          cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: SP[2],
+          flex: inline ? 1 : undefined,
+        }}>
+        {saving && <Spinner size={13} color="#fff" />}
+        Log Call
+      </button>
+    </div>
+  )
+
+  if (inline) {
+    if (!open) return null
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {body}
+        {actions}
+      </div>
+    )
+  }
+
+  return (
+    <Modal open={open} onClose={resetAndClose} title="Log a Call" width={500} footer={actions}>
+      {body}
     </Modal>
   )
+}
+
+// LogCallModal is the dialog form of CallLogForm, used everywhere a call is logged
+// from a list or a header action.
+export default function LogCallModal(props: {
+  open: boolean
+  initial?: LogCallInitial
+  onClose: () => void
+  onSaved: () => void
+}) {
+  return <CallLogForm {...props} variant="modal" />
+}
+
+/**
+ * How an outcome should read, given the direction of the call.
+ *
+ * "Missed" is a word about US: nobody here picked up. On an OUTBOUND dial the
+ * customer did not answer, which is "No Answer" — not a miss by the agent, and
+ * agents reasonably objected to seeing their own outbound calls described that
+ * way in a lead's history.
+ *
+ * Zoho stores one value ("missed") for both, so the label has to be derived at
+ * display time rather than stored.
+ */
+export function callOutcomeLabel(
+  outcome?: string | null,
+  direction?: string | null,
+  durationSec?: number | null,
+  hasRecording?: boolean | null,
+): string {
+  const o = (outcome ?? '').trim().toLowerCase()
+  const outbound = (direction ?? '').trim().toLowerCase() === 'outbound'
+
+  // Zoho Desk writes a call record for activity that never reached the phone —
+  // 970 of today's rows have no duration AND no recording, and 40 of those are
+  // marked 'completed'. Rendering those as "Connected" tells an agent a
+  // conversation happened when none did. If nothing was said and nothing was
+  // recorded, it was a dial, not a call.
+  const empty = !durationSec && !hasRecording
+  if (o === 'completed' && empty) return outbound ? 'No Answer' : 'Not Connected'
+
+  switch (o) {
+    case 'missed':
+    case 'no_answer':
+    case 'no answer':
+      return outbound ? 'No Answer' : 'Missed'
+    case 'completed':
+      return 'Connected'
+    case 'voicemail':
+      return 'Voicemail'
+    case '':
+      return outbound ? 'Outbound' : 'Inbound'
+  }
+  // Anything else: title-case whatever was stored rather than hiding it.
+  return o.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
+}
+
+// ── Grouping a dialling episode into one conversation ─────────────────────────
+//
+// Zoho Desk writes a call record per activity, not per conversation. One attempt
+// on a lead routinely lands as four rows — 13:02, 13:03, 13:03, 13:08 — of which
+// three have no duration and no recording because nothing reached the phone. Read
+// literally that is "4 calls", three of them contradicting each other, and it is
+// what made a single unanswered dial look like a lead being harassed.
+//
+// A conversation is a run of calls in the same direction whose starts are within
+// `windowMin` of each other. The representative is the leg where something
+// actually happened; the rest become an attempt count. A write-up on any leg is
+// surfaced on the group, so folding rows in never hides what an agent typed.
+
+export interface GroupableCall {
+  id:                 number
+  started_at:         string | null
+  direction:          string | null
+  outcome:            string | null
+  duration_sec:       number | null
+  recording_filename: string | null
+  disposition?:       string | null
+  notes?:             string | null
+}
+
+export interface CallConversation<T extends GroupableCall> {
+  call:      T       // the leg worth showing
+  members:   T[]     // every leg, oldest first
+  attempts:  number  // how many times the number was dialled in this episode
+  firstAt:   string | null
+  notes:     string  // the write-up from whichever leg carries one
+  disposition: string
+}
+
+const callConnected = (c: GroupableCall) => (c.duration_sec ?? 0) > 0 || !!c.recording_filename
+const wroteUp = (c: GroupableCall) => !!(c.notes?.trim() || c.disposition?.trim())
+
+export function groupCallConversations<T extends GroupableCall>(
+  calls: T[], windowMin = 15,
+): CallConversation<T>[] {
+  const ms = (c: T) => (c.started_at ? new Date(c.started_at).getTime() : 0)
+  const sorted = [...calls].sort((a, b) => ms(a) - ms(b))
+  const gap = windowMin * 60_000
+
+  const groups: T[][] = []
+  for (const c of sorted) {
+    const g = groups[groups.length - 1]
+    const prev = g?.[g.length - 1]
+    const sameLeg = prev
+      && (prev.direction ?? '').toLowerCase() === (c.direction ?? '').toLowerCase()
+      // A call with no timestamp cannot be shown to belong to the episode beside
+      // it, so it stands alone rather than being absorbed on a guess.
+      && ms(prev) > 0 && ms(c) > 0
+      && ms(c) - ms(prev) <= gap
+    if (sameLeg) g.push(c)
+    else groups.push([c])
+  }
+
+  return groups.map(members => {
+    // Rank: a real conversation beats a dial; among dials, one carrying a
+    // write-up beats a bare artefact row; ties go to the longer call.
+    const rank = (c: T) => (callConnected(c) ? 2 : 0) + (wroteUp(c) ? 1 : 0)
+    const call = members.reduce((best, c) => {
+      const d = rank(c) - rank(best)
+      return d > 0 || (d === 0 && (c.duration_sec ?? 0) > (best.duration_sec ?? 0)) ? c : best
+    }, members[0])
+    const withNotes = members.find(c => c.notes?.trim())
+    const withDisp  = members.find(c => c.disposition?.trim())
+    return {
+      call,
+      members,
+      attempts:    members.length,
+      firstAt:     members[0].started_at,
+      notes:       withNotes?.notes?.trim() ?? '',
+      disposition: withDisp?.disposition?.trim() ?? '',
+    }
+  }).reverse()  // newest episode first
 }

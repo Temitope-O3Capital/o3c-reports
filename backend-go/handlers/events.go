@@ -36,6 +36,10 @@ var liveTopics = []struct{ Name, SQL string }{
 	{"compliance", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM audit_findings`},
 	{"finance", `SELECT COUNT(*)||':'||COALESCE(MAX(created_at)::text,'') FROM gl_journal_entries`},
 	{"users", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM o3c_users`},
+	// Calls were not a live topic at all, so the Call Log only ever refreshed when a
+	// TICKET changed or the window regained focus — a call landing from Zoho Voice
+	// left the page stale until the agent clicked away and back.
+	{"calls", `SELECT COUNT(*)||':'||COALESCE(MAX(started_at)::text,'') FROM helpdesk_calls`},
 }
 
 // ── Event hub — one poller, many subscribers ────────────────────────────────

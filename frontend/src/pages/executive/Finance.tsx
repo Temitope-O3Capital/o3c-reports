@@ -57,7 +57,7 @@ export default function ExecFinance() {
 
   useEffect(() => { load(period) }, [load, period])
 
-  const title = 'Finance — Executive View'
+  const title = 'Finance: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
   const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
 
@@ -84,7 +84,7 @@ export default function ExecFinance() {
         <div style={{ marginBottom: 14 }}>
           <Note tone={AMBER}>
             <b>This is not the general ledger.</b> No journal entries have been posted, so a GL-based P&amp;L
-            cannot be produced. What follows is an operating picture assembled from sources that do have data —
+            cannot be produced. What follows is an operating picture assembled from sources that do have data:
             card interest and fees from posted transactions, deposit funding cost from the FD register, and
             processing fees from the payment provider. It is useful for direction and scale. It is not
             accounting-grade and should not be used for statutory reporting.
@@ -105,7 +105,7 @@ export default function ExecFinance() {
             <b>Funding cost exceeds visible income by {fmtKobo(Math.abs(data.operating_net_kobo))} over {fmtNum(data.period_days)} days.</b>{' '}
             Deposits cost roughly {fmtKobo(data.fd_period_cost_kobo)} for the period at an average rate of{' '}
             {fmtPct(data.fd_avg_rate_pct)}, against {fmtKobo(data.operating_revenue_kobo)} of card income. This does
-            not mean the business is losing money — it means the income earned on deposit funds is not visible in
+            not mean the business is losing money. It means the income earned on deposit funds is not visible in
             this workspace. Treasury, investment and interbank returns are not mirrored here, so the earning side of
             the deposit book is missing rather than absent. Connecting that source is what would make this page a
             genuine P&amp;L.
@@ -145,7 +145,7 @@ export default function ExecFinance() {
               </div>
             ))}
             <Note>
-              Deposit interest is <b>estimated</b> — principal × contract rate × {fmtNum(data.period_days)}/365 —
+              Deposit interest is <b>estimated</b>, principal × contract rate × {fmtNum(data.period_days)}/365,
               because the FD register stores interest accrued to date, not per period. Accrued to date across the
               whole book is {fmtKobo(data.fd_accrued_to_date_kobo)}.
             </Note>

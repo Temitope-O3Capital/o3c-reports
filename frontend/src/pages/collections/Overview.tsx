@@ -137,8 +137,8 @@ export default function CollectionsOverview() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setErr(null)
     const qs = `?from=${dateFrom}&to=${dateTo}`
     // by-agent reads date_from/date_to (not from/to); send both spellings so the
@@ -163,7 +163,7 @@ export default function CollectionsOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   const kpiLoading = loading && !kpis
   const collectedMTD = agents.reduce((s, a) => s + Number(a.total ?? 0), 0)
@@ -294,7 +294,7 @@ export default function CollectionsOverview() {
 
       {/* Agent bar chart */}
       {agents.length > 0 && (
-        <SectionCard title="Top 10 Agents — Collections Bar" padding={false} style={{ marginTop: SP[4] }}>
+        <SectionCard title="Top 10 Agents: Collections Bar" padding={false} style={{ marginTop: SP[4] }}>
           <div style={{ padding: '16px 18px' }}>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart

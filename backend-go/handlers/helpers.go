@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -20,9 +19,9 @@ import (
 	"github.com/o3c/reports/core"
 )
 
-var dateRE      = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-var periodRE    = regexp.MustCompile(`^\d{4}-\d{2}$`)
-var htmlTagRE   = regexp.MustCompile(`<[^>]*>`)
+var dateRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+var periodRE = regexp.MustCompile(`^\d{4}-\d{2}$`)
+var htmlTagRE = regexp.MustCompile(`<[^>]*>`)
 
 // stripHTMLTags removes HTML/XML tags from s to prevent stored-XSS in log fields.
 func stripHTMLTags(s string) string { return htmlTagRE.ReplaceAllString(s, "") }
@@ -437,33 +436,3 @@ func logCreditEvent(ctx context.Context, db *core.DB, r *http.Request, module, e
 }
 
 // ── CSV helper ────────────────────────────────────────────────────────────────
-
-func streamCSV(w http.ResponseWriter, filename string, rows []map[string]any) {
-	if len(rows) == 0 {
-		w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
-		w.Header().Set("Content-Type", "text/csv")
-		return
-	}
-
-	cols := make([]string, 0, len(rows[0]))
-	for k := range rows[0] {
-		cols = append(cols, k)
-	}
-
-	safe := strings.NewReplacer(`"`, `_`, "\n", `_`, "\r", `_`).Replace(filename)
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`"`)
-
-	cw := csv.NewWriter(w)
-	cw.Write(cols) //nolint:errcheck
-	for _, row := range rows {
-		record := make([]string, len(cols))
-		for i, c := range cols {
-			if v := row[c]; v != nil {
-				record[i] = fmt.Sprintf("%v", v)
-			}
-		}
-		cw.Write(record) //nolint:errcheck
-	}
-	cw.Flush()
-}

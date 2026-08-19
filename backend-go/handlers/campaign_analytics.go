@@ -414,13 +414,21 @@ func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 		hasWA := channel == "whatsapp" || channel == "multi"
 
 		if hasEmail {
-			sent += emSent; delivered += emDeliv; opened += emOpen; clicked += emClick; bounced += emBounce
+			sent += emSent
+			delivered += emDeliv
+			opened += emOpen
+			clicked += emClick
+			bounced += emBounce
 		}
 		if hasSMS {
-			sent += smSent; delivered += smDeliv; failed += smFail
+			sent += smSent
+			delivered += smDeliv
+			failed += smFail
 		}
 		if hasWA {
-			sent += waSent; delivered += waDeliv; failed += waFail
+			sent += waSent
+			delivered += waDeliv
+			failed += waFail
 		}
 
 		// Per-channel breakdown so the Results page can show each channel on its own.
@@ -650,11 +658,6 @@ func campaignContactsReport(db *core.DB) http.HandlerFunc {
 		perPage := qint(r, "per_page", 50, 1, 500)
 		statusFilter := qstr(r, "status")
 		search := qstr(r, "search")
-		exportCSV := strings.EqualFold(qstr(r, "format"), "csv")
-		if exportCSV {
-			page = 1
-			perPage = 100000
-		}
 		offset := (page - 1) * perPage
 
 		// Verify campaign exists
@@ -774,27 +777,6 @@ func campaignContactsReport(db *core.DB) http.HandlerFunc {
 				BouncedAt:   bouncedAt,
 				ClickedURLs: clickedURLs,
 			})
-		}
-
-		if exportCSV {
-			csvRows := make([]map[string]any, 0, len(contacts))
-			for _, c := range contacts {
-				csvRows = append(csvRows, map[string]any{
-					"name":         c.Name,
-					"cif_number":   c.CIFNumber,
-					"email":        c.Email,
-					"phone":        c.Phone,
-					"sms_status":   c.SMSStatus,
-					"email_status": c.EmailStatus,
-					"sent_at":      c.SentAt,
-					"opened_at":    c.OpenedAt,
-					"clicked_at":   c.ClickedAt,
-					"bounced_at":   c.BouncedAt,
-					"clicked_urls": strings.Join(c.ClickedURLs, " | "),
-				})
-			}
-			streamCSV(w, fmt.Sprintf("campaign-%s-contacts.csv", id), csvRows)
-			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")

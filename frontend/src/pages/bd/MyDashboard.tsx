@@ -294,7 +294,7 @@ function UrgencyTray({
               key={item.id}
               onClick={() => onNavigate("/bd/assignments")}
               left={item.employer_name}
-              leftSub={`→ ${item.sales_agent_name} · ${fmtNum(item.staff_count_at_assignment)} staff`}
+              leftSub={`${item.sales_agent_name} · ${fmtNum(item.staff_count_at_assignment)} staff`}
               rightMain={<span style={{ color: AMBER }}>{item.days_stale}d idle</span>}
               rightSub="0 contacts created"
               action={<EmailBtn email={item.sales_agent_email} subject={`Follow-up: ${item.employer_name} assignment`} />}
@@ -310,7 +310,7 @@ function UrgencyTray({
               key={item.id}
               onClick={() => onNavigate(`/bd/employers/${item.id}`)}
               left={item.name}
-              leftSub={`MOU signed ${item.days_since_signed}d ago — no staff referred`}
+              leftSub={`MOU signed ${item.days_since_signed}d ago, no staff referred`}
               rightMain={<span style={{ color: PURPLE }}>Unactivated</span>}
               rightSub={`Since ${fmtDate(item.mou_date)}`}
               action={<EmailBtn email={item.contact_email} subject={`Staff Referral — ${item.name}`} />}
@@ -499,8 +499,8 @@ export default function BDMyDashboard() {
   const [dateFrom,        setDateFrom]       = useState('')   // '' = All time
   const [dateTo,          setDateTo]         = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const r = await apiFetch<{ my_dashboard: BDDash }>(`/api/bd/my-dashboard?from=${dateFrom}&to=${dateTo}`)
       setData(((r as any)?.data ?? r) as BDDash)
@@ -509,7 +509,7 @@ export default function BDMyDashboard() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   const k = data?.kpis
 
@@ -558,7 +558,7 @@ export default function BDMyDashboard() {
       render: r => (
         <div>
           <div style={{ fontWeight: FW.semibold }}>{r.employer_name}</div>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>→ {r.sales_agent_name}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.sales_agent_name}</div>
         </div>
       ),
     },
@@ -593,7 +593,7 @@ export default function BDMyDashboard() {
 
     <Page
       title="My Workspace"
-      subtitle="Your BD station — employers, referral pipeline and monthly activity"
+      subtitle="Your BD station: employers, referral pipeline and monthly activity"
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />
@@ -662,7 +662,7 @@ export default function BDMyDashboard() {
           searchKeys={['name', 'sector', 'mou_status']}
           searchPlaceholder="Search employers…"
           pageSize={10}
-          emptyText="No employers yet — add one on the Employers page"
+          emptyText="No employers yet. Add one on the Employers page"
         />
       </SectionCard>
 
@@ -678,7 +678,7 @@ export default function BDMyDashboard() {
           searchKeys={['employer_name', 'sales_agent_name']}
           searchPlaceholder="Search assignments…"
           pageSize={10}
-          emptyText="No assignments yet — assign employers or staff from the Employers page"
+          emptyText="No assignments yet. Assign employers or staff from the Employers page"
         />
       </SectionCard>
     </Page>

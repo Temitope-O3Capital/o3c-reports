@@ -221,7 +221,7 @@ func settingsUpdate(db *core.DB) http.HandlerFunc {
 func settingsSyncStatusList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 
 		q := `SELECT * FROM sync_engine_status WHERE 1=1`
 		var args []any

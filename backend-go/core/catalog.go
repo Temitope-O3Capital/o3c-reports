@@ -82,10 +82,12 @@ var PageCatalog = []CatalogModule{
 		{"transactions", "Transactions"},
 		{"fixed_deposit", "Fixed Deposits"},
 		{"fx_rates", "FX Rates"},
-		{"settlement", "Settlement"},
-		{"reconciliation", "Reconciliation"},
 		{"core-banking", "Core Banking"},
 		{"eod", "End of Day"},
+	}},
+	{Key: "settlement", Label: "Settlement & Reconciliation", Icon: "compare_arrows", Pages: []CatalogPage{
+		{"settlement", "Settlement"},
+		{"reconciliation", "Reconciliation"},
 	}},
 	{Key: "people", Label: "People", Icon: "groups", Pages: []CatalogPage{
 		{"payroll", "Payroll"},

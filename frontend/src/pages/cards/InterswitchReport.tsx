@@ -122,7 +122,7 @@ export default function InterswitchReport() {
   return (
     <Page
       title="Card Transaction Report"
-      subtitle="Interswitch CCS — channel volume by period"
+      subtitle="Interswitch CCS: channel volume by period"
       back={{ label: 'Interswitch', to: '/settlements/interswitch' }}
       actions={filterBar}
     >
@@ -188,7 +188,7 @@ export default function InterswitchReport() {
                         ))}
                         <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: isPeak ? RED : 'var(--txt)' }}>
                           {fmtKobo(row.total)}
-                          {isPeak && <span style={{ fontSize: TEXT.xs, color: RED, marginLeft: 6 }}>↑ peak</span>}
+                          {isPeak && <span style={{ fontSize: TEXT.xs, color: RED, marginLeft: 6 }}>peak</span>}
                         </td>
                       </tr>
                     )

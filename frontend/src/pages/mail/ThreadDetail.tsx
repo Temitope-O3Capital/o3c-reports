@@ -133,9 +133,9 @@ export default function MailThreadDetail() {
   const [replySent, setReplySent] = useState(false)
   const replyRef = useRef<HTMLTextAreaElement>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!id) return
-    setLoading(true); setErr(null)
+    if (!silent) setLoading(true); setErr(null)
     try {
       const [msgRes, repliesRes, eventsRes] = await Promise.all([
         apiFetch<MailMessage>(`/api/mail/messages/${id}`),
@@ -150,7 +150,7 @@ export default function MailThreadDetail() {
   }, [id])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   // Auto-focus reply box when navigated from inbox Reply button
   useEffect(() => {

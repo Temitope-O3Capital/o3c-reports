@@ -101,7 +101,7 @@ export default function CoreBanking() {
   return (
     <Page
       title="Core Banking"
-      subtitle="Live view of the Udara360 book — loans, fixed deposits, and reconciliation"
+      subtitle="Live view of the Udara360 book: loans, fixed deposits, and reconciliation"
       actions={
         <Badge variant={last?.status === 'ok' ? 'success' : 'default'} dot>{lastLabel}</Badge>
       }
@@ -249,7 +249,7 @@ function ReconTab({ data, loading }: { data: Recon | null; loading: boolean }) {
     <>
       <div style={{ background: AMBER + '12', border: `1px solid ${AMBER}40`, borderRadius: 10, padding: SP[4], marginBottom: SP[6], color: TXT2, fontSize: 13 }}>
         Accounts are matched to the workspace customer master by CIF. The ones below belong to customers not
-        found in the master — likely created directly in Udara. Add them to the master (or link manually) so
+        found in the master, likely created directly in Udara. Add them to the master (or link manually) so
         overlay data (officers, notes, approvals) and workflows attach to the right customer.
       </div>
       <div style={grid(220)}>

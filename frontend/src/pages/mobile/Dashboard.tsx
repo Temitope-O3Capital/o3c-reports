@@ -74,8 +74,8 @@ export default function MobileAppDashboard() {
   const [loading, setLoading] = useState(true)
   const [err,     setErr]     = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const res = await apiFetch<MobileAppResponse>('/api/mobile-app/summary')
       setData((res as any)?.data ?? res)
@@ -91,7 +91,7 @@ export default function MobileAppDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   const stub = isStub(data)
   const s = data?.summary?.[0]

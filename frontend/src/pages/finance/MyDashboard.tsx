@@ -30,7 +30,7 @@ export default function FinanceMyDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     setError(null)
     try {
       const r = await apiFetch<any>('/api/finance/my-dashboard')
@@ -40,7 +40,7 @@ export default function FinanceMyDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['finance'] })
+  useLiveData(() => load(true), { topics: ['finance'] })
   useEffect(() => { const id = setInterval(load, 60000); return () => clearInterval(id) }, [load])
 
   if (loading && !d) return (
@@ -76,13 +76,13 @@ export default function FinanceMyDashboard() {
   ]
 
   return (
-    <Page title="My Workspace" subtitle="Your finance desk — cash, income, EOD and deposits">
+    <Page title="My Workspace" subtitle="Your finance desk: cash, income, EOD and deposits">
       <ErrBanner error={error} onRetry={load} />
 
       <WorkspaceHero
         subline={eodLoaded
-          ? <>Today's EOD is loaded — the books are current{maturing7 > 0 ? <> · <strong style={{ color: '#fff' }}>{fmtNum(maturing7)}</strong> FD{maturing7 === 1 ? '' : 's'} maturing this week</> : ''}</>
-          : <>Today's EOD isn't loaded yet{d.eod_last_date ? <> — last file was <strong style={{ color: '#FCA5A5' }}>{fmtDate(d.eod_last_date)}</strong></> : ''}</>}
+          ? <>Today's EOD is loaded. The books are current{maturing7 > 0 ? <> · <strong style={{ color: '#fff' }}>{fmtNum(maturing7)}</strong> FD{maturing7 === 1 ? '' : 's'} maturing this week</> : ''}</>
+          : <>Today's EOD isn't loaded yet{d.eod_last_date ? <>. Last file was <strong style={{ color: '#FCA5A5' }}>{fmtDate(d.eod_last_date)}</strong></> : ''}</>}
         stats={[
           { label: 'Cash Position', value: fmtKobo(cash), color: cash >= 0 ? '#4ADE80' : '#FCA5A5' },
           { label: 'Income MTD', value: fmtKobo(income), color: '#4ADE80' },
@@ -103,7 +103,7 @@ export default function FinanceMyDashboard() {
       {/* ── My Day ── */}
       <MyDaySection hint="what the desk needs today">
         <MyDayTile icon="event_available" count={eodLoaded ? 'In' : 'Due'} label="Today's EOD"
-          sub={eodLoaded ? 'file loaded — books current' : 'load today’s EOD file'}
+          sub={eodLoaded ? 'file loaded, books current' : 'load today’s EOD file'}
           color={eodLoaded ? GREEN : RED} urgent={!eodLoaded} onClick={() => navigate('/finance/eod')} />
         <MyDayTile icon="schedule" count={fmtNum(maturing7)} label="FDs maturing (7d)"
           sub={maturing7 > 0 ? `${fmtKobo(maturing7Kobo)} to settle` : 'none this week'}

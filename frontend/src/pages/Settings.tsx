@@ -144,7 +144,7 @@ function ProfileTab({ local, me, onGoSecurity }: {
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: AMBER }}>warning</span>
           <span style={{ fontSize: TEXT.base, color: AMBER, fontWeight: FW.semibold }}>Your temporary password must be changed before you continue.</span>
           <button onClick={onGoSecurity} style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: 7, border: 'none', background: AMBER, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-            Change now →
+            Change now
           </button>
         </div>
       )}
@@ -515,7 +515,7 @@ function SignOutEverywhereSection() {
     setLoading(true)
     try {
       await apiPost('/api/auth/sign-out-everywhere', {})
-      toast.success('All sessions ended — signing you out')
+      toast.success('All sessions ended. Signing you out')
       // The call revokes this session too, so there is nothing left to stay on.
       setTimeout(() => { localStorage.removeItem('o3c_user'); window.location.href = '/' }, 900)
     } catch (e: any) {
@@ -585,7 +585,7 @@ function SignOutEverywhereSection() {
 function SecurityTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
-      <SectionCard title="Change Password" subtitle="Minimum 12 characters — use a mix of letters, numbers, and symbols">
+      <SectionCard title="Change Password" subtitle="Minimum 12 characters. Use a mix of letters, numbers, and symbols">
         <ChangePasswordSection />
       </SectionCard>
       <SectionCard title="Two-Factor Authentication" subtitle="Add an extra layer of security with a TOTP authenticator app">
@@ -636,7 +636,7 @@ function SoundVoiceSettings() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Spoken announcement</div>
-            <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Reads each alert aloud in a Nigerian voice — Ezinne (female) or Abeo (male).</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Reads each alert aloud in a Nigerian voice: Ezinne (female) or Abeo (male).</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {(['off', 'female', 'male'] as VoiceMode[]).map(m => (
@@ -664,8 +664,8 @@ function NotificationsTab() {
   const [saving,  setSaving]  = useState(false)
   const [dirty,   setDirty]   = useState<Record<string, boolean>>({})
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const data = await apiFetch<{ data: NotifPref[] }>('/api/user/notification-preferences')
       setPrefs(data.data ?? [])
@@ -674,7 +674,7 @@ function NotificationsTab() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   function toggle(eventType: string, channel: string) {
     setPrefs(prev => prev.map(p =>
@@ -862,7 +862,7 @@ function SignatureTab() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
       {loadErr && (
         <div style={{ background: `${RED}0F`, border: `1px solid ${RED}33`, borderRadius: RADIUS.lg, padding: '12px 14px', fontSize: TEXT.base, color: 'var(--txt)' }}>
-          <strong>{loadErr}</strong> — saving now would replace whatever is stored. Reload before editing.
+          <strong>{loadErr}</strong>. Saving now would replace whatever is stored. Reload before editing.
         </div>
       )}
 
@@ -882,7 +882,7 @@ function SignatureTab() {
       <SectionCard title="Preview" subtitle="Rendered on white, the way a recipient's mail client will show it">
         {isEmpty ? (
           <div style={{ fontSize: TEXT.base, color: 'var(--txt3)', padding: '8px 0' }}>
-            Nothing to preview yet — your signature is empty.
+            Nothing to preview yet. Your signature is empty.
           </div>
         ) : (
           // Always white with dark text. The app theme is irrelevant here: a signature
@@ -1024,7 +1024,7 @@ function VoiceTab() {
                 style={{ ...INPUT, fontFamily: 'monospace', fontSize: TEXT.sm }}
               />
               <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>
-                Found in Zoho Voice → Settings → My Profile
+                Found in Zoho Voice, Settings, My Profile
               </div>
             </div>
 
@@ -1041,8 +1041,8 @@ function VoiceTab() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.65 }}>
           {[
             { n: 1, text: 'Go to api-console.zoho.com and sign in with your Zoho account' },
-            { n: 2, text: 'Click "Self Client" → "Create Now"' },
-            { n: 3, text: 'Add scopes — for call logging: Desk.calls.ALL (already covers read/write). For live CTI (ringing/answer events, click-to-call): add ZohoPhoneBridge.phone.ALL. Note: "VoiceAPI.*" is NOT a valid Zoho scope.' },
+            { n: 2, text: 'Click "Self Client", then "Create Now"' },
+            { n: 3, text: 'Add scopes. For call logging: Desk.calls.ALL (already covers read/write). For live CTI (ringing/answer events, click-to-call): add ZohoPhoneBridge.phone.ALL. Note: "VoiceAPI.*" is NOT a valid Zoho scope.' },
             { n: 4, text: 'Set the time to "10 minutes" and generate the code' },
             { n: 5, text: 'Exchange the code for a refresh token using the Generate Tokens tab' },
             { n: 6, text: 'Copy the refresh_token value and paste it above' },
@@ -1053,7 +1053,7 @@ function VoiceTab() {
             </div>
           ))}
           <div style={{ marginTop: SP[1], padding: `${SP[2]} ${SP[3]}`, background: `${AMBER}10`, border: `1px solid ${AMBER}25`, borderRadius: RADIUS.md, color: AMBER, fontSize: TEXT.xs, fontWeight: FW.medium }}>
-            The refresh token does not expire unless revoked. Keep it confidential — it is encrypted at rest in the workspace.
+            The refresh token does not expire unless revoked. Keep it confidential. It is encrypted at rest in the workspace.
           </div>
         </div>
       </SectionCard>
@@ -1063,7 +1063,7 @@ function VoiceTab() {
         <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.7 }}>
           <p style={{ marginTop: 0 }}>
             Once connected, the workspace predictive dialer automatically calls contacts in your campaign queue via Zoho Voice.
-            Your registered Zoho phone (desk phone or soft phone) rings when a contact answers — you pick up, and the customer is already on the line.
+            Your registered Zoho phone (desk phone or soft phone) rings when a contact answers. You pick up, and the customer is already on the line.
           </p>
           <p style={{ marginBottom: 0 }}>
             In <strong>preview mode</strong>, you see the next contact's details before the call fires and can choose to call now or skip.

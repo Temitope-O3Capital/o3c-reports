@@ -89,7 +89,7 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
     setConfirmLaunch(false); setLaunching(true)
     try {
       await apiPost(`/api/campaigns/${campaignId}/launch-sequence`, {})
-      toast.success('Sequence launched — steps will fire on schedule')
+      toast.success('Sequence launched. Steps will fire on schedule')
       load()
     } catch (e: any) { toast.error(e.message ?? 'Launch failed') }
     finally { setLaunching(false) }
@@ -106,7 +106,7 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
 
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 14px', background: `${BLUE}0c`, border: `1px solid ${BLUE}25`, borderRadius: RADIUS.md, fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
         <span className="material-symbols-rounded" style={{ fontSize: 18, color: BLUE }}>info</span>
-        <span>Build a multi-step schedule — each step sends a saved template on a channel, timed as a number of days after launch or a specific date. The campaign stays active until the last step sends.</span>
+        <span>Build a multi-step schedule. Each step sends a saved template on a channel, timed as a number of days after launch or a specific date. The campaign stays active until the last step sends.</span>
       </div>
 
       <SectionCard title="Steps" badge={steps.length} padding
@@ -188,7 +188,7 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
           {isRunning ? (
             <span style={{ fontSize: TEXT.sm, color: GREEN, fontWeight: FW.semibold, display: 'flex', alignItems: 'center', gap: 5 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 17 }}>play_circle</span>
-              Sequence running — {steps.filter(s => s.status === 'sent').length}/{steps.length} steps sent
+              Sequence running: {steps.filter(s => s.status === 'sent').length}/{steps.length} steps sent
             </span>
           ) : (
             <>

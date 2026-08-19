@@ -30,12 +30,10 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	watchList := core.RequirePages("watch_list", "compliance_all")
 	findings := core.RequirePages("audit_findings", "compliance_all")
 	auditRead := core.RequirePages("audit_trail", "compliance_all")
-	auditExport := core.RequirePages("audit_export", "compliance_all")
 
 	// Audit log
 	r.With(auditRead).Get("/audit-log", complianceAuditLogList(db))
 	r.With(all).Post("/audit-log", complianceAuditLogInsert(db))
-	r.With(auditExport).Get("/audit-log/export", complianceAuditLogExport(db))
 
 	// CBN reports
 	r.With(cbn).Get("/cbn-reports", complianceCBNList(db))
@@ -75,31 +73,31 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	r.With(mine).Get("/my-dashboard", complianceMyDashboard(db))
 
 	// Phase 12 — Regulatory
-	r.With(cbn).Get("/prudential-ratios",            compliancePrudentialRatios(db))
-	r.With(cbn).Get("/credit-bureau-export",         complianceCreditBureauExport(db))
-	r.With(cbn).Get("/bureau-submissions",           complianceBureauSubmissionList(db))
-	r.With(cbn).Post("/bureau-submissions",          complianceBureauSubmissionCreate(db))
-	r.With(all).Get("/data-subject-requests",         complianceDSARList(db))
-	r.With(all).Post("/data-subject-requests",        complianceDSARCreate(db))
+	r.With(cbn).Get("/prudential-ratios", compliancePrudentialRatios(db))
+	r.With(cbn).Get("/credit-bureau-export", complianceCreditBureauExport(db))
+	r.With(cbn).Get("/bureau-submissions", complianceBureauSubmissionList(db))
+	r.With(cbn).Post("/bureau-submissions", complianceBureauSubmissionCreate(db))
+	r.With(all).Get("/data-subject-requests", complianceDSARList(db))
+	r.With(all).Post("/data-subject-requests", complianceDSARCreate(db))
 	r.With(all).Patch("/data-subject-requests/{id}", complianceDSARUpdate(db))
-	r.With(all).Get("/retention-schedule",           complianceRetentionSchedule(db))
-	r.With(cbn).Get("/concentration-risk",           complianceConcentrationRisk(db))
-	r.With(all).Get("/dpa-register",                 complianceDPARegister(db))
-	r.With(all).Post("/dpa-register",                complianceDPARegisterCreate(db))
-	r.With(all).Patch("/dpa-register/{id}",          complianceDPARegisterUpdate(db))
+	r.With(all).Get("/retention-schedule", complianceRetentionSchedule(db))
+	r.With(cbn).Get("/concentration-risk", complianceConcentrationRisk(db))
+	r.With(all).Get("/dpa-register", complianceDPARegister(db))
+	r.With(all).Post("/dpa-register", complianceDPARegisterCreate(db))
+	r.With(all).Patch("/dpa-register/{id}", complianceDPARegisterUpdate(db))
 
 	// Phase 12 — AML Rules (C1)
 	aml := core.RequirePages("compliance_all", "compliance_head")
-	r.With(aml).Get("/aml/rules",          complianceListAMLRules(db))
-	r.With(aml).Post("/aml/rules",         complianceCreateAMLRule(db))
+	r.With(aml).Get("/aml/rules", complianceListAMLRules(db))
+	r.With(aml).Post("/aml/rules", complianceCreateAMLRule(db))
 	r.With(aml).Delete("/aml/rules/{id}", complianceDeleteAMLRule(db))
-	r.With(aml).Get("/aml/stats",          complianceAMLStats(db))
-	r.With(aml).Get("/aml-rules",          complianceListAMLRules(db))
-	r.With(aml).Post("/aml-rules",         complianceCreateAMLRule(db))
-	r.With(aml).Delete("/aml-rules/{id}",  complianceDeleteAMLRule(db))
+	r.With(aml).Get("/aml/stats", complianceAMLStats(db))
+	r.With(aml).Get("/aml-rules", complianceListAMLRules(db))
+	r.With(aml).Post("/aml-rules", complianceCreateAMLRule(db))
+	r.With(aml).Delete("/aml-rules/{id}", complianceDeleteAMLRule(db))
 
 	// Phase 12 — KYC Expiry (C2)
-	r.With(all).Get("/kyc-expiry",               complianceListKYCExpiry(db))
+	r.With(all).Get("/kyc-expiry", complianceListKYCExpiry(db))
 	r.With(all).Post("/kyc-expiry/{cif}/action", complianceKYCExpiryAction(db))
 
 	// M34: Board Pack — JSON data + printable HTML export
@@ -109,8 +107,8 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	r.With(all).Post("/data-subject-requests/{id}/assign", complianceDSARAssign(db))
 
 	// R4: Data breach incident management
-	r.With(all).Get("/breach-incidents",         complianceListBreachIncidents(db))
-	r.With(all).Post("/breach-incidents",        complianceCreateBreachIncident(db))
+	r.With(all).Get("/breach-incidents", complianceListBreachIncidents(db))
+	r.With(all).Post("/breach-incidents", complianceCreateBreachIncident(db))
 	r.With(all).Patch("/breach-incidents/{id}", complianceUpdateBreachIncident(db))
 
 	// DSAR worker stats
@@ -228,65 +226,6 @@ func complianceAuditLogInsert(db *core.DB) http.HandlerFunc {
 	}
 }
 
-func complianceAuditLogExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		actorID := qstr(r, "actor_id")
-		entityType := qstr(r, "entity_type")
-		action := qstr(r, "action")
-		dateFrom, err := validDate(r, "date_from")
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
-		dateTo, err := validDate(r, "date_to")
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
-
-		query := `SELECT id, actor_id, actor_role, actor_name, action, entity_type,
-		                 entity_id, ip_address, created_at
-		          FROM audit_logs WHERE 1=1`
-		args := []any{}
-		n := 1
-
-		if actorID != "" {
-			query += fmt.Sprintf(" AND actor_id = $%d", n)
-			args = append(args, actorID)
-			n++
-		}
-		if entityType != "" {
-			query += fmt.Sprintf(" AND entity_type = $%d", n)
-			args = append(args, entityType)
-			n++
-		}
-		if action != "" {
-			query += fmt.Sprintf(" AND action = $%d", n)
-			args = append(args, action)
-			n++
-		}
-		if dateFrom != "" {
-			query += fmt.Sprintf(" AND created_at::date >= $%d", n)
-			args = append(args, dateFrom)
-			n++
-		}
-		if dateTo != "" {
-			query += fmt.Sprintf(" AND created_at::date <= $%d", n)
-			args = append(args, dateTo)
-			n++
-		}
-		query += " ORDER BY created_at DESC"
-
-		rows, err := db.PGQuery(r.Context(), query, args...)
-		if err != nil {
-			respondErr(w, 500, "Export failed")
-			return
-		}
-		fname := fmt.Sprintf("audit_log_%s_%s.csv", coalesce(dateFrom, "all"), coalesce(dateTo, "all"))
-		streamCSV(w, fname, rows)
-	}
-}
-
 // ── CBN Reports ───────────────────────────────────────────────────────────────
 
 func complianceCBNList(db *core.DB) http.HandlerFunc {
@@ -294,7 +233,7 @@ func complianceCBNList(db *core.DB) http.HandlerFunc {
 		year := qstr(r, "year")
 		status := qstr(r, "status")
 		from, _ := validDate(r, "from")
-		to, _   := validDate(r, "to")
+		to, _ := validDate(r, "to")
 		limit := qint(r, "limit", 200, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -635,7 +574,7 @@ func complianceSAREscalate(db *core.DB) http.HandlerFunc {
 		ToStatus string `json:"to_status"`
 		Notes    string `json:"notes"`
 		// M46: populated when transitioning to submitted_to_nfiu
-		NFIURef  string `json:"nfiu_ref"`
+		NFIURef string `json:"nfiu_ref"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -731,7 +670,7 @@ func complianceWatchList(db *core.DB) http.HandlerFunc {
 		isActive := qstr(r, "is_active")
 		entityType := qstr(r, "entity_type")
 		from, _ := validDate(r, "from")
-		to, _   := validDate(r, "to")
+		to, _ := validDate(r, "to")
 		limit := qint(r, "limit", 50, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -867,7 +806,7 @@ func complianceFindingList(db *core.DB) http.HandlerFunc {
 		severity := qstr(r, "severity")
 		assignedTo := qstr(r, "assigned_to")
 		from, _ := validDate(r, "from")
-		to, _   := validDate(r, "to")
+		to, _ := validDate(r, "to")
 		limit := qint(r, "limit", 50, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -1535,7 +1474,8 @@ func complianceCreditBureauExport(db *core.DB) http.HandlerFunc {
 			WHERE la.status IN ('active', 'closed', 'written_off')
 			ORDER BY la.id`)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -1595,9 +1535,12 @@ func complianceBureauSubmissionList(db *core.DB) http.HandlerFunc {
 			ORDER BY submitted_at DESC
 			LIMIT 200`)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
-		if rows == nil { rows = []core.Row{} }
+		if rows == nil {
+			rows = []core.Row{}
+		}
 		respond(w, rows, "")
 	}
 }
@@ -1605,21 +1548,29 @@ func complianceBureauSubmissionList(db *core.DB) http.HandlerFunc {
 func complianceBureauSubmissionCreate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
-			Month     string `json:"month"`
-			Bureau    string `json:"bureau"`
-			FileName  string `json:"file_name"`
-			RowCount  int    `json:"row_count"`
-			Notes     string `json:"notes"`
+			Month    string `json:"month"`
+			Bureau   string `json:"bureau"`
+			FileName string `json:"file_name"`
+			RowCount int    `json:"row_count"`
+			Notes    string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid body"); return
+			respondErr(w, 400, "Invalid body")
+			return
 		}
-		if b.Month == "" { respondErr(w, 400, "month is required"); return }
+		if b.Month == "" {
+			respondErr(w, 400, "month is required")
+			return
+		}
 
 		user := core.UserFromCtx(r.Context())
 		submittedBy := ""
-		if user != nil { submittedBy = user.FullName }
-		if b.Bureau == "" { b.Bureau = "CRC" }
+		if user != nil {
+			submittedBy = user.FullName
+		}
+		if b.Bureau == "" {
+			b.Bureau = "CRC"
+		}
 
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO bureau_submission_logs (month, bureau, submitted_by, file_name, row_count, notes)
@@ -1627,9 +1578,13 @@ func complianceBureauSubmissionCreate(db *core.DB) http.HandlerFunc {
 			RETURNING id, month, bureau, submitted_by, submitted_at, file_name, row_count, notes, status`,
 			b.Month, b.Bureau, submittedBy, b.FileName, b.RowCount, b.Notes)
 		if err != nil {
-			respondErr(w, 500, "Insert failed"); return
+			respondErr(w, 500, "Insert failed")
+			return
 		}
-		if len(rows) == 0 { respondErr(w, 500, "No row returned"); return }
+		if len(rows) == 0 {
+			respondErr(w, 500, "No row returned")
+			return
+		}
 		respond(w, rows[0], "")
 	}
 }
@@ -1654,7 +1609,8 @@ func complianceDSARStats(db *core.DB) http.HandlerFunc {
 			  MAX(processed_at)                                                AS last_purge_run
 			FROM data_subject_requests`)
 		if err != nil {
-			respondErr(w, 500, "Stats query failed"); return
+			respondErr(w, 500, "Stats query failed")
+			return
 		}
 		if len(rows) == 0 {
 			respond(w, map[string]any{
@@ -1671,7 +1627,7 @@ func complianceDSARList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := qstr(r, "status")
 		from, _ := validDate(r, "from")
-		to, _   := validDate(r, "to")
+		to, _ := validDate(r, "to")
 		limit := qint(r, "limit", 50, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -1704,7 +1660,8 @@ func complianceDSARList(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -1726,7 +1683,8 @@ func complianceDSARCreate(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.RequestType == "" {
-			respondErr(w, 400, "request_type is required"); return
+			respondErr(w, 400, "request_type is required")
+			return
 		}
 		rows, err := db.PGQuery(ctx, `
 			INSERT INTO data_subject_requests
@@ -1735,7 +1693,8 @@ func complianceDSARCreate(db *core.DB) http.HandlerFunc {
 			RETURNING id, request_type, status, created_at, sla_due_at`,
 			b.SubjectCIF, b.SubjectName, b.SubjectEmail, b.RequestType, b.Notes)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -1753,13 +1712,16 @@ func complianceDSARUpdate(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		set := "updated_at=NOW()"
 		args := []any{}
 		n := 1
 		add := func(col string, v any) {
-			set += fmt.Sprintf(", %s=$%d", col, n); args = append(args, v); n++
+			set += fmt.Sprintf(", %s=$%d", col, n)
+			args = append(args, v)
+			n++
 		}
 		if b.Status != nil {
 			add("status", *b.Status)
@@ -1767,12 +1729,17 @@ func complianceDSARUpdate(db *core.DB) http.HandlerFunc {
 				set += ", resolved_at=NOW()"
 			}
 		}
-		if b.Notes != nil      { add("notes", *b.Notes)           }
-		if b.AssignedTo != nil { add("assigned_to", *b.AssignedTo) }
+		if b.Notes != nil {
+			add("notes", *b.Notes)
+		}
+		if b.AssignedTo != nil {
+			add("assigned_to", *b.AssignedTo)
+		}
 		args = append(args, id)
 		_, err := db.PGExec(r.Context(), fmt.Sprintf(`UPDATE data_subject_requests SET %s WHERE id=$%d`, set, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Update failed"); return
+			respondErr(w, 500, "Update failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true}) //nolint:errcheck
@@ -1784,16 +1751,16 @@ func complianceDSARUpdate(db *core.DB) http.HandlerFunc {
 func complianceRetentionSchedule(_ *core.DB) http.HandlerFunc {
 	// Static retention policy per NDPR / CBN guidelines.
 	schedule := []map[string]any{
-		{"category": "Loan Applications",      "table": "loan_applications",   "retention_years": 7,  "basis": "CBN Prudential Guidelines"},
-		{"category": "KYC Documents",          "table": "kyc_documents",        "retention_years": 7,  "basis": "CBN KYC Circular"},
-		{"category": "Transaction Records",    "table": "financial_transactions","retention_years": 7,  "basis": "CBN & CAMA"},
-		{"category": "Customer PII",           "table": "customers",            "retention_years": 7,  "basis": "NDPR Art. 2.1(1)(b)"},
-		{"category": "Audit Logs",             "table": "audit_logs",           "retention_years": 5,  "basis": "CBN Guidelines"},
-		{"category": "Compliance Findings",    "table": "compliance_findings",  "retention_years": 10, "basis": "CBN Examination"},
-		{"category": "SAR Records",            "table": "sars",                 "retention_years": 10, "basis": "EFCC Act"},
-		{"category": "Helpdesk Tickets",       "table": "helpdesk_tickets",     "retention_years": 3,  "basis": "NDPR proportionality"},
-		{"category": "Marketing Contacts",     "table": "campaign_contacts",    "retention_years": 2,  "basis": "NDPR consent-based"},
-		{"category": "Session Logs",           "table": "user_sessions",        "retention_years": 1,  "basis": "Security best practice"},
+		{"category": "Loan Applications", "table": "loan_applications", "retention_years": 7, "basis": "CBN Prudential Guidelines"},
+		{"category": "KYC Documents", "table": "kyc_documents", "retention_years": 7, "basis": "CBN KYC Circular"},
+		{"category": "Transaction Records", "table": "financial_transactions", "retention_years": 7, "basis": "CBN & CAMA"},
+		{"category": "Customer PII", "table": "customers", "retention_years": 7, "basis": "NDPR Art. 2.1(1)(b)"},
+		{"category": "Audit Logs", "table": "audit_logs", "retention_years": 5, "basis": "CBN Guidelines"},
+		{"category": "Compliance Findings", "table": "compliance_findings", "retention_years": 10, "basis": "CBN Examination"},
+		{"category": "SAR Records", "table": "sars", "retention_years": 10, "basis": "EFCC Act"},
+		{"category": "Helpdesk Tickets", "table": "helpdesk_tickets", "retention_years": 3, "basis": "NDPR proportionality"},
+		{"category": "Marketing Contacts", "table": "campaign_contacts", "retention_years": 2, "basis": "NDPR consent-based"},
+		{"category": "Session Logs", "table": "user_sessions", "retention_years": 1, "basis": "Security best practice"},
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1806,7 +1773,7 @@ func complianceRetentionSchedule(_ *core.DB) http.HandlerFunc {
 func complianceDPARegister(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from, _ := validDate(r, "from")
-		to, _   := validDate(r, "to")
+		to, _ := validDate(r, "to")
 		limit := qint(r, "limit", 50, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -1845,15 +1812,15 @@ func complianceDPARegister(db *core.DB) http.HandlerFunc {
 func complianceDPARegisterCreate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
-			ProcessingName         string   `json:"processing_name"`
-			Purpose                string   `json:"purpose"`
-			LegalBasis             string   `json:"legal_basis"`
-			DataCategories         []string `json:"data_categories"`
-			DataSubjects           string   `json:"data_subjects"`
-			Recipients             string   `json:"recipients"`
-			ThirdCountryTransfers  bool     `json:"third_country_transfers"`
-			RetentionPeriod        string   `json:"retention_period"`
-			SecurityMeasures       string   `json:"security_measures"`
+			ProcessingName        string   `json:"processing_name"`
+			Purpose               string   `json:"purpose"`
+			LegalBasis            string   `json:"legal_basis"`
+			DataCategories        []string `json:"data_categories"`
+			DataSubjects          string   `json:"data_subjects"`
+			Recipients            string   `json:"recipients"`
+			ThirdCountryTransfers bool     `json:"third_country_transfers"`
+			RetentionPeriod       string   `json:"retention_period"`
+			SecurityMeasures      string   `json:"security_measures"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.ProcessingName == "" || b.Purpose == "" || b.LegalBasis == "" {
 			respondErr(w, 400, "processing_name, purpose, legal_basis required")
@@ -2013,7 +1980,7 @@ func complianceConcentrationRisk(db *core.DB) http.HandlerFunc {
 // It anonymizes PII in crm_contacts for the subject CIF and marks each request processed.
 func StartNDPRErasureWorker(db *core.DB) {
 	for {
-		now  := time.Now()
+		now := time.Now()
 		next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
 		time.Sleep(time.Until(next))
 		runNDPRErasure(db)
@@ -2037,7 +2004,7 @@ func runNDPRErasure(db *core.DB) {
 	}
 
 	for _, row := range rows {
-		id  := toInt64(row["id"])
+		id := toInt64(row["id"])
 		cif := str(row["subject_cif"])
 
 		if cif != "" {
@@ -2143,7 +2110,7 @@ func runNDPRErasure(db *core.DB) {
 func complianceListAMLRules(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from, _ := validDate(r, "from")
-		to, _   := validDate(r, "to")
+		to, _ := validDate(r, "to")
 
 		query := `SELECT id, name, description, threshold_kobo, is_active, created_at
 			FROM aml_rules WHERE 1=1`
@@ -2178,11 +2145,11 @@ func complianceListAMLRules(db *core.DB) http.HandlerFunc {
 
 func complianceCreateAMLRule(db *core.DB) http.HandlerFunc {
 	type body struct {
-		Name           string `json:"name"`
-		Description    string `json:"description"`
-		ThresholdKobo  int64  `json:"threshold_kobo"`
-		RuleType       string `json:"rule_type"`
-		IsActive       bool   `json:"is_active"`
+		Name          string `json:"name"`
+		Description   string `json:"description"`
+		ThresholdKobo int64  `json:"threshold_kobo"`
+		RuleType      string `json:"rule_type"`
+		IsActive      bool   `json:"is_active"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -2379,7 +2346,7 @@ func RunAMLEngine(ctx context.Context, db *core.DB) error {
 func complianceListKYCExpiry(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from, _ := validDate(r, "from")
-		to, _   := validDate(r, "to")
+		to, _ := validDate(r, "to")
 
 		query := `SELECT
 			  k.cif_number,
@@ -2422,7 +2389,7 @@ func complianceListKYCExpiry(db *core.DB) http.HandlerFunc {
 
 func complianceKYCExpiryAction(db *core.DB) http.HandlerFunc {
 	type body struct {
-		Action        string `json:"action"`          // extend | flag | suspend
+		Action        string `json:"action"` // extend | flag | suspend
 		Notes         string `json:"notes"`
 		NewExpiryDate string `json:"new_expiry_date"` // required for extend
 	}
@@ -2488,7 +2455,8 @@ func complianceListBreachIncidents(db *core.DB) http.HandlerFunc {
 			ORDER BY i.discovered_at DESC
 			LIMIT 200`)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -2500,20 +2468,22 @@ func complianceListBreachIncidents(db *core.DB) http.HandlerFunc {
 func complianceCreateBreachIncident(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
-			Title            string   `json:"title"`
-			Description      string   `json:"description"`
-			DiscoveredAt     string   `json:"discovered_at"`
-			AffectedRecords  *int     `json:"affected_records"`
-			DataCategories   []string `json:"data_categories"`
-			BreachType       string   `json:"breach_type"`
-			Severity         string   `json:"severity"`
-			AssignedTo       *int64   `json:"assigned_to"`
+			Title           string   `json:"title"`
+			Description     string   `json:"description"`
+			DiscoveredAt    string   `json:"discovered_at"`
+			AffectedRecords *int     `json:"affected_records"`
+			DataCategories  []string `json:"data_categories"`
+			BreachType      string   `json:"breach_type"`
+			Severity        string   `json:"severity"`
+			AssignedTo      *int64   `json:"assigned_to"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.Title == "" {
-			respondErr(w, 422, "title is required"); return
+			respondErr(w, 422, "title is required")
+			return
 		}
 		user := core.UserFromCtx(r.Context())
 		if b.BreachType == "" {
@@ -2535,7 +2505,8 @@ func complianceCreateBreachIncident(db *core.DB) http.HandlerFunc {
 			b.Title, b.Description, discoveredAt, b.AffectedRecords, b.DataCategories,
 			b.BreachType, b.Severity, user.ID, b.AssignedTo)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		// Fire EvtBreach notification to compliance head.
 		go NotifyRole(r.Context(), db, "head_compliance", NotifPayload{
@@ -2553,38 +2524,58 @@ func complianceUpdateBreachIncident(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		var b struct {
-			Status             string   `json:"status"`
-			ContainmentSteps   string   `json:"containment_steps"`
-			RemediationSteps   string   `json:"remediation_steps"`
-			NDPCNotified       *bool    `json:"ndpc_notified"`
-			NDPCRefNumber      string   `json:"ndpc_ref_number"`
-			AssignedTo         *int64   `json:"assigned_to"`
-			AffectedRecords    *int     `json:"affected_records"`
+			Status           string `json:"status"`
+			ContainmentSteps string `json:"containment_steps"`
+			RemediationSteps string `json:"remediation_steps"`
+			NDPCNotified     *bool  `json:"ndpc_notified"`
+			NDPCRefNumber    string `json:"ndpc_ref_number"`
+			AssignedTo       *int64 `json:"assigned_to"`
+			AffectedRecords  *int   `json:"affected_records"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		sets := []string{"updated_at=NOW()"}
 		args := []any{}
 		n := 1
-		add := func(col string, val any) { sets = append(sets, fmt.Sprintf("%s=$%d", col, n)); args = append(args, val); n++ }
-		if b.Status != "" { add("status", b.Status) }
-		if b.ContainmentSteps != "" { add("containment_steps", b.ContainmentSteps) }
-		if b.RemediationSteps != "" { add("remediation_steps", b.RemediationSteps) }
+		add := func(col string, val any) {
+			sets = append(sets, fmt.Sprintf("%s=$%d", col, n))
+			args = append(args, val)
+			n++
+		}
+		if b.Status != "" {
+			add("status", b.Status)
+		}
+		if b.ContainmentSteps != "" {
+			add("containment_steps", b.ContainmentSteps)
+		}
+		if b.RemediationSteps != "" {
+			add("remediation_steps", b.RemediationSteps)
+		}
 		if b.NDPCNotified != nil && *b.NDPCNotified {
 			add("ndpc_notified", true)
 			add("ndpc_notified_at", time.Now().UTC())
 		}
-		if b.NDPCRefNumber != "" { add("ndpc_ref_number", b.NDPCRefNumber) }
-		if b.AssignedTo != nil { add("assigned_to", *b.AssignedTo) }
-		if b.AffectedRecords != nil { add("affected_records", *b.AffectedRecords) }
-		if b.Status == "closed" { add("closed_at", time.Now().UTC()) }
+		if b.NDPCRefNumber != "" {
+			add("ndpc_ref_number", b.NDPCRefNumber)
+		}
+		if b.AssignedTo != nil {
+			add("assigned_to", *b.AssignedTo)
+		}
+		if b.AffectedRecords != nil {
+			add("affected_records", *b.AffectedRecords)
+		}
+		if b.Status == "closed" {
+			add("closed_at", time.Now().UTC())
+		}
 		args = append(args, id)
 		rows, err := db.PGQuery(r.Context(),
 			fmt.Sprintf("UPDATE data_breach_incidents SET %s WHERE id=$%d RETURNING *",
 				strings.Join(sets, ","), n), args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Incident not found"); return
+			respondErr(w, 404, "Incident not found")
+			return
 		}
 		respond(w, rows[0], "")
 	}
@@ -2760,9 +2751,9 @@ func complianceDSARAssign(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"ok":             true,
-			"assigned_to":    b.AssignedTo,
-			"assigned_name":  assignedName,
+			"ok":            true,
+			"assigned_to":   b.AssignedTo,
+			"assigned_name": assignedName,
 		}) //nolint:errcheck
 	}
 }

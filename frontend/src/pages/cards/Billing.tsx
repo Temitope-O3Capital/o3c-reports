@@ -129,9 +129,9 @@ function AccountPanel({ cycleDate, productCode }: { cycleDate: string; productCo
       {total > PAGE && (
         <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
           <button disabled={offset === 0} onClick={() => load(offset - PAGE)}
-            style={{ padding: `${SP[1]} ${SP[3]}`, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.4 : 1 }}>← Prev</button>
+            style={{ padding: `${SP[1]} ${SP[3]}`, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.4 : 1 }}>Prev</button>
           <button disabled={offset + PAGE >= total} onClick={() => load(offset + PAGE)}
-            style={{ padding: `${SP[1]} ${SP[3]}`, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset + PAGE >= total ? 'not-allowed' : 'pointer', opacity: offset + PAGE >= total ? 0.4 : 1 }}>Next →</button>
+            style={{ padding: `${SP[1]} ${SP[3]}`, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset + PAGE >= total ? 'not-allowed' : 'pointer', opacity: offset + PAGE >= total ? 0.4 : 1 }}>Next</button>
         </div>
       )}
     </div>

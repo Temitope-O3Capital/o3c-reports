@@ -24,9 +24,7 @@ func RegisterRisk(r chi.Router, db *core.DB) {
 	// AppReview
 	r.With(access).Get("/applications", riskApplications(db))
 	r.With(access).Get("/review-kpis", riskReviewKPIs(db))
-	r.With(access).Get("/applications/export", riskApplicationsExport(db))
 	r.With(access).Get("/loan-book", riskLoanBook(db))
-	r.With(access).Get("/loan-book/export", riskLoanBookExport(db))
 
 	// PortfolioHealth
 	r.With(access).Get("/portfolio-kpis", riskPortfolioKPIs(db))
@@ -34,7 +32,6 @@ func RegisterRisk(r chi.Router, db *core.DB) {
 	r.With(access).Get("/band-distribution", riskBandDistribution(db))
 	r.With(access).Get("/sector-concentration", riskSectorConcentration(db))
 	r.With(access).Get("/top-employers", riskTopEmployers(db))
-	r.With(access).Get("/top-employers/export", riskTopEmployersExport(db))
 
 	// VintageAnalysis
 	r.With(access).Get("/vintage", riskVintage(db))
@@ -296,46 +293,6 @@ func riskReviewKPIs(db *core.DB) http.HandlerFunc {
 	}
 }
 
-func riskApplicationsExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		stage := qstr(r, "stage")
-		product := qstr(r, "product")
-		band := qstr(r, "band")
-		dateFrom := qstr(r, "date_from")
-		dateTo := qstr(r, "date_to")
-
-		where, args := riskAppWhere(stage, product, band, dateFrom, dateTo)
-
-		rows, err := db.PGQuery(ctx, `
-			SELECT
-				reference,
-				applicant_name,
-				COALESCE(employer, '') AS employer_name,
-				eye_score,
-				eye_rating AS risk_band,
-				COALESCE(monthly_income_kobo, 0) AS monthly_income_kobo,
-				dti_pct,
-				COALESCE(amount_requested_kobo, 0) AS amount_requested_kobo,
-				COALESCE(product_type, loan_type, '') AS product_type,
-				stage,
-				status,
-				submitted_at
-			FROM loan_applications
-			WHERE 1=1`+where+`
-			ORDER BY submitted_at DESC NULLS LAST, id DESC
-			LIMIT 5000`, args...)
-		if err != nil {
-			respondErr(w, 500, "Export failed")
-			return
-		}
-		if rows == nil {
-			rows = []core.Row{}
-		}
-		streamCSV(w, "risk-applications.csv", rows)
-	}
-}
-
 // ── LoanBook ─────────────────────────────────────────────────────────────────
 
 func riskLoanBook(db *core.DB) http.HandlerFunc {
@@ -426,25 +383,6 @@ func riskLoanBookWhere(dpd, band, q string) (string, []any, int) {
 		n++
 	}
 	return extra.String(), args, n
-}
-
-func riskLoanBookExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		where, args, _ := riskLoanBookWhere(qstr(r, "dpd"), qstr(r, "band"), qstr(r, "q"))
-		rows, err := db.PGQuery(r.Context(),
-			`SELECT reference, applicant_name, applicant_cif, sector, product_type,
-			        amount_kobo, outstanding_kobo, arrears_kobo, dpd, risk_band, eye_score,
-			        status, booked_at, maturity_date `+riskLoanBookBase+where+
-				` ORDER BY dpd DESC NULLS LAST, outstanding_kobo DESC LIMIT 5000`, args...)
-		if err != nil {
-			respondErr(w, 500, "Export failed")
-			return
-		}
-		if rows == nil {
-			rows = []core.Row{}
-		}
-		streamCSV(w, "risk-loan-book.csv", rows)
-	}
 }
 
 // ── PortfolioHealth ───────────────────────────────────────────────────────────
@@ -729,17 +667,6 @@ func riskTopEmployers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		basis, rows := riskConcentration(r.Context(), db)
 		respond(w, map[string]any{"basis": basis, "rows": rows}, "pg")
-	}
-}
-
-func riskTopEmployersExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		basis, rows := riskConcentration(r.Context(), db)
-		name := "risk-obligor-concentration.csv"
-		if basis == "employer" {
-			name = "risk-employer-concentration.csv"
-		}
-		streamCSV(w, name, rows)
 	}
 }
 

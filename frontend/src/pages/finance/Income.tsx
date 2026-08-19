@@ -181,56 +181,7 @@ const LOAN_COLS: TableCol<LoanRow>[] = [
 
 // ── CSV export ────────────────────────────────────────────────────────────────
 
-function exportCardCsv(rows: SummaryRow[], cycleDate: string) {
-  const header = ['Product', 'Currency', 'Category', 'Accounts', 'Outstanding', 'Interest', 'Fees', 'Penalty', 'Credit Limit']
-  const lines = rows.map(r => [
-    `"${(r.product_name || r.product_code).replace(/"/g, '""')}"`,
-    r.currency,
-    r.category || '',
-    n(r.account_count),
-    (n(r.total_outstanding_kobo) / 100).toFixed(2),
-    (n(r.total_interest_kobo) / 100).toFixed(2),
-    (n(r.total_fees_kobo) / 100).toFixed(2),
-    (n(r.total_penalty_kobo) / 100).toFixed(2),
-    (n(r.total_credit_limit_kobo) / 100).toFixed(2),
-  ].join(','))
-  const csv = [header.join(','), ...lines].join('\n')
-  const blob = new Blob([csv], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `card-income-${cycleDate}.csv`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
 
-function exportLoansCsv(rows: LoanRow[]) {
-  const header = ['Ref', 'Borrower', 'Product', 'Principal (NGN)', 'Rate %', 'Status', 'Tenor Days', 'Interest Earned (NGN)', 'Disbursed Date', 'Maturity Date']
-  const lines = rows.map(r => [
-    r.loan_ref || r.id,
-    `"${(r.applicant_name || '').replace(/"/g, '""')}"`,
-    `"${(r.product || '').replace(/"/g, '""')}"`,
-    (n(r.disbursed_amount_kobo) / 100).toFixed(2),
-    Number(r.rate_pct).toFixed(2),
-    r.maturity_status,
-    r.days_active,
-    (n(r.interest_earned_kobo) / 100).toFixed(2),
-    r.disbursed_at,
-    r.maturity_date,
-  ].join(','))
-  const csv = [header.join(','), ...lines].join('\n')
-  const blob = new Blob([csv], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `loans-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -505,19 +456,6 @@ export default function FinanceIncome() {
           {/* Product table — NGN first, then USD, with exact values */}
           <SectionCard padding={false}
             title="Products"
-            actions={allProductRows.length > 0 ? (
-              <button
-                onClick={() => exportCardCsv(allProductRows, selectedDate)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '5px 12px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)',
-                  background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)',
-                }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
-                Export CSV
-              </button>
-            ) : undefined}
           >
             {loading ? <Sk h={260} /> : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
@@ -607,12 +545,7 @@ export default function FinanceIncome() {
               ))}
             </div>
           )}
-          <SectionCard padding={false} actions={loans.length > 0 ? (
-            <button onClick={() => exportLoansCsv(loans)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
-              Export CSV
-            </button>
-          ) : undefined}>
+          <SectionCard padding={false}>
             <ExpandableFilterBar
               search={loanSearch}
               onSearch={setLoanSearch}

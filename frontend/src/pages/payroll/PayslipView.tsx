@@ -113,7 +113,7 @@ export default function PayslipView() {
                 <img src="/o3-logo-transparent.svg" width={56} height={31} alt="O3 Capital" style={{ display: 'block' }} />
                 <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, letterSpacing: '-0.5px' }}>O3 Capital</div>
               </div>
-              <div style={{ fontSize: TEXT.base, opacity: 0.75, marginTop: 2 }}>Pay Advice — {periodLabel}</div>
+              <div style={{ fontSize: TEXT.base, opacity: 0.75, marginTop: 2 }}>Pay Advice: {periodLabel}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: TEXT.xs, opacity: 0.65, marginBottom: 2 }}>CONFIDENTIAL</div>
@@ -131,7 +131,7 @@ export default function PayslipView() {
               ['Department',     item.department ?? '—'],
               ['Job Title',      item.job_title ?? '—'],
               ['Grade Level',    item.grade_level ?? '—'],
-              ['Bank / Account', item.bank_name ? `${item.bank_name} — ${item.account_number ?? ''}` : '—'],
+              ['Bank / Account', item.bank_name ? `${item.bank_name}, ${item.account_number ?? ''}` : '—'],
             ].map(([label, value]) => (
               <div key={label}>
                 <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontWeight: FW.semibold, marginBottom: 2 }}>{label}</div>

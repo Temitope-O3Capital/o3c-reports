@@ -391,7 +391,7 @@ function WriteOffTab({ caseId, outstanding, onDone }: { caseId: number; outstand
         Submit a write-off request for supervisor approval. Outstanding: {fmtKobo(outstanding)}.
       </div>
       <div>
-        <label style={labelStyle}>Amount (NGN) — blank to write off full outstanding</label>
+        <label style={labelStyle}>Amount (NGN): blank to write off full outstanding</label>
         <input type="number" value={amountNaira} onChange={e => setAmountNaira(e.target.value)}
           placeholder={fmtKobo(outstanding)} style={{ ...fieldStyle, height: 36 }} />
       </div>
@@ -441,19 +441,19 @@ function CaseTimeline({ caseId }: { caseId: number }) {
   const events: EvItem[] = [
     ...(detail.payments ?? []).map(p => ({
       date: p.payment_date,
-      label: `Payment — ${fmtKobo(p.amount_kobo)}`,
+      label: `Payment: ${fmtKobo(p.amount_kobo)}`,
       sub: `${p.channel}${p.reference ? ` · ${p.reference}` : ''}`,
       color: GREEN,
     })),
     ...(detail.visits ?? []).map(v => ({
       date: v.visit_date,
-      label: `${v.visit_type} — ${v.outcome}`,
+      label: `${v.visit_type}: ${v.outcome}`,
       sub: v.notes || undefined,
       color: BLUE,
     })),
     ...(detail.proceedings ?? []).map(pr => ({
       date: pr.filing_date,
-      label: `Legal — ${pr.proceeding_type}`,
+      label: `Legal: ${pr.proceeding_type}`,
       sub: pr.court_name,
       color: AMBER,
     })),
@@ -519,13 +519,13 @@ function DetailPanel({ rc, agents, onAction }: {
               onClick={() => navigate(`/recovery/cases/${rc.id}`)}
               style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
-              Full Detail →
+              Full Detail
             </button>
             <button
               onClick={() => navigate(`/contacts/${rc.account_cif}`)}
               style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
-              C360 →
+              C360
             </button>
           </div>
         </div>
@@ -662,8 +662,8 @@ export default function RecoveryCases() {
 
   const fStatusKey = [...fStatus].sort().join(',')
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     const params = new URLSearchParams({ limit: '100' })
     if (fStatusKey) params.set('status', fStatusKey)
     if (dateFrom)   params.set('from', dateFrom)
@@ -682,7 +682,7 @@ export default function RecoveryCases() {
   }, [fStatusKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['recovery'] })
+  useLiveData(() => load(true), { topics: ['recovery'] })
 
   const displayed = useMemo(() => {
     if (!search.trim()) return cases

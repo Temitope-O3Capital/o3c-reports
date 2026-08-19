@@ -86,7 +86,7 @@ export default function Interswitch() {
 
   useEffect(() => { load(period) }, [load, period])
 
-  const title = 'Interswitch — Card Activity'
+  const title = 'Interswitch: Card Activity'
   const back = { label: 'Cards', to: '/cards' }
   const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
 

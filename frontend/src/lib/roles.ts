@@ -40,7 +40,10 @@ export const ROLE_LABELS: Record<string, string> = {
   // Finance
   finance_officer:          'Finance Officer',
   finance_head:             'Head of Finance',
+
+  // Settlement & Reconciliation (own Operations module)
   settlement_officer:       'Settlement Officer',
+  settlement_head:          'Head of Settlement & Reconciliation',
 
   // Contact Centre
   call_center_agent:        'Call Center Agent',

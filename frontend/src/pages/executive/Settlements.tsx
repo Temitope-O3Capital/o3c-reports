@@ -74,7 +74,7 @@ export default function ExecSettlements() {
 
   useEffect(() => { load(period) }, [load, period])
 
-  const title = 'Settlements — Executive View'
+  const title = 'Settlements: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
   const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
 
@@ -123,7 +123,7 @@ export default function ExecSettlements() {
           <Note tone={RED}>
             <b>Every open exception is more than 90 days old.</b> {fmtNum(data.open_exceptions)} items worth{' '}
             {fmtKobo(data.exception_value_kobo)} have no counterparty and none have been worked. This is not a
-            backlog that is being cleared slowly — nothing is moving. Exceptions are shown for the whole open
+            backlog that is being cleared slowly. Nothing is moving. Exceptions are shown for the whole open
             book rather than the selected period, because an item unmatched since March is still unmatched today.
           </Note>
         )}
@@ -132,7 +132,7 @@ export default function ExecSettlements() {
           <div>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: SP[3] }}>Why they failed to match</div>
             {data.exception_reasons.length === 0 ? (
-              <Note tone={GREEN}>Nothing unmatched — every item found its counterparty.</Note>
+              <Note tone={GREEN}>Nothing unmatched. Every item found its counterparty.</Note>
             ) : data.exception_reasons.map(x => (
               <div key={x.reason} style={{ marginBottom: SP[3] }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>

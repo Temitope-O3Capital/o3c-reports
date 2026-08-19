@@ -146,8 +146,8 @@ export default function AMLRules() {
   const [deleteTarget, setDeleteTarget] = useState<AMLRule | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
       if (dateFrom) p.set('from', dateFrom)
@@ -159,7 +159,7 @@ export default function AMLRules() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   function openNew() {
     setEditTarget(null)
@@ -341,7 +341,7 @@ export default function AMLRules() {
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={editTarget ? `Edit Rule — ${editTarget.name}` : 'New AML Rule'}
+        title={editTarget ? `Edit Rule: ${editTarget.name}` : 'New AML Rule'}
         width={480}
         footer={
           <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
@@ -450,7 +450,7 @@ export default function AMLRules() {
               onChange={e => setForm(f => ({ ...f, active: e.target.checked }))}
               style={{ width: 15, height: 15, cursor: 'pointer' }}
             />
-            Active — rule fires immediately
+            Active: rule fires immediately
           </label>
         </div>
       </Modal>

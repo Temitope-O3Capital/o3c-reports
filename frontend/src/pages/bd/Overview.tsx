@@ -106,8 +106,8 @@ export default function BDOverview() {
   const [dateFrom,  setDateFrom]  = useState(monthStart())
   const [dateTo,    setDateTo]    = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const [s, l, e] = await Promise.all([
         apiFetch<{ data: BDStats }>(`/api/bd/stats?from=${dateFrom}&to=${dateTo}`),
@@ -127,7 +127,7 @@ export default function BDOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   const pipeline      = stats?.pipeline ?? []
   const totalLeads    = leads.length
@@ -271,7 +271,7 @@ export default function BDOverview() {
 
       {/* ── Trends ────────────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
-        <SectionCard title="Lead Volume — Last 12 Months">
+        <SectionCard title="Lead Volume: Last 12 Months">
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={monthlyTrend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <defs>
@@ -312,7 +312,7 @@ export default function BDOverview() {
           cols={sectorCols}
           rows={sectors}
           keyFn={r => r.sector}
-          emptyText="No sector data yet — add employers with a sector to populate"
+          emptyText="No sector data yet. Add employers with a sector to populate"
           skeletonRows={loading ? 4 : 0}
           searchKeys={['sector']}
           searchPlaceholder="Search sectors…"

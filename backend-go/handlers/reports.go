@@ -1,32 +1,13 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/reports/core"
 )
-
-// reportExportAllowed returns true if the caller's role may export report data.
-// H12: Exports contain sensitive financial data; restrict to finance/compliance leadership.
-var reportExportRoles = map[string]bool{
-	"admin":           true,
-	"finance_head":    true,
-	"cfo":             true,
-	"coo":             true,
-	"md":              true,
-	"compliance_head": true,
-	"it_admin":        true,
-}
-
-func reportExportAllowed(r *http.Request) bool {
-	user := core.UserFromCtx(r.Context())
-	return user != nil && reportExportRoles[user.Role]
-}
 
 func RegisterReports(r chi.Router, db *core.DB) {
 	read := core.RequirePages("reports")
@@ -43,30 +24,69 @@ func RegisterReports(r chi.Router, db *core.DB) {
 	r.With(read).Get("/customer-statement/emails", listStatementEmails(db))
 	r.With(read).Get("/npl-return", reportNPLReturn(db))
 	r.With(audit).Get("/audit-trail-export", reportAuditTrailExport(db))
-	r.With(read).Get("/kpis", reportKPIsHandler(db))
-	r.With(read).Get("/kpi-history", reportKPIHistoryHandler(db))
+	// The KPI Tracker is a dashboard, not an extract, and every operational head
+	// holds kpi_dashboard. Narrowing "reports" to the BI team would otherwise have
+	// let them open the page and then 403 on both of its calls — the same
+	// route-guard-vs-API-guard mismatch that made the Risk page unusable.
+	kpi := core.RequirePages("kpi_dashboard", "reports")
+	r.With(kpi).Get("/kpis", reportKPIsHandler(db))
+	r.With(kpi).Get("/kpi-history", reportKPIHistoryHandler(db))
 
-	// BI report builder (reports/BI.tsx)
-	r.With(read).Post("/run", reportsBIRun(db))
-	r.With(read).Post("/export", reportsBIExport(db))
-	r.With(read).Post("/saved", reportsSavedCreate(db))
-	r.With(read).Get("/saved", reportsSavedList(db))
-	r.With(read).Post("/schedules", reportsScheduleCreate(db))
-	r.With(read).Get("/export-log", reportsExportLog(db))
+	// The centralised export engine: dataset registry, preview and download.
+	// Every file the workspace emits comes from here — see handlers/exports.go.
+	RegisterExports(r, db)
+
+	// Rollup health and manual triggers — the reporting layer's own plumbing.
+	RegisterReportingRollups(r, db)
+
+	// Cards, revenue, acquisition, service and deposits — see reports_business.go.
+	registerBusinessReports(r, db, read)
+
+	// Legacy export log path, kept so an old tab does not 404 mid-session.
+	// The engine's own log is GET /api/reports/exports/log.
+	r.With(read).Get("/export-log", exportLog(db))
 }
 
 // reportsList returns metadata for all available report types.
 func reportsList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Ordered by product line, so the library reads the way the business is
+		// organised rather than the order the handlers happened to be written.
 		reports := []map[string]any{
-			{"key": "monthly-business", "name": "Monthly Business Report", "description": "New accounts, disbursements, collections, recoveries, NPL — grouped by product"},
-			{"key": "loan-portfolio", "name": "Loan Portfolio Report", "description": "All loans: status, amounts, tenor, interest rate distribution, top 10 by outstanding"},
-			{"key": "collections-performance", "name": "Collections Performance Report", "description": "Agent contact attempts, PTP count, kept rate, amount vs target by agent and DPD bucket"},
-			{"key": "settlement-recon", "name": "Settlement Reconciliation Report", "description": "Approved/disbursed loans vs repayments received"},
-			{"key": "agent-performance", "name": "Agent Performance Report", "description": "Daily KPI summary per agent: contacts, PTPs, collected, target achievement"},
-			{"key": "customer-statement", "name": "Customer Statement", "description": "Account details + 90-day transaction history for a given CIF (?cif=)"},
-			{"key": "audit-trail-export", "name": "Audit Trail Export", "description": "Paginated full audit trail (requires audit_export permission)"},
-			{"key": "npl-return", "name": "CBN NPL Return", "description": "Loans by DPD bucket, NPL ratio, provisions, write-offs"},
+			// Revenue
+			{"key": "income", "group": "Revenue", "name": "Income & Revenue Report",
+				"description": "Fee, interest and penalty income by category, product and month, off the card book"},
+			// Cards
+			{"key": "card-portfolio", "group": "Cards", "name": "Card Portfolio Report",
+				"description": "Accounts by status and product, limits, balances, utilisation bands and delinquency"},
+			// Customers
+			{"key": "customer-acquisition", "group": "Customers", "name": "Customer Acquisition Report",
+				"description": "New customers by month, first product and state, counted by first account opened"},
+			// Credit
+			{"key": "loan-portfolio", "group": "Credit", "name": "Loan Portfolio Report",
+				"description": "All loans: status, amounts, tenor, interest rate distribution, top 10 by outstanding"},
+			{"key": "npl-return", "group": "Credit", "name": "CBN NPL Return",
+				"description": "Loans by DPD bucket, NPL ratio, CBN prudential provisions, write-offs"},
+			{"key": "monthly-business", "group": "Credit", "name": "Monthly Business Report",
+				"description": "New accounts, disbursements, collections, recoveries, NPL — grouped by product"},
+			// Deposits
+			{"key": "fd-book", "group": "Fixed Deposits", "name": "Fixed Deposit Book",
+				"description": "Deposit book by status and product, with the maturity ladder treasury needs"},
+			// Collections
+			{"key": "collections-performance", "group": "Collections", "name": "Collections Performance Report",
+				"description": "Agent contact attempts, PTP count, kept rate, amount vs target by agent and DPD bucket"},
+			{"key": "agent-performance", "group": "Collections", "name": "Agent Performance Report",
+				"description": "Daily KPI summary per agent: contacts, PTPs, collected, target achievement"},
+			// Service
+			{"key": "service-performance", "group": "Service", "name": "Service Performance Report",
+				"description": "Tickets by channel, status and agent; SLA breaches, CSAT and call volumes"},
+			// Operations
+			{"key": "settlement-recon", "group": "Operations", "name": "Settlement Reconciliation Report",
+				"description": "Approved/disbursed loans vs repayments received"},
+			{"key": "customer-statement", "group": "Operations", "name": "Customer Statement",
+				"description": "Account details + transaction history for a given CIF (requires a CIF)"},
+			{"key": "audit-trail-export", "group": "Compliance", "name": "Audit Trail",
+				"description": "Paginated full audit trail (requires audit_export permission)"},
 		}
 		respond(w, reports, "static")
 	}
@@ -158,15 +178,6 @@ func reportMonthlyBusiness(db *core.DB) http.HandlerFunc {
 		}
 
 		sources := []string{src1, src2, src3}
-		if qstr(r, "format") == "csv" {
-			if !reportExportAllowed(r) {
-				respondErr(w, 403, "Insufficient permissions to export reports")
-				return
-			}
-			// Flatten disbursements for CSV
-			streamCSV(w, fmt.Sprintf("monthly_business_%s_%s.csv", dateFrom, dateTo), disbRows)
-			return
-		}
 		respond(w, result, pickSource(sources))
 	}
 }
@@ -219,26 +230,26 @@ func reportLoanPortfolio(db *core.DB) http.HandlerFunc {
 			 FROM loan_applications %s GROUP BY product_type ORDER BY total_approved_kobo DESC`, where),
 			args...)
 
-		// Top 10 by outstanding (DPD snapshot)
-		top10Rows, _ := db.PGQuery(ctx,
-			`SELECT cif_number, outstanding_kobo, dpd, dpd_bucket
-			 FROM loan_dpd_daily_snapshot
-			 WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM loan_dpd_daily_snapshot)
-			 ORDER BY outstanding_kobo DESC LIMIT 10`)
+		// Top 10 by outstanding, live off the CBS book.
+		//
+		// Previously read loan_dpd_daily_snapshot, which is empty — so the
+		// concentration table on a loan portfolio report was always blank.
+		top10Rows, _ := db.PGQuery(ctx, `
+			SELECT cl.cbs_customer_id AS cif_number,
+			       cl.cbs_account_number,
+			       cl.product_name,
+			       cl.status,
+			       cl.outstanding_principal_kobo AS outstanding_kobo,
+			       `+cbsLoanDPD+` AS dpd,
+			       `+cbsLoanBand+` AS risk_band
+			FROM cbs_loans cl
+			WHERE cl.status NOT IN ('Closed','Revoked')
+			ORDER BY cl.outstanding_principal_kobo DESC LIMIT 10`)
 
 		result := map[string]any{
 			"status_breakdown":  statusRows,
 			"by_product_type":   productRows,
 			"top10_outstanding": top10Rows,
-		}
-
-		if qstr(r, "format") == "csv" {
-			if !reportExportAllowed(r) {
-				respondErr(w, 403, "Insufficient permissions to export reports")
-				return
-			}
-			streamCSV(w, fmt.Sprintf("loan_portfolio_%s_%s.csv", coalesce(dateFrom, "all"), coalesce(dateTo, "all")), statusRows)
-			return
 		}
 		respond(w, result, "pg")
 	}
@@ -312,15 +323,6 @@ func reportCollectionsPerformance(db *core.DB) http.HandlerFunc {
 			} else {
 				row["collection_rate_pct"] = 0.0
 			}
-		}
-
-		if qstr(r, "format") == "csv" {
-			if !reportExportAllowed(r) {
-				respondErr(w, 403, "Insufficient permissions to export reports")
-				return
-			}
-			streamCSV(w, fmt.Sprintf("collections_performance_%s_%s.csv", dateFrom, dateTo), agentRows)
-			return
 		}
 		respond(w, map[string]any{
 			"date_from":     dateFrom,
@@ -414,15 +416,6 @@ func reportSettlementRecon(db *core.DB) http.HandlerFunc {
 		if len(disbTotal) > 0 {
 			result["total_disbursed_kobo"] = disbTotal[0]["disbursed_kobo"]
 		}
-
-		if qstr(r, "format") == "csv" {
-			if !reportExportAllowed(r) {
-				respondErr(w, 403, "Insufficient permissions to export reports")
-				return
-			}
-			streamCSV(w, fmt.Sprintf("settlement_recon_%s_%s.csv", dateFrom, dateTo), collRows)
-			return
-		}
 		respond(w, result, pickSource([]string{collSrc}))
 	}
 }
@@ -475,15 +468,6 @@ func reportAgentPerformance(db *core.DB) http.HandlerFunc {
 				row["target_achievement_pct"] = 0.0
 			}
 		}
-
-		if qstr(r, "format") == "csv" {
-			if !reportExportAllowed(r) {
-				respondErr(w, 403, "Insufficient permissions to export reports")
-				return
-			}
-			streamCSV(w, fmt.Sprintf("agent_performance_%s_%s.csv", dateFrom, dateTo), rows)
-			return
-		}
 		respond(w, rows, "pg")
 	}
 }
@@ -504,11 +488,6 @@ func reportCustomerStatement(db *core.DB) http.HandlerFunc {
 		statement, err := loadCustomerStatement(r.Context(), db, cif, dateFrom, dateTo)
 		if err != nil {
 			respondErr(w, 500, err.Error())
-			return
-		}
-
-		if qstr(r, "format") == "csv" {
-			streamCSV(w, fmt.Sprintf("statement_%s_%s_%s.csv", cif, dateFrom, dateTo), statement.Transactions)
 			return
 		}
 		respond(w, map[string]any{
@@ -573,12 +552,6 @@ func reportAuditTrailExport(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Query failed")
 			return
 		}
-
-		if qstr(r, "format") == "csv" {
-			streamCSV(w, fmt.Sprintf("audit_trail_%s_%s.csv",
-				coalesce(dateFrom, "all"), coalesce(dateTo, "all")), rows)
-			return
-		}
 		respond(w, map[string]any{
 			"data":   rows,
 			"total":  total,
@@ -602,14 +575,15 @@ func reportNPLReturn(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// DPD bucket summary from most recent snapshot
-		bucketRows, _ := db.PGQuery(ctx,
-			`SELECT dpd_bucket,
-			        COUNT(*) AS loan_count,
-			        COALESCE(SUM(outstanding_kobo),0) AS outstanding_kobo
-			 FROM loan_dpd_daily_snapshot
-			 WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM loan_dpd_daily_snapshot)
-			 GROUP BY dpd_bucket ORDER BY dpd_bucket`)
+		// DPD buckets, live off the CBS book.
+		//
+		// This used to read loan_dpd_daily_snapshot, which has never had a row in
+		// it. The effect was a regulatory return that printed a correct headline
+		// NPL ratio next to an empty bucket table and zero provisions — the kind
+		// of internal contradiction that gets noticed in a CBN pack. The snapshot
+		// table is not populated by anything, so the fix is to stop waiting for it
+		// and derive the buckets from the same live source the ratio comes from.
+		bucketRows, _ := db.PGQuery(ctx, cbsDPDBucketsSQL)
 
 		// Write-offs in period
 		dateFrom, _ := validDate(r, "date_from")
@@ -636,28 +610,50 @@ func reportNPLReturn(db *core.DB) http.HandlerFunc {
 			snapshot["npl_ratio_pct"] = round1(nplBps / 100.0)
 		}
 
-		// Tiered CBN provision rates from DPD snapshot
-		bucketProvRows, _ := db.PGQuery(ctx, `
+		// Provisions, live off the CBS book, on the CBN prudential classification:
+		//
+		//   Performing    0–90 days     1%
+		//   Substandard   91–180 days   10%
+		//   Doubtful      181–360 days  50%
+		//   Lost          over 360 days 100%
+		//
+		// NOTE — these thresholds differ from what this report used before. The
+		// previous code provisioned at 1/10/50/100% on 1-30 / 31-60 / 61-90 / 90+,
+		// which treats a 61-day-late loan as Doubtful when CBN still classifies it
+		// as Performing. It never produced a number (the table it read is empty),
+		// so nothing has been filed on the old basis — but the rates below should
+		// be confirmed by Finance/Compliance against the facility class O3 reports
+		// under before this return is submitted.
+		provRows, _ := db.PGQuery(ctx, `
 			SELECT
-				SUM(CASE WHEN dpd_bucket='1-30'  THEN outstanding_kobo * 0.01 ELSE 0 END) AS prov_watch,
-				SUM(CASE WHEN dpd_bucket='31-60' THEN outstanding_kobo * 0.10 ELSE 0 END) AS prov_substandard,
-				SUM(CASE WHEN dpd_bucket='61-90' THEN outstanding_kobo * 0.50 ELSE 0 END) AS prov_doubtful,
-				SUM(CASE WHEN dpd_bucket='90+'   THEN outstanding_kobo * 1.00 ELSE 0 END) AS prov_lost
-			FROM loan_dpd_daily_snapshot
-			WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM loan_dpd_daily_snapshot)
-		`)
-		if len(bucketProvRows) > 0 {
-			watchKobo := toFloat(bucketProvRows[0]["prov_watch"])
-			subKobo := toFloat(bucketProvRows[0]["prov_substandard"])
-			doubtKobo := toFloat(bucketProvRows[0]["prov_doubtful"])
-			lostKobo := toFloat(bucketProvRows[0]["prov_lost"])
-			totalProv := watchKobo + subKobo + doubtKobo + lostKobo
-			snapshot["provision_watch_kobo"] = int64(watchKobo)
-			snapshot["provision_substandard_kobo"] = int64(subKobo)
-			snapshot["provision_doubtful_kobo"] = int64(doubtKobo)
-			snapshot["provision_lost_kobo"] = int64(lostKobo)
-			snapshot["provision_total_kobo"] = int64(totalProv)
+			  COALESCE(SUM(op) FILTER (WHERE dpd <= 90), 0)                 AS base_performing,
+			  COALESCE(SUM(op) FILTER (WHERE dpd BETWEEN 91 AND 180), 0)    AS base_substandard,
+			  COALESCE(SUM(op) FILTER (WHERE dpd BETWEEN 181 AND 360), 0)   AS base_doubtful,
+			  COALESCE(SUM(op) FILTER (WHERE dpd > 360), 0)                 AS base_lost
+			FROM (SELECT outstanding_principal_kobo AS op, `+cbsLoanDPDBare+` AS dpd
+			      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) x`)
+		if len(provRows) > 0 {
+			base := func(k string) float64 { return toFloat(provRows[0][k]) }
+			performing := base("base_performing") * 0.01
+			substandard := base("base_substandard") * 0.10
+			doubtful := base("base_doubtful") * 0.50
+			lost := base("base_lost") * 1.00
+
+			snapshot["provision_performing_kobo"] = int64(performing)
+			snapshot["provision_substandard_kobo"] = int64(substandard)
+			snapshot["provision_doubtful_kobo"] = int64(doubtful)
+			snapshot["provision_lost_kobo"] = int64(lost)
+			snapshot["provision_total_kobo"] = int64(performing + substandard + doubtful + lost)
+
+			// The exposure each rate was applied to, so the return can be checked
+			// without re-deriving it: a provision figure nobody can reconcile is
+			// a provision figure nobody trusts.
+			snapshot["exposure_performing_kobo"] = int64(base("base_performing"))
+			snapshot["exposure_substandard_kobo"] = int64(base("base_substandard"))
+			snapshot["exposure_doubtful_kobo"] = int64(base("base_doubtful"))
+			snapshot["exposure_lost_kobo"] = int64(base("base_lost"))
 		}
+		snapshot["provision_basis"] = "CBN prudential: 1% ≤90d, 10% 91-180d, 50% 181-360d, 100% >360d"
 
 		result := map[string]any{
 			"report_date": dateTo,
@@ -666,15 +662,6 @@ func reportNPLReturn(db *core.DB) http.HandlerFunc {
 		}
 		if len(writeOffRows) > 0 {
 			result["write_offs_in_period"] = writeOffRows[0]
-		}
-
-		if qstr(r, "format") == "csv" {
-			if !reportExportAllowed(r) {
-				respondErr(w, 403, "Insufficient permissions to export reports")
-				return
-			}
-			streamCSV(w, fmt.Sprintf("npl_return_%s.csv", dateTo), bucketRows)
-			return
 		}
 		respond(w, result, "pg")
 	}
@@ -726,11 +713,15 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 
 		out := map[string]any{}
 
-		// Active loans
-		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS val FROM loan_accounts WHERE status='active'`); len(rows) > 0 {
+		// Active loans, from the live CBS book.
+		//
+		// This counted `loan_accounts`, a table that does not exist in this
+		// database — so the query errored and the KPI silently reported 0 while
+		// there were 25 live loans on the book.
+		out["active_loans"] = 0
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT COUNT(*) AS val FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')`); len(rows) > 0 {
 			out["active_loans"] = rows[0]["val"]
-		} else {
-			out["active_loans"] = 0
 		}
 
 		// Total disbursed in period
@@ -793,11 +784,23 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 			out["csat_score"] = toFloat(rows[0]["val"])
 		}
 
-		// New customers (loan applications as proxy)
+		// New customers — counted by first account opened.
+		//
+		// Originally loan applications, which reads zero for a business whose
+		// customers overwhelmingly arrive through cards and fixed deposits. Then
+		// customers.account_created, which the feed stopped populating on
+		// 2025-07-09 — also zero. accounts.opened_date is the actual business
+		// event, current to 2026-08-25, and grouping by the CIF's earliest one
+		// means a customer taking a second card is not counted twice.
 		out["new_customers"] = 0
-		if rows, _ := db.PGQuery(ctx,
-			`SELECT COUNT(*) AS val FROM loan_applications
-			 WHERE created_at::date BETWEEN $1::date AND $2::date`,
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS val FROM (
+			  SELECT cif, MIN(opened_date) AS first_open
+			  FROM app.accounts
+			  WHERE opened_date IS NOT NULL AND NULLIF(cif,'') IS NOT NULL
+			  GROUP BY cif
+			) fa
+			WHERE fa.first_open BETWEEN $1::date AND $2::date`,
 			dateFrom, dateTo); len(rows) > 0 {
 			out["new_customers"] = rows[0]["val"]
 		}
@@ -807,46 +810,96 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 			`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')`)
 		out["active_cards"] = activeCards
 
-		// Revenue (fee income for period)
-		out["revenue_kobo"] = 0
-		if rows, _ := db.PGQuery(ctx,
-			`SELECT COALESCE(SUM(amount),0) AS val FROM fee_income
-			 WHERE fee_date BETWEEN $1::date AND $2::date`,
-			dateFrom, dateTo); len(rows) > 0 {
-			out["revenue_kobo"] = rows[0]["val"]
+		// Revenue — card fees, interest and penalties from app.income_daily.
+		//
+		// This read app.fee_income, which has never had a row in it, so the
+		// business's headline revenue KPI reported ₦0 while 1.1m card transactions
+		// carried every fee and interest posting ever made. app.income_daily
+		// (migration 157) classifies those postings by the descriptions CCS writes
+		// into the book, and excludes the 600/601/603 interest components that
+		// code 604 already totals — summing all four nearly doubles interest.
+		//
+		// Amounts on that book are numeric NAIRA, not kobo, so convert: everything
+		// this endpoint returns as *_kobo must actually be kobo.
+		out["revenue_kobo"] = int64(0)
+		out["revenue_fee_kobo"] = int64(0)
+		out["revenue_interest_kobo"] = int64(0)
+		out["revenue_penalty_kobo"] = int64(0)
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT category, COALESCE(SUM(amount_ngn), 0) AS ngn
+			FROM app.income_daily
+			WHERE income_date BETWEEN $1::date AND $2::date
+			GROUP BY category`, dateFrom, dateTo); len(rows) > 0 {
+			var total float64
+			for _, row := range rows {
+				ngn := toFloat(row["ngn"])
+				total += ngn
+				switch str(row["category"]) {
+				case "fee":
+					out["revenue_fee_kobo"] = int64(ngn * 100)
+				case "interest":
+					out["revenue_interest_kobo"] = int64(ngn * 100)
+				case "penalty":
+					out["revenue_penalty_kobo"] = int64(ngn * 100)
+				}
+			}
+			out["revenue_kobo"] = int64(total * 100)
 		}
 
-		// KPI targets from kpi_targets table
-		targetRows, _ := db.PGQuery(ctx,
-			`SELECT metric_name, target_value FROM kpi_targets
-			 WHERE period = $1 OR period IS NULL OR period = 'all'
-			 ORDER BY period NULLS LAST`, period)
+		// Targets.
+		//
+		// kpi_targets.period holds a CADENCE ('monthly', 'quarterly', 'annual');
+		// this endpoint is asked for a WINDOW ('this_month', 'last_quarter'). The
+		// old query compared the two directly — `WHERE period = $1` — so no target
+		// ever matched and every RAG indicator would have read zero even once the
+		// table was populated. Map window → cadence.
+		cadence := "monthly"
+		switch period {
+		case "this_quarter", "last_quarter":
+			cadence = "quarterly"
+		case "this_year":
+			cadence = "annual"
+		}
+		// Role-scoped: targets are per role, so prefer the caller's own target and
+		// fall back to an 'all' row. Ordering puts the specific match first.
+		callerRole := ""
+		if u := core.UserFromCtx(ctx); u != nil {
+			callerRole = u.Role
+		}
+		targetRows, _ := db.PGQuery(ctx, `
+			SELECT metric_name, target_value
+			FROM kpi_targets
+			WHERE (period = $1 OR period = 'all')
+			  AND (role = $2 OR role = 'all')
+			ORDER BY (role = $2) DESC, (period = $1) DESC`, cadence, callerRole)
 		seen := map[string]bool{}
 		for _, tr := range targetRows {
-			if name, _ := tr["metric_name"].(string); name != "" && !seen[name] {
+			if name := str(tr["metric_name"]); name != "" && !seen[name] {
 				out["target_"+name] = tr["target_value"]
 				seen[name] = true
 			}
 		}
-		for _, k := range []string{
-			"disbursed_kobo", "active_loans", "npl_pct", "par30_pct",
-			"collection_pct", "recovery_pct", "csat", "new_customers", "active_cards", "revenue_kobo",
-		} {
-			if _, ok := out["target_"+k]; !ok {
-				out["target_"+k] = 0
-			}
-		}
+		// A metric with no target is reported as absent, not as a target of 0.
+		// Zero is a real target ("no NPLs"), and conflating the two is why every
+		// RAG dot on the tracker showed the same colour.
+		out["targets_set"] = len(seen)
 
 		respond(w, out, "pg")
 	}
 }
 
+// reportKPIHistoryHandler returns a monthly trend for the KPI Tracker.
+//
+// The window is configurable (?months=, default 12). It was hardcoded to 6, which
+// is too short to see a seasonal pattern in a card business.
 func reportKPIHistoryHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		months := qint(r, "months", 12, 3, 36)
+
 		rows, err := db.PGQuery(r.Context(), `
 			WITH months AS (
 			  SELECT DATE_TRUNC('month', CURRENT_DATE - (i || ' months')::interval)::date AS month_start
-			  FROM generate_series(5, 0, -1) AS gs(i)
+			  FROM generate_series($1::int - 1, 0, -1) AS gs(i)
 			),
 			disbursements AS (
 			  SELECT DATE_TRUNC('month', disbursed_at)::date AS m, COALESCE(SUM(disbursed_amount_kobo),0) AS total
@@ -858,7 +911,7 @@ func reportKPIHistoryHandler(db *core.DB) http.HandlerFunc {
 			  SELECT DATE_TRUNC('month', kpi_date)::date AS m,
 			    CASE WHEN SUM(target_amount_kobo) > 0 THEN
 			      ROUND(100.0 * SUM(amount_collected_kobo)/SUM(target_amount_kobo), 1)
-			    ELSE 0 END AS rate
+			    ELSE NULL END AS rate
 			  FROM collections_daily_kpi GROUP BY 1
 			),
 			npl AS (
@@ -867,269 +920,99 @@ func reportKPIHistoryHandler(db *core.DB) http.HandlerFunc {
 			                   THEN 100.0 * npl_kobo / outstanding_principal_kobo ELSE 0 END), 2) AS ratio
 			  FROM cbs_portfolio_snapshot GROUP BY 1
 			),
+			-- Revenue from the card book rather than the never-populated
+			-- fee_income table. income_daily is NAIRA; ×100 for kobo.
 			revenue AS (
-			  SELECT DATE_TRUNC('month', fee_date)::date AS m, COALESCE(SUM(amount),0) AS total
-			  FROM fee_income GROUP BY 1
+			  SELECT DATE_TRUNC('month', income_date)::date AS m,
+			         ROUND(SUM(amount_ngn) * 100)                                    AS total,
+			         ROUND(SUM(amount_ngn) FILTER (WHERE category='fee')      * 100) AS fee,
+			         ROUND(SUM(amount_ngn) FILTER (WHERE category='interest') * 100) AS interest,
+			         ROUND(SUM(amount_ngn) FILTER (WHERE category='penalty')  * 100) AS penalty
+			  FROM app.income_daily GROUP BY 1
+			),
+			-- New customers per month, counted by FIRST ACCOUNT OPENED.
+			--
+			-- Not app.customers.account_created: that field stopped being populated
+			-- by the feed on 2025-07-09, so counting it reports zero new customers
+			-- for the last thirteen months. Not customers.created_at either — that
+			-- is when the workspace ingested the row, not when O3 won the customer.
+			--
+			-- Grouped by CIF's earliest opened_date, so a customer who later takes a
+			-- second card is not counted again: a CIF is a card, not a person, and
+			-- acquisition is a first-account event.
+			customers AS (
+			  SELECT DATE_TRUNC('month', fa.first_open)::date AS m, COUNT(*) AS n
+			  FROM (SELECT cif, MIN(opened_date) AS first_open
+			        FROM app.accounts
+			        WHERE opened_date IS NOT NULL AND NULLIF(cif,'') IS NOT NULL
+			        GROUP BY cif) fa
+			  GROUP BY 1
+			),
+			-- Data coverage, so a month with no feed cannot be read as a month with
+			-- no business. The CSV drops have real gaps (Nov 2025 has 1 transaction,
+			-- May 2026 has 5, Dec 2025 none at all), and a revenue chart that plots
+			-- those as ₦0 says "we earned nothing" when the truth is "we have no
+			-- data". The UI uses this to mark the month instead of plotting a zero.
+			coverage AS (
+			  SELECT DATE_TRUNC('month', txn_date)::date AS m, COUNT(*) AS txn_count
+			  FROM app.transactions WHERE txn_date IS NOT NULL GROUP BY 1
+			),
+			-- Support load and satisfaction, so the trend is not credit-only.
+			tickets AS (
+			  SELECT DATE_TRUNC('month', created_at)::date AS m,
+			         COUNT(*) AS n,
+			         ROUND(AVG(csat_score) FILTER (WHERE csat_score IS NOT NULL), 2) AS csat
+			  FROM app.helpdesk_tickets GROUP BY 1
 			)
 			SELECT
 			  TO_CHAR(mo.month_start, 'Mon YYYY') AS period_label,
+			  mo.month_start                      AS period_start,
 			  COALESCE(d.total, 0)                AS total_disbursed_kobo,
-			  COALESCE(c.rate, 0)                 AS collection_rate_pct,
+			  c.rate                              AS collection_rate_pct,
 			  COALESCE(n.ratio, 0)                AS npl_ratio_pct,
-			  COALESCE(rv.total, 0)               AS revenue_kobo
+			  COALESCE(rv.total, 0)               AS revenue_kobo,
+			  COALESCE(rv.fee, 0)                 AS revenue_fee_kobo,
+			  COALESCE(rv.interest, 0)            AS revenue_interest_kobo,
+			  COALESCE(rv.penalty, 0)             AS revenue_penalty_kobo,
+			  COALESCE(cu.n, 0)                   AS new_customers,
+			  COALESCE(tk.n, 0)                   AS tickets_created,
+			  tk.csat                             AS csat_score,
+			  COALESCE(cv.txn_count, 0)           AS txn_count,
+			  -- A month is only trustworthy for card figures if the feed actually
+			  -- delivered. 500 is well below the ~4-6k a normal month carries and
+			  -- well above the 1-5 rows a broken month leaves behind.
+			  (COALESCE(cv.txn_count, 0) >= 500)  AS data_complete
 			FROM months mo
 			LEFT JOIN disbursements d  ON d.m  = mo.month_start
 			LEFT JOIN collections   c  ON c.m  = mo.month_start
 			LEFT JOIN npl           n  ON n.m  = mo.month_start
 			LEFT JOIN revenue       rv ON rv.m = mo.month_start
-			ORDER BY mo.month_start`)
-		if err != nil || rows == nil {
+			LEFT JOIN customers     cu ON cu.m = mo.month_start
+			LEFT JOIN tickets       tk ON tk.m = mo.month_start
+			LEFT JOIN coverage      cv ON cv.m = mo.month_start
+			ORDER BY mo.month_start`, months)
+		if err != nil {
+			respondErrLog(w, 500, "KPI history query failed", err)
+			return
+		}
+		if rows == nil {
 			rows = []map[string]any{}
 		}
 		respond(w, rows, "pg")
 	}
 }
 
-/* ── BI Report Builder ────────────────────────────────────────────────────────
-   Shared query dispatcher used by both /run (JSON) and /export (CSV).
+/* The BI report builder that used to live here has been removed.
+
+   It was a second, incompatible copy of /api/bi: its own tables (report_configs,
+   report_schedules) and its own endpoints, with no runner behind the schedules
+   and no page reaching most of it. None of its four actions worked — the
+   frontend posted {module, metrics, granularity} while the handler read
+   report_type, so every run returned an empty set with no error; save and
+   schedule 422'd on required fields the UI never sent.
+
+   Report definitions, runs and scheduled delivery now live in exactly one place:
+   handlers/bi.go over bi_report_definitions / bi_scheduled_reports / bi_report_runs.
+   File extraction lives in handlers/exports.go. What remains in this file is the
+   set of fixed operational reports above, which are real and now reachable.
 */
-
-type biReportReq struct {
-	ReportType string         `json:"report_type"`
-	DateFrom   string         `json:"date_from"`
-	DateTo     string         `json:"date_to"`
-	Filters    map[string]any `json:"filters"`
-}
-
-func runBIReportRows(r *http.Request, db *core.DB, b biReportReq) ([]core.Row, error) {
-	switch b.ReportType {
-	case "loan_portfolio":
-		where := "WHERE 1=1"
-		var args []any
-		n := 1
-		if b.DateFrom != "" {
-			where += fmt.Sprintf(" AND created_at::date >= $%d", n)
-			args = append(args, b.DateFrom)
-			n++
-		}
-		if b.DateTo != "" {
-			where += fmt.Sprintf(" AND created_at::date <= $%d", n)
-			args = append(args, b.DateTo)
-			n++
-		}
-		_ = n
-		return db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT id, reference, applicant_name, stage, disbursed_amount_kobo AS amount_kobo,
-			       loan_officer_name AS officer, status, created_at::date AS date
-			FROM loan_applications %s
-			ORDER BY created_at DESC LIMIT 1000`, where), args...)
-
-	case "collections":
-		return db.PGQuery(r.Context(), `
-			SELECT cif_number, dpd_bucket, outstanding_kobo, assigned_at
-			FROM collection_assignments
-			ORDER BY outstanding_kobo DESC LIMIT 1000`)
-
-	case "transactions":
-		where := "WHERE 1=1"
-		var args []any
-		n := 1
-		if b.DateFrom != "" {
-			where += fmt.Sprintf(" AND j.entry_date >= $%d::date", n)
-			args = append(args, b.DateFrom)
-			n++
-		}
-		if b.DateTo != "" {
-			where += fmt.Sprintf(" AND j.entry_date <= $%d::date", n)
-			args = append(args, b.DateTo)
-			n++
-		}
-		_ = n
-		return db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT j.id, j.entry_date AS date, j.description, j.reference,
-			       j.debit_account, j.credit_account, j.amount_kobo, j.source_type
-			FROM gl_journal_entries j %s
-			ORDER BY j.entry_date DESC LIMIT 1000`, where), args...)
-
-	default:
-		return []core.Row{}, nil
-	}
-}
-
-func reportsBIRun(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var b biReportReq
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON")
-			return
-		}
-
-		rows, err := runBIReportRows(r, db, b)
-		if err != nil {
-			respondErr(w, 500, "Report query failed: "+err.Error())
-			return
-		}
-		if rows == nil {
-			rows = []core.Row{}
-		}
-
-		// Log the run to export_log
-		user := core.UserFromCtx(r.Context())
-		filtersJSON, _ := json.Marshal(b.Filters)
-		db.PGExec(r.Context(), //nolint:errcheck
-			`INSERT INTO report_export_log (report_type, filters, row_count, created_by)
-			 VALUES ($1, $2::jsonb, $3, $4)`,
-			b.ReportType, string(filtersJSON), len(rows), user.ID)
-
-		// Collect column names from first row
-		var columns []string
-		if len(rows) > 0 {
-			for k := range rows[0] {
-				columns = append(columns, k)
-			}
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"data":         rows,
-			"columns":      columns,
-			"total_rows":   len(rows),
-			"generated_at": time.Now().UTC().Format(time.RFC3339),
-			"report_type":  b.ReportType,
-		})
-	}
-}
-
-func reportsBIExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var b biReportReq
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON")
-			return
-		}
-
-		rows, err := runBIReportRows(r, db, b)
-		if err != nil {
-			respondErr(w, 500, "Report query failed: "+err.Error())
-			return
-		}
-		if rows == nil {
-			rows = []core.Row{}
-		}
-
-		user := core.UserFromCtx(r.Context())
-		filtersJSON, _ := json.Marshal(b.Filters)
-		db.PGExec(r.Context(), //nolint:errcheck
-			`INSERT INTO report_export_log (report_type, filters, row_count, created_by)
-			 VALUES ($1, $2::jsonb, $3, $4)`,
-			b.ReportType, string(filtersJSON), len(rows), user.ID)
-
-		filename := strings.ReplaceAll(b.ReportType, "_", "-") + "_" +
-			time.Now().UTC().Format("2006-01-02") + ".csv"
-		streamCSV(w, filename, rows)
-	}
-}
-
-func reportsSavedCreate(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			Name       string         `json:"name"`
-			ReportType string         `json:"report_type"`
-			Filters    map[string]any `json:"filters"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON")
-			return
-		}
-		if b.Name == "" || b.ReportType == "" {
-			respondErr(w, 422, "name and report_type are required")
-			return
-		}
-		user := core.UserFromCtx(r.Context())
-		filtersJSON, _ := json.Marshal(b.Filters)
-		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO report_configs (name, report_type, filters, created_by)
-			VALUES ($1, $2, $3::jsonb, $4)
-			RETURNING id, name, report_type, created_at`,
-			b.Name, b.ReportType, string(filtersJSON), user.ID)
-		if err != nil {
-			respondErr(w, 500, "Save failed: "+err.Error())
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
-	}
-}
-
-func reportsSavedList(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT id, name, report_type, filters, created_by, created_at
-			FROM report_configs
-			ORDER BY created_at DESC`)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-		if rows == nil {
-			rows = []core.Row{}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rows) //nolint:errcheck
-	}
-}
-
-func reportsScheduleCreate(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			SavedReportID int64    `json:"saved_report_id"`
-			Cron          string   `json:"cron"`
-			Recipients    []string `json:"recipients"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON")
-			return
-		}
-		if b.Cron == "" {
-			respondErr(w, 422, "cron is required")
-			return
-		}
-		user := core.UserFromCtx(r.Context())
-		// Convert []string to PostgreSQL text[] literal: {"a","b"}
-		recipientsJSON, _ := json.Marshal(b.Recipients)
-		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO report_schedules (report_config_id, cron_expr, recipients, created_by)
-			VALUES ($1, $2, ARRAY(SELECT jsonb_array_elements_text($3::jsonb)), $4)
-			RETURNING id, report_config_id, cron_expr, created_at`,
-			b.SavedReportID, b.Cron, string(recipientsJSON), user.ID)
-		if err != nil {
-			respondErr(w, 500, "Create failed: "+err.Error())
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
-	}
-}
-
-func reportsExportLog(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT el.id, el.report_type, el.row_count, el.created_at,
-			       COALESCE(u.full_name, '') AS created_by
-			FROM report_export_log el
-			LEFT JOIN o3c_users u ON u.id = el.created_by
-			ORDER BY el.created_at DESC
-			LIMIT 50`)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-		if rows == nil {
-			rows = []core.Row{}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rows) //nolint:errcheck
-	}
-}

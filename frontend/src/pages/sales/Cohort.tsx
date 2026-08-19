@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, ErrBanner, DateFilter, filterInputStyle } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
+import { currentUser, isSalesHead } from '../../hooks/useAuth'
 import { NAVY, GREEN, AMBER, RED, BLUE, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
@@ -71,32 +72,50 @@ function HeatCell({ value, colorFn, onClick }: {
 
 export default function SalesCohort() {
   const navigate = useNavigate()
+  // Role-aware: a head sees the whole team and can narrow to one officer; an officer
+  // only ever sees their own book (the backend enforces this, so no selector for them).
+  const me = currentUser()
+  const isHead = isSalesHead(me)
   const [trend,    setTrend]    = useState<TrendPoint[]>([])
   const [funnel,   setFunnel]   = useState<FunnelData | null>(null)
   const [cohorts,  setCohorts]  = useState<CohortRow[]>([])
+  const [officers, setOfficers] = useState<{ id: number; full_name: string }[]>([])
+  const [officer,  setOfficer]  = useState('')   // '' = all officers (head only)
   const [loading,  setLoading]  = useState(true)
   const [err,      setErr]      = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
   const [metric,   setMetric]   = useState<'retention' | 'par30'>('retention')
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const officerQ = officer ? `&officer_id=${officer}` : ''
+  // Carry the officer filter into the drill-in so the detail matches the matrix.
+  const drill = (month: string, age?: string) =>
+    `/sales/cohort/${month}?${age ? `age=${age}` : ''}${officer ? `${age ? '&' : ''}officer_id=${officer}` : ''}`
+
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const [t, f, c] = await Promise.all([
         apiFetch<{ data: TrendPoint[] }>(`/api/sales/accounts-trend?from=${dateFrom}&to=${dateTo}`),
         apiFetch<{ data: FunnelData }>(`/api/sales/funnel?from=${dateFrom}&to=${dateTo}`),
-        apiFetch<{ data: CohortRow[] }>(`/api/sales/cohort-matrix?from=${dateFrom}&to=${dateTo}`),
+        apiFetch<{ data: CohortRow[] }>(`/api/sales/cohort-matrix?from=${dateFrom}&to=${dateTo}${officerQ}`),
       ])
       setTrend(Array.isArray(t?.data) ? t.data : [])
       setFunnel(f?.data ?? null)
       setCohorts(Array.isArray(c?.data) ? c.data : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, officerQ])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
+
+  useEffect(() => {
+    if (!isHead) return
+    apiFetch<{ data: { id: number; full_name: string }[] }>('/api/sales/officers')
+      .then(r => setOfficers(Array.isArray(r) ? (r as any) : (r?.data ?? [])))
+      .catch(() => setOfficers([]))
+  }, [isHead])
 
   const reg    = Number(funnel?.registered  ?? 0)
   const issued = Number(funnel?.card_issued ?? 0)
@@ -113,22 +132,33 @@ export default function SalesCohort() {
   // Summary: best and worst cohort
   const validRetCohorts = cohorts.filter(c => c.ret_6m !== null)
   const bestCohort  = validRetCohorts.length
-    ? validRetCohorts.reduce((a, b) => (b.ret_6m ?? 0) > (a.ret_6m ?? 0) ? b : a)
+    ? validRetCohorts.reduce((a, b) => Number(b.ret_6m ?? 0) > Number(a.ret_6m ?? 0) ? b : a)
     : null
   const worstCohort = validRetCohorts.length
-    ? validRetCohorts.reduce((a, b) => (b.ret_6m ?? 100) < (a.ret_6m ?? 100) ? b : a)
+    ? validRetCohorts.reduce((a, b) => Number(b.ret_6m ?? 100) < Number(a.ret_6m ?? 100) ? b : a)
     : null
 
   const avgRet6m = validRetCohorts.length
-    ? validRetCohorts.reduce((s, c) => s + (c.ret_6m ?? 0), 0) / validRetCohorts.length
+    ? validRetCohorts.reduce((s, c) => s + Number(c.ret_6m ?? 0), 0) / validRetCohorts.length
     : null
 
   return (
     <Page
       title="Cohort Analysis"
-      subtitle="Customer acquisition, lifecycle progression, and retention heatmap"
+      subtitle={isHead
+        ? (officer ? 'Retention & PAR30 for the selected officer' : 'Customer acquisition, lifecycle and retention across the team')
+        : 'Your book: acquisition, lifecycle and retention'}
       actions={
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {isHead && (
+            <select value={officer} onChange={e => setOfficer(e.target.value)}
+              style={{ ...filterInputStyle, height: 34, minWidth: 160 }}>
+              <option value="">All officers</option>
+              {officers.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
+            </select>
+          )}
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />
@@ -143,7 +173,7 @@ export default function SalesCohort() {
 
       {/* Trend + Funnel */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[3], marginBottom: SP[4] }}>
-        <SectionCard title="New Accounts — Monthly Trend">
+        <SectionCard title="New Accounts: Monthly Trend">
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <defs>
@@ -311,18 +341,18 @@ export default function SalesCohort() {
                     </td>
                     {metric === 'retention' ? (
                       <>
-                        <HeatCell value={row.ret_1m}  colorFn={retColor} onClick={() => navigate(`/sales/cohort/${row.cohort_month}?age=1m`)} />
-                        <HeatCell value={row.ret_3m}  colorFn={retColor} onClick={() => navigate(`/sales/cohort/${row.cohort_month}?age=3m`)} />
-                        <HeatCell value={row.ret_6m}  colorFn={retColor} onClick={() => navigate(`/sales/cohort/${row.cohort_month}?age=6m`)} />
-                        <HeatCell value={row.ret_9m}  colorFn={retColor} onClick={() => navigate(`/sales/cohort/${row.cohort_month}?age=9m`)} />
-                        <HeatCell value={row.ret_12m} colorFn={retColor} onClick={() => navigate(`/sales/cohort/${row.cohort_month}?age=12m`)} />
+                        <HeatCell value={row.ret_1m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '1m'))} />
+                        <HeatCell value={row.ret_3m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '3m'))} />
+                        <HeatCell value={row.ret_6m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '6m'))} />
+                        <HeatCell value={row.ret_9m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '9m'))} />
+                        <HeatCell value={row.ret_12m} colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '12m'))} />
                       </>
                     ) : (
-                      <HeatCell value={row.par30_current} colorFn={par30Color} onClick={() => navigate(`/sales/cohort/${row.cohort_month}`)} />
+                      <HeatCell value={row.par30_current} colorFn={par30Color} onClick={() => navigate(drill(row.cohort_month))} />
                     )}
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right' }}>
                       <button
-                        onClick={() => navigate(`/sales/cohort/${row.cohort_month}`)}
+                        onClick={() => navigate(drill(row.cohort_month))}
                         style={{
                           padding: '3px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)',
                           background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.xs,

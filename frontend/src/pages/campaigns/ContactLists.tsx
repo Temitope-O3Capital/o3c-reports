@@ -311,7 +311,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                 </div>
               </div>
               <div style={{ marginBottom: 10 }}>
-                <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional — for existing customers)</span></label>
+                <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional, for existing customers)</span></label>
                 <input value={form.cifNumber} onChange={e => setForm(f => ({ ...f, cifNumber: e.target.value }))}
                   placeholder="Leave blank for prospects" style={inp()} />
               </div>
@@ -354,7 +354,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                 </button>
               </div>
               <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 5, textAlign: 'center' }}>
-                Columns: <code>first_name, last_name, phone, email, cif_number</code> — at least one required per row.
+                Columns: <code>first_name, last_name, phone, email, cif_number</code>. At least one required per row.
               </p>
             </div>
           )}
@@ -520,8 +520,8 @@ export default function ContactLists() {
   const [dateTo,       setDateTo]       = useState(today())
   const [listSearch,   setListSearch]   = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const res = await apiFetch<ContactList[] | { data: ContactList[] }>(`/api/contact-lists?from=${dateFrom}&to=${dateTo}`)
       const arr = Array.isArray(res) ? res : ((res as any)?.data ?? [])
@@ -531,7 +531,7 @@ export default function ContactLists() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   async function create(thenAddContacts = false) {
     if (!name.trim()) return
@@ -574,21 +574,6 @@ export default function ContactLists() {
     } catch (ex: any) { toast.error(ex.message) }
   }
 
-  function exportListsCsv(data: ContactList[]) {
-    const header = ['Name', 'Description', 'Members', 'Created By', 'Created At']
-    const lines = data.map(r => [
-      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.description ?? '').replace(/"/g, '""')}"`,
-      r.member_count != null ? String(r.member_count) : '',
-      `"${String(r.created_by_name ?? '').replace(/"/g, '""')}"`,
-      r.created_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `contact-lists-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   const displayedLists = useMemo(() =>
     listSearch
@@ -658,15 +643,6 @@ export default function ContactLists() {
         title="All Lists"
         badge={displayedLists.length}
         padding={false}
-        actions={
-          <button
-            onClick={() => exportListsCsv(displayedLists)}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
-            Export CSV
-          </button>
-        }
       >
         <ExpandableFilterBar
           search={listSearch}

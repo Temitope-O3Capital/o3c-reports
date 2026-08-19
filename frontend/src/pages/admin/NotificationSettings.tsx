@@ -57,8 +57,8 @@ export default function AdminNotificationSettings() {
   const [dirty,   setDirty]   = useState(false)
   const [saving,  setSaving]  = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<NotifRow[] | { data?: NotifRow[] }>('/api/admin/notification-settings')
@@ -73,7 +73,7 @@ export default function AdminNotificationSettings() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   // Group the flat rows into one entry per event, keyed by channel.
   const events = useMemo(() => {

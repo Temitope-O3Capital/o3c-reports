@@ -464,7 +464,7 @@ function WriteOffModal({ caseId, outstanding, open, onClose, onDone }: {
           Submits for supervisor approval. Outstanding: {fmtKobo(outstanding)}.
         </div>
         <div>
-          <label style={labelStyle}>Amount (NGN) — leave blank to write off full outstanding</label>
+          <label style={labelStyle}>Amount (NGN): leave blank to write off full outstanding</label>
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
             placeholder={fmtKobo(outstanding)} style={{ ...fieldStyle, height: 36 }} />
         </div>
@@ -563,21 +563,21 @@ export default function RecoveryCaseDetail() {
     })),
     ...visits.map(v => ({
       date:   v.visit_date + 'T00:00:00Z',
-      label:  `Visit — ${v.visit_type}: ${v.outcome}`,
+      label:  `Visit, ${v.visit_type}: ${v.outcome}`,
       actor:  v.agent_name ?? undefined,
       detail: v.notes ?? undefined,
       color:  AMBER,
     })),
     ...proceedings.map(p => ({
       date:   p.filing_date + 'T00:00:00Z',
-      label:  `Legal — ${p.proceeding_type}`,
+      label:  `Legal: ${p.proceeding_type}`,
       actor:  p.court_name ?? undefined,
       detail: p.notes ?? undefined,
       color:  RED,
     })),
     ...payments.map(p => ({
       date:   p.payment_date + 'T00:00:00Z',
-      label:  `Payment — ${fmtKobo(p.amount_kobo)}`,
+      label:  `Payment: ${fmtKobo(p.amount_kobo)}`,
       actor:  p.agent_name ?? undefined,
       detail: `${p.channel}${p.reference ? ' · ' + p.reference : ''}`,
       color:  GREEN,
@@ -668,7 +668,7 @@ export default function RecoveryCaseDetail() {
               color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer',
             }}
           >
-            C360 Profile →
+            C360 Profile
           </button>
         </div>
       </div>
@@ -752,7 +752,7 @@ export default function RecoveryCaseDetail() {
         {/* Left: full timeline */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
 
-          <SectionCard title="Full Activity History" subtitle="Complete lifecycle — collections phase through recovery" badge={timeline.length}>
+          <SectionCard title="Full Activity History" subtitle="Complete lifecycle: collections phase through recovery" badge={timeline.length}>
             {timeline.length === 0 ? (
               <div style={{ padding: `${SP[4]} 0`, color: 'var(--txt3)', fontSize: TEXT.sm }}>No activity yet.</div>
             ) : (
@@ -766,14 +766,14 @@ export default function RecoveryCaseDetail() {
 
           {/* Collections-phase contacts */}
           {coll_contacts.length > 0 && (
-            <SectionCard title="Collections Phase — Contacts" subtitle="Contact attempts logged before recovery referral" badge={coll_contacts.length}>
+            <SectionCard title="Collections Phase: Contacts" subtitle="Contact attempts logged before recovery referral" badge={coll_contacts.length}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {coll_contacts.map(c => (
                   <div key={c.id} style={{ display: 'flex', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--bdr)' }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                         <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                          {c.contact_type} — {c.outcome}
+                          {c.contact_type}: {c.outcome}
                         </span>
                         <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(c.created_at)}</span>
                       </div>
@@ -788,7 +788,7 @@ export default function RecoveryCaseDetail() {
 
           {/* Collections-phase promises */}
           {coll_promises.length > 0 && (
-            <SectionCard title="Collections Phase — Promises to Pay" subtitle="PTPs made before recovery referral" badge={coll_promises.length}>
+            <SectionCard title="Collections Phase: Promises to Pay" subtitle="PTPs made before recovery referral" badge={coll_promises.length}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {coll_promises.map(p => {
                   const statusColor = p.is_kept ? GREEN : AMBER
@@ -877,7 +877,7 @@ export default function RecoveryCaseDetail() {
                   <div key={v.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--bdr)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                        {v.visit_type} — {v.outcome}
+                        {v.visit_type}: {v.outcome}
                       </span>
                       <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(v.visit_date)}</span>
                     </div>

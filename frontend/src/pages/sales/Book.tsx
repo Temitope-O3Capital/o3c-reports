@@ -7,7 +7,8 @@ import {
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, n } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import NewApplicationModal from '../../components/NewApplicationModal'
 
 // The Account Officer's book.
 //
@@ -64,12 +65,14 @@ export default function SalesBook() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [officers, setOfficers] = useState<Officer[]>([])
   const [isHead, setIsHead] = useState(false)
+  const [appFor, setAppFor] = useState<{ cif: string; name: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
   const [offset, setOffset] = useState(0)
   const [search, setSearch] = useState(params.get('q') ?? '')
   const officerFilter = params.get('officer_id') ?? ''
+  const crossSell = params.get('segment') === 'cross_sell'
 
   // Bulk assignment
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -91,8 +94,9 @@ export default function SalesBook() {
     p.set('offset', String(offset))
     if (dq) p.set('q', dq)
     if (officerFilter) p.set('officer_id', officerFilter)
+    if (crossSell) p.set('segment', 'cross_sell')
     return p.toString()
-  }, [offset, dq, officerFilter])
+  }, [offset, dq, officerFilter, crossSell])
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -217,7 +221,7 @@ export default function SalesBook() {
       key: 'full_name', label: 'Customer', sortable: true,
       render: r => (
         <div>
-          <div style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{r.full_name || '—'}</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.full_name || '—'}</div>
           <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.cif}</div>
         </div>
       ),
@@ -237,20 +241,45 @@ export default function SalesBook() {
       ),
     },
     {
-      key: 'active_cards', label: 'Cards', sortable: true, align: 'right',
-      render: r => <span style={NUM}>{fmtNum(r.active_cards)}</span>,
+      key: 'products', label: 'Relationship', sortable: false,
+      render: (r: BookRow) => {
+        const lines = [
+          { held: r.active_cards > 0, c: PURPLE, label: `${r.active_cards} Card${r.active_cards > 1 ? 's' : ''}` },
+          { held: r.active_loans > 0, c: NAVY,   label: `${r.active_loans} Loan${r.active_loans > 1 ? 's' : ''}` },
+          { held: r.active_fds  > 0, c: AMBER,  label: `${r.active_fds} FD${r.active_fds > 1 ? 's' : ''}` },
+        ]
+        const held = lines.filter(l => l.held)
+        if (!held.length) return <span style={{ color: 'var(--txt3)' }}>—</span>
+        // A healthy customer on a single product line is a cross-sell opportunity.
+        const crossSell = held.length === 1 && r.max_dpd === 0
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div title={`${held.length} of 3 product lines`} style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+              {lines.map((l, i) => <span key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: l.held ? l.c : 'var(--bdr)' }} />)}
+            </div>
+            {held.map(l => (
+              <span key={l.label} style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 7px', borderRadius: RADIUS['2xl'], background: `${l.c}18`, color: l.c, whiteSpace: 'nowrap' }}>{l.label}</span>
+            ))}
+            {crossSell && (
+              <span title="Single-product customer — cross-sell opportunity" style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 7px', borderRadius: RADIUS['2xl'], background: `${GREEN}14`, color: GREEN, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 12 }}>trending_up</span>cross-sell
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
-      key: 'card_balance_kobo', label: 'Card balance', sortable: true, align: 'right',
-      render: r => <span style={NUM}>{fmtKobo(r.card_balance_kobo)}</span>,
+      key: 'card_balance_kobo', label: 'Card bal.', sortable: true, align: 'right',
+      render: r => <span style={{ ...NUM, color: r.card_balance_kobo > 0 ? 'var(--txt)' : 'var(--txt3)' }}>{r.card_balance_kobo ? fmtKobo(r.card_balance_kobo) : '—'}</span>,
     },
     {
-      key: 'active_loans', label: 'Loans', sortable: true, align: 'right',
-      render: r => <span style={NUM}>{fmtNum(r.active_loans)}</span>,
+      key: 'outstanding_kobo', label: 'Loans owed', sortable: true, align: 'right',
+      render: r => <span style={{ ...NUM, color: r.outstanding_kobo > 0 ? RED : 'var(--txt3)' }}>{r.outstanding_kobo ? fmtKobo(r.outstanding_kobo) : '—'}</span>,
     },
     {
-      key: 'fd_principal_kobo', label: 'FD', sortable: true, align: 'right',
-      render: r => <span style={NUM}>{fmtKobo(r.fd_principal_kobo)}</span>,
+      key: 'fd_principal_kobo', label: 'FD principal', sortable: true, align: 'right',
+      render: r => <span style={{ ...NUM, color: r.fd_principal_kobo > 0 ? GREEN : 'var(--txt3)' }}>{r.fd_principal_kobo ? fmtKobo(r.fd_principal_kobo) : '—'}</span>,
     },
     {
       key: 'max_dpd', label: 'DPD', sortable: true, align: 'right',
@@ -266,6 +295,17 @@ export default function SalesBook() {
         ? <span style={{ color: 'var(--txt2)' }}>{r.officer_name}</span>
         : <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: `${AMBER}1A`, color: AMBER }}>Unassigned</span>,
     },
+    {
+      key: 'raise_app', label: '', sortable: false, align: 'right' as const, width: 120,
+      // Raise an application for this customer without leaving the book — the app modal
+      // opens pre-filled with their CIF and name.
+      render: (r: BookRow) => (
+        <Button variant="ghost" size="xs" icon="note_add"
+          onClick={e => { e.stopPropagation(); setAppFor({ cif: r.cif, name: r.full_name }) }}>
+          Raise app
+        </Button>
+      ),
+    } as TableCol<BookRow>,
     ...(isHead ? [{
       key: 'assign_person',
       label: '',
@@ -321,6 +361,23 @@ export default function SalesBook() {
               ))}
             </select>
           )}
+          <button
+            onClick={() => {
+              const p = new URLSearchParams(params)
+              crossSell ? p.delete('segment') : p.set('segment', 'cross_sell')
+              setParams(p); setOffset(0)
+            }}
+            title="Customers on a single product line and not in arrears — expansion targets"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: RADIUS.md,
+              fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+              border: `1px solid ${crossSell ? GREEN : 'var(--bdr)'}`,
+              background: crossSell ? `${GREEN}14` : 'var(--card)', color: crossSell ? GREEN : 'var(--txt2)',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>trending_up</span>
+            Cross-sell targets
+          </button>
           <input
             placeholder="Search name, CIF, phone…"
             defaultValue={search}
@@ -360,6 +417,32 @@ export default function SalesBook() {
           icon="event" accent={BLUE} loading={loading} />
       </div>
 
+      {/* Portfolio composition — the book's value across the three product lines, plus
+          net position (deposits held minus credit outstanding). */}
+      {summary && (
+        <SectionCard title="Portfolio composition" subtitle="Value across the three product lines" style={{ marginBottom: SP[4] }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+            {[
+              { label: 'Card balances', value: summary.card_balance_kobo, color: PURPLE, icon: 'credit_card' },
+              { label: 'Loans outstanding', value: summary.outstanding_kobo, color: NAVY, icon: 'account_balance_wallet' },
+              { label: 'FD principal', value: summary.fd_principal_kobo, color: AMBER, icon: 'savings' },
+              { label: 'Net position', value: summary.fd_principal_kobo - summary.outstanding_kobo, color: (summary.fd_principal_kobo - summary.outstanding_kobo) >= 0 ? GREEN : RED, icon: 'balance', net: true },
+            ].map(m => (
+              <div key={m.label} style={{ borderLeft: `3px solid ${m.color}`, paddingLeft: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 16, color: m.color }}>{m.icon}</span>
+                  <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{m.label}</span>
+                </div>
+                <div style={{ ...NUM, fontSize: 20, fontWeight: FW.extrabold, color: 'var(--txt)', lineHeight: 1 }}>
+                  {m.net && m.value < 0 ? `-${fmtKobo(Math.abs(m.value))}` : fmtKobo(m.value)}
+                </div>
+                {m.net && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 3 }}>deposits − credit</div>}
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
       <SectionCard
         title={officerFilter === 'unassigned' ? 'Unassigned customers' : 'Customers'}
         subtitle={loading ? undefined : `${fmtNum(pageFrom)}–${fmtNum(pageTo)} of ${fmtNum(total)}`}
@@ -375,7 +458,7 @@ export default function SalesBook() {
               ? 'Every customer has an account officer'
               : isHead
                 ? 'No customers match'
-                : 'No customers are assigned to you yet — ask your team lead to assign your book'
+                : 'No customers are assigned to you yet. Ask your team lead to assign your book'
           }
           keyFn={r => r.cif}
           onRowClick={r => navigate(`/sales/book/${r.cif}`)}
@@ -420,7 +503,7 @@ export default function SalesBook() {
           >
             <option value="">Choose an officer…</option>
             {officers.filter(o => o.is_active).map(o => (
-              <option key={o.id} value={o.id}>{o.full_name} — {o.book_size} customers</option>
+              <option key={o.id} value={o.id}>{o.full_name}, {o.book_size} customers</option>
             ))}
             <option value="unassign">— Remove the current officer —</option>
           </Select>
@@ -450,7 +533,7 @@ export default function SalesBook() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
             Every card this person holds moves to the chosen officer together, so the whole
-            relationship stays on one desk — not just the row you clicked.
+            relationship stays on one desk, not just the row you clicked.
           </div>
           <Select
             label="Account officer"
@@ -459,7 +542,7 @@ export default function SalesBook() {
           >
             <option value="">Choose an officer…</option>
             {officers.filter(o => o.is_active).map(o => (
-              <option key={o.id} value={o.id}>{o.full_name} — {o.book_size} customers</option>
+              <option key={o.id} value={o.id}>{o.full_name}, {o.book_size} customers</option>
             ))}
           </Select>
           <Input
@@ -471,6 +554,14 @@ export default function SalesBook() {
           />
         </div>
       </Modal>
+
+      <NewApplicationModal
+        open={!!appFor}
+        presetCif={appFor?.cif}
+        presetName={appFor?.name}
+        onClose={() => setAppFor(null)}
+        onSaved={() => setAppFor(null)}
+      />
     </Page>
   )
 }

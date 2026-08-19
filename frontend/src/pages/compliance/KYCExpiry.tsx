@@ -59,8 +59,8 @@ export default function KYCExpiry() {
   const [search, setSearch]     = useState('')
   const [fHorizon, setFHorizon] = useState(new Set<string>())
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
       p.set('horizon_days', '999')
@@ -73,7 +73,7 @@ export default function KYCExpiry() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   async function handleKYCAction(cif: string, action: string) {
     try {
@@ -139,14 +139,7 @@ export default function KYCExpiry() {
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          <button
-            onClick={() => { const h = [...fHorizon][0]; window.open('/api/compliance/kyc-expiry/export?horizon_days=' + (!h ? '999' : h === 'expired' ? '0' : h)) }}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>
-            Export CSV
-          </button>
-        </div>
+          </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

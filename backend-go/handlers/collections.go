@@ -24,7 +24,6 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Get("/monthly-trend", collectionsMonthlyTrend(db))
 	r.Get("/roll-rate", collectionsRollRate(db))
 	r.Get("/log", collectionsLog(db))
-	r.Get("/export", collectionsExport(db))
 	r.Get("/promise-kpis", collectionsPromiseKPIs(db))
 	r.Get("/repayment-kpis", collectionsRepaymentKPIs(db))
 	r.Get("/writeoff-kpis", collectionsWriteoffKPIs(db))
@@ -462,42 +461,6 @@ func collectionsLog(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, data, src)
-	}
-}
-
-func collectionsExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		dateFrom, err := validDate(r, "date_from")
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
-		dateTo, err := validDate(r, "date_to")
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
-		agent := qstr(r, "agent")
-
-		var f Filter
-		f.Date("Repayment_Date", `"Date"`, dateFrom, dateTo)
-		f.Eq(" AND r.Rn_Create_User=?", ` AND cl."Agent"=?`, agent)
-
-		data, _, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT cl."Date", cl."CIF",
-			        a.first_name AS "First Name", a.last_name AS "Last Name",
-			        cl."Agent", cl."Amount", cl."Payment Receipt"
-			 FROM "Collections Log" cl
-			 LEFT JOIN app.customers a ON cl."CIF"=a.cif
-			 WHERE 1=1%s ORDER BY cl."Date" DESC`, f.PG()),
-			f.Args()...)
-		if err != nil {
-			respondErr(w, 500, "Export failed")
-			return
-		}
-		name := fmt.Sprintf("collections_%s_%s.csv",
-			coalesce(dateFrom, "all"), coalesce(dateTo, "all"))
-		streamCSV(w, name, data)
 	}
 }
 

@@ -60,8 +60,8 @@ export default function CreditBureau() {
   const [formNotes,  setFormNotes]  = useState('')
   const [saving,     setSaving]     = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch<any>('/api/compliance/bureau-submissions')
       setLogs(Array.isArray(res) ? res : (res?.data ?? []))
@@ -70,7 +70,7 @@ export default function CreditBureau() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   const download = async () => {
     if (!dlMonth) { toast.error('Select a month first'); return }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -130,7 +131,11 @@ func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
 	r.Post("/leads/assign-batch", ccAssignLeadsBatch(db)) // count-based assign to one agent (parity with the queue)
 	r.Post("/leads/distribute", ccDistribute(db))
 	r.Patch("/leads/{id}", ccUpdateLead(db))
-	r.Post("/leads/{id}/disposition", ccLogDisposition(db))
+	r.Get("/leads/{id}/calls", ccLeadCalls(db)) // this lead's call history (so a logged call is visible here)
+	// The lead-only disposition endpoint has been removed. Logging a call from the
+	// Leads page now goes through POST /api/helpdesk/calls with a lead_id, the same
+	// write every other screen uses, and the lead is advanced by syncLeadFromCall.
+	// Two endpoints meant a lead call captured no CIF, no disposition and no ticket.
 
 	// Stats
 	r.Get("/stats", ccStats(db))
@@ -238,68 +243,135 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 		agentID := qstr(r, "agent_id")
 		search := qstr(r, "search")
 		limit := qint(r, "limit", 50, 1, 500)
+		offset := qint(r, "offset", 0, 0, 100_000_000)
 
-		q := `SELECT l.id, l.campaign_id, l.customer_cif, l.customer_name,
-		             l.customer_phone, l.employer, l.lead_score, l.status,
-		             l.assigned_to, l.last_called_at, l.callback_at, l.notes,
-		             l.created_at, l.updated_at,
-		             u.full_name AS agent_name,
-		             c.name AS campaign_name,
-		             (SELECT outcome FROM call_center_dispositions d WHERE d.lead_id = l.id ORDER BY d.created_at DESC LIMIT 1) AS last_outcome
-		      FROM call_center_leads l
-		      LEFT JOIN o3c_users u ON u.id = l.assigned_to
-		      LEFT JOIN call_center_campaigns c ON c.id = l.campaign_id
-		      WHERE 1=1`
+		// Build the shared WHERE once so the COUNT and the page use identical filters —
+		// this is what makes a campaign of any size paginate correctly rather than
+		// silently truncating at the page limit.
+		cond := ""
 		var args []any
 		n := 1
 
 		// An agent sees only her own assigned leads; heads (call_center_stats) and the
 		// exec see-all roles see everyone's and can distribute/assign.
 		if user := core.UserFromCtx(r.Context()); user != nil && !user.HasPage("call_center_stats") && !user.CanSeeAllRows() {
-			q += fmt.Sprintf(" AND l.assigned_to=$%d", n)
+			cond += fmt.Sprintf(" AND l.assigned_to=$%d", n)
 			args = append(args, user.ID)
 			n++
 		}
-
 		if campaignID != "" {
-			q += fmt.Sprintf(" AND l.campaign_id=$%d", n)
+			cond += fmt.Sprintf(" AND l.campaign_id=$%d", n)
 			args = append(args, campaignID)
 			n++
 		}
 		if status != "" {
-			q += fmt.Sprintf(" AND l.status=$%d", n)
+			cond += fmt.Sprintf(" AND l.status=$%d", n)
 			args = append(args, status)
 			n++
 		}
 		if agentID != "" {
-			q += fmt.Sprintf(" AND l.assigned_to=$%d", n)
+			cond += fmt.Sprintf(" AND l.assigned_to=$%d", n)
 			args = append(args, agentID)
 			n++
 		}
 		if search != "" {
 			if clause, sargs, nn := buildCustomerSearch(search,
 				[]string{"l.customer_name", "l.customer_phone", "l.employer"}, "l.customer_phone", n); clause != "" {
-				q += " AND " + clause
+				cond += " AND " + clause
 				args = append(args, sargs...)
 				n = nn
 			}
 		}
-		from := qstr(r, "from")
-		to := qstr(r, "to")
-		if from != "" {
-			q += fmt.Sprintf(" AND l.created_at::date >= $%d::date", n)
+		if from := qstr(r, "from"); from != "" {
+			cond += fmt.Sprintf(" AND l.created_at::date >= $%d::date", n)
 			args = append(args, from)
 			n++
 		}
-		if to != "" {
-			q += fmt.Sprintf(" AND l.created_at::date <= $%d::date", n)
+		if to := qstr(r, "to"); to != "" {
+			cond += fmt.Sprintf(" AND l.created_at::date <= $%d::date", n)
 			args = append(args, to)
 			n++
 		}
-		args = append(args, limit)
-		q += fmt.Sprintf(" ORDER BY l.updated_at DESC LIMIT $%d", n)
 
-		rows, err := db.PGQuery(r.Context(), q, args...)
+		var total int64
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT COUNT(*) FROM call_center_leads l WHERE 1=1`+cond, args...).Scan(&total); err != nil {
+			respondErr(w, 500, "Count failed")
+			return
+		}
+
+		q := `SELECT l.id, l.campaign_id, l.customer_cif, l.customer_name,
+		             l.customer_phone, l.employer, l.email, l.address, l.lead_score, l.status,
+		             l.assigned_to, l.last_called_at, l.callback_at, l.notes,
+		             l.created_at, l.updated_at,
+		             u.full_name AS agent_name,
+		             c.name AS campaign_name,
+		             -- "Last Outcome" used to read call_center_dispositions, which stores the
+		             -- raw telephony outcome. That is how 'completed' reached the panel as a
+		             -- user-facing label, and it also let the panel disagree with the call
+		             -- history right beside it, which reads helpdesk_calls. Both now read the
+		             -- same ledger. The agent's own disposition wins; failing that the
+		             -- frontend labels the raw outcome, which needs the duration and the
+		             -- recording to tell a real conversation from a dial that never landed.
+		             -- call_center_dispositions stores only the raw outcome, so it can
+		             -- feed last_outcome but never last_disposition.
+		             NULLIF(TRIM(lc.disposition),'') AS last_disposition,
+		             COALESCE(lc.outcome,
+		                      (SELECT outcome FROM call_center_dispositions d
+		                        WHERE d.lead_id = l.id ORDER BY d.created_at DESC LIMIT 1)) AS last_outcome,
+		             lc.direction    AS last_call_direction,
+		             lc.duration_sec AS last_call_duration_sec,
+		             (lc.recording_filename IS NOT NULL) AS last_call_recorded
+		      FROM call_center_leads l
+		      LEFT JOIN o3c_users u ON u.id = l.assigned_to
+		      LEFT JOIN call_center_campaigns c ON c.id = l.campaign_id
+		      LEFT JOIN LATERAL (
+		          SELECT h.disposition, h.outcome, h.direction, h.duration_sec, h.recording_filename
+		            FROM helpdesk_calls h
+		           WHERE h.lead_id = l.id AND h.merged_into_call_id IS NULL
+		           ORDER BY h.started_at DESC NULLS LAST LIMIT 1
+		      ) lc ON TRUE
+		      WHERE 1=1` + cond +
+			fmt.Sprintf(" ORDER BY l.updated_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		rows, err := db.PGQuery(r.Context(), q, append(append([]any{}, args...), limit, offset)...)
+		if err != nil {
+			respondErr(w, 500, "Query failed")
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"data": rows, "total": total, "limit": limit, "offset": offset,
+		})
+	}
+}
+
+// ccLeadCalls returns this lead's call history from the real telephony table
+// (helpdesk_calls), matched by lead_id or by the lead's phone (last-10-digits), so a
+// call an agent just logged shows up in the same place they logged it. Merged manual
+// duplicates are hidden (they live on the real call they enriched).
+func ccLeadCalls(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		rows, err := db.PGQuery(r.Context(), `
+			WITH lp AS (
+			  SELECT NULLIF(right(regexp_replace(COALESCE(customer_phone,''),'\D','','g'),10),'') AS ph
+			    FROM call_center_leads WHERE id = $1
+			)
+			SELECT h.id, h.started_at, h.direction, h.outcome, h.duration_sec,
+			       COALESCE(h.agent_name,'')   AS agent_name,
+			       COALESCE(h.notes,'')        AS notes,
+			       COALESCE(h.disposition,'')  AS disposition,
+			       h.recording_filename
+			  FROM helpdesk_calls h, lp
+			 WHERE (h.lead_id = $1
+			        OR (lp.ph IS NOT NULL
+			            AND right(regexp_replace(COALESCE(h.customer_phone,''),'\D','','g'),10) = lp.ph))
+			   AND COALESCE(h.merged_into_call_id, 0) = 0
+			 ORDER BY h.started_at DESC NULLS LAST
+			 LIMIT 50`, id)
 		if err != nil {
 			respondErr(w, 500, "Query failed")
 			return
@@ -342,10 +414,15 @@ func ccCreateLead(db *core.DB) http.HandlerFunc {
 
 func ccUpdateLead(db *core.DB) http.HandlerFunc {
 	type body struct {
-		Status     *string `json:"status"`
-		Notes      *string `json:"notes"`
-		CallbackAt *string `json:"callback_at"`
-		AssignedTo *int64  `json:"assigned_to"`
+		Status       *string `json:"status"`
+		Notes        *string `json:"notes"`
+		CallbackAt   *string `json:"callback_at"`
+		AssignedTo   *int64  `json:"assigned_to"`
+		CustomerName *string `json:"customer_name"`
+		Email        *string `json:"email"`
+		Employer     *string `json:"employer"`
+		Address      *string `json:"address"`
+		CustomerCIF  *string `json:"customer_cif"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -357,6 +434,32 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 		q := `UPDATE call_center_leads SET updated_at = NOW()`
 		var args []any
 		n := 1
+		// Identity fields — a lead imported as a bare number gets a real name/details here.
+		if b.CustomerName != nil {
+			q += fmt.Sprintf(", customer_name=$%d", n)
+			args = append(args, strings.TrimSpace(*b.CustomerName))
+			n++
+		}
+		if b.Email != nil {
+			q += fmt.Sprintf(", email=NULLIF($%d,'')", n)
+			args = append(args, strings.TrimSpace(*b.Email))
+			n++
+		}
+		if b.Employer != nil {
+			q += fmt.Sprintf(", employer=NULLIF($%d,'')", n)
+			args = append(args, strings.TrimSpace(*b.Employer))
+			n++
+		}
+		if b.Address != nil {
+			q += fmt.Sprintf(", address=NULLIF($%d,'')", n)
+			args = append(args, strings.TrimSpace(*b.Address))
+			n++
+		}
+		if b.CustomerCIF != nil {
+			q += fmt.Sprintf(", customer_cif=NULLIF($%d,'')", n)
+			args = append(args, strings.TrimSpace(*b.CustomerCIF))
+			n++
+		}
 		if b.Status != nil {
 			q += fmt.Sprintf(", status=$%d", n)
 			args = append(args, *b.Status)
@@ -386,106 +489,6 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
-	}
-}
-
-func ccLogDisposition(db *core.DB) http.HandlerFunc {
-	type body struct {
-		Outcome     string  `json:"outcome"`
-		Notes       *string `json:"notes"`
-		DurationSec *int    `json:"duration_sec"`
-		CallbackAt  *string `json:"callback_at"`
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		var b body
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Outcome == "" {
-			respondErr(w, 400, "outcome is required")
-			return
-		}
-		user := core.UserFromCtx(r.Context())
-
-		// Map outcome to lead status
-		statusMap := map[string]string{
-			"interested":     "called",
-			"not_interested": "called",
-			"callback":       "callback",
-			"no_answer":      "no_answer",
-			"voicemail":      "no_answer",
-			"dnc":            "dnc",
-			"converted":      "converted",
-		}
-		leadStatus := "called"
-		if s, ok := statusMap[b.Outcome]; ok {
-			leadStatus = s
-		}
-
-		callbackVal := ""
-		if b.CallbackAt != nil {
-			callbackVal = *b.CallbackAt
-		}
-		if _, err := db.PGExec(r.Context(),
-			`UPDATE call_center_leads
-			 SET status=$1, last_called_at=NOW(), updated_at=NOW(),
-			     callback_at = CASE WHEN $3 <> '' THEN $3::timestamptz ELSE callback_at END
-			 WHERE id=$2`,
-			leadStatus, id, callbackVal); err != nil {
-			respondErr(w, 500, "Update failed")
-			return
-		}
-
-		// If marked DNC, add to dnc_list
-		if b.Outcome == "dnc" {
-			rows, _ := db.PGQuery(r.Context(), `SELECT customer_phone FROM call_center_leads WHERE id=$1`, id)
-			if len(rows) > 0 && rows[0]["customer_phone"] != nil {
-				db.PGExec(r.Context(), //nolint:errcheck
-					`INSERT INTO dnc_list (phone, reason, added_by) VALUES ($1, 'Customer requested', $2) ON CONFLICT (phone) DO NOTHING`,
-					rows[0]["customer_phone"], user.ID)
-			}
-		}
-
-		rows, err := db.PGQuery(r.Context(),
-			`INSERT INTO call_center_dispositions (lead_id, agent_id, outcome, notes, duration_sec)
-			 VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-			id, user.ID, b.Outcome, b.Notes, b.DurationSec)
-		if err != nil {
-			respondErr(w, 500, "Insert failed")
-			return
-		}
-
-		// Mirror the telesales call into the single call ledger (helpdesk_calls) so it
-		// appears alongside every other call in agent stats, QA and the customer
-		// timeline. call_center_dispositions is kept for the lead-funnel analytics.
-		if lr, _ := db.PGQuery(r.Context(),
-			`SELECT COALESCE(customer_name,'') n, COALESCE(customer_phone,'') p FROM call_center_leads WHERE id=$1`, id); len(lr) > 0 {
-			db.PGExec(r.Context(), //nolint:errcheck
-				`INSERT INTO helpdesk_calls
-				   (agent_id, agent_name, customer_name, customer_phone,
-				    direction, duration_sec, outcome, notes, purpose, source_system)
-				 VALUES ($1,$2,$3,$4,'outbound',$5,$6,$7,'marketing','call_center')`,
-				user.ID, user.FullName, str(lr[0]["n"]), str(lr[0]["p"]), b.DurationSec, b.Outcome, b.Notes)
-		}
-
-		// Hand-off: when converted, create a BD lead for follow-up
-		if b.Outcome == "converted" {
-			lead, _ := db.PGQuery(r.Context(),
-				`SELECT customer_name, customer_phone, employer, assigned_to FROM call_center_leads WHERE id=$1`, id)
-			if len(lead) > 0 {
-				l := lead[0]
-				title := str(l["customer_name"])
-				db.PGExec(r.Context(), //nolint:errcheck
-					`INSERT INTO bd_leads
-					   (title, contact_name, contact_phone, company_name, lead_type, stage,
-					    entity_type, source, assigned_to, created_by, created_at, updated_at)
-					 VALUES ($1,$1,$2,$3,'Personal Loan','prospect','individual','call_center',$4,$5,NOW(),NOW())
-					 ON CONFLICT DO NOTHING`,
-					title, l["customer_phone"], l["employer"], l["assigned_to"], user.ID)
-			}
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
@@ -1337,12 +1340,21 @@ func ccImportContacts(db *core.DB) http.HandlerFunc {
 //
 // Deduped by phone within call_center_leads so re-uploading the same file doesn't
 // double the board. A row with no name AND no phone is skipped (nothing to dial).
+// ccImportLeads takes an uploaded lead list.
+//
+// A lead is not a customer. The import used to ask for a CIF and an employer —
+// a cold lead has neither, and a CIF is the card book's identity key, which
+// nothing should be inventing at upload time. What a lead has is a way to reach
+// them, so the accepted fields are phone (required), name, email and address.
+//
+// Phone is normalised to the Nigerian national format on the way in, so the book
+// stops holding the same number in four different shapes.
 func ccImportLeads(db *core.DB) http.HandlerFunc {
 	type lead struct {
-		Name     string `json:"name"`
-		Phone    string `json:"phone"`
-		CIF      string `json:"cif"`
-		Employer string `json:"employer"`
+		Name    string `json:"name"`
+		Phone   string `json:"phone"`
+		Email   string `json:"email"`
+		Address string `json:"address"`
 	}
 	type body struct {
 		CampaignID *int64 `json:"campaign_id"`
@@ -1354,44 +1366,92 @@ func ccImportLeads(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "leads are required")
 			return
 		}
-		inserted, skipped := 0, 0
+		inserted, attached, skipped, noPhone := 0, 0, 0, 0
 		for _, l := range b.Leads {
 			name := strings.TrimSpace(l.Name)
-			phone := strings.TrimSpace(l.Phone)
-			if name == "" && phone == "" {
+			phone := normaliseNGPhone(l.Phone)
+
+			// Phone is the one genuinely required field: a lead with no number
+			// cannot be called, which is the only thing the outbound queue does.
+			if phone == "" {
+				noPhone++
 				skipped++
 				continue
 			}
 			if name == "" {
+				// A nameless lead is fine — the agent adds the name on the call.
+				// Showing the number is better than showing an empty row.
 				name = phone
 			}
-			// Dedupe on the last-10-digits key, but only when a phone is present — a
-			// no-phone lead can't collide and shouldn't be dropped.
+
 			res, err := db.PGExec(r.Context(),
 				`INSERT INTO call_center_leads
-				   (campaign_id, customer_cif, customer_name, customer_phone, employer, lead_score, status)
-				 SELECT $1, NULLIF($2,''), $3, NULLIF($4,''), NULLIF($5,''), 0, 'pending'
-				 WHERE $4 = ''
-				    OR NOT EXISTS (
+				   (campaign_id, customer_name, customer_phone, email, address, lead_score, status)
+				 SELECT $1, $2, $3, NULLIF($4,''), NULLIF($5,''), 0, 'pending'
+				 WHERE NOT EXISTS (
 				      SELECT 1 FROM call_center_leads t
 				      WHERE right(regexp_replace(COALESCE(t.customer_phone,''),'\D','','g'),10)
-				          = right(regexp_replace($4,'\D','','g'),10)
-				        AND right(regexp_replace($4,'\D','','g'),10) <> ''
+				          = right(regexp_replace($3,'\D','','g'),10)
 				    )`,
-				b.CampaignID, strings.TrimSpace(l.CIF), name, phone, strings.TrimSpace(l.Employer))
+				b.CampaignID, name, phone, strings.TrimSpace(l.Email), strings.TrimSpace(l.Address))
 			if err != nil {
 				skipped++
 				continue
 			}
 			if k, _ := res.RowsAffected(); k > 0 {
 				inserted++
-			} else {
-				skipped++
+				continue
 			}
+
+			// The number is already on the board. If this upload is INTO a campaign and
+			// the existing lead has none yet, adopt it into this campaign rather than
+			// silently dropping it — otherwise re-uploading a list under a campaign
+			// leaves that campaign empty (the exact bug this fixes). A lead already in a
+			// different campaign is left alone (moving it would be surprising).
+			if b.CampaignID != nil {
+				ures, uerr := db.PGExec(r.Context(),
+					`UPDATE call_center_leads
+					    SET campaign_id = $1, updated_at = NOW()
+					  WHERE right(regexp_replace(COALESCE(customer_phone,''),'\D','','g'),10)
+					      = right(regexp_replace($2,'\D','','g'),10)
+					    AND campaign_id IS NULL`,
+					*b.CampaignID, phone)
+				if uerr == nil {
+					if uk, _ := ures.RowsAffected(); uk > 0 {
+						attached++
+						continue
+					}
+				}
+			}
+			skipped++
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"inserted": inserted, "skipped": skipped}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"inserted": inserted,
+			// Existing campaign-less leads adopted into this campaign by a re-upload.
+			"attached": attached,
+			"skipped":  skipped,
+			// Reported separately so "12 skipped" can be explained rather than
+			// leaving the uploader to guess whether they were duplicates.
+			"no_phone": noPhone,
+		})
 	}
+}
+
+// normaliseNGPhone is the Go twin of app.normalise_ng_phone: 0 + the last 10
+// digits. Returns "" when there are too few digits to be a phone number, which is
+// what makes phone genuinely required at import.
+func normaliseNGPhone(raw string) string {
+	digits := make([]rune, 0, len(raw))
+	for _, r := range raw {
+		if r >= '0' && r <= '9' {
+			digits = append(digits, r)
+		}
+	}
+	if len(digits) < 10 {
+		return ""
+	}
+	return "0" + string(digits[len(digits)-10:])
 }
 
 // ccAddCallback queues a support call-back — an explicit push from a ticket (or an
@@ -2013,5 +2073,100 @@ func ccAgentPerformance(db *core.DB) http.HandlerFunc {
 			rows = []map[string]any{}
 		}
 		respond(w, rows, "pg")
+	}
+}
+
+// ── Lead sync from the shared call log ───────────────────────────────────────
+
+// leadStatusFromCall maps a logged call onto a lead status.
+//
+// Both the outcome (did the call connect) and the disposition (what was the
+// business result) can move a lead, and the disposition is the stronger signal —
+// a connected call whose disposition is "Not Interested" is not simply "called".
+// The Leads page used to have its own four-outcome vocabulary that existed
+// nowhere else; this maps the shared vocabulary the whole call centre uses.
+func leadStatusFromCall(outcome string, disposition *string) string {
+	d := ""
+	if disposition != nil {
+		d = strings.ToLower(strings.TrimSpace(*disposition))
+	}
+	switch {
+	case strings.Contains(d, "do not call"):
+		return "dnc"
+	case strings.Contains(d, "converted"):
+		return "converted"
+	case strings.Contains(d, "callback"):
+		return "callback"
+	case strings.Contains(d, "not eligible"):
+		// A decline on our side: calling back will not change it.
+		return "closed"
+	case strings.Contains(d, "not ready"):
+		// A timing objection, not a refusal — stays workable.
+		return "callback"
+	case strings.Contains(d, "not interested"):
+		return "called"
+	case strings.Contains(d, "interested"):
+		return "called"
+	case strings.Contains(d, "wrong number"):
+		return "invalid"
+	case strings.Contains(d, "unreachable"), strings.Contains(d, "no answer"):
+		return "no_answer"
+	}
+	switch strings.ToLower(strings.TrimSpace(outcome)) {
+	case "missed", "no_answer", "voicemail":
+		return "no_answer"
+	case "":
+		return "called"
+	}
+	return "called"
+}
+
+// syncLeadFromCall advances a call-centre lead after a call has been logged
+// against it, and mirrors the call into call_center_dispositions so the existing
+// lead-funnel analytics keep working.
+//
+// Fire-and-forget by design: the call is already recorded, and a lead that fails
+// to advance is a smaller problem than an error thrown back at an agent who has
+// just finished a conversation.
+func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
+	outcome string, disposition *string, callbackAt string, agentID *int64) {
+
+	status := leadStatusFromCall(outcome, disposition)
+
+	if _, err := db.PGExec(ctx, `
+		UPDATE call_center_leads
+		   SET status         = $1,
+		       last_called_at = NOW(),
+		       updated_at     = NOW(),
+		       callback_at    = CASE WHEN $3 <> '' THEN $3::timestamptz ELSE callback_at END
+		 WHERE id = $2`, status, leadID, callbackAt); err != nil {
+		slog.Error("syncLeadFromCall: update lead", "lead", leadID, "err", err)
+		return
+	}
+
+	// Keep the lead-funnel table in step. The disposition is the business result,
+	// falling back to the raw outcome when the agent did not pick one.
+	dispo := outcome
+	if disposition != nil && strings.TrimSpace(*disposition) != "" {
+		dispo = *disposition
+	}
+	if _, err := db.PGExec(ctx, `
+		INSERT INTO call_center_dispositions (lead_id, agent_id, outcome)
+		VALUES ($1, $2, $3)`, leadID, agentID, dispo); err != nil {
+		slog.Error("syncLeadFromCall: insert disposition", "lead", leadID, "err", err)
+	}
+
+	// A lead marked do-not-call goes on the DNC list, exactly as the old Leads
+	// form did — that obligation does not depend on which screen logged the call.
+	if status == "dnc" {
+		if rows, _ := db.PGQuery(ctx,
+			`SELECT customer_phone FROM call_center_leads WHERE id=$1`, leadID); len(rows) > 0 {
+			if phone := str(rows[0]["customer_phone"]); phone != "" {
+				db.PGExec(ctx, //nolint:errcheck
+					`INSERT INTO dnc_list (phone, reason, added_by)
+					 VALUES ($1, 'Customer requested', $2) ON CONFLICT (phone) DO NOTHING`,
+					phone, agentID)
+			}
+		}
 	}
 }

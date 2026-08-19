@@ -192,29 +192,7 @@ function NewReviewModal({ onClose, onCreated }: { onClose: () => void; onCreated
   )
 }
 
-// ── Export CSV ────────────────────────────────────────────────────────────────
 
-function exportCreditLimitCsv(rows: CreditReview[]) {
-  const header = ['Review #', 'Customer', 'CIF Number', 'Card Type', 'Current Limit NGN', 'Proposed Limit NGN', 'Utilization %', 'Eye Score', 'Status', 'Recommended By', 'Submitted Date']
-  const lines = rows.map(r => [
-    `"${String(r.ref ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.cif_number ?? '').replace(/"/g, '""')}"`,
-    r.card_type ?? '',
-    r.current_limit_kobo !== undefined ? (Number(r.current_limit_kobo) / 100).toFixed(2) : '',
-    r.proposed_limit_kobo !== undefined ? (Number(r.proposed_limit_kobo) / 100).toFixed(2) : '',
-    r.utilization_pct ?? '',
-    r.eye_score ?? '',
-    r.status ?? '',
-    `"${String(r.recommended_by ?? '').replace(/"/g, '""')}"`,
-    r.submitted_date ? r.submitted_date.slice(0, 10) : '',
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `credit-limit-reviews-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -230,8 +208,8 @@ export default function CardsCreditLimit() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<CreditReview[]>(`/api/cards/credit-limits?from=${dateFrom}&to=${dateTo}`)
@@ -244,7 +222,7 @@ export default function CardsCreditLimit() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['cards'] })
+  useLiveData(() => load(true), { topics: ['cards'] })
 
   const cols: TableCol<CreditReview>[] = useMemo(() => [
     { key: 'customer_name', label: 'Customer',
@@ -323,7 +301,7 @@ export default function CardsCreditLimit() {
         ))}
       </div>
 
-      <SectionCard title="Limit Reviews" badge={displayed.length} padding={false} actions={<button onClick={() => exportCreditLimitCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Limit Reviews" badge={displayed.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

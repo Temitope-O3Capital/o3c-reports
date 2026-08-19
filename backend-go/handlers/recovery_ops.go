@@ -46,7 +46,7 @@ func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 		agentID := qstr(r, "agent_id")
 		q := qstr(r, "q")
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -201,9 +201,9 @@ func recoveryOpsCaseDetailFull(db *core.DB) http.HandlerFunc {
 
 		cif := fmt.Sprint(cases[0]["account_cif"])
 
-		payments, _    := db.PGQuery(ctx, `SELECT rp.*, u.full_name AS agent_name FROM recovery_payments rp LEFT JOIN o3c_users u ON rp.agent_user_id = u.id WHERE rp.case_id = $1 ORDER BY rp.payment_date DESC`, id)
+		payments, _ := db.PGQuery(ctx, `SELECT rp.*, u.full_name AS agent_name FROM recovery_payments rp LEFT JOIN o3c_users u ON rp.agent_user_id = u.id WHERE rp.case_id = $1 ORDER BY rp.payment_date DESC`, id)
 		proceedings, _ := db.PGQuery(ctx, `SELECT * FROM legal_proceedings WHERE case_id = $1 ORDER BY filing_date DESC`, id)
-		visits, _      := db.PGQuery(ctx, `
+		visits, _ := db.PGQuery(ctx, `
 			SELECT rfv.*, u.full_name AS agent_name
 			FROM recovery_field_visits rfv
 			LEFT JOIN o3c_users u ON rfv.agent_user_id = u.id
@@ -225,7 +225,7 @@ func recoveryOpsCaseDetailFull(db *core.DB) http.HandlerFunc {
 			LIMIT 200`, cif)
 
 		// Collections-phase contacts and promises for context
-		contacts, _  := db.PGQuery(ctx, `
+		contacts, _ := db.PGQuery(ctx, `
 			SELECT cc.*, u.full_name AS agent_name
 			FROM collection_contacts cc
 			LEFT JOIN o3c_users u ON cc.agent_user_id = u.id
@@ -244,13 +244,13 @@ func recoveryOpsCaseDetailFull(db *core.DB) http.HandlerFunc {
 		}
 
 		result := map[string]any{
-			"case":            cases[0],
-			"payments":        nilToEmpty(payments),
-			"proceedings":     nilToEmpty(proceedings),
-			"visits":          nilToEmpty(visits),
-			"activity_log":    nilToEmpty(activityLog),
-			"coll_contacts":   nilToEmpty(contacts),
-			"coll_promises":   nilToEmpty(promises),
+			"case":          cases[0],
+			"payments":      nilToEmpty(payments),
+			"proceedings":   nilToEmpty(proceedings),
+			"visits":        nilToEmpty(visits),
+			"activity_log":  nilToEmpty(activityLog),
+			"coll_contacts": nilToEmpty(contacts),
+			"coll_promises": nilToEmpty(promises),
 		}
 		if len(writeoffs) > 0 {
 			result["write_off_approval"] = writeoffs[0]
@@ -629,12 +629,12 @@ func recoveryOpsUpdateLegal(db *core.DB) http.HandlerFunc {
 func recoveryOpsVisitsList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		visitType := qstr(r, "visit_type")
-		outcome   := qstr(r, "outcome")
-		agentID   := qstr(r, "agent_id")
-		dateFrom  := qstr(r, "date_from")
-		dateTo    := qstr(r, "date_to")
-		limit     := qint(r, "limit", 50, 1, 200)
-		offset    := qint(r, "offset", 0, 0, 1<<30)
+		outcome := qstr(r, "outcome")
+		agentID := qstr(r, "agent_id")
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
+		limit := qint(r, "limit", 50, 1, 200)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `
 			SELECT rfv.id, rfv.case_id, rc.case_ref, rfv.agent_user_id,
@@ -961,9 +961,9 @@ func recoveryOpsAgentDashboard(db *core.DB) http.HandlerFunc {
 		var assignedCases, closedMTD, callsMTD int
 		var collectedMTD int64
 
-		db.PG.QueryRowContext(ctx, `SELECT COUNT(*) FROM recovery_cases WHERE assigned_agent_id = $1 AND status = 'open'`, user.ID).Scan(&assignedCases)             //nolint:errcheck
-		db.PG.QueryRowContext(ctx, `SELECT COUNT(*) FROM recovery_cases WHERE assigned_agent_id = $1 AND status = 'closed' AND DATE_TRUNC('month', closed_at) = DATE_TRUNC('month', CURRENT_DATE)`, user.ID).Scan(&closedMTD) //nolint:errcheck
-		db.PG.QueryRowContext(ctx, `SELECT COUNT(*) FROM recovery_field_visits WHERE agent_user_id = $1 AND DATE_TRUNC('month', visit_date::date) = DATE_TRUNC('month', CURRENT_DATE)`, user.ID).Scan(&callsMTD)             //nolint:errcheck
+		db.PG.QueryRowContext(ctx, `SELECT COUNT(*) FROM recovery_cases WHERE assigned_agent_id = $1 AND status = 'open'`, user.ID).Scan(&assignedCases)                                                                                                                                                                       //nolint:errcheck
+		db.PG.QueryRowContext(ctx, `SELECT COUNT(*) FROM recovery_cases WHERE assigned_agent_id = $1 AND status = 'closed' AND DATE_TRUNC('month', closed_at) = DATE_TRUNC('month', CURRENT_DATE)`, user.ID).Scan(&closedMTD)                                                                                                  //nolint:errcheck
+		db.PG.QueryRowContext(ctx, `SELECT COUNT(*) FROM recovery_field_visits WHERE agent_user_id = $1 AND DATE_TRUNC('month', visit_date::date) = DATE_TRUNC('month', CURRENT_DATE)`, user.ID).Scan(&callsMTD)                                                                                                               //nolint:errcheck
 		db.PG.QueryRowContext(ctx, `SELECT COALESCE(SUM(rp.amount_kobo),0) FROM recovery_payments rp JOIN recovery_cases rc ON rc.id = rp.case_id WHERE rc.assigned_agent_id = $1 AND rp.status = 'approved' AND DATE_TRUNC('month', rp.payment_date::date) = DATE_TRUNC('month', CURRENT_DATE)`, user.ID).Scan(&collectedMTD) //nolint:errcheck
 
 		caseRows, _ := db.PGQuery(ctx, `
@@ -1014,9 +1014,15 @@ func recoveryOpsAgentDashboard(db *core.DB) http.HandlerFunc {
 			GROUP BY gs
 			ORDER BY gs`, user.ID)
 
-		if caseRows == nil  { caseRows  = []core.Row{} }
-		if visitRows == nil { visitRows = []core.Row{} }
-		if trendRows == nil { trendRows = []core.Row{} }
+		if caseRows == nil {
+			caseRows = []core.Row{}
+		}
+		if visitRows == nil {
+			visitRows = []core.Row{}
+		}
+		if trendRows == nil {
+			trendRows = []core.Row{}
+		}
 
 		respond(w, core.Row{
 			"assigned_cases":            assignedCases,

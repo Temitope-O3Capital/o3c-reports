@@ -71,7 +71,7 @@ export default function RecoveryAgentDashboard() {
   const [payCase, setPayCase] = useState<Case | null>(null)
   const [status, setStatus] = useState('available')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     setError(null)
     try {
       const r = await apiFetch<{ data: RecoveryAgentDash }>('/api/recovery-ops/agent-dashboard')
@@ -81,7 +81,7 @@ export default function RecoveryAgentDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['recovery'] })
+  useLiveData(() => load(true), { topics: ['recovery'] })
   useEffect(() => { const id = setInterval(load, 60000); return () => clearInterval(id) }, [load])
 
   const changeStatus = useCallback(async (s: string) => {
@@ -164,7 +164,7 @@ export default function RecoveryAgentDashboard() {
   ]
 
   return (
-    <Page title="My Workspace" subtitle="Your recovery station — cases, visits and collections">
+    <Page title="My Workspace" subtitle="Your recovery station: cases, visits and collections">
       <ErrBanner error={error} onRetry={load} />
 
       <WorkspaceHero
@@ -260,7 +260,7 @@ export default function RecoveryAgentDashboard() {
       <LogPaymentModal
         open={!!payCase}
         onClose={() => setPayCase(null)}
-        title={`Log Payment — ${payCase?.debtor_name ?? ''}`}
+        title={`Log Payment: ${payCase?.debtor_name ?? ''}`}
         endpoint={payCase ? `/api/recovery-ops/cases/${payCase.id}/payment` : ''}
         onSuccess={() => { setPayCase(null); load() }}
       />

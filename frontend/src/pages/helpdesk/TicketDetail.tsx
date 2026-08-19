@@ -420,7 +420,7 @@ export default function TicketDetail() {
             method: 'PATCH',
             body: JSON.stringify({ status: 'open' }),
           })
-          toast.success('Reply sent — ticket reopened')
+          toast.success('Reply sent. Ticket reopened')
         } catch { /* reply already saved; status change is best-effort */ }
       }
       setReplyText('')
@@ -507,7 +507,7 @@ export default function TicketDetail() {
       setEscalateOpen(false)
       setEscalateReason('')
       setEscalateTo(0)
-      toast.success('Escalated — the supervisor has been notified')
+      toast.success('Escalated. The supervisor has been notified')
       await load()
     } catch (e: any) {
       toast.error(e.message)
@@ -718,7 +718,7 @@ export default function TicketDetail() {
   return (
     <Page
       title={`Ticket #${ticket.ticket_ref || ticket.id}`}
-      subtitle={`Customer Service → Ticket #${ticket.ticket_ref || ticket.id}`}
+      subtitle={`Customer Service to Ticket #${ticket.ticket_ref || ticket.id}`}
       actions={
         <button onClick={() => navigate('/helpdesk/tickets')}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
@@ -741,7 +741,7 @@ export default function TicketDetail() {
               You&rsquo;re assisting on {ticket.assigned_to_name || 'another agent'}&rsquo;s ticket
             </div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
-              Reply, note and resolve as normal — they stay the owner and are notified of what you do.
+              Reply, note and resolve as normal. They stay the owner and are notified of what you do.
             </div>
           </div>
           <button onClick={handleTakeOver} disabled={actionLoading}
@@ -760,7 +760,7 @@ export default function TicketDetail() {
           <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
               Escalated{ticket.escalated_by_name ? ` by ${ticket.escalated_by_name}` : ''}
-              {ticket.escalated_to_name ? ` → ${ticket.escalated_to_name}` : ' → supervisors'}
+              {ticket.escalated_to_name ? ` to ${ticket.escalated_to_name}` : ' to supervisors'}
             </div>
             {ticket.escalation_reason && (
               <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{ticket.escalation_reason}</div>
@@ -1005,7 +1005,7 @@ export default function TicketDetail() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
                   {(!ctx?.loans || ctx.loans.length === 0) ? (
                     <p style={{ color: 'var(--txt2)', fontSize: TEXT.base, margin: 0 }}>
-                      {ticket.customer_cif ? 'No active loans for this customer.' : 'No CIF — loan data unavailable.'}
+                      {ticket.customer_cif ? 'No active loans for this customer.' : 'No CIF, loan data unavailable.'}
                     </p>
                   ) : ctx.loans.map((l, i) => (
                     <div key={i} className="hd-lift" style={{ background: 'var(--th-bg)', border: '1px solid var(--bdr)', boxShadow: 'var(--shadow-xs)', borderRadius: RADIUS.md, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1033,7 +1033,7 @@ export default function TicketDetail() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
                   {(!ctx?.fixed_deposits || ctx.fixed_deposits.length === 0) ? (
                     <p style={{ color: 'var(--txt2)', fontSize: TEXT.base, margin: 0 }}>
-                      {ticket.customer_cif ? 'No fixed deposits for this customer.' : 'No CIF — FD data unavailable.'}
+                      {ticket.customer_cif ? 'No fixed deposits for this customer.' : 'No CIF, FD data unavailable.'}
                     </p>
                   ) : ctx.fixed_deposits.map((fd, i) => (
                     <div key={i} className="hd-lift" style={{ background: 'var(--th-bg)', border: '1px solid var(--bdr)', boxShadow: 'var(--shadow-xs)', borderRadius: RADIUS.md, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1054,7 +1054,7 @@ export default function TicketDetail() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {(!ctx?.recent_transactions || ctx.recent_transactions.length === 0) ? (
                     <p style={{ color: 'var(--txt2)', fontSize: TEXT.base, margin: 0 }}>
-                      {ticket.customer_cif ? 'No recent transactions found.' : 'No CIF — transaction data unavailable.'}
+                      {ticket.customer_cif ? 'No recent transactions found.' : 'No CIF, transaction data unavailable.'}
                     </p>
                   ) : ctx.recent_transactions.map((t, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: i < ctx.recent_transactions!.length - 1 ? '1px solid var(--bdr)' : 'none' }}>
@@ -1073,7 +1073,7 @@ export default function TicketDetail() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {(!ctx?.collections_history || ctx.collections_history.length === 0) ? (
                     <p style={{ color: 'var(--txt2)', fontSize: TEXT.base, margin: 0 }}>
-                      {ticket.customer_cif ? 'No collections history.' : 'No CIF — collections data unavailable.'}
+                      {ticket.customer_cif ? 'No collections history.' : 'No CIF, collections data unavailable.'}
                     </p>
                   ) : ctx.collections_history.map((p, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: i < ctx.collections_history!.length - 1 ? '1px solid var(--bdr)' : 'none' }}>
@@ -1096,7 +1096,7 @@ export default function TicketDetail() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   {(!ctx?.cards || ctx.cards.length === 0) ? (
                     <p style={{ color: 'var(--txt2)', fontSize: TEXT.base, margin: 0 }}>
-                      {ticket.customer_cif ? 'No card products for this customer.' : 'No CIF — card data unavailable.'}
+                      {ticket.customer_cif ? 'No card products for this customer.' : 'No CIF, card data unavailable.'}
                     </p>
                   ) : ctx.cards.map((c, i) => (
                     <div key={i} className="hd-lift" style={{ background: 'var(--th-bg)', border: '1px solid var(--bdr)', boxShadow: 'var(--shadow-xs)', borderRadius: RADIUS.md, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -1250,7 +1250,7 @@ export default function TicketDetail() {
       <Modal open={escalateOpen} onClose={() => { setEscalateOpen(false); setEscalateReason(''); setEscalateTo(0) }} title="Escalate Ticket" width={440}
         footer={<ModalFooter onConfirm={handleEscalate} label="Escalate" disabled={!escalateReason.trim()} />}>
         <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', margin: '0 0 12px' }}>
-          The reason is required — it is what the person receiving this has to act on. They are notified immediately, and the
+          The reason is required: it is what the person receiving this has to act on. They are notified immediately, and the
           escalation stays on the supervisor&rsquo;s worklist until someone closes it.
         </p>
         <div style={{ marginBottom: 12 }}>
@@ -1290,7 +1290,7 @@ export default function TicketDetail() {
           <div style={{ display: 'flex', gap: 10 }}>
             <button disabled={actionLoading || !stmtEmail || !stmtDateFrom || !stmtDateTo || !ticket.customer_cif}
               onClick={async () => {
-                if (!ticket.customer_cif) { toast.error('No CIF — cannot generate statement'); return }
+                if (!ticket.customer_cif) { toast.error('No CIF, cannot generate statement'); return }
                 setActionLoading(true)
                 try {
                   await apiPost('/api/statements/send', {
@@ -1320,7 +1320,7 @@ export default function TicketDetail() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: TEXT.base }}>
           {!ticket.customer_cif && (
-            <p style={{ color: AMBER, margin: 0, fontSize: TEXT.sm }}>No CIF on this ticket — statement cannot be generated without a CIF.</p>
+            <p style={{ color: AMBER, margin: 0, fontSize: TEXT.sm }}>No CIF on this ticket: statement cannot be generated without a CIF.</p>
           )}
           <div>
             <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: SP[1] }}>Recipient Email</label>
@@ -1462,7 +1462,7 @@ export default function TicketDetail() {
         {mergeTarget && (
           <div style={{ padding: '10px 14px', background: `${NAVY}08`, borderRadius: RADIUS.md, border: `1px solid ${NAVY}20` }}>
             <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>
-              Selected: #{mergeTarget.ticket_ref} — {mergeTarget.subject}
+              Selected: #{mergeTarget.ticket_ref}, {mergeTarget.subject}
             </div>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>
               This ticket's messages will be moved there. This ticket will be closed.

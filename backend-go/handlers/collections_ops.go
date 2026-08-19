@@ -71,7 +71,7 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 		q := qstr(r, "q")
 		accountCIF := qstr(r, "account_cif")
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -663,12 +663,12 @@ func collectionsOpsTargets(db *core.DB) http.HandlerFunc {
 
 func collectionsOpsUpsertTarget(db *core.DB) http.HandlerFunc {
 	type body struct {
-		AgentUserID        int64  `json:"agent_user_id"`
-		TargetDate         string `json:"target_date"`
-		TargetAmountKobo   int64  `json:"target_amount_kobo"`
-		ContactsMade       int    `json:"contacts_made"`
-		PromisesObtained   int    `json:"promises_obtained"`
-		CollectedAmountKobo int64 `json:"collected_amount_kobo"`
+		AgentUserID         int64  `json:"agent_user_id"`
+		TargetDate          string `json:"target_date"`
+		TargetAmountKobo    int64  `json:"target_amount_kobo"`
+		ContactsMade        int    `json:"contacts_made"`
+		PromisesObtained    int    `json:"promises_obtained"`
+		CollectedAmountKobo int64  `json:"collected_amount_kobo"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -925,7 +925,8 @@ func collectionsOpsAgentDashboard(db *core.DB) http.HandlerFunc {
 			GROUP BY u.id, u.full_name, ct.cnt, pt.cnt, pt.honoured
 			ORDER BY contacts_today DESC, assigned DESC`, agentFilter), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if agents == nil {
 			agents = []core.Row{}
@@ -943,7 +944,7 @@ func collectionsOpsListPlans(db *core.DB) http.HandlerFunc {
 		status := qstr(r, "status")
 		q := qstr(r, "q")
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
@@ -959,7 +960,8 @@ func collectionsOpsListPlans(db *core.DB) http.HandlerFunc {
 
 		if !user.HasPage("collections_assign") {
 			query += fmt.Sprintf(" AND rp.agent_user_id = $%d", n)
-			args = append(args, user.ID); n++
+			args = append(args, user.ID)
+			n++
 		}
 		if status != "" {
 			vals := strings.Split(status, ",")
@@ -981,18 +983,21 @@ func collectionsOpsListPlans(db *core.DB) http.HandlerFunc {
 		}
 		if from != "" {
 			query += fmt.Sprintf(" AND rp.created_at::date >= $%d::date", n)
-			args = append(args, from); n++
+			args = append(args, from)
+			n++
 		}
 		if to != "" {
 			query += fmt.Sprintf(" AND rp.created_at::date <= $%d::date", n)
-			args = append(args, to); n++
+			args = append(args, to)
+			n++
 		}
 		query += fmt.Sprintf(" ORDER BY rp.created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
 		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(ctx, query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -1007,33 +1012,36 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 		AmountKobo int64  `json:"amount_kobo"`
 	}
 	type body struct {
-		AccountCIF       string       `json:"account_cif"`
-		CustomerName     string       `json:"customer_name"`
-		Notes            string       `json:"notes"`
+		AccountCIF   string `json:"account_cif"`
+		CustomerName string `json:"customer_name"`
+		Notes        string `json:"notes"`
 		// Flat form: frontend sends total + count + first date; backend generates monthly dates.
-		TotalKobo        int64        `json:"total_kobo"`
-		InstalmentCount  int          `json:"instalment_count"`
-		FirstPaymentDate string       `json:"first_payment_date"`
+		TotalKobo        int64  `json:"total_kobo"`
+		InstalmentCount  int    `json:"instalment_count"`
+		FirstPaymentDate string `json:"first_payment_date"`
 		// Explicit form: caller may send a pre-built instalment schedule.
-		Instalments      []instalment `json:"instalments"`
+		Instalments []instalment `json:"instalments"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.AccountCIF == "" {
-			respondErr(w, 400, "account_cif is required"); return
+			respondErr(w, 400, "account_cif is required")
+			return
 		}
 
 		// Build instalment schedule from flat form when no explicit list is provided.
 		instalments := b.Instalments
 		if len(instalments) == 0 {
 			if b.TotalKobo == 0 || b.InstalmentCount < 1 || b.FirstPaymentDate == "" {
-				respondErr(w, 400, "total_kobo, instalment_count, and first_payment_date are required when instalments list is omitted"); return
+				respondErr(w, 400, "total_kobo, instalment_count, and first_payment_date are required when instalments list is omitted")
+				return
 			}
 			firstDate, err := time.Parse("2006-01-02", b.FirstPaymentDate)
 			if err != nil {
-				respondErr(w, 400, "invalid first_payment_date: use YYYY-MM-DD"); return
+				respondErr(w, 400, "invalid first_payment_date: use YYYY-MM-DD")
+				return
 			}
 			base := b.TotalKobo / int64(b.InstalmentCount)
 			remainder := b.TotalKobo - base*int64(b.InstalmentCount)
@@ -1055,7 +1063,8 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 			`SELECT id FROM repayment_plans WHERE account_cif=$1 AND status='Active' LIMIT 1`,
 			b.AccountCIF)
 		if len(existing) > 0 {
-			respondErr(w, 409, "An active repayment plan already exists for this account"); return
+			respondErr(w, 409, "An active repayment plan already exists for this account")
+			return
 		}
 
 		total := int64(0)
@@ -1064,7 +1073,9 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 		}
 
 		ns := func(s string) any {
-			if s == "" { return nil }
+			if s == "" {
+				return nil
+			}
 			return s
 		}
 
@@ -1072,7 +1083,8 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 		// plan without its instalment rows (M36).
 		tx, err := db.PG.BeginTx(ctx, nil)
 		if err != nil {
-			respondErr(w, 500, "Plan creation failed"); return
+			respondErr(w, 500, "Plan creation failed")
+			return
 		}
 		var planID any
 		if err = tx.QueryRowContext(ctx,
@@ -1082,7 +1094,8 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 			b.AccountCIF, ns(b.CustomerName), user.ID, total, len(instalments), instalments[0].DueDate, ns(b.Notes),
 		).Scan(&planID); err != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Plan creation failed"); return
+			respondErr(w, 500, "Plan creation failed")
+			return
 		}
 		for i, inst := range instalments {
 			if _, iErr := tx.ExecContext(ctx,
@@ -1091,11 +1104,13 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 				planID, i+1, inst.DueDate, inst.AmountKobo); iErr != nil {
 				tx.Rollback() //nolint:errcheck
 				slog.Error("repayment instalment insert failed", "num", i+1, "err", iErr)
-				respondErr(w, 500, "Plan creation failed"); return
+				respondErr(w, 500, "Plan creation failed")
+				return
 			}
 		}
 		if err = tx.Commit(); err != nil {
-			respondErr(w, 500, "Plan creation failed"); return
+			respondErr(w, 500, "Plan creation failed")
+			return
 		}
 
 		logCreditEvent(ctx, db, r, "collections", "repayment_plan", fmt.Sprint(planID), b.AccountCIF, "plan_created",
@@ -1124,7 +1139,8 @@ func collectionsOpsListInstalments(db *core.DB) http.HandlerFunc {
 			`SELECT id, instalment_number, due_date, amount_kobo, status, paid_at
 			 FROM repayment_instalments WHERE plan_id=$1 ORDER BY instalment_number`, pid)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -1146,10 +1162,12 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 			JOIN repayment_plans rp ON rp.id = ri.plan_id
 			WHERE ri.id=$1`, iid)
 		if err != nil || len(instRows) == 0 {
-			respondErr(w, 404, "Instalment not found"); return
+			respondErr(w, 404, "Instalment not found")
+			return
 		}
 		if str(instRows[0]["status"]) == "Paid" {
-			respondErr(w, 422, "Already marked paid"); return
+			respondErr(w, 422, "Already marked paid")
+			return
 		}
 		planID := instRows[0]["plan_id"]
 		amountKobo := toInt64(instRows[0]["amount_kobo"])
@@ -1158,13 +1176,15 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 		// Wrap instalment update, plan aggregate update, and GL entry in a single transaction.
 		tx, txErr := db.PG.BeginTx(ctx, nil)
 		if txErr != nil {
-			respondErr(w, 500, "Transaction failed"); return
+			respondErr(w, 500, "Transaction failed")
+			return
 		}
 
 		if _, err = tx.ExecContext(ctx,
 			`UPDATE repayment_instalments SET status='Paid', paid_at=NOW() WHERE id=$1`, iid); err != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Mark paid failed"); return
+			respondErr(w, 500, "Mark paid failed")
+			return
 		}
 
 		if _, err = tx.ExecContext(ctx, `
@@ -1178,7 +1198,8 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 			   updated_at = NOW()
 			 WHERE id=$1`, planID); err != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Plan update failed"); return
+			respondErr(w, 500, "Plan update failed")
+			return
 		}
 
 		// Record a loan_repayments row too (parity with single/batch payments) so
@@ -1192,7 +1213,8 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 					 VALUES ($1,$2,CURRENT_DATE,$3,$4,$5)`,
 					toInt64(lr[0]["id"]), amountKobo, "repayment_plan", fmt.Sprintf("RP-INST-%s", iid), user.ID); e != nil {
 					tx.Rollback() //nolint:errcheck
-					respondErr(w, 500, "Repayment record failed"); return
+					respondErr(w, 500, "Repayment record failed")
+					return
 				}
 			}
 		}
@@ -1213,12 +1235,14 @@ func collectionsOpsMarkPaid(db *core.DB) http.HandlerFunc {
 				PostedBy:      user.ID,
 			}); glErr != nil {
 				tx.Rollback() //nolint:errcheck
-				respondErr(w, 500, "GL entry failed"); return
+				respondErr(w, 500, "GL entry failed")
+				return
 			}
 		}
 
 		if err = tx.Commit(); err != nil {
-			respondErr(w, 500, "Commit failed"); return
+			respondErr(w, 500, "Commit failed")
+			return
 		}
 		logCreditEvent(ctx, db, r, "collections", "repayment_plan", iid, accountCIF, "instalment_paid",
 			fmt.Sprintf("Repayment plan instalment of ₦%s marked as paid", fmtKoboStr(amountKobo)), nil, map[string]any{"amount_kobo": amountKobo})
@@ -1232,11 +1256,11 @@ func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
-		status      := qstr(r, "status")
-		q           := qstr(r, "q")
-		limit       := qint(r, "limit", 100, 1, 500)
-		offset      := qint(r, "offset", 0, 0, 1<<30)
+		dateTo, _ := validDate(r, "date_to")
+		status := qstr(r, "status")
+		q := qstr(r, "q")
+		limit := qint(r, "limit", 100, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `
 			SELECT
@@ -1267,11 +1291,13 @@ func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
 
 		if dateFrom != "" {
 			query += fmt.Sprintf(" AND cp.promised_date >= $%d", n)
-			args = append(args, dateFrom); n++
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
 			query += fmt.Sprintf(" AND cp.promised_date <= $%d", n)
-			args = append(args, dateTo); n++
+			args = append(args, dateTo)
+			n++
 		}
 		if status != "" {
 			vals := strings.Split(status, ",")
@@ -1304,7 +1330,8 @@ func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(ctx, query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -1319,10 +1346,10 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
-		dpdRange    := qstr(r, "dpd_range")
-		limit       := qint(r, "limit", 100, 1, 500)
-		offset      := qint(r, "offset", 0, 0, 1<<30)
+		dateTo, _ := validDate(r, "date_to")
+		dpdRange := qstr(r, "dpd_range")
+		limit := qint(r, "limit", 100, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `
 			SELECT
@@ -1348,11 +1375,13 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 
 		if dateFrom != "" {
 			query += fmt.Sprintf(" AND wo.created_at::date >= $%d", n)
-			args = append(args, dateFrom); n++
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
 			query += fmt.Sprintf(" AND wo.created_at::date <= $%d", n)
-			args = append(args, dateTo); n++
+			args = append(args, dateTo)
+			n++
 		}
 		if dpdRange != "" {
 			vals := strings.Split(dpdRange, ",")
@@ -1378,7 +1407,8 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(ctx, query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -1391,14 +1421,16 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 		if err != nil {
-			respondErr(w, 400, "Invalid write-off ID"); return
+			respondErr(w, 400, "Invalid write-off ID")
+			return
 		}
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
 		tx, txErr := db.PG.BeginTx(ctx, nil)
 		if txErr != nil {
-			respondErr(w, 500, "Transaction failed"); return
+			respondErr(w, 500, "Transaction failed")
+			return
 		}
 		defer tx.Rollback() //nolint:errcheck
 
@@ -1408,10 +1440,12 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 		if err = tx.QueryRowContext(ctx,
 			`SELECT status, amount_kobo, case_id FROM recovery_write_off_approvals WHERE id=$1 FOR UPDATE`,
 			id).Scan(&woStatus, &amountKobo, &caseID); err != nil {
-			respondErr(w, 404, "Write-off not found"); return
+			respondErr(w, 404, "Write-off not found")
+			return
 		}
 		if woStatus != "pending" {
-			respondErr(w, 422, "Write-off already processed"); return
+			respondErr(w, 422, "Write-off already processed")
+			return
 		}
 
 		if _, err = tx.ExecContext(ctx,
@@ -1419,7 +1453,8 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 			 SET status='approved', approved_by=$1, approved_at=NOW()
 			 WHERE id=$2`,
 			user.ID, id); err != nil {
-			respondErr(w, 500, "Approve failed"); return
+			respondErr(w, 500, "Approve failed")
+			return
 		}
 
 		// Close the underlying recovery case so a written-off loan stops resurfacing
@@ -1429,7 +1464,8 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 			`UPDATE recovery_cases
 			 SET status='written_off', write_off_status='approved', write_off_amount_kobo=$1, closed_at=NOW(), updated_at=NOW()
 			 WHERE id=$2`, amountKobo, caseID); err != nil {
-			respondErr(w, 500, "Failed to close recovery case"); return
+			respondErr(w, 500, "Failed to close recovery case")
+			return
 		}
 
 		// Post GL entry: Dr Loan Loss Provision (5200) / Cr Loan Receivable (1100).
@@ -1445,12 +1481,14 @@ func collectionsOpsApproveWriteoff(db *core.DB) http.HandlerFunc {
 				SourceID:      id,
 				PostedBy:      user.ID,
 			}); glErr != nil {
-				respondErr(w, 500, "GL entry failed"); return
+				respondErr(w, 500, "GL entry failed")
+				return
 			}
 		}
 
 		if err = tx.Commit(); err != nil {
-			respondErr(w, 500, "Commit failed"); return
+			respondErr(w, 500, "Commit failed")
+			return
 		}
 
 		go NotifyRole(context.Background(), db, "finance_head", NotifPayload{
@@ -1468,34 +1506,40 @@ func collectionsOpsReturnWriteoff(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 		if err != nil {
-			respondErr(w, 400, "Invalid write-off ID"); return
+			respondErr(w, 400, "Invalid write-off ID")
+			return
 		}
 		ctx := r.Context()
 
 		caseRows, err := db.PGQuery(ctx,
 			`SELECT case_id FROM recovery_write_off_approvals WHERE id=$1`, id)
 		if err != nil || len(caseRows) == 0 {
-			respondErr(w, 404, "Write-off not found"); return
+			respondErr(w, 404, "Write-off not found")
+			return
 		}
 
 		// Reject the write-off and reopen the recovery case atomically.
 		tx, txErr := db.PG.BeginTx(ctx, nil)
 		if txErr != nil {
-			respondErr(w, 500, "Transaction failed"); return
+			respondErr(w, 500, "Transaction failed")
+			return
 		}
 		if _, txErr = tx.ExecContext(ctx,
 			`UPDATE recovery_write_off_approvals SET status='rejected' WHERE id=$1`, id); txErr != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Return failed"); return
+			respondErr(w, 500, "Return failed")
+			return
 		}
 		if _, txErr = tx.ExecContext(ctx,
 			`UPDATE recovery_cases SET status='open', updated_at=NOW() WHERE id=$1`,
 			caseRows[0]["case_id"]); txErr != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Return failed"); return
+			respondErr(w, 500, "Return failed")
+			return
 		}
 		if txErr = tx.Commit(); txErr != nil {
-			respondErr(w, 500, "Commit failed"); return
+			respondErr(w, 500, "Commit failed")
+			return
 		}
 
 		respondOK(w, "Returned to recovery")
@@ -1509,14 +1553,16 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || len(b.IDs) == 0 {
-			respondErr(w, 400, "ids array required"); return
+			respondErr(w, 400, "ids array required")
+			return
 		}
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
 		tx, txErr := db.PG.BeginTx(ctx, nil)
 		if txErr != nil {
-			respondErr(w, 500, "Transaction failed"); return
+			respondErr(w, 500, "Transaction failed")
+			return
 		}
 
 		// Fetch pending rows first so we have amount_kobo for each GL entry.
@@ -1525,12 +1571,14 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 			 WHERE id = ANY($1) AND status='pending'`, b.IDs)
 		if err != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 
 		if len(pendingRows) == 0 {
 			tx.Rollback() //nolint:errcheck
-			respond(w, map[string]any{"approved": 0}, "json"); return
+			respond(w, map[string]any{"approved": 0}, "json")
+			return
 		}
 
 		// Approve all pending rows in one statement.
@@ -1544,7 +1592,8 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 			 WHERE id = ANY($2)`,
 			user.ID, pendingIDs); err != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Update failed"); return
+			respondErr(w, 500, "Update failed")
+			return
 		}
 
 		// Close each underlying recovery case so written-off loans stop resurfacing
@@ -1555,7 +1604,8 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 					`UPDATE recovery_cases SET status='written_off', write_off_status='approved', write_off_amount_kobo=$1, closed_at=NOW(), updated_at=NOW() WHERE id=$2`,
 					toInt64(row["amount_kobo"]), cid); err != nil {
 					tx.Rollback() //nolint:errcheck
-					respondErr(w, 500, "Failed to close recovery case"); return
+					respondErr(w, 500, "Failed to close recovery case")
+					return
 				}
 			}
 		}
@@ -1580,12 +1630,14 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 				PostedBy:      user.ID,
 			}); glErr != nil {
 				tx.Rollback() //nolint:errcheck
-				respondErr(w, 500, "GL entry failed"); return
+				respondErr(w, 500, "GL entry failed")
+				return
 			}
 		}
 
 		if err = tx.Commit(); err != nil {
-			respondErr(w, 500, "Commit failed"); return
+			respondErr(w, 500, "Commit failed")
+			return
 		}
 
 		count := len(pendingRows)
@@ -1604,36 +1656,41 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 func collectionsOpsCreateWriteoffRequest(db *core.DB) http.HandlerFunc {
 	type body struct {
 		AccountCIF      string  `json:"account_cif"`
-		WriteoffType    string  `json:"writeoff_type"`  // full|partial_amount|percentage|principal_only|interest_only
-		Reason          string  `json:"reason"`         // bad_debt|deceased|fraud|natural_disaster|regulatory|other
+		WriteoffType    string  `json:"writeoff_type"` // full|partial_amount|percentage|principal_only|interest_only
+		Reason          string  `json:"reason"`        // bad_debt|deceased|fraud|natural_disaster|regulatory|other
 		ReasonNotes     string  `json:"reason_notes"`
-		AmountKobo      int64   `json:"amount_kobo"`    // for partial_amount
-		Percentage      float64 `json:"percentage"`     // for percentage
+		AmountKobo      int64   `json:"amount_kobo"` // for partial_amount
+		Percentage      float64 `json:"percentage"`  // for percentage
 		OutstandingKobo int64   `json:"outstanding_kobo"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.AccountCIF == "" || b.WriteoffType == "" || b.Reason == "" {
-			respondErr(w, 422, "account_cif, writeoff_type and reason are required"); return
+			respondErr(w, 422, "account_cif, writeoff_type and reason are required")
+			return
 		}
 		validTypes := map[string]bool{
 			"full": true, "partial_amount": true, "percentage": true,
 			"principal_only": true, "interest_only": true,
 		}
 		if !validTypes[b.WriteoffType] {
-			respondErr(w, 422, "invalid writeoff_type"); return
+			respondErr(w, 422, "invalid writeoff_type")
+			return
 		}
 		switch b.WriteoffType {
 		case "partial_amount", "principal_only", "interest_only":
 			if b.AmountKobo <= 0 {
-				respondErr(w, 422, "amount_kobo must be greater than zero for this writeoff_type"); return
+				respondErr(w, 422, "amount_kobo must be greater than zero for this writeoff_type")
+				return
 			}
 		case "percentage":
 			if b.Percentage <= 0 || b.Percentage > 100 {
-				respondErr(w, 422, "percentage must be between 0 and 100"); return
+				respondErr(w, 422, "percentage must be between 0 and 100")
+				return
 			}
 		}
 		user := core.UserFromCtx(r.Context())
@@ -1658,7 +1715,8 @@ func collectionsOpsCreateWriteoffRequest(db *core.DB) http.HandlerFunc {
 			b.AccountCIF, loanID, user.ID, b.WriteoffType, b.Reason, b.ReasonNotes,
 			b.AmountKobo, b.Percentage, b.OutstandingKobo)
 		if err != nil {
-			respondErr(w, 500, "Insert failed"); return
+			respondErr(w, 500, "Insert failed")
+			return
 		}
 		logCreditEvent(r.Context(), db, r, "collections", "writeoff_request", fmt.Sprint(rows[0]["id"]), b.AccountCIF, "writeoff_requested",
 			fmt.Sprintf("Write-off request submitted — type: %s, reason: %s", b.WriteoffType, b.Reason), nil, map[string]any{"writeoff_type": b.WriteoffType, "reason": b.Reason, "amount_kobo": b.AmountKobo})
@@ -1686,7 +1744,8 @@ func collectionsOpsListWriteoffRequests(db *core.DB) http.HandlerFunc {
 			ORDER BY wr.created_at DESC
 			LIMIT 200`, status)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -1702,7 +1761,8 @@ func collectionsOpsApproveWriteoffRequest(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 		if err != nil {
-			respondErr(w, 400, "Invalid ID"); return
+			respondErr(w, 400, "Invalid ID")
+			return
 		}
 		var b body
 		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
@@ -1716,11 +1776,13 @@ func collectionsOpsApproveWriteoffRequest(db *core.DB) http.HandlerFunc {
 			       amount_kobo, percentage, outstanding_kobo, status
 			FROM collections_writeoff_requests WHERE id = $1`, id)
 		if err != nil || len(wrRows) == 0 {
-			respondErr(w, 404, "Request not found"); return
+			respondErr(w, 404, "Request not found")
+			return
 		}
 		wr := wrRows[0]
 		if wr["status"] != "pending" {
-			respondErr(w, 422, "Request already reviewed"); return
+			respondErr(w, 422, "Request already reviewed")
+			return
 		}
 
 		// Determine write-off amount in kobo
@@ -1746,7 +1808,8 @@ func collectionsOpsApproveWriteoffRequest(db *core.DB) http.HandlerFunc {
 
 		tx, err := db.PG.BeginTx(ctx, nil)
 		if err != nil {
-			respondErr(w, 500, "Transaction start failed"); return
+			respondErr(w, 500, "Transaction start failed")
+			return
 		}
 		defer tx.Rollback() //nolint:errcheck
 
@@ -1757,7 +1820,8 @@ func collectionsOpsApproveWriteoffRequest(db *core.DB) http.HandlerFunc {
 			WHERE id = $3`,
 			user.ID, b.ReviewNotes, id)
 		if err != nil {
-			respondErr(w, 500, "Update failed"); return
+			respondErr(w, 500, "Update failed")
+			return
 		}
 
 		// Post GL entry (Dr Loan Loss Provision / Cr Loan Receivable)
@@ -1773,12 +1837,14 @@ func collectionsOpsApproveWriteoffRequest(db *core.DB) http.HandlerFunc {
 				SourceID:      id,
 				PostedBy:      user.ID,
 			}); glErr != nil {
-				respondErr(w, 500, "GL post failed"); return
+				respondErr(w, 500, "GL post failed")
+				return
 			}
 		}
 
 		if err := tx.Commit(); err != nil {
-			respondErr(w, 500, "Commit failed"); return
+			respondErr(w, 500, "Commit failed")
+			return
 		}
 		// A full write-off closes the exposure: mark the loan written-off and drop
 		// any active collection assignment for the CIF from the work queue (GL was
@@ -1803,7 +1869,8 @@ func collectionsOpsRejectWriteoffRequest(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 		if err != nil {
-			respondErr(w, 400, "Invalid ID"); return
+			respondErr(w, 400, "Invalid ID")
+			return
 		}
 		var b body
 		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
@@ -1815,7 +1882,8 @@ func collectionsOpsRejectWriteoffRequest(db *core.DB) http.HandlerFunc {
 			RETURNING id, status, account_cif`,
 			user.ID, b.ReviewNotes, id)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Request not found or already reviewed"); return
+			respondErr(w, 404, "Request not found or already reviewed")
+			return
 		}
 		logCreditEvent(r.Context(), db, r, "collections", "writeoff_request", fmt.Sprint(id), str(rows[0]["account_cif"]), "writeoff_request_rejected",
 			fmt.Sprintf("Write-off request rejected — reason: %s", b.ReviewNotes), nil, map[string]any{"notes": b.ReviewNotes})
@@ -1833,10 +1901,12 @@ func collectionsOpsBulkReassign(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.AgentUserID == 0 || len(b.AssignmentIDs) == 0 {
-			respondErr(w, 422, "assignment_ids and agent_user_id are required"); return
+			respondErr(w, 422, "assignment_ids and agent_user_id are required")
+			return
 		}
 		ctx := r.Context()
 		_, err := db.PG.ExecContext(ctx, `
@@ -1844,7 +1914,8 @@ func collectionsOpsBulkReassign(db *core.DB) http.HandlerFunc {
 			SET agent_user_id = $1, updated_at = NOW()
 			WHERE id = ANY($2)`, b.AgentUserID, b.AssignmentIDs)
 		if err != nil {
-			respondErr(w, 500, "Bulk reassign failed"); return
+			respondErr(w, 500, "Bulk reassign failed")
+			return
 		}
 		logCreditEvent(ctx, db, r, "collections", "assignment", fmt.Sprintf("%d", len(b.AssignmentIDs)), "", "bulk_reassigned",
 			fmt.Sprintf("Bulk reassigned %d accounts to agent %d", len(b.AssignmentIDs), b.AgentUserID),
@@ -1872,10 +1943,12 @@ func collectionsOpsDistribute(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if len(b.AgentIDs) == 0 {
-			respondErr(w, 422, "agent_ids is required"); return
+			respondErr(w, 422, "agent_ids is required")
+			return
 		}
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
@@ -1900,7 +1973,8 @@ func collectionsOpsDistribute(db *core.DB) http.HandlerFunc {
 			WHERE ca.id = todo.id AND pool.rn = (todo.seq % n.c)`,
 			b.AgentIDs, assignedBy)
 		if err != nil {
-			respondErr(w, 500, "Distribute failed: "+err.Error()); return
+			respondErr(w, 500, "Distribute failed: "+err.Error())
+			return
 		}
 		distributed := int64(0)
 		if res != nil {
@@ -1942,10 +2016,12 @@ func collectionsOpsBulkAssignByCIF(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.AgentUserID == 0 || len(b.Accounts) == 0 {
-			respondErr(w, 422, "agent_user_id and accounts are required"); return
+			respondErr(w, 422, "agent_user_id and accounts are required")
+			return
 		}
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
@@ -2001,10 +2077,12 @@ func collectionsOpsBulkEscalateByCIF(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if len(b.Accounts) == 0 {
-			respondErr(w, 422, "accounts is required"); return
+			respondErr(w, 422, "accounts is required")
+			return
 		}
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
@@ -2044,10 +2122,12 @@ func collectionsOpsBulkSendToRecovery(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if len(b.AssignmentIDs) == 0 {
-			respondErr(w, 422, "assignment_ids is required"); return
+			respondErr(w, 422, "assignment_ids is required")
+			return
 		}
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)

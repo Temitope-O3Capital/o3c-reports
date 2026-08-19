@@ -44,12 +44,12 @@ type cycleRow struct {
 }
 
 var (
-	reCycProduct = regexp.MustCompile(`Account\s+Product\s*\[(\w+)\]\s*:\s*(.+?)\s*$`)
-	reCycStmtDt  = regexp.MustCompile(`Statement\s+Date\s*:\s*(\d{2})/(\d{2})/(\d{4})`)
+	reCycProduct  = regexp.MustCompile(`Account\s+Product\s*\[(\w+)\]\s*:\s*(.+?)\s*$`)
+	reCycStmtDt   = regexp.MustCompile(`Statement\s+Date\s*:\s*(\d{2})/(\d{2})/(\d{4})`)
 	reCycReportID = regexp.MustCompile(`Report\s+ID\s*:\s*(cyc\w+)`)
-	reCurrency   = regexp.MustCompile(`^[A-Z]{3}$`)
-	reProdCode   = regexp.MustCompile(`^\d{1,3}$`)
-	reDigits     = regexp.MustCompile(`^\d+$`)
+	reCurrency    = regexp.MustCompile(`^[A-Z]{3}$`)
+	reProdCode    = regexp.MustCompile(`^\d{1,3}$`)
+	reDigits      = regexp.MustCompile(`^\d+$`)
 )
 
 // naira "1234.56" / "-1234.56" → kobo int64.

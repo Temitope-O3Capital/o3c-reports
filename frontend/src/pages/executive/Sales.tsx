@@ -53,7 +53,7 @@ export default function ExecSales() {
 
   useEffect(() => { load(period) }, [load, period])
 
-  const title = 'Sales — Executive View'
+  const title = 'Sales: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
   const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
 
@@ -124,7 +124,7 @@ export default function ExecSales() {
           <div style={{ marginTop: SP[4] }}>
             <Note>
               Bars show each line's share of the total book; the <b>+n</b> is what opened in this period. The two
-              differ sharply — prepaid dominates the book while credit card leads new openings.
+              differ sharply: prepaid dominates the book while credit card leads new openings.
             </Note>
           </div>
         </SectionCard>
@@ -159,7 +159,7 @@ export default function ExecSales() {
         {data.top_performers.length === 0 ? (
           <Note>
             No officer is named on any open loan, so the book cannot be attributed. Officer names come from the
-            CBS loan record — until they are populated there is nothing to rank.
+            CBS loan record. Until they are populated there is nothing to rank.
           </Note>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>

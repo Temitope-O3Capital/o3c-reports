@@ -219,9 +219,9 @@ export default function VintageDetail() {
   const [error,   setError]   = useState<string | null>(null)
   const [dpdFilter, setDpdFilter] = useState('all')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!month) return
-    setLoading(true); setError(null)
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch<{ data: CohortDetail }>(`/api/risk/vintage/${encodeURIComponent(month)}`)
       setDetail(res.data ?? null)
@@ -233,7 +233,7 @@ export default function VintageDetail() {
   }, [month])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['loans'] })
+  useLiveData(() => load(true), { topics: ['loans'] })
 
   const filteredLoans = useMemo(
     () => filterByDPD(detail?.loans ?? [], dpdFilter),
@@ -269,7 +269,7 @@ export default function VintageDetail() {
 
   return (
     <Page
-      title={detail ? `Vintage — ${detail.booking_month}` : 'Vintage Detail'}
+      title={detail ? `Vintage: ${detail.booking_month}` : 'Vintage Detail'}
       subtitle={detail ? `${fmtNum(detail.total_count)} loans booked in this cohort` : 'Loading cohort…'}
       actions={backBtn}
     >

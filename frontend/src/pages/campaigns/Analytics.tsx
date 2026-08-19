@@ -63,8 +63,8 @@ export default function CampaignPerformance() {
   const [loading, setLoading] = useState(true)
   const [err, setErr]         = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
       if (dateFrom) p.set('date_from', dateFrom)
@@ -77,7 +77,7 @@ export default function CampaignPerformance() {
   }, [dateFrom, dateTo, channel])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['campaigns'] })
+  useLiveData(() => load(true), { topics: ['campaigns'] })
 
   const s = data?.summary
 
@@ -152,7 +152,7 @@ export default function CampaignPerformance() {
 
       {/* Engagement funnel + Channel mix */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
-        <SectionCard title="Engagement Funnel" subtitle="Sent → Delivered → Opened → Clicked">
+        <SectionCard title="Engagement Funnel" subtitle="Sent, Delivered, Opened, Clicked">
           {engagement.some(e => e.value > 0)
             ? <FunnelChart steps={engagement} showCumulative />
             : <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>No send data</div>}

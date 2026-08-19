@@ -117,7 +117,7 @@ function RoleModal({ role, users, pageGroups, onClose, onSaved }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `${SP[5]} ${SP[6]}`, borderBottom: '1px solid var(--bdr)' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>{isNew ? 'Create Role' : `Role: ${role?.label || role?.name}`}</h3>
-            {role?.built_in && <div style={{ fontSize: TEXT.sm, color: NAVY, fontWeight: FW.semibold, marginTop: 3 }}>Built-in role — name cannot be changed</div>}
+            {role?.built_in && <div style={{ fontSize: TEXT.sm, color: NAVY, fontWeight: FW.semibold, marginTop: 3 }}>Built-in role. Name cannot be changed</div>}
           </div>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded">close</span>
@@ -240,21 +240,6 @@ function RoleModal({ role, users, pageGroups, onClose, onSaved }: {
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
-function exportRolesCsv(rows: Role[]) {
-  const header = ['Role Key', 'Label', 'Type', 'User Count', 'Page Count']
-  const lines = rows.map(r => [
-    `"${String(r.name ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.label ?? '').replace(/"/g, '""')}"`,
-    r.built_in ? 'Built-in' : 'Custom',
-    r.user_count ?? 0,
-    r.pages.length,
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `roles-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -270,8 +255,8 @@ export default function AdminRoles() {
 
   const [pageGroups, setPageGroups] = useState<{ label: string; pages: { key: string; label: string }[] }[]>([])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const [r, u, cat] = await Promise.all([
@@ -296,7 +281,7 @@ export default function AdminRoles() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   const [roleSearch, setRoleSearch] = useState('')
 
@@ -336,7 +321,7 @@ export default function AdminRoles() {
     <Page
       back={{ label: 'Admin', to: '/admin' }}
       title="Roles"
-      subtitle="Role-based access control — page permissions per role"
+      subtitle="Role-based access control: page permissions per role"
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -352,7 +337,7 @@ export default function AdminRoles() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="All Roles" badge={displayed.length} padding={false} actions={<button onClick={() => exportRolesCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="All Roles" badge={displayed.length} padding={false}>
         <ExpandableFilterBar
           search={roleSearch}
           onSearch={setRoleSearch}

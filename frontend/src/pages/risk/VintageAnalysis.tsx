@@ -117,10 +117,10 @@ export default function VintageAnalysis() {
     return p.toString()
   }, [fProducts, dateFrom, dateTo])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     abortRef.current?.abort()
     abortRef.current = new AbortController()
-    setLoading(true); setError(null)
+    if (!silent) setLoading(true); setError(null)
     try {
       const [vintageRes, kpiRes] = await Promise.all([
         apiFetch<{ data: VintageRow[] }>(`/api/risk/vintage?${buildQS()}`, { signal: abortRef.current.signal }),
@@ -136,7 +136,7 @@ export default function VintageAnalysis() {
   }, [buildQS])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['loans'] })
+  useLiveData(() => load(true), { topics: ['loans'] })
 
   const kpiLoading = loading && !kpis
 

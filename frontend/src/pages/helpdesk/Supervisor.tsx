@@ -211,7 +211,7 @@ export default function Supervisor() {
   return (
     <Page
       title="Supervisor"
-      subtitle="Live team monitoring — refreshes every 10s"
+      subtitle="Live team monitoring, refreshes every 10s"
       actions={
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
           {viewTabs}
@@ -364,7 +364,7 @@ export default function Supervisor() {
       {/* SLA breach feed */}
       <SectionCard title="SLA Breach Feed" badge={sup?.recent_breaches?.length ?? 0} subtitle="Open tickets past their SLA deadline">
         {!sup?.recent_breaches?.length ? (
-          <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--txt2)' }}>No SLA breaches — queue is healthy ✅</div>
+          <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--txt2)' }}>No SLA breaches, queue is healthy</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {sup.recent_breaches.map((b, i) => (

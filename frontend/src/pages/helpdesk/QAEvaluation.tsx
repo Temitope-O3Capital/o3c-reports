@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Modal, Spinner, ErrBanner } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
+import { apiFetch, apiPost, API } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, BLUE, MONO, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { QAConfig, QAScores, qaCompute, RATING_META, BAND_COLOR } from '../../lib/qa'
@@ -14,6 +14,8 @@ export interface QACall {
   direction?: string
   called_at?: string
   duration_seconds?: number
+  /** Drives the in-drawer player — a supervisor scores while listening. */
+  has_recording?: boolean
 }
 
 const RATING_BTNS = [5, 4, 3, 2, 1, 0]
@@ -59,7 +61,7 @@ export default function QAEvaluation({ call, onClose, onSaved }: { call: QACall;
         call_id: call.id, scores, critical_error: critical,
         strengths, improvements, coaching_notes: coaching,
       })
-      toast.success(`Evaluation saved — ${res.total_score}% (${res.rating_band}), ${res.passed ? 'Pass' : 'Fail'}`)
+      toast.success(`Evaluation saved: ${res.total_score}% (${res.rating_band}), ${res.passed ? 'Pass' : 'Fail'}`)
       onSaved?.()
       onClose()
     } catch (e: any) { toast.error(e.message ?? 'Could not save evaluation') }
@@ -106,6 +108,31 @@ export default function QAEvaluation({ call, onClose, onSaved }: { call: QACall;
             <span><span style={{ color: 'var(--txt3)' }}>Direction:</span> {call.direction || '—'}</span>
             {call.called_at && <span><span style={{ color: 'var(--txt3)' }}>Time:</span> {fmtDatetime(call.called_at)}</span>}
           </div>
+
+          {/* The recording, alongside the rubric.
+              A supervisor used to listen through one row action and score through
+              another, so they graded from memory. The player is sticky so it stays
+              reachable while they scroll the criteria, and it remembers where they
+              were — scrubbing back to re-hear a moment is the whole job. */}
+          {call.has_recording && (
+            <div style={{
+              position: 'sticky', top: 0, zIndex: 2,
+              display: 'flex', alignItems: 'center', gap: SP[3],
+              padding: '10px 14px', borderRadius: RADIUS.md,
+              background: 'var(--card)', border: `1px solid ${NAVY}33`,
+              boxShadow: '0 2px 8px rgba(0,0,0,.06)',
+            }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 20, color: NAVY, flexShrink: 0 }}>graphic_eq</span>
+              <audio
+                controls
+                preload="metadata"
+                src={`${API}/api/helpdesk/calls/${call.id}/recording`}
+                style={{ flex: 1, minWidth: 0, height: 34 }}
+              >
+                Your browser cannot play this recording.
+              </audio>
+            </div>
+          )}
 
           {/* Sections */}
           {cfg.sections.map(sec => (
@@ -160,7 +187,7 @@ export default function QAEvaluation({ call, onClose, onSaved }: { call: QACall;
                       border: `1.5px solid ${critical === o.v ? o.c : 'var(--bdr)'}`, background: critical === o.v ? `${o.c}15` : 'transparent', color: critical === o.v ? o.c : 'var(--txt2)' }}>{o.l}</button>
                 ))}
               </div>
-              {critical && cfg.settings.critical_error_auto_fail && <span style={{ fontSize: TEXT.xs, color: RED, fontWeight: FW.semibold }}>⚠ Auto-fails this evaluation</span>}
+              {critical && cfg.settings.critical_error_auto_fail && <span style={{ fontSize: TEXT.xs, color: RED, fontWeight: FW.semibold }}>Auto-fails this evaluation</span>}
             </div>
             <div><label style={label}>Strengths</label><textarea rows={2} value={strengths} onChange={e => setStrengths(e.target.value)} placeholder="What the agent did well…" style={field} /></div>
             <div><label style={label}>Areas for Improvement</label><textarea rows={2} value={improvements} onChange={e => setImprovements(e.target.value)} placeholder="What to work on…" style={field} /></div>

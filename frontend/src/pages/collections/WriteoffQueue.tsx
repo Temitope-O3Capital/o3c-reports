@@ -45,25 +45,7 @@ function DpdBadge({ dpd }: { dpd: number }) {
   )
 }
 
-// ── Export CSV ────────────────────────────────────────────────────────────────
 
-function exportWriteoffCsv(rows: WriteoffRow[]) {
-  const header = ['CIF', 'Customer Name', 'Outstanding NGN', 'DPD', 'Last Payment Date', 'Recovery Attempts', 'Recommended By']
-  const lines = rows.map(r => [
-    r.account_cif ?? '',
-    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-    (r.outstanding_kobo / 100).toFixed(2),
-    r.dpd ?? '',
-    r.last_payment_date ?? '',
-    r.recovery_attempts ?? '',
-    `"${String(r.recommended_by ?? '').replace(/"/g, '""')}"`,
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `writeoff-queue-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Role check ────────────────────────────────────────────────────────────────
 
@@ -104,8 +86,8 @@ export default function WriteoffQueue() {
 
   const fDpdRangeKey = [...fDpdRange].join(',')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     const p = new URLSearchParams({ limit: '100' })
     if (fDpdRangeKey) p.set('dpd_range', fDpdRangeKey)
@@ -127,7 +109,7 @@ export default function WriteoffQueue() {
   }, [fDpdRangeKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   const displayed = useMemo(() => {
     if (!search.trim()) return rows
@@ -155,22 +137,6 @@ export default function WriteoffQueue() {
 
   function resetFilters() { setFDpdRange(new Set()); setSearch('') }
 
-  // Export the full filtered set, not just the loaded page.
-  async function handleExportAll() {
-    try {
-      const p = new URLSearchParams({ limit: '10000' })
-      if (fDpdRangeKey) p.set('dpd_range', fDpdRangeKey)
-      if (dateFrom)     p.set('date_from', dateFrom)
-      if (dateTo)       p.set('date_to', dateTo)
-      const res = await apiFetch<{ data: WriteoffRow[] }>(`/api/collections-ops/writeoffs?${p}`)
-      const all = res.data ?? []
-      if (all.length === 0) { toast.error('No write-off items to export'); return }
-      exportWriteoffCsv(all)
-      toast.success(`Exported ${all.length} item${all.length === 1 ? '' : 's'}`)
-    } catch (e: any) {
-      toast.error(e.message ?? 'Export failed')
-    }
-  }
 
   async function doApprove(id: number) {
     await apiPost(`/api/collections-ops/writeoffs/${id}/approve`, {})
@@ -308,7 +274,7 @@ export default function WriteoffQueue() {
   return (
     <Page
       title="Write-off Queue"
-      subtitle="Recovery-originated write-offs awaiting your decision — approve to post, or return to recovery. (Collections-initiated write-offs live under Write-off Requests.)"
+      subtitle="Recovery-originated write-offs awaiting your decision: approve to post, or return to recovery. (Collections-initiated write-offs live under Write-off Requests.)"
       actions={
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
@@ -329,12 +295,12 @@ export default function WriteoffQueue() {
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: RED, flexShrink: 0, marginTop: 1 }}>warning</span>
           <p style={{ margin: 0, fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6 }}>
             Accounts with DPD &gt; 180 days that have exhausted collection attempts.
-            Collections Heads can approve write-offs — this triggers a GL entry.
+            Collections Heads can approve write-offs. This triggers a GL entry.
           </p>
         </div>
       </SectionCard>
 
-      <SectionCard title="Write-off Queue" badge={rows.length} padding={false} actions={<button onClick={handleExportAll} aria-label="Export all write-off items to CSV" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Write-off Queue" badge={rows.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

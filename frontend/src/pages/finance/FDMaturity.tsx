@@ -148,7 +148,7 @@ function makeCols(onDone: () => void): TableCol<FDRecord>[] { return [
     if (amountKobo < 50_000_000) return null // below ₦500k
     return (
       <span
-        title="Cross-sell: FD ≥ ₦500k — offer credit card"
+        title="Cross-sell: FD ≥ ₦500k, offer credit card"
         style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: 'rgba(192,0,0,.1)', cursor: 'default' }}
       >
         <span className="material-symbols-rounded" style={{ fontSize: TEXT.base, color: RED }}>credit_card</span>
@@ -191,8 +191,8 @@ export default function FinanceFDMaturity() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       // Fetch all active FD inflows; filter client-side by maturity horizon
@@ -218,7 +218,7 @@ export default function FinanceFDMaturity() {
   }, [horizon, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['finance','manual_postings'] })
+  useLiveData(() => load(true), { topics: ['finance','manual_postings'] })
 
   const displayed = useMemo(() => {
     if (!search) return rows
@@ -242,25 +242,6 @@ export default function FinanceFDMaturity() {
   const totalPrincipal = rows.reduce((s, r) => s + (r.ngn_amount || r.principal), 0)
   const maturingThisWeek = rows.filter(r => daysToMaturity(r.maturity_date) <= 7).length
 
-  function exportFDCsv(data: FDRecord[]) {
-    const header = ['Customer', 'Currency', 'Amount NGN', 'Rate %', 'Start Date', 'Maturity Date', 'Tenor (days)', 'Account Officer', 'Location']
-    const lines = data.map(r => [
-      `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-      r.currency ?? '',
-      ((r.ngn_amount || r.principal) / 100).toFixed(2),
-      r.rate != null ? r.rate.toFixed(2) : '',
-      r.transaction_date ?? '',
-      r.maturity_date ?? '',
-      r.tenor_days ?? '',
-      `"${String(r.account_officer ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.location ?? '').replace(/"/g, '""')}"`,
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `fd-maturity-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   return (
     <>
@@ -310,12 +291,7 @@ export default function FinanceFDMaturity() {
         ))}
       </div>
 
-      <SectionCard title="Maturing FDs" badge={displayed.length} padding={false} actions={
-        <button onClick={() => exportFDCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
-          Export CSV
-        </button>
-      }>
+      <SectionCard title="Maturing FDs" badge={displayed.length} padding={false}>
 
         <ExpandableFilterBar
           search={search}

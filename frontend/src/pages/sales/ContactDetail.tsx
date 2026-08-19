@@ -50,7 +50,7 @@ interface Activity {
 interface Deal {
   id:                  number
   title:               string
-  expected_value:      number
+  expected_value_kobo: number
   probability:         number
   stage_name:          string | null
   stage_color:         string | null
@@ -117,8 +117,8 @@ export default function ContactDetail() {
   const [actOutc,  setActOutc]  = useState('')
   const [saving,   setSaving]   = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const d = await apiFetch<C360>(`/api/crm/contacts/${id}/360`)
       setData(d)
@@ -127,7 +127,7 @@ export default function ContactDetail() {
   }, [id])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   async function logActivity() {
     setSaving(true)
@@ -168,7 +168,7 @@ export default function ContactDetail() {
           </button>
           <button onClick={() => navigate(-1)}
             style={{ padding:'7px 14px', borderRadius:RADIUS.md, border:'1px solid var(--bdr)', background:'var(--card)', color:'var(--txt)', fontSize:TEXT.sm, cursor:'pointer' }}>
-            ← Back
+            Back
           </button>
         </div>
       }
@@ -307,7 +307,7 @@ export default function ContactDetail() {
                     </div>
                   </div>
                   <div style={{ textAlign:'right' }}>
-                    <div style={{ fontSize:15, fontWeight:FW.extrabold, color:NAVY, ...NUM }}>{fmtKobo(deal.expected_value)}</div>
+                    <div style={{ fontSize:15, fontWeight:FW.extrabold, color:NAVY, ...NUM }}>{fmtKobo(deal.expected_value_kobo)}</div>
                     <div style={{ fontSize:TEXT.xs, color:'var(--txt3)', marginTop:2 }}>{deal.probability}% likely</div>
                   </div>
                   {deal.stage_name && (

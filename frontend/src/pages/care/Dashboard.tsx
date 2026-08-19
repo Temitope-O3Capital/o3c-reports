@@ -43,7 +43,7 @@ export default function CareDashboard() {
   const [err, setErr] = useState<string | null>(null)
   const [status, setStatus] = useState('available')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     setErr(null)
     try {
       const r = await apiFetch<any>('/api/helpdesk/care-dashboard')
@@ -53,7 +53,7 @@ export default function CareDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
   useEffect(() => { const id = setInterval(load, 45000); return () => clearInterval(id) }, [load])
 
   const changeStatus = useCallback(async (s: string) => {
@@ -77,7 +77,7 @@ export default function CareDashboard() {
         presence={<PresenceControl status={status} onChange={changeStatus} />}
         subline={d.awaiting_reply > 0
           ? <><strong style={{ color: '#fff' }}>{fmtNum(d.awaiting_reply)}</strong> customer{d.awaiting_reply === 1 ? '' : 's'} waiting on a reply{d.sla_at_risk > 0 ? <> · <strong style={{ color: '#FCA5A5' }}>{fmtNum(d.sla_at_risk)}</strong> at SLA risk</> : ''}</>
-          : "Inbox is under control — nothing awaiting a reply right now."}
+          : "Inbox is under control. Nothing awaiting a reply right now."}
         ring={{ value: d.resolved_today, max: clearMax, unit: 'mails' }}
         stats={[
           { label: 'Open Mails', value: fmtNum(d.open_mails) },

@@ -1,3 +1,9 @@
 *.exe
 .env.bak*
 *.exe.bak
+
+# Build-output backups and local artifacts (never commit)
+frontend-dist.bak-*/
+*.exe.bak-*
+*.cer
+*.pem

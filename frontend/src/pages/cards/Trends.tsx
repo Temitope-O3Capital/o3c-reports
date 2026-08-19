@@ -121,8 +121,8 @@ export default function CardTrends() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     const qs = `date_from=${dateFrom}&date_to=${dateTo}`
     try {
@@ -146,7 +146,7 @@ export default function CardTrends() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['cards'] })
+  useLiveData(() => load(true), { topics: ['cards'] })
 
   const delinquent = (kpis?.terminated ?? 0) + (kpis?.legal_suspended ?? 0)
 

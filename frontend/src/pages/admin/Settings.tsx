@@ -128,8 +128,8 @@ export default function AdminSettings() {
   const [search,  setSearch]  = useState('')
   const [catFilter, setCatFilter] = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<Setting[] | { data?: Setting[] }>('/api/settings')
@@ -142,7 +142,7 @@ export default function AdminSettings() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   const categories = [...new Set(rows.map(r => categoryOf(r.key)))].sort()
 

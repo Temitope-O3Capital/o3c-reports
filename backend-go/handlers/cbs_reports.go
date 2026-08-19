@@ -15,9 +15,20 @@ import (
 // /api/cbs, so already behind AuthMiddleware. Customer names are resolved from the
 // customer master (app.customers) by CIF (Udara's cbs_customer_id == cif).
 func RegisterCBSReports(r chi.Router, db *core.DB) {
-	r.Get("/reports/loan-book", cbsLoanBook(db))
-	r.Get("/reports/fd-book", cbsFDBook(db))
-	r.Get("/reports/reconciliation", cbsReconciliation(db))
+	// These routes had no page guard at all. Being under /api/cbs put them behind
+	// AuthMiddleware, which only proves the caller is signed in — so any
+	// authenticated account, including a call-centre agent, could pull the entire
+	// credit and fixed-deposit book with customer names attached.
+	//
+	// Gated on the same pages that already govern the loan and FD books elsewhere
+	// in the workspace, so this restores the intended boundary rather than
+	// inventing a new one.
+	read := core.RequirePages("credit_portfolio", "active_loan_book", "loans",
+		"fixed_deposit", "reports", "executive")
+
+	r.With(read).Get("/reports/loan-book", cbsLoanBook(db))
+	r.With(read).Get("/reports/fd-book", cbsFDBook(db))
+	r.With(read).Get("/reports/reconciliation", cbsReconciliation(db))
 }
 
 // custName returns a SELECT expression for the customer name: from the Sage master

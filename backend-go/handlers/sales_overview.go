@@ -111,7 +111,11 @@ func overviewAcquisition(db *core.DB) http.HandlerFunc {
 			       COUNT(*) FILTER (WHERE acquired_on_source = 'account_created') AS confirmed,
 			       COUNT(*) FILTER (WHERE acquired_on_source <> 'account_created') AS derived
 			  FROM person_acq
-			 WHERE acquired_on >= date_trunc('month', CURRENT_DATE) - ($1 || ' months')::interval
+			 -- make_interval, not ($1 || ' months')::interval. String concatenation
+			 -- makes Postgres infer $1 as text, and pgx refuses to encode an int
+			 -- into a text parameter — the query fails before it ever runs, which
+			 -- is what put "Internal server error" across the Sales Overview.
+			 WHERE acquired_on >= date_trunc('month', CURRENT_DATE) - make_interval(months => $1)
 			   AND acquired_on <= CURRENT_DATE
 			 GROUP BY 1, 2
 			 ORDER BY 2`, months)

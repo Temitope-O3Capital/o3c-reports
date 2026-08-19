@@ -130,7 +130,7 @@ export default function CSATSurvey() {
     return (
       <div style={cardStyle}>
         <div style={boxStyle}>
-          <div style={{ fontSize: 40, marginBottom: SP[4] }}>⚠️</div>
+          <div style={{ fontSize: 40, marginBottom: SP[4] }}></div>
           <h2 style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: NAVY, margin: '0 0 8px' }}>Survey unavailable</h2>
           <p style={{ color: '#6B7280', fontSize: TEXT.md, margin: 0 }}>{error}</p>
         </div>
@@ -142,7 +142,7 @@ export default function CSATSurvey() {
     return (
       <div style={cardStyle}>
         <div style={boxStyle}>
-          <div style={{ fontSize: 48, marginBottom: SP[4] }}>🎉</div>
+          <div style={{ fontSize: 48, marginBottom: SP[4] }}></div>
           <h2 style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: NAVY, margin: '0 0 10px' }}>Thank you!</h2>
           <p style={{ color: '#6B7280', fontSize: TEXT.md, lineHeight: 1.6, margin: 0 }}>
             Your feedback has been recorded. We appreciate you taking the time to let us know how we did.

@@ -231,7 +231,7 @@ export function BatchPaymentModal({ open, onClose, onSuccess }: Props) {
             {file && (
               <div style={{ marginTop: 6, fontSize: TEXT.xs, color: GREEN, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 14 }}>check_circle</span>
-                {file.name} — {(file.size / 1024).toFixed(1)} KB
+                {file.name}, {(file.size / 1024).toFixed(1)} KB
               </div>
             )}
           </div>

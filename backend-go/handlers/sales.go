@@ -24,6 +24,16 @@ const salesOfficerPredicate = `
 	OR EXISTS (SELECT 1 FROM customer_officers co WHERE co.officer_id = u.id)
 	OR EXISTS (SELECT 1 FROM sales_targets st WHERE st.user_id = u.id)`
 
+// crmLeadStageCase maps the stored lead_stage vocabulary onto the five display
+// stages the sales UI colours (Prospect/Qualified/Proposal/Negotiation/Won). Shared
+// by the officer dashboard and the supervisor funnel so both read the same way.
+const crmLeadStageCase = `CASE lower(COALESCE(lead_stage,'new'))
+	WHEN 'new' THEN 'Prospect' WHEN 'contacted' THEN 'Prospect'
+	WHEN 'qualified' THEN 'Qualified' WHEN 'proposal' THEN 'Proposal'
+	WHEN 'negotiation' THEN 'Negotiation'
+	WHEN 'converted' THEN 'Won' WHEN 'won' THEN 'Won'
+	ELSE initcap(COALESCE(lead_stage,'Prospect')) END`
+
 func RegisterSales(r chi.Router, db *core.DB) {
 	// This is only the FIRST of several registrars mounted on the shared
 	// /api/sales router (main.go also mounts RegisterSalesBook, RegisterSalesLeads,
@@ -81,47 +91,330 @@ func RegisterSales(r chi.Router, db *core.DB) {
 
 		// Agent dashboard
 		r.Get("/my-dashboard", salesMyDashboard(db))
+
+		// Team-lead live view (the sales analogue of the call-centre supervisor).
+		r.Get("/supervisor", salesSupervisor(db))
 	})
+
+	// Commission rates live OUTSIDE the sales-page group: Finance sets them, and a
+	// finance_officer/finance_head does not hold the `sales` page. Grant read+write to
+	// sales, income or finance page holders; salesSetCommissionRates() then enforces
+	// that only Finance/admin ROLES may actually change them.
+	commissionAccess := core.RequirePages("sales", "income", "finance")
+	r.With(commissionAccess).Get("/commission-rates", salesCommissionRates(db))
+	r.With(commissionAccess).Put("/commission-rates", salesSetCommissionRates(db))
 }
 
+// salesSupervisor powers the live team view (frontend sales/Supervisor.tsx). It is
+// the sales counterpart of the call-centre supervisor wallboard: one row per officer
+// with their live workload, team totals, the open-pipeline funnel, and the pool of
+// unowned leads waiting to be distributed. Read-only and cheap enough to poll.
+//
+// "Officer" here is anyone the salesOfficerPredicate recognises — holding a book, a
+// target, or a sales role. Before the first distribution nobody qualifies and the
+// wallboard is empty by design; the page shows a distribute prompt in that state.
+func salesSupervisor(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		out := map[string]any{
+			"totals":        map[string]any{},
+			"officers":      []core.Row{},
+			"funnel":        []core.Row{},
+			"unowned_leads": []core.Row{},
+		}
+
+		// Team totals across the whole lead book.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(*) FILTER (WHERE status='lead')                                              AS total_leads,
+			  COUNT(*) FILTER (WHERE status='lead' AND lead_owner_id IS NULL)                     AS unowned_leads,
+			  COUNT(*) FILTER (WHERE status='customer' AND converted_at>=DATE_TRUNC('month',NOW())) AS converted_mtd,
+			  COUNT(*) FILTER (WHERE status='lead' AND next_action_at::date < CURRENT_DATE)        AS overdue_followups,
+			  COALESCE(SUM(estimated_value_kobo) FILTER (WHERE status='lead'),0)                   AS pipeline_kobo
+			FROM crm_contacts`); len(rows) > 0 {
+			out["totals"] = rows[0]
+		}
+
+		// Per-officer live workload. LEFT JOIN keeps an officer with zero owned leads
+		// on the board (a book or a target is enough to qualify them).
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT u.id, u.full_name, u.role, u.is_active,
+			  COUNT(c.id) FILTER (WHERE c.status='lead')                                          AS open_leads,
+			  COUNT(c.id) FILTER (WHERE c.status='lead' AND c.next_action_at::date < CURRENT_DATE) AS overdue,
+			  COUNT(c.id) FILTER (WHERE c.status='lead' AND c.lead_stage IN ('contacted','qualified')
+			                      AND (c.last_activity_at IS NULL
+			                           OR c.last_activity_at < NOW()-INTERVAL '14 days'))          AS stalled,
+			  COUNT(c.id) FILTER (WHERE c.status='customer'
+			                      AND c.converted_at>=DATE_TRUNC('month',NOW()))                   AS converted_mtd,
+			  COALESCE(SUM(c.estimated_value_kobo) FILTER (WHERE c.status='lead'),0)               AS pipeline_kobo,
+			  (SELECT COUNT(*) FROM customer_officers co WHERE co.officer_id=u.id)                 AS book_size
+			FROM o3c_users u
+			LEFT JOIN crm_contacts c ON c.lead_owner_id = u.id
+			WHERE u.deleted_at IS NULL AND u.is_active AND (`+salesOfficerPredicate+`)
+			GROUP BY u.id, u.full_name, u.role, u.is_active
+			ORDER BY open_leads DESC, converted_mtd DESC, u.full_name`); len(rows) > 0 {
+			out["officers"] = rows
+		}
+
+		// Open-pipeline funnel by stage.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT stage, cnt, value_kobo FROM (
+			  SELECT `+crmLeadStageCase+` AS stage, COUNT(*) AS cnt,
+			         COALESCE(SUM(estimated_value_kobo),0) AS value_kobo
+			  FROM crm_contacts WHERE status='lead' GROUP BY 1
+			) s
+			ORDER BY CASE stage WHEN 'Prospect' THEN 1 WHEN 'Qualified' THEN 2
+			                    WHEN 'Proposal' THEN 3 WHEN 'Negotiation' THEN 4
+			                    WHEN 'Won' THEN 5 ELSE 6 END`); len(rows) > 0 {
+			out["funnel"] = rows
+		}
+
+		// A sample of the unowned pool — the concrete worklist behind the Distribute
+		// button.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT id,
+			  NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') AS name,
+			  COALESCE(lead_source,'unrecorded') AS lead_source, phone, created_at
+			FROM crm_contacts
+			WHERE status='lead' AND lead_owner_id IS NULL
+			ORDER BY created_at DESC NULLS LAST
+			LIMIT 12`); len(rows) > 0 {
+			out["unowned_leads"] = rows
+		}
+
+		respond(w, out, "pg")
+	}
+}
+
+// salesMyDashboard powers the sales officer's personal station
+// (frontend/src/pages/sales/MyDashboard.tsx, GET /api/sales/my-dashboard).
+//
+// It previously read loan_applications — an empty table — and, worse, returned a
+// shape (mtd_submitted / pipeline_count / stage_breakdown) that the page never
+// consumed. The page reads {my_leads, won_mtd, conversion_rate_pct, target_kobo,
+// achieved_kobo, target_pct, pipeline[], recent_leads[], monthly_trend[]}, so
+// `data.pipeline` came back undefined and `data.pipeline.filter(...)` threw on
+// render — the officer's home page was a white screen. This rebuilds the handler
+// to emit exactly that contract from the tables that actually hold sales data:
+//
+//   - leads/pipeline  → crm_contacts, owned via lead_owner_id (the canonical
+//     lead-owner column used across the sales module)
+//   - target          → sales_targets.disbursement_kobo for the current month
+//   - achieved        → loans + FDs booked this month on the CIFs this officer
+//     owns (customer_officers) — the SAME attribution the
+//     Targets page uses, so the two pages agree
+//
+// Ownership/targets are unpopulated until Phase 1 distributes leads and sets
+// targets, so today this returns clean zeros for every officer rather than
+// crashing; it lights up automatically once that data exists.
 func salesMyDashboard(db *core.DB) http.HandlerFunc {
+	const stageCase = crmLeadStageCase
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
-
-		kpiRows, _ := db.PGQuery(ctx, `
-			SELECT
-				COUNT(CASE WHEN created_at >= DATE_TRUNC('month', NOW()) THEN 1 END)                                                          AS mtd_submitted,
-				COALESCE(SUM(CASE WHEN stage = 'active' AND created_at >= DATE_TRUNC('month', NOW()) THEN disbursed_amount_kobo END), 0)      AS mtd_disbursed_kobo,
-				COUNT(CASE WHEN stage NOT IN ('declined','cancelled') THEN 1 END)                                                             AS pipeline_count,
-				COALESCE(SUM(CASE WHEN stage NOT IN ('declined','cancelled') THEN amount_requested_kobo END), 0)                              AS pipeline_kobo
-			FROM loan_applications
-			WHERE sales_officer_id = $1`, user.ID)
-
-		stageRows, _ := db.PGQuery(ctx, `
-			SELECT stage, COUNT(*) AS count
-			FROM loan_applications
-			WHERE sales_officer_id = $1
-			  AND stage NOT IN ('declined','cancelled')
-			GROUP BY stage
-			ORDER BY count DESC`, user.ID)
-
-		if stageRows == nil {
-			stageRows = []core.Row{}
-		}
+		uid := user.ID
 
 		result := map[string]any{
-			"mtd_submitted":      int64(0),
-			"mtd_disbursed_kobo": int64(0),
-			"pipeline_count":     int64(0),
-			"pipeline_kobo":      int64(0),
-			"stage_breakdown":    stageRows,
+			"my_leads":            int64(0),
+			"won_mtd":             int64(0),
+			"conversion_rate_pct": 0.0,
+			"target_kobo":         int64(0),
+			"achieved_kobo":       int64(0),
+			"target_pct":          0.0,
+			"commission_kobo":     int64(0),
+			"pipeline":            []core.Row{},
+			"recent_leads":        []core.Row{},
+			"monthly_trend":       []core.Row{},
+			// Phase 2 additions (agent-station parity with the call centre).
+			"rank_mtd":          int64(0),
+			"team_size":         int64(0),
+			"followups_due":     int64(0),
+			"followups_overdue": int64(0),
+			"stalled_leads":     int64(0),
+			"next_followups":    []core.Row{},
+			"recent_activity":   []core.Row{},
 		}
-		if len(kpiRows) > 0 {
-			result["mtd_submitted"] = kpiRows[0]["mtd_submitted"]
-			result["mtd_disbursed_kobo"] = kpiRows[0]["mtd_disbursed_kobo"]
-			result["pipeline_count"] = kpiRows[0]["pipeline_count"]
-			result["pipeline_kobo"] = kpiRows[0]["pipeline_kobo"]
+
+		// Lead headline + lifetime conversion for the signed-in officer.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(*) FILTER (WHERE status = 'lead')                                          AS my_leads,
+			  COUNT(*) FILTER (WHERE status = 'customer'
+			                   AND converted_at >= DATE_TRUNC('month', NOW()))                 AS won_mtd,
+			  CASE WHEN COUNT(*) = 0 THEN 0::numeric
+			       ELSE ROUND(COUNT(*) FILTER (WHERE status = 'customer')::numeric
+			                  / COUNT(*)::numeric * 100, 1) END                                AS conversion_rate_pct
+			FROM crm_contacts
+			WHERE lead_owner_id = $1`, uid); len(rows) > 0 {
+			result["my_leads"] = rows[0]["my_leads"]
+			result["won_mtd"] = rows[0]["won_mtd"]
+			result["conversion_rate_pct"] = rows[0]["conversion_rate_pct"]
+		}
+
+		// Target (this month) vs achieved (loans + FDs booked this month on owned CIFs).
+		if rows, _ := db.PGQuery(ctx, `
+			WITH tgt AS (
+			  SELECT COALESCE(disbursement_kobo,0) AS target_kobo
+			  FROM sales_targets
+			  WHERE user_id = $1
+			    AND DATE_TRUNC('month',(period||'-01')::date) = DATE_TRUNC('month', NOW())
+			  LIMIT 1
+			),
+			loan AS (
+			  SELECT COALESCE(SUM(l.loan_amount_kobo),0) AS kobo
+			  FROM customer_officers co
+			  JOIN cbs_loans l ON l.cbs_customer_id = co.cif
+			  WHERE co.officer_id = $1
+			    AND DATE_TRUNC('month', l.start_date) = DATE_TRUNC('month', NOW())
+			),
+			fd AS (
+			  SELECT COALESCE(SUM(f.principal_kobo),0) AS kobo
+			  FROM customer_officers co
+			  JOIN cbs_fixed_deposits f ON f.cbs_customer_id = co.cif
+			  WHERE co.officer_id = $1
+			    AND DATE_TRUNC('month', f.commencement_date) = DATE_TRUNC('month', NOW())
+			),
+			card AS (
+			  SELECT COUNT(a.account_id) AS n
+			  FROM customer_officers co
+			  JOIN app.accounts a ON a.cif = co.cif
+			  WHERE co.officer_id = $1
+			    AND a.product_line IN ('prepaid','credit_card')
+			    AND a.opened_date IS NOT NULL
+			    AND DATE_TRUNC('month', a.opened_date) = DATE_TRUNC('month', NOW())
+			)
+			SELECT
+			  COALESCE((SELECT target_kobo FROM tgt),0)                     AS target_kobo,
+			  (SELECT kobo FROM loan) + (SELECT kobo FROM fd)               AS achieved_kobo,
+			  (SELECT kobo FROM loan)                                       AS loan_kobo,
+			  (SELECT kobo FROM fd)                                         AS fd_kobo,
+			  (SELECT n FROM card)                                          AS card_count,
+			  CASE WHEN COALESCE((SELECT target_kobo FROM tgt),0) = 0 THEN 0::numeric
+			       ELSE ROUND(((SELECT kobo FROM loan)+(SELECT kobo FROM fd))::numeric
+			                  / (SELECT target_kobo FROM tgt)::numeric * 100, 1) END AS target_pct`, uid); len(rows) > 0 {
+			result["target_kobo"] = rows[0]["target_kobo"]
+			result["achieved_kobo"] = rows[0]["achieved_kobo"]
+			result["target_pct"] = rows[0]["target_pct"]
+			// Commission earned MTD, from the Finance-set rates.
+			cr := loadCommissionRates(ctx, db)
+			result["commission_kobo"] = cr.commissionKobo(
+				toInt64(rows[0]["loan_kobo"]), toInt64(rows[0]["fd_kobo"]), toInt64(rows[0]["card_count"]))
+		}
+
+		// Open pipeline by stage (leads only; won leads leave the open pipeline).
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT stage, count, value_kobo FROM (
+			  SELECT `+stageCase+` AS stage,
+			         COUNT(*)                              AS count,
+			         COALESCE(SUM(estimated_value_kobo),0) AS value_kobo
+			  FROM crm_contacts
+			  WHERE lead_owner_id = $1 AND status = 'lead'
+			  GROUP BY 1
+			) s
+			ORDER BY CASE stage WHEN 'Prospect' THEN 1 WHEN 'Qualified' THEN 2
+			                    WHEN 'Proposal' THEN 3 WHEN 'Negotiation' THEN 4
+			                    WHEN 'Won' THEN 5 ELSE 6 END`, uid); len(rows) > 0 {
+			result["pipeline"] = rows
+		}
+
+		// Most recently touched leads. lead_score has no source model yet (Phase 2
+		// introduces one); emit 0 rather than invent a number.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT id,
+			  COALESCE(NULLIF(employer,''),
+			           NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'')) AS company_name,
+			  NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'')            AS contact_name,
+			  `+stageCase+`                                                                     AS stage,
+			  COALESCE(estimated_value_kobo,0)                                                  AS potential_value_kobo,
+			  updated_at,
+			  0                                                                                 AS lead_score
+			FROM crm_contacts
+			WHERE lead_owner_id = $1
+			ORDER BY updated_at DESC NULLS LAST
+			LIMIT 15`, uid); len(rows) > 0 {
+			result["recent_leads"] = rows
+		}
+
+		// Six-month trend of leads created vs. leads won, for this officer.
+		if rows, _ := db.PGQuery(ctx, `
+			WITH months AS (
+			  SELECT generate_series(DATE_TRUNC('month', NOW() - INTERVAL '5 months'),
+			                         DATE_TRUNC('month', NOW()), '1 month'::interval) AS m
+			)
+			SELECT TO_CHAR(m.m,'Mon') AS month,
+			  COUNT(c.id) FILTER (WHERE DATE_TRUNC('month', c.created_at)   = m.m) AS leads,
+			  COUNT(c.id) FILTER (WHERE DATE_TRUNC('month', c.converted_at) = m.m) AS won
+			FROM months m
+			LEFT JOIN crm_contacts c
+			  ON c.lead_owner_id = $1
+			 AND (DATE_TRUNC('month', c.created_at) = m.m
+			   OR DATE_TRUNC('month', c.converted_at) = m.m)
+			GROUP BY m.m ORDER BY m.m`, uid); len(rows) > 0 {
+			result["monthly_trend"] = rows
+		}
+
+		// Gamified rank among officers who hold leads — the "you're Nth of M" nudge
+		// the call-centre station uses. Ranked by conversions this month, then by
+		// book size, so an officer who has not converted yet is ordered by effort.
+		if rows, _ := db.PGQuery(ctx, `
+			WITH officer AS (
+			  SELECT lead_owner_id AS uid,
+			         COUNT(*) FILTER (WHERE status='customer'
+			                          AND converted_at >= DATE_TRUNC('month',NOW())) AS won,
+			         COUNT(*) AS owned
+			  FROM crm_contacts WHERE lead_owner_id IS NOT NULL GROUP BY 1
+			),
+			ranked AS (
+			  SELECT uid, RANK() OVER (ORDER BY won DESC, owned DESC) AS rnk,
+			         COUNT(*) OVER () AS team
+			  FROM officer
+			)
+			SELECT COALESCE((SELECT rnk FROM ranked WHERE uid=$1),0)  AS rank_mtd,
+			       COALESCE((SELECT MAX(team) FROM ranked),0)         AS team_size`, uid); len(rows) > 0 {
+			result["rank_mtd"] = rows[0]["rank_mtd"]
+			result["team_size"] = rows[0]["team_size"]
+		}
+
+		// Follow-up pressure on the officer's own open leads (fed by the activity
+		// denorm sync added in Phase 1).
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT
+			  COUNT(*) FILTER (WHERE next_action_at::date = CURRENT_DATE)                       AS followups_due,
+			  COUNT(*) FILTER (WHERE next_action_at::date < CURRENT_DATE)                       AS followups_overdue,
+			  COUNT(*) FILTER (WHERE lead_stage IN ('contacted','qualified')
+			                   AND (last_activity_at IS NULL
+			                        OR last_activity_at < NOW() - INTERVAL '14 days'))          AS stalled_leads
+			FROM crm_contacts
+			WHERE lead_owner_id = $1 AND status = 'lead'`, uid); len(rows) > 0 {
+			result["followups_due"] = rows[0]["followups_due"]
+			result["followups_overdue"] = rows[0]["followups_overdue"]
+			result["stalled_leads"] = rows[0]["stalled_leads"]
+		}
+
+		// The concrete follow-up worklist — soonest first, overdue at the top.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT id,
+			  NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') AS name,
+			  next_action_at, lead_stage, phone,
+			  COALESCE(estimated_value_kobo,0) AS estimated_value_kobo
+			FROM crm_contacts
+			WHERE lead_owner_id = $1 AND status = 'lead' AND next_action_at IS NOT NULL
+			ORDER BY next_action_at ASC
+			LIMIT 12`, uid); len(rows) > 0 {
+			result["next_followups"] = rows
+		}
+
+		// The officer's own recent activity feed.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT a.id, a.type, a.subject, a.outcome, a.created_at, a.contact_id,
+			  NULLIF(TRIM(COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,'')),'') AS contact_name
+			FROM crm_activities a
+			JOIN crm_contacts c ON c.id = a.contact_id
+			WHERE a.created_by = $1
+			ORDER BY a.created_at DESC
+			LIMIT 12`, uid); len(rows) > 0 {
+			result["recent_activity"] = rows
 		}
 
 		respond(w, result, "pg")
@@ -587,6 +880,7 @@ func salesTargetCreate(db *core.DB) http.HandlerFunc {
 			DisbursementKobo int64  `json:"disbursement_kobo"`
 			FDCount          int    `json:"fd_count"`
 			FDAmountKobo     int64  `json:"fd_amount_kobo"`
+			CardCount        int    `json:"card_count"`
 			Notes            string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -595,12 +889,12 @@ func salesTargetCreate(db *core.DB) http.HandlerFunc {
 		}
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(),
-			`INSERT INTO sales_targets (user_id, period, loan_count, disbursement_kobo, fd_count, fd_amount_kobo, notes, created_by)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			`INSERT INTO sales_targets (user_id, period, loan_count, disbursement_kobo, fd_count, fd_amount_kobo, card_count, notes, created_by)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 			 ON CONFLICT (user_id, period) DO UPDATE
-			   SET loan_count=$3, disbursement_kobo=$4, fd_count=$5, fd_amount_kobo=$6, notes=$7, updated_at=NOW()
+			   SET loan_count=$3, disbursement_kobo=$4, fd_count=$5, fd_amount_kobo=$6, card_count=$7, notes=$8, updated_at=NOW()
 			 RETURNING *`,
-			body.UserID, body.Period, body.LoanCount, body.DisbursementKobo, body.FDCount, body.FDAmountKobo, body.Notes, user.ID)
+			body.UserID, body.Period, body.LoanCount, body.DisbursementKobo, body.FDCount, body.FDAmountKobo, body.CardCount, body.Notes, user.ID)
 		if err != nil {
 			respondErrLog(w, 500, "DB error", err)
 			return
@@ -621,6 +915,7 @@ func salesTargetUpdate(db *core.DB) http.HandlerFunc {
 			DisbursementKobo int64  `json:"disbursement_kobo"`
 			FDCount          int    `json:"fd_count"`
 			FDAmountKobo     int64  `json:"fd_amount_kobo"`
+			CardCount        int    `json:"card_count"`
 			Notes            string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -628,9 +923,9 @@ func salesTargetUpdate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		rows, err := db.PGQuery(r.Context(),
-			`UPDATE sales_targets SET loan_count=$1, disbursement_kobo=$2, fd_count=$3, fd_amount_kobo=$4, notes=$5, updated_at=NOW()
-			 WHERE id=$6 RETURNING *`,
-			body.LoanCount, body.DisbursementKobo, body.FDCount, body.FDAmountKobo, body.Notes, id)
+			`UPDATE sales_targets SET loan_count=$1, disbursement_kobo=$2, fd_count=$3, fd_amount_kobo=$4, card_count=$5, notes=$6, updated_at=NOW()
+			 WHERE id=$7 RETURNING *`,
+			body.LoanCount, body.DisbursementKobo, body.FDCount, body.FDAmountKobo, body.CardCount, body.Notes, id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Not found")
 			return
@@ -675,10 +970,12 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			       COALESCE(t.disbursement_kobo,0) AS target_kobo,
 			       COALESCE(t.fd_count,0)          AS target_fds,
 			       COALESCE(t.fd_amount_kobo,0)    AS target_fd_kobo,
+			       COALESCE(t.card_count,0)        AS target_cards,
 			       COALESCE(la.actual_loans,0)     AS actual_loans,
 			       COALESCE(la.actual_kobo,0)      AS actual_kobo,
 			       COALESCE(fd.actual_fds,0)       AS actual_fds,
-			       COALESCE(fd.actual_fd_kobo,0)   AS actual_fd_kobo
+			       COALESCE(fd.actual_fd_kobo,0)   AS actual_fd_kobo,
+			       COALESCE(cd.actual_cards,0)     AS actual_cards
 			FROM o3c_users u
 			LEFT JOIN sales_targets t
 			    ON t.user_id=u.id AND DATE_TRUNC('month',(t.period||'-01')::date)=%s
@@ -704,14 +1001,35 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			      AND ($2 = '' OR f.commencement_date::date <= $2::date)
 			    GROUP BY co.officer_id
 			) fd ON fd.officer_id = u.id
+			LEFT JOIN (
+			    -- Cards issued in the period by the officer's customers. The card book is
+			    -- app.accounts (product_line 'prepaid'/'credit_card'), keyed by cif, dated
+			    -- on opened_date. Attribution flows through customer_officers like loans/FDs.
+			    SELECT co.officer_id,
+			           COUNT(a.account_id) AS actual_cards
+			    FROM customer_officers co
+			    JOIN app.accounts a ON a.cif = co.cif
+			    WHERE a.product_line IN ('prepaid','credit_card')
+			      AND a.opened_date IS NOT NULL
+			      AND DATE_TRUNC('month', a.opened_date) = %s
+			      AND ($1 = '' OR a.opened_date >= $1::date)
+			      AND ($2 = '' OR a.opened_date <= $2::date)
+			    GROUP BY co.officer_id
+			) cd ON cd.officer_id = u.id
 			WHERE u.deleted_at IS NULL AND (`+salesOfficerPredicate+`)
-			ORDER BY actual_kobo DESC`, periodExpr, periodExpr, periodExpr), from, to)
+			ORDER BY actual_kobo DESC`, periodExpr, periodExpr, periodExpr, periodExpr), from, to)
 		if err != nil {
 			respondErrLog(w, 500, "DB error", err)
 			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
+		}
+		// Attach earned commission per officer from the Finance-set rates.
+		cr := loadCommissionRates(r.Context(), db)
+		for _, row := range rows {
+			row["commission_kobo"] = cr.commissionKobo(
+				toInt64(row["actual_kobo"]), toInt64(row["actual_fd_kobo"]), toInt64(row["actual_cards"]))
 		}
 		respond(w, rows, "pg")
 	}
@@ -874,6 +1192,19 @@ func salesCohortMatrix(db *core.DB) http.HandlerFunc {
 			args = append(args, to)
 			n++
 		}
+		// Role-aware scope: an officer only ever sees their own book; a head sees the
+		// whole team and may narrow to one officer via ?officer_id=.
+		if user := core.UserFromCtx(r.Context()); user != nil && !isSalesHead(user) {
+			dateWhere += fmt.Sprintf(" AND sales_officer_id = $%d", n)
+			args = append(args, user.ID)
+			n++
+		} else if oid := qstr(r, "officer_id"); oid != "" {
+			if id, err := parseUserID(oid); err == nil {
+				dateWhere += fmt.Sprintf(" AND sales_officer_id = $%d", n)
+				args = append(args, id)
+				n++
+			}
+		}
 		_ = n
 
 		rows, err := db.PGQuery(r.Context(), `
@@ -884,7 +1215,7 @@ func salesCohortMatrix(db *core.DB) http.HandlerFunc {
 				ROUND(100.0 * COUNT(*) FILTER (
 					WHERE status NOT IN ('rejected','cancelled','withdrawn')
 					  AND created_at <= NOW() - INTERVAL '1 month'
-				) / NULLIF(COUNT(*), 0), 1) AS ret_1m,
+				) / NULLIF(COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '1 month'), 0), 1) AS ret_1m,
 				ROUND(100.0 * COUNT(*) FILTER (
 					WHERE status NOT IN ('rejected','cancelled','withdrawn')
 					  AND created_at <= NOW() - INTERVAL '3 months'
@@ -949,6 +1280,18 @@ func salesCohortDetail(db *core.DB) http.HandlerFunc {
 			q += fmt.Sprintf(" AND stage = $%d", n)
 			args = append(args, stage)
 			n++
+		}
+		// Same role-aware scope as the matrix: officer sees own, head sees all or one.
+		if user := core.UserFromCtx(r.Context()); user != nil && !isSalesHead(user) {
+			q += fmt.Sprintf(" AND sales_officer_id = $%d", n)
+			args = append(args, user.ID)
+			n++
+		} else if oid := qstr(r, "officer_id"); oid != "" {
+			if id, err := parseUserID(oid); err == nil {
+				q += fmt.Sprintf(" AND sales_officer_id = $%d", n)
+				args = append(args, id)
+				n++
+			}
 		}
 		q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", n)
 		args = append(args, limit)

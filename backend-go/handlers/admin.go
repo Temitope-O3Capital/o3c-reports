@@ -6,7 +6,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,7 +43,6 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.Delete("/roles/{name}", deleteRole(db))
 	r.Get("/page-catalog", pageCatalog(db))
 	r.Get("/activity", getActivity(db))
-	r.Get("/activity/export", exportActivityCSV(db))
 	r.Get("/users/{id}/activity", getUserActivity(db))
 	r.Get("/users/{id}/sessions", getUserSessions(db))
 
@@ -54,16 +52,16 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.With(adminOnly).Post("/upload-logo", uploadEmailLogo(db))
 
 	// Vendor Integration Registry (5I)
-	r.Get("/integrations",            listIntegrations(db))
-	r.Post("/integrations",           createIntegration(db))
-	r.Patch("/integrations/{id}",     updateIntegration(db))
-	r.Delete("/integrations/{id}",    deleteIntegration(db))
+	r.Get("/integrations", listIntegrations(db))
+	r.Post("/integrations", createIntegration(db))
+	r.Patch("/integrations/{id}", updateIntegration(db))
+	r.Delete("/integrations/{id}", deleteIntegration(db))
 	r.Post("/integrations/{id}/ping", pingIntegration(db))
 
 	// Workflow Templates
-	r.Get("/workflow-templates",        listWorkflowTemplates(db))
-	r.Post("/workflow-templates",       createWorkflowTemplate(db))
-	r.Put("/workflow-templates/{id}",   updateWorkflowTemplate(db))
+	r.Get("/workflow-templates", listWorkflowTemplates(db))
+	r.Post("/workflow-templates", createWorkflowTemplate(db))
+	r.Put("/workflow-templates/{id}", updateWorkflowTemplate(db))
 	r.Delete("/workflow-templates/{id}", deleteWorkflowTemplate(db))
 
 	// One-time data migration: encrypt existing plaintext bank details
@@ -123,7 +121,7 @@ func listUsers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		includeRemoved := r.URL.Query().Get("include_removed") == "true"
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 
 		where := "WHERE deleted_at IS NULL"
 		if includeRemoved {
@@ -609,7 +607,7 @@ func roleResponse(name, label string, pages []string, builtIn bool, extra map[st
 func listRoles(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 
 		roles := make([]map[string]any, 0, len(core.RolePages))
 		for _, name := range core.BuiltinRoleNames() {
@@ -809,8 +807,12 @@ func logActivity(db *core.DB) http.HandlerFunc {
 			return
 		}
 		// M42: Length caps and HTML tag stripping on all user-controlled fields.
-		if len(b.Action) > 256 { b.Action = b.Action[:256] }
-		if len(b.Detail) > 2048 { b.Detail = b.Detail[:2048] }
+		if len(b.Action) > 256 {
+			b.Action = b.Action[:256]
+		}
+		if len(b.Detail) > 2048 {
+			b.Detail = b.Detail[:2048]
+		}
 		b.Action = stripHTMLTags(b.Action)
 		b.Detail = stripHTMLTags(b.Detail)
 		user := core.UserFromCtx(r.Context())
@@ -844,9 +846,9 @@ func getActivity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit := qint(r, "limit", 200, 1, 1000)
 		userID := r.URL.Query().Get("user_id")
-		page   := r.URL.Query().Get("page")
-		from   := r.URL.Query().Get("from")
-		to     := r.URL.Query().Get("to")
+		page := r.URL.Query().Get("page")
+		from := r.URL.Query().Get("from")
+		to := r.URL.Query().Get("to")
 
 		q := `SELECT a.id, a.page, a.action, a.detail, a.ip_address AS ip, a.ts,
 		             u.full_name, u.email, u.role
@@ -878,56 +880,6 @@ func getActivity(db *core.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows) //nolint:errcheck
-	}
-}
-
-// exportActivityCSV streams the activity log row-by-row as CSV using sql.Rows
-// chunked transfer — never loads the full result set into memory.
-func exportActivityCSV(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID := r.URL.Query().Get("user_id")
-		from   := r.URL.Query().Get("from")
-		to     := r.URL.Query().Get("to")
-
-		q := `SELECT a.ts, u.full_name, u.email, u.role, a.page, a.action, a.detail, a.ip_address AS ip
-		      FROM o3c_activity_log a LEFT JOIN o3c_users u ON u.id = a.user_id WHERE 1=1`
-		var args []any
-		if userID != "" {
-			args = append(args, userID)
-			q += " AND a.user_id=$" + itoa(len(args))
-		}
-		if from != "" {
-			args = append(args, from)
-			q += " AND a.ts >= $" + itoa(len(args)) + "::timestamptz"
-		}
-		if to != "" {
-			args = append(args, to)
-			q += " AND a.ts <= $" + itoa(len(args)) + "::timestamptz"
-		}
-		q += " ORDER BY a.ts DESC"
-
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
-		defer cancel()
-		sqlRows, err := db.PG.QueryContext(ctx, q, args...)
-		if err != nil {
-			respondErr(w, 500, err.Error())
-			return
-		}
-		defer sqlRows.Close()
-
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="activity_export.csv"`)
-
-		cw := csv.NewWriter(w)
-		cw.Write([]string{"timestamp", "user_name", "email", "role", "page", "action", "detail", "ip"}) //nolint:errcheck
-		var ts, fullName, email, role, page, action, detail, ip any
-		for sqlRows.Next() {
-			if err := sqlRows.Scan(&ts, &fullName, &email, &role, &page, &action, &detail, &ip); err != nil {
-				break
-			}
-			cw.Write([]string{str(ts), str(fullName), str(email), str(role), str(page), str(action), str(detail), str(ip)}) //nolint:errcheck
-		}
-		cw.Flush()
 	}
 }
 
@@ -1383,13 +1335,13 @@ func listIntegrations(db *core.DB) http.HandlerFunc {
 func createIntegration(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Name       string `json:"name"`
-			Type       string `json:"type"`
-			Status     string `json:"status"`
-			HealthURL  string `json:"health_url"`
-			KeyExpiry  string `json:"key_expiry"`
-			Owner      string `json:"owner"`
-			Notes      string `json:"notes"`
+			Name      string `json:"name"`
+			Type      string `json:"type"`
+			Status    string `json:"status"`
+			HealthURL string `json:"health_url"`
+			KeyExpiry string `json:"key_expiry"`
+			Owner     string `json:"owner"`
+			Notes     string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -1563,7 +1515,8 @@ func listWorkflowTemplates(db *core.DB) http.HandlerFunc {
 			SELECT id, name, description, notify_roles, approver_roles, poster_roles, created_at
 			FROM workflow_templates ORDER BY name`)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows) //nolint:errcheck
@@ -1581,16 +1534,20 @@ func createWorkflowTemplate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if strings.TrimSpace(b.Name) == "" {
-			respondErr(w, 422, "name is required"); return
+			respondErr(w, 422, "name is required")
+			return
 		}
 		if len(b.ApproverRoles) == 0 {
-			respondErr(w, 422, "approver_roles is required"); return
+			respondErr(w, 422, "approver_roles is required")
+			return
 		}
 		if len(b.PosterRoles) == 0 {
-			respondErr(w, 422, "poster_roles is required"); return
+			respondErr(w, 422, "poster_roles is required")
+			return
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO workflow_templates (name, description, notify_roles, approver_roles, poster_roles)
@@ -1598,7 +1555,8 @@ func createWorkflowTemplate(db *core.DB) http.HandlerFunc {
 			RETURNING id, name, description, notify_roles, approver_roles, poster_roles, created_at`,
 			b.Name, b.Description, b.NotifyRoles, b.ApproverRoles, b.PosterRoles)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -1618,10 +1576,12 @@ func updateWorkflowTemplate(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if strings.TrimSpace(b.Name) == "" {
-			respondErr(w, 422, "name is required"); return
+			respondErr(w, 422, "name is required")
+			return
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			UPDATE workflow_templates
@@ -1630,7 +1590,8 @@ func updateWorkflowTemplate(db *core.DB) http.HandlerFunc {
 			RETURNING id, name, description, notify_roles, approver_roles, poster_roles, created_at`,
 			b.Name, b.Description, b.NotifyRoles, b.ApproverRoles, b.PosterRoles, id)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 500, "Update failed"); return
+			respondErr(w, 500, "Update failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -1641,9 +1602,9 @@ func deleteWorkflowTemplate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		if _, err := db.PGExec(r.Context(), `DELETE FROM workflow_templates WHERE id=$1`, id); err != nil {
-			respondErr(w, 500, "Delete failed"); return
+			respondErr(w, 500, "Delete failed")
+			return
 		}
 		w.WriteHeader(204)
 	}
 }
-

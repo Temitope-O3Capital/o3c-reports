@@ -257,8 +257,8 @@ function StaffRosterModal({
   const [adding, setAdding]  = useState(false)
   const [deleting, setDeleting] = useState<number | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const data = await apiFetch<any>(`/api/bd/employers/${employer.id}/staff`)
       setStaff(Array.isArray(data) ? data : (data?.data ?? []))
@@ -268,7 +268,7 @@ function StaffRosterModal({
   }, [employer.id])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   const set = (k: keyof typeof EMPTY_STAFF) =>
     (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [k]: e.target.value }))
@@ -317,7 +317,7 @@ function StaffRosterModal({
   return (
     <Modal
       open
-      title={`Staff Roster — ${employer.name}`}
+      title={`Staff Roster: ${employer.name}`}
       width={640}
       onClose={onClose}
       footer={
@@ -453,7 +453,7 @@ function AssignToSalesModal({
   return (
     <Modal
       open
-      title={`Assign to Sales — ${employer.name}`}
+      title={`Assign to Sales: ${employer.name}`}
       width={520}
       onClose={onClose}
       footer={
@@ -522,7 +522,7 @@ function AssignToSalesModal({
           <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
             {staff.length === 0 ? (
               <div style={{ padding: 14, fontSize: TEXT.sm, color: 'var(--txt3)', textAlign: 'center' }}>
-                No staff on roster yet — add them via Staff Roster first
+                No staff on roster yet. Add them via Staff Roster first
               </div>
             ) : (
               staff.map((s, i) => (
@@ -652,36 +652,11 @@ export default function Employers() {
     setSearch(''); setFSectors(new Set()); setFMOU(new Set())
   }
 
-  function exportEmployersCsv(data: Employer[]) {
-    const header = ['Name', 'Sector', 'MOU Status', 'MOU Expiry', 'Staff Count', 'Monthly Payroll (₦)', 'Credit Limit (₦)', 'Leads', 'Contact Name', 'Contact Phone', 'Contact Email', 'Created At']
-    const lines = data.map(r => [
-      `"${String(r.name ?? '').replace(/"/g, '""')}"`,
-      r.sector ?? '',
-      r.mou_status ?? '',
-      r.mou_expiry ?? '',
-      r.staff_count != null ? String(r.staff_count) : '',
-      r.monthly_payroll_kobo != null ? String(Number(r.monthly_payroll_kobo) / 100) : '',
-      r.credit_limit_kobo != null ? String(Number(r.credit_limit_kobo) / 100) : '',
-      r.lead_count != null ? String(r.lead_count) : '',
-      `"${String(r.contact_name ?? '').replace(/"/g, '""')}"`,
-      r.contact_phone ?? '',
-      r.contact_email ?? '',
-      r.created_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `employers-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   // Rows behind the current selection (selection survives paging, so resolve from
   // the full loaded set, not just the visible page).
   const selectedEmployers = useMemo(() => employers.filter(e => selected.has(e.id)), [employers, selected])
 
-  function exportSelectedCsv() {
-    exportEmployersCsv(selectedEmployers.length ? selectedEmployers : filtered)
-  }
 
   async function doBulkAssign() {
     if (!bulkAgentId) { toast.error('Select a sales agent'); return }
@@ -810,7 +785,7 @@ export default function Employers() {
         ))}
       </div>
 
-      <SectionCard title="Employers" badge={employers.length} padding={false} actions={<button onClick={() => exportEmployersCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Employers" badge={employers.length} padding={false}>
 
         <ExpandableFilterBar
           search={search}
@@ -856,7 +831,6 @@ export default function Employers() {
           onSelect={setSelected}
           bulkBar={
             <>
-              <button onClick={exportSelectedCsv} style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
               <button onClick={() => { setBulkAgentId(''); setBulkNotes(''); setBulkAssignOpen(true) }} style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: 'none', background: NAVY, color: '#fff', cursor: 'pointer' }}>Bulk Assign</button>
             </>
           }
@@ -942,7 +916,7 @@ export default function Employers() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
-            {selected.size} employer{selected.size !== 1 ? 's' : ''} selected. Each will be assigned as a full company — all current and future staff go to the chosen agent.
+            {selected.size} employer{selected.size !== 1 ? 's' : ''} selected. Each will be assigned as a full company. All current and future staff go to the chosen agent.
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Sales Agent *</label>

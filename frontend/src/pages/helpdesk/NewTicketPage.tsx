@@ -58,7 +58,7 @@ function CustomerRail({ ctx }: { ctx: CustomerCtx }) {
         {(ctx.is_delinquent || ctx.is_in_recovery) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, padding: '7px 10px', background: `${RED}12`, borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, color: RED }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>warning</span>
-            {ctx.is_in_recovery ? 'In recovery' : 'Delinquent'} — handle with care
+            {ctx.is_in_recovery ? 'In recovery' : 'Delinquent'}, handle with care
           </div>
         )}
 
@@ -110,7 +110,7 @@ function RailRow({ icon, value }: { icon: string; value: string }) {
 
 function TipsCard() {
   const tips = [
-    'Pick the ticket type first — the form reveals only the fields that matter for it.',
+    'Pick the ticket type first: the form reveals only the fields that matter for it.',
     'Mark it Urgent for anything fraud, card-block or unable-to-transact related.',
     'CBN-reportable complaints are flagged automatically for the regulatory queue.',
   ]

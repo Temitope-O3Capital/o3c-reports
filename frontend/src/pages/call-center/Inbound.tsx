@@ -105,7 +105,7 @@ export default function CallCenterInbound() {
       const r = await apiPost<{ queued: number }>(`/api/call-center/inbound/queue-callbacks?days=${days}`, {})
       const n = r?.queued ?? 0
       toast.success(n === 0
-        ? 'Nothing to queue — every missed call has been returned or is already queued'
+        ? 'Nothing to queue: every missed call has been returned or is already queued'
         : `${fmtNum(n)} call-back${n === 1 ? '' : 's'} added to the outbound queue`)
       await load()
     } catch (e: any) { toast.error(e?.message || 'Could not queue call-backs') }
@@ -298,7 +298,7 @@ function RaiseTicketModal({ call, onClose, onDone }: {
           <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>What did they call about?</label>
           <textarea
             spellCheck={false} rows={4} value={body} onChange={e => setBody(e.target.value)}
-            placeholder="Optional — context for whoever picks this up"
+            placeholder="Optional: context for whoever picks this up"
             style={{ ...field, resize: 'vertical' }}
           />
         </div>

@@ -45,8 +45,8 @@ export default function FDAccrual() {
   const [error,   setError]   = useState<string | null>(null)
   const [asOf,    setAsOf]    = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch<{ data: AccrualRow[] }>(`/api/finance/fd-accrual?date=${asOf}`)
       setRows(Array.isArray(res.data) ? res.data : Array.isArray(res) ? (res as any) : [])
@@ -58,7 +58,7 @@ export default function FDAccrual() {
   }, [asOf])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['finance','manual_postings'] })
+  useLiveData(() => load(true), { topics: ['finance','manual_postings'] })
 
   const totalAccrued = rows.reduce((s, r) => s + Number(r.accrued_interest_kobo ?? 0), 0)
   const totalDaily   = rows.reduce((s, r) => s + Number(r.daily_interest_kobo ?? 0), 0)

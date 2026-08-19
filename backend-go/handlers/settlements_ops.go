@@ -24,7 +24,6 @@ func RegisterSettlementOps(r chi.Router, db *core.DB) {
 	r.With(access).Post("/", soaBatchCreate(db))
 	r.With(access).Get("/kpis", soaKPIs(db))
 	r.With(access).Get("/{id}/transactions", soaBatchTxns(db))
-	r.With(access).Get("/{id}/export", soaBatchExport(db)) // M2: CSV export
 
 	// NIP reconciliation
 	r.With(access).Get("/nip", soaNIPList(db))
@@ -159,23 +158,30 @@ func soaKPIs(db *core.DB) http.HandlerFunc {
 func soaBatchList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
-		status      := qstr(r, "status")
-		limit       := qint(r, "limit", 100, 1, 500)
+		dateTo, _ := validDate(r, "date_to")
+		status := qstr(r, "status")
+		limit := qint(r, "limit", 100, 1, 500)
 
 		where := "1=1"
 		var args []any
 		n := 1
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND batch_date >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND batch_date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND batch_date <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND batch_date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		if status != "" {
 			parts := strings.Split(status, ",")
 			phs := make([]string, len(parts))
-			for i, p := range parts { phs[i] = fmt.Sprintf("LOWER($%d)", n+i); args = append(args, strings.TrimSpace(p)) }
+			for i, p := range parts {
+				phs[i] = fmt.Sprintf("LOWER($%d)", n+i)
+				args = append(args, strings.TrimSpace(p))
+			}
 			n += len(parts)
 			if len(parts) == 1 {
 				where += fmt.Sprintf(" AND LOWER(status)=%s", phs[0])
@@ -278,43 +284,21 @@ func soaBatchTxns(db *core.DB) http.HandlerFunc {
 
 /* ── M2: Settlement Batch CSV Export ─────────────────────────────────────── */
 
-func soaBatchExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT
-			  id,
-			  txn_ref         AS reference,
-			  amount_kobo,
-			  status,
-			  TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at
-			FROM settlement_exceptions
-			WHERE batch_id = $1
-			ORDER BY created_at`, id)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-		if rows == nil {
-			rows = []map[string]any{}
-		}
-		streamCSV(w, fmt.Sprintf("settlement-batch-%s.csv", id), rows)
-	}
-}
-
 /* ── NIP Reconciliation ──────────────────────────────────────────────────── */
 
 func soaNIPList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		date       := qstr(r, "date")
-		statusRaw  := qstr(r, "status")
-		limit      := qint(r, "limit", 100, 1, 500)
+		date := qstr(r, "date")
+		statusRaw := qstr(r, "status")
+		limit := qint(r, "limit", 100, 1, 500)
 
 		where := "1=1"
 		var args []any
 		n := 1
 		if date != "" {
-			where += fmt.Sprintf(" AND txn_date = $%d::date", n); args = append(args, date); n++
+			where += fmt.Sprintf(" AND txn_date = $%d::date", n)
+			args = append(args, date)
+			n++
 		}
 		// Map frontend match_status values to DB status values.
 		// Accepts a comma-separated list (multi-select).
@@ -366,7 +350,7 @@ func soaNIPList(db *core.DB) http.HandlerFunc {
 
 func soaNIPResolveHandler(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id   := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
 		var b struct {
 			ResolutionType string `json:"resolution_type"`
@@ -403,10 +387,10 @@ func soaNIPResolveHandler(db *core.DB) http.HandlerFunc {
 
 func soaFailedList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		reason   := qstr(r, "reason")
+		reason := qstr(r, "reason")
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
-		limit    := qint(r, "limit", 100, 1, 500)
+		dateTo, _ := validDate(r, "date_to")
+		limit := qint(r, "limit", 100, 1, 500)
 
 		where := "status IN ('open','escalated')"
 		var args []any
@@ -428,10 +412,14 @@ func soaFailedList(db *core.DB) http.HandlerFunc {
 			}
 		}
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND txn_date >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND txn_date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND txn_date <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND txn_date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		args = append(args, limit)
 
@@ -484,7 +472,7 @@ func soaFailedRetry(db *core.DB) http.HandlerFunc {
 
 func soaFailedResolve(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id   := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
 		var b struct {
 			Notes string `json:"notes"`
@@ -535,11 +523,11 @@ func soaManualPostingsList(db *core.DB) http.HandlerFunc {
 		"returned":         "returned",
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		stageRaw    := qstr(r, "stage")
-		search      := qstr(r, "q")
+		stageRaw := qstr(r, "stage")
+		search := qstr(r, "q")
 		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _   := validDate(r, "date_to")
-		limit       := qint(r, "limit", 100, 1, 500)
+		dateTo, _ := validDate(r, "date_to")
+		limit := qint(r, "limit", 100, 1, 500)
 
 		where := "1=1"
 		var args []any
@@ -565,10 +553,14 @@ func soaManualPostingsList(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND mp.created_at::date >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND mp.created_at::date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND mp.created_at::date <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND mp.created_at::date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		args = append(args, limit)
 
@@ -658,7 +650,7 @@ func soaManualPostingsCreate(db *core.DB) http.HandlerFunc {
 // happens at the separate "post" step (soaManualPostingsPost).
 func soaManualPostingsApprove(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id   := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
 
 		rows, err := db.PGQuery(r.Context(), `
@@ -682,7 +674,7 @@ func soaManualPostingsApprove(db *core.DB) http.HandlerFunc {
 // the ledger.
 func soaManualPostingsPost(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id   := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
 
 		existing, err := db.PGQuery(r.Context(),
@@ -741,7 +733,7 @@ func soaManualPostingsPost(db *core.DB) http.HandlerFunc {
 // revision (no GL impact).
 func soaManualPostingsReturn(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id   := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
 		var b struct {
 			Reason string `json:"reason"`
@@ -766,7 +758,7 @@ func soaManualPostingsReturn(db *core.DB) http.HandlerFunc {
 
 func soaManualPostingsReject(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id   := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
 		var b struct {
 			Reason string `json:"reason"`
@@ -799,7 +791,7 @@ func soaOverview(db *core.DB) http.HandlerFunc {
 				"total": 0, "matched": 0, "unmatched": 0,
 				"exception_count": 0, "exception_value_kobo": 0, "reconciliation_rate_pct": 0,
 			},
-			"paystack":    map[string]any{"configured": false, "wallet_balance_kobo": 0, "last_sync_at": nil, "open_disputes": 0},
+			"paystack": map[string]any{"configured": false, "wallet_balance_kobo": 0, "last_sync_at": nil, "open_disputes": 0},
 			// Interswitch reconciliation is upload-based (parsed EOD → interswitch_txns);
 			// treat "configured" as "EOD data has been uploaded".
 			"interswitch": map[string]any{"configured": false},
@@ -847,9 +839,9 @@ func soaOverview(db *core.DB) http.HandlerFunc {
 			  ELSE 0 END                                                                                            AS success_rate_pct
 			FROM settlement_batches`); len(batchRows) > 0 {
 			out["settled_today_kobo"] = batchRows[0]["settled_today_kobo"]
-			out["pending_kobo"]       = batchRows[0]["pending_kobo"]
-			out["failed_count"]       = batchRows[0]["failed_count"]
-			out["success_rate_pct"]   = batchRows[0]["success_rate_pct"]
+			out["pending_kobo"] = batchRows[0]["pending_kobo"]
+			out["failed_count"] = batchRows[0]["failed_count"]
+			out["success_rate_pct"] = batchRows[0]["success_rate_pct"]
 		}
 
 		if nipRows, _ := db.PGQuery(ctx, `
@@ -873,8 +865,8 @@ func soaOverview(db *core.DB) http.HandlerFunc {
 
 func soaNIPRecon(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx     := r.Context()
-		date    := qstr(r, "date")
+		ctx := r.Context()
+		date := qstr(r, "date")
 		statusP := qstr(r, "status")
 
 		// Batches
@@ -963,8 +955,12 @@ func soaNIPRecon(db *core.DB) http.HandlerFunc {
 			ORDER BY e.txn_date DESC, e.id DESC
 			LIMIT 500`, ewhere), eargs...)
 
-		if batchRows == nil { batchRows = []map[string]any{} }
-		if excRows == nil   { excRows   = []map[string]any{} }
+		if batchRows == nil {
+			batchRows = []map[string]any{}
+		}
+		if excRows == nil {
+			excRows = []map[string]any{}
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
@@ -1019,7 +1015,7 @@ func nipBulkResolve(db *core.DB) http.HandlerFunc {
 
 func soaNIPReconResolve(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id   := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "id")
 		user := core.UserFromCtx(r.Context())
 		var b struct {
 			Note string `json:"note"`

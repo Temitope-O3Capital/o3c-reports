@@ -105,8 +105,8 @@ export default function Canned() {
   // Reference content: supervisors curate, line agents read-only (enforced server-side).
   const canManage = useMemo(() => canManageScripts(), [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const params = new URLSearchParams()
@@ -123,7 +123,7 @@ export default function Canned() {
   }, [dateFrom, dateTo, channel])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
 
   function openNew() {
     setForm(EMPTY_FORM)
@@ -196,20 +196,6 @@ export default function Canned() {
     return true
   }), [rows, fCategories, search])
 
-  function exportCannedCsv(data: CannedResponse[]) {
-    const header = ['Title', 'Category', 'Created By', 'Last Used']
-    const lines = data.map(r => [
-      `"${String(r.title ?? '').replace(/"/g, '""')}"`,
-      r.category ?? '',
-      `"${String(r.created_by ?? '').replace(/"/g, '""')}"`,
-      r.last_used_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `canned-responses-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   const cols: TableCol<CannedResponse>[] = [
     {
@@ -285,7 +271,7 @@ export default function Canned() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard padding={false} badge={displayed.length} actions={<button onClick={() => exportCannedCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard padding={false} badge={displayed.length}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

@@ -106,7 +106,7 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
   }, [cif, open])
 
   return (
-    <Modal open={open} onClose={onClose} title={`Credit File — ${data?.customer_name || cif}`} width={620}>
+    <Modal open={open} onClose={onClose} title={`Credit File: ${data?.customer_name || cif}`} width={620}>
       {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={24} /></div>}
       {error && <div style={{ color: RED, fontSize: TEXT.sm, padding: SP[3] }}>{error}</div>}
       {data && !loading && (
@@ -131,7 +131,7 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
                 {data.score_basis === 'eye_score'
                   ? 'Scored at origination.'
                   : data.score_basis === 'cbs_derived'
-                    ? 'Derived from repayment behaviour on the live book — no origination score on file.'
+                    ? 'Derived from repayment behaviour on the live book. No origination score on file.'
                     : 'No score on file.'}
               </div>
               {data.phone && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>{data.phone}</div>}
@@ -319,7 +319,7 @@ export default function RiskPortfolio() {
   ]
 
   return (
-    <Page title="Loan Portfolio" subtitle={`Active loan book — ${fmtNum(total)} accounts`}>
+    <Page title="Loan Portfolio" subtitle={`Active loan book: ${fmtNum(total)} accounts`}>
       <ErrBanner error={error} onRetry={() => load(0)} />
 
       {/* KPI strip */}
@@ -352,8 +352,8 @@ export default function RiskPortfolio() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>
             <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Page {currentPage} of {pages} · {fmtNum(total)} loans</span>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => load(Math.max(0, offset - PAGE_SIZE))} disabled={offset === 0} style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.5 : 1, fontSize: TEXT.sm }}>← Prev</button>
-              <button onClick={() => load(offset + PAGE_SIZE)} disabled={currentPage >= pages} style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: currentPage >= pages ? 'not-allowed' : 'pointer', opacity: currentPage >= pages ? 0.5 : 1, fontSize: TEXT.sm }}>Next →</button>
+              <button onClick={() => load(Math.max(0, offset - PAGE_SIZE))} disabled={offset === 0} style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.5 : 1, fontSize: TEXT.sm }}>Prev</button>
+              <button onClick={() => load(offset + PAGE_SIZE)} disabled={currentPage >= pages} style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: currentPage >= pages ? 'not-allowed' : 'pointer', opacity: currentPage >= pages ? 0.5 : 1, fontSize: TEXT.sm }}>Next</button>
             </div>
           </div>
         )}

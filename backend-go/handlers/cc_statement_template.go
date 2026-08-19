@@ -65,7 +65,7 @@ func ccSendEmail(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "valid recipient_email is required")
 			return
 		}
-		body.CC        = strings.TrimSpace(strings.ToLower(body.CC))
+		body.CC = strings.TrimSpace(strings.ToLower(body.CC))
 		body.EmailBody = strings.TrimSpace(body.EmailBody)
 
 		stmt, txns, err := ccLoad(r.Context(), db, id)
@@ -87,15 +87,15 @@ func ccSendEmail(db *core.DB) http.HandlerFunc {
 		if bodyText == "" {
 			bodyText = ccDefaultBodyText(d)
 		}
-		htmlBody  := ccBuildNotificationHTML(d, bodyText)
-		textBody  := bodyText
+		htmlBody := ccBuildNotificationHTML(d, bodyText)
+		textBody := bodyText
 
 		// PDF attachment — render HTML via headless Chrome for exact preview match.
 		// Falls back to the raw PDF generator when Chrome is not installed (e.g. Railway without Chromium).
 		htmlForPDF := ccBuildHTML(stmt, txns)
 		pdfBytes := ccPDFForEmail(htmlForPDF, func() []byte { return ccBuildPDF(stmt, txns) })
-		pdfB64     := base64.StdEncoding.EncodeToString(pdfBytes)
-		pdfName    := ccPDFFilename(d)
+		pdfB64 := base64.StdEncoding.EncodeToString(pdfBytes)
+		pdfName := ccPDFFilename(d)
 
 		user := core.UserFromCtx(r.Context())
 		var createdBy int64
@@ -141,7 +141,9 @@ func ccSendEmail(db *core.DB) http.HandlerFunc {
 					"Check your email for the full statement.",
 				func() string {
 					n := d.accountNo
-					if len(n) > 4 { return n[len(n)-4:] }
+					if len(n) > 4 {
+						return n[len(n)-4:]
+					}
 					return n
 				}(),
 				ccFmtKobo(d.closingBal),
@@ -439,8 +441,8 @@ func ccBuildHTML(stmt core.Row, txns []core.Row) string {
 	var totalPurchDr, totalCr, totalFCDr int64
 	var drCount, crCount int
 	for _, t := range txns {
-		dr   := toInt64(t["debit_kobo"])
-		cr   := toInt64(t["credit_kobo"])
+		dr := toInt64(t["debit_kobo"])
+		cr := toInt64(t["credit_kobo"])
 		isFC := toBool(t["is_finance_charge"])
 		totalCr += cr
 		if isFC {
@@ -455,18 +457,18 @@ func ccBuildHTML(stmt core.Row, txns []core.Row) string {
 			crCount++
 		}
 	}
-	totalDr  := totalPurchDr + totalFCDr
+	totalDr := totalPurchDr + totalFCDr
 	txnCount := len(txns)
 
 	// Transaction rows — 8 columns
 	var txnRows strings.Builder
 	runBal := d.openingBal
 	for i, t := range txns {
-		dr      := toInt64(t["debit_kobo"])
-		cr      := toInt64(t["credit_kobo"])
-		isFC    := toBool(t["is_finance_charge"])
-		desc    := getRowString(t, "description")
-		txnDate  := ccFmtDate(getRowString(t, "txn_date"))
+		dr := toInt64(t["debit_kobo"])
+		cr := toInt64(t["credit_kobo"])
+		isFC := toBool(t["is_finance_charge"])
+		desc := getRowString(t, "description")
+		txnDate := ccFmtDate(getRowString(t, "txn_date"))
 		postDate := ccFmtDate(getRowString(t, "post_date"))
 		if postDate == "—" {
 			postDate = txnDate
@@ -480,10 +482,10 @@ func ccBuildHTML(stmt core.Row, txns []core.Row) string {
 			rowCls = ` class="alt"`
 		}
 
-		descCls   := "dsc"
+		descCls := "dsc"
 		descInner := e(desc)
 		if isFC {
-			descCls   = "dsc fc-desc"
+			descCls = "dsc fc-desc"
 			descInner = fmt.Sprintf(`%s<span class="badge-fc">Interest</span>`, e(desc))
 		}
 
@@ -508,13 +510,12 @@ func ccBuildHTML(stmt core.Row, txns []core.Row) string {
 	}
 
 	// Minimum payment amount (fall back to closing balance when unset)
-	minPayAmt  := d.closingBal
+	minPayAmt := d.closingBal
 	minPayNote := "Full balance due"
 	if d.minPayment > 0 {
-		minPayAmt  = d.minPayment
+		minPayAmt = d.minPayment
 		minPayNote = "20%% of outstanding balance"
 	}
-
 
 	entryWord := "entries"
 	if txnCount == 1 {
@@ -819,18 +820,18 @@ func ccPaymentPanel(d ccData, e func(string) string) string {
 		minPayStr = "&#8358;" + ccFmtKobo(d.minPayment)
 	}
 
-	dueBg    := "#FFF8F8"
+	dueBg := "#FFF8F8"
 	dueColor := "#C00000"
-	urgency  := ""
+	urgency := ""
 	if d.daysUntilDue > 0 && d.daysUntilDue <= 7 {
 		urgency = fmt.Sprintf(`<div style="margin-top:6px;font-size:10px;color:#C00000;font-weight:600">&#9888;&ensp;Due in %d day%s</div>`, d.daysUntilDue, pluralS(d.daysUntilDue))
 	} else if d.daysUntilDue < 0 {
-		urgency  = `<div style="margin-top:6px;font-size:10px;color:#C00000;font-weight:600">&#9888;&ensp;OVERDUE — please pay immediately</div>`
-		dueBg    = "#FEF2F2"
+		urgency = `<div style="margin-top:6px;font-size:10px;color:#C00000;font-weight:600">&#9888;&ensp;OVERDUE — please pay immediately</div>`
+		dueBg = "#FEF2F2"
 	} else if d.dueDate != "—" {
-		urgency   = fmt.Sprintf(`<div style="margin-top:6px;font-size:10px;color:#888">%d days remaining</div>`, d.daysUntilDue)
-		dueBg     = "#F0FFF4"
-		dueColor  = "#15803D"
+		urgency = fmt.Sprintf(`<div style="margin-top:6px;font-size:10px;color:#888">%d days remaining</div>`, d.daysUntilDue)
+		dueBg = "#F0FFF4"
+		dueColor = "#15803D"
 	}
 
 	return fmt.Sprintf(`
@@ -886,7 +887,7 @@ func ccFmtKobo(kobo int64) string {
 		kobo = -kobo
 	}
 	naira := kobo / 100
-	frac  := kobo % 100
+	frac := kobo % 100
 	result := fmt.Sprintf("%s.%02d", ccCommas(naira), frac)
 	if neg {
 		return "(" + result + ")"

@@ -9,6 +9,10 @@ const TOPICS = [
   'manual_postings', 'collections', 'recovery', 'cards', 'fixed_deposits',
   'crm', 'deals', 'tasks', 'campaigns', 'compliance', 'finance', 'hr',
   'payroll', 'users',
+  // Calls: the Call Log, the agent dashboard and the outbound queue all show call
+  // activity and none of them were live — a call landing from Zoho Voice left every
+  // one of them stale until the window regained focus.
+  'calls',
 ] as const
 
 type Listener = () => void

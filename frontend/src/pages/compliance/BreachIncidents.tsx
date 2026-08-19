@@ -63,8 +63,8 @@ export default function BreachIncidents() {
   const [fSev, setFSev]       = useState(new Set<string>())
   const [fStatus, setFStatus] = useState(new Set<string>())
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const data = await apiFetch<BreachIncident[]>('/api/compliance/breach-incidents')
       setItems(Array.isArray(data) ? data : (data as any).data ?? [])
@@ -73,7 +73,7 @@ export default function BreachIncidents() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   async function handleCreate() {
     if (!form.title) { toast.error('Title is required'); return }
@@ -239,7 +239,7 @@ export default function BreachIncidents() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
           <div style={{ padding: '10px 14px', background: `${RED}0F`, borderRadius: RADIUS.md, border: `1px solid ${RED}30`, fontSize: TEXT.sm, color: RED }}>
-            <strong>⚠ NDPC 72-Hour Rule:</strong> Under the Nigeria Data Protection Act, the NDPC must be notified within 72 hours of discovering a personal data breach.
+            <strong>NDPC 72-Hour Rule:</strong> Under the Nigeria Data Protection Act, the NDPC must be notified within 72 hours of discovering a personal data breach.
           </div>
           {([
             ['Incident Title *', 'title', 'text'],

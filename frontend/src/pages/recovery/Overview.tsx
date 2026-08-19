@@ -173,8 +173,8 @@ export default function RecoveryOverview() {
   const [dateFrom, setDateFrom]   = useState(monthStart())
   const [dateTo, setDateTo]       = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setErr(null)
     const qs = `from=${dateFrom}&to=${dateTo}`
     try {
@@ -196,7 +196,7 @@ export default function RecoveryOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['recovery'] })
+  useLiveData(() => load(true), { topics: ['recovery'] })
 
   const kpiLoading = loading && !kpis
 

@@ -32,26 +32,7 @@ interface PTPane {
   created_at: string
 }
 
-// ── Export CSV ────────────────────────────────────────────────────────────────
 
-function exportPromisesCsv(rows: PTPane[]) {
-  const header = ['CIF', 'Customer Name', 'Outstanding NGN', 'PTP Amount (NGN)', 'Due Date', 'Status', 'Agent', 'Created']
-  const lines = rows.map(r => [
-    r.account_cif ?? '',
-    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-    (r.outstanding_kobo / 100).toFixed(2),
-    (r.promise_amount_kobo / 100).toFixed(2),
-    r.promise_date ?? '',
-    r.status ?? '',
-    `"${String(r.agent_name ?? '').replace(/"/g, '""')}"`,
-    r.created_at ?? '',
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `promises-to-pay-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -77,8 +58,8 @@ export default function CollectionsPromises() {
 
   const fStatusKey = [...fStatus].join(',')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     const p = new URLSearchParams({ limit: '100' })
     if (fStatusKey) p.set('status', fStatusKey)
@@ -103,7 +84,7 @@ export default function CollectionsPromises() {
   }, [fStatusKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   const displayed = useMemo(() => {
     if (!search.trim()) return rows
@@ -147,23 +128,6 @@ export default function CollectionsPromises() {
     }
   }
 
-  // Export the full filtered set (not just the loaded page) so the CSV isn't
-  // silently truncated to the first 100 rows.
-  async function handleExportAll() {
-    try {
-      const p = new URLSearchParams({ limit: '10000' })
-      if (fStatusKey) p.set('status', fStatusKey)
-      if (dateFrom)   p.set('date_from', dateFrom)
-      if (dateTo)     p.set('date_to', dateTo)
-      const res = await apiFetch<{ data: PTPane[] }>(`/api/collections-ops/promises?${p}`)
-      const all = res.data ?? []
-      if (all.length === 0) { toast.error('No promises to export'); return }
-      exportPromisesCsv(all)
-      toast.success(`Exported ${all.length} promise${all.length === 1 ? '' : 's'}`)
-    } catch (e: any) {
-      toast.error(e.message ?? 'Export failed')
-    }
-  }
 
   const cols: TableCol<PTPane>[] = [
     {
@@ -230,14 +194,7 @@ export default function CollectionsPromises() {
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'var(--chip-bg)', borderBottom: '1px solid var(--bdr)' }}>
       <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{selectedIds.size} selected</span>
       <div style={{ marginLeft: 'auto' }}>
-        <button
-          onClick={() => exportPromisesCsv(selectedRows)}
-          style={btnSecondary}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
-          Export CSV
-        </button>
-      </div>
+        </div>
     </div>
   ) : undefined
 
@@ -261,7 +218,7 @@ export default function CollectionsPromises() {
         <KpiCard label="Amount Promised ₦" value={kpis ? fmtKobo(kpis.amount_promised_kobo) : '—'} icon="payments" accent={AMBER} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="Promises" badge={rows.length} padding={false} actions={<button onClick={handleExportAll} aria-label="Export all promises to CSV" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Promises" badge={rows.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

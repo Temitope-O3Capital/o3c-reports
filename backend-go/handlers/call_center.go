@@ -88,6 +88,83 @@ func zohoAccessToken(ctx context.Context) (string, error) {
 	return zohoTok.access, nil
 }
 
+// ── Zoho Voice token (separate refresh token, own cache) ──────────────────────
+//
+// Voice uses a DIFFERENT OAuth grant than Desk. The Desk token is scoped
+// Desk.calls.ALL / PhoneBridge.call.log and the Voice API rejects it with
+// ZVT022 "invalid OAuth scope". ZOHO_VOICE_REFRESH_TOKEN carries the
+// ZohoVoice.call.READ scope, generated from the SAME self-client (so client id/
+// secret are shared). Kept isolated so a Voice-token problem can never disturb
+// the live Desk call/ticket sync.
+//
+// The token is resolved LAZILY via zohoCred (env-first, DB fallback) at call time,
+// NOT captured into a package var: godotenv.Load() runs after package init, so a
+// package-level os.Getenv would see an empty string forever — the same reason the
+// Desk creds are hydrated through zohoCred rather than read at init.
+func zohoVoiceConfigured(ctx context.Context, db *core.DB) bool {
+	return zohoCred(ctx, db, "ZOHO_VOICE_REFRESH_TOKEN") != ""
+}
+
+var zohoVoiceTok struct {
+	sync.Mutex
+	access  string
+	expires time.Time
+}
+
+func zohoVoiceAccessToken(ctx context.Context, db *core.DB) (string, error) {
+	clientID := zohoCred(ctx, db, "ZOHO_CLIENT_ID")
+	clientSecret := zohoCred(ctx, db, "ZOHO_CLIENT_SECRET")
+	refreshTok := zohoCred(ctx, db, "ZOHO_VOICE_REFRESH_TOKEN")
+	if clientID == "" || clientSecret == "" || refreshTok == "" {
+		return "", fmt.Errorf("zoho voice not configured (set ZOHO_VOICE_REFRESH_TOKEN)")
+	}
+
+	zohoVoiceTok.Lock()
+	defer zohoVoiceTok.Unlock()
+	if zohoVoiceTok.access != "" && time.Now().Add(60*time.Second).Before(zohoVoiceTok.expires) {
+		return zohoVoiceTok.access, nil
+	}
+
+	tokenURL := "https://accounts.zoho." + zohoDC + "/oauth/v2/token"
+	body := url.Values{
+		"grant_type":    {"refresh_token"},
+		"client_id":     {clientID},
+		"client_secret": {clientSecret},
+		"refresh_token": {refreshTok},
+	}.Encode()
+
+	resp, err := httpPost(tokenURL, "application/x-www-form-urlencoded", "", []byte(body), 15*time.Second)
+	if err != nil {
+		return "", fmt.Errorf("zoho voice token request: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+
+	var tok struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+		Error       string `json:"error"`
+		ErrorDesc   string `json:"error_description"`
+	}
+	if err := json.Unmarshal(raw, &tok); err != nil {
+		return "", fmt.Errorf("zoho voice token decode: %w", err)
+	}
+	if tok.Error != "" {
+		return "", fmt.Errorf("zoho voice oauth error: %s — %s", tok.Error, tok.ErrorDesc)
+	}
+	if tok.AccessToken == "" {
+		return "", fmt.Errorf("zoho voice token: empty access token")
+	}
+
+	zohoVoiceTok.access = tok.AccessToken
+	secs := tok.ExpiresIn
+	if secs == 0 {
+		secs = 3600
+	}
+	zohoVoiceTok.expires = time.Now().Add(time.Duration(secs) * time.Second)
+	return zohoVoiceTok.access, nil
+}
+
 // ── Zoho HTTP helpers ─────────────────────────────────────────────────────────
 
 var zohoHTTP = &http.Client{Timeout: 20 * time.Second}
@@ -176,13 +253,73 @@ func zohoFetchTickets(ctx context.Context, dateFrom, dateTo time.Time, extra url
 	return all, nil
 }
 
+// ── Zoho timestamps ───────────────────────────────────────────────────────────
+//
+// Zoho reports call times as LOCAL WALL-CLOCK LABELLED AS UTC. Verified against
+// live payloads on 2026-08-18 at 13:40 Lagos (12:40 UTC):
+//
+//	Desk  startTime  "2026-08-18T13:34:18.000Z"   ← a call six minutes earlier
+//	Voice start_time  1787059853000  (13:30:53Z)  ← a call ten minutes earlier
+//
+// Both claim UTC. Neither is: 13:34:18 UTC would be 14:34 in Lagos, which had not
+// happened yet. The digits are Lagos wall-clock with a UTC marker stapled on.
+//
+// Taken at face value every call was stored an hour into the future, and that one
+// error produced two of the worst symptoms in the call centre:
+//
+//   - An agent's write-up landed on the wrong call. The matcher takes the most
+//     recent call (ORDER BY started_at DESC), and "most recent" became whichever
+//     row carried the largest fake timestamp — so a call that was never picked up
+//     could receive the notes from one that was.
+//   - Recordings failed to attach. Pairing allows ±180 seconds between the Desk
+//     call and the Voice leg; an hour apart, they can never meet.
+//
+// The correction reads the wall-clock digits and rebuilds the instant in the
+// business timezone. Lagos is UTC+1 year-round with no DST, so this is a constant
+// shift — but it is expressed as a timezone rather than "subtract an hour" so it
+// stays correct if O3 ever runs from a zone that does observe DST.
+
+// zohoZone is the timezone Zoho's timestamps are really expressed in.
+// Overridable so a deployment in another zone does not need a code change.
+var zohoZone = func() *time.Location {
+	if name := os.Getenv("ZOHO_TIMEZONE"); name != "" {
+		if loc, err := time.LoadLocation(name); err == nil {
+			return loc
+		}
+	}
+	if loc, err := time.LoadLocation("Africa/Lagos"); err == nil {
+		return loc
+	}
+	// Fixed +1 fallback: Go on Windows has no tzdata unless it was built with it.
+	return time.FixedZone("WAT", 60*60)
+}()
+
+// reinterpretAsZohoLocal is retained as a NO-OP, deliberately.
+//
+// It once shifted Zoho timestamps into the business timezone, on the reading that
+// Zoho sent local wall-clock labelled as UTC. That reading was WRONG: the
+// evidence was a comparison against this server's clock, and the clock itself was
+// running ~55 minutes slow at the time. Zoho was right all along.
+//
+// The mistake cost 111,355 timestamps a spurious -1 hour before it was caught
+// (migration 168 put them back). Kept as a no-op with this note so nobody
+// re-derives the same conclusion from the same flawed comparison: to judge an
+// external timestamp, check this machine's clock against an independent source
+// FIRST.
+func reinterpretAsZohoLocal(t time.Time) time.Time {
+	return t
+}
+
 func zohoParseTime(v any) time.Time {
 	s, _ := v.(string)
 	if s == "" {
 		return time.Time{}
 	}
-	t, _ := time.Parse(time.RFC3339, s)
-	return t
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return reinterpretAsZohoLocal(t)
 }
 
 func zohoStr(v any) string { s, _ := v.(string); return s }
@@ -196,7 +333,7 @@ func zohoParseMillisTime(v any) time.Time {
 	if err != nil || ms <= 0 {
 		return time.Time{}
 	}
-	return time.UnixMilli(ms)
+	return reinterpretAsZohoLocal(time.UnixMilli(ms))
 }
 
 func zohoParseDurationSec(v any) *int {

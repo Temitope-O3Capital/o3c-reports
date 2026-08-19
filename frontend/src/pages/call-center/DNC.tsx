@@ -65,8 +65,8 @@ export default function CallCenterDNC() {
   // Search on the server (phone-normalized, plus reason/added-by) so it spans the whole
   // list, not just the loaded page. Debounced to one request per pause.
   const dq = useDebouncedValue(dncSearch, 300)
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setErr(null)
     const params = new URLSearchParams({ limit: '200' })
     if (dq.trim()) params.set('search', dq.trim())
@@ -81,7 +81,7 @@ export default function CallCenterDNC() {
   }, [dq])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   useEffect(() => {
     setKpiLoading(true)
@@ -127,20 +127,6 @@ export default function CallCenterDNC() {
     }
   }
 
-  function exportDncCsv(data: DNCEntry[]) {
-    const header = ['Phone', 'Reason', 'Added By', 'Added Date']
-    const lines = data.map(r => [
-      r.phone ?? '',
-      `"${String(r.reason ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.added_by ?? '').replace(/"/g, '""')}"`,
-      r.added_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `dnc-list-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   // Server already applied the search; render the rows as returned.
   const displayedDnc = rows
@@ -230,7 +216,7 @@ export default function CallCenterDNC() {
         <KpiCard label="Bulk Removes" value={kpis ? fmtNum(kpis.bulk_removes) : '—'} icon="remove_circle" accent={RED} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="DNC Entries" badge={displayedDnc.length} padding={false} actions={<button onClick={() => exportDncCsv(displayedDnc)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="DNC Entries" badge={displayedDnc.length} padding={false}>
         <ExpandableFilterBar
           search={dncSearch}
           onSearch={setDncSearch}

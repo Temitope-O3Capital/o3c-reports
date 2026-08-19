@@ -70,8 +70,8 @@ export default function Watchlist() {
   const [deactivateEntry, setDeactivateEntry] = useState<WatchEntry | null>(null)
   const [deactivating, setDeactivating] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
       if (dateFrom) p.set('from', dateFrom)
@@ -83,7 +83,7 @@ export default function Watchlist() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   async function handleAdd() {
     if (!form.entity_name) { toast.error('Name is required'); return }
@@ -107,22 +107,6 @@ export default function Watchlist() {
     finally { setDeactivating(false) }
   }
 
-  function exportWatchlistCsv(data: WatchEntry[]) {
-    const header = ['Name', 'Type', 'Source', 'Status', 'Matched Txns', 'Added']
-    const lines = data.map(r => [
-      `"${String(r.entity_name ?? '').replace(/"/g, '""')}"`,
-      r.entity_type ?? '',
-      `"${String(r.source ?? '').replace(/"/g, '""')}"`,
-      r.is_active ? 'Active' : 'Inactive',
-      r.matched_transactions_count ?? 0,
-      r.created_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `watchlist-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   const filtered = useMemo(() => entries.filter(r => {
     if (fType.size && !fType.has(r.entity_type)) return false
@@ -189,12 +173,7 @@ export default function Watchlist() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <SectionCard title="Watchlist Entries" badge={entries.length} padding={false} actions={
-        <button onClick={() => exportWatchlistCsv(entries)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
-          Export CSV
-        </button>
-      }>
+      <SectionCard title="Watchlist Entries" badge={entries.length} padding={false}>
         <ExpandableFilterBar
           search={search} onSearch={setSearch}
           groups={[

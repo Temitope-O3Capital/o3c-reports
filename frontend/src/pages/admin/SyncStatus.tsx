@@ -225,7 +225,7 @@ export default function AdminSyncStatus() {
         path = `${path}?from_date=${from}&to_date=${to}`
       }
       await apiFetch(path, { method: 'POST' })
-      toast.success(`${w.name} — sync started`)
+      toast.success(`${w.name}: sync started`)
       setTimeout(load, 1500)
     } catch (e: any) {
       toast.error(e?.message || `Could not start ${w.name}`)
@@ -257,7 +257,7 @@ export default function AdminSyncStatus() {
     <Page
       back={{ label: 'Admin', to: '/admin' }}
       title="Sync & Workers"
-      subtitle="Every background sync, integration and worker — status and controls in one place"
+      subtitle="Every background sync, integration and worker: status and controls in one place"
       actions={
         <button onClick={load} style={{
           display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: RADIUS.md,

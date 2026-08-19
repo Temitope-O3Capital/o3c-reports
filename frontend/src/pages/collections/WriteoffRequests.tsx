@@ -281,7 +281,7 @@ function ReviewModal({
     try {
       if (action === 'approve') {
         await apiPut(`/api/collections-ops/writeoff-requests/${request.id}/approve`, { review_notes: notes })
-        toast.success('Write-off request approved — GL entry posted')
+        toast.success('Write-off request approved. GL entry posted')
       } else {
         await apiPut(`/api/collections-ops/writeoff-requests/${request.id}/reject`, { review_notes: notes })
         toast.success('Write-off request rejected')
@@ -306,7 +306,7 @@ function ReviewModal({
     <Modal
       open={request !== null}
       onClose={() => { setNotes(''); onClose() }}
-      title={`Review Write-off — ${request?.account_cif ?? ''}`}
+      title={`Review Write-off: ${request?.account_cif ?? ''}`}
       width={460}
       footer={
         <div style={{ display: 'flex', gap: 8 }}>
@@ -407,8 +407,8 @@ export default function WriteoffRequests() {
   const user   = getUser()
   const canAct = user.role === 'collections_head' || user.role === 'admin'
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch<{ data: WriteoffRequest[] }>(
         `/api/collections-ops/writeoff-requests?status=${statusTab}`,
@@ -422,7 +422,7 @@ export default function WriteoffRequests() {
   }, [statusTab])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   const STATUS_TABS: { key: StatusFilter; label: string }[] = [
     { key: 'pending',  label: 'Pending' },

@@ -264,7 +264,7 @@ function SendModal({ statement, onClose }: {
             <span className="material-symbols-rounded" style={{ fontSize: 22, color: RED, flexShrink: 0 }}>picture_as_pdf</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pdfFilename}</div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>PDF statement — auto-generated and attached</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>PDF statement: auto-generated and attached</div>
             </div>
             <span className="material-symbols-rounded" style={{ fontSize: 16, color: GREEN, flexShrink: 0 }}>check_circle</span>
           </div>
@@ -467,7 +467,7 @@ export default function CCStatementDetail() {
 
       {overLimit && (
         <div style={{ background: 'rgba(192,0,0,.06)', borderLeft: `4px solid ${RED}`, padding: `${SP[2]} ${SP[4]}`, marginBottom: SP[4], fontSize: TEXT.base, color: RED, fontWeight: FW.semibold }}>
-          ⚠ Over credit limit by {fmtKobo(statement.closing_balance_kobo - statement.line_of_credit_kobo!)}
+          Over credit limit by {fmtKobo(statement.closing_balance_kobo - statement.line_of_credit_kobo!)}
         </div>
       )}
 

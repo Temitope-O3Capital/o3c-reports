@@ -759,7 +759,7 @@ export function ExpandableFilterBar({
           }}>
             <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: "'Sora', sans-serif" }}>
               {activeCount === 0
-                ? `No filters applied — showing all ${totalCount}`
+                ? `No filters applied, showing all ${totalCount}`
                 : `${activeCount} filter${activeCount !== 1 ? 's' : ''} active`}
             </span>
             <button
@@ -1169,7 +1169,7 @@ export function DataTable<T extends Record<string, any>>({
           }}>
             <span style={{ fontSize: 12, color: 'var(--txt3)', fontFamily: SORA }}>
               {activeFilterCount === 0
-                ? `No filters applied — showing all ${rows.length} rows`
+                ? `No filters applied, showing all ${rows.length} rows`
                 : `${activeFilterCount} filter${activeFilterCount !== 1 ? 's' : ''} active`}
             </span>
             <button onClick={resetFilters} style={{

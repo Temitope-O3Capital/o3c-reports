@@ -67,29 +67,6 @@ function daysColor(days: number): string {
 
 // ── Export helper ─────────────────────────────────────────────────────────────
 
-function exportFDRecordsCsv(data: FDRecord[]) {
-  const header = ['FD#', 'Investor', 'Currency', 'Principal NGN', 'Interest Paid NGN', 'Rate %', 'Start Date', 'Maturity Date', 'Tenor Days', 'Location', 'Officer', 'Status', 'Notes']
-  const lines = data.map(r => [
-    `FD-${String(r.id).padStart(5, '0')}`,
-    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-    r.currency ?? '',
-    ((r.ngn_amount || r.principal) / 100).toFixed(2),
-    (r.interest_paid / 100).toFixed(2),
-    r.rate ?? 0,
-    r.transaction_date ?? '',
-    r.maturity_date ?? '',
-    r.tenor_days ?? 0,
-    `"${String(r.location ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.account_officer ?? '').replace(/"/g, '""')}"`,
-    r.transaction_type === 'inflow' ? 'Active' : 'Liquidated',
-    `"${String(r.notes ?? '').replace(/"/g, '""')}"`,
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `fixed-deposits-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Table columns ─────────────────────────────────────────────────────────────
 
@@ -111,11 +88,6 @@ const COLS: TableCol<FDRecord>[] = [
     const d = daysToMaturity(r.maturity_date)
     return <span style={{ ...NUM, fontWeight: FW.semibold, color: daysColor(d) }}>{d < 0 ? 'Matured' : `${d}d`}</span>
   }},
-  { key: '_actions', label: '', sortable: false, render: r => (
-    <ActionRow actions={[
-      { icon: 'download', label: 'Download', onClick: () => exportFDRecordsCsv([r]) },
-    ] satisfies RowAction[]} />
-  )},
 ]
 
 // ── New FD modal ───────────────────────────────────────────────────────────────
@@ -288,8 +260,8 @@ export default function FinanceFixedDeposit() {
   const [page, setPage] = useState(1)
   const [sel, setSel] = useState<Set<string | number>>(new Set())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const qs = `date_from=${dateFrom}&date_to=${dateTo}`
@@ -311,7 +283,7 @@ export default function FinanceFixedDeposit() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['finance','manual_postings'] })
+  useLiveData(() => load(true), { topics: ['finance','manual_postings'] })
 
   const filtered = useMemo(() => rows.filter(r => {
     if (fStatuses.size > 0 && !fStatuses.has(r.transaction_type)) return false
@@ -394,12 +366,7 @@ export default function FinanceFixedDeposit() {
         )}
       </SectionCard>
 
-      <SectionCard title="FD Records" subtitle={summary ? `${summary.inflow_count} active · ${summary.liquidation_count} liquidated` : undefined} badge={filtered.length} padding={false} actions={
-        <button onClick={() => exportFDRecordsCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
-          Export CSV
-        </button>
-      }>
+      <SectionCard title="FD Records" subtitle={summary ? `${summary.inflow_count} active · ${summary.liquidation_count} liquidated` : undefined} badge={filtered.length} padding={false}>
 
         <ExpandableFilterBar
           search={search}
@@ -431,11 +398,7 @@ export default function FinanceFixedDeposit() {
           bulkBar={sel.size > 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{sel.size} selected</span>
-              <button onClick={() => exportFDRecordsCsv(filtered.filter(r => sel.has(r.id)))}
-                style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
-                Export CSV
-              </button>
-            </div>
+              </div>
           ) : undefined}
         />
 

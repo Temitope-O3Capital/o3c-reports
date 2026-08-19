@@ -75,26 +75,6 @@ function ProductPill({ product }: { product: string }) {
 }
 
 
-function exportLOSCsv(rows: LoanApp[]) {
-  const header = ['App #', 'Applicant', 'Reference', 'Product', 'Amount (NGN)', 'Stage', 'Status', 'Officer', 'Disbursement Date', 'Last Updated']
-  const lines = rows.map(r => [
-    `APP-${r.id}`,
-    `"${String(r.applicant_name ?? '').replace(/"/g, '""')}"`,
-    r.reference ?? '',
-    `"${String(r.product_type ?? '').replace(/"/g, '""')}"`,
-    (r.amount_requested_kobo / 100).toFixed(2),
-    r.stage ?? '',
-    r.status ?? '',
-    `"${String(r.assigned_officer_name ?? '').replace(/"/g, '""')}"`,
-    r.disbursed_at ?? '',
-    r.updated_at ?? '',
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `loan-applications-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 function PageBtn({ children, active, disabled, onClick, icon }: {
   children?: React.ReactNode; active?: boolean; disabled?: boolean
@@ -137,8 +117,8 @@ export default function LOSQueue() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [bulkSel,    setBulkSel]    = useState<Set<string | number>>(new Set())
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const [queueRes, statsRes] = await Promise.all([
         apiFetch<{ data: LoanApp[]; next_cursor: number; has_more: boolean }>('/api/los/queue?limit=50'),
@@ -170,7 +150,7 @@ export default function LOSQueue() {
   }, [nextCursor, loadingMore])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['loans'] })
+  useLiveData(() => load(true), { topics: ['loans'] })
 
   // Page-level date scope — drives KPIs and table together
   const dateFiltered = useMemo(() => {
@@ -342,12 +322,6 @@ export default function LOSQueue() {
         title="Applications"
         badge={filtered.length}
         padding={false}
-        actions={
-          <button onClick={() => exportLOSCsv(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
-            Export CSV
-          </button>
-        }
       >
 
         <ExpandableFilterBar
@@ -373,7 +347,6 @@ export default function LOSQueue() {
           onSelect={setBulkSel}
           bulkBar={
             <>
-              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
               <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
             </>
           }

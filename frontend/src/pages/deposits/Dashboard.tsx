@@ -59,8 +59,8 @@ export default function DepositsDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const [k, l, t, p, tn] = await Promise.all([
         apiFetch<any>('/api/fd-book/kpis'),
@@ -79,7 +79,7 @@ export default function DepositsDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['fixed_deposits', 'finance'] })
+  useLiveData(() => load(true), { topics: ['fixed_deposits', 'finance'] })
 
   const totalProdPrincipal = products.reduce((s, p) => s + p.principal_kobo, 0) || 1
 
@@ -140,7 +140,7 @@ export default function DepositsDashboard() {
                   <Area type="monotone" dataKey="ledger_kobo" name="Book" stroke={NAVY} strokeWidth={2} fill="url(#fdBook)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
-            ) : <Empty text="No snapshot history yet — the book trend fills in one point per day." />}
+            ) : <Empty text="No snapshot history yet. The book trend fills in one point per day." />}
           </SectionCard>
 
           {/* By product + tenor */}

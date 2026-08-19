@@ -226,25 +226,7 @@ function MilestoneTimeline({
   )
 }
 
-// ── Export CSV ────────────────────────────────────────────────────────────────
 
-function exportLegalCsv(rows: LegalCase[]) {
-  const header = ['CIF', 'Customer Name', 'Outstanding NGN', 'Milestone', 'Solicitor', 'Next Court Date', 'Days in Legal']
-  const lines = rows.map(r => [
-    r.account_cif ?? '',
-    `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-    (r.outstanding_kobo / 100).toFixed(2),
-    `"${String(r.current_milestone ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.solicitor ?? '').replace(/"/g, '""')}"`,
-    r.next_court_date ?? '',
-    r.days_in_legal ?? '',
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `legal-cases-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -265,8 +247,8 @@ export default function RecoveryLegal() {
 
   const fMilestonesKey = [...fMilestones].join(',')
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     const params = new URLSearchParams({ limit: '100' })
     if (fMilestonesKey) params.set('milestone', fMilestonesKey)
     if (dateFrom)       params.set('from', dateFrom)
@@ -282,7 +264,7 @@ export default function RecoveryLegal() {
   }, [fMilestonesKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['recovery'] })
+  useLiveData(() => load(true), { topics: ['recovery'] })
 
   useEffect(() => {
     setKpiLoading(true)
@@ -413,19 +395,7 @@ export default function RecoveryLegal() {
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          <button
-            onClick={() => exportLegalCsv(rows)}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)',
-              background: 'var(--card)', color: 'var(--txt)',
-              fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
-            Export CSV
-          </button>
-        </div>
+          </div>
       }
     >
       <ErrBanner error={err} onRetry={load} />

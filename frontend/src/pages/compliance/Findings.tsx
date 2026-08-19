@@ -74,23 +74,6 @@ function daysOverdue(due?: string): number | null {
 
 // ── Export ─────────────────────────────────────────────────────────────────────
 
-function exportFindingsCsv(rows: Finding[]) {
-  const header = ['Ref#', 'Description', 'Severity', 'Status', 'Owner', 'Due Date', 'Created At']
-  const lines = rows.map(r => [
-    r.finding_ref ?? '',
-    `"${String(r.description ?? '').replace(/"/g, '""')}"`,
-    r.severity ?? '',
-    r.status ?? '',
-    `"${String(r.assigned_to_name ?? '').replace(/"/g, '""')}"`,
-    r.due_date ?? '',
-    r.created_at ?? '',
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `findings-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
@@ -120,8 +103,8 @@ export default function Findings() {
   const [closeEntry, setCloseEntry] = useState<Finding | null>(null)
   const [closing, setClosing] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const p = new URLSearchParams()
       if (dateFrom) p.set('from', dateFrom)
@@ -133,7 +116,7 @@ export default function Findings() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   async function openDetail(f: Finding) {
     try {
@@ -263,12 +246,7 @@ export default function Findings() {
     >
       <ErrBanner error={err} onRetry={load} />
 
-      <SectionCard title="Findings" badge={findings.length} padding={false} actions={
-        <button onClick={() => exportFindingsCsv(findings)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>
-          Export CSV
-        </button>
-      }>
+      <SectionCard title="Findings" badge={findings.length} padding={false}>
         <ExpandableFilterBar
           search={search} onSearch={setSearch}
           groups={[
@@ -357,7 +335,7 @@ export default function Findings() {
       <Modal
         open={!!detail}
         onClose={() => setDetail(null)}
-        title={detail ? `Finding — ${detail.finding_ref}` : ''}
+        title={detail ? `Finding: ${detail.finding_ref}` : ''}
         width={580}
         footer={
           detail?.status !== 'closed' ? (

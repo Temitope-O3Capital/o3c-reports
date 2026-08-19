@@ -35,7 +35,7 @@ func sendWhatsAppCampaign(ctx context.Context, db *core.DB, phone, body, templat
 // one {{1}} body variable, or be a static template (parameters array is omitted).
 func sendWhatsAppTemplate(ctx context.Context, db *core.DB, phone, templateName, bodyText string) (ok bool, providerID string) {
 	phoneID := resolveCredKey(ctx, db, "WHATSAPP_PHONE_NUMBER_ID")
-	token   := resolveCredKey(ctx, db, "WHATSAPP_ACCESS_TOKEN")
+	token := resolveCredKey(ctx, db, "WHATSAPP_ACCESS_TOKEN")
 	if phoneID == "" || token == "" {
 		slog.Warn("whatsapp template: WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not configured")
 		return false, "not_configured"
@@ -61,7 +61,7 @@ func sendWhatsAppTemplate(ctx context.Context, db *core.DB, phone, templateName,
 			"components": components,
 		},
 	})
-	url  := fmt.Sprintf("%s/%s/messages", waAPIBase, phoneID)
+	url := fmt.Sprintf("%s/%s/messages", waAPIBase, phoneID)
 	resp, err := httpPost(url, "application/json", "Bearer "+token, payload, 15*time.Second)
 	if err != nil {
 		slog.Error("whatsapp template: http error", "error", err)
@@ -86,7 +86,7 @@ func sendWhatsAppTemplate(ctx context.Context, db *core.DB, phone, templateName,
 // phone may be in local Nigerian format; it is normalised to E.164 internally.
 func sendWhatsApp(ctx context.Context, db *core.DB, phone, message string) (ok bool, providerID string) {
 	phoneID := resolveCredKey(ctx, db, "WHATSAPP_PHONE_NUMBER_ID")
-	token   := resolveCredKey(ctx, db, "WHATSAPP_ACCESS_TOKEN")
+	token := resolveCredKey(ctx, db, "WHATSAPP_ACCESS_TOKEN")
 	if phoneID == "" || token == "" {
 		slog.Warn("whatsapp: WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN not configured")
 		return false, "not_configured"
@@ -99,7 +99,7 @@ func sendWhatsApp(ctx context.Context, db *core.DB, phone, message string) (ok b
 		"type":              "text",
 		"text":              map[string]string{"body": message},
 	})
-	url  := fmt.Sprintf("%s/%s/messages", waAPIBase, phoneID)
+	url := fmt.Sprintf("%s/%s/messages", waAPIBase, phoneID)
 	resp, err := httpPost(url, "application/json", "Bearer "+token, payload, 15*time.Second)
 	if err != nil {
 		slog.Error("whatsapp: http error", "error", err)
@@ -192,16 +192,17 @@ func waInbound(db *core.DB) http.HandlerFunc {
 
 		var payload map[string]any
 		if err := json.Unmarshal(body, &payload); err != nil {
-			w.WriteHeader(200); return // always 200 to Meta
+			w.WriteHeader(200)
+			return // always 200 to Meta
 		}
 		entries, _ := payload["entry"].([]any)
 		for _, entry := range entries {
 			e, _ := entry.(map[string]any)
 			changes, _ := e["changes"].([]any)
 			for _, change := range changes {
-				c, _   := change.(map[string]any)
+				c, _ := change.(map[string]any)
 				val, _ := c["value"].(map[string]any)
-				msgs, _     := val["messages"].([]any)
+				msgs, _ := val["messages"].([]any)
 				contacts, _ := val["contacts"].([]any)
 
 				senderName := ""
@@ -214,10 +215,10 @@ func waInbound(db *core.DB) http.HandlerFunc {
 				}
 
 				for _, msg := range msgs {
-					m, _     := msg.(map[string]any)
+					m, _ := msg.(map[string]any)
 					fromPhone := str(m["from"])
-					msgType   := str(m["type"])
-					text      := ""
+					msgType := str(m["type"])
+					text := ""
 					if msgType == "text" {
 						if t, ok := m["text"].(map[string]any); ok {
 							text = str(t["body"])
@@ -234,9 +235,9 @@ func waInbound(db *core.DB) http.HandlerFunc {
 				// Delivery status callbacks for outbound campaign messages
 				statuses, _ := val["statuses"].([]any)
 				for _, statusEntry := range statuses {
-					s, _  := statusEntry.(map[string]any)
+					s, _ := statusEntry.(map[string]any)
 					msgID := str(s["id"])
-					st    := str(s["status"]) // "sent", "delivered", "read", "failed"
+					st := str(s["status"]) // "sent", "delivered", "read", "failed"
 					if msgID == "" {
 						continue
 					}

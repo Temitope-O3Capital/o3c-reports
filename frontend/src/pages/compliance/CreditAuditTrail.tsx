@@ -237,34 +237,6 @@ function PaginationBar({
 
 // ── CSV export helper ─────────────────────────────────────────────────────────
 
-function exportCsv(rows: ActivityEvent[]) {
-  const headers = ['ID', 'Timestamp', 'Module', 'Actor', 'Role', 'CIF', 'Action', 'Entity Type', 'Entity ID', 'Description']
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`
-  const lines = [
-    headers.join(','),
-    ...rows.map(r => [
-      r.id,
-      escape(new Date(r.ts).toLocaleString('en-NG')),
-      r.module,
-      escape(r.actor_name),
-      escape(r.actor_role),
-      r.account_cif ?? '',
-      r.action,
-      r.entity_type,
-      r.entity_id,
-      escape(r.description),
-    ].join(',')),
-  ]
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `credit-audit-trail_${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
 
 // ── Table cell styles ─────────────────────────────────────────────────────────
 
@@ -318,8 +290,8 @@ export default function CreditAuditTrail() {
   const [page,         setPage]         = useState(1)
   const [search,       setSearch]       = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setErr(null)
     const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) })
     if (dateFrom)       params.set('from', dateFrom)
@@ -341,7 +313,7 @@ export default function CreditAuditTrail() {
   }, [dateFrom, dateTo, filterModule, filterAction, filterActorId, filterCif, filterEntity, page])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   // Reset to page 1 when non-page filters change
   useEffect(() => {
@@ -392,19 +364,6 @@ export default function CreditAuditTrail() {
           }}>
             Regulatory View
           </span>
-          <button
-            onClick={() => exportCsv(displayed)}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '6px 13px', borderRadius: RADIUS.md,
-              border: '1.5px solid var(--bdr)', background: 'var(--card)',
-              color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold,
-              cursor: 'pointer',
-            }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>
-            Export CSV
-          </button>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
         </div>
       }

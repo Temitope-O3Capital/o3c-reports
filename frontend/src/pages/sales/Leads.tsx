@@ -8,6 +8,7 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, fmtDatetime, n } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { PRODUCT_LINES, PRODUCT_SUBS, productLabel, lineOfCode, lineColor } from '../../lib/products'
 
 // Lead capture and the lead queue.
 //
@@ -24,6 +25,7 @@ interface Lead {
   state: string; city: string
   employer: string; employer_name: string | null; occupation: string
   lead_stage: string; lead_source: string
+  product_interest: string | null
   lead_owner_id: number | null; owner_name: string | null
   estimated_value_kobo: number | null
   next_action_at: string | null
@@ -32,7 +34,10 @@ interface Lead {
   created_at: string
 }
 
-interface Funnel { counts: Record<string, number>; value_kobo: Record<string, number> }
+interface Funnel {
+  counts: Record<string, number>; value_kobo: Record<string, number>
+  product_mix?: Record<string, { count: number; value_kobo: number }>
+}
 interface Source { code: string; label: string }
 interface Officer { id: number; full_name: string; is_active: boolean }
 
@@ -46,6 +51,16 @@ const STAGES = [
 
 const stageColor = (s: string) => STAGES.find(x => x.key === s)?.color ?? '#6B7280'
 const stageLabel = (s: string) => STAGES.find(x => x.key === s)?.label ?? s
+
+// How old a lead is, compactly — a lead sitting for weeks is a signal on its own.
+function leadAge(iso: string): string {
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 864e5)
+  if (d <= 0) return 'today'
+  if (d === 1) return '1d old'
+  if (d < 30) return `${d}d old`
+  const m = Math.floor(d / 30)
+  return `${m}mo old`
+}
 
 function StagePill({ stage }: { stage: string }) {
   const c = stageColor(stage)
@@ -74,6 +89,7 @@ export default function SalesLeads() {
   const stage = params.get('stage') ?? ''
   const owner = params.get('owner_id') ?? ''
   const due = params.get('due') ?? ''
+  const line = params.get('line') ?? ''
   const [search, setSearch] = useState('')
 
   // New-lead form
@@ -82,12 +98,17 @@ export default function SalesLeads() {
   const [form, setForm] = useState({
     first_name: '', last_name: '', phone: '', email: '',
     state: '', city: '', occupation: '', employer: '',
-    lead_source: '', estimated_value: '', next_action_at: '', notes: '',
+    lead_source: '', product_interest: '', estimated_value: '', next_action_at: '', notes: '',
   })
   // Only the fields the create actually requires — a name, a way to reach them, and a
   // source — are shown up front. The other seven are enrichment and sit behind this
   // disclosure; they still submit if filled.
   const [moreOpen, setMoreOpen] = useState(false)
+
+  // Grouped-by-product view: fold the current page's leads into collapsible sections,
+  // one per product line (plus an "untagged" section), for a product-first read.
+  const [groupView, setGroupView] = useState(false)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
   // Stage / convert / disqualify
   const [acting, setActing] = useState<Lead | null>(null)
@@ -104,9 +125,10 @@ export default function SalesLeads() {
     if (stage) p.set('stage', stage)
     if (owner) p.set('owner_id', owner)
     if (due) p.set('due', due)
+    if (line) p.set('line', line)
     if (dq) p.set('q', dq)
     return p.toString()
-  }, [offset, stage, owner, due, dq])
+  }, [offset, stage, owner, due, line, dq])
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -127,7 +149,7 @@ export default function SalesLeads() {
   }, [query])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setOffset(0) }, [stage, owner, due, dq])
+  useEffect(() => { setOffset(0) }, [stage, owner, due, line, dq])
 
   async function createLead() {
     setSaving(true); setErr(null)
@@ -146,7 +168,7 @@ export default function SalesLeads() {
       setMoreOpen(false)
       setForm({
         first_name: '', last_name: '', phone: '', email: '', state: '', city: '',
-        occupation: '', employer: '', lead_source: '', estimated_value: '',
+        occupation: '', employer: '', lead_source: '', product_interest: '', estimated_value: '',
         next_action_at: '', notes: '',
       })
       if (res.data?.warning) setNotice(res.data.warning)
@@ -189,19 +211,50 @@ export default function SalesLeads() {
       key: 'first_name', label: 'Lead', sortable: true,
       render: r => (
         <div>
-          <div style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
             {[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}
           </div>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.phone || r.email}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+            {r.phone || r.email}{r.created_at ? <span style={{ color: 'var(--txt3)' }}> · {leadAge(r.created_at)}</span> : null}
+          </div>
         </div>
       ),
     },
-    { key: 'lead_stage', label: 'Stage', sortable: true, render: r => <StagePill stage={r.lead_stage} /> },
+    {
+      key: 'lead_stage', label: 'Stage', sortable: true,
+      render: r => {
+        const open = ['new', 'contacted', 'qualified'].includes(r.lead_stage)
+        const since = r.last_activity_at || r.created_at
+        const idle = open && since ? Math.floor((Date.now() - new Date(since).getTime()) / 864e5) : -1
+        const c = idle > 14 ? RED : idle > 7 ? AMBER : GREEN
+        return (
+          <div>
+            <StagePill stage={r.lead_stage} />
+            {idle >= 0 && (
+              <div style={{ fontSize: TEXT['2xs'], color: c, marginTop: 3, fontWeight: FW.semibold }}>
+                {idle <= 0 ? 'active today' : `idle ${idle}d`}
+              </div>
+            )}
+          </div>
+        )
+      },
+    },
     {
       key: 'lead_source', label: 'Source', sortable: true,
       render: r => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>
         {sources.find(s => s.code === r.lead_source)?.label ?? r.lead_source ?? '—'}
       </span>,
+    },
+    {
+      key: 'product_interest', label: 'Product', sortable: true,
+      render: r => {
+        if (!r.product_interest) return <span style={{ color: 'var(--txt3)' }}>—</span>
+        const c = lineColor(lineOfCode(r.product_interest))
+        return <span style={{
+          fontSize: TEXT.xs, fontWeight: FW.semibold, padding: `2px ${SP[2]}`,
+          borderRadius: RADIUS['2xl'], background: `${c}1A`, color: c, whiteSpace: 'nowrap',
+        }}>{productLabel(r.product_interest)}</span>
+      },
     },
     {
       key: 'owner_name', label: 'Owner', sortable: true,
@@ -250,9 +303,22 @@ export default function SalesLeads() {
   return (
     <Page
       title="Leads"
-      subtitle="Capture, qualify and convert — from Business Development, campaigns, the call centre or your own prospecting"
+      subtitle="Capture, qualify and convert: from Business Development, campaigns, the call centre or your own prospecting"
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={() => setGroupView(v => !v)}
+            title="Group leads into collapsible sections by product line"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: RADIUS.md,
+              fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+              border: `1px solid ${groupView ? NAVY : 'var(--bdr)'}`,
+              background: groupView ? `${NAVY}12` : 'var(--card)', color: groupView ? NAVY : 'var(--txt2)',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{groupView ? 'view_list' : 'category'}</span>
+            {groupView ? 'Flat list' : 'By product'}
+          </button>
           <input
             placeholder="Search name, phone, email…"
             defaultValue={search}
@@ -286,6 +352,40 @@ export default function SalesLeads() {
           icon="payments" accent={AMBER} loading={loading} />
       </div>
 
+      {/* Conversion funnel — how leads narrow from new to converted */}
+      <SectionCard title="Conversion funnel" subtitle="Progression from new to converted, with step conversion" style={{ marginBottom: SP[4] }}>
+        {(() => {
+          const steps = [
+            { key: 'new',       label: 'New',       color: '#6B7280' },
+            { key: 'contacted', label: 'Contacted', color: BLUE },
+            { key: 'qualified', label: 'Qualified', color: '#7C3AED' },
+            { key: 'converted', label: 'Converted', color: GREEN },
+          ]
+          const vals = steps.map(s => n(funnel?.counts?.[s.key]))
+          const max = Math.max(1, ...vals)
+          const top = vals[0] || 0
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {steps.map((s, i) => {
+                const v = vals[i]
+                const w = Math.max(2, (v / max) * 100)
+                const conv = top > 0 ? Math.round((v / top) * 100) : 0
+                return (
+                  <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ width: 84, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', flexShrink: 0 }}>{s.label}</span>
+                    <div style={{ flex: 1, height: 22, background: 'var(--th-bg)', borderRadius: RADIUS.md, overflow: 'hidden', position: 'relative' }}>
+                      <div style={{ width: `${w}%`, height: '100%', background: s.color, borderRadius: RADIUS.md, transition: 'width .4s', opacity: 0.92 }} />
+                      <span style={{ position: 'absolute', left: 10, top: 0, height: '100%', display: 'flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{fmtNum(v)}</span>
+                    </div>
+                    <span style={{ width: 46, textAlign: 'right', fontSize: TEXT.xs, ...NUM, color: 'var(--txt3)', flexShrink: 0 }}>{i === 0 ? '100%' : `${conv}%`}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
+      </SectionCard>
+
       {/* Stage filter strip — doubles as the funnel */}
       <div style={{ display: 'flex', gap: 8, marginBottom: SP[4], flexWrap: 'wrap' }}>
         <FilterChip label="All" active={!stage && !due} count={undefined}
@@ -308,35 +408,90 @@ export default function SalesLeads() {
             due === '1' ? p.delete('due') : p.set('due', '1')
             setParams(p)
           }} />
+
+        {/* Product-line filter — vertical rule then the three lines */}
+        <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--bdr)', margin: '2px 4px' }} />
+        {PRODUCT_LINES.map(pl => (
+          <FilterChip
+            key={pl.line} label={pl.label} color={pl.color}
+            count={funnel?.product_mix?.[pl.line]?.count}
+            active={line === pl.line}
+            onClick={() => {
+              const p = new URLSearchParams(params)
+              line === pl.line ? p.delete('line') : p.set('line', pl.line)
+              setParams(p)
+            }}
+          />
+        ))}
       </div>
 
-      <SectionCard
-        title="Lead queue"
-        subtitle={loading ? undefined : `${fmtNum(total)} lead${total === 1 ? '' : 's'}`}
-        padding={false}
-      >
-        <DataTable<Lead>
-          cols={cols}
-          rows={leads}
-          loading={loading}
-          skeletonRows={8}
-          emptyText="No leads match — create one with New Lead"
-          keyFn={r => r.id}
-        />
-        {total > PAGE_SIZE && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `${SP[3]} ${SP[4]}`, borderTop: '1px solid var(--bdr)' }}>
-            <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>
-              Page {Math.floor(offset / PAGE_SIZE) + 1} of {Math.ceil(total / PAGE_SIZE)}
-            </span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Button variant="secondary" size="sm" disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</Button>
-              <Button variant="secondary" size="sm" disabled={offset + PAGE_SIZE >= total}
-                onClick={() => setOffset(offset + PAGE_SIZE)}>Next</Button>
+      {groupView ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
+          {[...PRODUCT_LINES.map(pl => ({ key: pl.line as string, label: pl.label, color: pl.color })), { key: '', label: 'Untagged', color: '#9CA3AF' }].map(g => {
+            const groupLeads = leads.filter(l => (lineOfCode(l.product_interest) || '') === g.key)
+            const openCount = g.key ? funnel?.product_mix?.[g.key]?.count : undefined
+            if (groupLeads.length === 0 && !openCount) return null
+            const id = g.key || 'untagged'
+            const open = !collapsed.has(id)
+            return (
+              <div key={id} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, overflow: 'hidden' }}>
+                <button
+                  onClick={() => setCollapsed(c => { const nx = new Set(c); nx.has(id) ? nx.delete(id) : nx.add(id); return nx })}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'transparent', border: 'none', borderBottom: open ? '1px solid var(--bdr)' : 'none', cursor: 'pointer', textAlign: 'left' }}
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt3)' }}>{open ? 'expand_more' : 'chevron_right'}</span>
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: g.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>{g.label}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                    {groupLeads.length} shown{openCount != null ? ` · ${fmtNum(openCount)} open` : ''}
+                  </span>
+                </button>
+                {open && (groupLeads.length > 0
+                  ? <DataTable<Lead> cols={cols} rows={groupLeads} keyFn={r => r.id} />
+                  : <div style={{ padding: '18px 16px', color: 'var(--txt3)', fontSize: TEXT.sm }}>No {g.label.toLowerCase()} leads on this page — use the {g.label} filter chip above to load them.</div>
+                )}
+              </div>
+            )
+          })}
+          {total > PAGE_SIZE && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `${SP[2]} ${SP[1]}` }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Page {Math.floor(offset / PAGE_SIZE) + 1} of {Math.ceil(total / PAGE_SIZE)} · grouping this page</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button variant="secondary" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</Button>
+                <Button variant="secondary" size="sm" disabled={offset + PAGE_SIZE >= total} onClick={() => setOffset(offset + PAGE_SIZE)}>Next</Button>
+              </div>
             </div>
-          </div>
-        )}
-      </SectionCard>
+          )}
+        </div>
+      ) : (
+        <SectionCard
+          title="Lead queue"
+          subtitle={loading ? undefined : `${fmtNum(total)} lead${total === 1 ? '' : 's'}`}
+          padding={false}
+        >
+          <DataTable<Lead>
+            cols={cols}
+            rows={leads}
+            loading={loading}
+            skeletonRows={8}
+            emptyText="No leads match. Create one with New Lead"
+            keyFn={r => r.id}
+          />
+          {total > PAGE_SIZE && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `${SP[3]} ${SP[4]}`, borderTop: '1px solid var(--bdr)' }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>
+                Page {Math.floor(offset / PAGE_SIZE) + 1} of {Math.ceil(total / PAGE_SIZE)}
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button variant="secondary" size="sm" disabled={offset === 0}
+                  onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</Button>
+                <Button variant="secondary" size="sm" disabled={offset + PAGE_SIZE >= total}
+                  onClick={() => setOffset(offset + PAGE_SIZE)}>Next</Button>
+              </div>
+            </div>
+          )}
+        </SectionCard>
+      )}
 
       {/* New lead */}
       <Modal
@@ -358,6 +513,16 @@ export default function SalesLeads() {
           <Select label="Lead source" value={form.lead_source} onChange={e => setForm({ ...form, lead_source: e.target.value })}>
             <option value="">Choose a source…</option>
             {sources.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+          </Select>
+          <Select label="Product interest" value={form.product_interest} onChange={e => setForm({ ...form, product_interest: e.target.value })}>
+            <option value="">Which product…</option>
+            {PRODUCT_LINES.map(pl => (
+              <optgroup key={pl.line} label={pl.label}>
+                {PRODUCT_SUBS.filter(s => s.line === pl.line).map(s => (
+                  <option key={s.code} value={s.code}>{s.label}</option>
+                ))}
+              </optgroup>
+            ))}
           </Select>
           <button
             type="button"
@@ -397,7 +562,7 @@ export default function SalesLeads() {
           </>)}
 
           <p style={{ gridColumn: '1 / -1', fontSize: TEXT.xs, color: 'var(--txt3)', margin: 0, lineHeight: 1.5 }}>
-            A phone or email is required — a lead with no way to reach it is not a lead — and
+            A phone or email is required, a lead with no way to reach it is not a lead, and
             the source is required so origination can be credited. The lead is assigned to you.
           </p>
         </div>
@@ -470,7 +635,7 @@ export default function SalesLeads() {
             )}
 
             {action === 'disqualify' && (
-              <Field label="Reason" hint="Required — it is what makes the source conversion rates meaningful">
+              <Field label="Reason" hint="Required: it is what makes the source conversion rates meaningful">
                 <textarea
                   value={actionNote} onChange={e => setActionNote(e.target.value)} rows={3}
                   placeholder="e.g. Not eligible, no longer interested, duplicate"

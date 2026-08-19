@@ -14,7 +14,6 @@ func RegisterTransactions(r chi.Router, db *core.DB) {
 	r.Get("/monthly-trend", txnMonthlyTrend(db))
 	r.Get("/top-merchants", txnTopMerchants(db))
 	r.Get("/by-type", txnByType(db))
-	r.Get("/export", txnExport(db))
 }
 
 func txnKPIs(db *core.DB) http.HandlerFunc {
@@ -142,33 +141,5 @@ func txnByType(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, data, src)
-	}
-}
-
-func txnExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		dateFrom, err := validDate(r, "date_from")
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
-		dateTo, err := validDate(r, "date_to")
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
-		var f Filter
-		f.Date("Transaction_Date", "txn_date", dateFrom, dateTo)
-		data, _, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT txn_date AS "Transaction Date", cif AS "CIF Number", merchant_name AS "Merchant_Name", description AS "Description", amount AS "Amount"
-			  FROM app.transactions WHERE 1=1%s ORDER BY txn_date DESC LIMIT 5000`, f.PG()),
-			f.Args()...)
-		if err != nil {
-			respondErr(w, 500, "Export failed")
-			return
-		}
-		name := fmt.Sprintf("transactions_%s_%s.csv",
-			coalesce(dateFrom, "all"), coalesce(dateTo, "all"))
-		streamCSV(w, name, data)
 	}
 }

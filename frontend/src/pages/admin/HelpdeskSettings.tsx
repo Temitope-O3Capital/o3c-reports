@@ -181,8 +181,8 @@ export default function HelpdeskSettings() {
   const [slaForm, setSlaForm] = useState<{ first_response_hours: number; resolution_hours: number }>({ first_response_hours: 0, resolution_hours: 0 })
   const [slaSaving, setSlaSaving] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<RoutingRule[]>('/api/helpdesk/routing-rules')
@@ -221,7 +221,7 @@ export default function HelpdeskSettings() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   useEffect(() => {
     if (activeTab === 'scripts') loadScripts()
@@ -447,7 +447,7 @@ export default function HelpdeskSettings() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' }}>
                         <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{matchSummary(rule)}</span>
-                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 8px', borderRadius: RADIUS.lg, background: `${NAVY}12`, color: NAVY }}>→ {rule.queue}</span>
+                        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 8px', borderRadius: RADIUS.lg, background: `${NAVY}12`, color: NAVY }}>to {rule.queue}</span>
                         {!rule.is_active && <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.lg, background: 'rgba(75,85,99,.12)', color: '#6B7280' }}>Inactive</span>}
                       </div>
                       <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginTop: 3 }}>Routes matching tickets to the <strong>{rule.queue}</strong> queue</div>
@@ -610,7 +610,7 @@ export default function HelpdeskSettings() {
       <ConfirmModal
         open={!!deleteRule}
         title="Delete Routing Rule"
-        body={`Delete this routing rule (→ ${deleteRule?.queue})? This cannot be undone.`}
+        body={`Delete this routing rule (to ${deleteRule?.queue})? This cannot be undone.`}
         confirmLabel="Delete"
         loading={deleting}
         onConfirm={handleDelete}

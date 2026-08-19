@@ -51,10 +51,10 @@ func bdListEmployers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		search := qstr(r, "search")
 		sector := qstr(r, "sector")
-		mou    := qstr(r, "mou_status")
-		from   := qstr(r, "from")
-		to     := qstr(r, "to")
-		limit  := qint(r, "limit", 100, 1, 500)
+		mou := qstr(r, "mou_status")
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+		limit := qint(r, "limit", 100, 1, 500)
 
 		q := `SELECT e.id, e.name, e.sector, e.staff_count,
 		             e.monthly_payroll_kobo, e.credit_limit_kobo,
@@ -86,11 +86,13 @@ func bdListEmployers(db *core.DB) http.HandlerFunc {
 		}
 		if from != "" {
 			q += fmt.Sprintf(" AND e.created_at::date >= $%d::date", n)
-			args = append(args, from); n++
+			args = append(args, from)
+			n++
 		}
 		if to != "" {
 			q += fmt.Sprintf(" AND e.created_at::date <= $%d::date", n)
-			args = append(args, to); n++
+			args = append(args, to)
+			n++
 		}
 		q += " GROUP BY e.id"
 		args = append(args, limit)
@@ -387,11 +389,13 @@ func bdListLeads(db *core.DB) http.HandlerFunc {
 		}
 		if from := qstr(r, "from"); from != "" {
 			q += fmt.Sprintf(" AND c.created_at::date >= $%d::date", n)
-			args = append(args, from); n++
+			args = append(args, from)
+			n++
 		}
 		if to := qstr(r, "to"); to != "" {
 			q += fmt.Sprintf(" AND c.created_at::date <= $%d::date", n)
-			args = append(args, to); n++
+			args = append(args, to)
+			n++
 		}
 		args = append(args, limit)
 		q += fmt.Sprintf(" ORDER BY c.updated_at DESC LIMIT $%d", n)
@@ -633,7 +637,7 @@ func bdStats(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 
 		pipeline, _ := db.PGQuery(ctx, `
 			SELECT stage,
@@ -866,7 +870,8 @@ func bdListStaff(db *core.DB) http.HandlerFunc {
 			WHERE employer_id = $1
 			ORDER BY full_name`, employerID)
 		if err != nil {
-			respondErr(w, 500, err.Error()); return
+			respondErr(w, 500, err.Error())
+			return
 		}
 		respond(w, rows, "staff")
 	}
@@ -883,10 +888,12 @@ func bdAddStaff(db *core.DB) http.HandlerFunc {
 			Email      *string `json:"email"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "invalid JSON"); return
+			respondErr(w, 400, "invalid JSON")
+			return
 		}
 		if b.FullName == "" {
-			respondErr(w, 422, "full_name is required"); return
+			respondErr(w, 422, "full_name is required")
+			return
 		}
 		userID := core.UserFromCtx(r.Context()).ID
 		rows, err := db.PGQuery(r.Context(), `
@@ -895,10 +902,12 @@ func bdAddStaff(db *core.DB) http.HandlerFunc {
 			RETURNING id, employer_id, full_name, job_title, department, phone, email, created_at`,
 			employerID, b.FullName, b.JobTitle, b.Department, b.Phone, b.Email, userID)
 		if err != nil {
-			respondErr(w, 500, err.Error()); return
+			respondErr(w, 500, err.Error())
+			return
 		}
 		if len(rows) == 0 {
-			respondErr(w, 500, "insert returned no row"); return
+			respondErr(w, 500, "insert returned no row")
+			return
 		}
 		// Keep employer.staff_count in sync
 		db.PGExec(r.Context(), `UPDATE employers SET staff_count = (SELECT COUNT(*) FROM employer_staff WHERE employer_id=$1) WHERE id=$1`, employerID) //nolint:errcheck
@@ -910,11 +919,13 @@ func bdImportStaff(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		employerID := chi.URLParam(r, "id")
 		if err := r.ParseMultipartForm(4 << 20); err != nil {
-			respondErr(w, 400, "multipart parse error"); return
+			respondErr(w, 400, "multipart parse error")
+			return
 		}
 		f, _, err := r.FormFile("file")
 		if err != nil {
-			respondErr(w, 400, "file field required"); return
+			respondErr(w, 400, "file field required")
+			return
 		}
 		defer f.Close()
 
@@ -923,25 +934,40 @@ func bdImportStaff(db *core.DB) http.HandlerFunc {
 		rdr.TrimLeadingSpace = true
 		records, err := rdr.ReadAll()
 		if err != nil {
-			respondErr(w, 400, "CSV parse error: "+err.Error()); return
+			respondErr(w, 400, "CSV parse error: "+err.Error())
+			return
 		}
 
 		imported, skipped := 0, 0
 		ctx := r.Context()
 		for i, rec := range records {
-			if i == 0 { continue } // skip header
+			if i == 0 {
+				continue
+			} // skip header
 			col := func(idx int) string {
-				if idx < len(rec) { return strings.TrimSpace(rec[idx]) }
+				if idx < len(rec) {
+					return strings.TrimSpace(rec[idx])
+				}
 				return ""
 			}
 			fullName := col(0)
-			if fullName == "" { skipped++; continue }
-			jobTitle := col(1); dept := col(2); phone := col(3); email := col(4)
+			if fullName == "" {
+				skipped++
+				continue
+			}
+			jobTitle := col(1)
+			dept := col(2)
+			phone := col(3)
+			email := col(4)
 			_, dbErr := db.PGExec(ctx, `
 				INSERT INTO employer_staff (employer_id, full_name, job_title, department, phone, email, created_by)
 				VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 				employerID, fullName, nullStr(jobTitle), nullStr(dept), nullStr(phone), nullStr(email), userID)
-			if dbErr != nil { skipped++ } else { imported++ }
+			if dbErr != nil {
+				skipped++
+			} else {
+				imported++
+			}
 		}
 		db.PGExec(ctx, `UPDATE employers SET staff_count = (SELECT COUNT(*) FROM employer_staff WHERE employer_id=$1) WHERE id=$1`, employerID) //nolint:errcheck
 		w.Header().Set("Content-Type", "application/json")
@@ -955,7 +981,8 @@ func bdDeleteStaff(db *core.DB) http.HandlerFunc {
 		staffID := chi.URLParam(r, "staff_id")
 		_, err := db.PGExec(r.Context(), `DELETE FROM employer_staff WHERE id=$1 AND employer_id=$2`, staffID, employerID)
 		if err != nil {
-			respondErr(w, 500, err.Error()); return
+			respondErr(w, 500, err.Error())
+			return
 		}
 		db.PGExec(r.Context(), `UPDATE employers SET staff_count = (SELECT COUNT(*) FROM employer_staff WHERE employer_id=$1) WHERE id=$1`, employerID) //nolint:errcheck
 		w.WriteHeader(http.StatusNoContent)
@@ -974,16 +1001,20 @@ func bdAssignToSales(db *core.DB) http.HandlerFunc {
 			Notes          *string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "invalid JSON"); return
+			respondErr(w, 400, "invalid JSON")
+			return
 		}
 		if b.SalesAgentID == 0 {
-			respondErr(w, 422, "sales_agent_id is required"); return
+			respondErr(w, 422, "sales_agent_id is required")
+			return
 		}
 		if b.AssignmentType != "full_company" && b.AssignmentType != "specific_staff" {
-			respondErr(w, 422, "assignment_type must be full_company or specific_staff"); return
+			respondErr(w, 422, "assignment_type must be full_company or specific_staff")
+			return
 		}
 		if b.AssignmentType == "specific_staff" && len(b.StaffIDs) == 0 {
-			respondErr(w, 422, "staff_ids required for specific_staff assignment"); return
+			respondErr(w, 422, "staff_ids required for specific_staff assignment")
+			return
 		}
 
 		bdOfficerID := core.UserFromCtx(r.Context()).ID
@@ -1007,7 +1038,8 @@ func bdAssignToSales(db *core.DB) http.HandlerFunc {
 			RETURNING id`,
 			employerID, bdOfficerID, b.SalesAgentID, b.AssignmentType, staffCount, b.Notes)
 		if err != nil {
-			respondErr(w, 500, err.Error()); return
+			respondErr(w, 500, err.Error())
+			return
 		}
 		assignmentID := toInt64(aRows[0]["id"])
 
@@ -1034,8 +1066,11 @@ func bdAssignToSales(db *core.DB) http.HandlerFunc {
 		for _, s := range staffRows {
 			name := str(s["full_name"])
 			parts := strings.SplitN(name, " ", 2)
-			firstName := parts[0]; lastName := ""
-			if len(parts) > 1 { lastName = parts[1] }
+			firstName := parts[0]
+			lastName := ""
+			if len(parts) > 1 {
+				lastName = parts[1]
+			}
 			_, cErr := db.PGExec(ctx, `
 				INSERT INTO crm_contacts
 					(first_name, last_name, phone, email, source, source_type, bd_assignment_id, employer_id, assigned_to, status, created_by)
@@ -1043,7 +1078,9 @@ func bdAssignToSales(db *core.DB) http.HandlerFunc {
 				ON CONFLICT DO NOTHING`,
 				firstName, lastName, s["phone"], s["email"],
 				assignmentID, employerID, b.SalesAgentID, bdOfficerID)
-			if cErr == nil { contactsCreated++ }
+			if cErr == nil {
+				contactsCreated++
+			}
 		}
 
 		respond(w, map[string]any{
@@ -1077,7 +1114,8 @@ func bdListAssignments(db *core.DB) http.HandlerFunc {
 			GROUP BY a.id, e.name, bo.full_name, u.full_name
 			ORDER BY a.assigned_at DESC`, bdOfficerID)
 		if err != nil {
-			respondErr(w, 500, err.Error()); return
+			respondErr(w, 500, err.Error())
+			return
 		}
 		respond(w, rows, "assignments")
 	}
@@ -1093,7 +1131,8 @@ func bdGetAssignment(db *core.DB) http.HandlerFunc {
 			JOIN o3c_users u ON u.id = a.sales_agent_id
 			WHERE a.id = $1`, id)
 		if err != nil || len(aRows) == 0 {
-			respondErr(w, 404, "assignment not found"); return
+			respondErr(w, 404, "assignment not found")
+			return
 		}
 		contacts, _ := db.PGQuery(r.Context(), `
 			SELECT c.id, c.first_name, c.last_name, c.phone, c.email, c.status,
@@ -1120,18 +1159,24 @@ func bdUpdateAssignment(db *core.DB) http.HandlerFunc {
 			Notes  *string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "invalid JSON"); return
+			respondErr(w, 400, "invalid JSON")
+			return
 		}
 		q := "UPDATE bd_assignments SET updated_at=NOW()"
 		args := []any{}
 		n := 1
 		add := func(col string, v any) { q += fmt.Sprintf(", %s=$%d", col, n); args = append(args, v); n++ }
-		if b.Status != nil { add("status", *b.Status) }
-		if b.Notes != nil  { add("notes", *b.Notes) }
+		if b.Status != nil {
+			add("status", *b.Status)
+		}
+		if b.Notes != nil {
+			add("notes", *b.Notes)
+		}
 		q += fmt.Sprintf(" WHERE id=$%d", n)
 		args = append(args, id)
 		if _, err := db.PGExec(r.Context(), q, args...); err != nil {
-			respondErr(w, 500, err.Error()); return
+			respondErr(w, 500, err.Error())
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -1359,7 +1404,9 @@ func bdMyDashboard(db *core.DB) http.HandlerFunc {
 
 		// ── Defaults ─────────────────────────────────────────────────────────
 		empKPI := map[string]any{"employers_managed": 0, "mou_signed": 0, "mou_expiring_soon": 0}
-		if len(empRows) > 0 { empKPI = empRows[0] }
+		if len(empRows) > 0 {
+			empKPI = empRows[0]
+		}
 
 		asgKPI := map[string]any{
 			"staff_referred_mtd": 0, "conversions_mtd": 0,
@@ -1367,19 +1414,35 @@ func bdMyDashboard(db *core.DB) http.HandlerFunc {
 			"total_staff_referred": 0, "total_crm_contacts": 0, "total_converted": 0,
 			"mtd_crm_contacts": 0, "mtd_converted": 0,
 		}
-		if len(asgRows) > 0 { asgKPI = asgRows[0] }
+		if len(asgRows) > 0 {
+			asgKPI = asgRows[0]
+		}
 
 		actKPI := map[string]any{"calls_made_mtd": 0, "meetings_mtd": 0, "calls_lm": 0, "meetings_lm": 0}
-		if len(actRows) > 0 { actKPI = actRows[0] }
+		if len(actRows) > 0 {
+			actKPI = actRows[0]
+		}
 
 		funnelRow := map[string]any{"applications": 0, "mtd_applications": 0}
-		if len(funnelRows) > 0 { funnelRow = funnelRows[0] }
+		if len(funnelRows) > 0 {
+			funnelRow = funnelRows[0]
+		}
 
-		if mouExpiring == nil       { mouExpiring = []map[string]any{} }
-		if stale == nil             { stale = []map[string]any{} }
-		if dormant == nil           { dormant = []map[string]any{} }
-		if employers == nil         { employers = []map[string]any{} }
-		if recentAssignments == nil { recentAssignments = []map[string]any{} }
+		if mouExpiring == nil {
+			mouExpiring = []map[string]any{}
+		}
+		if stale == nil {
+			stale = []map[string]any{}
+		}
+		if dormant == nil {
+			dormant = []map[string]any{}
+		}
+		if employers == nil {
+			employers = []map[string]any{}
+		}
+		if recentAssignments == nil {
+			recentAssignments = []map[string]any{}
+		}
 
 		respond(w, map[string]any{
 			"kpis": map[string]any{
@@ -1425,4 +1488,3 @@ func bdMyDashboard(db *core.DB) http.HandlerFunc {
 		}, "my_dashboard")
 	}
 }
-

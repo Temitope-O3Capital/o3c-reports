@@ -397,8 +397,8 @@ export default function RepaymentPlans() {
 
   const fStatusKey = [...fStatus].join(',')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     const p = new URLSearchParams({ limit: '100' })
     if (fStatusKey) p.set('status', fStatusKey)
@@ -426,7 +426,7 @@ export default function RepaymentPlans() {
   }, [fStatusKey, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   const displayed = useMemo(() => {
     if (!search.trim()) return rows

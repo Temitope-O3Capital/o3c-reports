@@ -99,12 +99,12 @@ function EvidenceCard({ ev, onDelete }: { ev: Evidence; onDelete: (id: number) =
         </div>
         {ev.description && <p style={{ fontSize: TEXT.sm, color: 'var(--txt-muted)', margin: '4px 0', lineHeight: 1.5 }}>{ev.description}</p>}
         {ev.code_reference && (
-          <div style={{ fontSize: TEXT.xs, fontFamily: 'monospace', color: BLUE, marginTop: SP[1] }}>📎 {ev.code_reference}</div>
+          <div style={{ fontSize: TEXT.xs, fontFamily: 'monospace', color: BLUE, marginTop: SP[1] }}>{ev.code_reference}</div>
         )}
         {ev.file_url && (
           <a href={ev.file_url} target="_blank" rel="noreferrer"
             style={{ fontSize: TEXT.xs, color: BLUE, marginTop: SP[1], display: 'block' }}>
-            🔗 Open file
+            Open file
           </a>
         )}
         <div style={{ fontSize: TEXT.xs, color: 'var(--txt-muted)', marginTop: 6 }}>
@@ -148,8 +148,8 @@ export default function SOC2ControlDetail() {
   const [evValidTo,  setEvValidTo]  = useState('')
   const [savingEv,   setSavingEv]   = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch<{ control: SOC2Control; evidence: Evidence[] }>(`/api/compliance/soc2/controls/${id}`)
       setControl(res.control)
@@ -163,7 +163,7 @@ export default function SOC2ControlDetail() {
   }, [id])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   async function handleSave() {
     setSaving(true)
@@ -214,7 +214,7 @@ export default function SOC2ControlDetail() {
       {/* breadcrumb */}
       <button onClick={() => navigate('/compliance/soc2')}
         style={{ fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: SP[4], display: 'block' }}>
-        ← SOC 2 Readiness
+        SOC 2 Readiness
       </button>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[5], alignItems: 'start' }}>

@@ -373,7 +373,7 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
           <>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `9px ${SP[4]}`, background: NAVY, flexShrink: 0 }}>
               <span style={{ color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: INTER }}>
-                {customer?.name} — {typeLabel}
+                {customer?.name}: {typeLabel}
               </span>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button
@@ -630,8 +630,8 @@ function HistoryTab() {
   const [search,  setSearch]  = useState('')
   const [limit,   setLimit]   = useState(100)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<SentEmail[]>(`/api/statements/emails?limit=${limit}`)
@@ -644,7 +644,7 @@ function HistoryTab() {
   }, [limit])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   const filtered = useMemo(() => {
     if (!search) return rows
@@ -695,7 +695,7 @@ function HistoryTab() {
             style={{ padding: `5px ${SP[2]}`, borderRadius: 7, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }}>
             {[100, 250, 500, 1000].map(n => <option key={n} value={n}>Last {n}</option>)}
           </select>
-          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.sm, fontFamily: INTER }}>
+          <button onClick={() => load()} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.sm, fontFamily: INTER }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>refresh</span>
           </button>
         </div>
@@ -731,7 +731,7 @@ export default function Statements() {
   ]
 
   return (
-    <Page title="Statement Delivery" subtitle="Send account statement PDFs to customers — individually or in bulk">
+    <Page title="Statement Delivery" subtitle="Send account statement PDFs to customers: individually or in bulk">
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
       <div style={{ marginTop: SP[5] }}>
         {tab === 'single'  && <SingleSendTab onSent={() => setTab('history')} />}

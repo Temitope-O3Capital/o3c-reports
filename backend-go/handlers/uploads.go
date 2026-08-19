@@ -21,16 +21,19 @@ func uploadAuditLog(db *core.DB) http.HandlerFunc {
 		n := 1
 		if v := qstr(r, "report_type"); v != "" {
 			where += fmt.Sprintf(" AND a.report_type=$%d", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 		// L1: optional date-range filter on uploaded_at.
 		if v := qstr(r, "from"); v != "" {
 			where += fmt.Sprintf(" AND a.uploaded_at >= $%d::timestamptz", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "to"); v != "" {
 			where += fmt.Sprintf(" AND a.uploaded_at <= $%d::timestamptz", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 		args = append(args, limit)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -43,7 +46,8 @@ func uploadAuditLog(db *core.DB) http.HandlerFunc {
 			WHERE %s
 			ORDER BY a.uploaded_at DESC LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}

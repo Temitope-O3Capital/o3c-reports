@@ -14,7 +14,8 @@ import (
 // Falls back to the built-in raw PDF generator if Chrome is not installed.
 //
 // To enable on Railway, install Chromium in the build environment:
-//   apt-get install -y chromium-browser
+//
+//	apt-get install -y chromium-browser
 var chromePaths = []string{
 	// Linux (Railway / Docker)
 	"google-chrome", "google-chrome-stable",

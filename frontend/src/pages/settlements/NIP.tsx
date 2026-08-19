@@ -232,8 +232,8 @@ export default function NIPReconciliation() {
   const [checkedIds, setCheckedIds] = useState<Set<string | number>>(new Set())
   const [resolveRow, setResolveRow] = useState<NIPRow | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const p = new URLSearchParams()
@@ -251,7 +251,7 @@ export default function NIPReconciliation() {
   }, [dateFilter, fStatuses])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['settlement_exceptions'] })
+  useLiveData(() => load(true), { topics: ['settlement_exceptions'] })
 
   // Sort: Exception → Unmatched → Matched, then value_date desc within groups
   const sorted = useMemo(() => {
@@ -270,23 +270,6 @@ export default function NIPReconciliation() {
     })
   }, [rows, search])
 
-  function handleExportExceptions() {
-    const header = ['NIP Ref', 'Amount NGN', 'Value Date', 'Customer', 'Core Banking Credited', 'Match Status', 'Exception Type']
-    const lines = sorted.map(r => [
-      r.nip_ref ?? '',
-      (r.amount_kobo / 100).toFixed(2),
-      r.value_date ?? '',
-      `"${String(r.customer_name ?? '').replace(/"/g, '""')}"`,
-      r.core_banking_credited ? 'Yes' : 'No',
-      r.match_status ?? '',
-      r.exception_type ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `nip-records-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   async function handleMarkResolved() {
     const ids = Array.from(checkedIds)
@@ -353,9 +336,6 @@ export default function NIPReconciliation() {
   const bulkBar = checkedIds.size > 0 ? (
     <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
       <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{checkedIds.size} selected</span>
-      <button onClick={handleExportExceptions} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
-        Export Exceptions
-      </button>
       <button onClick={handleMarkResolved} style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: '#0E2841', color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
         Mark Resolved
       </button>
@@ -372,7 +352,7 @@ export default function NIPReconciliation() {
 
       <NipKpis rows={rows} />
 
-      <SectionCard title="NIP Entries" badge={sorted.length} padding={false} actions={<button onClick={handleExportExceptions} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="NIP Entries" badge={sorted.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}

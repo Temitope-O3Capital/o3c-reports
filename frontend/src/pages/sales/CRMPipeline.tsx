@@ -10,6 +10,7 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtDatetime } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { PRODUCT_LINES, PRODUCT_SUBS, productLabel } from '../../lib/products'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -152,7 +153,7 @@ function CreateDealModal({
           <input
             value={title}
             onChange={e => setTitle(e.target.value)}
-            placeholder="e.g. ACME Corp — Business Loan"
+            placeholder="e.g. ACME Corp: Business Loan"
             required
             style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38, fontSize: TEXT.base }}
           />
@@ -186,12 +187,20 @@ function CreateDealModal({
           </div>
           <div>
             <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Product</label>
-            <input
+            <select
               value={product}
               onChange={e => setProduct(e.target.value)}
-              placeholder="e.g. Business Loan"
               style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38 }}
-            />
+            >
+              <option value="">— Select product —</option>
+              {PRODUCT_LINES.map(pl => (
+                <optgroup key={pl.line} label={pl.label}>
+                  {PRODUCT_SUBS.filter(s => s.line === pl.line).map(s => (
+                    <option key={s.code} value={s.code}>{s.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -277,8 +286,8 @@ export default function CRMPipeline() {
   // A pipeline is a snapshot of what is open right now; a created-date window is the
   // wrong question to ask of it. Period comparisons belong on closed/won reporting,
   // which lives in Reports.
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const [p, d, us] = await Promise.all([
         apiFetch<PipelineResponse>('/api/crm/pipeline'),
@@ -341,26 +350,9 @@ export default function CRMPipeline() {
     finally { setAssignSaving(false) }
   }
 
-  function exportDealsCsv(data: Deal[]) {
-    const header = ['Deal', 'Contact', 'Stage', 'Est. Value', 'Owner', 'Close Date', 'Last Activity']
-    const lines = data.map(r => [
-      `"${String(r.title ?? '').replace(/"/g, '""')}"`,
-      `"${`${r.first_name ?? ''} ${r.last_name ?? ''}`.trim().replace(/"/g, '""')}"`,
-      `"${String(r.stage_name ?? '').replace(/"/g, '""')}"`,
-      r.expected_value ?? '',
-      `"${String(r.assigned_name ?? '').replace(/"/g, '""')}"`,
-      r.expected_close_date ?? '',
-      r.updated_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `deals-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   const moveDeal = useCallback(async (dealId: number, targetStageId: number) => {
     try {
@@ -430,7 +422,7 @@ export default function CRMPipeline() {
 
   return (
     <Page
-      title="CRM Pipeline"
+      title="Sales Pipeline"
       subtitle="Deal management and sales pipeline"
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -505,8 +497,6 @@ export default function CRMPipeline() {
             onSelect={setBulkSel}
             bulkBar={
               <>
-                <button onClick={() => exportDealsCsv(bulkSel.size ? filteredDeals.filter(d => bulkSel.has(d.id)) : filteredDeals)}
-                  style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
                 <button onClick={() => setAssignOpen(true)}
                   style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
               </>
@@ -625,7 +615,7 @@ export default function CRMPipeline() {
               <StagePill name={selected.stage_name ?? '—'} color={selected.stage_color} is_won={selected.is_won} is_lost={selected.is_lost} />
               {selected.product && (
                 <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: `2px ${SP[2]}`, borderRadius: RADIUS['2xl'], background: `${BLUE}12`, color: BLUE }}>
-                  {selected.product}
+                  {productLabel(selected.product)}
                 </span>
               )}
             </div>

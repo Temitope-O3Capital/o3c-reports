@@ -102,8 +102,8 @@ export default function SettlementBatches() {
   const [expandedData, setExpandedData] = useState<Record<number, BatchTxn[] | 'loading'>>({})
   const [hoveredId, setHoveredId] = useState<number | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const p = new URLSearchParams()
@@ -130,7 +130,7 @@ export default function SettlementBatches() {
   }, [fStatuses, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['settlements'] })
+  useLiveData(() => load(true), { topics: ['settlements'] })
 
   async function toggleExpand(id: number) {
     if (expandedId === id) {

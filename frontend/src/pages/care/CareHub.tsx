@@ -37,7 +37,7 @@ export default function CareHub() {
   return (
     <Page
       title="Care"
-      subtitle="Customer mail — workload, team & analytics"
+      subtitle="Customer mail: workload, team & analytics"
       actions={
         <button onClick={() => navigate('/care/inbox')}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>

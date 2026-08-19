@@ -104,17 +104,17 @@ export default function VoiceSpike() {
 
   return (
     <div style={{ padding: 24, maxWidth: 760, margin: '0 auto', fontFamily: 'inherit' }}>
-      <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--txt)' }}>Zoho Voice — Click-to-Call Spike</h1>
+      <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--txt)' }}>Zoho Voice: Click-to-Call Spike</h1>
       <p style={{ margin: '6px 0 16px', fontSize: TEXT.sm, color: 'var(--txt2)' }}>
         Two ways to dial via Zoho Voice. Method 1 needs only the ZDialer extension; Method 2 embeds the WebSDK.
       </p>
 
       {/* Method 1 — does the ZDialer extension intercept a tel: link? Needs no SDK/token/CSP. */}
       <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: 14, marginBottom: 22, background: 'var(--th-bg)' }}>
-        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>Method 1 · tel: link → ZDialer</div>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>Method 1 · tel: link to ZDialer</div>
         <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 10, lineHeight: 1.5 }}>
           With ZDialer installed + logged in, enter a number and click. If ZDialer's dialpad pops and dials, every
-          workspace “Call” button can be a plain tel: link — no SDK, no embed. If your OS phone app opens (or nothing
+          workspace “Call” button can be a plain tel: link. No SDK, no embed. If your OS phone app opens (or nothing
           happens), ZDialer doesn't hook tel:.
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -131,7 +131,7 @@ export default function VoiceSpike() {
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <span style={{ width: 9, height: 9, borderRadius: '50%', background: dot }} />
         <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-          {status === 'ready' ? 'SDK ready — try a call' : status === 'no-token' ? 'Zoho Voice not connected' : status === 'error' ? 'Error — see log' : 'Initialising…'}
+          {status === 'ready' ? 'SDK ready, try a call' : status === 'no-token' ? 'Zoho Voice not connected' : status === 'error' ? 'Error, see log' : 'Initialising…'}
         </span>
       </div>
 

@@ -24,7 +24,6 @@ var kpiThresholds = map[string]float64{
 
 func RegisterKPI(r chi.Router, db *core.DB) {
 	access := core.RequirePages("kpi_dashboard")
-	admin := core.RequirePages("settings")
 
 	r.With(access).Get("/dashboard", kpiDashboard(db))
 	r.With(access).Get("/portfolio", kpiPortfolio(db))
@@ -34,7 +33,11 @@ func RegisterKPI(r chi.Router, db *core.DB) {
 	r.With(access).Get("/alerts", kpiAlerts(db))
 	r.With(access).Put("/alerts/{id}/resolve", kpiAlertResolve(db))
 	r.With(access).Get("/targets", kpiTargetsList(db))
-	r.With(admin).Put("/targets", kpiTargetsUpsert(db))
+	// Targets are editable from the KPI Tracker itself, so the guard has to match
+	// who is offered the button: settings (admin) or reports (the BI team, who
+	// own the tracker). Guarding on settings alone meant a BI head could open the
+	// editor and 403 on save.
+	r.With(core.RequirePages("settings", "reports")).Put("/targets", kpiTargetsUpsert(db))
 }
 
 // kpiDashboard returns a role-aware summary of key metrics.

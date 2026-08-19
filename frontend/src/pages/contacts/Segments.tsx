@@ -100,7 +100,7 @@ export default function Segments() {
     try {
       const res = await apiPost<any>(`/api/contact-lists/segments/${s.id}/materialize`, {})
       const imported = unwrap<{ imported: number }>(res)?.imported ?? 0
-      toast.success(`Refreshed — ${fmtNum(imported)} contacts in the list`)
+      toast.success(`Refreshed: ${fmtNum(imported)} contacts in the list`)
       load(true)
     } catch (e: any) { toast.error(e.message ?? 'Refresh failed') }
     finally { setRefreshing(null) }

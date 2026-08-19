@@ -99,7 +99,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
 
     const regTimeout = setTimeout(() => {
       addLog('TIMEOUT: telnyx.ready never fired after 20s')
-      setSdkError('SIP registration timed out — contact IT to verify Telnyx credentials')
+      setSdkError('SIP registration timed out. Contact IT to verify Telnyx credentials')
     }, 20_000)
 
     client.on('telnyx.ready', () => {
@@ -190,7 +190,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
         if (d.configured && d.sip_username && d.sip_password) {
           initSDK(d.sip_username, d.sip_password, d.full_name ?? '')
         } else {
-          setSdkError('Telnyx not configured — contact IT admin')
+          setSdkError('Telnyx not configured. Contact IT admin')
         }
       })
       .catch(() => setSdkError('Failed to fetch credentials'))
@@ -268,7 +268,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     setDialNum(num)
     setExpanded(true)
     if (!clientRef.current || !sdkReady) {
-      setError(configured ? 'Telnyx is still connecting' : 'Telnyx not configured — contact IT admin')
+      setError(configured ? 'Telnyx is still connecting' : 'Telnyx not configured. Contact IT admin')
       return
     }
     setDialing(true)

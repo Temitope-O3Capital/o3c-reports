@@ -151,7 +151,10 @@ func sendSMS(ctx context.Context, db *core.DB, phone, body string) (ok bool, pro
 		"type":    "plain",
 		"channel": "dnd",
 	})
-	resp, err := httpPost("https://api.ng.termii.com/api/sms/send", "application/json", "", payload, 15*time.Second)
+	// Use the dedicated Termii client (long TLS-handshake timeout): the O3 network's
+	// SSL-inspection appliance takes ~10s to complete the handshake, which trips the
+	// default client's 10s handshake limit and fails sends that would otherwise go.
+	resp, err := termiiPost(ctx, "https://api.ng.termii.com/api/sms/send", payload)
 	if err != nil {
 		slog.Warn("Campaign SMS: HTTP error", "phone", phone, "err", err)
 		return false, err.Error()
@@ -329,9 +332,9 @@ func startDispatch(db *core.DB, campaignID int64) {
 		if str(camp["status"]) != "active" {
 			return
 		}
-		isSMS       := str(camp["type"]) == "sms"       || str(camp["type"]) == "multi"
-		isEmail     := str(camp["type"]) == "email"     || str(camp["type"]) == "multi"
-		isWhatsApp  := str(camp["type"]) == "whatsapp"  || str(camp["type"]) == "multi"
+		isSMS := str(camp["type"]) == "sms" || str(camp["type"]) == "multi"
+		isEmail := str(camp["type"]) == "email" || str(camp["type"]) == "multi"
+		isWhatsApp := str(camp["type"]) == "whatsapp" || str(camp["type"]) == "multi"
 		sendDelay := time.Duration(intSetting(ctx, db, "campaign_send_delay_ms", 250)) * time.Millisecond
 		dailyLimit := effectiveCampaignDailyLimit(ctx, db)
 		perCampaignDailyLimit := intSetting(ctx, db, "campaign_per_campaign_daily_email_limit", 5000)
@@ -394,14 +397,14 @@ func startDispatch(db *core.DB, campaignID int64) {
 					WHERE id=$1 AND whatsapp_status='pending'
 					RETURNING id`, cid)
 				if len(claimed) > 0 {
-					body         := renderTemplate(str(camp["whatsapp_body"]), mergeData)
+					body := renderTemplate(str(camp["whatsapp_body"]), mergeData)
 					templateName := str(camp["whatsapp_template_name"])
 					ok, pid := sendWhatsAppCampaign(ctx, db, str(c["phone"]), body, templateName)
 					waStatus := "sent"
-					waCol    := "whatsapp_sent"
+					waCol := "whatsapp_sent"
 					if !ok {
 						waStatus = "failed"
-						waCol    = "whatsapp_failed"
+						waCol = "whatsapp_failed"
 					}
 					db.PGExec(ctx, //nolint:errcheck
 						`UPDATE campaign_contacts SET whatsapp_status=$1, whatsapp_provider_id=$2, whatsapp_sent_at=NOW(), updated_at=NOW() WHERE id=$3`,
@@ -1113,8 +1116,8 @@ func prepareCampaignRecipients(ctx context.Context, db *core.DB, campaignID int6
 		return
 	}
 	typ := str(rows[0]["type"])
-	isSMS      := typ == "sms" || typ == "multi"
-	isEmail    := typ == "email" || typ == "multi"
+	isSMS := typ == "sms" || typ == "multi"
+	isEmail := typ == "email" || typ == "multi"
 	isWhatsApp := typ == "whatsapp" || typ == "multi"
 	if isWhatsApp {
 		_, _ = db.PGExec(ctx, `
@@ -1319,10 +1322,10 @@ func duplicateCampaign(db *core.DB) http.HandlerFunc {
 
 func campaignPushToCallCenter(db *core.DB) http.HandlerFunc {
 	type body struct {
-		CallCenterCampaignID *int64  `json:"call_center_campaign_id"`
-		NewCampaignName         string  `json:"new_campaign_name"`
-		Segment                 string  `json:"segment"` // all | email_opened | email_clicked | sms_delivered
-		AssignedTo              *int64  `json:"assigned_to"`
+		CallCenterCampaignID *int64 `json:"call_center_campaign_id"`
+		NewCampaignName      string `json:"new_campaign_name"`
+		Segment              string `json:"segment"` // all | email_opened | email_clicked | sms_delivered
+		AssignedTo           *int64 `json:"assigned_to"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		campaignID := chi.URLParam(r, "id")
@@ -1430,8 +1433,8 @@ func campaignPushToCallCenter(db *core.DB) http.HandlerFunc {
 
 		respond(w, map[string]any{
 			"call_center_campaign_id": ccCampaignID,
-			"created":                   created,
-			"skipped_dnc":               skippedDNC,
+			"created":                 created,
+			"skipped_dnc":             skippedDNC,
 		}, "pg")
 	}
 }
@@ -1647,8 +1650,8 @@ func testSendCampaign(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		var body struct {
-			ToEmail string `json:"to_email"`
-			ToPhone string `json:"to_phone"`
+			ToEmail    string `json:"to_email"`
+			ToPhone    string `json:"to_phone"`
 			ToWhatsApp string `json:"to_whatsapp"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

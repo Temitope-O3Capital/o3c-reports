@@ -10,6 +10,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { today, monthStart } from '../../lib/fmt'
+import CommissionRatesModal from '../../components/CommissionRatesModal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -143,6 +144,7 @@ const TXN_COLS: TableCol<TxnRow>[] = [
 
 export default function FinanceOverview() {
   const [tab, setTab] = useState('overview')
+  const [commOpen, setCommOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(monthStart())
@@ -155,8 +157,8 @@ export default function FinanceOverview() {
   const [txns, setTxns] = useState<TxnRow[]>([])
   const [treasury, setTreasury] = useState<Treasury | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     const from = dateFrom
     const to = dateTo
@@ -183,7 +185,7 @@ export default function FinanceOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['finance','manual_postings'] })
+  useLiveData(() => load(true), { topics: ['finance','manual_postings'] })
 
   // Derive KPIs from available data
   const interestIncomeMTD = fd?.total_interest ?? 0
@@ -194,7 +196,14 @@ export default function FinanceOverview() {
   return (
     <Page title="Finance" subtitle={eod ? `${fmtNum(eod.active_accounts)} active accounts · ${fmtNum(eod.txn_count)} transactions this period` : undefined}
       actions={
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button onClick={() => setCommOpen(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', cursor: 'pointer' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>percent</span>
+            Commission Rates
+          </button>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        </div>
       }
     >
       <ErrBanner error={error} onRetry={load} />
@@ -291,6 +300,8 @@ export default function FinanceOverview() {
           <TreasuryTab data={treasury} />
         </SectionCard>
       )}
+
+      <CommissionRatesModal open={commOpen} onClose={() => setCommOpen(false)} />
     </Page>
   )
 }

@@ -118,7 +118,7 @@ export default function BoardPack() {
 
       {err && <ErrBanner error={err} />}
 
-      <SectionCard title={data ? `Board Pack — ${data.month}` : 'Board Pack'}>
+      <SectionCard title={data ? `Board Pack: ${data.month}` : 'Board Pack'}>
         {loading ? (
           <p style={{ color: 'var(--muted)', fontSize: TEXT.sm, padding: SP[4] }}>Loading…</p>
         ) : data ? (

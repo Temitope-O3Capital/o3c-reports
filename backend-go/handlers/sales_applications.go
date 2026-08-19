@@ -24,14 +24,33 @@ import (
 // LOS's business. What is added is the sales-side view: raise for MY customer, and see
 // what happened to it.
 
-// salesProductTypes are the products an officer may raise. Kept explicit rather than
-// free text so the LOS queue, Risk and reporting all agree on the vocabulary.
+// salesProductTypes are the products an officer may raise, across all three lines
+// (Cards, Loans, Fixed Deposit). Kept explicit rather than free text so the LOS queue,
+// Risk, the ops queues and reporting all agree on the vocabulary. Codes match the
+// shared taxonomy (handlers/products.go).
 var salesProductTypes = map[string]string{
 	"salary_loan":         "Salary Loan",
-	"individual_loan":     "Individual Loan",
 	"business_loan":       "Business Loan",
+	"individual_loan":     "Individual Loan",
 	"credit_card":         "Credit Card",
 	"card_limit_increase": "Card Limit Increase",
+	"prepaid":             "Prepaid Card",
+	"fixed_deposit":       "Fixed Deposit",
+}
+
+// salesAppRouting decides where a submitted application goes and who is told, by
+// product. Decision (2026-08-18): credit products (loans + credit cards, which need a
+// credit decision) go to Risk/LOS; prepaid cards and fixed deposits carry no credit
+// risk, so they go to the relevant operations desk for issuance/booking.
+func salesAppRouting(productType string) (stage string, notifyRoles []string) {
+	switch productType {
+	case "prepaid":
+		return "ops_review", []string{"cards_ops_officer", "cards_ops_head"}
+	case "fixed_deposit":
+		return "ops_review", []string{"finance_officer", "finance_head"}
+	default: // salary_loan, business_loan, individual_loan, credit_card, card_limit_increase
+		return "risk_review", []string{"risk_officer", "risk_head"}
+	}
 }
 
 func RegisterSalesApplications(r chi.Router, db *core.DB) {
@@ -39,6 +58,9 @@ func RegisterSalesApplications(r chi.Router, db *core.DB) {
 	r.With(access).Get("/applications/products", listSalesProducts())
 	r.With(access).Get("/applications", listSalesApplications(db))
 	r.With(access).Post("/applications", createSalesApplication(db))
+	r.With(access).Patch("/applications/{id}", updateSalesAppDraft(db))
+	r.With(access).Post("/applications/{id}/submit", submitSalesAppDraft(db))
+	r.With(access).Delete("/applications/{id}", deleteSalesAppDraft(db))
 	r.With(access).Get("/applications/{id}/booking", applicationBooking(db))
 }
 
@@ -142,6 +164,10 @@ type salesAppReq struct {
 	MonthlyIncome   int64  `json:"monthly_income_kobo"`
 	Employer        string `json:"employer"`
 	Note            string `json:"note"`
+	// Draft parks the application for later instead of submitting it to Risk/Ops.
+	// A draft skips amount validation and the duplicate/notify machinery; it can be
+	// resumed (PATCH) and pushed (POST /submit) any time.
+	Draft bool `json:"draft"`
 }
 
 // createSalesApplication raises an application for a customer and hands it to Risk in
@@ -165,7 +191,8 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Unknown product_type")
 			return
 		}
-		if req.AmountRequested <= 0 {
+		// A draft can be saved with an amount still to be worked out; a submission cannot.
+		if !req.Draft && req.AmountRequested <= 0 {
 			respondErr(w, 400, "amount_requested_kobo must be greater than zero")
 			return
 		}
@@ -193,6 +220,36 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 		}
 		if !isSalesHead(user) && (!ownerID.Valid || ownerID.Int64 != user.ID) {
 			respondErr(w, 403, "That customer is not on your book")
+			return
+		}
+
+		// ── Draft path ──────────────────────────────────────────────────────────
+		// Park it. No reference/notify/dup machinery — a draft is private working
+		// state until the officer pushes it. It still gets an LOS reference so the
+		// row is identifiable, and lands with status/stage 'draft'.
+		if req.Draft {
+			var dseq int64
+			if err := db.PG.QueryRowContext(ctx, `SELECT nextval('los_ref_seq')`).Scan(&dseq); err != nil {
+				respondErr(w, 500, "Reference generation failed")
+				return
+			}
+			dref := fmt.Sprintf("LOS-%s-%04d", time.Now().UTC().Format("200601"), dseq)
+			var dID int64
+			if err := db.PG.QueryRowContext(ctx, `
+				INSERT INTO loan_applications (
+				    reference, applicant_name, applicant_cif, applicant_email, applicant_phone,
+				    product_type, amount_requested_kobo, tenor_months, purpose, employer,
+				    monthly_income_kobo, status, stage, sales_officer_id, assigned_to_user_id,
+				    created_by, created_at, updated_at
+				) VALUES (
+				    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft','draft',$12,$12,$12,NOW(),NOW()
+				) RETURNING id`,
+				dref, name, req.CIF, email, phone, req.ProductType, req.AmountRequested,
+				req.TenorMonths, req.Purpose, req.Employer, req.MonthlyIncome, user.ID).Scan(&dID); err != nil {
+				respondErr(w, 500, "Could not save the draft: "+err.Error())
+				return
+			}
+			respond(w, map[string]any{"id": dID, "reference": dref, "stage": "draft", "status": "draft", "draft": true}, "pg")
 			return
 		}
 
@@ -274,6 +331,8 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 		}
 		ref := fmt.Sprintf("LOS-%s-%04d", time.Now().UTC().Format("200601"), seq)
 
+		routedStage, notifyRoles := salesAppRouting(req.ProductType)
+
 		var (
 			appID                       int64
 			appRef, appStage, appStatus string
@@ -288,12 +347,12 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 			    submitted_at, created_by, created_at, updated_at
 			) VALUES (
 			    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-			    'submitted','risk_review',$12,$12,
+			    'submitted',$13,$12,$12,
 			    NOW(),$12,NOW(),NOW()
 			) RETURNING id, reference, stage, status, submitted_at`,
 			ref, name, req.CIF, email, phone,
 			req.ProductType, req.AmountRequested, req.TenorMonths,
-			req.Purpose, req.Employer, req.MonthlyIncome, user.ID).
+			req.Purpose, req.Employer, req.MonthlyIncome, user.ID, routedStage).
 			Scan(&appID, &appRef, &appStage, &appStatus, &appSubmitted); err != nil {
 			respondErr(w, 500, "Could not raise the application: "+err.Error())
 			return
@@ -309,9 +368,9 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 		// committed with no trail.
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO application_events (application_id, event_type, to_stage, actor_user_id, notes, created_at)
-			VALUES ($1,'submitted','risk_review',$2,$3,NOW())`,
+			VALUES ($1,'submitted',$4,$2,$3,NOW())`,
 			appID, user.ID,
-			strings.TrimSpace("Raised by Sales for "+name+". "+req.Note)); err != nil {
+			strings.TrimSpace("Raised by Sales for "+name+". "+req.Note), routedStage); err != nil {
 			respondErr(w, 500, "Could not record the application event: "+err.Error())
 			return
 		}
@@ -330,10 +389,10 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 		// the request context deliberately: the application is already committed, and a
 		// slow mail hop must not fail the call or be cancelled when the officer's browser
 		// moves on.
-		go NotifyRoles(context.Background(), db, []string{"risk_officer", "risk_head"}, NotifPayload{
+		go NotifyRoles(context.Background(), db, notifyRoles, NotifPayload{
 			EventType: "los_application_submitted",
 			Title:     fmt.Sprintf("New %s application", salesProductTypes[req.ProductType]),
-			Body: fmt.Sprintf("%s raised %s for %s (CIF %s) — %s",
+			Body: fmt.Sprintf("%s raised %s for %s (CIF %s), %s",
 				user.FullName, ref, name, req.CIF, fmtKoboServer(req.AmountRequested)),
 			ActionURL: fmt.Sprintf("/los/applications/%d", appID),
 			EntityRef: ref,
@@ -350,7 +409,22 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 // report every application as unconfirmed rather than implying success.
 func applicationBooking(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
 		id := chi.URLParam(r, "id")
+
+		// Scope like listSalesApplications: an officer may only inspect applications they
+		// raised (which would otherwise leak other customers' core-banking loan data); a
+		// head may inspect any. Enforced in the WHERE so a wrong id reads as 404.
+		scope := ""
+		args := []any{id}
+		if !isSalesHead(user) {
+			scope = " AND sales_officer_id = $2"
+			args = append(args, user.ID)
+		}
 
 		var cif, stage, status, product string
 		var bookedAt sql.NullTime
@@ -358,7 +432,7 @@ func applicationBooking(db *core.DB) http.HandlerFunc {
 		if err := db.PG.QueryRowContext(r.Context(), `
 			SELECT COALESCE(applicant_cif,''), stage, status, product_type,
 			       booked_at, amount_approved_kobo
-			  FROM loan_applications WHERE id = $1`, id).
+			  FROM loan_applications WHERE id = $1`+scope, args...).
 			Scan(&cif, &stage, &status, &product, &bookedAt, &approved); err != nil {
 			respondErr(w, 404, "Application not found")
 			return
@@ -443,4 +517,159 @@ func fmtKoboServer(kobo int64) string {
 		return "-" + out
 	}
 	return out
+}
+
+// draftScope returns the WHERE fragment + args that restrict a draft to the caller:
+// an officer may only touch their own drafts; a head may touch any.
+func draftScope(user *core.Claims, startArg int) (string, []any) {
+	if isSalesHead(user) {
+		return "", nil
+	}
+	return fmt.Sprintf(" AND sales_officer_id = $%d", startArg), []any{user.ID}
+}
+
+// updateSalesAppDraft edits a parked draft. Only fields the sales-side form owns are
+// touchable, and only while the application is still a draft.
+func updateSalesAppDraft(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		var req salesAppReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if req.ProductType != "" {
+			if _, ok := salesProductTypes[req.ProductType]; !ok {
+				respondErr(w, 400, "Unknown product_type")
+				return
+			}
+		}
+		scope, sargs := draftScope(user, 8)
+		args := []any{req.ProductType, req.AmountRequested, req.TenorMonths, req.Purpose,
+			req.Employer, req.MonthlyIncome, id}
+		args = append(args, sargs...)
+		res, err := db.PGExec(r.Context(), `
+			UPDATE loan_applications
+			   SET product_type          = COALESCE(NULLIF($1,''), product_type),
+			       amount_requested_kobo = $2,
+			       tenor_months          = $3,
+			       purpose               = $4,
+			       employer              = $5,
+			       monthly_income_kobo   = $6,
+			       updated_at            = NOW()
+			 WHERE id = $7 AND status = 'draft'`+scope, args...)
+		if err != nil {
+			respondErrLog(w, 500, "Could not update the draft", err)
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 404, "No draft you can edit with that id")
+			return
+		}
+		respond(w, map[string]any{"ok": true}, "pg")
+	}
+}
+
+// submitSalesAppDraft pushes a draft to Risk or the relevant ops desk, applying the
+// same product routing a fresh submission gets.
+func submitSalesAppDraft(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		scope, sargs := draftScope(user, 2)
+		args := append([]any{id}, sargs...)
+
+		var appID, amount int64
+		var product, cif, name, ref string
+		if err := db.PG.QueryRowContext(r.Context(), `
+			SELECT id, product_type, COALESCE(amount_requested_kobo,0),
+			       COALESCE(applicant_cif,''), COALESCE(applicant_name,''), reference
+			  FROM loan_applications
+			 WHERE id = $1 AND status = 'draft'`+scope, args...).
+			Scan(&appID, &product, &amount, &cif, &name, &ref); err != nil {
+			respondErr(w, 404, "No draft you can submit with that id")
+			return
+		}
+		if amount <= 0 {
+			respondErr(w, 400, "Set an amount before submitting this application")
+			return
+		}
+		routedStage, notifyRoles := salesAppRouting(product)
+
+		tx, err := db.PG.BeginTx(r.Context(), nil)
+		if err != nil {
+			respondErr(w, 500, "Could not start transaction")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+		res, err := tx.ExecContext(r.Context(), `
+			UPDATE loan_applications
+			   SET status='submitted', stage=$2, submitted_at=NOW(), updated_at=NOW()
+			 WHERE id=$1 AND status='draft'`, appID, routedStage)
+		if err != nil {
+			respondErr(w, 500, "Could not submit the draft: "+err.Error())
+			return
+		}
+		// A concurrent submit already pushed it — don't submit or notify twice.
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 409, "That application has already been submitted")
+			return
+		}
+		if _, err := tx.ExecContext(r.Context(), `
+			INSERT INTO application_events (application_id, event_type, to_stage, actor_user_id, notes, created_at)
+			VALUES ($1,'submitted',$2,$3,$4,NOW())`,
+			appID, routedStage, user.ID, "Submitted from draft by Sales"); err != nil {
+			respondErr(w, 500, "Could not record the event: "+err.Error())
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+
+		go NotifyRoles(context.Background(), db, notifyRoles, NotifPayload{
+			EventType: "los_application_submitted",
+			Title:     fmt.Sprintf("New %s application", salesProductTypes[product]),
+			Body: fmt.Sprintf("%s submitted %s for %s (CIF %s), %s",
+				user.FullName, ref, name, cif, fmtKoboServer(amount)),
+			ActionURL: fmt.Sprintf("/los/applications/%d", appID),
+			EntityRef: ref,
+		})
+		respond(w, map[string]any{"id": appID, "reference": ref, "stage": routedStage, "status": "submitted"}, "pg")
+	}
+}
+
+// deleteSalesAppDraft discards a draft. Only drafts can be deleted this way — a
+// submitted application is Risk/Ops's to close, not the officer's to erase.
+func deleteSalesAppDraft(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		id := chi.URLParam(r, "id")
+		scope, sargs := draftScope(user, 2)
+		args := append([]any{id}, sargs...)
+		res, err := db.PGExec(r.Context(),
+			`DELETE FROM loan_applications WHERE id=$1 AND status='draft'`+scope, args...)
+		if err != nil {
+			respondErrLog(w, 500, "Could not delete the draft", err)
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			respondErr(w, 404, "No draft you can delete with that id")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }

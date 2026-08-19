@@ -78,8 +78,8 @@ export default function CallCenterOverview() {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     const qs = `date_from=${from}&date_to=${to}`
     const obj = (r: any) => (r?.data ?? r)
     const arr = (r: any) => (Array.isArray(r) ? r : (r?.data ?? []))
@@ -102,7 +102,7 @@ export default function CallCenterOverview() {
   }, [from, to])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
 
   const total     = cs?.total ?? 0
   const connected = cs?.connected ?? 0
@@ -222,7 +222,7 @@ export default function CallCenterOverview() {
           </div>
 
           {/* ── Busiest hours (inbound + outbound stacked) ─────────────────── */}
-          <SectionCard title="Busiest Hours" subtitle="Inbound & outbound by hour of day — plan staffing around the peaks" style={{ marginBottom: SP[4] }}>
+          <SectionCard title="Busiest Hours" subtitle="Inbound & outbound by hour of day: plan staffing around the peaks" style={{ marginBottom: SP[4] }}>
             {total === 0 ? (
               <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No calls in this range</div>
             ) : (

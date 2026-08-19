@@ -31,7 +31,8 @@ func listEmailSenders(db *core.DB) http.HandlerFunc {
 			FROM email_senders
 			ORDER BY purpose, is_default DESC, label`)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []map[string]any{}
@@ -51,13 +52,16 @@ func createEmailSender(db *core.DB) http.HandlerFunc {
 			IsDefault bool   `json:"is_default"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.Address == "" || b.Name == "" || b.Label == "" {
-			respondErr(w, 422, "address, name, and label are required"); return
+			respondErr(w, 422, "address, name, and label are required")
+			return
 		}
 		if !strings.Contains(b.Address, "@") {
-			respondErr(w, 422, "Invalid email address"); return
+			respondErr(w, 422, "Invalid email address")
+			return
 		}
 		if b.Purpose == "" {
 			b.Purpose = "general"
@@ -71,7 +75,8 @@ func createEmailSender(db *core.DB) http.HandlerFunc {
 			VALUES ($1,$2,$3,$4,$5) RETURNING *`,
 			b.Address, b.Name, b.Label, b.Purpose, b.IsDefault)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -86,7 +91,8 @@ func updateEmailSender(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		// If setting as default, clear the old default for this purpose first
 		if v, ok := body["is_default"]; ok && v == true {
@@ -104,7 +110,8 @@ func updateEmailSender(db *core.DB) http.HandlerFunc {
 		}
 		parts, args := buildSet(body, senderUpdateCols, 1)
 		if len(parts) == 0 {
-			respondErr(w, 422, "No fields to update"); return
+			respondErr(w, 422, "No fields to update")
+			return
 		}
 		parts = append(parts, "updated_at=NOW()")
 		args = append(args, id)
@@ -112,7 +119,8 @@ func updateEmailSender(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("UPDATE email_senders SET %s WHERE id=$%d RETURNING *",
 				strings.Join(parts, ","), len(args)), args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Sender not found"); return
+			respondErr(w, 404, "Sender not found")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -133,7 +141,8 @@ func setDefaultSender(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		cur, err := db.PGQuery(r.Context(), `SELECT purpose FROM email_senders WHERE id=$1`, id)
 		if err != nil || len(cur) == 0 {
-			respondErr(w, 404, "Sender not found"); return
+			respondErr(w, 404, "Sender not found")
+			return
 		}
 		purpose := str(cur[0]["purpose"])
 		db.PGExec(r.Context(), //nolint:errcheck
@@ -169,7 +178,7 @@ func suggestRecipients(db *core.DB) http.HandlerFunc {
 			  AND (first_name ILIKE $1 OR last_name ILIKE $1 OR email ILIKE $1)
 			ORDER BY first_name LIMIT 5`, like)
 
-		seen    := map[string]bool{}
+		seen := map[string]bool{}
 		results := []map[string]any{}
 		for _, row := range append(staffRows, contactRows...) {
 			email := str(row["email"])

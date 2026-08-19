@@ -90,6 +90,7 @@ export default function CohortDetail() {
   const { month } = useParams<{ month: string }>()
   const [searchParams] = useSearchParams()
   const age = searchParams.get('age') ?? ''
+  const officerId = searchParams.get('officer_id') ?? ''
 
   const [detail,  setDetail]  = useState<DetailResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -98,11 +99,11 @@ export default function CohortDetail() {
   useEffect(() => {
     if (!month) return
     setLoading(true); setErr(null)
-    apiFetch<{ data: DetailResponse }>(`/api/sales/cohort-detail?cohort=${encodeURIComponent(month)}&limit=200`)
+    apiFetch<{ data: DetailResponse }>(`/api/sales/cohort-detail?cohort=${encodeURIComponent(month)}&limit=200${officerId ? `&officer_id=${officerId}` : ''}`)
       .then(r => setDetail(r.data))
       .catch((e: any) => setErr(e.message ?? 'Failed to load cohort detail'))
       .finally(() => setLoading(false))
-  }, [month])
+  }, [month, officerId])
 
   const par30Rate = detail && detail.count > 0
     ? (detail.par30_count / detail.count) * 100
@@ -189,11 +190,12 @@ export default function CohortDetail() {
               {(() => {
                 const buckets: Record<string, number> = { '0': 0, '1-30': 0, '31-60': 0, '61-90': 0, '91+': 0 }
                 detail.data.forEach(r => {
-                  if (r.dpd === 0)         buckets['0']++
-                  else if (r.dpd <= 30)    buckets['1-30']++
-                  else if (r.dpd <= 60)    buckets['31-60']++
-                  else if (r.dpd <= 90)    buckets['61-90']++
-                  else                     buckets['91+']++
+                  const d = Number(r.dpd)
+                  if (d === 0)         buckets['0']++
+                  else if (d <= 30)    buckets['1-30']++
+                  else if (d <= 60)    buckets['31-60']++
+                  else if (d <= 90)    buckets['61-90']++
+                  else                 buckets['91+']++
                 })
                 const colors: Record<string, string> = { '0': GREEN, '1-30': AMBER, '31-60': '#F97316', '61-90': RED, '91+': '#7F1D1D' }
                 return Object.entries(buckets).map(([label, count]) => {

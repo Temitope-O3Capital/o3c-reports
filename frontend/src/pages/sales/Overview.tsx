@@ -8,6 +8,7 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct, fmtDate, fmtDatetime, n } from '../../lib/fmt'
 import { RED, GREEN, BLUE, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { PRODUCT_LINES, lineColor } from '../../lib/products'
 
 // The Sales Team Lead's dashboard.
 //
@@ -26,6 +27,12 @@ interface Summary {
   officers: number; mom_change_pct: number | null
 }
 interface AcqPoint { month: string; customers: number; confirmed: number; derived: number }
+interface TargetActual {
+  user_id: number
+  target_loans: number; actual_loans: number; target_kobo: number; actual_kobo: number
+  target_fds: number; actual_fds: number; target_fd_kobo: number; actual_fd_kobo: number
+  target_cards: number; actual_cards: number; commission_kobo: number
+}
 interface Officer {
   id: number; full_name: string; role: string; is_active: boolean
   book_size: number; acquired_mtd: number; acquired_ytd: number
@@ -94,6 +101,8 @@ export default function SalesOverview() {
   const [officers, setOfficers] = useState<Officer[]>([])
   const [sources, setSources] = useState<SourceRow[]>([])
   const [attn, setAttn] = useState<Attention | null>(null)
+  const [mix, setMix] = useState<Record<string, { count: number; value_kobo: number }>>({})
+  const [actuals, setActuals] = useState<TargetActual[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
@@ -102,16 +111,37 @@ export default function SalesOverview() {
     ;(async () => {
       setLoading(true); setErr(null)
       try {
-        const [s, a, o, src, at] = await Promise.all([
+        // allSettled, not all. Seven panels are independent, and under Promise.all
+        // a single failing endpoint rejected the lot — one broken query left every
+        // tile on this page reading "—" as though the business had no customers.
+        // Each panel now renders what it has, and the banner names only what
+        // genuinely failed.
+        const [s, a, o, src, at, fn, ac] = await Promise.allSettled([
           apiFetch<{ data: Summary }>('/api/sales/overview/summary'),
           apiFetch<{ data: AcqPoint[] }>('/api/sales/overview/acquisition?months=24'),
           apiFetch<{ data: Officer[] }>('/api/sales/overview/officers'),
           apiFetch<{ data: SourceRow[] }>('/api/sales/overview/sources'),
           apiFetch<{ data: Attention }>('/api/sales/overview/attention'),
+          apiFetch<{ data: { product_mix?: Record<string, { count: number; value_kobo: number }> } }>('/api/sales/leads/funnel'),
+          apiFetch<{ data: TargetActual[] }>('/api/sales/targets/actuals'),
         ])
         if (cancelled) return
-        setSummary(s.data); setAcq(a.data ?? []); setOfficers(o.data ?? [])
-        setSources(src.data ?? []); setAttn(at.data)
+        const val = <T,>(r: PromiseSettledResult<{ data: T }>): T | undefined =>
+          r.status === 'fulfilled' ? r.value?.data : undefined
+
+        if (val(s))   setSummary(val(s)!)
+        setAcq(val(a) ?? []); setOfficers(val(o) ?? [])
+        setSources(val(src) ?? [])
+        if (val(at))  setAttn(val(at)!)
+        setMix((val(fn) as any)?.product_mix ?? {})
+        setActuals(val(ac) ?? [])
+
+        const failed = [
+          [s, 'summary'], [a, 'acquisition'], [o, 'officers'], [src, 'lead sources'],
+          [at, 'attention'], [fn, 'pipeline'], [ac, 'targets'],
+        ].filter(([r]) => (r as PromiseSettledResult<unknown>).status === 'rejected')
+         .map(([, name]) => name as string)
+        setErr(failed.length ? `Could not load: ${failed.join(', ')}` : null)
       } catch (e: any) {
         if (!cancelled) setErr(e?.message ?? 'Could not load the sales overview')
       } finally {
@@ -161,6 +191,18 @@ export default function SalesOverview() {
   const derivedTotal = acq.reduce((s, p) => s + n(p.derived), 0)
   const noTeam = !loading && officers.length === 0
 
+  // Team roll-up of targets vs actuals (all three products) + total commission earned.
+  const team = actuals.reduce((a, r) => ({
+    tLoans: a.tLoans + Number(r.target_loans || 0), aLoans: a.aLoans + Number(r.actual_loans || 0),
+    tKobo:  a.tKobo  + Number(r.target_kobo || 0),  aKobo:  a.aKobo  + Number(r.actual_kobo || 0),
+    tFds:   a.tFds   + Number(r.target_fds || 0),   aFds:   a.aFds   + Number(r.actual_fds || 0),
+    tFdKobo: a.tFdKobo + Number(r.target_fd_kobo || 0), aFdKobo: a.aFdKobo + Number(r.actual_fd_kobo || 0),
+    tCards: a.tCards + Number(r.target_cards || 0), aCards: a.aCards + Number(r.actual_cards || 0),
+    commission: a.commission + Number(r.commission_kobo || 0),
+  }), { tLoans: 0, aLoans: 0, tKobo: 0, aKobo: 0, tFds: 0, aFds: 0, tFdKobo: 0, aFdKobo: 0, tCards: 0, aCards: 0, commission: 0 })
+  const pct = (act: number, tgt: number) => tgt > 0 ? Math.round((act / tgt) * 100) : 0
+  const pctColor = (p: number) => p >= 100 ? GREEN : p >= 60 ? AMBER : RED
+
   return (
     <Page
       title="Sales Overview"
@@ -194,13 +236,13 @@ export default function SalesOverview() {
           {noTeam && (
             <Caveat icon="group_add" tone={BLUE}>
               <strong>Nobody holds a book yet.</strong> Officers appear here as soon as
-              they are given customers — you can assign to any active user, so this does
+              they are given customers. You can assign to any active user, so this does
               not wait on new accounts or role changes.{' '}
               <button
                 onClick={() => navigate('/sales/book?officer_id=unassigned')}
                 style={{ background: 'none', border: 'none', color: BLUE, cursor: 'pointer', padding: 0, font: 'inherit', fontWeight: FW.semibold }}
               >
-                Assign the book →
+                Assign the book
               </button>
             </Caveat>
           )}
@@ -213,7 +255,7 @@ export default function SalesOverview() {
                 onClick={() => navigate('/sales/book?officer_id=unassigned')}
                 style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', padding: 0, font: 'inherit', fontWeight: FW.semibold }}
               >
-                Assign them →
+                Assign them
               </button>
             </Caveat>
           )}
@@ -235,6 +277,58 @@ export default function SalesOverview() {
         <KpiCard label="Overdue actions" value={summary ? fmtNum(summary.overdue_actions) : '—'}
           sub={summary ? `${fmtNum(summary.converted_mtd)} converted MTD` : undefined}
           icon="schedule" accent={summary && summary.overdue_actions > 0 ? RED : NAVY} loading={loading} />
+      </div>
+
+      {/* Product mix + team targets & commission */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: SP[4] }}>
+        <SectionCard title="Open pipeline by product" subtitle="Leads in play, by line — click to filter">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+            {PRODUCT_LINES.map(pl => {
+              const m = mix[pl.line] ?? { count: 0, value_kobo: 0 }
+              return (
+                <div key={pl.line} onClick={() => navigate(`/sales/leads?line=${pl.line}`)}
+                  style={{ cursor: 'pointer', border: '1px solid var(--bdr)', borderLeft: `3px solid ${lineColor(pl.line)}`, borderRadius: RADIUS.lg, padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 16, color: pl.color }}>{pl.icon}</span>
+                    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>{pl.label}</span>
+                  </div>
+                  <div style={{ ...NUM, fontSize: 22, fontWeight: FW.extrabold, color: 'var(--txt)', lineHeight: 1 }}>{fmtNum(m.count)}</div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3 }}>{fmtKobo(m.value_kobo)} value</div>
+                </div>
+              )
+            })}
+          </div>
+          {(mix.unclassified?.count ?? 0) > 0 && (
+            <div style={{ marginTop: 8, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtNum(mix.unclassified!.count)} leads not yet tagged with a product.</div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Team targets & commission" subtitle="This month, across all officers">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              { label: 'Loans', a: team.aLoans, t: team.tLoans, sub: `${fmtKobo(team.aKobo)} / ${fmtKobo(team.tKobo)}` },
+              { label: 'Fixed Deposits', a: team.aFds, t: team.tFds, sub: `${fmtKobo(team.aFdKobo ?? 0)} / ${fmtKobo(team.tFdKobo ?? 0)}` },
+              { label: 'Cards', a: team.aCards, t: team.tCards, sub: 'cards issued' },
+            ].map(row => {
+              const p = pct(row.a, row.t)
+              return (
+                <div key={row.label}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
+                    <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{row.label}</span>
+                    <span style={{ fontSize: TEXT.xs, ...NUM, color: 'var(--txt2)' }}>{fmtNum(row.a)} / {fmtNum(row.t)} · <strong style={{ color: pctColor(p) }}>{p}%</strong></span>
+                  </div>
+                  <div style={{ height: 6, background: 'var(--th-bg)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: `${Math.min(100, p)}%`, height: '100%', background: pctColor(p), borderRadius: 3 }} />
+                  </div>
+                </div>
+              )
+            })}
+            <div style={{ marginTop: 4, paddingTop: 10, borderTop: '1px solid var(--bdr)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Commission earned (team)</span>
+              <span style={{ fontSize: TEXT.xl, fontWeight: FW.extrabold, color: GREEN, ...NUM }}>{fmtKobo(team.commission)}</span>
+            </div>
+          </div>
+        </SectionCard>
       </div>
 
       {/* Acquisition trend */}
@@ -301,7 +395,7 @@ export default function SalesOverview() {
               ))}
               {sources.length === 1 && sources[0].source === 'unrecorded' && (
                 <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5, marginTop: 4 }}>
-                  Every contact predates lead-source tracking — they arrived in one Zoho
+                  Every contact predates lead-source tracking. They arrived in one Zoho
                   import. Leads created from now on carry a source, so this fills in.
                 </p>
               )}
@@ -398,7 +492,7 @@ export default function SalesOverview() {
           actions={
             <button onClick={() => navigate('/sales/book?officer_id=unassigned')}
               style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>
-              Assign →
+              Assign
             </button>
           }
         >

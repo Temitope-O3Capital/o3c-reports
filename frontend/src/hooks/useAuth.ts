@@ -11,7 +11,7 @@ export type Role =
   | 'care_agent' | 'care_head'
   | 'compliance_officer' | 'compliance_head' | 'internal_control_head' | 'it_admin'
   | 'bd_officer' | 'bd_head'
-  | 'settlement_officer'
+  | 'settlement_officer' | 'settlement_head'
   | 'bi_analyst' | 'bi_head'
 
 export interface AuthUser {
@@ -133,6 +133,7 @@ export const ROLE_PAGES: Record<string, string[]> = {
   sales_head:           ['campaigns', 'cohort', 'contact_lists', 'crm_contacts', 'crm_pipeline', 'crm_reports', 'crm_tasks', 'customer360', 'executive', 'kpi_dashboard', 'loans', 'los', 'los_all', 'los_assign', 'mail', 'message_templates', 'overview', 'reports', 'sales', 'statements', 'uploads'],
   sales_officer:        ['cohort', 'crm_contacts', 'crm_pipeline', 'crm_reports', 'crm_tasks', 'customer360', 'loans', 'los', 'mail', 'overview', 'sales', 'uploads'],
   settlement_officer:   ['credit_portfolio', 'customer360', 'eod', 'helpdesk', 'helpdesk_canned', 'helpdesk_kb', 'overview', 'reconciliation', 'settlement', 'transactions', 'uploads'],
+  settlement_head:      ['credit_portfolio', 'customer360', 'eod', 'executive', 'helpdesk', 'helpdesk_canned', 'helpdesk_kb', 'kpi_dashboard', 'overview', 'reconciliation', 'settlement', 'statements', 'transactions', 'uploads'],
 }
 
 export function parseToken(token: string): { exp: number; [key: string]: unknown } | null {

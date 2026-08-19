@@ -90,8 +90,8 @@ export default function CareAnalytics() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const r = await apiFetch<any>(`/api/helpdesk/care-analytics?days=${days}`)
       setD((r?.data ?? r) as CareAnalyticsResp)
@@ -100,7 +100,7 @@ export default function CareAnalytics() {
   }, [days])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
 
   const s = d?.summary
 
@@ -130,7 +130,7 @@ export default function CareAnalytics() {
             <KpiCard label="Mails Received" value={fmtNum(s.received)} icon="inbox" accent={NAVY} sub={`last ${days} days`} />
             <KpiCard label="Resolved" value={fmtNum(s.resolved)} icon="check_circle" accent={GREEN} sub={`${fmtPct1(s.resolution_rate)} of received`} />
             <KpiCard label="Avg 1st Response" value={fmtMins(s.avg_first_response_mins)} icon="timer" accent={BLUE} sub="time to first reply" />
-            <KpiCard label="Avg Resolution" value={s.avg_resolution_hours == null ? '—' : `${Number(s.avg_resolution_hours).toFixed(1)}h`} icon="schedule" accent={AMBER} sub="open → resolved" />
+            <KpiCard label="Avg Resolution" value={s.avg_resolution_hours == null ? '—' : `${Number(s.avg_resolution_hours).toFixed(1)}h`} icon="schedule" accent={AMBER} sub="open to resolved" />
             <KpiCard label="Open Backlog" value={fmtNum(s.open_backlog)} icon="pending_actions" accent={RED} sub="unresolved now" />
             <KpiCard label="CSAT" value={s.csat_avg == null ? '—' : Number(s.csat_avg).toFixed(2)} icon="sentiment_satisfied" accent={PURPLE} sub={`${fmtNum(s.csat_count)} rated`} />
           </div>

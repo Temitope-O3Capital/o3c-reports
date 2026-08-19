@@ -36,8 +36,8 @@ export default function ConcentrationRisk() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const p = new URLSearchParams()
       if (dateFrom) p.set('from', dateFrom)
@@ -49,7 +49,7 @@ export default function ConcentrationRisk() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   const th: React.CSSProperties = {
     textAlign: 'left', padding: '8px 14px', fontWeight: FW.bold, fontSize: TEXT.xs,

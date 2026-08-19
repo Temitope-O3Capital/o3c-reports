@@ -257,7 +257,7 @@ export default function InterswitchImport() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
               {[
                 { icon: 'calendar_today',  label: 'Filename pattern',    value: 'EODTXN.YYYYMMDD.HHMMSS' },
-                { icon: 'business',        label: 'Source system',       value: 'Interswitch CCS — Report 620' },
+                { icon: 'business',        label: 'Source system',       value: 'Interswitch CCS: Report 620' },
                 { icon: 'account_balance', label: 'Branches supported',  value: '0001 (Default), 4009 (Sales Agency)' },
                 { icon: 'credit_card',     label: 'Products',            value: 'Classic · Platinum · Prestige · PREP · Business · Amex' },
                 { icon: 'swap_horiz',      label: 'Txn types',           value: 'Utility · Cash Advance · Purchase · Web Transfer' },

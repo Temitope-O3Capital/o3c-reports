@@ -23,6 +23,7 @@ interface SalesTarget {
   disbursement_kobo: number
   fd_count:         number
   fd_amount_kobo:   number
+  card_count:       number
   notes:            string
 }
 
@@ -33,11 +34,16 @@ interface Actual {
   target_kobo:  number
   target_fds:   number
   target_fd_kobo: number
+  target_cards: number
   actual_loans: number
   actual_kobo:  number
   actual_fds:   number
   actual_fd_kobo: number
+  actual_cards: number
+  commission_kobo: number
 }
+
+interface CommissionRate { line: string; basis: string; rate_bps: number; amount_kobo: number }
 
 interface User { id: number; full_name: string; role: string }
 
@@ -101,10 +107,20 @@ export default function SalesTargets() {
   const [fDisb,    setFDisb]    = useState('')
   const [fFds,     setFFds]     = useState('')
   const [fFdAmt,   setFFdAmt]   = useState('')
+  const [fCards,   setFCards]   = useState('')
   const [fNotes,   setFNotes]   = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  // Commission rates (Finance-set)
+  const [rates,     setRates]     = useState<CommissionRate[]>([])
+  const [canEditRates, setCanEditRates] = useState(false)
+  const [rateForm,  setRateForm]  = useState(false)
+  const [rLoan,     setRLoan]     = useState('')
+  const [rFd,       setRFd]       = useState('')
+  const [rCard,     setRCard]     = useState('')
+  const [savingRates, setSavingRates] = useState(false)
+
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const [act, tgt] = await Promise.all([
         apiFetch<{ data: Actual[] }>(`/api/sales/targets/actuals?period=${period}&from=${dateFrom}&to=${dateTo}`),
@@ -112,6 +128,13 @@ export default function SalesTargets() {
       ])
       setActuals(act?.data ?? [])
       setTargets(tgt?.data ?? [])
+      // Commission rates — everyone can read; the Set button shows only if can_edit.
+      try {
+        const rr = await apiFetch<{ data: { rates: CommissionRate[]; can_edit: boolean } }>('/api/sales/commission-rates')
+        const payload = (rr as any)?.data ?? rr
+        setRates(payload?.rates ?? [])
+        setCanEditRates(!!payload?.can_edit)
+      } catch { /* non-fatal */ }
       // Only a head needs the assignable-officer list, and /api/admin/users is
       // admin-scoped — fetching it as an officer just 403s and blanks the page.
       // The sales officers endpoint is the right source anyway: it lists who can
@@ -128,7 +151,7 @@ export default function SalesTargets() {
   }, [period, dateFrom, dateTo, canEdit])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   async function handleSave() {
     setSaving(true)
@@ -140,13 +163,42 @@ export default function SalesTargets() {
         disbursement_kobo: Math.round(parseFloat(fDisb) * 100) || 0,
         fd_count:          parseInt(fFds) || 0,
         fd_amount_kobo:    Math.round(parseFloat(fFdAmt) * 100) || 0,
+        card_count:        parseInt(fCards) || 0,
         notes:             fNotes,
       })
       toast.success('Target saved')
-      setShowForm(false); setFUserId(''); setFLoans(''); setFDisb(''); setFFds(''); setFFdAmt(''); setFNotes('')
+      setShowForm(false); setFUserId(''); setFLoans(''); setFDisb(''); setFFds(''); setFFdAmt(''); setFCards(''); setFNotes('')
       load()
     } catch (e: any) { toast.error(e.message) }
     finally { setSaving(false) }
+  }
+
+  // Commission rate helpers. rate_bps is basis points (150 = 1.50%); card is kobo/card.
+  const rateOf = (line: string) => rates.find(r => r.line === line)
+  const loanPct = ((rateOf('loans')?.rate_bps ?? 0) / 100)
+  const fdPct   = ((rateOf('fixed_deposit')?.rate_bps ?? 0) / 100)
+  const cardEach = ((rateOf('cards')?.amount_kobo ?? 0) / 100)
+
+  function openRateForm() {
+    setRLoan(String(loanPct || '')); setRFd(String(fdPct || '')); setRCard(String(cardEach || ''))
+    setRateForm(true)
+  }
+  async function saveRates() {
+    setSavingRates(true)
+    try {
+      await apiFetch('/api/sales/commission-rates', {
+        method: 'PUT',
+        body: JSON.stringify({
+          loan_percent:    parseFloat(rLoan) || 0,
+          fd_percent:      parseFloat(rFd) || 0,
+          card_naira_each: parseFloat(rCard) || 0,
+        }),
+      })
+      toast.success('Commission rates updated')
+      setRateForm(false)
+      load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSavingRates(false) }
   }
 
   // Merge actuals with any targets not yet in actuals — then search-filter
@@ -158,6 +210,7 @@ export default function SalesTargets() {
       target_kobo:    t?.disbursement_kobo ?? a.target_kobo,
       target_fds:     t?.fd_count ?? a.target_fds,
       target_fd_kobo: t?.fd_amount_kobo ?? a.target_fd_kobo,
+      target_cards:   t?.card_count ?? a.target_cards,
     }
   })
 
@@ -172,25 +225,6 @@ export default function SalesTargets() {
     return leaderboard.filter(r => r.full_name.toLowerCase().includes(q))
   }, [leaderboard, search])
 
-  function exportBoardCsv(data: Actual[]) {
-    const header = ['Officer', 'Actual Loans', 'Target Loans', 'Actual Disbursement (kobo)', 'Target Disbursement (kobo)', 'Actual FDs', 'Target FDs', 'Actual FD Amount (kobo)', 'Target FD Amount (kobo)']
-    const lines = data.map(r => [
-      `"${String(r.full_name ?? '').replace(/"/g, '""')}"`,
-      r.actual_loans,
-      r.target_loans,
-      r.actual_kobo,
-      r.target_kobo,
-      r.actual_fds,
-      r.target_fds,
-      r.actual_fd_kobo,
-      r.target_fd_kobo,
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `sales-targets-${period}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   const totalTargetLoans = leaderboard.reduce((s, r) => s + Number(r.target_loans), 0)
   const totalActualLoans = leaderboard.reduce((s, r) => s + Number(r.actual_loans), 0)
@@ -200,6 +234,9 @@ export default function SalesTargets() {
   const totalActualFds   = leaderboard.reduce((s, r) => s + Number(r.actual_fds), 0)
   const totalTargetFdKobo = leaderboard.reduce((s, r) => s + Number(r.target_fd_kobo), 0)
   const totalActualFdKobo = leaderboard.reduce((s, r) => s + Number(r.actual_fd_kobo), 0)
+  const totalTargetCards  = leaderboard.reduce((s, r) => s + Number(r.target_cards), 0)
+  const totalActualCards  = leaderboard.reduce((s, r) => s + Number(r.actual_cards), 0)
+  const totalCommission   = leaderboard.reduce((s, r) => s + Number(r.commission_kobo ?? 0), 0)
 
   const COLS: TableCol<Actual>[] = [
     {
@@ -251,6 +288,21 @@ export default function SalesTargets() {
       ),
     },
     {
+      key: 'actual_cards', label: 'Cards',
+      render: r => (
+        <div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: ragColor(r.target_cards > 0 ? (r.actual_cards / r.target_cards) * 100 : 100) }}>
+            {r.actual_cards} / {r.target_cards}
+          </div>
+          <RagBar actual={r.actual_cards} target={r.target_cards} />
+        </div>
+      ),
+    },
+    {
+      key: 'commission_kobo', label: 'Commission', align: 'right',
+      render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: GREEN }}>{fmtNaira(Number(r.commission_kobo ?? 0))}</span>,
+    },
+    {
       key: 'user_id', label: 'Rank',
       render: (_, i) => (
         <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: i === 0 ? '#F59E0B' : i === 1 ? 'var(--chart-lbl)' : i === 2 ? '#C2820E' : 'var(--txt3)' }}>
@@ -263,12 +315,19 @@ export default function SalesTargets() {
   return (
     <Page
       title="Sales Targets"
-      subtitle={`Performance vs targets — ${period}`}
+      subtitle={`Performance vs targets: ${period}`}
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <input type="month" value={period} onChange={e => setPeriod(e.target.value)}
             style={{ padding: '7px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: INTER }} />
+          {canEditRates && (
+            <button onClick={openRateForm}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>percent</span>
+              Commission Rates
+            </button>
+          )}
           {canEdit && (
             <button onClick={() => setShowForm(true)}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
@@ -287,7 +346,7 @@ export default function SalesTargets() {
       {!canEdit && myRow && (
         <div style={{ background: 'var(--card)', border: `1px solid ${BLUE}33`, borderLeft: `3px solid ${BLUE}`, borderRadius: RADIUS.xl, padding: '16px 18px', marginBottom: SP[5] }}>
           <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 10 }}>
-            My target — {period}
+            My target: {period}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <div>
@@ -314,6 +373,16 @@ export default function SalesTargets() {
               </div>
               <RagBar actual={Number(myRow.actual_fd_kobo)} target={Number(myRow.target_fd_kobo)} />
             </div>
+            <div>
+              <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
+                {myRow.actual_cards} / {myRow.target_cards} cards
+              </div>
+              <RagBar actual={Number(myRow.actual_cards)} target={Number(myRow.target_cards)} />
+            </div>
+          </div>
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Commission earned this month</span>
+            <span style={{ fontSize: TEXT.xl, fontWeight: FW.extrabold, color: GREEN, ...NUM }}>{fmtNaira(Number(myRow.commission_kobo ?? 0))}</span>
           </div>
         </div>
       )}
@@ -324,7 +393,7 @@ export default function SalesTargets() {
       )}
 
       {/* Summary strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 14, marginBottom: SP[5] }}>
         {[
           { label: 'Target Loans',    value: totalTargetLoans,              fmt: (v: number) => v.toLocaleString() },
           { label: 'Actual Loans',    value: totalActualLoans,              fmt: (v: number) => v.toLocaleString(),      color: ragColor(totalTargetLoans > 0 ? (totalActualLoans / totalTargetLoans) * 100 : 100) },
@@ -334,6 +403,8 @@ export default function SalesTargets() {
           { label: 'Actual FDs',      value: totalActualFds,                fmt: (v: number) => v.toLocaleString(),      color: ragColor(totalTargetFds > 0 ? (totalActualFds / totalTargetFds) * 100 : 100) },
           { label: 'Target FD Amt.',  value: totalTargetFdKobo,             fmt: fmtNaira },
           { label: 'Actual FD Amt.',  value: totalActualFdKobo,             fmt: fmtNaira,                               color: ragColor(totalTargetFdKobo > 0 ? (totalActualFdKobo / totalTargetFdKobo) * 100 : 100) },
+          { label: 'Target Cards',    value: totalTargetCards,              fmt: (v: number) => v.toLocaleString() },
+          { label: 'Actual Cards',    value: totalActualCards,              fmt: (v: number) => v.toLocaleString(),      color: ragColor(totalTargetCards > 0 ? (totalActualCards / totalTargetCards) * 100 : 100) },
         ].map(({ label, value, fmt, color }) => (
           <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
@@ -345,7 +416,7 @@ export default function SalesTargets() {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner size={32} /></div>
       ) : (
-        <SectionCard title="Leaderboard" badge={leaderboard.length} padding={false}>
+        <SectionCard title="Leaderboard" subtitle={`Team commission this period: ${fmtNaira(totalCommission)}`} badge={leaderboard.length} padding={false}>
           <ExpandableFilterBar
             search={search}
             onSearch={setSearch}
@@ -363,10 +434,6 @@ export default function SalesTargets() {
             selectable
             selectedIds={bulkSel}
             onSelect={setBulkSel}
-            bulkBar={
-              <button onClick={() => exportBoardCsv(bulkSel.size ? filteredBoard.filter(r => bulkSel.has(r.user_id)) : filteredBoard)}
-                style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Export</button>
-            }
           />
         </SectionCard>
       )}
@@ -400,6 +467,7 @@ export default function SalesTargets() {
             { label: 'Disbursement Target (₦)', value: fDisb, set: setFDisb, type: 'number', placeholder: '0.00' },
             { label: 'FD Count Target', value: fFds, set: setFFds, type: 'number', placeholder: '0' },
             { label: 'FD Amount Target (₦)', value: fFdAmt, set: setFFdAmt, type: 'number', placeholder: '0.00' },
+            { label: 'Card Count Target', value: fCards, set: setFCards, type: 'number', placeholder: '0' },
           ].map(({ label, value, set, type, placeholder }) => (
             <div key={label}>
               <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
@@ -412,6 +480,42 @@ export default function SalesTargets() {
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={fNotes} onChange={e => setFNotes(e.target.value)} rows={2} placeholder="Optional notes…"
               style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box', resize: 'vertical' }} />
           </div>
+        </div>
+      </Modal>
+
+      {/* Commission Rates modal — Finance sets these; they drive every officer's earnings */}
+      <Modal open={rateForm} onClose={() => setRateForm(false)} title="Commission Rates" width={420}
+        footer={
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={saveRates} disabled={savingRates}
+              style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: savingRates ? 'wait' : 'pointer', opacity: savingRates ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {savingRates && <Spinner size={13} color="#fff" />}Save rates
+            </button>
+            <button onClick={() => setRateForm(false)}
+              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
+              Cancel
+            </button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', lineHeight: 1.5 }}>
+            These apply to every officer. Loans and Fixed Deposits pay a percentage of booked value; Cards pay a fixed amount per card issued.
+          </div>
+          {[
+            { label: 'Loans — % of disbursement', value: rLoan, set: setRLoan, suffix: '%' },
+            { label: 'Fixed Deposit — % of principal', value: rFd, set: setRFd, suffix: '%' },
+            { label: 'Cards — ₦ per card issued', value: rCard, set: setRCard, suffix: '₦' },
+          ].map(({ label, value, set, suffix }) => (
+            <div key={label}>
+              <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="number" step="0.01" value={value} onChange={e => set(e.target.value)} placeholder="0"
+                  style={{ flex: 1, padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+                <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt3)', width: 20 }}>{suffix}</span>
+              </div>
+            </div>
+          ))}
         </div>
       </Modal>
     </Page>

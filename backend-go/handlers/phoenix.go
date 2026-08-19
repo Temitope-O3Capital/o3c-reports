@@ -253,8 +253,8 @@ func phoenixRetryFailed(db *core.DB) http.HandlerFunc {
 func phoenixStatus(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		out := map[string]any{
-			"configured":  phoenixConfigured(),
-			"webhook_set": phoenixSecret() != "",
+			"configured":   phoenixConfigured(),
+			"webhook_set":  phoenixSecret() != "",
 			"base_url_set": phoenixBaseURL() != "", // never echo the URL or key itself
 		}
 		if rows, _ := db.PGQuery(r.Context(), `
@@ -525,22 +525,22 @@ type phoenixEvent struct {
 
 // phoenixApplication is a Phoenix-originated application as pushed to us.
 type phoenixApplication struct {
-	PhoenixID     string   `json:"phoenix_id"`
-	Reference     string   `json:"reference"`
-	ApplicantName string   `json:"applicant_name"`
-	ApplicantCIF  string   `json:"applicant_cif"`
-	Phone         string   `json:"phone"`
-	Email         string   `json:"email"`
-	Employer      string   `json:"employer"`
-	ProductType   string   `json:"product_type"`
-	AmountKobo    int64    `json:"amount_requested_kobo"`
-	TenorMonths   int64    `json:"tenor_months"`
-	MonthlyIncome int64    `json:"monthly_income_kobo"`
-	SectorCode    string   `json:"sector_code"`
-	Purpose       string   `json:"purpose"`
-	Status        string   `json:"status"`
-	Stage         string   `json:"stage"`
-	SubmittedAt   string   `json:"submitted_at"`
+	PhoenixID     string           `json:"phoenix_id"`
+	Reference     string           `json:"reference"`
+	ApplicantName string           `json:"applicant_name"`
+	ApplicantCIF  string           `json:"applicant_cif"`
+	Phone         string           `json:"phone"`
+	Email         string           `json:"email"`
+	Employer      string           `json:"employer"`
+	ProductType   string           `json:"product_type"`
+	AmountKobo    int64            `json:"amount_requested_kobo"`
+	TenorMonths   int64            `json:"tenor_months"`
+	MonthlyIncome int64            `json:"monthly_income_kobo"`
+	SectorCode    string           `json:"sector_code"`
+	Purpose       string           `json:"purpose"`
+	Status        string           `json:"status"`
+	Stage         string           `json:"stage"`
+	SubmittedAt   string           `json:"submitted_at"`
 	Decision      *phoenixDecision `json:"decision"`
 }
 

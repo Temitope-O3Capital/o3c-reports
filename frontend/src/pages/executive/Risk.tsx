@@ -54,7 +54,7 @@ export default function ExecRisk() {
 
   useEffect(() => { load(period) }, [load, period])
 
-  const title = 'Risk — Executive View'
+  const title = 'Risk: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
   const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
 
@@ -110,8 +110,8 @@ export default function ExecRisk() {
             <b>Credit assets cover {fmtPct(data.asset_coverage_pct)} of deposit liabilities.</b>{' '}
             {fmtKobo(data.fd_liability_kobo)} is owed to {fmtNum(data.fd_count)} depositors against{' '}
             {fmtKobo(data.credit_assets_kobo)} of card and loan receivables. The difference is not necessarily a
-            gap — deposit funds may be held in treasury, investments or bank balances that this workspace does
-            not yet mirror — but nothing in the data here accounts for it, so it cannot be confirmed from this
+            gap. Deposit funds may be held in treasury, investments or bank balances that this workspace does
+            not yet mirror, but nothing in the data here accounts for it, so it cannot be confirmed from this
             page. {fmtKobo(data.fd_maturing_90d_kobo)} of it matures within 90 days.
           </Note>
         )}
@@ -156,7 +156,7 @@ export default function ExecRisk() {
           {data.card_products.some(p => p.delinquency_pct >= 99) && (
             <div style={{ marginTop: SP[3] }}>
               <Note tone={RED}>
-                Several product codes show <b>100% delinquency</b> — every naira outstanding is also flagged
+                Several product codes show <b>100% delinquency</b>: every naira outstanding is also flagged
                 overdue. That is possible for a closed or written-off product line, but it is equally consistent
                 with the cycle file setting overdue equal to the balance where no ageing was supplied. Worth
                 confirming against the card system before this drives a provisioning decision.

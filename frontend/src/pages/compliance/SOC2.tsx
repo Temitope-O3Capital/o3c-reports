@@ -139,8 +139,8 @@ export default function SOC2() {
   const [newType,   setNewType]   = useState('preventive')
   const [newFreq,   setNewFreq]   = useState('continuous')
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const p = new URLSearchParams()
       if (dateFrom) p.set('from', dateFrom)
@@ -156,7 +156,7 @@ export default function SOC2() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   const filtered = controls.filter(c =>
     (!filterSt || c.status === filterSt) &&
@@ -167,15 +167,6 @@ export default function SOC2() {
   const pctComplete = totals && totals.total > 0
     ? Math.round((totals.done / totals.total) * 100) : 0
 
-  async function handleExport() {
-    const token = localStorage.getItem('token')
-    const url = '/api/compliance/soc2/export'
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    const blob = await res.blob()
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
-    a.download = `soc2-controls-${new Date().toISOString().slice(0,10)}.csv`
-    a.click()
-  }
 
   async function handleCreate() {
     if (!newCode.trim() || !newTitle.trim()) { toast.error('Code and title are required'); return }
@@ -206,7 +197,6 @@ export default function SOC2() {
           SOC 2 Type II Readiness
         </h1>
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-        <button style={btnSecondary} onClick={handleExport}>Export CSV</button>
         <button style={btnPrimary}   onClick={() => setShowNew(true)}>+ Add Control</button>
       </div>
 
@@ -261,7 +251,7 @@ export default function SOC2() {
             </div>
             <button onClick={() => navigate('/compliance/policies')}
               style={{ marginTop: SP[3], fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-              Manage Policies →
+              Manage Policies
             </button>
           </SectionCard>
 
@@ -275,7 +265,7 @@ export default function SOC2() {
             </div>
             <button onClick={() => navigate('/compliance/pentest')}
               style={{ marginTop: SP[3], fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-              View Pentest Tracker →
+              View Pentest Tracker
             </button>
           </SectionCard>
         </div>
@@ -345,7 +335,7 @@ export default function SOC2() {
                   <td style={{ padding: '9px 12px' }}>
                     <button onClick={() => navigate(`/compliance/soc2/${c.id}`)}
                       style={{ fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', padding: 0, whiteSpace: 'nowrap' }}>
-                      View →
+                      View
                     </button>
                   </td>
                 </tr>

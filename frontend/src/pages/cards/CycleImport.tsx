@@ -33,7 +33,7 @@ function DropZone({ onFiles }: { onFiles: (f: FileList) => void }) {
       <span className="material-symbols-rounded" style={{ fontSize: 34, color: over ? BLUE : 'var(--txt3)' }}>upload_file</span>
       <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: INTER }}>Drop cycle reports here, or click to browse</div>
       <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER, textAlign: 'center', maxWidth: 460 }}>
-        Upload the four Udara cycle files together — cyc_bal_rpt, cyc_chg_rpt, cyc_int_rpt, cyc_loc_rpt.
+        Upload the four Udara cycle files together: cyc_bal_rpt, cyc_chg_rpt, cyc_int_rpt, cyc_loc_rpt.
         Each file is auto-detected by its header; the statement date sets the cycle.
       </div>
     </label>

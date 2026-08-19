@@ -94,7 +94,7 @@ export default function CallCenterMyDashboard() {
     setLogInitial(initial); setLogOpen(true)
   }, [])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     setError(null)
     try {
       const r = await apiFetch<any>('/api/helpdesk/my-dashboard')
@@ -125,7 +125,7 @@ export default function CallCenterMyDashboard() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['calls', 'tickets'] })
   // Auto-refresh for a live feel.
   useEffect(() => { const id = setInterval(load, 45000); return () => clearInterval(id) }, [load])
 
@@ -157,8 +157,8 @@ export default function CallCenterMyDashboard() {
       <WorkspaceHero
         presence={<PresenceControl status={status} onChange={changeStatus} />}
         subline={d.rank_today > 0
-          ? <>You're <strong style={{ color: '#fff' }}>{ordinal(d.rank_today)}</strong> on the team today {d.team_size ? `of ${d.team_size}` : ''} · keep it going 💪</>
-          : 'Ready when you are — start dialing to climb the board.'}
+          ? <>You're <strong style={{ color: '#fff' }}>{ordinal(d.rank_today)}</strong> on the team today {d.team_size ? `of ${d.team_size}` : ''} · keep it going</>
+          : 'Ready when you are. Start dialing to climb the board.'}
         ring={{ value: c.calls_today, max: d.daily_call_target || DAILY_TARGET, unit: 'calls' }}
         stats={[
           { label: 'Calls Today', value: fmtNum(c.calls_today), delta: heroDelta(dayDelta) },
@@ -190,7 +190,7 @@ export default function CallCenterMyDashboard() {
           sub={d.awaiting_my_reply > 0 ? 'customers waiting on you' : "you're caught up"}
           color={AMBER} urgent={d.awaiting_my_reply > 0} onClick={() => navigate('/helpdesk/tickets')} />
         <MyDayTile icon="warning" count={fmtNum(d.sla_breached)} label="SLA breached"
-          sub={d.sla_breached > 0 ? 'past due — act now' : 'all within SLA'}
+          sub={d.sla_breached > 0 ? 'past due, act now' : 'all within SLA'}
           color={d.sla_breached > 0 ? RED : GREEN} urgent={d.sla_breached > 0} onClick={() => navigate('/helpdesk/tickets')} />
         <MyDayTile icon="dialpad" count={fmtNum(d.queue_pending)} label="Outbound queue"
           sub="contacts ready to dial" color={BLUE} onClick={() => navigate('/call-center/queue')} />
@@ -232,11 +232,11 @@ export default function CallCenterMyDashboard() {
         actions={
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <LiveBadge />
-            <button onClick={() => navigate('/helpdesk/calls')} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: 'none', cursor: 'pointer' }}>Full log →</button>
+            <button onClick={() => navigate('/helpdesk/calls')} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: 'none', cursor: 'pointer' }}>Full log</button>
           </div>
         }>
         {d.recent_calls.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls yet — start dialing</div>
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls yet. Start dialing</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 420, overflowY: 'auto' }}>
             {d.recent_calls.map((r, i) => {
@@ -274,10 +274,10 @@ export default function CallCenterMyDashboard() {
 
       {/* ── My tickets ───────────────────────────────────────────────────── */}
       <SectionCard title="My Open Tickets" badge={d.recent_tickets.length}
-        subtitle={d.awaiting_my_reply > 0 ? `${d.awaiting_my_reply} awaiting your reply — shown first` : 'Sorted by urgency'}
-        actions={<button onClick={() => navigate('/helpdesk/tickets')} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: 'none', cursor: 'pointer' }}>View all →</button>}>
+        subtitle={d.awaiting_my_reply > 0 ? `${d.awaiting_my_reply} awaiting your reply, shown first` : 'Sorted by urgency'}
+        actions={<button onClick={() => navigate('/helpdesk/tickets')} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: 'none', cursor: 'pointer' }}>View all</button>}>
         {d.recent_tickets.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '34px 0', color: 'var(--txt2)' }}>No open tickets — you're all caught up 🎉</div>
+          <div style={{ textAlign: 'center', padding: '34px 0', color: 'var(--txt2)' }}>No open tickets. You're all caught up</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {d.recent_tickets.map((t, i) => {

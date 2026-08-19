@@ -20,18 +20,18 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 	access := core.RequirePages("finance", "income")
 
 	// Income reporting (derived from card-cycle and loan data)
-	r.With(access).Get("/income",           finIncomeList(db))
-	r.With(access).Get("/income/chart",     finIncomeChart(db))
-	r.With(access).Get("/income/loans",     finIncomeLoans(db))
+	r.With(access).Get("/income", finIncomeList(db))
+	r.With(access).Get("/income/chart", finIncomeChart(db))
+	r.With(access).Get("/income/loans", finIncomeLoans(db))
 	r.With(access).Get("/income/fee-types", finIncomeFeeTypes(db))
-	r.With(access).Get("/income/summary",   finIncomeSummary(db))
+	r.With(access).Get("/income/summary", finIncomeSummary(db))
 
 	// Fixed-deposit reporting (derived from fd_transactions)
 	r.With(access).Get("/fd-accrual", finFDAccrual(db)) // per-FD daily interest accrual
-	r.With(access).Get("/fd-kpis",    finFDKPIs(db))    // headline FD metrics
+	r.With(access).Get("/fd-kpis", finFDKPIs(db))       // headline FD metrics
 
 	// Treasury & transaction reporting (derived from EOD + FD positions)
-	r.With(access).Get("/treasury",         finTreasury(db))
+	r.With(access).Get("/treasury", finTreasury(db))
 	r.With(access).Get("/transaction-kpis", finTransactionKPIs(db))
 
 	// My Dashboard — the finance desk's personal station
@@ -229,21 +229,23 @@ func finFDKPIs(db *core.DB) http.HandlerFunc {
 func finIncomeList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		typeFilter := qstr(r, "type")
-		dateFrom   := qstr(r, "date_from")
-		dateTo     := qstr(r, "date_to")
-		limit      := qint(r, "limit", 200, 1, 1000)
-		offset     := qint(r, "offset", 0, 0, 1<<30)
+		dateFrom := qstr(r, "date_from")
+		dateTo := qstr(r, "date_to")
+		limit := qint(r, "limit", 200, 1, 1000)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		dateWhere := "1=1"
 		var dateArgs []any
 		n := 1
 		if dateFrom != "" {
 			dateWhere += fmt.Sprintf(" AND d.cycle_date >= $%d::date", n)
-			dateArgs = append(dateArgs, dateFrom); n++
+			dateArgs = append(dateArgs, dateFrom)
+			n++
 		}
 		if dateTo != "" {
 			dateWhere += fmt.Sprintf(" AND d.cycle_date <= $%d::date", n)
-			dateArgs = append(dateArgs, dateTo); n++
+			dateArgs = append(dateArgs, dateTo)
+			n++
 		}
 
 		buildPart := func(incomeType, col string) string {
@@ -262,8 +264,8 @@ func finIncomeList(db *core.DB) http.HandlerFunc {
 
 		allTypes := []struct{ label, col string }{
 			{"Interest", "interest_charged_kobo"},
-			{"Fees",     "fees_kobo"},
-			{"Penalty",  "penalty_kobo"},
+			{"Fees", "fees_kobo"},
+			{"Penalty", "penalty_kobo"},
 		}
 
 		var parts []string
@@ -308,7 +310,7 @@ func finIncomeChart(db *core.DB) http.HandlerFunc {
 			respond(w, []map[string]any{}, "pg")
 			return
 		}
-		current  := fmt.Sprintf("%v", dateRows[0]["d"])
+		current := fmt.Sprintf("%v", dateRows[0]["d"])
 		previous := ""
 		if len(dateRows) > 1 {
 			previous = fmt.Sprintf("%v", dateRows[1]["d"])
@@ -336,8 +338,8 @@ func finIncomeChart(db *core.DB) http.HandlerFunc {
 		p := pivotRows[0]
 		out := []map[string]any{
 			{"type": "Interest", "current": toInt64(p["interest_cur"]), "previous": toInt64(p["interest_prev"])},
-			{"type": "Fees",     "current": toInt64(p["fees_cur"]),     "previous": toInt64(p["fees_prev"])},
-			{"type": "Penalty",  "current": toInt64(p["penalty_cur"]),  "previous": toInt64(p["penalty_prev"])},
+			{"type": "Fees", "current": toInt64(p["fees_cur"]), "previous": toInt64(p["fees_prev"])},
+			{"type": "Penalty", "current": toInt64(p["penalty_cur"]), "previous": toInt64(p["penalty_prev"])},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(out) //nolint:errcheck
@@ -401,33 +403,33 @@ func finIncomeSummary(db *core.DB) http.HandlerFunc {
 		summary := map[string]any{"cycle_date": cycleDate}
 		for _, cr := range cardRows {
 			sfx := "_" + strings.ToLower(fmt.Sprintf("%v", cr["currency"]))
-			summary["card_interest"+sfx]    = toInt64(cr["card_interest"])
-			summary["card_fees"+sfx]        = toInt64(cr["card_fees"])
-			summary["card_penalty"+sfx]     = toInt64(cr["card_penalty"])
+			summary["card_interest"+sfx] = toInt64(cr["card_interest"])
+			summary["card_fees"+sfx] = toInt64(cr["card_fees"])
+			summary["card_penalty"+sfx] = toInt64(cr["card_penalty"])
 			summary["card_outstanding"+sfx] = toInt64(cr["card_outstanding"])
-			summary["card_billed"+sfx]      = toInt64(cr["card_billed"])
-			summary["card_credit_limit"+sfx]= toInt64(cr["card_credit_limit"])
-			summary["card_purchases"+sfx]   = toInt64(cr["card_purchases"])
-			summary["card_cash_advance"+sfx]= toInt64(cr["card_cash_advance"])
-			summary["card_accounts"+sfx]    = toInt64(cr["card_accounts"])
+			summary["card_billed"+sfx] = toInt64(cr["card_billed"])
+			summary["card_credit_limit"+sfx] = toInt64(cr["card_credit_limit"])
+			summary["card_purchases"+sfx] = toInt64(cr["card_purchases"])
+			summary["card_cash_advance"+sfx] = toInt64(cr["card_cash_advance"])
+			summary["card_accounts"+sfx] = toInt64(cr["card_accounts"])
 		}
 		// Ensure NGN and USD keys always present so frontend never gets undefined
 		for _, sfx := range []string{"_ngn", "_usd"} {
-			for _, k := range []string{"card_interest","card_fees","card_penalty",
-				"card_outstanding","card_billed","card_credit_limit",
-				"card_purchases","card_cash_advance","card_accounts"} {
+			for _, k := range []string{"card_interest", "card_fees", "card_penalty",
+				"card_outstanding", "card_billed", "card_credit_limit",
+				"card_purchases", "card_cash_advance", "card_accounts"} {
 				if _, ok := summary[k+sfx]; !ok {
 					summary[k+sfx] = int64(0)
 				}
 			}
 		}
 
-		summary["loan_disbursed_kobo"]  = int64(0)
-		summary["active_loans"]         = int64(0)
+		summary["loan_disbursed_kobo"] = int64(0)
+		summary["active_loans"] = int64(0)
 		summary["fee_type_income_kobo"] = int64(0)
 		if len(loanRows) > 0 {
 			summary["loan_disbursed_kobo"] = toInt64(loanRows[0]["total_disbursed_kobo"])
-			summary["active_loans"]        = toInt64(loanRows[0]["active_loans"])
+			summary["active_loans"] = toInt64(loanRows[0]["active_loans"])
 		}
 		if len(feeRows) > 0 {
 			summary["fee_type_income_kobo"] = toInt64(feeRows[0]["fee_type_income_kobo"])
@@ -444,19 +446,23 @@ func finIncomeSummary(db *core.DB) http.HandlerFunc {
 
 func finIncomeLoans(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		limit        := qint(r, "limit",  100, 1, 500)
-		offset       := qint(r, "offset", 0,   0, 1<<30)
-		dateFrom, _  := validDate(r, "date_from")
-		dateTo, _    := validDate(r, "date_to")
+		limit := qint(r, "limit", 100, 1, 500)
+		offset := qint(r, "offset", 0, 0, 1<<30)
+		dateFrom, _ := validDate(r, "date_from")
+		dateTo, _ := validDate(r, "date_to")
 
 		where := "disbursed_at IS NOT NULL"
 		var args []any
 		n := 1
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND disbursed_at::date >= $%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND disbursed_at::date >= $%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND disbursed_at::date <= $%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND disbursed_at::date <= $%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		args = append(args, limit, offset)
 
@@ -511,9 +517,9 @@ func finIncomeLoans(db *core.DB) http.HandlerFunc {
 
 func finIncomeFeeTypes(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		feeType  := qstr(r, "fee_type")
+		feeType := qstr(r, "fee_type")
 		dateFrom := qstr(r, "date_from")
-		dateTo   := qstr(r, "date_to")
+		dateTo := qstr(r, "date_to")
 
 		where := "1=1"
 		var args []any
@@ -521,7 +527,10 @@ func finIncomeFeeTypes(db *core.DB) http.HandlerFunc {
 		if feeType != "" {
 			parts := strings.Split(feeType, ",")
 			phs := make([]string, len(parts))
-			for i, p := range parts { phs[i] = fmt.Sprintf("$%d", n+i); args = append(args, strings.TrimSpace(p)) }
+			for i, p := range parts {
+				phs[i] = fmt.Sprintf("$%d", n+i)
+				args = append(args, strings.TrimSpace(p))
+			}
 			n += len(parts)
 			if len(parts) == 1 {
 				where += fmt.Sprintf(" AND fee_type=%s", phs[0])
@@ -530,10 +539,14 @@ func finIncomeFeeTypes(db *core.DB) http.HandlerFunc {
 			}
 		}
 		if dateFrom != "" {
-			where += fmt.Sprintf(" AND fee_date>=$%d::date", n); args = append(args, dateFrom); n++
+			where += fmt.Sprintf(" AND fee_date>=$%d::date", n)
+			args = append(args, dateFrom)
+			n++
 		}
 		if dateTo != "" {
-			where += fmt.Sprintf(" AND fee_date<=$%d::date", n); args = append(args, dateTo); n++
+			where += fmt.Sprintf(" AND fee_date<=$%d::date", n)
+			args = append(args, dateTo)
+			n++
 		}
 		_ = n
 

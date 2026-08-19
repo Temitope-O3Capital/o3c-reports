@@ -62,7 +62,7 @@ export default function ExecCollections() {
 
   useEffect(() => { load(period) }, [load, period])
 
-  const title = 'Collections — Executive View'
+  const title = 'Collections: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
   const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
 
@@ -102,7 +102,7 @@ export default function ExecCollections() {
             <b>No collections activity has been logged in this period.</b> {fmtNum(data.assigned_count)} accounts
             worth {fmtKobo(data.assigned_kobo)} are assigned to {fmtNum(data.agent_count)} agents, but there are zero
             recorded contacts, zero promises to pay and zero payments. Either the work is happening outside the
-            system or it is not happening — both are worth knowing, and neither is visible from the assignment
+            system or it is not happening. Both are worth knowing, and neither is visible from the assignment
             count alone.
           </Note>
         </div>
@@ -141,7 +141,7 @@ export default function ExecCollections() {
             <Note tone={RED}>
               <b>{fmtPct(deepShare)} of the assigned book is more than 180 days past due</b> ({fmtKobo(deep)}).
               Recovery rates fall sharply past six months, so the bulk of this book is unlikely to be collected
-              through ordinary follow-up — it is a write-off, restructure or legal decision rather than a calling
+              through ordinary follow-up. It is a write-off, restructure or legal decision rather than a calling
               problem.
             </Note>
           </div>
@@ -181,7 +181,7 @@ export default function ExecCollections() {
             <div style={{ marginTop: SP[3] }}>
               <Note tone={AMBER}>
                 No recovery targets are set on any assignment, so there is nothing to measure agent performance
-                against — only how much each is holding.
+                against. Only how much each is holding.
               </Note>
             </div>
           )}
@@ -207,8 +207,8 @@ export default function ExecCollections() {
             </div>
             <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
               <Note>
-                Card delinquency is reported beside the assigned book because it is the larger exposure —
-                the CBS loan book is small enough that a collections view built on it alone would describe
+                Card delinquency is reported beside the assigned book because it is the larger exposure.
+                The CBS loan book is small enough that a collections view built on it alone would describe
                 a fraction of what is actually owed.
               </Note>
             </div>

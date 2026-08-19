@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"database/sql"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -62,7 +61,7 @@ var (
 	eodProductRE    = regexp.MustCompile(`Account Product Number\s*:\s*(\w+)\s*\((.+?)\)`)
 	eodAccountRE    = regexp.MustCompile(
 		`Account No\.\s*:\s*(\S+)\s+CIF\s*:\s*(\S+)\s+Arrears\s*:\s*([\d,.-]+)\s+LOC\s*:\s*([\d,.-]+)\s+Bal\.\s*:\s*([\d,.-]+)\s+(.*)`)
-	eodAmtSignCcyRE = regexp.MustCompile(`([\d,]+\.\d{2})\s+(DR|CR)\s+(NGN|USD)`)
+	eodAmtSignCcyRE  = regexp.MustCompile(`([\d,]+\.\d{2})\s+(DR|CR)\s+(NGN|USD)`)
 	eodTxnCodeDateRE = regexp.MustCompile(`(\d{3})\s+(\d{2}/\d{2}/\d{4})`)
 	eodIsTxnRE       = regexp.MustCompile(`^\s*\d+.*\b(DR|CR)\s+(NGN|USD)\b`)
 	eodCardRE        = regexp.MustCompile(`^[0-9]{6}[0-9*]+[0-9]{4}$`)
@@ -143,7 +142,7 @@ func eodParseTxnLine(line string) map[string]any {
 	return map[string]any{
 		"trace_num": traceNum, "auth_num": authNum, "card_num": cardNum,
 		"txn_code": txnCode, "txn_category": cat,
-		"txn_date": txnDate,
+		"txn_date":    txnDate,
 		"merchant_id": merchantID, "amount": amount,
 		"sign": sign, "currency": currency,
 		"merchant_name": merchantName, "description": description,
@@ -315,7 +314,6 @@ func RegisterEOD(r chi.Router, db *core.DB) {
 	r.With(access).Get("/by-branch", eodByBranch(db))
 	r.With(access).Get("/trend", eodTrend(db))
 	r.With(access).Get("/transactions", eodTransactions(db))
-	r.With(access).Get("/transactions/export", eodTransactionsExport(db))
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────────
@@ -386,8 +384,8 @@ func eodUpload(db *core.DB) http.HandlerFunc {
 				respondErr(w, 500, "Database error")
 				return
 			} else {
-				tx.ExecContext(uploadCtx, "DELETE FROM eod_transactions WHERE upload_id = $1", uploadID)          //nolint:errcheck
-				tx.ExecContext(uploadCtx,                                                                          //nolint:errcheck
+				tx.ExecContext(uploadCtx, "DELETE FROM eod_transactions WHERE upload_id = $1", uploadID) //nolint:errcheck
+				tx.ExecContext(uploadCtx,                                                                //nolint:errcheck
 					"UPDATE eod_uploads SET filename=$1, txn_count=$2, uploaded_at=NOW(), uploaded_by=$3 WHERE id=$4",
 					fh.Filename, len(rows), user.ID, uploadID)
 			}
@@ -475,11 +473,11 @@ func eodSummary(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "date_from and date_to are required")
 			return
 		}
-		branch  := qstr(r, "branch")
+		branch := qstr(r, "branch")
 		product := qstr(r, "product")
 		txnType := qstr(r, "txn_type")
-		sign    := qstr(r, "sign")
-		q       := qstr(r, "q")
+		sign := qstr(r, "sign")
+		q := qstr(r, "q")
 
 		where, args, _, err := eodBuildWhere(dateFrom, dateTo, branch, product, txnType, sign, q)
 		if err != nil {
@@ -657,13 +655,13 @@ func eodTransactions(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "date_from and date_to are required")
 			return
 		}
-		branch  := qstr(r, "branch")
+		branch := qstr(r, "branch")
 		product := qstr(r, "product")
 		txnType := qstr(r, "txn_type")
-		sign    := qstr(r, "sign")
-		q       := qstr(r, "q")
-		limit   := qint(r, "limit", 200, 1, 2000)
-		offset  := qint(r, "offset", 0, 0, 1<<30)
+		sign := qstr(r, "sign")
+		q := qstr(r, "q")
+		limit := qint(r, "limit", 200, 1, 2000)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		where, args, n, err := eodBuildWhere(dateFrom, dateTo, branch, product, txnType, sign, q)
 		if err != nil {
@@ -703,58 +701,3 @@ func eodTransactions(db *core.DB) http.HandlerFunc {
 }
 
 // ── CSV Export ────────────────────────────────────────────────────────────────
-
-func eodTransactionsExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		dateFrom := qstr(r, "date_from")
-		dateTo := qstr(r, "date_to")
-		if dateFrom == "" || dateTo == "" {
-			respondErr(w, 422, "date_from and date_to are required")
-			return
-		}
-		where, args, _, err := eodBuildWhere(
-			dateFrom, dateTo,
-			qstr(r, "branch"), qstr(r, "product"), qstr(r, "txn_type"), qstr(r, "sign"), qstr(r, "q"))
-		if err != nil {
-			respondErr(w, 400, err.Error())
-			return
-		}
-
-		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT txn_date, branch_name, product_name, account_no, cif, customer,
-			       trace_num, auth_num, card_num, txn_code, txn_category,
-			       amount, sign, currency, merchant_name, description, balance, arrears
-			FROM eod_transactions WHERE %s
-			ORDER BY txn_date DESC, amount DESC`, where), args...)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-
-		label := dateFrom + "_" + dateTo
-		w.Header().Set("Content-Type", "text/csv")
-		w.Header().Set("Content-Disposition", `attachment; filename="eod_`+label+`.csv"`)
-
-		cw := csv.NewWriter(w)
-		cw.Write([]string{ //nolint:errcheck
-			"Date", "Branch", "Product", "Account No", "CIF", "Customer",
-			"Trace #", "Auth #", "Card", "Txn Code", "Category",
-			"Amount", "DR/CR", "Currency", "Merchant", "Description", "Balance", "Arrears",
-		})
-		cols := []string{
-			"txn_date", "branch_name", "product_name", "account_no", "cif", "customer",
-			"trace_num", "auth_num", "card_num", "txn_code", "txn_category",
-			"amount", "sign", "currency", "merchant_name", "description", "balance", "arrears",
-		}
-		for _, row := range rows {
-			rec := make([]string, len(cols))
-			for i, c := range cols {
-				if v := row[c]; v != nil {
-					rec[i] = fmt.Sprintf("%v", v)
-				}
-			}
-			cw.Write(rec) //nolint:errcheck
-		}
-		cw.Flush()
-	}
-}

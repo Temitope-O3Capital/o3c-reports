@@ -79,8 +79,8 @@ export default function Attribution() {
   const [from,        setFrom]        = useState('')
   const [to,          setTo]          = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     const qs = [from && `from=${from}`, to && `to=${to}`].filter(Boolean).join('&')
     try {
       const [cam, ls] = await Promise.all([
@@ -94,7 +94,7 @@ export default function Attribution() {
   }, [from, to])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['campaigns'] })
+  useLiveData(() => load(true), { topics: ['campaigns'] })
 
   const totalDisb  = campaigns.reduce((s, c) => s + c.attributed_disbursement_kobo, 0)
   const totalConv  = campaigns.reduce((s, c) => s + c.conversions, 0)
@@ -157,7 +157,7 @@ export default function Attribution() {
       {/* Method note */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '9px 12px', background: `${BLUE}0c`, border: `1px solid ${BLUE}33`, borderRadius: RADIUS.md, marginBottom: SP[4], fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.5 }}>
         <span className="material-symbols-rounded" style={{ fontSize: 16, color: BLUE }}>info</span>
-        <span><strong>Estimated attribution.</strong> A recipient counts as a conversion if they can be matched to a customer (by CIF, phone, or email) who took a loan within <strong>90 days after</strong> the campaign was sent. It's a correlation, not proven causation — figures populate once campaigns are sent to contacts.</span>
+        <span><strong>Estimated attribution.</strong> A recipient counts as a conversion if they can be matched to a customer (by CIF, phone, or email) who took a loan within <strong>90 days after</strong> the campaign was sent. It's a correlation, not proven causation. Figures populate once campaigns are sent to contacts.</span>
       </div>
 
       {loading ? <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner size={32} /></div> : (

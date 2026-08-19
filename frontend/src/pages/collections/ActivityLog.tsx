@@ -182,8 +182,8 @@ export default function CollectionsActivityLog() {
   const [page,          setPage]          = useState(1)
   const [search,        setSearch]        = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setErr(null)
     const params = new URLSearchParams({ module: 'collections', page: String(page), size: String(PAGE_SIZE) })
     if (dateFrom)     params.set('from', dateFrom)
@@ -204,7 +204,7 @@ export default function CollectionsActivityLog() {
   }, [dateFrom, dateTo, filterAction, filterEntity, page])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   // Reset to page 1 when filters change (but not page itself)
   useEffect(() => { setPage(1) }, [dateFrom, dateTo, filterAction, filterEntity])

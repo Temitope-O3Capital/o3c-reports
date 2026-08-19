@@ -166,7 +166,7 @@ function CustomerHistory({ cif, email, excludeId }: { cif?: string; email?: stri
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 30 }}><Spinner size={16} /></div>
         ) : !cif && !email ? (
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>No CIF or email on this mail — can't match prior history.</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>No CIF or email on this mail. Can't match prior history.</div>
         ) : (
           <>
             <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
@@ -427,7 +427,7 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
       {/* Conversation */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {displayMsgs.length === 0 && <div style={{ color: 'var(--txt3)', textAlign: 'center', padding: 40 }}>This mail has no message body — it may be a system notification (e.g. a registration or transaction alert).</div>}
+        {displayMsgs.length === 0 && <div style={{ color: 'var(--txt3)', textAlign: 'center', padding: 40 }}>This mail has no message body: it may be a system notification (e.g. a registration or transaction alert).</div>}
         {displayMsgs.map(m => {
           const agent = m.direction === 'outbound'
           return (
@@ -469,7 +469,7 @@ function MailThread({ ticketId, onReplied }: { ticketId: number; onReplied: () =
             {!cannedLoaded ? (
               <div style={{ padding: 16, textAlign: 'center' }}><Spinner size={14} /></div>
             ) : canned.length === 0 ? (
-              <div style={{ padding: '12px', fontSize: TEXT.sm, color: 'var(--txt3)' }}>None yet — add them in Call Center → Canned Responses.</div>
+              <div style={{ padding: '12px', fontSize: TEXT.sm, color: 'var(--txt3)' }}>None yet. Add them in Call Center to Canned Responses.</div>
             ) : canned.map(c => (
               <button key={c.id} type="button" onClick={() => insertCanned(c)}
                 style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', borderBottom: '1px solid var(--bdr)', background: 'transparent', cursor: 'pointer' }}
@@ -557,8 +557,8 @@ export default function CareInbox() {
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const params = new URLSearchParams({ channel: 'email', per_page: '100' })
       if (status) params.set('status', status)
@@ -573,7 +573,7 @@ export default function CareInbox() {
   }, [status, owner, debounced])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
   useEffect(() => {
     const h = setTimeout(() => setDebounced(search.trim()), 350)
     return () => clearTimeout(h)
@@ -584,7 +584,7 @@ export default function CareInbox() {
   }, [mailParam]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <Page title="Care Inbox" subtitle="Customer mail — handled as tickets" noPad>
+    <Page title="Care Inbox" subtitle="Customer mail, handled as tickets" noPad>
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
         {/* Mail list */}
         <div style={{ width: 380, minWidth: 320, maxWidth: 420, borderRight: '1px solid var(--bdr)', display: 'flex', flexDirection: 'column', background: 'var(--card)', flexShrink: 0 }}>

@@ -61,7 +61,7 @@ export default function ExecFixedDeposits() {
 
   useEffect(() => { load() }, [load])
 
-  const title = 'Fixed Deposits — Executive View'
+  const title = 'Fixed Deposits: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
 
   if (loading) return (
@@ -109,7 +109,7 @@ export default function ExecFixedDeposits() {
 
       {/* Maturity ladder + Product mix */}
       <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: SP[3], marginBottom: 14 }}>
-        <SectionCard title="Maturity Ladder" subtitle="Expected payouts (principal + accrued) per month — next 12 months">
+        <SectionCard title="Maturity Ladder" subtitle="Expected payouts (principal + accrued) per month: next 12 months">
           <ResponsiveContainer width="100%" height={230}>
             <AreaChart data={data.maturity_ladder} margin={{ top: 4, right: 8, bottom: 14, left: 8 }}>
               <defs>

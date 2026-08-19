@@ -15,9 +15,9 @@ interface Module {
 }
 
 const MODULE_DESCRIPTIONS: Record<string, string> = {
-  sales:      'Business development, sales pipeline, CRM, mail, and campaign tools',
+  sales:      'Sales pipeline, leads, applications and targets across Cards, Loans and Fixed Deposits, plus mail and campaigns',
   contact:    'Outbound queue, customer service tickets, and call center tools',
-  care:       'Customer care mail — email-channel tickets, inbox, and templates',
+  care:       'Customer care mail: email-channel tickets, inbox, and templates',
   cards:      'Card issuance, cardholder management, disputes, and billing cycles',
   lending:    'Risk review, collections queue, recovery cases, and loan management',
   finance:    'P&L, EOD, fixed deposits, settlements, and reconciliation',
@@ -40,8 +40,8 @@ export default function AdminModules() {
   const [error,    setError]    = useState<string | null>(null)
   const [toggling, setToggling] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch('/api/admin/modules')
       setModules(res.data ?? res ?? [])
@@ -50,7 +50,7 @@ export default function AdminModules() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   const toggle = useCallback(async (mod: Module) => {
     setToggling(mod.key)
@@ -172,7 +172,7 @@ export default function AdminModules() {
           {/* Warning */}
           <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.7, marginTop: SP[4] }}>
             <strong>Note:</strong> Disabling a module hides its sidebar entries and prevents navigation to those pages.
-            Existing data is never deleted — re-enabling the module restores full access immediately.
+            Existing data is never deleted. Re-enabling the module restores full access immediately.
           </p>
         </>
       )}

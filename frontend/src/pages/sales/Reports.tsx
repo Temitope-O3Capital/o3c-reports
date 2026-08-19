@@ -76,8 +76,8 @@ export default function SalesReports() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const [k, p, s, a, t] = await Promise.all([
         apiFetch<OverviewKPIs>(`/api/crm/reports/overview?from=${dateFrom}&to=${dateTo}`),
@@ -96,7 +96,7 @@ export default function SalesReports() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['deals','crm'] })
+  useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   const agentCols: TableCol<AgentReport>[] = [
     { key: 'full_name',      label: 'Agent',      render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.full_name}</span> },
@@ -118,7 +118,7 @@ export default function SalesReports() {
   ]
 
   return (
-    <Page title="CRM Reports" subtitle="Sales and CRM performance analytics"
+    <Page title="Sales Reports" subtitle="Sales performance analytics"
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={err} onRetry={load} />
@@ -135,7 +135,7 @@ export default function SalesReports() {
 
       {/* Area + Source Pie */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
-        <SectionCard title="New Contacts — 12 Month Trend">
+        <SectionCard title="New Contacts: 12 Month Trend">
           <ResponsiveContainer width="100%" height={210}>
             <AreaChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <defs>

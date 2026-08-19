@@ -85,10 +85,14 @@ func getATConfig(ctx context.Context, db *core.DB) atCfg {
 			v = dec
 		}
 		switch k {
-		case "at_api_key":      cfg.apiKey = v
-		case "at_username":     cfg.username = v
-		case "at_phone_number": cfg.phoneNumber = v
-		case "at_agent_mobile": cfg.agentMobile = v
+		case "at_api_key":
+			cfg.apiKey = v
+		case "at_username":
+			cfg.username = v
+		case "at_phone_number":
+			cfg.phoneNumber = v
+		case "at_agent_mobile":
+			cfg.agentMobile = v
 		}
 	}
 	return cfg
@@ -169,8 +173,9 @@ func VoiceATCapabilityToken(db *core.DB) http.HandlerFunc {
 // AT posts here on every state change for calls to your +234 number.
 //
 // Two lifecycle events:
-//   isActive=1  — call is live; respond with ActionScript XML to route it
-//   isActive=0  — call ended; update the call log with duration + outcome
+//
+//	isActive=1  — call is live; respond with ActionScript XML to route it
+//	isActive=0  — call ended; update the call log with duration + outcome
 //
 // POST /api/voice/at-inbound   (no JWT — AT posts here directly)
 func VoiceATInbound(db *core.DB) http.HandlerFunc {
@@ -180,11 +185,11 @@ func VoiceATInbound(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		isActive     := r.FormValue("isActive")
-		sessionID    := r.FormValue("sessionId")
+		isActive := r.FormValue("isActive")
+		sessionID := r.FormValue("sessionId")
 		callerNumber := r.FormValue("callerNumber")
-		durationStr  := r.FormValue("durationInSeconds")
-		ctx          := r.Context()
+		durationStr := r.FormValue("durationInSeconds")
+		ctx := r.Context()
 
 		// ── Call ended ─────────────────────────────────────────────────────────
 		if isActive == "0" {
@@ -308,9 +313,9 @@ func VoiceStatus(db *core.DB) http.HandlerFunc {
 		}
 		row := rows[0]
 
-		fullName, _    := row["full_name"].(string)
-		sipUser, _     := row["telnyx_sip_username"].(string)
-		sipPassEnc, _  := row["telnyx_sip_password_enc"].(string)
+		fullName, _ := row["full_name"].(string)
+		sipUser, _ := row["telnyx_sip_username"].(string)
+		sipPassEnc, _ := row["telnyx_sip_password_enc"].(string)
 
 		if sipUser == "" || sipPassEnc == "" {
 			writeTelnyxStatus(w, false, "", fullName)

@@ -46,8 +46,8 @@ export default function AtRiskCards() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const r = await apiFetch<any>(`/api/cards-credit/at-risk?filter=${filter}&limit=1000`)
       const d = r?.data ?? r
@@ -58,22 +58,8 @@ export default function AtRiskCards() {
   }, [filter])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['cards'] })
+  useLiveData(() => load(true), { topics: ['cards'] })
 
-  function exportCsv() {
-    const head = ['CIF', 'Customer', 'Account', 'Product', 'Balance (NGN)', 'Limit (NGN)', 'Utilization %', 'Overdue (NGN)', 'Min Payment (NGN)', 'Flags']
-    const lines = rows.map(r => [
-      r.cif, r.customer_name || '', r.account_number, r.product,
-      (r.outstanding_balance_kobo / 100).toFixed(2), (r.credit_limit_kobo / 100).toFixed(2),
-      Number(r.utilization_pct).toFixed(1), (r.overdue_amount_kobo / 100).toFixed(2),
-      (r.minimum_payment_kobo / 100).toFixed(2),
-      [r.over_limit ? 'over-limit' : '', r.overdue ? 'overdue' : ''].filter(Boolean).join('|'),
-    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-    const blob = new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `at-risk-cards-${filter}.csv`; a.click(); URL.revokeObjectURL(url)
-  }
 
   const TH: React.CSSProperties = { textAlign: 'left', padding: '8px 12px', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.04em', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)', whiteSpace: 'nowrap' }
   const TD: React.CSSProperties = { padding: '9px 12px', fontSize: TEXT.sm, color: 'var(--txt)', borderBottom: '1px solid var(--bdr)' }
@@ -90,12 +76,7 @@ export default function AtRiskCards() {
           }}>{f.label}</button>
         ))}
       </div>
-      <button onClick={exportCsv} disabled={!rows.length} style={{
-        display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: RADIUS.md,
-        border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm,
-        fontWeight: FW.semibold, cursor: rows.length ? 'pointer' : 'default', opacity: rows.length ? 1 : 0.5,
-      }}><span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>Export</button>
-    </div>
+      </div>
   )
 
   return (

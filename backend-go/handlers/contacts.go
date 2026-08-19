@@ -230,23 +230,23 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 
 		// ── Base profile ───────────────────────────────────────────────────────
 		profile := map[string]any{
-			"cif":              cif,
-			"name":             "",
-			"phone":            nil,
-			"email":            nil,
-			"applications":     []any{},
-			"active_loans":     []any{},
-			"cards":            []any{},
-			"fixed_deposits":   []any{},
-			"helpdesk_tickets": []any{},
-			"activity_log":     []any{},
-			"is_prospect":      false,
-			"is_applicant":     false,
+			"cif":                cif,
+			"name":               "",
+			"phone":              nil,
+			"email":              nil,
+			"applications":       []any{},
+			"active_loans":       []any{},
+			"cards":              []any{},
+			"fixed_deposits":     []any{},
+			"helpdesk_tickets":   []any{},
+			"activity_log":       []any{},
+			"is_prospect":        false,
+			"is_applicant":       false,
 			"is_active_customer": false,
-			"is_card_holder":   false,
-			"is_delinquent":    false,
-			"is_in_recovery":   false,
-			"is_written_off":   false,
+			"is_card_holder":     false,
+			"is_delinquent":      false,
+			"is_in_recovery":     false,
+			"is_written_off":     false,
 		}
 
 		// Identity from the "Accounts" master (real customer data). CRM record, if any,
@@ -395,8 +395,8 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			cardList = append(cardList, map[string]any{
 				// account_id is the only unique key on the card book; two card rows can
 				// share one cif, so cif alone would collide as a list key.
-				"id":  p["account_id"],
-				"cif": p["cif"],
+				"id":                 p["account_id"],
+				"cif":                p["cif"],
 				"account_no":         p["account_no"],
 				"card_number_masked": p["card_pan"],
 				"name_on_card":       p["name_on_card"],
@@ -506,13 +506,13 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			c := colls[0]
 			bucket := str(c["dpd_bucket"])
 			profile["collections"] = map[string]any{
-				"dpd":             dpdMidpoint(bucket),
-				"dpd_bucket":      bucket,
+				"dpd":              dpdMidpoint(bucket),
+				"dpd_bucket":       bucket,
 				"outstanding_kobo": c["outstanding_kobo"],
-				"last_contact_at": c["last_contact_at"],
-				"agent_name":      c["agent_name"],
-				"ptp_date":        c["ptp_date"],
-				"current_stage":   c["current_stage"],
+				"last_contact_at":  c["last_contact_at"],
+				"agent_name":       c["agent_name"],
+				"ptp_date":         c["ptp_date"],
+				"current_stage":    c["current_stage"],
 			}
 			profile["is_delinquent"] = bucket != "0" && bucket != ""
 		}
@@ -521,15 +521,15 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		if len(recov) > 0 {
 			rc := recov[0]
 			profile["recovery_case"] = map[string]any{
-				"id":                     rc["id"],
-				"case_ref":               rc["case_ref"],
-				"status":                 rc["status"],
-				"outstanding_kobo":       rc["outstanding_kobo"],
-				"recovered_kobo":         rc["recovered_kobo"],
-				"write_off_amount_kobo":  rc["write_off_amount_kobo"],
-				"legal_stage":            rc["legal_stage"],
-				"agent_name":             rc["agent_name"],
-				"opened_at":              rc["opened_at"],
+				"id":                    rc["id"],
+				"case_ref":              rc["case_ref"],
+				"status":                rc["status"],
+				"outstanding_kobo":      rc["outstanding_kobo"],
+				"recovered_kobo":        rc["recovered_kobo"],
+				"write_off_amount_kobo": rc["write_off_amount_kobo"],
+				"legal_stage":           rc["legal_stage"],
+				"agent_name":            rc["agent_name"],
+				"opened_at":             rc["opened_at"],
 			}
 			profile["is_in_recovery"] = true
 			if toInt64(rc["write_off_amount_kobo"]) > 0 {

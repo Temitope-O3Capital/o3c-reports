@@ -198,8 +198,8 @@ export default function KnowledgeBase() {
   const [saving, setSaving] = useState(false)
   const [archiving, setArchiving] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<KBArticle[]>('/api/helpdesk/kb')
@@ -212,7 +212,7 @@ export default function KnowledgeBase() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
 
   // Client-side filtering
   const filtered = useMemo(() => articles.filter(a => {

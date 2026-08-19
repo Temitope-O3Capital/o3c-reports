@@ -40,7 +40,7 @@ function FeatureCard() {
         </div>
         <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6, fontFamily: INTER, maxWidth: 520 }}>
           The Blink Card virtual card issuing module is currently being built. Check back soon.
-          This module will provide full lifecycle management for Blink virtual cards — issuance,
+          This module will provide full lifecycle management for Blink virtual cards: issuance,
           activation, spending controls, and real-time transaction monitoring.
         </div>
       </div>
@@ -120,7 +120,7 @@ export default function BlinkCard() {
   return (
     <Page
       title="Blink Card"
-      subtitle="Virtual card issuing module — card accounts and status overview"
+      subtitle="Virtual card issuing module: card accounts and status overview"
     >
       <ErrBanner error={err} onRetry={load} />
 

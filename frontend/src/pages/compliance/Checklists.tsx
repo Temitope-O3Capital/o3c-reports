@@ -161,8 +161,8 @@ export default function Checklists() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const data = await apiFetch<Checklist[]>('/api/compliance/checklists')
       setChecklists(Array.isArray(data) ? data : [])
@@ -171,7 +171,7 @@ export default function Checklists() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['compliance'] })
+  useLiveData(() => load(true), { topics: ['compliance'] })
 
   return (
     <Page title="Compliance Checklists" subtitle="Periodic compliance verification checklists">

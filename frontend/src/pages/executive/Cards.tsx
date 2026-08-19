@@ -77,7 +77,7 @@ export default function ExecCards() {
 
   useEffect(() => { load(period) }, [load, period])
 
-  const title = 'Cards — Executive View'
+  const title = 'Cards: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
   const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
 
@@ -146,7 +146,7 @@ export default function ExecCards() {
         {data.credit_accounts > data.debit_accounts && (
           <Note>
             <b>Most cards sit in credit.</b> {fmtNum(data.credit_accounts)} of {fmtNum(data.cycle_accounts)} accounts
-            carry a credit balance totalling {fmtKobo(Math.abs(data.credit_balance_kobo))} — customers ahead of their
+            carry a credit balance totalling {fmtKobo(Math.abs(data.credit_balance_kobo))}. Customers ahead of their
             card. A single netted "book" figure hides this, which is why gross and net are shown separately:
             gross is credit exposure, the credit balance is a liability owed back.
           </Note>
@@ -156,7 +156,7 @@ export default function ExecCards() {
             <Note tone={RED}>
               <b>Delinquency is {fmtPct(data.delinquency_pct)} of gross receivables</b> ({fmtKobo(data.overdue_kobo)} across{' '}
               {fmtNum(data.overdue_accounts)} accounts), and {fmtNum(data.over_limit_accounts)} accounts are drawn beyond
-              their limit. Worth confirming against the card system before this is reported externally — a rate this
+              their limit. Worth confirming against the card system before this is reported externally. A rate this
               high is either a serious collections position or a cycle-file mapping problem.
             </Note>
           </div>

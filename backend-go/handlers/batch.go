@@ -256,6 +256,19 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "bi_scheduled_reports:ok")
 	}
 
+	// 15. Reporting rollups.
+	//
+	// collections_daily_kpi is what Collections Performance and Agent Performance
+	// read, and nothing has ever written to it. The rollup is re-runnable over a
+	// window, so a 35-day pass each night both fills yesterday and corrects any
+	// late-logged activity in the preceding month.
+	if err := batchRebuildReportingRollups(ctx, db); err != nil {
+		slog.Error("Batch: reporting rollups failed", "err", err)
+		steps = append(steps, "reporting_rollups:FAILED")
+	} else {
+		steps = append(steps, "reporting_rollups:ok")
+	}
+
 	status := "success"
 	if batchErr != nil {
 		status = "partial"
@@ -345,7 +358,8 @@ func batchPortfolioSnapshot(ctx context.Context, db *core.DB) error {
 // vs-last-period deltas. Idempotent: re-running the same day overwrites that day's row.
 //
 // Loan status vocabulary in cbs_loans: Active, Closed, Defaulting, Expired, Revoked.
-//   open loans = NOT IN ('Closed','Revoked');  NPL = Defaulting/Expired;  performing = Active.
+//
+//	open loans = NOT IN ('Closed','Revoked');  NPL = Defaulting/Expired;  performing = Active.
 func batchCBSPortfolioSnapshot(ctx context.Context, db *core.DB) error {
 	today := time.Now().Format("2006-01-02")
 
@@ -454,7 +468,10 @@ func batchEvaluateAlerts(ctx context.Context, db *core.DB) error {
 			sarRows, _ := db.PGQuery(ctx, `
 				SELECT COUNT(*) AS c FROM sars
 				WHERE status = 'draft'
-				AND created_at < NOW() - ($1 || ' hours')::interval`, threshold)
+				-- $1 * interval, not ($1 || ' hours')::interval: concatenation makes
+				-- Postgres infer $1 as text and pgx cannot encode a number into it.
+				-- The error here is discarded, so this rule was failing silently.
+				AND created_at < NOW() - ($1 * interval '1 hour')`, threshold)
 			if len(sarRows) > 0 && toInt64(sarRows[0]["c"]) > 0 {
 				breached = true
 				details["count"] = toInt64(sarRows[0]["c"])
@@ -581,7 +598,7 @@ func batchLOSSLACheck(ctx context.Context, db *core.DB) error {
 			SELECT id, reference FROM loan_applications
 			WHERE stage = $1
 			AND status NOT IN ('declined','active')
-			AND updated_at < NOW() - ($2 || ' hours')::interval
+			AND updated_at < NOW() - ($2 * interval '1 hour')
 			AND id NOT IN (
 				SELECT application_id FROM application_events
 				WHERE event_type = 'sla_breach' AND created_at > NOW() - INTERVAL '24 hours'
@@ -614,18 +631,18 @@ func batchKPISnapshot(ctx context.Context, db *core.DB) error {
 		q   string
 	}
 	metrics := []metric{
-		{"new_applications",     `SELECT COUNT(*) FROM loan_applications WHERE created_at::date = $1`},
-		{"approved_applications",`SELECT COUNT(*) FROM loan_applications WHERE status='approved' AND updated_at::date = $1`},
-		{"disbursements_count",  `SELECT COUNT(*) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
-		{"disbursements_kobo",   `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
-		{"repayments_count",     `SELECT COUNT(*) FROM loan_repayments WHERE payment_date::date = $1`},
-		{"repayments_kobo",      `SELECT COALESCE(SUM(amount_kobo),0) FROM loan_repayments WHERE payment_date::date = $1`},
-		{"ptp_set",              `SELECT COUNT(*) FROM collection_promises WHERE created_at::date = $1`},
-		{"ptp_broken",           `SELECT COUNT(*) FROM collection_promises WHERE status='broken' AND updated_at::date = $1`},
-		{"tickets_opened",       `SELECT COUNT(*) FROM helpdesk_tickets WHERE created_at::date = $1`},
-		{"tickets_closed",       `SELECT COUNT(*) FROM helpdesk_tickets WHERE status='resolved' AND updated_at::date = $1`},
-		{"active_loans",         `SELECT COUNT(*) FROM loan_applications WHERE status='active'`},
-		{"total_book_kobo",      `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='active'`},
+		{"new_applications", `SELECT COUNT(*) FROM loan_applications WHERE created_at::date = $1`},
+		{"approved_applications", `SELECT COUNT(*) FROM loan_applications WHERE status='approved' AND updated_at::date = $1`},
+		{"disbursements_count", `SELECT COUNT(*) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
+		{"disbursements_kobo", `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
+		{"repayments_count", `SELECT COUNT(*) FROM loan_repayments WHERE payment_date::date = $1`},
+		{"repayments_kobo", `SELECT COALESCE(SUM(amount_kobo),0) FROM loan_repayments WHERE payment_date::date = $1`},
+		{"ptp_set", `SELECT COUNT(*) FROM collection_promises WHERE created_at::date = $1`},
+		{"ptp_broken", `SELECT COUNT(*) FROM collection_promises WHERE status='broken' AND updated_at::date = $1`},
+		{"tickets_opened", `SELECT COUNT(*) FROM helpdesk_tickets WHERE created_at::date = $1`},
+		{"tickets_closed", `SELECT COUNT(*) FROM helpdesk_tickets WHERE status='resolved' AND updated_at::date = $1`},
+		{"active_loans", `SELECT COUNT(*) FROM loan_applications WHERE status='active'`},
+		{"total_book_kobo", `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='active'`},
 	}
 
 	vals := map[string]int64{}

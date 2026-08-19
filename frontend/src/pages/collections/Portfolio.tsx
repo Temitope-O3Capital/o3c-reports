@@ -155,8 +155,8 @@ export default function CollectionsPortfolio() {
   // Search on the server (CIF or customer name) so it spans the whole book, not just
   // the first 500 rows the endpoint returns. Debounced to one request per pause.
   const dq = useDebouncedValue(search, 300)
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const portUrl = dq.trim() ? `/api/collections/portfolio?q=${encodeURIComponent(dq.trim())}` : '/api/collections/portfolio'
       const [portRes, wlRes] = await Promise.all([
@@ -173,7 +173,7 @@ export default function CollectionsPortfolio() {
   }, [dq])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   // Collection agents for the bulk-assign picker.
   useEffect(() => {
@@ -206,7 +206,7 @@ export default function CollectionsPortfolio() {
     setGenerating(true)
     try {
       const r = await apiPost<{ created: number }>('/api/collections/generate-assignments', {})
-      toast.success(r.created > 0 ? `${r.created} new assignment(s) created from the delinquency book` : 'Assignments refreshed — no new delinquent accounts')
+      toast.success(r.created > 0 ? `${r.created} new assignment(s) created from the delinquency book` : 'Assignments refreshed. No new delinquent accounts')
       load()
     } catch (e: any) { toast.error(e.message || 'Generation failed') } finally { setGenerating(false) }
   }
@@ -343,7 +343,7 @@ export default function CollectionsPortfolio() {
                 e.stopPropagation()
                 const entry = watchlist.find(w => w.account_cif === r.applicant_cif)
                 if (entry) { setModal({ type: 'resolve', entry }); setRvStatus('resolved'); setRvNotes('') }
-                else { toast.error('Watchlist entry not found — try refreshing') }
+                else { toast.error('Watchlist entry not found. Try refreshing') }
               }}
               style={{
                 padding: '3px 9px', borderRadius: RADIUS.sm, cursor: 'pointer',
@@ -435,7 +435,7 @@ export default function CollectionsPortfolio() {
   return (
     <Page
       title="Credit Portfolio"
-      subtitle="All delinquent loan accounts — 0–90 DPD is Collections, 90d+ is Recovery territory"
+      subtitle="All delinquent loan accounts: 0–90 DPD is Collections, 90d+ is Recovery territory"
       actions={
         <div style={{ display: 'flex', gap: 8 }}>
           {isHead && (
@@ -502,7 +502,7 @@ export default function CollectionsPortfolio() {
         }}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: RED }}>gavel</span>
           <span style={{ fontSize: TEXT.sm, color: RED, fontWeight: FW.semibold }}>
-            {recCount} account{recCount !== 1 ? 's' : ''} are 90+ DPD — handled by the Recovery team
+            {recCount} account{recCount !== 1 ? 's' : ''} are 90+ DPD, handled by the Recovery team
           </span>
           <button
             onClick={() => setTab('recovery')}
@@ -597,7 +597,7 @@ export default function CollectionsPortfolio() {
       <Modal
         open={modal?.type === 'add'}
         onClose={() => setModal(null)}
-        title={`Flag for Watchlist — ${modal?.type === 'add' ? modal.row.applicant_cif : ''}`}
+        title={`Flag for Watchlist: ${modal?.type === 'add' ? modal.row.applicant_cif : ''}`}
         width={460}
         footer={
           <div style={{ display: 'flex', gap: 8 }}>
@@ -662,7 +662,7 @@ export default function CollectionsPortfolio() {
       <Modal
         open={modal?.type === 'resolve'}
         onClose={() => setModal(null)}
-        title={`Resolve Flag — ${modal?.type === 'resolve' ? modal.entry.account_cif : ''}`}
+        title={`Resolve Flag: ${modal?.type === 'resolve' ? modal.entry.account_cif : ''}`}
         width={440}
         footer={
           <div style={{ display: 'flex', gap: 8 }}>

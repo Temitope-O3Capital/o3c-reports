@@ -764,8 +764,8 @@ function InterswitchTab({ from, to }: { from: string; to: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const res = await apiFetch<IswSummary>(`/api/reconciliation/interswitch/summary?date_from=${from}&date_to=${to}`)
       setData(res)
@@ -777,7 +777,7 @@ function InterswitchTab({ from, to }: { from: string; to: string }) {
   }, [from, to])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: [] })
+  useLiveData(() => load(true), { topics: [] })
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt3)' }}>Loading Interswitch data…</div>
   if (error)   return <ErrBanner error={error} onRetry={load} />

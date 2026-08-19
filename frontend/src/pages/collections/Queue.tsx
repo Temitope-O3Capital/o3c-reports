@@ -673,13 +673,13 @@ function DetailPanel({
               onClick={() => navigate(`/collections/accounts/${assignment.account_cif}`)}
               style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${NAVY}`, background: NAVY, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
-              Full Detail →
+              Full Detail
             </button>
             <button
               onClick={() => navigate(`/contacts/${assignment.account_cif}`)}
               style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
             >
-              C360 →
+              C360
             </button>
           </div>
         </div>
@@ -914,8 +914,8 @@ export default function CollectionsQueue() {
   // loaded page of 100. Debounced to one request per pause.
   const dq = useDebouncedValue(search, 300)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setErr(null)
     const params = new URLSearchParams({ limit: '100' })
     if (fDpdKey)   params.set('dpd_bucket', fDpdKey)
@@ -967,7 +967,7 @@ export default function CollectionsQueue() {
   }, [items, fContact])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections','loans'] })
+  useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   const groups: FilterGroupDef[] = [
     {

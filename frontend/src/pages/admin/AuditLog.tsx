@@ -25,24 +25,6 @@ interface LogEntry {
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
-function exportAuditLogCsv(rows: LogEntry[]) {
-  const header = ['Time', 'User', 'Email', 'Role', 'Module', 'Action', 'Detail', 'IP']
-  const lines = rows.map(r => [
-    r.ts ?? '',
-    `"${String(r.full_name ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.email ?? '').replace(/"/g, '""')}"`,
-    r.role ?? '',
-    r.page ?? '',
-    `"${String(r.action ?? '').replace(/"/g, '""')}"`,
-    `"${String(r.detail ?? '').replace(/"/g, '""')}"`,
-    r.ip ?? '',
-  ].join(','))
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url
-  a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -57,8 +39,8 @@ export default function AdminAuditLog() {
   const [dateTo,    setDateTo]    = useState(today())
   const [viewEntry, setViewEntry] = useState<LogEntry | null>(null)
 
-  const load = useCallback(async (lim = limit) => {
-    setLoading(true)
+  const load = useCallback(async (lim = limit, silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const data = await apiFetch<LogEntry[] | { data?: LogEntry[] }>(`/api/admin/activity?limit=${lim}&from=${dateFrom}&to=${dateTo}`)
@@ -71,7 +53,7 @@ export default function AdminAuditLog() {
   }, [limit, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(undefined, true), { topics: ['users'] })
 
   const cols: TableCol<LogEntry>[] = [
     { key: 'ts', label: 'Time', sortable: true, width: 155,
@@ -119,7 +101,7 @@ export default function AdminAuditLog() {
     <Page
       back={{ label: 'Admin', to: '/admin' }}
       title="Audit Log"
-      subtitle="All platform activity — user actions, logins, data changes"
+      subtitle="All platform activity: user actions, logins, data changes"
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -138,7 +120,7 @@ export default function AdminAuditLog() {
     >
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="Activity Log" badge={displayed.length} padding={false} actions={<button onClick={() => exportAuditLogCsv(displayed)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Activity Log" badge={displayed.length} padding={false}>
 
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--bdr)', display: 'flex', gap: SP[2], alignItems: 'center' }}>
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />

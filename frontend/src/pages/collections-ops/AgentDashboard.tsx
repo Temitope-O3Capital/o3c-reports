@@ -87,7 +87,7 @@ export default function AgentDashboard() {
   // Batch payment upload
   const [batchOpen, setBatchOpen] = useState(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     setError(null)
     const qs = `?from=${dateFrom}&to=${dateTo}`
     try {
@@ -102,7 +102,7 @@ export default function AgentDashboard() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['collections', 'loans'] })
+  useLiveData(() => load(true), { topics: ['collections', 'loans'] })
 
   const changeStatus = useCallback(async (s: string) => {
     setStatus(s)
@@ -234,7 +234,7 @@ export default function AgentDashboard() {
   return (
     <Page
       title="My Workspace"
-      subtitle="Your collections station — queue, promises and payments"
+      subtitle="Your collections station: queue, promises and payments"
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
@@ -259,7 +259,7 @@ export default function AgentDashboard() {
         presence={<PresenceControl status={status} onChange={changeStatus} />}
         subline={myRank > 0
           ? <>You're <strong style={{ color: '#fff' }}>{ordinal(myRank)}</strong> on the team today of {agents.length} · <strong style={{ color: '#fff' }}>{fmtKobo(myPortfolio)}</strong> in your book</>
-          : <>{fmtKobo(myPortfolio)} in your book — start working it down 💪</>}
+          : <>{fmtKobo(myPortfolio)} in your book, start working it down</>}
         ring={{ value: myContacts, max: Math.max(1, myAssigned), unit: 'contacted' }}
         stats={[
           { label: 'My Queue', value: fmtNum(myAssigned) },
@@ -329,7 +329,7 @@ export default function AgentDashboard() {
       <LogPaymentModal
         open={!!payRow}
         onClose={() => setPayRow(null)}
-        title={`Log Payment — ${payRow?.account_cif ?? ''}`}
+        title={`Log Payment: ${payRow?.account_cif ?? ''}`}
         endpoint={payRow ? `/api/collections-ops/${payRow.id}/payment` : ''}
         onSuccess={() => { setPayRow(null); load() }}
       />
@@ -338,7 +338,7 @@ export default function AgentDashboard() {
       <Modal
         open={!!logRow}
         onClose={() => setLogRow(null)}
-        title={`Log Contact — ${logRow?.account_cif ?? ''}`}
+        title={`Log Contact: ${logRow?.account_cif ?? ''}`}
         width={440}
         footer={
           <div style={{ display: 'flex', gap: 8 }}>

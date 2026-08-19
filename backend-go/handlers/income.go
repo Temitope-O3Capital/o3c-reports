@@ -97,15 +97,20 @@ func incParseReport(content, fileType string) ([]map[string]any, time.Time) {
 		case "interest":
 			row["interest"] = incAt(nums, 0)
 		case "charges":
-			row["fees"] = incAt(nums, 0); row["interest"] = incAt(nums, 1)
-			row["penalty"] = incAt(nums, 2); row["purchase"] = incAt(nums, 3)
+			row["fees"] = incAt(nums, 0)
+			row["interest"] = incAt(nums, 1)
+			row["penalty"] = incAt(nums, 2)
+			row["purchase"] = incAt(nums, 3)
 			row["cash_advance"] = incAt(nums, 4)
 		case "balances":
-			row["billed_bal"] = incAt(nums, 0); row["current_bal"] = incAt(nums, 1)
-			row["outstanding_bal"] = incAt(nums, 2); row["overdue"] = incAt(nums, 3)
+			row["billed_bal"] = incAt(nums, 0)
+			row["current_bal"] = incAt(nums, 1)
+			row["outstanding_bal"] = incAt(nums, 2)
+			row["overdue"] = incAt(nums, 3)
 			row["min_payment"] = incAt(nums, 4)
 		case "loc":
-			row["current_loc"] = incAt(nums, 0); row["loc_change"] = incAt(nums, 1)
+			row["current_loc"] = incAt(nums, 0)
+			row["loc_change"] = incAt(nums, 1)
 			row["temp_loc"] = incAt(nums, 2)
 		default:
 			continue
@@ -142,15 +147,15 @@ func incParseCustomers(content string) []map[string]any {
 			}
 		}
 		rows = append(rows, map[string]any{
-			"cif": cif,
+			"cif":        cif,
 			"first_name": incTitle(p[0]), "last_name": incTitle(p[1]),
-			"address":    strings.Join(addrParts, ", "),
-			"country":    strings.TrimSpace(p[5]),
-			"phone":      strings.TrimSpace(p[6]),
-			"email":      strings.ToLower(strings.TrimSpace(p[7])),
-			"state":      incTitle(p[8]),
-			"city":       incTitle(p[9]),
-			"mobile":     strings.TrimSpace(p[10]),
+			"address": strings.Join(addrParts, ", "),
+			"country": strings.TrimSpace(p[5]),
+			"phone":   strings.TrimSpace(p[6]),
+			"email":   strings.ToLower(strings.TrimSpace(p[7])),
+			"state":   incTitle(p[8]),
+			"city":    incTitle(p[9]),
+			"mobile":  strings.TrimSpace(p[10]),
 		})
 	}
 	return rows
@@ -269,7 +274,6 @@ func RegisterIncome(r chi.Router, db *core.DB) {
 	r.With(access).Get("/summary", incSummary(db))
 	r.With(access).Get("/by-product", incByProduct(db))
 	r.With(access).Get("/accounts", incAccounts(db))
-	r.With(access).Get("/accounts/export", incAccountsExport(db))
 	r.With(access).Get("/trend", incTrend(db))
 }
 
@@ -490,7 +494,7 @@ func incSummary(db *core.DB) http.HandlerFunc {
 				cycleID = id
 			}
 		}
-		product  := qstr(r, "product")
+		product := qstr(r, "product")
 		currency := qstr(r, "currency")
 
 		n := 1
@@ -522,15 +526,15 @@ func incSummary(db *core.DB) http.HandlerFunc {
 			return 0
 		}
 
-		interest    := scalar("income_interest", "interest")
-		fees        := scalar("income_charges", "fees")
-		chargeInt   := scalar("income_charges", "interest")
-		penalty     := scalar("income_charges", "penalty")
-		purchase    := scalar("income_charges", "purchase")
-		cashAdv     := scalar("income_charges", "cash_advance")
+		interest := scalar("income_interest", "interest")
+		fees := scalar("income_charges", "fees")
+		chargeInt := scalar("income_charges", "interest")
+		penalty := scalar("income_charges", "penalty")
+		purchase := scalar("income_charges", "purchase")
+		cashAdv := scalar("income_charges", "cash_advance")
 		outstanding := scalar("income_balances", "outstanding_bal")
-		overdue     := scalar("income_balances", "overdue")
-		locTotal    := scalar("income_loc", "current_loc")
+		overdue := scalar("income_balances", "overdue")
+		locTotal := scalar("income_loc", "current_loc")
 
 		countRows, _ := db.PGQuery(ctx,
 			fmt.Sprintf("SELECT COUNT(*) AS n FROM income_balances WHERE %s AND overdue > 0", where), args...)
@@ -635,13 +639,13 @@ func incAccounts(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "cycle_id is required")
 			return
 		}
-		product     := qstr(r, "product")
-		currency    := qstr(r, "currency")
-		hasOverdue  := qstr(r, "has_overdue") == "true"
+		product := qstr(r, "product")
+		currency := qstr(r, "currency")
+		hasOverdue := qstr(r, "has_overdue") == "true"
 		hasInterest := qstr(r, "has_interest") == "true"
-		q           := qstr(r, "q")
-		limit       := qint(r, "limit", 200, 1, 2000)
-		offset      := qint(r, "offset", 0, 0, 1<<30)
+		q := qstr(r, "q")
+		limit := qint(r, "limit", 200, 1, 2000)
+		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		qSQL, args, n := incAccountQuery(cycleID, product, currency, hasOverdue, hasInterest, q)
 		ctx := r.Context()
@@ -670,63 +674,6 @@ func incAccounts(db *core.DB) http.HandlerFunc {
 }
 
 // ── CSV Export ────────────────────────────────────────────────────────────────
-
-func incAccountsExport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		cycleID := int64(qint(r, "cycle_id", 0, 1, 1<<30))
-		if cycleID == 0 {
-			respondErr(w, 422, "cycle_id is required")
-			return
-		}
-		product     := qstr(r, "product")
-		currency    := qstr(r, "currency")
-		hasOverdue  := qstr(r, "has_overdue") == "true"
-		hasInterest := qstr(r, "has_interest") == "true"
-		q           := qstr(r, "q")
-
-		qSQL, args, _ := incAccountQuery(cycleID, product, currency, hasOverdue, hasInterest, q)
-		rows, err := db.PGQuery(r.Context(), qSQL+" ORDER BY interest DESC NULLS LAST", args...)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-
-		// Get cycle label for filename
-		label := "income"
-		if lr, _ := db.PGQuery(r.Context(), "SELECT label FROM income_cycles WHERE id=$1", cycleID); len(lr) > 0 {
-			if v, ok := lr[0]["label"].(string); ok {
-				label = strings.ReplaceAll(v, " ", "_")
-			}
-		}
-
-		w.Header().Set("Content-Type", "text/csv")
-		w.Header().Set("Content-Disposition", `attachment; filename="income_`+label+`.csv"`)
-
-		cw := csv.NewWriter(w)
-		cw.Write([]string{ //nolint:errcheck
-			"CIF", "First Name", "Last Name", "Account", "Product Code", "Product",
-			"Currency", "Interest", "Fees", "Charge Interest", "Penalty",
-			"Purchase", "Cash Advance", "Billed Balance", "Current Balance",
-			"Outstanding Balance", "Overdue", "Min Payment", "Current LOC", "LOC Change",
-		})
-		cols := []string{
-			"cif", "first_name", "last_name", "account", "product_code", "product_name",
-			"currency", "interest", "fees", "charge_interest", "penalty",
-			"purchase", "cash_advance", "billed_bal", "current_bal",
-			"outstanding_bal", "overdue", "min_payment", "current_loc", "loc_change",
-		}
-		for _, row := range rows {
-			rec := make([]string, len(cols))
-			for i, c := range cols {
-				if v := row[c]; v != nil {
-					rec[i] = fmt.Sprintf("%v", v)
-				}
-			}
-			cw.Write(rec) //nolint:errcheck
-		}
-		cw.Flush()
-	}
-}
 
 // ── Month-over-month trend ────────────────────────────────────────────────────
 

@@ -146,35 +146,43 @@ func listContacts(db *core.DB) http.HandlerFunc {
 		}
 		if v := qstr(r, "status"); v != "" {
 			where += fmt.Sprintf(" AND c.status=$%d", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "exclude_status"); v != "" {
 			where += fmt.Sprintf(" AND c.status != $%d", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "source"); v != "" {
 			where += fmt.Sprintf(" AND c.source=$%d", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "source_type"); v != "" {
 			where += fmt.Sprintf(" AND c.source_type=$%d", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "employer_id"); v != "" {
 			where += fmt.Sprintf(" AND c.employer_id=$%d", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "assigned_to"); v != "" {
 			where += fmt.Sprintf(" AND c.assigned_to=$%d", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "from"); v != "" {
 			where += fmt.Sprintf(" AND c.created_at::date >= $%d::date", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "to"); v != "" {
 			where += fmt.Sprintf(" AND c.created_at::date <= $%d::date", n)
-			args = append(args, v); n++
+			args = append(args, v)
+			n++
 		}
 
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -241,10 +249,12 @@ func createContact(db *core.DB) http.HandlerFunc {
 			Notes       *string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.FirstName == "" || b.LastName == "" {
-			respondErr(w, 422, "first_name and last_name are required"); return
+			respondErr(w, 422, "first_name and last_name are required")
+			return
 		}
 		src := coalesce(deref(b.Source), "walk_in")
 		st := coalesce(deref(b.Status), "lead")
@@ -274,7 +284,8 @@ func createContact(db *core.DB) http.HandlerFunc {
 			b.IDType, idNumEnc, idNumHmac, src, b.CIFNumber, st,
 			b.AssignedTo, b.Tags, b.Notes, user.ID)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		row := rows[0]
 		if plain := decryptIDNumber(str(row["id_number_enc"])); plain != "" {
@@ -298,7 +309,8 @@ func getContact(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users cb ON cb.id=c.created_by
 			WHERE c.id=$1`, id)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Contact not found"); return
+			respondErr(w, 404, "Contact not found")
+			return
 		}
 		row := rows[0]
 		if plain := decryptIDNumber(str(row["id_number_enc"])); plain != "" {
@@ -318,7 +330,8 @@ func updateContact(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		// R2: intercept id_number → encrypt before passing to buildSet.
 		if idNum, ok := body["id_number"].(string); ok && idNum != "" {
@@ -374,7 +387,8 @@ func updateContact(db *core.DB) http.HandlerFunc {
 		allowedCols := append(contactUpdateCols, "id_number_enc", "id_number_hmac")
 		parts, args := buildSet(body, allowedCols, 1)
 		if len(parts) == 0 {
-			respondErr(w, 422, "No fields to update"); return
+			respondErr(w, 422, "No fields to update")
+			return
 		}
 		parts = append(parts, "updated_at=NOW()")
 		args = append(args, id)
@@ -382,7 +396,8 @@ func updateContact(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("UPDATE crm_contacts SET %s WHERE id=$%d RETURNING *",
 				strings.Join(parts, ","), len(args)), args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Contact not found"); return
+			respondErr(w, 404, "Contact not found")
+			return
 		}
 		row := rows[0]
 		if plain := decryptIDNumber(str(row["id_number_enc"])); plain != "" {
@@ -412,7 +427,8 @@ func convertContactToCustomer(w http.ResponseWriter, r *http.Request, db *core.D
 
 	tx, err := db.PG.BeginTx(ctx, nil)
 	if err != nil {
-		respondErr(w, 500, "Could not start transaction"); return
+		respondErr(w, 500, "Could not start transaction")
+		return
 	}
 	defer tx.Rollback() //nolint:errcheck
 
@@ -428,7 +444,8 @@ func convertContactToCustomer(w http.ResponseWriter, r *http.Request, db *core.D
 	args = append(args, id)
 	if _, err := tx.ExecContext(ctx,
 		fmt.Sprintf("UPDATE crm_contacts SET %s WHERE id=$%d", strings.Join(parts, ","), len(args)), args...); err != nil {
-		respondErr(w, 500, "Update failed"); return
+		respondErr(w, 500, "Update failed")
+		return
 	}
 
 	// The account manager inherits the customer, but never overwrite an officer already
@@ -442,24 +459,28 @@ func convertContactToCustomer(w http.ResponseWriter, r *http.Request, db *core.D
 				INSERT INTO customer_officers (cif, officer_id, assigned_by, source, note)
 				VALUES ($1,$2,$3,'converted','Converted via CRM contact editor')
 				ON CONFLICT (cif) DO NOTHING`, cif, officerID, actor); err != nil {
-				respondErr(w, 500, "Could not assign account officer"); return
+				respondErr(w, 500, "Could not assign account officer")
+				return
 			}
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO customer_officer_history (cif, to_officer_id, changed_by, reason)
 				VALUES ($1,$2,$3,'Converted via CRM contact editor')`, cif, officerID, actor); err != nil {
-				respondErr(w, 500, "History write failed"); return
+				respondErr(w, 500, "History write failed")
+				return
 			}
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		respondErr(w, 500, "Commit failed"); return
+		respondErr(w, 500, "Commit failed")
+		return
 	}
 
 	// Re-read for the response, matching the plain update path's shape.
 	rows, err := db.PGQuery(ctx, "SELECT * FROM crm_contacts WHERE id=$1", id)
 	if err != nil || len(rows) == 0 {
-		respondErr(w, 404, "Contact not found"); return
+		respondErr(w, 404, "Contact not found")
+		return
 	}
 	row := rows[0]
 	if plain := decryptIDNumber(str(row["id_number_enc"])); plain != "" {
@@ -482,16 +503,19 @@ func deleteContact(db *core.DB) http.HandlerFunc {
 			        COALESCE(NULLIF(converted_cif,''), NULLIF(cif_number,'')) AS cif
 			   FROM crm_contacts WHERE id=$1`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if len(rows) == 0 {
-			respondErr(w, 404, "Contact not found"); return
+			respondErr(w, 404, "Contact not found")
+			return
 		}
 
 		// Non-heads may only delete contacts assigned to or created by themselves.
 		if !isSalesHead(user) {
 			if toInt64(rows[0]["assigned_to"]) != user.ID && toInt64(rows[0]["created_by"]) != user.ID {
-				respondErr(w, 403, "You can only delete contacts assigned to or created by you"); return
+				respondErr(w, 403, "You can only delete contacts assigned to or created by you")
+				return
 			}
 		}
 
@@ -529,10 +553,12 @@ func deleteContact(db *core.DB) http.HandlerFunc {
 
 		res, err := db.PGExec(r.Context(), "DELETE FROM crm_contacts WHERE id=$1", id)
 		if err != nil {
-			respondErr(w, 500, "Delete failed"); return
+			respondErr(w, 500, "Delete failed")
+			return
 		}
 		if aff, _ := res.RowsAffected(); aff == 0 {
-			respondErr(w, 404, "Contact not found"); return
+			respondErr(w, 404, "Contact not found")
+			return
 		}
 		w.WriteHeader(204)
 	}
@@ -597,7 +623,8 @@ func listAccounts(db *core.DB) http.HandlerFunc {
 			GROUP BY c.id, am.full_name, e.name
 			ORDER BY c.updated_at DESC`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"data": rows, "total": len(rows)}) //nolint:errcheck
@@ -613,7 +640,8 @@ func customer360(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON u.id=c.assigned_to
 			WHERE c.id=$1`, id)
 		if err != nil || len(contactRows) == 0 {
-			respondErr(w, 404, "Contact not found"); return
+			respondErr(w, 404, "Contact not found")
+			return
 		}
 		contact := contactRows[0]
 
@@ -697,7 +725,8 @@ func listStages(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), "SELECT * FROM crm_pipeline_stages ORDER BY order_index")
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -706,19 +735,24 @@ func listStages(db *core.DB) http.HandlerFunc {
 func getPipeline(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		stages, err := db.PGQuery(r.Context(), "SELECT DISTINCT ON (LOWER(name)) * FROM crm_pipeline_stages ORDER BY LOWER(name), order_index")
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		dateWhere := ""
 		var dealArgs []any
 		dn := 1
 		if from != "" {
-			dateWhere += fmt.Sprintf(" AND d.created_at::date >= $%d::date", dn); dealArgs = append(dealArgs, from); dn++
+			dateWhere += fmt.Sprintf(" AND d.created_at::date >= $%d::date", dn)
+			dealArgs = append(dealArgs, from)
+			dn++
 		}
 		if to != "" {
-			dateWhere += fmt.Sprintf(" AND d.created_at::date <= $%d::date", dn); dealArgs = append(dealArgs, to); dn++
+			dateWhere += fmt.Sprintf(" AND d.created_at::date <= $%d::date", dn)
+			dealArgs = append(dealArgs, to)
+			dn++
 		}
 		_ = dn
 		deals, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -749,16 +783,24 @@ func listDeals(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if v := qstr(r, "contact_id"); v != "" {
-			where += fmt.Sprintf(" AND d.contact_id=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND d.contact_id=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "stage_id"); v != "" {
-			where += fmt.Sprintf(" AND d.stage_id=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND d.stage_id=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "from"); v != "" {
-			where += fmt.Sprintf(" AND d.created_at::date >= $%d::date", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND d.created_at::date >= $%d::date", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "to"); v != "" {
-			where += fmt.Sprintf(" AND d.created_at::date <= $%d::date", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND d.created_at::date <= $%d::date", n)
+			args = append(args, v)
+			n++
 		}
 		args = append(args, limit)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -770,7 +812,8 @@ func listDeals(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON u.id=d.assigned_to
 			WHERE %s ORDER BY d.updated_at DESC LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -789,10 +832,12 @@ func createDeal(db *core.DB) http.HandlerFunc {
 			AssignedTo        *int64   `json:"assigned_to"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.ContactID == 0 || b.Title == "" {
-			respondErr(w, 422, "contact_id and title are required"); return
+			respondErr(w, 422, "contact_id and title are required")
+			return
 		}
 		if b.StageID == nil {
 			if sr, _ := db.PGQuery(r.Context(),
@@ -814,7 +859,8 @@ func createDeal(db *core.DB) http.HandlerFunc {
 			b.ContactID, b.Title, b.StageID, b.Product, b.ExpectedValue,
 			prob, b.ExpectedCloseDate, b.AssignedTo, user.ID)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -827,11 +873,13 @@ func updateDeal(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		parts, args := buildSet(body, dealUpdateCols, 1)
 		if len(parts) == 0 {
-			respondErr(w, 422, "No fields to update"); return
+			respondErr(w, 422, "No fields to update")
+			return
 		}
 		parts = append(parts, "updated_at=NOW()")
 		args = append(args, id)
@@ -839,7 +887,8 @@ func updateDeal(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("UPDATE crm_deals SET %s WHERE id=$%d RETURNING *",
 				strings.Join(parts, ","), len(args)), args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Deal not found"); return
+			respondErr(w, 404, "Deal not found")
+			return
 		}
 		updated := rows[0]
 		// Notify the deal owner when stage changes.
@@ -874,22 +923,27 @@ func deleteDeal(db *core.DB) http.HandlerFunc {
 			owner, err := db.PGQuery(r.Context(),
 				`SELECT assigned_to, created_by FROM crm_deals WHERE id=$1`, id)
 			if err != nil {
-				respondErr(w, 500, "Query failed"); return
+				respondErr(w, 500, "Query failed")
+				return
 			}
 			if len(owner) == 0 {
-				respondErr(w, 404, "Deal not found"); return
+				respondErr(w, 404, "Deal not found")
+				return
 			}
 			if toInt64(owner[0]["assigned_to"]) != user.ID && toInt64(owner[0]["created_by"]) != user.ID {
-				respondErr(w, 403, "You can only delete deals assigned to or created by you"); return
+				respondErr(w, 403, "You can only delete deals assigned to or created by you")
+				return
 			}
 		}
 
 		res, err := db.PGExec(r.Context(), "DELETE FROM crm_deals WHERE id=$1", id)
 		if err != nil {
-			respondErr(w, 500, "Delete failed"); return
+			respondErr(w, 500, "Delete failed")
+			return
 		}
 		if aff, _ := res.RowsAffected(); aff == 0 {
-			respondErr(w, 404, "Deal not found"); return
+			respondErr(w, 404, "Deal not found")
+			return
 		}
 		w.WriteHeader(204)
 	}
@@ -905,10 +959,14 @@ func listActivities(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if v := qstr(r, "contact_id"); v != "" {
-			where += fmt.Sprintf(" AND a.contact_id=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND a.contact_id=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "type"); v != "" {
-			where += fmt.Sprintf(" AND a.type=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND a.type=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		args = append(args, limit, offset)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -918,7 +976,8 @@ func listActivities(db *core.DB) http.HandlerFunc {
 			LEFT JOIN crm_contacts c ON c.id=a.contact_id
 			WHERE %s ORDER BY a.created_at DESC LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -939,25 +998,46 @@ func createActivity(db *core.DB) http.HandlerFunc {
 			Completed    bool    `json:"completed"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.ContactID == 0 || b.Type == "" {
-			respondErr(w, 422, "contact_id and type are required"); return
+			respondErr(w, 422, "contact_id and type are required")
+			return
 		}
 		completedAtExpr := "NULL"
 		if b.Completed {
 			completedAtExpr = "NOW()"
 		}
 		user := core.UserFromCtx(r.Context())
+		// Log the activity AND, in the same statement, refresh the denormalised
+		// columns the lead worklists read: last_activity_at (drives "stalled leads")
+		// and next_action_at (drives "overdue follow-ups" and "follow-ups due
+		// today"). Without this sync those views stay frozen no matter how much
+		// activity is logged — the reason they read empty across the module today.
+		// One CTE keeps the activity row and the contact cache atomic.
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			INSERT INTO crm_activities
-			  (contact_id, deal_id, type, direction, subject, body,
-			   outcome, duration_mins, next_follow_up, completed, completed_at, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,%s,$11) RETURNING *`, completedAtExpr),
+			WITH ins AS (
+				INSERT INTO crm_activities
+				  (contact_id, deal_id, type, direction, subject, body,
+				   outcome, duration_mins, next_follow_up, completed, completed_at, created_by)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,%s,$11)
+				RETURNING *
+			), upd AS (
+				UPDATE crm_contacts c
+				   SET last_activity_at = NOW(),
+				       next_action_at   = COALESCE(ins.next_follow_up, c.next_action_at),
+				       updated_at       = NOW()
+				  FROM ins
+				 WHERE c.id = ins.contact_id
+				RETURNING c.id
+			)
+			SELECT * FROM ins`, completedAtExpr),
 			b.ContactID, b.DealID, b.Type, b.Direction, b.Subject, b.Body,
 			b.Outcome, b.DurationMins, b.NextFollowUp, b.Completed, user.ID)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -975,22 +1055,27 @@ func deleteActivity(db *core.DB) http.HandlerFunc {
 			owner, err := db.PGQuery(r.Context(),
 				`SELECT created_by FROM crm_activities WHERE id=$1`, id)
 			if err != nil {
-				respondErr(w, 500, "Query failed"); return
+				respondErr(w, 500, "Query failed")
+				return
 			}
 			if len(owner) == 0 {
-				respondErr(w, 404, "Activity not found"); return
+				respondErr(w, 404, "Activity not found")
+				return
 			}
 			if toInt64(owner[0]["created_by"]) != user.ID {
-				respondErr(w, 403, "You can only delete activities you logged"); return
+				respondErr(w, 403, "You can only delete activities you logged")
+				return
 			}
 		}
 
 		res, err := db.PGExec(r.Context(), "DELETE FROM crm_activities WHERE id=$1", id)
 		if err != nil {
-			respondErr(w, 500, "Delete failed"); return
+			respondErr(w, 500, "Delete failed")
+			return
 		}
 		if aff, _ := res.RowsAffected(); aff == 0 {
-			respondErr(w, 404, "Activity not found"); return
+			respondErr(w, 404, "Activity not found")
+			return
 		}
 		w.WriteHeader(204)
 	}
@@ -1017,7 +1102,8 @@ func listTasks(db *core.DB) http.HandlerFunc {
 		view := qstr(r, "view")
 		if view == "my" || r.URL.Query().Get("mine") == "true" {
 			where += fmt.Sprintf(" AND t.assigned_to=$%d", n)
-			args = append(args, user.ID); n++
+			args = append(args, user.ID)
+			n++
 		} else if view == "team" {
 			// Same department as current user — join through o3c_users
 			where += fmt.Sprintf(` AND t.assigned_to IN (
@@ -1025,27 +1111,38 @@ func listTasks(db *core.DB) http.HandlerFunc {
 					SELECT department FROM o3c_users WHERE id=$%d
 				) AND is_active=TRUE
 			)`, n)
-			args = append(args, user.ID); n++
+			args = append(args, user.ID)
+			n++
 		}
 		// view == "all" or empty: no extra filter
 
 		if v := qstr(r, "status"); v != "" {
-			where += fmt.Sprintf(" AND t.status=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND t.status=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "priority"); v != "" {
-			where += fmt.Sprintf(" AND t.priority=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND t.priority=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "contact_id"); v != "" {
-			where += fmt.Sprintf(" AND t.contact_id=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND t.contact_id=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if r.URL.Query().Get("overdue") == "true" {
 			where += " AND t.due_date < NOW() AND t.status NOT IN ('done','cancelled')"
 		}
 		if v := qstr(r, "from"); v != "" {
-			where += fmt.Sprintf(" AND t.created_at::date >= $%d::date", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND t.created_at::date >= $%d::date", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "to"); v != "" {
-			where += fmt.Sprintf(" AND t.created_at::date <= $%d::date", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND t.created_at::date <= $%d::date", n)
+			args = append(args, v)
+			n++
 		}
 		args = append(args, limit)
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
@@ -1060,7 +1157,8 @@ func listTasks(db *core.DB) http.HandlerFunc {
 			  t.due_date ASC NULLS LAST
 			LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -1080,10 +1178,12 @@ func createTask(db *core.DB) http.HandlerFunc {
 			LinkedID    *int64  `json:"linked_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.Title == "" {
-			respondErr(w, 422, "title is required"); return
+			respondErr(w, 422, "title is required")
+			return
 		}
 		pri := coalesce(deref(b.Priority), "medium")
 		user := core.UserFromCtx(r.Context())
@@ -1093,7 +1193,8 @@ func createTask(db *core.DB) http.HandlerFunc {
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
 			b.ContactID, b.DealID, b.Title, b.Description, b.DueDate, pri, b.AssignedTo, user.ID, b.LinkedType, b.LinkedID)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		created := rows[0]
 		// Notify the assignee (if different from creator)
@@ -1112,11 +1213,13 @@ func updateTask(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		parts, args := buildSet(body, taskUpdateCols, 1)
 		if len(parts) == 0 {
-			respondErr(w, 422, "No fields to update"); return
+			respondErr(w, 422, "No fields to update")
+			return
 		}
 		parts = append(parts, "updated_at=NOW()")
 		args = append(args, id)
@@ -1124,7 +1227,8 @@ func updateTask(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("UPDATE crm_tasks SET %s WHERE id=$%d RETURNING *",
 				strings.Join(parts, ","), len(args)), args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Task not found"); return
+			respondErr(w, 404, "Task not found")
+			return
 		}
 		updated := rows[0]
 		// Notify the new assignee if assigned_to was changed
@@ -1151,22 +1255,27 @@ func deleteTask(db *core.DB) http.HandlerFunc {
 			owner, err := db.PGQuery(r.Context(),
 				`SELECT assigned_to, created_by FROM crm_tasks WHERE id=$1`, id)
 			if err != nil {
-				respondErr(w, 500, "Query failed"); return
+				respondErr(w, 500, "Query failed")
+				return
 			}
 			if len(owner) == 0 {
-				respondErr(w, 404, "Task not found"); return
+				respondErr(w, 404, "Task not found")
+				return
 			}
 			if toInt64(owner[0]["assigned_to"]) != user.ID && toInt64(owner[0]["created_by"]) != user.ID {
-				respondErr(w, 403, "You can only delete tasks assigned to or created by you"); return
+				respondErr(w, 403, "You can only delete tasks assigned to or created by you")
+				return
 			}
 		}
 
 		res, err := db.PGExec(r.Context(), "DELETE FROM crm_tasks WHERE id=$1", id)
 		if err != nil {
-			respondErr(w, 500, "Delete failed"); return
+			respondErr(w, 500, "Delete failed")
+			return
 		}
 		if aff, _ := res.RowsAffected(); aff == 0 {
-			respondErr(w, 404, "Task not found"); return
+			respondErr(w, 404, "Task not found")
+			return
 		}
 		w.WriteHeader(204)
 	}
@@ -1183,7 +1292,8 @@ func listTaskComments(db *core.DB) http.HandlerFunc {
 			WHERE c.task_id = $1
 			ORDER BY c.created_at`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -1192,9 +1302,12 @@ func listTaskComments(db *core.DB) http.HandlerFunc {
 func addTaskComment(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		var b struct{ Body string `json:"body"` }
+		var b struct {
+			Body string `json:"body"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Body == "" {
-			respondErr(w, 422, "body is required"); return
+			respondErr(w, 422, "body is required")
+			return
 		}
 		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
@@ -1203,7 +1316,8 @@ func addTaskComment(db *core.DB) http.HandlerFunc {
 			RETURNING id, task_id, body, created_at`,
 			id, user.ID, b.Body)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -1218,10 +1332,12 @@ func bulkAssignTasks(db *core.DB) http.HandlerFunc {
 			AssignedTo *int64  `json:"assigned_to"` // nil = unassign
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if len(b.TaskIDs) == 0 {
-			respondErr(w, 422, "task_ids is required"); return
+			respondErr(w, 422, "task_ids is required")
+			return
 		}
 		placeholders := make([]string, len(b.TaskIDs))
 		args := []any{b.AssignedTo}
@@ -1233,7 +1349,8 @@ func bulkAssignTasks(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("UPDATE crm_tasks SET assigned_to=$1, updated_at=NOW() WHERE id IN (%s)",
 				strings.Join(placeholders, ",")), args...)
 		if err != nil {
-			respondErr(w, 500, "Update failed"); return
+			respondErr(w, 500, "Update failed")
+			return
 		}
 		// Notify the assignee — bulk-assign targets a single user, like single
 		// assignment. (nil assigned_to = unassign, so nobody to notify.)
@@ -1263,7 +1380,8 @@ func listCRMUsers(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT id, full_name, role FROM o3c_users WHERE is_active=TRUE ORDER BY full_name`)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -1339,7 +1457,7 @@ func sendTaskNotifications(db *core.DB) {
 // about contacts whose birthday is today or in exactly 3 days.
 func ScheduleBirthdayWorker(db *core.DB) {
 	for {
-		now  := time.Now()
+		now := time.Now()
 		next := time.Date(now.Year(), now.Month(), now.Day()+1, 8, 0, 0, 0, now.Location())
 		time.Sleep(time.Until(next))
 		runBirthdayNotifications(db)
@@ -1443,16 +1561,24 @@ func listRequests(db *core.DB) http.HandlerFunc {
 		n := 1
 
 		if v := qstr(r, "status"); v != "" {
-			where += fmt.Sprintf(" AND r.status=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND r.status=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "request_type"); v != "" {
-			where += fmt.Sprintf(" AND r.request_type=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND r.request_type=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "priority"); v != "" {
-			where += fmt.Sprintf(" AND r.priority=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND r.priority=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if v := qstr(r, "contact_id"); v != "" {
-			where += fmt.Sprintf(" AND r.contact_id=$%d", n); args = append(args, v); n++
+			where += fmt.Sprintf(" AND r.contact_id=$%d", n)
+			args = append(args, v)
+			n++
 		}
 		if r.URL.Query().Get("sla_breached") == "true" {
 			where += " AND r.status NOT IN ('resolved','closed') AND r.created_at+(r.sla_hours||' hours')::INTERVAL < NOW()"
@@ -1486,7 +1612,8 @@ func listRequests(db *core.DB) http.HandlerFunc {
 			  r.created_at DESC
 			LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 
 		total := 0
@@ -1514,10 +1641,12 @@ func createRequest(db *core.DB) http.HandlerFunc {
 			AssignedTo  *int64  `json:"assigned_to"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if b.Subject == "" {
-			respondErr(w, 422, "subject is required"); return
+			respondErr(w, 422, "subject is required")
+			return
 		}
 		if !requestTypesSet[b.RequestType] {
 			b.RequestType = "general"
@@ -1536,7 +1665,8 @@ func createRequest(db *core.DB) http.HandlerFunc {
 			b.ContactID, b.CIFNumber, b.RequestType, b.Subject, b.Description,
 			pri, slaH, b.AssignedTo, user.ID)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		created := rows[0]
 		// There is no requests page under /sales; deep-link to the linked contact's
@@ -1566,11 +1696,13 @@ func updateRequest(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		parts, args := buildSet(body, requestUpdateCols, 1)
 		if len(parts) == 0 {
-			respondErr(w, 422, "No fields to update"); return
+			respondErr(w, 422, "No fields to update")
+			return
 		}
 		if st, ok := body["status"].(string); ok && (st == "resolved" || st == "closed") {
 			parts = append(parts, "resolved_at=NOW()")
@@ -1581,7 +1713,8 @@ func updateRequest(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("UPDATE crm_requests SET %s WHERE id=$%d RETURNING *",
 				strings.Join(parts, ","), len(args)), args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Request not found"); return
+			respondErr(w, 404, "Request not found")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -1593,7 +1726,7 @@ func updateRequest(db *core.DB) http.HandlerFunc {
 func crmReportOverview(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 			  (SELECT COUNT(*) FROM crm_contacts
@@ -1626,7 +1759,8 @@ func crmReportOverview(db *core.DB) http.HandlerFunc {
 			  (SELECT ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at-created_at))/3600)::NUMERIC,1)
 			    FROM crm_requests WHERE resolved_at IS NOT NULL)                            AS avg_resolution_hrs`, from, to)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -1636,7 +1770,7 @@ func crmReportOverview(db *core.DB) http.HandlerFunc {
 func crmReportPipeline(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT s.name, s.color, s.order_index, s.is_won, s.is_lost,
 			       COUNT(d.id) AS deal_count,
@@ -1649,7 +1783,8 @@ func crmReportPipeline(db *core.DB) http.HandlerFunc {
 			GROUP BY s.id,s.name,s.color,s.order_index,s.is_won,s.is_lost
 			ORDER BY s.order_index`, from, to)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -1664,7 +1799,8 @@ func crmReportConversion(db *core.DB) http.HandlerFunc {
 			GROUP BY s.id,s.name,s.order_index,s.color
 			ORDER BY s.order_index`)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -1674,7 +1810,7 @@ func crmReportAgentPerformance(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		days := qint(r, "days", 30, 1, 365)
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT u.id, u.full_name, u.role,
 			       COUNT(DISTINCT a.id) FILTER (WHERE a.created_at >= NOW()-($1::int||' days')::INTERVAL
@@ -1695,7 +1831,8 @@ func crmReportAgentPerformance(db *core.DB) http.HandlerFunc {
 			GROUP BY u.id,u.full_name,u.role
 			ORDER BY activities DESC NULLS LAST`, days, from, to)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -1710,7 +1847,8 @@ func crmReportActivityTrend(db *core.DB) http.HandlerFunc {
 			WHERE created_at >= NOW()-($1::int||' days')::INTERVAL
 			GROUP BY DATE(created_at),type ORDER BY day`, days)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -1719,7 +1857,7 @@ func crmReportActivityTrend(db *core.DB) http.HandlerFunc {
 func crmReportContactsBySource(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT source, COUNT(*) AS total,
 			       COUNT(*) FILTER (WHERE status='customer') AS converted
@@ -1728,7 +1866,8 @@ func crmReportContactsBySource(db *core.DB) http.HandlerFunc {
 			  AND ($2='' OR created_at::date <= $2::date)
 			GROUP BY source ORDER BY total DESC`, from, to)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -1746,7 +1885,8 @@ func crmReportRequestsSLA(db *core.DB) http.HandlerFunc {
 			         FILTER (WHERE resolved_at IS NOT NULL)::NUMERIC,1) AS avg_resolution_hrs
 			FROM crm_requests GROUP BY request_type ORDER BY total DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}
@@ -1755,7 +1895,7 @@ func crmReportRequestsSLA(db *core.DB) http.HandlerFunc {
 func crmReportNewContactsTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
-		to   := qstr(r, "to")
+		to := qstr(r, "to")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT TO_CHAR(DATE_TRUNC('month',created_at),'Mon YYYY') AS month,
 			       COUNT(*) AS new_contacts,
@@ -1767,7 +1907,8 @@ func crmReportNewContactsTrend(db *core.DB) http.HandlerFunc {
 			GROUP BY DATE_TRUNC('month',created_at)
 			ORDER BY DATE_TRUNC('month',created_at)`, from, to)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		jsonRows(w, rows)
 	}

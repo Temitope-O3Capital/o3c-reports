@@ -367,7 +367,7 @@ function PromisesTab({ cif, version }: { cif: string; version: number }) {
         }}>
           <div>
             <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>
-              {fmtKobo(p.promise_amount_kobo)} — due {fmtDate(p.promise_date)}
+              {fmtKobo(p.promise_amount_kobo)}, due {fmtDate(p.promise_date)}
             </div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
               {p.agent_name ?? '—'} · {fmtDatetime(p.created_at)}
@@ -650,7 +650,7 @@ export default function CollectionsAccountDetail() {
               display: 'inline-flex', alignItems: 'center', gap: 5,
             }}
           >
-            Full C360 →
+            Full C360
           </button>
         </div>
       }
@@ -868,13 +868,13 @@ export default function CollectionsAccountDetail() {
         <LogPaymentModal
           open={openModal === 'payment'}
           onClose={() => setModal(null)}
-          title={`Log Payment — ${d.applicant_cif}`}
+          title={`Log Payment: ${d.applicant_cif}`}
           endpoint={`/api/collections-ops/${d.assignment_id}/payment`}
           onSuccess={() => { setModal(null); loadDetail() }}
         />
       )}
 
-      <Modal open={openModal === 'watchlist_add'} onClose={() => setModal(null)} title={`Flag for Watchlist — ${d.applicant_cif}`} width={460}
+      <Modal open={openModal === 'watchlist_add'} onClose={() => setModal(null)} title={`Flag for Watchlist: ${d.applicant_cif}`} width={460}
         footer={
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={addWatchlist} disabled={saving} style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: AMBER, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -895,7 +895,7 @@ export default function CollectionsAccountDetail() {
         </div>
       </Modal>
 
-      <Modal open={openModal === 'watchlist_resolve'} onClose={() => setModal(null)} title={`Resolve Flag — ${d.applicant_cif}`} width={440}
+      <Modal open={openModal === 'watchlist_resolve'} onClose={() => setModal(null)} title={`Resolve Flag: ${d.applicant_cif}`} width={440}
         footer={
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={resolveWatchlist} disabled={saving} style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: rvStatus === 'resolved' ? GREEN : RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -941,7 +941,7 @@ export default function CollectionsAccountDetail() {
           <div>
             <label style={labelSt}>Assign to</label>
             <select value={newAgentId} onChange={e => setNewAgentId(e.target.value)} style={inputSt}>
-              <option value="">— Select agent —</option>
+              <option value="">Select agent</option>
               {collectionAgents.map(a => (
                 <option key={a.id} value={String(a.id)}>
                   {a.full_name} ({a.role.replace(/_/g, ' ')})

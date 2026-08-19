@@ -132,7 +132,9 @@ export default function SalesBookCustomer() {
   const tickets = profile?.tickets ?? []
   const recentCalls = profile?.recent_calls ?? []
 
-  const cardBalance = accounts.reduce((s, a) => s + n(a.current_dr_balance), 0)
+  // Card-book money (current_dr_balance, card_limit) is in NAIRA, not kobo — ×100 so
+  // the app's kobo formatters (which ÷100) render the true figure rather than 1/100th.
+  const cardBalance = accounts.reduce((s, a) => s + n(a.current_dr_balance) * 100, 0)
   const outstanding = loans.reduce(
     (s, l) => s + n(l.outstanding_principal_kobo) + n(l.outstanding_interest_kobo) + n(l.outstanding_fee_kobo), 0)
   const fdPrincipal = fds.reduce((s, f) => s + n(f.principal_kobo), 0)
@@ -144,8 +146,8 @@ export default function SalesBookCustomer() {
     { key: 'product_name', label: 'Product' },
     { key: 'card_program', label: 'Programme' },
     { key: 'status', label: 'Status', render: r => <Pill text={r.status || '—'} tone={statusTone(r.status)} /> },
-    { key: 'card_limit', label: 'Limit', align: 'right', render: r => <span style={NUM}>{fmtKobo(n(r.card_limit))}</span> },
-    { key: 'current_dr_balance', label: 'Balance', align: 'right', render: r => <span style={NUM}>{fmtKobo(n(r.current_dr_balance))}</span> },
+    { key: 'card_limit', label: 'Limit', align: 'right', render: r => <span style={NUM}>{fmtKobo(n(r.card_limit) * 100)}</span> },
+    { key: 'current_dr_balance', label: 'Balance', align: 'right', render: r => <span style={NUM}>{fmtKobo(n(r.current_dr_balance) * 100)}</span> },
     {
       key: 'days_overdue', label: 'DPD', align: 'right',
       render: r => n(r.days_overdue) > 0
@@ -165,7 +167,7 @@ export default function SalesBookCustomer() {
       render: r => <span style={NUM}>{fmtKobo(
         n(r.outstanding_principal_kobo) + n(r.outstanding_interest_kobo) + n(r.outstanding_fee_kobo))}</span>,
     },
-    { key: 'interest_rate', label: 'Rate', align: 'right', render: r => r.interest_rate ? `${r.interest_rate}%` : '—' },
+    { key: 'interest_rate', label: 'Rate', align: 'right', render: r => Number(r.interest_rate) ? `${Number(r.interest_rate)}%` : '—' },
     { key: 'maturity_date', label: 'Matures', render: r => fmtDate(r.maturity_date) },
   ]
 
@@ -175,7 +177,7 @@ export default function SalesBookCustomer() {
     { key: 'status', label: 'Status', render: r => <Pill text={r.status || '—'} tone={statusTone(r.status)} /> },
     { key: 'principal_kobo', label: 'Principal', align: 'right', render: r => <span style={NUM}>{fmtKobo(n(r.principal_kobo))}</span> },
     { key: 'accrued_interest_kobo', label: 'Accrued', align: 'right', render: r => <span style={NUM}>{fmtKobo(n(r.accrued_interest_kobo))}</span> },
-    { key: 'interest_rate', label: 'Rate', align: 'right', render: r => r.interest_rate ? `${r.interest_rate}%` : '—' },
+    { key: 'interest_rate', label: 'Rate', align: 'right', render: r => Number(r.interest_rate) ? `${Number(r.interest_rate)}%` : '—' },
     { key: 'maturity_date', label: 'Matures', render: r => fmtDate(r.maturity_date) },
   ]
 
@@ -256,7 +258,7 @@ export default function SalesBookCustomer() {
         </div>
         {c?.acquired_on_source && c.acquired_on_source !== 'account_created' && (
           <div style={{ marginTop: 12, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-            Acquisition date {SOURCE_LABEL[c.acquired_on_source] ?? c.acquired_on_source} — the customer feed carries no date of its own.
+            Acquisition date {SOURCE_LABEL[c.acquired_on_source] ?? c.acquired_on_source}. The customer feed carries no date of its own.
           </div>
         )}
       </div>
@@ -324,7 +326,7 @@ export default function SalesBookCustomer() {
           onClick={() => navigate(`/customers/${encodeURIComponent(cif)}`)}
           style={{ background: 'none', border: 'none', color: BLUE, cursor: 'pointer', padding: 0, font: 'inherit' }}
         >
-          Open the full 360° view →
+          Open the full 360° view
         </button>
       </div>
     </Page>

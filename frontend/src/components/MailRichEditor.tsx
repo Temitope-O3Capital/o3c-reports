@@ -381,7 +381,7 @@ function Toolbar({ editor, compact }: { editor: Editor | null; compact: boolean 
           <Sep />
           <Btn onClick={() => {
             const cur = (editor.getAttributes('image').alt as string) ?? ''
-            const alt = window.prompt('Alt text — shown when images are blocked', cur)
+            const alt = window.prompt('Alt text: shown when images are blocked', cur)
             if (alt !== null) editor.chain().focus().updateAttributes('image', { alt }).run()
           }} icon="edit_note" title="Alt text" />
           <Btn onClick={() => editor.chain().focus().deleteSelection().run()} icon="delete" title="Remove image" />
@@ -466,7 +466,7 @@ function ImageButton({ editor }: { editor: Editor }) {
     if (!f) return
     if (!f.type.startsWith('image/')) { setNote('That is not an image file.'); return }
     if (f.size > MAX_INLINE_IMAGE_BYTES) {
-      setNote(`That image is ${Math.round(f.size / 1024)} KB. Inline images are capped at ${MAX_INLINE_IMAGE_BYTES / 1024} KB because a copy travels with every message — resize it, or host it and use “By URL”.`)
+      setNote(`That image is ${Math.round(f.size / 1024)} KB. Inline images are capped at ${MAX_INLINE_IMAGE_BYTES / 1024} KB because a copy travels with every message. Resize it, or host it and use “By URL”.`)
       return
     }
     setBusy(true)

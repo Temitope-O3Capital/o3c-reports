@@ -167,7 +167,7 @@ export default function EyeScore() {
   return (
     <Page
       title="Eye Credit Scores"
-      subtitle="Credit scoring requests — scores, bands, and key risk factors"
+      subtitle="Credit scoring requests: scores, bands, and key risk factors"
       actions={
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
@@ -252,7 +252,7 @@ export default function EyeScore() {
           keyFn={r => r.id}
           loading={loading}
           skeletonRows={8}
-          emptyText={kpis?.origination_live === false ? 'No scored applications yet. Eye Score runs at application time — scores appear here once applications are raised or synced from Phoenix. Live-book risk scores are on the Portfolio page.' : 'No score requests found'}
+          emptyText={kpis?.origination_live === false ? 'No scored applications yet. Eye Score runs at application time. Scores appear here once applications are raised or synced from Phoenix. Live-book risk scores are on the Portfolio page.' : 'No score requests found'}
         />
 
         {pages > 1 && (
@@ -265,12 +265,12 @@ export default function EyeScore() {
                 onClick={() => load(Math.max(0, offset - PAGE_SIZE))}
                 disabled={offset === 0}
                 style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.5 : 1, fontSize: TEXT.sm }}
-              >← Prev</button>
+              >Prev</button>
               <button
                 onClick={() => load(offset + PAGE_SIZE)}
                 disabled={currentPage >= pages}
                 style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: currentPage >= pages ? 'not-allowed' : 'pointer', opacity: currentPage >= pages ? 0.5 : 1, fontSize: TEXT.sm }}
-              >Next →</button>
+              >Next</button>
             </div>
           </div>
         )}

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,33 +15,32 @@ func RegisterSOC2(r chi.Router, db *core.DB) {
 	all := core.RequirePages("compliance_all", "compliance_head")
 
 	// SOC 2 overview + controls
-	r.With(all).Get("/soc2/overview",             soc2Overview(db))
-	r.With(all).Get("/soc2/controls",             soc2ControlList(db))
-	r.With(all).Get("/soc2/controls/{id}",        soc2ControlGet(db))
-	r.With(all).Patch("/soc2/controls/{id}",      soc2ControlUpdate(db))
-	r.With(all).Post("/soc2/controls",            soc2ControlCreate(db))
-	r.With(all).Get("/soc2/export",               soc2Export(db))
+	r.With(all).Get("/soc2/overview", soc2Overview(db))
+	r.With(all).Get("/soc2/controls", soc2ControlList(db))
+	r.With(all).Get("/soc2/controls/{id}", soc2ControlGet(db))
+	r.With(all).Patch("/soc2/controls/{id}", soc2ControlUpdate(db))
+	r.With(all).Post("/soc2/controls", soc2ControlCreate(db))
 
 	// Evidence
 	r.With(all).Post("/soc2/controls/{id}/evidence", soc2EvidenceAdd(db))
-	r.With(all).Delete("/soc2/evidence/{eid}",        soc2EvidenceDelete(db))
+	r.With(all).Delete("/soc2/evidence/{eid}", soc2EvidenceDelete(db))
 
 	// Policy documents
-	r.With(all).Get("/soc2/policies",          soc2PolicyList(db))
-	r.With(all).Post("/soc2/policies",         soc2CreatePolicy(db))
-	r.With(all).Patch("/soc2/policies/{id}",   soc2PolicyUpdate(db))
+	r.With(all).Get("/soc2/policies", soc2PolicyList(db))
+	r.With(all).Post("/soc2/policies", soc2CreatePolicy(db))
+	r.With(all).Patch("/soc2/policies/{id}", soc2PolicyUpdate(db))
 
 	// Pentest engagements
-	r.With(all).Get("/pentests",       pentestList(db))
-	r.With(all).Post("/pentests",      pentestCreate(db))
-	r.With(all).Get("/pentests/{id}",  pentestGet(db))
+	r.With(all).Get("/pentests", pentestList(db))
+	r.With(all).Post("/pentests", pentestCreate(db))
+	r.With(all).Get("/pentests/{id}", pentestGet(db))
 	r.With(all).Patch("/pentests/{id}", pentestUpdate(db))
 
 	// Pentest findings
-	r.With(all).Get("/pentest-findings",              pentestFindingListAll(db))
-	r.With(all).Post("/pentests/{id}/findings",       pentestFindingCreate(db))
-	r.With(all).Patch("/pentest-findings/{fid}",      pentestFindingUpdate(db))
-	r.With(all).Delete("/pentest-findings/{fid}",     pentestFindingDelete(db))
+	r.With(all).Get("/pentest-findings", pentestFindingListAll(db))
+	r.With(all).Post("/pentests/{id}/findings", pentestFindingCreate(db))
+	r.With(all).Patch("/pentest-findings/{fid}", pentestFindingUpdate(db))
+	r.With(all).Delete("/pentest-findings/{fid}", pentestFindingDelete(db))
 }
 
 // ── SOC 2 overview ────────────────────────────────────────────────────────────
@@ -110,7 +108,7 @@ func soc2ControlList(db *core.DB) http.HandlerFunc {
 		status := qstr(r, "status")
 		criteria := qstr(r, "criteria")
 		from, _ := validDate(r, "from")
-		to, _   := validDate(r, "to")
+		to, _ := validDate(r, "to")
 
 		where := " WHERE 1=1"
 		args := []any{}
@@ -263,13 +261,13 @@ func soc2ControlUpdate(db *core.DB) http.HandlerFunc {
 func soc2ControlCreate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
-			CriteriaCode    string `json:"criteria_code"`
-			CriteriaGroup   string `json:"criteria_group"`
-			TrustCriteria   string `json:"trust_criteria"`
-			Title           string `json:"title"`
-			Description     string `json:"description"`
-			ControlType     string `json:"control_type"`
-			Frequency       string `json:"frequency"`
+			CriteriaCode  string `json:"criteria_code"`
+			CriteriaGroup string `json:"criteria_group"`
+			TrustCriteria string `json:"trust_criteria"`
+			Title         string `json:"title"`
+			Description   string `json:"description"`
+			ControlType   string `json:"control_type"`
+			Frequency     string `json:"frequency"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -279,9 +277,15 @@ func soc2ControlCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "criteria_code and title are required")
 			return
 		}
-		if b.ControlType == "" { b.ControlType = "preventive" }
-		if b.Frequency == "" { b.Frequency = "continuous" }
-		if b.TrustCriteria == "" { b.TrustCriteria = "security" }
+		if b.ControlType == "" {
+			b.ControlType = "preventive"
+		}
+		if b.Frequency == "" {
+			b.Frequency = "continuous"
+		}
+		if b.TrustCriteria == "" {
+			b.TrustCriteria = "security"
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO soc2_controls
 			  (criteria_code, criteria_group, trust_criteria, title, description, control_type, frequency, is_standard, sort_order)
@@ -295,41 +299,6 @@ func soc2ControlCreate(db *core.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
-	}
-}
-
-func soc2Export(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT c.criteria_code, c.criteria_group, c.trust_criteria, c.title,
-			  c.status, c.control_type, c.frequency,
-			  u.full_name AS owner,
-			  c.target_date::text, c.completed_at::text,
-			  c.evidence_summary,
-			  COALESCE(ev.ev_count,0)::text AS evidence_count
-			FROM soc2_controls c
-			LEFT JOIN o3c_users u ON c.owner_id=u.id
-			LEFT JOIN (SELECT control_id, COUNT(*) AS ev_count FROM soc2_evidence GROUP BY control_id) ev ON ev.control_id=c.id
-			ORDER BY c.sort_order`)
-		if err != nil {
-			respondErr(w, 500, "Query failed")
-			return
-		}
-		w.Header().Set("Content-Type", "text/csv")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="soc2-controls-%s.csv"`, time.Now().Format("2006-01-02")))
-		cw := csv.NewWriter(w)
-		cw.Write([]string{"Code", "Group", "Criteria", "Title", "Status", "Type", "Frequency", "Owner", "Target Date", "Completed", "Evidence Summary", "Evidence Count"}) //nolint:errcheck
-		for _, row := range rows {
-			cw.Write([]string{ //nolint:errcheck
-				fmt.Sprint(row["criteria_code"]), fmt.Sprint(row["criteria_group"]),
-				fmt.Sprint(row["trust_criteria"]), fmt.Sprint(row["title"]),
-				fmt.Sprint(row["status"]), fmt.Sprint(row["control_type"]),
-				fmt.Sprint(row["frequency"]), fmt.Sprint(row["owner"]),
-				fmt.Sprint(row["target_date"]), fmt.Sprint(row["completed_at"]),
-				fmt.Sprint(row["evidence_summary"]), fmt.Sprint(row["evidence_count"]),
-			})
-		}
-		cw.Flush()
 	}
 }
 
@@ -356,7 +325,9 @@ func soc2EvidenceAdd(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "title is required")
 			return
 		}
-		if b.EvidenceType == "" { b.EvidenceType = "note" }
+		if b.EvidenceType == "" {
+			b.EvidenceType = "note"
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO soc2_evidence
 			  (control_id, title, evidence_type, description, file_url, code_reference, collected_by, valid_from, valid_to)
@@ -465,11 +436,31 @@ func soc2PolicyUpdate(db *core.DB) http.HandlerFunc {
 				n++
 			}
 		}
-		if b.OwnerID != nil   { sets += fmt.Sprintf(", owner_id=$%d", n);        args = append(args, *b.OwnerID);        n++ }
-		if b.NextReviewDate != nil { sets += fmt.Sprintf(", next_review_date=$%d", n); args = append(args, *b.NextReviewDate); n++ }
-		if b.DocumentURL != nil { sets += fmt.Sprintf(", document_url=$%d", n);  args = append(args, *b.DocumentURL);  n++ }
-		if b.Version != nil   { sets += fmt.Sprintf(", version=$%d", n);          args = append(args, *b.Version);        n++ }
-		if b.Notes != nil     { sets += fmt.Sprintf(", notes=$%d", n);            args = append(args, *b.Notes);          n++ }
+		if b.OwnerID != nil {
+			sets += fmt.Sprintf(", owner_id=$%d", n)
+			args = append(args, *b.OwnerID)
+			n++
+		}
+		if b.NextReviewDate != nil {
+			sets += fmt.Sprintf(", next_review_date=$%d", n)
+			args = append(args, *b.NextReviewDate)
+			n++
+		}
+		if b.DocumentURL != nil {
+			sets += fmt.Sprintf(", document_url=$%d", n)
+			args = append(args, *b.DocumentURL)
+			n++
+		}
+		if b.Version != nil {
+			sets += fmt.Sprintf(", version=$%d", n)
+			args = append(args, *b.Version)
+			n++
+		}
+		if b.Notes != nil {
+			sets += fmt.Sprintf(", notes=$%d", n)
+			args = append(args, *b.Notes)
+			n++
+		}
 		args = append(args, id)
 		if _, err := db.PGExec(r.Context(),
 			fmt.Sprintf("UPDATE soc2_policy_documents SET%s WHERE id=$%d", sets, n), args...); err != nil {
@@ -482,7 +473,10 @@ func soc2PolicyUpdate(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON p.owner_id=u.id
 			LEFT JOIN o3c_users a ON p.approved_by=a.id
 			WHERE p.id=$1`, id)
-		if len(rows) == 0 { respondErr(w, 404, "Not found"); return }
+		if len(rows) == 0 {
+			respondErr(w, 404, "Not found")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
@@ -493,7 +487,7 @@ func soc2PolicyUpdate(db *core.DB) http.HandlerFunc {
 func pentestList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from, _ := validDate(r, "from")
-		to, _   := validDate(r, "to")
+		to, _ := validDate(r, "to")
 
 		where := " WHERE 1=1"
 		args := []any{}
@@ -554,7 +548,9 @@ func pentestCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "title and vendor_name are required")
 			return
 		}
-		if b.EngagementType == "" { b.EngagementType = "external_blackbox" }
+		if b.EngagementType == "" {
+			b.EngagementType = "external_blackbox"
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO pentest_engagements
 			  (title, vendor_name, engagement_type, start_date, end_date, scope_notes, rules_of_engagement, engagement_cost_kobo, created_by)
@@ -604,15 +600,15 @@ func pentestUpdate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		var b struct {
-			Status             *string `json:"status"`
-			ReportURL          *string `json:"report_url"`
-			ReportReceivedAt   *string `json:"report_received_at"`
-			RetestDeadline     *string `json:"retest_deadline"`
-			RetestCompletedAt  *string `json:"retest_completed_at"`
-			ScopeNotes         *string `json:"scope_notes"`
-			RulesOfEngagement  *string `json:"rules_of_engagement"`
-			StartDate          *string `json:"start_date"`
-			EndDate            *string `json:"end_date"`
+			Status            *string `json:"status"`
+			ReportURL         *string `json:"report_url"`
+			ReportReceivedAt  *string `json:"report_received_at"`
+			RetestDeadline    *string `json:"retest_deadline"`
+			RetestCompletedAt *string `json:"retest_completed_at"`
+			ScopeNotes        *string `json:"scope_notes"`
+			RulesOfEngagement *string `json:"rules_of_engagement"`
+			StartDate         *string `json:"start_date"`
+			EndDate           *string `json:"end_date"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -622,9 +618,17 @@ func pentestUpdate(db *core.DB) http.HandlerFunc {
 		args := []any{}
 		n := 1
 		patch := func(field string, val *string) {
-			if val != nil { sets += fmt.Sprintf(", %s=$%d", field, n); args = append(args, *val); n++ }
+			if val != nil {
+				sets += fmt.Sprintf(", %s=$%d", field, n)
+				args = append(args, *val)
+				n++
+			}
 		}
-		if b.Status != nil { sets += fmt.Sprintf(", status=$%d", n); args = append(args, *b.Status); n++ }
+		if b.Status != nil {
+			sets += fmt.Sprintf(", status=$%d", n)
+			args = append(args, *b.Status)
+			n++
+		}
 		patch("report_url", b.ReportURL)
 		patch("report_received_at", b.ReportReceivedAt)
 		patch("retest_deadline", b.RetestDeadline)
@@ -640,7 +644,10 @@ func pentestUpdate(db *core.DB) http.HandlerFunc {
 			return
 		}
 		rows, _ := db.PGQuery(r.Context(), "SELECT * FROM pentest_engagements WHERE id=$1", id)
-		if len(rows) == 0 { respondErr(w, 404, "Not found"); return }
+		if len(rows) == 0 {
+			respondErr(w, 404, "Not found")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
@@ -653,12 +660,20 @@ func pentestFindingListAll(db *core.DB) http.HandlerFunc {
 		severity := qstr(r, "severity")
 		status := qstr(r, "status")
 		from, _ := validDate(r, "from")
-		to, _   := validDate(r, "to")
+		to, _ := validDate(r, "to")
 		where := " WHERE 1=1"
 		args := []any{}
 		n := 1
-		if severity != "" { where += fmt.Sprintf(" AND f.severity=$%d", n); args = append(args, severity); n++ }
-		if status != "" { where += fmt.Sprintf(" AND f.status=$%d", n);   args = append(args, status);   n++ }
+		if severity != "" {
+			where += fmt.Sprintf(" AND f.severity=$%d", n)
+			args = append(args, severity)
+			n++
+		}
+		if status != "" {
+			where += fmt.Sprintf(" AND f.status=$%d", n)
+			args = append(args, status)
+			n++
+		}
 		if from != "" {
 			where += fmt.Sprintf(" AND f.created_at::date >= $%d::date", n)
 			args = append(args, from)
@@ -691,15 +706,15 @@ func pentestFindingCreate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		engID := chi.URLParam(r, "id")
 		var b struct {
-			Title              string   `json:"title"`
-			Severity           string   `json:"severity"`
-			CVSSScore          *float64 `json:"cvss_score"`
-			AffectedComponent  string   `json:"affected_component"`
-			Description        string   `json:"description"`
-			BusinessImpact     string   `json:"business_impact"`
-			Recommendation     string   `json:"recommendation"`
-			AssignedTo         *int64   `json:"assigned_to"`
-			SLADeadline        *string  `json:"sla_deadline"`
+			Title             string   `json:"title"`
+			Severity          string   `json:"severity"`
+			CVSSScore         *float64 `json:"cvss_score"`
+			AffectedComponent string   `json:"affected_component"`
+			Description       string   `json:"description"`
+			BusinessImpact    string   `json:"business_impact"`
+			Recommendation    string   `json:"recommendation"`
+			AssignedTo        *int64   `json:"assigned_to"`
+			SLADeadline       *string  `json:"sla_deadline"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -709,11 +724,15 @@ func pentestFindingCreate(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "title is required")
 			return
 		}
-		if b.Severity == "" { b.Severity = "medium" }
+		if b.Severity == "" {
+			b.Severity = "medium"
+		}
 		// Auto-compute SLA deadline if not provided
 		if b.SLADeadline == nil {
 			days := map[string]int{"critical": 1, "high": 3, "medium": 14, "low": 30}[b.Severity]
-			if days == 0 { days = 30 }
+			if days == 0 {
+				days = 30
+			}
 			d := time.Now().AddDate(0, 0, days).Format("2006-01-02")
 			b.SLADeadline = &d
 		}
@@ -745,11 +764,11 @@ func pentestFindingUpdate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fid := chi.URLParam(r, "fid")
 		var b struct {
-			Status        *string  `json:"status"`
-			AssignedTo    *int64   `json:"assigned_to"`
-			RetestStatus  *string  `json:"retest_status"`
-			RetestNotes   *string  `json:"retest_notes"`
-			ResolvedAt    *string  `json:"resolved_at"`
+			Status         *string `json:"status"`
+			AssignedTo     *int64  `json:"assigned_to"`
+			RetestStatus   *string `json:"retest_status"`
+			RetestNotes    *string `json:"retest_notes"`
+			ResolvedAt     *string `json:"resolved_at"`
 			Recommendation *string `json:"recommendation"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
@@ -760,17 +779,39 @@ func pentestFindingUpdate(db *core.DB) http.HandlerFunc {
 		args := []any{}
 		n := 1
 		if b.Status != nil {
-			sets += fmt.Sprintf(", status=$%d", n); args = append(args, *b.Status); n++
+			sets += fmt.Sprintf(", status=$%d", n)
+			args = append(args, *b.Status)
+			n++
 			if *b.Status == "resolved" {
 				sets += fmt.Sprintf(", resolved_at=COALESCE($%d, CURRENT_DATE)", n)
-				if b.ResolvedAt != nil { args = append(args, *b.ResolvedAt) } else { args = append(args, nil) }
+				if b.ResolvedAt != nil {
+					args = append(args, *b.ResolvedAt)
+				} else {
+					args = append(args, nil)
+				}
 				n++
 			}
 		}
-		if b.AssignedTo != nil  { sets += fmt.Sprintf(", assigned_to=$%d", n);   args = append(args, *b.AssignedTo);   n++ }
-		if b.RetestStatus != nil { sets += fmt.Sprintf(", retest_status=$%d", n); args = append(args, *b.RetestStatus); n++ }
-		if b.RetestNotes != nil { sets += fmt.Sprintf(", retest_notes=$%d", n);   args = append(args, *b.RetestNotes);  n++ }
-		if b.Recommendation != nil { sets += fmt.Sprintf(", recommendation=$%d", n); args = append(args, *b.Recommendation); n++ }
+		if b.AssignedTo != nil {
+			sets += fmt.Sprintf(", assigned_to=$%d", n)
+			args = append(args, *b.AssignedTo)
+			n++
+		}
+		if b.RetestStatus != nil {
+			sets += fmt.Sprintf(", retest_status=$%d", n)
+			args = append(args, *b.RetestStatus)
+			n++
+		}
+		if b.RetestNotes != nil {
+			sets += fmt.Sprintf(", retest_notes=$%d", n)
+			args = append(args, *b.RetestNotes)
+			n++
+		}
+		if b.Recommendation != nil {
+			sets += fmt.Sprintf(", recommendation=$%d", n)
+			args = append(args, *b.Recommendation)
+			n++
+		}
 		args = append(args, fid)
 		if _, err := db.PGExec(r.Context(),
 			fmt.Sprintf("UPDATE pentest_findings SET%s WHERE id=$%d", sets, n), args...); err != nil {
@@ -781,7 +822,10 @@ func pentestFindingUpdate(db *core.DB) http.HandlerFunc {
 			SELECT f.*, u.full_name AS assigned_to_name
 			FROM pentest_findings f LEFT JOIN o3c_users u ON f.assigned_to=u.id
 			WHERE f.id=$1`, fid)
-		if len(rows) == 0 { respondErr(w, 404, "Not found"); return }
+		if len(rows) == 0 {
+			respondErr(w, 404, "Not found")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
@@ -811,7 +855,7 @@ func soc2CreatePolicy(db *core.DB) http.HandlerFunc {
 		var b struct {
 			Name       string `json:"name"`
 			Version    string `json:"version"`
-			Content    string `json:"content"`     // stored in notes until schema supports it
+			Content    string `json:"content"` // stored in notes until schema supports it
 			OwnerID    int64  `json:"owner_id"`
 			PolicyType string `json:"policy_type"` // used as category
 		}

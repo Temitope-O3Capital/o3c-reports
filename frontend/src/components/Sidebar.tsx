@@ -81,19 +81,18 @@ const SECTIONS: Section[] = [
         // raised, then reporting. 'My Accounts' and the old contact list were two
         // routes onto the same idea and are now one — My Book — and 'Cohort Analysis'
         // moved under Reports rather than standing alone.
-        icon: 'trending_up', label: 'Sales & CRM', to: '/sales/overview',
+        icon: 'trending_up', label: 'Sales', to: '/sales/overview',
         vis: ['sales_officer','sales_head'],
         subs: [
           { label: 'Overview',         to: '/sales/overview' },
+          { label: 'Team (Live)',      to: '/sales/supervisor', vis: ['sales_head'] },
           { label: 'My Dashboard',     to: '/sales/my-dashboard', vis: ['sales_officer'] },
           { label: 'My Book',          to: '/sales/book' },
           { label: 'Leads',            to: '/sales/leads' },
           { label: 'Contacts',         to: '/sales/customers' },
-          { label: 'Pipeline',         to: '/sales/crm' },
           { label: 'Tasks',            to: '/sales/tasks' },
           { label: 'Applications',     to: '/sales/applications' },
           { label: 'Targets',          to: '/sales/targets' },
-          { label: 'Reports',          to: '/sales/reports' },
           { label: 'Cohort Analysis',  to: '/sales/cohort' },
         ],
       },
@@ -187,7 +186,7 @@ const SECTIONS: Section[] = [
         // missing entirely, so the COO could not see a module they hold every page for.
         icon: 'shield', label: 'Risk', to: '/operations/risk',
         vis: ['risk_officer','risk_head','finance_officer','finance_head',
-              'collections_head','recovery_head','settlement_officer','coo'],
+              'collections_head','recovery_head','settlement_officer','settlement_head','coo'],
         subs: [
           { label: 'My Dashboard',     to: '/operations/risk/my-dashboard', vis: ['risk_officer'] },
           { label: 'Overview',         to: '/operations/risk' },
@@ -228,7 +227,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'compare_arrows', label: 'Settlement & Reconciliation', to: '/settlements',
-        vis: ['settlement_officer','finance_head','finance_head'],
+        vis: ['settlement_officer','settlement_head','finance_head'],
         // The module serves two jobs: OPERATIONS (do the day's work) and REPORTING
         // (see the position). Entries are grouped in that order.
         //
@@ -282,6 +281,9 @@ const SECTIONS: Section[] = [
           { label: 'Credit Audit Trail',  to: '/compliance/credit-audit-trail' },
           { label: 'AML Watchlist',       to: '/compliance/watchlist' },
           { label: 'Regulatory Calendar', to: '/compliance/regulatory' },
+          // A statutory return. It was filed under Analytics only because its
+          // route happens to start /reports.
+          { label: 'CBN Complaints Report', to: '/compliance/cbn-complaints' },
           { label: 'Findings',            to: '/compliance/findings' },
           { label: 'Checklists',          to: '/compliance/checklists' },
           { label: 'Audit Trail',         to: '/compliance/audit-trail' },
@@ -305,19 +307,29 @@ const SECTIONS: Section[] = [
     key: 'analytics',
     header: 'Analytics',
     items: [
+      // Reports & BI owns every data extract in the workspace, so the module is
+      // limited to the BI team and admin. The KPI Tracker and the CBN Complaints
+      // Report used to live in here purely because of their /reports URLs; they
+      // are a dashboard and a statutory return, held by different page keys, and
+      // are listed under their own modules so narrowing this one does not take
+      // them away from the heads and from Compliance.
       {
         icon: 'analytics', label: 'Reports & BI', to: '/reports',
-        vis: ['bi_analyst','bi_head','compliance_head','finance_head'],
+        vis: ['bi_analyst','bi_head'],
         subs: [
-          { label: 'My Dashboard',        to: '/reports/my-dashboard', vis: ['bi_analyst'] },
-          { label: 'KPI Tracker',         to: '/reports/kpi' },
-          { label: 'Analytics Dashboard', to: '/reports' },
-          { label: 'CBN Complaints Report', to: '/reports/cbn-report' },
-          { label: 'Data Export',         to: '/reports/export' },
-          { label: 'Report Builder',      to: '/bi/builder' },
-          { label: 'Saved Reports',       to: '/bi' },
-          { label: 'Scheduled Reports',   to: '/bi/scheduled' },
+          { label: 'My Dashboard',      to: '/reports/my-dashboard', vis: ['bi_analyst'] },
+          { label: 'Reports Library',   to: '/reports' },
+          { label: 'Data Export',       to: '/reports/export' },
+          { label: 'Report Builder',    to: '/bi/builder' },
+          { label: 'Saved Reports',     to: '/bi' },
+          { label: 'Scheduled Reports', to: '/bi/scheduled' },
         ],
+      },
+      {
+        icon: 'speed', label: 'KPI Tracker', to: '/reports/kpi',
+        vis: ['bi_analyst','bi_head','sales_head','collections_head','recovery_head',
+              'finance_head','compliance_head','cards_head','risk_head','call_center_head',
+              'care_head','bd_head','coo','cfo','cmo','md'],
       },
       {
         icon: 'receipt_long', label: 'Statements', to: '/statements',
@@ -416,7 +428,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/compliance/credit-bureau': 'watch_list', '/compliance/breach-incidents': 'compliance_all',
   '/compliance/board-pack': 'compliance_all',
   // Analytics
-  '/reports': 'reports', '/reports/my-dashboard': 'reports', '/reports/kpi': 'reports', '/reports/cbn-report': 'reports',
+  '/reports': 'reports', '/reports/my-dashboard': 'reports', '/reports/kpi': 'kpi_dashboard', '/compliance/cbn-complaints': 'cbn_reports',
   '/reports/export': 'reports', '/bi': 'reports', '/bi/builder': 'reports', '/bi/scheduled': 'reports',
   '/statements': 'statements', '/statements/credit-cards': 'statements', '/core-banking': 'core-banking',
   // Admin

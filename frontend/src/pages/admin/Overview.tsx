@@ -66,7 +66,7 @@ const MODULES: Module[] = [
   {
     icon: 'integration_instructions',
     label: 'Integrations',
-    description: 'Monitor connected services — SendGrid, MSSQL, Eye, NIBSS, WhatsApp, and more.',
+    description: 'Monitor connected services: SendGrid, MSSQL, Eye, NIBSS, WhatsApp, and more.',
     to: '/admin/integrations',
     accent: BLUE,
   },
@@ -94,7 +94,7 @@ const MODULES: Module[] = [
   {
     icon: 'history',
     label: 'Audit Log',
-    description: 'Full activity log of every user action — module, IP address, and timestamp.',
+    description: 'Full activity log of every user action: module, IP address, and timestamp.',
     to: '/admin/audit',
     stat: c => c.activity.length > 0 ? `${c.activity.length} recent events` : undefined,
     accent: RED,
@@ -102,7 +102,7 @@ const MODULES: Module[] = [
   {
     icon: 'sync',
     label: 'Sync Status',
-    description: 'Track MSSQL ↔ PostgreSQL sync runs, success rate, and row counts.',
+    description: 'Track MSSQL and PostgreSQL sync runs, success rate, and row counts.',
     to: '/admin/sync',
     accent: '#0891B2',
   },
@@ -229,7 +229,7 @@ function ActivityFeed({ activity, loading }: { activity: Activity[]; loading: bo
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {a.full_name ?? a.email ?? 'Unknown'} — <span style={{ color: 'var(--txt2)' }}>{a.action}</span>
+              {a.full_name ?? a.email ?? 'Unknown'}: <span style={{ color: 'var(--txt2)' }}>{a.action}</span>
             </div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 1 }}>
               {a.page} · {fmtDatetime(a.ts)}
@@ -242,7 +242,7 @@ function ActivityFeed({ activity, loading }: { activity: Activity[]; loading: bo
         border: '1.5px solid var(--bdr)', background: 'transparent',
         fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, cursor: 'pointer', fontFamily: INTER,
       }}>
-        View full audit log →
+        View full audit log
       </button>
     </div>
   )
@@ -258,8 +258,8 @@ export default function AdminOverview() {
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const [u, r, a] = await Promise.allSettled([
@@ -280,7 +280,7 @@ export default function AdminOverview() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['users'] })
+  useLiveData(() => load(true), { topics: ['users'] })
 
   const ctx: StatsCtx = { users, roles, activity }
 

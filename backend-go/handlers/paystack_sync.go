@@ -114,10 +114,10 @@ func paystackSyncStatus(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		var (
-			id                             sql.NullInt64
-			kind, status, errMsg           sql.NullString
-			startedAt, finishedAt, waterM  sql.NullTime
-			txnN, trfN, setN, dspN         sql.NullInt64
+			id                            sql.NullInt64
+			kind, status, errMsg          sql.NullString
+			startedAt, finishedAt, waterM sql.NullTime
+			txnN, trfN, setN, dspN        sql.NullInt64
 		)
 		err := db.PG.QueryRowContext(ctx, `
 			SELECT id, kind, started_at, finished_at, status, watermark,

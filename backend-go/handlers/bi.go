@@ -20,18 +20,18 @@ import (
 func RegisterBI(r chi.Router, db *core.DB) {
 	bi := core.RequirePages("reports")
 
-	r.With(bi).Get("/reports",                    biListReports(db))
-	r.With(bi).Post("/reports",                   biCreateReport(db))
-	r.With(bi).Put("/reports/{id}",               biUpdateReport(db))
-	r.With(bi).Delete("/reports/{id}",            biDeleteReport(db))
-	r.With(bi).Post("/reports/preview",           biPreviewReport(db)) // M13: preview without saving
-	r.With(bi).Post("/reports/{id}/run",          biRunReport(db))
-	r.With(bi).Get("/reports/{id}/export",        biExportReport(db))
-	r.With(bi).Post("/reports/{id}/schedule",     biScheduleReport(db))
-	r.With(bi).Get("/scheduled",                  biListScheduled(db))
-	r.With(bi).Delete("/scheduled/{sid}",         biDeleteSchedule(db))
-	r.With(bi).Get("/runs",                       biListRuns(db))
-	r.With(bi).Get("/my-dashboard",               biMyDashboard(db))
+	r.With(bi).Get("/reports", biListReports(db))
+	r.With(bi).Post("/reports", biCreateReport(db))
+	r.With(bi).Put("/reports/{id}", biUpdateReport(db))
+	r.With(bi).Delete("/reports/{id}", biDeleteReport(db))
+	r.With(bi).Post("/reports/preview", biPreviewReport(db)) // M13: preview without saving
+	r.With(bi).Post("/reports/{id}/run", biRunReport(db))
+	r.With(bi).Get("/reports/{id}/export", biExportReport(db))
+	r.With(bi).Post("/reports/{id}/schedule", biScheduleReport(db))
+	r.With(bi).Get("/scheduled", biListScheduled(db))
+	r.With(bi).Delete("/scheduled/{sid}", biDeleteSchedule(db))
+	r.With(bi).Get("/runs", biListRuns(db))
+	r.With(bi).Get("/my-dashboard", biMyDashboard(db))
 }
 
 // biMyDashboard — the analyst's personal station: their saved reports, schedules
@@ -104,7 +104,7 @@ func biListReports(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 
 		q := `SELECT d.id, d.name, d.description, d.module, d.dimensions, d.metrics,
 			       d.date_range, d.is_public, d.created_at,
@@ -126,7 +126,8 @@ func biListReports(db *core.DB) http.HandlerFunc {
 		q += " ORDER BY d.updated_at DESC"
 		rows, err := db.PGQuery(ctx, q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -152,7 +153,8 @@ func biCreateReport(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(ctx)
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Name == "" || b.Module == "" {
-			respondErr(w, 400, "name and module are required"); return
+			respondErr(w, 400, "name and module are required")
+			return
 		}
 		if b.DateRange == "" {
 			b.DateRange = "last_30_days"
@@ -166,7 +168,8 @@ func biCreateReport(db *core.DB) http.HandlerFunc {
 			RETURNING id, name, module, date_range, is_public, created_at`,
 			b.Name, b.Description, b.Module, dims, metrics, filters, b.DateRange, b.IsPublic, user.ID)
 		if err != nil {
-			respondErr(w, 500, "Create failed"); return
+			respondErr(w, 500, "Create failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -191,15 +194,18 @@ func biUpdateReport(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		// Ownership check
 		existing, _ := db.PGQuery(ctx, `SELECT created_by FROM bi_report_definitions WHERE id=$1`, id)
 		if len(existing) == 0 {
-			respondErr(w, 404, "Report not found"); return
+			respondErr(w, 404, "Report not found")
+			return
 		}
 		if toInt64(existing[0]["created_by"]) != user.ID {
-			respondErr(w, 403, "Not your report"); return
+			respondErr(w, 403, "Not your report")
+			return
 		}
 
 		set := "updated_at=NOW()"
@@ -207,21 +213,42 @@ func biUpdateReport(db *core.DB) http.HandlerFunc {
 		n := 1
 		appendField := func(col string, val any) {
 			set += fmt.Sprintf(", %s=$%d", col, n)
-			args = append(args, val); n++
+			args = append(args, val)
+			n++
 		}
-		if b.Name != nil        { appendField("name",        *b.Name)        }
-		if b.Description != nil { appendField("description", *b.Description) }
-		if b.Module != nil      { appendField("module",      *b.Module)      }
-		if b.DateRange != nil   { appendField("date_range",  *b.DateRange)   }
-		if b.IsPublic != nil    { appendField("is_public",   *b.IsPublic)    }
-		if b.Dimensions != nil  { j, _ := json.Marshal(b.Dimensions); appendField("dimensions", j) }
-		if b.Metrics != nil     { j, _ := json.Marshal(b.Metrics); appendField("metrics",    j) }
-		if b.Filters != nil     { j, _ := json.Marshal(b.Filters);  appendField("filters",    j) }
+		if b.Name != nil {
+			appendField("name", *b.Name)
+		}
+		if b.Description != nil {
+			appendField("description", *b.Description)
+		}
+		if b.Module != nil {
+			appendField("module", *b.Module)
+		}
+		if b.DateRange != nil {
+			appendField("date_range", *b.DateRange)
+		}
+		if b.IsPublic != nil {
+			appendField("is_public", *b.IsPublic)
+		}
+		if b.Dimensions != nil {
+			j, _ := json.Marshal(b.Dimensions)
+			appendField("dimensions", j)
+		}
+		if b.Metrics != nil {
+			j, _ := json.Marshal(b.Metrics)
+			appendField("metrics", j)
+		}
+		if b.Filters != nil {
+			j, _ := json.Marshal(b.Filters)
+			appendField("filters", j)
+		}
 
 		args = append(args, id)
 		_, err := db.PGExec(ctx, fmt.Sprintf(`UPDATE bi_report_definitions SET %s WHERE id=$%d`, set, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Update failed"); return
+			respondErr(w, 500, "Update failed")
+			return
 		}
 		respond(w, map[string]any{"ok": true}, "json")
 	}
@@ -234,10 +261,12 @@ func biDeleteReport(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		existing, _ := db.PGQuery(ctx, `SELECT created_by FROM bi_report_definitions WHERE id=$1`, id)
 		if len(existing) == 0 {
-			respondErr(w, 404, "Report not found"); return
+			respondErr(w, 404, "Report not found")
+			return
 		}
 		if toInt64(existing[0]["created_by"]) != user.ID {
-			respondErr(w, 403, "Not your report"); return
+			respondErr(w, 403, "Not your report")
+			return
 		}
 		db.PGExec(ctx, `DELETE FROM bi_report_definitions WHERE id=$1`, id) //nolint:errcheck
 		respond(w, map[string]any{"ok": true}, "json")
@@ -310,23 +339,37 @@ func biQueryForReport(r *http.Request, def map[string]any) (string, []any, error
 			GROUP BY 1, 2 ORDER BY 1 DESC`, dateFrom, dateTo)
 
 	case "CRM":
+		// Reads crm_contacts, not crm_deals.
+		//
+		// crm_deals is the deal-pipeline model and is empty — the workspace never
+		// adopted it. The lead pipeline that sales actually works is
+		// crm_contacts.lead_stage, which holds 29,663 rows (27,869 new, 1,794
+		// converted). An earlier fix here corrected crm_deals' column names, which
+		// made the query valid but still guaranteed an empty result.
 		q = fmt.Sprintf(`
-			SELECT date_trunc('day', created_at)::date AS date,
-			       stage                               AS dimension,
-			       COUNT(*)                            AS count,
-			       COALESCE(SUM(value_kobo),0)         AS value_kobo
-			FROM crm_deals
-			WHERE created_at::date BETWEEN %s AND %s
+			SELECT date_trunc('day', k.created_at)::date            AS date,
+			       COALESCE(NULLIF(k.lead_stage,''), 'unstaged')    AS dimension,
+			       COUNT(*)                                         AS leads,
+			       COUNT(*) FILTER (WHERE k.converted_at IS NOT NULL) AS converted,
+			       COALESCE(SUM(k.estimated_value_kobo),0)          AS value_kobo
+			FROM crm_contacts k
+			WHERE k.created_at::date BETWEEN %s AND %s
 			GROUP BY 1, 2 ORDER BY 1 DESC`, dateFrom, dateTo)
 
 	case "Finance":
+		// `financial_transactions` does not exist in this database, so every
+		// Finance report errored. The real financial activity is the CCS card
+		// transaction book. Amounts there are numeric major units, not kobo, and
+		// credits are stored negative — see the ledger data model.
 		q = fmt.Sprintf(`
-			SELECT date_trunc('day', transaction_date)::date AS date,
-			       transaction_type                          AS dimension,
-			       COUNT(*)                                  AS count,
-			       COALESCE(SUM(amount_kobo),0)              AS amount_kobo
-			FROM financial_transactions
-			WHERE transaction_date::date BETWEEN %s AND %s
+			SELECT t.txn_date                          AS date,
+			       COALESCE(NULLIF(t.channel,''),'Unspecified') AS dimension,
+			       COUNT(*)                            AS count,
+			       COALESCE(SUM(t.amount_debit),0)     AS debit_ngn,
+			       COALESCE(SUM(t.amount_credit),0)    AS credit_ngn,
+			       COALESCE(SUM(t.amount),0)           AS net_ngn
+			FROM app.transactions t
+			WHERE t.txn_date BETWEEN %s AND %s
 			GROUP BY 1, 2 ORDER BY 1 DESC`, dateFrom, dateTo)
 
 	case "Helpdesk":
@@ -340,26 +383,34 @@ func biQueryForReport(r *http.Request, def map[string]any) (string, []any, error
 			GROUP BY 1, 2 ORDER BY 1 DESC`, dateFrom, dateTo)
 
 	case "Campaigns":
+		// Two faults here: campaign_analytics is not a table in this database,
+		// and campaigns has `type`, not `campaign_type`. The send/open/click
+		// counters live on the campaigns row itself.
 		q = fmt.Sprintf(`
-			SELECT date_trunc('day', c.created_at)::date     AS date,
-			       c.campaign_type                           AS dimension,
-			       COUNT(DISTINCT c.id)                      AS campaigns,
-			       COALESCE(SUM(ca.sent_count),0)            AS sent,
-			       COALESCE(SUM(ca.opened_count),0)          AS opened,
-			       COALESCE(SUM(ca.clicked_count),0)         AS clicked
+			SELECT date_trunc('day', c.created_at)::date          AS date,
+			       COALESCE(NULLIF(c.type,''),'Unspecified')      AS dimension,
+			       COUNT(*)                                       AS campaigns,
+			       COALESCE(SUM(c.sent_count),0)                  AS sent,
+			       COALESCE(SUM(c.delivered_count),0)             AS delivered,
+			       COALESCE(SUM(c.open_count),0)                  AS opened,
+			       COALESCE(SUM(c.click_count),0)                 AS clicked,
+			       COALESCE(SUM(c.bounce_count),0)                AS bounced
 			FROM campaigns c
-			LEFT JOIN campaign_analytics ca ON ca.campaign_id = c.id
 			WHERE c.created_at::date BETWEEN %s AND %s
 			GROUP BY 1, 2 ORDER BY 1 DESC`, dateFrom, dateTo)
 
 	case "Compliance":
+		// `compliance_findings` does not exist; the findings table is
+		// audit_findings, and it dates from created_at rather than finding_date.
 		q = fmt.Sprintf(`
-			SELECT date_trunc('day', finding_date)::date AS date,
-			       severity                              AS dimension,
-			       COUNT(*)                              AS findings,
-			       COUNT(*) FILTER (WHERE status='closed') AS closed
-			FROM compliance_findings
-			WHERE finding_date::date BETWEEN %s AND %s
+			SELECT date_trunc('day', f.created_at)::date              AS date,
+			       COALESCE(NULLIF(f.severity,''),'Unrated')          AS dimension,
+			       COUNT(*)                                           AS findings,
+			       COUNT(*) FILTER (WHERE f.status = 'closed')        AS closed,
+			       COUNT(*) FILTER (WHERE f.status <> 'closed'
+			                         AND f.due_date < CURRENT_DATE)   AS overdue
+			FROM audit_findings f
+			WHERE f.created_at::date BETWEEN %s AND %s
 			GROUP BY 1, 2 ORDER BY 1 DESC`, dateFrom, dateTo)
 
 	default:
@@ -377,17 +428,20 @@ func biRunReport(db *core.DB) http.HandlerFunc {
 
 		defs, err := db.PGQuery(ctx, `SELECT * FROM bi_report_definitions WHERE id=$1`, id)
 		if err != nil || len(defs) == 0 {
-			respondErr(w, 404, "Report not found"); return
+			respondErr(w, 404, "Report not found")
+			return
 		}
 		def := defs[0]
 		isPublic, _ := def["is_public"].(bool)
 		if !isPublic && toInt64(def["created_by"]) != user.ID {
-			respondErr(w, 403, "Not authorised"); return
+			respondErr(w, 403, "Not authorised")
+			return
 		}
 
 		q, _, qErr := biQueryForReport(r, def)
 		if qErr != nil {
-			respondErr(w, 422, qErr.Error()); return
+			respondErr(w, 422, qErr.Error())
+			return
 		}
 
 		// Record run start
@@ -402,7 +456,8 @@ func biRunReport(db *core.DB) http.HandlerFunc {
 					`UPDATE bi_report_runs SET status='failed', error_message=$1, finished_at=NOW() WHERE id=$2`,
 					err.Error(), runRows[0]["id"])
 			}
-			respondErr(w, 500, "Query execution failed"); return
+			respondErr(w, 500, "Query execution failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -426,18 +481,22 @@ func biPreviewReport(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		var def map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&def); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if def["module"] == nil {
-			respondErr(w, 422, "module is required"); return
+			respondErr(w, 422, "module is required")
+			return
 		}
 		q, _, qErr := biQueryForReport(r, def)
 		if qErr != nil {
-			respondErr(w, 422, qErr.Error()); return
+			respondErr(w, 422, qErr.Error())
+			return
 		}
 		rows, err := db.PGQuery(ctx, q)
 		if err != nil {
-			respondErr(w, 500, "Query execution failed"); return
+			respondErr(w, 500, "Query execution failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -447,6 +506,12 @@ func biPreviewReport(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// biExportReport downloads a saved report definition as a file.
+//
+// It goes through the same writer as the export engine, so a saved report gets
+// the same guarantees as a dataset export: escaped values, formula injection
+// neutralised, xlsx/json as well as csv, and an entry in the export log. Before,
+// this was a third hand-rolled CSV path that recorded nothing.
 func biExportReport(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -454,41 +519,108 @@ func biExportReport(db *core.DB) http.HandlerFunc {
 
 		defs, err := db.PGQuery(ctx, `SELECT * FROM bi_report_definitions WHERE id=$1`, id)
 		if err != nil || len(defs) == 0 {
-			respondErr(w, 404, "Report not found"); return
+			respondErr(w, 404, "Report not found")
+			return
+		}
+		// Ownership: a private report is not exportable by someone who cannot run
+		// it. biRunReport enforced this; this path did not.
+		def := defs[0]
+		isPublic, _ := def["is_public"].(bool)
+		user := core.UserFromCtx(ctx)
+		if !isPublic && user != nil && toInt64(def["created_by"]) != user.ID {
+			respondErr(w, 403, "Not authorised")
+			return
 		}
 
-		q, _, qErr := biQueryForReport(r, defs[0])
+		format, ok := parseExportFormat(r.URL.Query().Get("format"))
+		if !ok {
+			respondErr(w, 422, "Unsupported format (use csv, xlsx or json)")
+			return
+		}
+
+		q, _, qErr := biQueryForReport(r, def)
 		if qErr != nil {
-			respondErr(w, 422, qErr.Error()); return
+			respondErr(w, 422, qErr.Error())
+			return
 		}
 
 		rows, err := db.PGQuery(ctx, q)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 
-		fname := fmt.Sprintf("report_%s_%s.csv", id, time.Now().Format("20060102"))
-		w.Header().Set("Content-Type", "text/csv")
-		w.Header().Set("Content-Disposition", `attachment; filename="`+fname+`"`)
-
-		cw := csv.NewWriter(w)
+		// A report definition has a dynamic shape, so columns are derived from
+		// the result and sorted — the label is the raw key, humanised.
+		var cols []exportCol
 		if len(rows) > 0 {
-			// H3: Sort column headers so CSV output is deterministic across runs.
-			headers := make([]string, 0, len(rows[0]))
+			keys := make([]string, 0, len(rows[0]))
 			for k := range rows[0] {
-				headers = append(headers, k)
+				keys = append(keys, k)
 			}
-			sort.Strings(headers)
-			cw.Write(headers) //nolint:errcheck
-			for _, row := range rows {
-				record := make([]string, len(headers))
-				for i, h := range headers {
-					record[i] = fmt.Sprintf("%v", row[h])
-				}
-				cw.Write(record) //nolint:errcheck
+			sort.Strings(keys)
+			for _, k := range keys {
+				cols = append(cols, exportCol{Key: k, Label: humaniseKey(k), Type: colText})
 			}
 		}
-		cw.Flush()
+
+		name := str(def["name"])
+		if name == "" {
+			name = "report-" + id
+		}
+		filename := exportFilename(name, format)
+
+		logBIExport(ctx, db, r, name, str(def["module"]), format, len(rows))
+
+		if err := writeExport(w, format, filename, cols, rows); err != nil {
+			slog.Error("biExportReport write", "id", id, "err", err)
+		}
+	}
+}
+
+// humaniseKey turns a SQL result key into a column header: outstanding_kobo →
+// "Outstanding Kobo". Crude, but better than shipping raw column names.
+func humaniseKey(k string) string {
+	parts := strings.Split(k, "_")
+	for i, p := range parts {
+		if p == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(p[:1]) + p[1:]
+	}
+	return strings.Join(parts, " ")
+}
+
+// logBIExport records a saved-report download in the same log as dataset exports,
+// so the compliance view of "what left the building" is complete.
+func logBIExport(ctx context.Context, db *core.DB, r *http.Request,
+	name, module string, format exportFormat, rowCount int) {
+
+	var uid any
+	var actorName, actorRole string
+	if u := core.UserFromCtx(ctx); u != nil {
+		uid, actorName, actorRole = u.ID, u.FullName, u.Role
+	}
+	meta, _ := json.Marshal(map[string]any{"module": module, "saved_report": name})
+
+	ip := ""
+	if r != nil {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			ip = strings.TrimSpace(parts[len(parts)-1])
+		} else {
+			ip = r.RemoteAddr
+		}
+	}
+
+	if _, err := db.PGExec(ctx, `
+		INSERT INTO report_export_log
+			(report_type, filters, row_count, created_by, format, status,
+			 actor_name, actor_role, ip_address)
+		VALUES ($1, $2::jsonb, $3, $4, $5, 'ok', $6, $7, $8)`,
+		"saved_report", string(meta), rowCount, uid, string(format),
+		actorName, actorRole, ip); err != nil {
+		slog.Error("logBIExport", "report", name, "err", err)
 	}
 }
 
@@ -506,7 +638,8 @@ func biScheduleReport(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.CronExpr == "" {
-			respondErr(w, 400, "cron_expr is required"); return
+			respondErr(w, 400, "cron_expr is required")
+			return
 		}
 		if b.Format == "" {
 			b.Format = "csv"
@@ -517,7 +650,8 @@ func biScheduleReport(db *core.DB) http.HandlerFunc {
 			VALUES ($1,$2,$3,$4,$5) RETURNING id, report_id, cron_expr, format, created_at`,
 			id, b.CronExpr, recip, b.Format, user.ID)
 		if err != nil {
-			respondErr(w, 500, "Schedule creation failed"); return
+			respondErr(w, 500, "Schedule creation failed")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
@@ -528,7 +662,7 @@ func biScheduleReport(db *core.DB) http.HandlerFunc {
 func biListScheduled(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 
 		q := `SELECT s.id, s.report_id, d.name AS report_name, d.module,
 			       s.cron_expr, s.recipients, s.format, s.is_active,
@@ -550,7 +684,8 @@ func biListScheduled(db *core.DB) http.HandlerFunc {
 		q += " ORDER BY s.created_at DESC"
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -571,8 +706,8 @@ func biDeleteSchedule(db *core.DB) http.HandlerFunc {
 func biListRuns(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reportID := r.URL.Query().Get("report_id")
-		from     := r.URL.Query().Get("from")
-		to       := r.URL.Query().Get("to")
+		from := r.URL.Query().Get("from")
+		to := r.URL.Query().Get("to")
 		query := `
 			SELECT rr.id, rr.report_id, d.name AS report_name, rr.status,
 			       rr.row_count, rr.error_message, rr.started_at, rr.finished_at,
@@ -610,7 +745,8 @@ func biListRuns(db *core.DB) http.HandlerFunc {
 		query += " ORDER BY rr.started_at DESC LIMIT $" + itoa(len(args)-1) + " OFFSET $" + itoa(len(args))
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed"); return
+			respondErr(w, 500, "Query failed")
+			return
 		}
 		if rows == nil {
 			rows = []core.Row{}
@@ -624,9 +760,14 @@ func biListRuns(db *core.DB) http.HandlerFunc {
 // generates each as CSV, emails it to the configured recipients, and updates next_run_at.
 // H8: Wire this into batch.go's runBatch (step 13) to enable scheduled report delivery.
 func batchRunScheduledBIReports(ctx context.Context, db *core.DB) error {
+	// This selected d.query_template, a column that does not exist on
+	// bi_report_definitions. The statement failed on every batch run, so step 13
+	// returned an error immediately and no scheduled report has ever been
+	// delivered. The runner re-derives SQL through biQueryForReport below, so
+	// the column was never read even when it was selected.
 	schedules, err := db.PGQuery(ctx, `
 		SELECT s.id, s.report_id, s.cron_expr, s.recipients, s.format,
-		       d.name AS report_name, d.module, d.query_template, d.filters
+		       d.name AS report_name, d.module, d.filters
 		FROM bi_scheduled_reports s
 		JOIN bi_report_definitions d ON d.id = s.report_id
 		WHERE s.is_active = TRUE

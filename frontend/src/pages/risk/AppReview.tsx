@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter, NameCell, ActionRow, Modal } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
-import { apiFetch, apiPut, apiExport } from '../../lib/api'
+import { apiFetch, apiPut } from '../../lib/api'
 import { fmtKobo, fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
 
@@ -116,7 +116,7 @@ function AdvanceModal({ app, open, onClose, onDone }: { app: RiskApp | null; ope
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={`Advance — ${app?.reference ?? ''}`} width={480}>
+    <Modal open={open} onClose={onClose} title={`Advance: ${app?.reference ?? ''}`} width={480}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
         <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>
           Move <strong>{app?.applicant_name}</strong> from{' '}
@@ -166,7 +166,7 @@ function DeclineModal({ app, open, onClose, onDone }: { app: RiskApp | null; ope
   const canSubmit = reason.trim().length > 0
 
   return (
-    <Modal open={open} onClose={onClose} title={`Decline — ${app?.reference ?? ''}`} width={480}>
+    <Modal open={open} onClose={onClose} title={`Decline: ${app?.reference ?? ''}`} width={480}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
         <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>
           Decline <strong>{app?.applicant_name}</strong>. A decline reason is required.
@@ -330,31 +330,13 @@ export default function RiskAppReview() {
     },
   ]
 
-  const bulkBar = selected.size > 0 ? (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{selected.size} selected</span>
-      <button
-        onClick={() => apiExport(`/api/risk/applications/export?${buildQS(0)}`, 'risk-applications.csv')}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}
-      >
-        <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Export CSV
-      </button>
-    </div>
-  ) : null
-
   return (
     <Page
       title="App Review"
-      subtitle="Risk review queue — applications pending credit decision"
+      subtitle="Risk review queue: applications pending credit decision"
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
-          <button
-            onClick={() => apiExport(`/api/risk/applications/export?${buildQS(0)}`, 'risk-applications.csv')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', background: 'var(--card)', color: 'var(--txt)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.medium, cursor: 'pointer', whiteSpace: 'nowrap' }}
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>download</span>Export CSV
-          </button>
         </div>
       }
     >
@@ -447,7 +429,6 @@ export default function RiskAppReview() {
           selectable
           selectedIds={selected}
           onSelect={setSelected}
-          bulkBar={bulkBar}
           emptyText={kpis?.origination_live === false ? 'No applications yet. Applications raised in the workspace or synced from Phoenix will appear here for review.' : view === 'pending' ? 'No pending applications' : 'No applications found'}
         />
 
@@ -461,12 +442,12 @@ export default function RiskAppReview() {
                 onClick={() => load(Math.max(0, offset - PAGE_SIZE))}
                 disabled={offset === 0}
                 style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: offset === 0 ? 'not-allowed' : 'pointer', opacity: offset === 0 ? 0.5 : 1, fontSize: TEXT.sm }}
-              >← Prev</button>
+              >Prev</button>
               <button
                 onClick={() => load(offset + PAGE_SIZE)}
                 disabled={currentPage >= pages}
                 style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: currentPage >= pages ? 'not-allowed' : 'pointer', opacity: currentPage >= pages ? 0.5 : 1, fontSize: TEXT.sm }}
-              >Next →</button>
+              >Next</button>
             </div>
           </div>
         )}

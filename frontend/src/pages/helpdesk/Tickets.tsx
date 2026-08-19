@@ -177,13 +177,13 @@ function TicketPreview({ ticketId, onChanged, onFull }: { ticketId: number; onCh
   const [busy, setBusy] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try { setData(await apiFetch<DetailResp>(`/api/helpdesk/tickets/${ticketId}`)) }
     catch (e: any) { setErr(e.message) } finally { setLoading(false) }
   }, [ticketId])
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['tickets'] })
+  useLiveData(() => load(true), { topics: ['tickets'] })
   useEffect(() => { const el = threadRef.current; if (el) el.scrollTop = el.scrollHeight }, [data?.messages])
 
   async function send() {
@@ -346,7 +346,7 @@ export default function Tickets() {
   function toggleCheck(id: number, e: React.MouseEvent) { e.stopPropagation(); setCheckedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
 
   async function handleClaim(id: number) {
-    try { await apiPost(`/api/helpdesk/tickets/${id}/claim`, {}); toast.success('Ticket claimed — it’s yours'); refreshAll() }
+    try { await apiPost(`/api/helpdesk/tickets/${id}/claim`, {}); toast.success('Ticket claimed. It’s yours'); refreshAll() }
     catch (e: any) { toast.error(e.message ?? 'Claim failed') }
   }
   async function handleBulkClose() {
@@ -384,10 +384,10 @@ export default function Tickets() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '18px 24px 0', flexShrink: 0 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--txt)', letterSpacing: '-0.5px' }}>Ticket Queue</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--txt2)' }}>Customer-raised web &amp; social support · email → Care · calls → Call Activity</p>
+          <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--txt2)' }}>Customer-raised web &amp; social support · email to Care · calls to Call Activity</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {lastLoaded && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt3)' }} title="Live — auto-refreshes"><span className="hd-livedot" />Live · {ago(lastLoaded.toISOString())}</span>}
+          {lastLoaded && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt3)' }} title="Live, auto-refreshes"><span className="hd-livedot" />Live · {ago(lastLoaded.toISOString())}</span>}
           <button className="hd-press" onClick={refreshAll} title="Refresh" style={{ width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 19 }}>refresh</span>
           </button>

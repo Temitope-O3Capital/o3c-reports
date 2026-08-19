@@ -231,7 +231,7 @@ export function HourlyActivity({ data, label = "Today's activity · by hour", fr
       <div style={{ fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.55)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 56 }}>
         {hourData.map((h, i) => (
-          <div key={i} title={`${h.label}:00 — ${h.total}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+          <div key={i} title={`${h.label}:00, ${h.total}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
             <div style={{ width: '100%', height: `${Math.max(3, (h.total / peak) * 46)}px`, background: h.total >= peak * 0.8 ? '#38BDF8' : 'rgba(255,255,255,.35)', borderRadius: 3, transition: 'height .5s ease' }} />
             <span style={{ fontSize: 8, color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{h.label}</span>
           </div>

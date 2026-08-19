@@ -48,6 +48,211 @@ func RegisterSalesLeads(r chi.Router, db *core.DB) {
 	r.With(access).Post("/leads/{id}/convert", convertLead(db))
 	r.With(access).Post("/leads/{id}/disqualify", disqualifyLead(db))
 	r.With(access).Get("/leads/{id}/events", leadEvents(db))
+
+	// Bulk distribution of the unowned lead pool. Head-only (enforced in-handler,
+	// like the book's assign routes). Static path — no conflict with /leads/{id}.
+	r.With(access).Post("/leads/distribute", distributeLeads(db))
+}
+
+type distributeReq struct {
+	OfficerIDs []int64 `json:"officer_ids"`
+	Strategy   string  `json:"strategy"` // "round_robin" (default) | "by_state"
+	Source     string  `json:"source"`   // optional lead_source filter
+	State      string  `json:"state"`    // optional state filter
+	Limit      int     `json:"limit"`    // optional cap; 0 = every unowned lead
+	DryRun     bool    `json:"dry_run"`  // preview the split without writing
+}
+
+// distributeLeads load-balances the unowned lead pool across a chosen set of
+// officers. It is the sales analogue of the call centre's ticket distribution and
+// the linchpin that makes the whole module operational: nothing on an officer's
+// dashboard can light up until they own leads.
+//
+// Two guarantees make it safe to run repeatedly:
+//   - It only ever touches leads with no owner (lead_owner_id IS NULL). Re-running
+//     never reshuffles work an officer has already started — it just picks up
+//     whatever is still unassigned.
+//   - The whole batch is one transaction. A half-applied distribution would leave
+//     the book in a state nobody chose.
+//
+// Every assignment is written to crm_lead_events (event 'assigned', to_owner set)
+// so "who was this handed to, and when?" stays answerable.
+func distributeLeads(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if !isSalesHead(user) {
+			respondErr(w, 403, "Only a sales head can distribute leads")
+			return
+		}
+
+		var req distributeReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if len(req.OfficerIDs) == 0 {
+			respondErr(w, 400, "officer_ids is required")
+			return
+		}
+		if len(req.OfficerIDs) > 100 {
+			respondErr(w, 400, "Too many officers in one request (max 100)")
+			return
+		}
+		switch req.Strategy {
+		case "":
+			req.Strategy = "round_robin"
+		case "round_robin", "by_state":
+			// ok
+		default:
+			respondErr(w, 400, "strategy must be round_robin or by_state")
+			return
+		}
+
+		// Validate every recipient is a real, active user. Preserve the caller's
+		// order (deduped) so round-robin is deterministic and previewable.
+		seen := map[int64]bool{}
+		officers := make([]int64, 0, len(req.OfficerIDs))
+		names := map[int64]string{}
+		for _, id := range req.OfficerIDs {
+			if id == 0 || seen[id] {
+				continue
+			}
+			var name string
+			var active bool
+			if err := db.PG.QueryRowContext(r.Context(),
+				`SELECT full_name, is_active FROM o3c_users WHERE id=$1 AND deleted_at IS NULL`, id).
+				Scan(&name, &active); err != nil {
+				respondErr(w, 400, fmt.Sprintf("No such user: %d", id))
+				return
+			}
+			if !active {
+				respondErr(w, 400, fmt.Sprintf("%s is deactivated and cannot receive leads", name))
+				return
+			}
+			seen[id] = true
+			officers = append(officers, id)
+			names[id] = name
+		}
+		if len(officers) == 0 {
+			respondErr(w, 400, "No valid officers")
+			return
+		}
+
+		// Read the unowned lead pool, optionally scoped by source/state and capped.
+		q := `SELECT id, COALESCE(NULLIF(TRIM(state),''),'—') AS state
+		        FROM crm_contacts
+		       WHERE lead_owner_id IS NULL AND status = 'lead'`
+		args := []any{}
+		n := 1
+		if req.Source != "" {
+			q += fmt.Sprintf(" AND lead_source = $%d", n)
+			args = append(args, req.Source)
+			n++
+		}
+		if req.State != "" {
+			q += fmt.Sprintf(" AND state = $%d", n)
+			args = append(args, req.State)
+			n++
+		}
+		q += " ORDER BY created_at NULLS LAST, id"
+		if req.Limit > 0 {
+			q += fmt.Sprintf(" LIMIT $%d", n)
+			args = append(args, req.Limit)
+		}
+		rows, err := db.PGQuery(r.Context(), q, args...)
+		if err != nil {
+			respondErrLog(w, 500, "Could not read the lead pool", err)
+			return
+		}
+
+		// Split into per-officer buckets. by_state keeps every lead from one state
+		// with the same officer (so nobody juggles one lead across forty states);
+		// round_robin simply cycles.
+		buckets := map[int64][]int64{}
+		stateOwner := map[string]int64{}
+		next := 0
+		for _, row := range rows {
+			id := toInt64(row["id"])
+			if id == 0 {
+				continue
+			}
+			var officer int64
+			if req.Strategy == "by_state" {
+				st, _ := row["state"].(string)
+				if o, ok := stateOwner[st]; ok {
+					officer = o
+				} else {
+					officer = officers[next%len(officers)]
+					stateOwner[st] = officer
+					next++
+				}
+			} else {
+				officer = officers[next%len(officers)]
+				next++
+			}
+			buckets[officer] = append(buckets[officer], id)
+		}
+
+		type perOfficer struct {
+			OfficerID int64  `json:"officer_id"`
+			FullName  string `json:"full_name"`
+			Count     int    `json:"count"`
+		}
+		summary := make([]perOfficer, 0, len(officers))
+		total := 0
+		for _, id := range officers {
+			c := len(buckets[id])
+			total += c
+			summary = append(summary, perOfficer{OfficerID: id, FullName: names[id], Count: c})
+		}
+
+		// Dry run previews the split; no writes.
+		if req.DryRun {
+			respond(w, map[string]any{"assigned": 0, "would_assign": total, "per_officer": summary, "dry_run": true}, "pg")
+			return
+		}
+		if total == 0 {
+			respond(w, map[string]any{"assigned": 0, "per_officer": summary}, "pg")
+			return
+		}
+
+		tx, err := db.PG.BeginTx(r.Context(), nil)
+		if err != nil {
+			respondErr(w, 500, "Could not start transaction")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		for _, id := range officers {
+			ids := buckets[id]
+			if len(ids) == 0 {
+				continue
+			}
+			// The lead_owner_id IS NULL guard in the WHERE clause makes this a no-op
+			// on anything a concurrent request grabbed first — re-running is safe.
+			if _, err := tx.ExecContext(r.Context(), `
+				UPDATE crm_contacts
+				   SET lead_owner_id = $1,
+				       assigned_to   = COALESCE(assigned_to, $1),
+				       updated_at    = NOW()
+				 WHERE id = ANY($2) AND lead_owner_id IS NULL`, id, ids); err != nil {
+				respondErrLog(w, 500, "Assignment failed", err)
+				return
+			}
+			if _, err := tx.ExecContext(r.Context(), `
+				INSERT INTO crm_lead_events (contact_id, event, to_owner, note, created_by)
+				SELECT unnest($1::bigint[]), 'assigned', $2, 'Bulk distribution', $3`,
+				ids, id, user.ID); err != nil {
+				respondErrLog(w, 500, "Could not record lead events", err)
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Could not commit the distribution")
+			return
+		}
+		respond(w, map[string]any{"assigned": total, "per_officer": summary}, "pg")
+	}
 }
 
 // listLeads returns the lead queue. An officer sees their own; a head sees everyone's.
@@ -98,6 +303,19 @@ func listLeads(db *core.DB) http.HandlerFunc {
 			args = append(args, src)
 			n++
 		}
+		// Filter by product line ('cards'|'loans'|'fixed_deposit') — expand to the
+		// line's canonical sub-codes so a lead tagged 'credit_card' matches line 'cards'.
+		if line := qstr(r, "line"); line != "" {
+			if subs := SubsForLine(line); len(subs) > 0 {
+				ph := make([]string, len(subs))
+				for i, s := range subs {
+					ph[i] = fmt.Sprintf("$%d", n)
+					args = append(args, s)
+					n++
+				}
+				where = append(where, "c.product_interest IN ("+strings.Join(ph, ",")+")")
+			}
+		}
 		if q := qstr(r, "q"); q != "" {
 			if clause, sargs, nn := buildCustomerSearch(q,
 				[]string{"c.first_name", "c.last_name", "c.email", "c.phone"}, "c.phone", n); clause != "" {
@@ -125,6 +343,7 @@ func listLeads(db *core.DB) http.HandlerFunc {
 			SELECT c.id, c.first_name, c.last_name, c.phone, c.email,
 			       c.state, c.city, c.employer, c.occupation,
 			       c.lead_stage, c.lead_source, c.source, c.source_type,
+			       c.product_interest,
 			       c.lead_owner_id, c.estimated_value_kobo,
 			       c.next_action_at, c.last_activity_at,
 			       c.qualified_at, c.created_at, c.updated_at,
@@ -206,7 +425,31 @@ func leadFunnel(db *core.DB) http.HandlerFunc {
 			counts[s] = toInt64(row["n"])
 			values[s] = toInt64(row["value_kobo"])
 		}
-		respond(w, map[string]any{"counts": counts, "value_kobo": values}, "pg")
+
+		// Product mix: open (non-converted) leads grouped into the three product lines,
+		// so the pipeline can be read by product. Untagged leads fall into 'unclassified'.
+		mixRows, _ := db.PGQuery(r.Context(), `
+			SELECT COALESCE(product_interest,'') AS code, COUNT(*) AS n,
+			       COALESCE(SUM(estimated_value_kobo),0) AS value_kobo
+			  FROM crm_contacts c
+			 WHERE `+scope+` AND c.lead_stage <> 'converted'
+			 GROUP BY COALESCE(product_interest,'')`, args...)
+		mix := map[string]map[string]any{
+			"cards":         {"count": int64(0), "value_kobo": int64(0)},
+			"loans":         {"count": int64(0), "value_kobo": int64(0)},
+			"fixed_deposit": {"count": int64(0), "value_kobo": int64(0)},
+			"unclassified":  {"count": int64(0), "value_kobo": int64(0)},
+		}
+		for _, row := range mixRows {
+			line := ProductLineOf(str(row["code"]))
+			if line == "" {
+				line = "unclassified"
+			}
+			mix[line]["count"] = toInt64(mix[line]["count"]) + toInt64(row["n"])
+			mix[line]["value_kobo"] = toInt64(mix[line]["value_kobo"]) + toInt64(row["value_kobo"])
+		}
+
+		respond(w, map[string]any{"counts": counts, "value_kobo": values, "product_mix": mix}, "pg")
 	}
 }
 
@@ -227,6 +470,9 @@ type leadReq struct {
 	EstValueKobo *int64 `json:"estimated_value_kobo"`
 	NextActionAt string `json:"next_action_at"`
 	Notes        string `json:"notes"`
+	// Which of the three product lines this lead is an opportunity for. Stored as a
+	// canonical sub-code (see handlers/products.go); free-text is normalized on write.
+	ProductInterest string `json:"product_interest"`
 }
 
 // createLead lets a sales officer or BD officer profile a lead directly.
@@ -295,6 +541,11 @@ func createLead(db *core.DB) http.HandlerFunc {
 		}
 		defer tx.Rollback() //nolint:errcheck
 
+		productInterest := sql.NullString{}
+		if pc := NormalizeProductCode(req.ProductInterest); pc != "" {
+			productInterest = sql.NullString{String: pc, Valid: true}
+		}
+
 		var id int64
 		err = tx.QueryRowContext(r.Context(), `
 			INSERT INTO crm_contacts (
@@ -302,18 +553,18 @@ func createLead(db *core.DB) http.HandlerFunc {
 			    occupation, employer, employer_id, income_range,
 			    status, lead_stage, lead_source, source, source_type,
 			    lead_owner_id, assigned_to, estimated_value_kobo, next_action_at,
-			    notes, created_by, last_activity_at, created_at, updated_at
+			    product_interest, notes, created_by, last_activity_at, created_at, updated_at
 			) VALUES (
 			    $1,$2,$3,$4,$5,$6,$7,
 			    $8,$9,$10,$11,
 			    'lead','new',$12,'workspace','manual',
 			    $13,$13,$14,NULLIF($15,'')::timestamptz,
-			    $16,$17,NOW(),NOW(),NOW()
+			    $16,$17,$18,NOW(),NOW(),NOW()
 			) RETURNING id`,
 			req.FirstName, req.LastName, req.Phone, req.Email, req.State, req.City, req.Address,
 			req.Occupation, req.Employer, req.EmployerID, req.IncomeRange,
 			req.LeadSource, owner, req.EstValueKobo, req.NextActionAt,
-			req.Notes, createdBy).Scan(&id)
+			productInterest, req.Notes, createdBy).Scan(&id)
 		if err != nil {
 			respondErr(w, 500, "Could not create lead: "+err.Error())
 			return
@@ -373,10 +624,17 @@ func updateLead(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
+		// Normalize a free-text product to a canonical sub-code before it is written.
+		if pi, ok := body["product_interest"]; ok {
+			if s, ok := pi.(string); ok {
+				body["product_interest"] = NormalizeProductCode(s)
+			}
+		}
 		allowed := []string{
 			"first_name", "last_name", "phone", "email", "state", "city", "address",
 			"occupation", "employer", "employer_id", "income_range", "lead_source",
 			"lead_owner_id", "estimated_value_kobo", "next_action_at", "notes", "tags",
+			"product_interest",
 		}
 		sets, args := buildSet(body, allowed, 1)
 		if len(sets) == 0 {

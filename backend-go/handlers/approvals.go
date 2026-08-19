@@ -12,9 +12,9 @@ import (
 // Returns pending items across LOS, write-offs, and leave requests
 // relevant to the authenticated user's role.
 func RegisterApprovals(r chi.Router, db *core.DB) {
-	r.Get("/pending",     approvalsPending(db))
-	r.Get("/summary",     approvalsSummary(db))
-	r.Post("/batch",      approvalsBatch(db))
+	r.Get("/pending", approvalsPending(db))
+	r.Get("/summary", approvalsSummary(db))
+	r.Post("/batch", approvalsBatch(db))
 }
 
 // approvalsBatch processes multiple approval actions in one call.
@@ -49,10 +49,12 @@ func approvalsBatch(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		var req batchReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			respondErr(w, 400, "Invalid JSON"); return
+			respondErr(w, 400, "Invalid JSON")
+			return
 		}
 		if req.Action != "approve" && req.Action != "reject" {
-			respondErr(w, 422, "action must be approve or reject"); return
+			respondErr(w, 422, "action must be approve or reject")
+			return
 		}
 
 		results := make([]result, 0, len(req.Items))
@@ -84,12 +86,16 @@ func approvalsBatch(db *core.DB) http.HandlerFunc {
 					toStage, user.ID, item.ItemID)
 			case "Write-off":
 				newStatus := "approved"
-				if req.Action == "reject" { newStatus = "rejected" }
+				if req.Action == "reject" {
+					newStatus = "rejected"
+				}
 				_, err = db.PGExec(ctx, `UPDATE recovery_write_offs SET status=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3`,
 					newStatus, user.ID, item.ItemID)
 			case "Compliance":
 				newStatus := "closed"
-				if req.Action == "reject" { newStatus = "open" }
+				if req.Action == "reject" {
+					newStatus = "open"
+				}
 				_, err = db.PGExec(ctx, `UPDATE audit_findings SET status=$1, updated_at=NOW() WHERE id=$2`,
 					newStatus, item.ItemID)
 			default:
@@ -113,9 +119,11 @@ func approvalsPending(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 		from := r.URL.Query().Get("from")
-		to   := r.URL.Query().Get("to")
+		to := r.URL.Query().Get("to")
 		nullStr := func(s string) interface{} {
-			if s == "" { return nil }
+			if s == "" {
+				return nil
+			}
 			return s
 		}
 

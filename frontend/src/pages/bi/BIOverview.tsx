@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, DataTable, ConfirmModal, btnPrimary, btnDanger, btnSecondary, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiExport } from '../../lib/api'
 import { fmtDatetime, fmtDate, monthStart, today } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
@@ -27,7 +27,7 @@ interface Run {
   id:               number
   report_id:        number
   report_name:      string
-  status:           'running' | 'completed' | 'failed'
+  status:           'running' | 'success' | 'failed' | 'error'
   row_count:        number | null
   error_message:    string | null
   started_at:       string
@@ -51,7 +51,7 @@ function ModulePill({ module }: { module: string }) {
 }
 
 function RunStatusPill({ status }: { status: string }) {
-  const s = status === 'completed'
+  const s = (status === 'success' || status === 'completed')
     ? { bg: `${GREEN}18`, color: GREEN }
     : status === 'running'
       ? { bg: `${BLUE}18`, color: BLUE }
@@ -71,8 +71,8 @@ export default function BIOverview() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setError(null)
     try {
       const [reps, runList] = await Promise.all([
         apiFetch<ReportDef[]>(`/api/bi/reports?from=${dateFrom}&to=${dateTo}`),
@@ -85,7 +85,7 @@ export default function BIOverview() {
   }, [dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   const runReport = async (id: number) => {
     try {
@@ -131,7 +131,11 @@ export default function BIOverview() {
         <button onClick={() => navigate(`/bi/builder/${r.id}`)} style={{ ...btnSecondary, padding: '4px 10px', fontSize: TEXT.sm }}>
           Edit
         </button>
-        <button onClick={() => window.open(`/api/bi/reports/${r.id}/export`, '_blank')}
+        {/* window.open opened a URL on the frontend origin, which 404s in dev
+            (Vite :3100 vs API :8000) and shows raw JSON on any error. Going
+            through apiExport means the download refreshes an expired session,
+            surfaces failures as a toast, and is recorded in the export log. */}
+        <button onClick={() => apiExport(`/api/bi/reports/${r.id}/export?format=csv`).catch(e => toast.error(e.message))}
           style={{ ...btnSecondary, padding: '4px 10px', fontSize: TEXT.sm }}>
           CSV
         </button>
@@ -174,7 +178,7 @@ export default function BIOverview() {
         <>
           <SectionCard title="Saved Reports" badge={reports.length}
             actions={<button onClick={() => navigate('/bi/scheduled')} style={{ ...btnSecondary, fontSize: TEXT.sm }}>Scheduled Reports</button>}>
-            <DataTable cols={REPORT_COLS} rows={reports} keyFn={r => r.id} emptyText="No saved reports yet — create your first report." searchKeys={['name', 'module']} />
+            <DataTable cols={REPORT_COLS} rows={reports} keyFn={r => r.id} emptyText="No saved reports yet. Create your first report." searchKeys={['name', 'module']} />
           </SectionCard>
 
           <SectionCard title="Recent Runs" badge={runs.length}>

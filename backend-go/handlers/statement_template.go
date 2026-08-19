@@ -58,13 +58,13 @@ func buildStatementTemplateData(data customerStatementData) stmtTmplData {
 	}
 	if len(data.Products) > 0 {
 		p := data.Products[0]
-		d.Product  = coalesce(getRowString(p, "Product_Name", "Product Name"), "Classic Card")
+		d.Product = coalesce(getRowString(p, "Product_Name", "Product Name"), "Classic Card")
 		d.CardName = coalesce(getRowString(p, "Name_On_Card", "Name On Card"), d.Name)
-		d.Status   = coalesce(getRowString(p, "Account_Status", "Account Status"), "Active")
+		d.Status = coalesce(getRowString(p, "Account_Status", "Account Status"), "Active")
 	} else {
-		d.Product  = "Classic Card"
+		d.Product = "Classic Card"
 		d.CardName = d.Name
-		d.Status   = "—"
+		d.Status = "—"
 	}
 
 	for _, t := range data.Transactions {
@@ -85,8 +85,8 @@ func buildStatementTemplateData(data customerStatementData) stmtTmplData {
 		})
 	}
 	d.NetChange = d.TotalDebits - d.TotalCredits
-	d.HasTxns   = len(d.Txns) > 0
-	d.TxnCount  = len(d.Txns)
+	d.HasTxns = len(d.Txns) > 0
+	d.TxnCount = len(d.Txns)
 	return d
 }
 
@@ -117,9 +117,9 @@ func fmtNGN(f float64) string {
 
 func StatementPreview(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cif      := strings.TrimSpace(r.URL.Query().Get("cif"))
-		fromStr  := r.URL.Query().Get("from")
-		toStr    := r.URL.Query().Get("to")
+		cif := strings.TrimSpace(r.URL.Query().Get("cif"))
+		fromStr := r.URL.Query().Get("from")
+		toStr := r.URL.Query().Get("to")
 		if cif == "" {
 			http.Error(w, "cif is required", http.StatusBadRequest)
 			return

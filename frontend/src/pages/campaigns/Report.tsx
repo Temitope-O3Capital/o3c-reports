@@ -368,7 +368,7 @@ function SMSBuilder({ value, onChange, canEdit, senderName }: { value: string; o
             {info.unicode && (
               <span style={{ fontSize: TEXT.xs, color: AMBER, display: 'flex', gap: 4, alignItems: 'center' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 13 }}>warning</span>
-                Emoji/special characters switch it to Unicode — 70 chars per part
+                Emoji/special characters switch it to Unicode, 70 chars per part
               </span>
             )}
           </div>
@@ -469,7 +469,7 @@ function WhatsAppComposer({ waBody, setWaBody, waTplName, setWaTplName, canEdit 
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'start' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
-          <label style={lbl}>Template Name <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional — leave blank for free-form text)</span></label>
+          <label style={lbl}>Template Name <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional, leave blank for free-form text)</span></label>
           <input value={waTplName} onChange={e => setWaTplName(e.target.value)} disabled={!canEdit}
             placeholder="e.g. statement_ready" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>
@@ -639,7 +639,7 @@ function PreflightModal({ open, onClose, onConfirm, listId, campaignType }: {
 
           {data.usable === 0 && (
             <div style={{ padding: '10px 14px', background: `${RED}10`, border: `1px solid ${RED}30`, borderRadius: RADIUS.md, fontSize: TEXT.sm, color: RED }}>
-              No usable contacts — campaign will not send any messages.
+              No usable contacts. Campaign will not send any messages.
             </div>
           )}
 
@@ -785,7 +785,7 @@ function PushToCallCenterModal({ campaignId, open, onClose }: { campaignId: stri
         <div>
           <label style={lbl}>Assign to Agent <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
           <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)} style={fld}>
-            <option value="">Unassigned — pool pickup</option>
+            <option value="">Unassigned: pool pickup</option>
             {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
           </select>
         </div>
@@ -940,9 +940,9 @@ export default function CampaignDetail() {
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const initialLoadRef      = useRef(true)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!id) return
-    setLoading(true); setErr(null)
+    if (!silent) setLoading(true); setErr(null)
     try {
       const [camp, rpt, attr] = await Promise.all([
         apiFetch<Campaign>(`/api/campaigns/${id}`),
@@ -985,7 +985,7 @@ export default function CampaignDetail() {
   }, [id])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   const canEdit    = campaign?.status === 'draft' || campaign?.status === 'scheduled'
   const isSMS      = campaign?.type === 'sms'       || campaign?.type === 'multi'
@@ -1095,7 +1095,7 @@ export default function CampaignDetail() {
       })
       const res = unwrap<{ sent: number; warnings: string[] }>(raw)
       if ((res?.sent ?? 0) > 0) toast.success(`Test sent to ${[testEmail, testPhone, testWhatsApp].filter(Boolean).join(', ')}`)
-      else toast.warning('Test not sent — check the warnings below')
+      else toast.warning('Test not sent. Check the warnings below')
       if (res?.warnings?.length) res.warnings.forEach(w => toast.warning(w))
     } catch (ex: any) { toast.error(ex.message ?? 'Test send failed') }
     finally { setTestSending(false) }
@@ -1148,7 +1148,7 @@ export default function CampaignDetail() {
     if (!id) return
     try {
       await apiPost(`/api/campaigns/${id}/restart`, {})
-      toast.success('Campaign reset to draft — edit and start when ready')
+      toast.success('Campaign reset to draft. Edit and start when ready')
       window.scrollTo({ top: 0, behavior: 'smooth' })
       load()
     } catch (ex: any) { toast.error(ex.message ?? 'Failed to restart') }
@@ -1389,7 +1389,7 @@ export default function CampaignDetail() {
                   )}
                 </div>
                 <div>
-                  <label style={lbl}>Schedule Date <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional — leave blank to send immediately)</span></label>
+                  <label style={lbl}>Schedule Date <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional, leave blank to send immediately)</span></label>
                   <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
                     disabled={!canEdit} style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
                 </div>
@@ -1415,7 +1415,7 @@ export default function CampaignDetail() {
               ))}
               {campaign.pause_reason === 'daily_limit' && campaign.status === 'paused' && (
                 <div style={{ marginTop: 4, padding: '8px 10px', background: '#FFF9ED', borderRadius: RADIUS.md, border: `1px solid ${AMBER}40`, fontSize: TEXT.xs, color: '#92400E' }}>
-                  Paused — daily limit reached. Auto-resumes at midnight.
+                  Paused: daily limit reached. Auto-resumes at midnight.
                 </div>
               )}
             </div>
@@ -1429,7 +1429,7 @@ export default function CampaignDetail() {
           {!canEdit && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', fontSize: TEXT.sm, color: 'var(--txt2)' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)' }}>visibility</span>
-              Viewing content — campaign is {campaign.status} (read-only)
+              Viewing content: campaign is {campaign.status} (read-only)
             </div>
           )}
 
@@ -1449,7 +1449,7 @@ export default function CampaignDetail() {
                       style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 14px', cursor: 'pointer', borderBottom: `2px solid ${active ? c.color : 'transparent'}`, marginBottom: -1, color: active ? 'var(--txt)' : 'var(--txt2)', fontWeight: active ? FW.semibold : FW.normal, fontSize: TEXT.sm }}>
                       {canEdit && (
                         <span onClick={e => { e.stopPropagation(); c.setE(v => !v) }}
-                          title={c.enabled ? 'Included in this send — click to exclude' : 'Not sent this time — click to include'}
+                          title={c.enabled ? 'Included in this send. Click to exclude' : 'Not sent this time. Click to include'}
                           style={{ display: 'inline-flex', color: c.enabled ? c.color : 'var(--txt3)' }}>
                           <span className="material-symbols-rounded" style={{ fontSize: 18 }}>{c.enabled ? 'check_box' : 'check_box_outline_blank'}</span>
                         </span>
@@ -1469,7 +1469,7 @@ export default function CampaignDetail() {
 
           {canEdit && (
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-              Merge tags fill per recipient — use <span style={{ fontFamily: 'monospace' }}>{'{{field|default}}'}</span> for a fallback when a field is blank.
+              Merge tags fill per recipient. Use <span style={{ fontFamily: 'monospace' }}>{'{{field|default}}'}</span> for a fallback when a field is blank.
             </div>
           )}
 
@@ -1655,7 +1655,7 @@ export default function CampaignDetail() {
                         {smsBody.slice(0, 160)}{smsBody.length > 160 ? '…' : ''}
                       </div>
                     ) : (
-                      <div style={{ fontSize: TEXT.sm, color: RED }}>No SMS body — add one in Content tab</div>
+                      <div style={{ fontSize: TEXT.sm, color: RED }}>No SMS body. Add one in Content tab</div>
                     )}
                   </div>
                 )}
@@ -1669,7 +1669,7 @@ export default function CampaignDetail() {
                         {waBody.slice(0, 160)}{waBody.length > 160 ? '…' : ''}
                       </div>
                     ) : (
-                      <div style={{ fontSize: TEXT.sm, color: RED }}>No message body — add one in Content tab</div>
+                      <div style={{ fontSize: TEXT.sm, color: RED }}>No message body. Add one in Content tab</div>
                     )}
                     {waTplName && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>Template: <span style={{ fontFamily: 'monospace', color: WA_GREEN }}>{waTplName}</span></div>}
                   </div>
@@ -1684,7 +1684,7 @@ export default function CampaignDetail() {
                       {fromEmail && <span style={{ color: 'var(--txt3)' }}> &lt;{fromEmail}&gt;</span>}
                     </div>
                     <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold, marginTop: 3 }}>
-                      {emailSubject || <span style={{ color: RED }}>No subject — add one in Content tab</span>}
+                      {emailSubject || <span style={{ color: RED }}>No subject. Add one in Content tab</span>}
                     </div>
                     <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3 }}>
                       {emailBlocks.blocks.length} block{emailBlocks.blocks.length !== 1 ? 's' : ''} in email body
@@ -1692,7 +1692,7 @@ export default function CampaignDetail() {
                   </div>
                 )}
                 {isMulti && !enableSMS && !enableEmail && !enableWhatsApp && (
-                  <div style={{ fontSize: TEXT.sm, color: RED }}>No channels enabled — enable at least one in Content tab.</div>
+                  <div style={{ fontSize: TEXT.sm, color: RED }}>No channels enabled. Enable at least one in Content tab.</div>
                 )}
               </div>
             </SectionCard>
@@ -1894,7 +1894,7 @@ export default function CampaignDetail() {
                 <InsightTile label="Matched by" value={`${attribution.matched_cif} CIF · ${attribution.matched_phone} ph · ${attribution.matched_email} em`} />
               </div>
               <div style={{ marginTop: 10, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5 }}>
-                Estimated attribution — a correlation (matched by CIF, phone or email), not proven causation.
+                Estimated attribution: a correlation (matched by CIF, phone or email), not proven causation.
               </div>
             </SectionCard>
           )}

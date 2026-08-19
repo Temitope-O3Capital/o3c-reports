@@ -315,19 +315,26 @@ function EmvChip() {
 
 function CardFace({ card, onClick }: { card: ContactProfileData['cards'][number]; onClick: () => void }) {
   const t = cardTheme(card)
-  const live = isLiveCard(card.status)
+  // A card past its printed expiry is not live no matter what status the book carries —
+  // several rows are 'active' with a valid-thru years in the past. Expiry wins.
+  const expired = !!card.expiry_date && new Date(card.expiry_date) < new Date()
+  const live = isLiveCard(card.status) && !expired
   const network = cardNetwork(card.card_number_masked)
   const limit = Number(card.credit_limit ?? 0)
   const balance = Number(card.balance ?? 0)
+  // A negative balance is money the customer is IN CREDIT for (overpaid / prepaid
+  // float), not debt — it must never render as a bare "-₦X" or a negative utilisation.
+  const inCredit = balance < 0
   // The Amex USD products hold dollars, so the card's own currency decides the
   // symbol — rendering $85.49 as ₦85 would misstate the balance.
   const ccy = /usd/i.test(card.product_name ?? '') ? 'USD' : 'NGN'
-  // Utilisation is only meaningful against a real limit; the book stores 0 for
-  // prepaid and charge cards, where a percentage would be a divide-by-zero fiction.
-  // Recomputed rather than read from card_utilisation, which holds values like
-  // -2263% in the source. The bar is clamped for layout; the LABEL shows the true
-  // figure, so an over-limit card still reads as over-limit.
-  const util = limit > 0 ? (balance / limit) * 100 : null
+  // Utilisation only makes sense against a real limit AND an amount actually drawn.
+  // The book stores 0 limits for prepaid/charge cards, and negative balances for
+  // cards in credit — both of which produced fictions like "-2264% utilised".
+  // Recomputed here (not read from card_utilisation, which holds those bad values);
+  // the bar is clamped for layout while the LABEL shows the true figure, so an
+  // over-limit card still reads as over-limit.
+  const util = (limit > 0 && balance > 0) ? (balance / limit) * 100 : null
   const utilBar = util === null ? 0 : Math.max(0, Math.min(100, util))
   const expiry = card.expiry_date ? fmtDate(card.expiry_date, { month: '2-digit', year: '2-digit' }).replace(/\//g, '/') : '••/••'
 
@@ -365,7 +372,7 @@ function CardFace({ card, onClick }: { card: ContactProfileData['cards'][number]
             fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: 0.4, textTransform: 'uppercase',
             background: live ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.32)',
             border: '1px solid rgba(255,255,255,0.30)', color: t.ink,
-          }}>{card.status || 'Unknown'}</span>
+          }}>{expired ? 'Expired' : (card.status || 'Unknown')}</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
@@ -404,10 +411,12 @@ function CardFace({ card, onClick }: { card: ContactProfileData['cards'][number]
       <div style={{ padding: '0 3px', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-            {limit > 0 ? 'Balance / Limit' : 'Balance'}
+            {inCredit ? 'In credit' : (limit > 0 ? 'Balance / Limit' : 'Balance')}
           </span>
-          <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: balance > 0 ? 'var(--txt)' : GREEN }}>
-            {fmtMoney(balance, ccy)}{limit > 0 ? <span style={{ color: 'var(--txt3)', fontWeight: FW.normal }}> / {fmtMoney(limit, ccy)}</span> : null}
+          <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: inCredit ? GREEN : 'var(--txt)' }}>
+            {inCredit
+              ? `${fmtMoney(Math.abs(balance), ccy)} CR`
+              : <>{fmtMoney(balance, ccy)}{limit > 0 ? <span style={{ color: 'var(--txt3)', fontWeight: FW.normal }}> / {fmtMoney(limit, ccy)}</span> : null}</>}
           </span>
         </div>
 
@@ -417,7 +426,7 @@ function CardFace({ card, onClick }: { card: ContactProfileData['cards'][number]
               <div style={{ width: `${utilBar}%`, height: '100%', borderRadius: 2, background: util >= 90 ? RED : util >= 70 ? AMBER : GREEN }} />
             </div>
             <div style={{ fontSize: TEXT['2xs'], color: util > 100 ? RED : 'var(--txt3)', marginTop: 3, fontWeight: util > 100 ? FW.bold : FW.normal }}>
-              {util.toFixed(1)}% utilised{util > 100 ? ' — over limit' : ''}
+              {util.toFixed(1)}% utilised{util > 100 ? ', over limit' : ''}
             </div>
           </div>
         )}
@@ -607,7 +616,7 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
       {(summary?.usd_count ?? 0) > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: TEXT.xs, color: 'var(--txt2)', padding: '8px 12px', background: `${AMBER}0D`, border: `1px solid ${AMBER}33`, borderRadius: RADIUS.md }}>
           <span className="material-symbols-rounded" style={{ fontSize: 15, color: AMBER }}>currency_exchange</span>
-          {fmtNum(summary!.usd_count)} of these transactions are on a USD card. Dollar amounts are totalled separately — naira figures above exclude them.
+          {fmtNum(summary!.usd_count)} of these transactions are on a USD card. Dollar amounts are totalled separately. Naira figures above exclude them.
         </div>
       )}
 
@@ -798,7 +807,7 @@ function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOp
       </SectionCard>
 
       {profile.crm && (
-        <SectionCard title="CRM Record">
+        <SectionCard title="Sales Record">
           <InfoPair label="Status"       value={profile.crm.status.replace(/_/g,' ')} />
           <InfoPair label="Assigned To"  value={profile.crm.assigned_to} />
           <InfoPair label="Since"        value={fmtDate(profile.crm.created_at)} />
@@ -1155,7 +1164,7 @@ function InteractionTimeline({ cif }: { cif: string }) {
                          : it.direction === 'outbound' ? 'Outbound' : ''
           // A call gets a direction-aware heading ("Call — Inbound"); other kinds
           // keep their server-supplied title.
-          const heading = it.kind === 'call' ? `Call${dirLabel ? ' — ' + dirLabel : ''}` : (it.title || it.kind)
+          const heading = it.kind === 'call' ? `Call${dirLabel ? ': ' + dirLabel : ''}` : (it.title || it.kind)
           const result  = it.outcome || it.status || ''
           const dur     = fmtDur(it.duration_sec)
           return (
@@ -1328,9 +1337,9 @@ export default function ContactProfile() {
     setTab('transactions')
   }, [])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!key) return
-    setLoading(true); setError(null)
+    if (!silent) setLoading(true); setError(null)
     try {
       const data = await apiFetch<any>(`/api/contacts/${key}`)
       const raw = (data?.data ?? data) as ContactProfileData
@@ -1355,7 +1364,7 @@ export default function ContactProfile() {
   }, [key])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   if (loading) return (
     <Page title="Customer">

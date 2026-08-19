@@ -57,7 +57,7 @@ export default function CardsMyQueue() {
   const [dSearch,  setDSearch]  = useState('')
   const [dStatuses, setDStatuses] = useState(new Set<string>())
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     setError(null)
     try {
       const r = await apiFetch<any>('/api/cards/my-queue')
@@ -69,7 +69,7 @@ export default function CardsMyQueue() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['cards'] })
+  useLiveData(() => load(true), { topics: ['cards'] })
   useEffect(() => { const id = setInterval(load, 60000); return () => clearInterval(id) }, [load])
 
   const issuanceQueue = useMemo(() => (data?.issuance_queue ?? []).filter(r => {
@@ -127,13 +127,13 @@ export default function CardsMyQueue() {
   ]
 
   return (
-    <Page title="My Workspace" subtitle="Your card-ops station — issuance, disputes and reviews">
+    <Page title="My Workspace" subtitle="Your card-ops station: issuance, disputes and reviews">
       <ErrBanner error={error} onRetry={load} />
 
       <WorkspaceHero
         subline={totalPending > 0
           ? <>You have <strong style={{ color: '#fff' }}>{fmtNum(totalPending)}</strong> item{totalPending === 1 ? '' : 's'} in your queue{disputes > 0 ? <> · <strong style={{ color: '#FCA5A5' }}>{fmtNum(disputes)}</strong> dispute{disputes === 1 ? '' : 's'} to work</> : ''}</>
-          : 'Queue is clear — nothing pending assigned to you.'}
+          : 'Queue is clear. Nothing pending assigned to you.'}
         stats={[
           { label: 'Issuance', value: fmtNum(issuance) },
           { label: 'Open Disputes', value: fmtNum(disputes), color: disputes > 0 ? '#FCA5A5' : '#fff' },

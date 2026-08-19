@@ -376,8 +376,8 @@ export default function ManualPostings() {
     try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}').role ?? '' } catch { return '' }
   }, [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const p = new URLSearchParams()
@@ -396,7 +396,7 @@ export default function ManualPostings() {
   }, [fStages, initiatorSearch, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['manual_postings'] })
+  useLiveData(() => load(true), { topics: ['manual_postings'] })
 
   async function handleApprove() {
     if (!confirmApprove) return
@@ -443,25 +443,6 @@ export default function ManualPostings() {
     }
   }
 
-  function exportCsv(data: ManualPosting[]) {
-    const header = ['Ref', 'Workflow', 'Type', 'Amount (NGN)', 'Account', 'Description', 'Initiated By', 'Stage', 'Date']
-    const lines = data.map(r => [
-      `"${String(r.ref ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.workflow_template_name ?? '').replace(/"/g, '""')}"`,
-      r.type ?? '',
-      r.amount_kobo !== undefined ? (r.amount_kobo / 100).toFixed(2) : '',
-      `"${String(r.account ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.description ?? '').replace(/"/g, '""')}"`,
-      `"${String(r.initiated_by ?? '').replace(/"/g, '""')}"`,
-      r.stage ?? '',
-      r.created_at ? r.created_at.slice(0, 10) : '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `manual-postings-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   const isSettlementOfficer = !['finance_head', 'cfo', 'treasury_officer', 'finance_officer'].includes(role)
 
@@ -569,7 +550,7 @@ export default function ManualPostings() {
         </div>
       )}
 
-      <SectionCard title="Manual Postings" badge={rows.length} padding={false} actions={<button onClick={() => exportCsv(rows)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+      <SectionCard title="Manual Postings" badge={rows.length} padding={false}>
         <ExpandableFilterBar
           search={initiatorSearch}
           onSearch={setInitiatorSearch}
@@ -598,11 +579,7 @@ export default function ManualPostings() {
           bulkBar={sel.size > 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{sel.size} selected</span>
-              <button onClick={() => exportCsv(rows.filter(r => sel.has(r.id)))}
-                style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
-                Export CSV
-              </button>
-            </div>
+              </div>
           ) : undefined}
         />
       </SectionCard>

@@ -161,8 +161,8 @@ export default function NIPReconciliation() {
   const [date, setDate] = useState(today())
   const [resolving, setResolving] = useState<Exception | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const qs = new URLSearchParams()
@@ -179,7 +179,7 @@ export default function NIPReconciliation() {
   }, [date, fStatuses])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load, { topics: ['settlement_exceptions','settlements'] })
+  useLiveData(() => load(true), { topics: ['settlement_exceptions','settlements'] })
 
   const excCols = ExcCols(setResolving)
 
@@ -205,44 +205,7 @@ export default function NIPReconciliation() {
   const openCount = exceptions.filter(e => e.status === 'open').length
   const totalExcAmount = exceptions.reduce((s, e) => s + e.amount_kobo, 0)
 
-  function exportExceptionsCsv(data: Exception[]) {
-    const header = ['Date', 'Txn Ref', 'Batch Ref', 'Amount NGN', 'Exception Type', 'Description', 'Status', 'Resolved By', 'Resolved At']
-    const lines = data.map(r => [
-      r.txn_date ?? '',
-      r.txn_ref ?? '',
-      r.batch_ref ?? '',
-      (r.amount_kobo / 100).toFixed(2),
-      r.exception_type ?? '',
-      `"${String(r.description ?? '').replace(/"/g, '""')}"`,
-      r.status ?? '',
-      `"${String(r.resolved_by_name ?? '').replace(/"/g, '""')}"`,
-      r.resolved_at ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `nip-exceptions-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
-  function exportBatchesCsv(data: Batch[]) {
-    const header = ['Date', 'Batch Ref', 'Type', 'Txns', 'Credits NGN', 'Debits NGN', 'Exceptions', 'Status']
-    const lines = data.map(r => [
-      r.batch_date ?? '',
-      r.batch_ref ?? '',
-      r.batch_type ?? '',
-      r.txn_count ?? 0,
-      (r.total_credits / 100).toFixed(2),
-      (r.total_debits / 100).toFixed(2),
-      r.exception_count ?? 0,
-      r.status ?? '',
-    ].join(','))
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `nip-batches-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-  }
 
   return (
     <Page
@@ -286,7 +249,7 @@ export default function NIPReconciliation() {
       </div>
 
       {tab === 'exceptions' && (
-        <SectionCard padding={false} actions={<button onClick={() => exportExceptionsCsv(exceptions)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <SectionCard padding={false}>
           <ExpandableFilterBar
             search={excSearch}
             onSearch={setExcSearch}
@@ -317,7 +280,7 @@ export default function NIPReconciliation() {
       )}
 
       {tab === 'batches' && (
-        <SectionCard padding={false} actions={<button onClick={() => exportBatchesCsv(batches)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'inherit' }}><span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>Export CSV</button>}>
+        <SectionCard padding={false}>
           <ExpandableFilterBar
             search={batchSearch}
             onSearch={setBatchSearch}

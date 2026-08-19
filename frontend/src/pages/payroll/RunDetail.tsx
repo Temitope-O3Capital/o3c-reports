@@ -39,7 +39,7 @@ function PayslipModal({ data, period, onClose }: { data: PayslipData; period: st
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
           <div>
-            <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 2 }}>Payslip — {period}</div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 2 }}>Payslip: {period}</div>
             {data.employee_name && <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{data.employee_name}</div>}
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: TEXT.xl, color: 'var(--txt3)', lineHeight: 1 }}>×</button>
@@ -164,8 +164,8 @@ export default function RunDetail() {
     document.body.appendChild(a); a.click(); a.remove()
   }
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true); setErr(null)
     try {
       const [r, its] = await Promise.all([
         apiFetch<PayrollRun>(`/api/payroll/runs/${id}`),
@@ -178,7 +178,7 @@ export default function RunDetail() {
   }, [id])
 
   useEffect(() => { load() }, [load])
-  useLiveData(load)
+  useLiveData(() => load(true))
 
   async function doAction(endpoint: string, onSuccess: string) {
     setActioning(true)
@@ -284,7 +284,7 @@ export default function RunDetail() {
 
   return (
     <Page
-      title={`Payroll — ${period}`}
+      title={`Payroll: ${period}`}
       subtitle={run ? `${run.headcount} employees${run.created_at ? ` · Created ${fmtDate(run.created_at)}` : ''}` : ''}
       back={{ label: 'Payroll', to: '/payroll' }}
       actions={
