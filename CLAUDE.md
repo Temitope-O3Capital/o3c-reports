@@ -16,7 +16,7 @@ this project so you can continue development without asking Temitope to re-expla
 | **Master Product Spec** | `docs/O3C_WORKSPACE_MASTER_SPEC.md` | Full product specification — all modules, roles, workflows, business rules |
 | **Customer Data Model** | `docs/CUSTOMER_DATA_MODEL.md` | Which of the ~8 contact/customer tables is the source of truth (`app."Accounts"` = identity; `crm_contacts` = CRM/leads only). Read before touching customer identity. |
 | **Deployment** | `docs/DEPLOYMENT.md` | On-prem (Docker Compose + Nginx) deploy steps |
-| **Cloudflare Tunnel** | `docs/CLOUDFLARE_TUNNEL.md` | MSSQL on-site access via Cloudflare Tunnel |
+| **Cloudflare Tunnel** | `docs/CLOUDFLARE_TUNNEL.md` | Expose on-prem inbound webhooks/tracking (SendGrid, Zoho, Phoenix…) to the internet via Cloudflare Tunnel — no firewall ports. (Old MSSQL→Railway purpose retired.) |
 
 **Archived (do not use for new work):**
 
