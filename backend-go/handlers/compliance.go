@@ -174,7 +174,7 @@ func complianceAuditLogList(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -277,7 +277,7 @@ func complianceCBNList(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -452,7 +452,7 @@ func complianceSARList(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -712,7 +712,7 @@ func complianceWatchList(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -847,7 +847,7 @@ func complianceFindingList(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1074,7 +1074,7 @@ func complianceChecklistList(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1474,7 +1474,7 @@ func complianceCreditBureauExport(db *core.DB) http.HandlerFunc {
 			WHERE la.status IN ('active', 'closed', 'written_off')
 			ORDER BY la.id`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1535,7 +1535,7 @@ func complianceBureauSubmissionList(db *core.DB) http.HandlerFunc {
 			ORDER BY submitted_at DESC
 			LIMIT 200`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1660,7 +1660,7 @@ func complianceDSARList(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -2455,7 +2455,7 @@ func complianceListBreachIncidents(db *core.DB) http.HandlerFunc {
 			ORDER BY i.discovered_at DESC
 			LIMIT 200`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

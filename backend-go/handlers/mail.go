@@ -262,7 +262,7 @@ func listInboundMail(db *core.DB) http.HandlerFunc {
 			ORDER BY im.received_at DESC
 			LIMIT $3 OFFSET $4`, user.ID, user.Sub, limit, offset)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -359,7 +359,7 @@ func listMailMessages(db *core.DB) http.HandlerFunc {
 			ORDER BY created_at DESC
 			LIMIT $3`, user.ID, user.Sub, limit)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -394,7 +394,7 @@ func mailMetrics(db *core.DB) http.HandlerFunc {
 				COUNT(*) FILTER (WHERE status='spam_report')   AS total_spam
 			FROM mail_messages `+where, args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		row := rows[0]
@@ -441,7 +441,7 @@ func mailCampaignHealth(db *core.DB) http.HandlerFunc {
 			FROM mail_messages
 			WHERE created_at >= NOW() - INTERVAL '30 days'`)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		s := rows[0]
@@ -619,7 +619,7 @@ func mailListSuppressions(db *core.DB) http.HandlerFunc {
 		q += " ORDER BY updated_at DESC LIMIT 500"
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -2041,7 +2041,7 @@ func mailListDrafts(db *core.DB) http.HandlerFunc {
 			ORDER BY updated_at DESC
 			LIMIT 200`, user.ID)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -2410,7 +2410,7 @@ func listMessageReplies(db *core.DB) http.HandlerFunc {
 			WHERE mail_message_id=$1
 			ORDER BY received_at ASC`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		// Mark all replies as read now that the thread is being viewed
@@ -2523,7 +2523,7 @@ func listMessageEvents(db *core.DB) http.HandlerFunc {
 			WHERE mail_message_id=$1
 			ORDER BY occurred_at ASC`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

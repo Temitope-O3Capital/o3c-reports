@@ -134,7 +134,7 @@ func c360Directory(db *core.DB) http.HandlerFunc {
 			ORDER BY %s
 			LIMIT $%d OFFSET $%d`, where, orderBy, n, n+1), append(args, limit, offset)...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -383,7 +383,7 @@ func c360Transactions(db *core.DB) http.HandlerFunc {
 			 LIMIT $2 OFFSET $3`,
 			cif, offset, limit)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if data == nil {
@@ -402,7 +402,7 @@ func c360Loans(db *core.DB) http.HandlerFunc {
 			FROM loan_applications WHERE applicant_cif IN `+c360PersonCIFs+`
 			ORDER BY created_at DESC`, cif)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -428,7 +428,7 @@ func c360Collections(db *core.DB) http.HandlerFunc {
 			ORDER BY cc.created_at DESC
 			LIMIT $2 OFFSET $3`, cif, limit, offset)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -513,7 +513,7 @@ func c360Activity(db *core.DB) http.HandlerFunc {
 			ORDER BY ts DESC
 			LIMIT $2`, cif, limit)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

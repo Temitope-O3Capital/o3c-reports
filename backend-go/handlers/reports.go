@@ -218,7 +218,7 @@ func reportLoanPortfolio(db *core.DB) http.HandlerFunc {
 			 FROM loan_applications %s GROUP BY status ORDER BY count DESC`, where),
 			args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -292,7 +292,7 @@ func reportCollectionsPerformance(db *core.DB) http.HandlerFunc {
 			 ORDER BY collected_kobo DESC`,
 			dateFrom, dateTo)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -456,7 +456,7 @@ func reportAgentPerformance(db *core.DB) http.HandlerFunc {
 			 ORDER BY collected_kobo DESC`,
 			dateFrom, dateTo)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -549,7 +549,7 @@ func reportAuditTrailExport(db *core.DB) http.HandlerFunc {
 			 LIMIT $%d OFFSET $%d`, where, n, n+1),
 			pageArgs...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, map[string]any{
@@ -571,7 +571,7 @@ func reportNPLReturn(db *core.DB) http.HandlerFunc {
 			`SELECT snapshot_date, total_loans, total_outstanding_kobo, total_npls_kobo,
 			        npl_ratio_bps, par30_kobo, par60_kobo, par90_kobo FROM (`+cbsSnapshotLiveSQL+`) s`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 

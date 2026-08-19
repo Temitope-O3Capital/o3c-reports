@@ -49,6 +49,15 @@ func StartCBSSyncWorker(c *udara.Client, db *core.DB) {
 		}
 	}
 
+	// Close out any run this process's predecessor was in the middle of.
+	//
+	// A run is marked 'running' at the start and updated at the end, so a process
+	// killed in between leaves the row 'running' forever. On this server that is
+	// every deploy restart, and 58 such rows had accumulated since 31 July —
+	// enough that "is a sync in flight?" was permanently answered yes. Nothing
+	// that started before this process booted can still be running.
+	reconcileStrandedCBSRuns(db)
+
 	// Let the server settle before the first pull.
 	time.Sleep(30 * time.Second)
 	runOnce()
@@ -56,6 +65,11 @@ func StartCBSSyncWorker(c *udara.Client, db *core.DB) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for range ticker.C {
+		// Also on every tick, not only at boot. A run stranded by a crash at
+		// midday would otherwise sit 'running' until the next restart — which is
+		// how 58 of them accumulated. The query is a cheap indexed no-op when
+		// there is nothing to close.
+		reconcileStrandedCBSRuns(db)
 		runOnce()
 	}
 }
@@ -66,6 +80,52 @@ func StartCBSSyncWorker(c *udara.Client, db *core.DB) {
 func RegisterCBSSync(r chi.Router, c *udara.Client, db *core.DB) {
 	r.With(core.RequirePages("admin")).Post("/sync", cbsSyncTrigger(c, db))
 	r.Get("/sync/status", cbsSyncStatus(db))
+	r.With(core.RequirePages("admin")).Get("/probe", cbsProbe(c))
+	r.With(core.RequirePages("admin")).Get("/probe-all", cbsProbeAll(c))
+	r.With(core.RequirePages("admin")).Get("/probe-detail", cbsProbeDetail(c))
+}
+
+// cbsProbeDetail hunts for a per-account detail endpoint (the real repayment schedule).
+func cbsProbeDetail(c *udara.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !c.IsConfigured() {
+			cbsWriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "CBS not configured"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
+		defer cancel()
+		cbsWriteJSON(w, http.StatusOK, cbssync.ProbeDetail(ctx, c))
+	}
+}
+
+// cbsProbeAll enumerates the whole Udara API surface — every reachable endpoint,
+// its record count, and field shape — so we can see all data Udara exposes.
+func cbsProbeAll(c *udara.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !c.IsConfigured() {
+			cbsWriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "CBS not configured"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
+		defer cancel()
+		cbsWriteJSON(w, http.StatusOK, cbssync.ProbeAll(ctx, c))
+	}
+}
+
+// cbsProbe hits the Udara Search endpoints directly and reports the raw
+// recordCount vs the number of items each page returns, plus whether a second
+// page yields more — proof of whether the book size (e.g. 28 loans / 236 FDs) is
+// the true total or a capped/paginated view.
+func cbsProbe(c *udara.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !c.IsConfigured() {
+			cbsWriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "CBS not configured"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		defer cancel()
+		cbsWriteJSON(w, http.StatusOK, cbssync.Probe(ctx, c))
+	}
 }
 
 func cbsSyncTrigger(c *udara.Client, db *core.DB) http.HandlerFunc {
@@ -160,4 +220,30 @@ func cbsWriteJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// reconcileStrandedCBSRuns closes runs left open when the process was killed.
+//
+// 'interrupted' rather than 'error': the sync did not fail, it was stopped, and
+// conflating the two would make the failure rate read far worse than it is.
+// Scoped to runs older than the 5-minute sync timeout so a genuinely in-flight
+// run — there is at most one, the loop is sequential — is never touched.
+func reconcileStrandedCBSRuns(db *core.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	rows, err := db.PGQuery(ctx, `
+		UPDATE cbs_sync_runs
+		   SET status = 'interrupted',
+		       finished_at = COALESCE(finished_at, started_at),
+		       error = COALESCE(NULLIF(error,''),
+		                        'Process restarted while this run was in flight; never completed')
+		 WHERE status = 'running' AND started_at < NOW() - interval '30 minutes'
+		 RETURNING id`)
+	if err != nil {
+		slog.Warn("could not reconcile stranded CBS runs", "err", err)
+		return
+	}
+	if len(rows) > 0 {
+		slog.Info("closed CBS sync runs stranded by a restart", "count", len(rows))
+	}
 }

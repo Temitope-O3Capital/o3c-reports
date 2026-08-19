@@ -108,7 +108,7 @@ func notificationsListHandler(db *core.DB) http.HandlerFunc {
 			ORDER BY created_at DESC
 			LIMIT $%d OFFSET $%d`, whereClause, n, n+1), pageArgs...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -132,7 +132,7 @@ func notificationsCountHandler(db *core.DB) http.HandlerFunc {
 			SELECT COUNT(*) AS unread FROM notifications
 			WHERE user_id = $1 AND is_read = FALSE`, user.ID)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		unread := int64(0)

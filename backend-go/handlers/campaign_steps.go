@@ -41,7 +41,7 @@ func listSteps(db *core.DB) http.HandlerFunc {
 			WHERE s.campaign_id=$1
 			ORDER BY s.step_no ASC, s.id ASC`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -167,7 +167,7 @@ func launchSequence(db *core.DB) http.HandlerFunc {
 
 		steps, err := db.PGQuery(ctx, `SELECT id, schedule_mode, offset_days, send_at FROM campaign_steps WHERE campaign_id=$1 ORDER BY step_no`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(steps) == 0 {

@@ -269,6 +269,17 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Get("/calls/stats", hdCallStats(db))
 		r.Get("/calls/{id}/recording", hdCallRecording(db)) // streams Zoho Voice audio on demand
 
+		// Correcting a log. Agents may fix their own; supervisors may fix any and
+		// see every change. Removal is a void, never a delete — see
+		// helpdesk_call_edit.go. These two are supervisor-gated in the handler and
+		// must stay ABOVE /calls/{id} so chi does not read "edits" as an id.
+		r.Get("/calls/edits", hdCallEdits(db))
+		r.Get("/calls/needs-review", hdCallsNeedingReview(db))
+		r.Patch("/calls/{id}", hdEditCall(db))
+		r.Post("/calls/{id}/void", hdVoidCall(db))
+		r.Post("/calls/{id}/restore", hdRestoreCall(db))
+		r.Post("/calls/{id}/clear-review", hdClearCallReview(db))
+
 		// Knowledge Base
 		r.Get("/kb", hdKBList(db))
 		r.Post("/kb", hdKBCreate(db))
@@ -1333,7 +1344,7 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			ORDER BY %s
 			LIMIT $%d OFFSET $%d`, where, orderBy, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1409,7 +1420,7 @@ func hdQueueSummary(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		row := rows[0]
@@ -2647,7 +2658,7 @@ func hdListCanned(db *core.DB) http.HandlerFunc {
 			             LEFT JOIN o3c_users u ON u.id = c.created_by
 			             WHERE %s ORDER BY c.name ASC`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -2755,7 +2766,7 @@ func hdListSLA(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), "SELECT * FROM helpdesk_sla_policies ORDER BY first_response_hours ASC")
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -3754,6 +3765,16 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		// erases what is already there, and the merge is only honoured for a call
 		// the agent could legitimately be writing up.
 		if b.MergeCallID != nil {
+			// The form picks its target when it OPENS — before the agent has chosen a
+			// disposition — so by submit time the choice may contradict the write-up:
+			// "Not Interested" heading for a dial nobody answered while the two-minute
+			// conversation beside it stays blank. This is the last point at which both
+			// facts are known, so re-resolve here rather than trusting the client.
+			if better := hdBetterAttachTarget(r.Context(), db, *b.MergeCallID, b.Disposition); better != 0 {
+				slog.Info("call attach: retargeted to match the disposition",
+					"from", *b.MergeCallID, "to", better, "disposition", b.Disposition)
+				b.MergeCallID = &better
+			}
 			upd, err := db.PGQuery(r.Context(), `
 				UPDATE helpdesk_calls
 				   SET notes         = COALESCE($2, notes),
@@ -4051,6 +4072,24 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 			       hc.recording_filename,
 			       (hc.recording_filename IS NOT NULL) AS has_recording,
 			       hc.started_at AS called_at,
+			       -- How many times this agent rang this number around this moment.
+			       --
+			       -- Zoho writes a record per activity, not per conversation, so one
+			       -- attempt routinely lands as three or four rows and the log reads
+			       -- as though a customer were being harassed. The leads panel groups
+			       -- them; this table deliberately does NOT, because it is the audit
+			       -- view and collapsing rows here would hide records a supervisor is
+			       -- here to see — and an episode can straddle a page boundary, where
+			       -- client-side grouping would silently group the wrong things.
+			       -- Counting server-side is correct at any page size.
+			       (SELECT COUNT(*) FROM helpdesk_calls s
+			         WHERE `+normalizedPhoneExpr("s.customer_phone")+` = `+normalizedPhoneExpr("hc.customer_phone")+`
+			           AND COALESCE(hc.customer_phone,'') <> ''
+			           AND s.agent_id IS NOT DISTINCT FROM hc.agent_id
+			           AND s.merged_into_call_id IS NULL AND s.voided_at IS NULL
+			           AND s.started_at BETWEEN hc.started_at - interval '15 min'
+			                                AND hc.started_at + interval '15 min'
+			       ) AS episode_calls,
 			       qa.id AS qa_evaluation_id, qa.total_score AS qa_score, qa.rating_band AS qa_band, qa.passed AS qa_passed
 			FROM helpdesk_calls hc
 			LEFT JOIN LATERAL (
@@ -4060,7 +4099,7 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 			-- A manually logged call whose notes have been merged onto the real Voice
 			-- call is hidden: showing both listed the same conversation twice, once
 			-- with the recording and once with the notes.
-			WHERE hc.merged_into_call_id IS NULL
+			WHERE hc.merged_into_call_id IS NULL AND hc.voided_at IS NULL
 			  AND ($1 = '' OR hc.started_at::date >= $1::date)
 			  AND ($2 = '' OR started_at::date <= $2::date)
 			  AND ($3 = '' OR customer_cif = $3)
@@ -4068,7 +4107,7 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 			ORDER BY started_at DESC
 			LIMIT $%d`, extra, scope, limitIdx), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -4920,7 +4959,7 @@ func hdTicketCalls(db *core.DB) http.HandlerFunc {
 			ORDER BY called_at DESC NULLS LAST
 			LIMIT 50`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -6041,7 +6080,7 @@ func hdLatestCall(db *core.DB) http.HandlerFunc {
 				FROM helpdesk_calls
 				WHERE `+normalizedPhoneExpr("customer_phone")+` = $1
 				  AND started_at >= NOW() - make_interval(mins => $2)
-				  AND merged_into_call_id IS NULL
+				  AND merged_into_call_id IS NULL AND voided_at IS NULL
 				  -- Not already written up. This is what stops a second attempt on a
 				  -- number inheriting the first attempt's notes: once a call carries an
 				  -- agent's account of it, it is no longer a candidate for another one.
@@ -6049,6 +6088,12 @@ func hdLatestCall(db *core.DB) http.HandlerFunc {
 				  -- Same agent. Two agents can work the same number on the same day and
 				  -- neither should be writing up the other's conversation.
 				  AND ($3 = 0 OR agent_id = $3)
+				-- $4 is the disposition bias — see callAttachMode. An agent who
+				-- dials, gets nothing, dials again and connects leaves two
+				-- candidates, and "most recent" alone picks the wrong one half
+				-- the time. The write-up itself says which call it describes:
+				-- "Not Interested" needs a conversation, "Unreachable / No
+				-- Answer" needs a dial that failed. Bias first, then recency.
 				-- MOST RECENT, not longest.
 				--
 				-- The agent is writing up the call they have just finished, so recency is
@@ -6056,8 +6101,14 @@ func hdLatestCall(db *core.DB) http.HandlerFunc {
 				-- the one that had actually just happened. (Duration ranking is right for
 				-- pairing a RECORDING to a call — see runZohoVoiceImport — because there
 				-- the recording's own length is the evidence. It is wrong here.)
-				ORDER BY started_at DESC LIMIT 1`,
-				phone, withinMin, agentID)
+				ORDER BY CASE
+				           WHEN $4 = 1 AND (COALESCE(duration_sec,0) > 5 OR recording_filename IS NOT NULL) THEN 0
+				           WHEN $4 = 2 AND COALESCE(duration_sec,0) <= 5 AND recording_filename IS NULL THEN 0
+				           WHEN $4 = 0 THEN 0
+				           ELSE 1
+				         END,
+				         started_at DESC LIMIT 1`,
+				phone, withinMin, agentID, callAttachMode(qstr(r, "disposition")))
 		}
 		// Deliberately NO fallback to "this agent's last call on any number".
 		//
@@ -6120,7 +6171,7 @@ func hdCallCandidates(db *core.DB) http.HandlerFunc {
 			FROM helpdesk_calls
 			WHERE `+normalizedPhoneExpr("customer_phone")+` = $1
 			  AND started_at >= NOW() - make_interval(hours => $2)
-			  AND merged_into_call_id IS NULL
+			  AND merged_into_call_id IS NULL AND voided_at IS NULL
 			  -- Not already written up.
 			  AND COALESCE(NULLIF(TRIM(notes), ''), NULLIF(TRIM(disposition), '')) IS NULL
 			  -- A call the workspace itself created has nothing to contribute: it has

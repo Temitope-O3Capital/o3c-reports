@@ -148,7 +148,7 @@ func listStatementEmails(db *core.DB) http.HandlerFunc {
 			ORDER BY s.created_at DESC
 			LIMIT $%d`, where, len(args)), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -170,7 +170,7 @@ func listStatementRuns(db *core.DB) http.HandlerFunc {
 			ORDER BY created_at DESC
 			LIMIT $1`, limit)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

@@ -143,7 +143,7 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -222,7 +222,7 @@ func collectionsOpsGetContacts(db *core.DB) http.HandlerFunc {
 			ORDER BY cc.created_at DESC
 			LIMIT 20`, cif)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -300,7 +300,7 @@ func collectionsOpsGetPayments(db *core.DB) http.HandlerFunc {
 			ORDER BY cp.payment_date DESC, cp.id DESC
 			LIMIT 40`, cif)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -651,7 +651,7 @@ func collectionsOpsTargets(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -925,7 +925,7 @@ func collectionsOpsAgentDashboard(db *core.DB) http.HandlerFunc {
 			GROUP BY u.id, u.full_name, ct.cnt, pt.cnt, pt.honoured
 			ORDER BY contacts_today DESC, assigned DESC`, agentFilter), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if agents == nil {
@@ -996,7 +996,7 @@ func collectionsOpsListPlans(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(ctx, query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1139,7 +1139,7 @@ func collectionsOpsListInstalments(db *core.DB) http.HandlerFunc {
 			`SELECT id, instalment_number, due_date, amount_kobo, status, paid_at
 			 FROM repayment_instalments WHERE plan_id=$1 ORDER BY instalment_number`, pid)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1330,7 +1330,7 @@ func collectionsOpsListPromises(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(ctx, query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1407,7 +1407,7 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(ctx, query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1571,7 +1571,7 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 			 WHERE id = ANY($1) AND status='pending'`, b.IDs)
 		if err != nil {
 			tx.Rollback() //nolint:errcheck
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -1744,7 +1744,7 @@ func collectionsOpsListWriteoffRequests(db *core.DB) http.HandlerFunc {
 			ORDER BY wr.created_at DESC
 			LIMIT 200`, status)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

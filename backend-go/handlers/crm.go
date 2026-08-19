@@ -201,7 +201,7 @@ func listContacts(db *core.DB) http.HandlerFunc {
 			ORDER BY c.updated_at DESC
 			LIMIT $%d OFFSET $%d`, where, n, n+1), append(args, limit, offset)...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -503,7 +503,7 @@ func deleteContact(db *core.DB) http.HandlerFunc {
 			        COALESCE(NULLIF(converted_cif,''), NULLIF(cif_number,'')) AS cif
 			   FROM crm_contacts WHERE id=$1`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(rows) == 0 {
@@ -623,7 +623,7 @@ func listAccounts(db *core.DB) http.HandlerFunc {
 			GROUP BY c.id, am.full_name, e.name
 			ORDER BY c.updated_at DESC`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -725,7 +725,7 @@ func listStages(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), "SELECT * FROM crm_pipeline_stages ORDER BY order_index")
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -738,7 +738,7 @@ func getPipeline(db *core.DB) http.HandlerFunc {
 		to := qstr(r, "to")
 		stages, err := db.PGQuery(r.Context(), "SELECT DISTINCT ON (LOWER(name)) * FROM crm_pipeline_stages ORDER BY LOWER(name), order_index")
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		dateWhere := ""
@@ -812,7 +812,7 @@ func listDeals(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON u.id=d.assigned_to
 			WHERE %s ORDER BY d.updated_at DESC LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -923,7 +923,7 @@ func deleteDeal(db *core.DB) http.HandlerFunc {
 			owner, err := db.PGQuery(r.Context(),
 				`SELECT assigned_to, created_by FROM crm_deals WHERE id=$1`, id)
 			if err != nil {
-				respondErr(w, 500, "Query failed")
+				respondErrLog(w, 500, "Query failed", err)
 				return
 			}
 			if len(owner) == 0 {
@@ -976,7 +976,7 @@ func listActivities(db *core.DB) http.HandlerFunc {
 			LEFT JOIN crm_contacts c ON c.id=a.contact_id
 			WHERE %s ORDER BY a.created_at DESC LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1055,7 +1055,7 @@ func deleteActivity(db *core.DB) http.HandlerFunc {
 			owner, err := db.PGQuery(r.Context(),
 				`SELECT created_by FROM crm_activities WHERE id=$1`, id)
 			if err != nil {
-				respondErr(w, 500, "Query failed")
+				respondErrLog(w, 500, "Query failed", err)
 				return
 			}
 			if len(owner) == 0 {
@@ -1157,7 +1157,7 @@ func listTasks(db *core.DB) http.HandlerFunc {
 			  t.due_date ASC NULLS LAST
 			LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1255,7 +1255,7 @@ func deleteTask(db *core.DB) http.HandlerFunc {
 			owner, err := db.PGQuery(r.Context(),
 				`SELECT assigned_to, created_by FROM crm_tasks WHERE id=$1`, id)
 			if err != nil {
-				respondErr(w, 500, "Query failed")
+				respondErrLog(w, 500, "Query failed", err)
 				return
 			}
 			if len(owner) == 0 {
@@ -1292,7 +1292,7 @@ func listTaskComments(db *core.DB) http.HandlerFunc {
 			WHERE c.task_id = $1
 			ORDER BY c.created_at`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1380,7 +1380,7 @@ func listCRMUsers(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT id, full_name, role FROM o3c_users WHERE is_active=TRUE ORDER BY full_name`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1612,7 +1612,7 @@ func listRequests(db *core.DB) http.HandlerFunc {
 			  r.created_at DESC
 			LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -1759,7 +1759,7 @@ func crmReportOverview(db *core.DB) http.HandlerFunc {
 			  (SELECT ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at-created_at))/3600)::NUMERIC,1)
 			    FROM crm_requests WHERE resolved_at IS NOT NULL)                            AS avg_resolution_hrs`, from, to)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1783,7 +1783,7 @@ func crmReportPipeline(db *core.DB) http.HandlerFunc {
 			GROUP BY s.id,s.name,s.color,s.order_index,s.is_won,s.is_lost
 			ORDER BY s.order_index`, from, to)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1799,7 +1799,7 @@ func crmReportConversion(db *core.DB) http.HandlerFunc {
 			GROUP BY s.id,s.name,s.order_index,s.color
 			ORDER BY s.order_index`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1831,7 +1831,7 @@ func crmReportAgentPerformance(db *core.DB) http.HandlerFunc {
 			GROUP BY u.id,u.full_name,u.role
 			ORDER BY activities DESC NULLS LAST`, days, from, to)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1847,7 +1847,7 @@ func crmReportActivityTrend(db *core.DB) http.HandlerFunc {
 			WHERE created_at >= NOW()-($1::int||' days')::INTERVAL
 			GROUP BY DATE(created_at),type ORDER BY day`, days)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1866,7 +1866,7 @@ func crmReportContactsBySource(db *core.DB) http.HandlerFunc {
 			  AND ($2='' OR created_at::date <= $2::date)
 			GROUP BY source ORDER BY total DESC`, from, to)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1885,7 +1885,7 @@ func crmReportRequestsSLA(db *core.DB) http.HandlerFunc {
 			         FILTER (WHERE resolved_at IS NOT NULL)::NUMERIC,1) AS avg_resolution_hrs
 			FROM crm_requests GROUP BY request_type ORDER BY total DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1907,7 +1907,7 @@ func crmReportNewContactsTrend(db *core.DB) http.HandlerFunc {
 			GROUP BY DATE_TRUNC('month',created_at)
 			ORDER BY DATE_TRUNC('month',created_at)`, from, to)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

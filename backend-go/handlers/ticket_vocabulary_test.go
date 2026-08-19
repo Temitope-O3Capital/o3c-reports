@@ -101,3 +101,41 @@ func constraintValues(def string) []string {
 	}
 	return out
 }
+
+// TestDispositionVocabularyAgrees keeps the Go classifier and its SQL twin in
+// step. They make the same judgement in two languages — Go for the HTTP path,
+// SQL for the absorb query — and a disposition that drifts into only one of them
+// is how a write-up silently lands on the wrong call again.
+func TestDispositionVocabularyAgrees(t *testing.T) {
+	inSQLList := func(list, s string) bool {
+		return strings.Contains(list, "'"+strings.ToLower(strings.TrimSpace(s))+"'")
+	}
+	// Every disposition the frontend can send, plus the legacy stored forms.
+	all := []string{
+		"Interested", "Not Ready Yet", "Not Eligible", "Not Interested", "Converted",
+		"Callback Scheduled", "Wrong Number", "Do Not Call", "Unreachable / No Answer",
+		"Promise to Pay", "Paid", "Dispute", "Escalated", "Resolved", "Closed",
+		"Pending / Follow-up", "no_answer", "wrong_number", "voicemail", "Call Dropped", "",
+	}
+	for _, d := range all {
+		expects, known := dispositionExpectsConversation(d)
+		switch {
+		case strings.TrimSpace(d) == "":
+			if known {
+				t.Errorf("empty disposition should be unknown")
+			}
+		case inSQLList(sqlNoContactDispositions, d):
+			if !known || expects {
+				t.Errorf("%q is in the SQL no-contact list but Go says expects=%v known=%v", d, expects, known)
+			}
+		case inSQLList(sqlAmbiguousDispositions, d):
+			if known {
+				t.Errorf("%q is in the SQL ambiguous list but Go treats it as known", d)
+			}
+		default:
+			if !known || !expects {
+				t.Errorf("%q is in neither SQL list, so Go must treat it as implying a conversation; got expects=%v known=%v", d, expects, known)
+			}
+		}
+	}
+}

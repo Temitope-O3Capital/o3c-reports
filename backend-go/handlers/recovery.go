@@ -111,7 +111,7 @@ func recoveryByMethod(db *core.DB) http.HandlerFunc {
 			`SELECT "Recovery Method", COALESCE(SUM("Recovery Amount"),0) AS total, COUNT(*) AS count
 			 FROM "Recovery Master Sheet" GROUP BY "Recovery Method" ORDER BY total DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -134,7 +134,7 @@ func recoveryMonthlyTrend(db *core.DB) http.HandlerFunc {
 			 GROUP BY DATE_TRUNC('month',"Recovery Date") ORDER BY month_sort`,
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -167,7 +167,7 @@ func recoveryCases(db *core.DB) http.HandlerFunc {
 			 WHERE 1=1%s ORDER BY r."Recovery Date" DESC LIMIT %d`, f.PG(), limit),
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -209,7 +209,7 @@ func recoveryByChannel(db *core.DB) http.HandlerFunc {
 			GROUP BY channel
 			ORDER BY amount_kobo DESC`, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -255,7 +255,7 @@ func recoveryByAgent(db *core.DB) http.HandlerFunc {
 			GROUP BY u.full_name
 			ORDER BY recovered_kobo DESC`, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -327,7 +327,7 @@ func recoveryLegal(db *core.DB) http.HandlerFunc {
 			ORDER BY rc.updated_at DESC
 			LIMIT $%d`, extraWhere, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -353,7 +353,7 @@ func recoveryLegalKPIs(db *core.DB) http.HandlerFunc {
 			LEFT JOIN legal_proceedings lp ON lp.case_id = rc.id
 			WHERE rc.legal_stage IS NOT NULL`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		kpis := core.Row{"total_cases": 0, "active": 0, "won": 0, "avg_days": 0, "total_debt_recovered_kobo": 0}
@@ -383,7 +383,7 @@ func recoveryLegalMilestones(db *core.DB) http.HandlerFunc {
 			WHERE case_id = $1
 			ORDER BY filing_date ASC`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -476,7 +476,7 @@ func recoveryDebtSales(db *core.DB) http.HandlerFunc {
 			WHERE deleted_at IS NULL`+where+`
 			ORDER BY sale_date DESC`, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

@@ -32,7 +32,7 @@ func listSegments(db *core.DB) http.HandlerFunc {
 			LEFT JOIN contact_lists cl ON s.last_list_id = cl.id
 			ORDER BY s.updated_at DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

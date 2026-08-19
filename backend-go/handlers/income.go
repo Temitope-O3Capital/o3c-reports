@@ -455,7 +455,7 @@ func incListCycles(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON u.id = c.loaded_by
 			ORDER BY c.cycle_date DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -623,7 +623,7 @@ func incByProduct(db *core.DB) http.HandlerFunc {
 			GROUP BY ii.product_name, ii.product_code
 			ORDER BY interest DESC NULLS LAST`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -661,7 +661,7 @@ func incAccounts(db *core.DB) http.HandlerFunc {
 		pageSQL := qSQL + fmt.Sprintf(" ORDER BY interest DESC NULLS LAST LIMIT $%d OFFSET $%d", n, n+1)
 		rows, err := db.PGQuery(ctx, pageSQL, pageArgs...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -694,7 +694,7 @@ func incTrend(db *core.DB) http.HandlerFunc {
 			GROUP BY c.id, c.label, c.cycle_date
 			ORDER BY c.cycle_date`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

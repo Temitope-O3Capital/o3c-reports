@@ -81,7 +81,7 @@ func listContactLists(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON cl.created_by=u.id
 			WHERE %s ORDER BY cl.created_at DESC LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -168,7 +168,7 @@ func listListMembers(db *core.DB) http.HandlerFunc {
 		members, err := db.PGQuery(r.Context(),
 			fmt.Sprintf("SELECT * FROM contact_list_members WHERE %s ORDER BY id ASC LIMIT $%d OFFSET $%d", where, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -650,7 +650,7 @@ func segmentPreview(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(),
 			"SELECT COUNT(*) AS count FROM loan_applications WHERE 1=1"+where, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		count := int64(0)

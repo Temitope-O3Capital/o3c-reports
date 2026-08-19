@@ -105,7 +105,7 @@ func cardTrendsIssuance(db *core.DB) http.HandlerFunc {
 			 GROUP BY DATE_TRUNC('month',opened_date) ORDER BY month_sort`, f.PG()),
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -129,7 +129,7 @@ func cardTrendsPortfolioHealth(db *core.DB) http.HandlerFunc {
 			 GROUP BY DATE_TRUNC('month',opened_date) ORDER BY month_sort`, f.PG()),
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -147,7 +147,7 @@ func cardTrendsStatusDist(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf(`SELECT status AS status, COUNT(*) AS count FROM app.accounts WHERE 1=1%s GROUP BY status ORDER BY count DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -192,7 +192,7 @@ func cardTrendsByProduct(db *core.DB) http.HandlerFunc {
 			 GROUP BY product_name ORDER BY total DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)

@@ -221,7 +221,7 @@ func psPosition(db *core.DB) http.HandlerFunc {
 			     WHERE status='success' AND settlement_date::date BETWEEN $1::date AND $2::date) AS settled_n`,
 			from, to)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		out := rows[0]
@@ -292,7 +292,7 @@ func psFunnel(db *core.DB) http.HandlerFunc {
 			WHERE created_at_ps::date BETWEEN $1::date AND $2::date
 			GROUP BY 1 ORDER BY attempts DESC`, from, to)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if byChannel == nil {

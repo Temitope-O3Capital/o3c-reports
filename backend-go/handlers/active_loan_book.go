@@ -105,7 +105,7 @@ func albList(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

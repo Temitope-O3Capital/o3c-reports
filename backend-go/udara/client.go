@@ -40,7 +40,10 @@ func New(baseURL, clientID, clientSecret string) *Client {
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		clientID:     clientID,
 		clientSecret: clientSecret,
-		hc:           &http.Client{Timeout: 30 * time.Second},
+		// 90s: the FixedDeposit Search returns the whole FD book in one page (200+
+		// records) and the response-body read intermittently exceeded a 30s budget —
+		// the O3 network's SSL-inspection path adds latency on top of Udara's own.
+		hc:           &http.Client{Timeout: 90 * time.Second},
 	}
 }
 

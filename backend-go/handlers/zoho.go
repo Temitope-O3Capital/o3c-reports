@@ -529,14 +529,28 @@ func runZohoVoiceSyncCycle(db *core.DB, cap int) {
 				WorkerBeat(ctx, db, "zoho_calls", "ok", fmt.Sprintf("%d imported", imported), "")
 			}
 			// Attach new Zoho Voice call recordings onto the Desk rows just synced.
-			// Deep cycle only (hourly): recordings tolerate up to an hour of latency
-			// and paging the Voice logs is comparatively expensive. Isolated from the
-			// Desk result — a Voice failure is logged, never fails the call sync.
-			if cap >= 1000 && zohoVoiceConfigured(ctx, db) {
-				if att, skip, vfail, verr := runZohoVoiceImport(ctx, db, from, to); verr != nil {
+			//
+			// This used to run on the deep cycle only, on the reasoning that
+			// recordings tolerate an hour of latency. They do not. The recording is
+			// what tells a real conversation from a dial that never connected —
+			// playback, the call history, QA scoring and the write-up matcher all
+			// read it — so for a call's first hour the workspace was showing an
+			// answered call as an unanswered one. Agents write up their calls inside
+			// that hour, which is precisely when it matters.
+			//
+			// The fast cycle now sweeps a NARROW window (today only) so the cost
+			// stays small; the hourly deep cycle keeps the full 3-day reconcile for
+			// late-arriving records. Isolated from the Desk result either way — a
+			// Voice failure is logged, never fails the call sync.
+			if zohoVoiceConfigured(ctx, db) && (cap >= 1000 || zohoRecordingsPending(ctx, db)) {
+				vFrom, vTo := from, to
+				if cap < 1000 {
+					vFrom = time.Now().Format("2006-01-02")
+				}
+				if att, skip, vfail, verr := runZohoVoiceImport(ctx, db, vFrom, vTo); verr != nil {
 					slog.Warn("zoho auto-sync: voice recordings", "err", verr)
-				} else {
-					slog.Info("zoho auto-sync: voice recordings", "attached", att, "skipped", skip, "failed", vfail)
+				} else if att > 0 || cap >= 1000 {
+					slog.Info("zoho auto-sync: voice recordings", "attached", att, "skipped", skip, "failed", vfail, "from", vFrom)
 				}
 			}
 			return
@@ -2282,6 +2296,7 @@ func absorbPendingManualLog(ctx context.Context, db *core.DB, callID int64) {
 	rows, err := db.PGQuery(ctx, `
 		WITH target AS (
 		  SELECT id, agent_id, started_at,
+		         (COALESCE(duration_sec,0) > 5 OR recording_filename IS NOT NULL) AS connected,
 		         `+normalizedPhoneExpr("customer_phone")+` AS ph
 		    FROM helpdesk_calls WHERE id = $1
 		),
@@ -2290,7 +2305,7 @@ func absorbPendingManualLog(ctx context.Context, db *core.DB, callID int64) {
 		    FROM helpdesk_calls m, target t
 		   WHERE m.id <> t.id
 		     AND m.source_system <> 'zoho_desk'
-		     AND m.merged_into_call_id IS NULL
+		     AND m.merged_into_call_id IS NULL AND m.voided_at IS NULL
 		     AND m.zoho_call_id IS NULL
 		     AND m.agent_id IS NOT DISTINCT FROM t.agent_id
 		     AND t.ph <> ''
@@ -2299,6 +2314,21 @@ func absorbPendingManualLog(ctx context.Context, db *core.DB, callID int64) {
 		     AND m.created_at BETWEEN t.started_at - interval '2 minutes'
 		                          AND t.started_at + interval '15 minutes'
 		     AND COALESCE(NULLIF(TRIM(m.notes),''), NULLIF(TRIM(m.disposition),'')) IS NOT NULL
+		     -- The write-up must fit the call it is being folded into.
+		     --
+		     -- This function runs per synced call, so it absorbs into whichever
+		     -- Zoho row happens to arrive first. An agent who dials, gets nothing,
+		     -- dials again and connects has two rows in the window, and without
+		     -- this the "Not Interested" they typed after a two-minute conversation
+		     -- landed on the dial nobody answered. Measured: 7 of today's 65
+		     -- absorbed write-ups. The other 58 were "Unreachable / No Answer"
+		     -- correctly on a dead dial, which is why this gate is two-directional
+		     -- rather than simply preferring connected calls.
+		     --
+		     -- A log that fits nothing yet stays pending and is absorbed when the
+		     -- right call syncs; if that never happens it remains a standalone row,
+		     -- which is the honest outcome.
+		     AND `+sqlDispositionFitsCall("m.disposition", "t.connected")+`
 		   ORDER BY m.created_at ASC
 		   LIMIT 1
 		)
@@ -2380,4 +2410,31 @@ func resolveCallCustomerName(ctx context.Context, db *core.DB, callID int64) {
 		 WHERE h.id = t.id AND t.ph <> ''`, callID); err != nil {
 		slog.Warn("resolveCallCustomerName", "call", callID, "err", err)
 	}
+}
+
+// zohoRecordingsPending reports whether any recent call is still missing a
+// recording it could plausibly have.
+//
+// The fast cycle runs every 60 seconds. Paging today's Voice logs that often
+// would be several hundred API records a minute, growing through the day, for
+// nothing — most minutes have no new recording to collect. This is the cheap
+// local question that decides whether the expensive remote one is worth asking.
+//
+// "Plausibly" is deliberately loose: any un-merged call in the window with no
+// recording that is not already known to be a dead dial. Being wrong here costs
+// one redundant sweep; being too strict would reintroduce the latency this is
+// meant to remove.
+func zohoRecordingsPending(ctx context.Context, db *core.DB) bool {
+	rows, err := db.PGQuery(ctx, `
+		SELECT 1 FROM helpdesk_calls
+		 WHERE started_at >= NOW() - interval '90 minutes'
+		   AND recording_filename IS NULL
+		   AND merged_into_call_id IS NULL
+		   AND (COALESCE(duration_sec,0) > 0 OR lower(COALESCE(outcome,'')) = 'completed')
+		 LIMIT 1`)
+	if err != nil {
+		// Unknown — sweep rather than silently stall recordings on a query error.
+		return true
+	}
+	return len(rows) > 0
 }

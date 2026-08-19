@@ -849,7 +849,7 @@ func listCampaigns(db *core.DB) http.HandlerFunc {
 			) cp ON true
 			WHERE %s ORDER BY c.created_at DESC LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1242,7 +1242,7 @@ func listCampaignContacts(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf("SELECT * FROM campaign_contacts WHERE %s ORDER BY position ASC LIMIT $%d OFFSET $%d",
 				where, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

@@ -203,7 +203,7 @@ func soaBatchList(db *core.DB) http.HandlerFunc {
 			ORDER BY batch_date DESC, id DESC
 			LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -271,7 +271,7 @@ func soaBatchTxns(db *core.DB) http.HandlerFunc {
 			ORDER BY created_at DESC
 			LIMIT 200`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -337,7 +337,7 @@ func soaNIPList(db *core.DB) http.HandlerFunc {
 			ORDER BY txn_date DESC, id DESC
 			LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -438,7 +438,7 @@ func soaFailedList(db *core.DB) http.HandlerFunc {
 			ORDER BY txn_date DESC, id DESC
 			LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -592,7 +592,7 @@ func soaManualPostingsList(db *core.DB) http.HandlerFunc {
 			ORDER BY mp.created_at DESC
 			LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

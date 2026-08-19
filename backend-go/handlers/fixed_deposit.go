@@ -85,7 +85,7 @@ func fdListTransactions(db *core.DB) http.HandlerFunc {
 			`SELECT * FROM fd_transactions WHERE %s ORDER BY transaction_date DESC, id DESC LIMIT $%d OFFSET $%d`,
 			where, n, n+1), args2...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

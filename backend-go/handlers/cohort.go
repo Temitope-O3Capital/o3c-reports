@@ -128,7 +128,7 @@ func cohortHeatmap(db *core.DB) http.HandlerFunc {
 		}
 		rows, src, err := db.DualQuery(r.Context(), q)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -177,7 +177,7 @@ func cohortMonthlyActivity(db *core.DB) http.HandlerFunc {
 		}
 		rows, src, err := db.DualQuery(r.Context(), q)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, rows, src)

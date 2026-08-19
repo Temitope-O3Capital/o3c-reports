@@ -126,7 +126,7 @@ func reconRunList(db *core.DB) http.HandlerFunc {
 			ORDER BY r.started_at DESC
 			LIMIT $1`, limit)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -341,7 +341,7 @@ func reconExceptionList(db *core.DB) http.HandlerFunc {
 			ORDER BY e.created_at ASC, e.amount_kobo DESC
 			LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -371,7 +371,7 @@ func reconExceptionSummary(db *core.DB) http.HandlerFunc {
 			  COUNT(*) FILTER (WHERE status IN ('open','investigating') AND reason='no_candidate')    AS no_candidate_n
 			FROM recon_exceptions`)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

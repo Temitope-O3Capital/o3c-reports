@@ -189,7 +189,7 @@ func ccListCampaigns(db *core.DB) http.HandlerFunc {
 			GROUP BY c.id
 			ORDER BY c.created_at DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -328,14 +328,14 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 		      LEFT JOIN LATERAL (
 		          SELECT h.disposition, h.outcome, h.direction, h.duration_sec, h.recording_filename
 		            FROM helpdesk_calls h
-		           WHERE h.lead_id = l.id AND h.merged_into_call_id IS NULL
+		           WHERE h.lead_id = l.id AND h.merged_into_call_id IS NULL AND h.voided_at IS NULL
 		           ORDER BY h.started_at DESC NULLS LAST LIMIT 1
 		      ) lc ON TRUE
 		      WHERE 1=1` + cond +
 			fmt.Sprintf(" ORDER BY l.updated_at DESC LIMIT $%d OFFSET $%d", n, n+1)
 		rows, err := db.PGQuery(r.Context(), q, append(append([]any{}, args...), limit, offset)...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -369,11 +369,11 @@ func ccLeadCalls(db *core.DB) http.HandlerFunc {
 			 WHERE (h.lead_id = $1
 			        OR (lp.ph IS NOT NULL
 			            AND right(regexp_replace(COALESCE(h.customer_phone,''),'\D','','g'),10) = lp.ph))
-			   AND COALESCE(h.merged_into_call_id, 0) = 0
+			   AND COALESCE(h.merged_into_call_id, 0) = 0 AND h.voided_at IS NULL
 			 ORDER BY h.started_at DESC NULLS LAST
 			 LIMIT 50`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -567,7 +567,7 @@ func ccListDNC(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -624,7 +624,7 @@ func ccListAgents(db *core.DB) http.HandlerFunc {
 			   AND role IN ('call_center_agent','call_center_head')
 			 ORDER BY full_name`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -1057,7 +1057,7 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 		q += " ORDER BY lead_score DESC, created_at ASC"
 		leadRows, err := db.PGQuery(ctx, q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(leadRows) == 0 {
@@ -1704,7 +1704,7 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1744,7 +1744,7 @@ func ccContactCalls(db *core.DB) http.HandlerFunc {
 			 ORDER BY called_at DESC NULLS LAST
 			 LIMIT 100`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1886,7 +1886,7 @@ func ccDNCKPIs(db *core.DB) http.HandlerFunc {
 			  0                                                                       AS bulk_removes
 			FROM dnc_list`)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -2100,9 +2100,21 @@ func leadStatusFromCall(outcome string, disposition *string) string {
 	case strings.Contains(d, "not eligible"):
 		// A decline on our side: calling back will not change it.
 		return "closed"
+	case strings.Contains(d, "call dropped"):
+		// The line was answered and then went dead within seconds. Nothing was
+		// discussed, so the lead has not been worked — it goes back into the
+		// queue to be dialled again rather than counting as a contact.
+		return "pending"
 	case strings.Contains(d, "not ready"):
-		// A timing objection, not a refusal — stays workable.
-		return "callback"
+		// A timing objection, not a refusal — the lead stays workable and is
+		// re-approached in a later cycle.
+		//
+		// NOT "callback". Callback means a specific time the customer asked to be
+		// rung back at, and the queue serves those ahead of everything else. "Not
+		// Ready Yet" carries no time, so routing it to callback filled the callback
+		// list with leads nobody had promised to ring, and buried the ones who had.
+		// Only "Callback Scheduled", which collects a time, belongs there.
+		return "called"
 	case strings.Contains(d, "not interested"):
 		return "called"
 	case strings.Contains(d, "interested"):
@@ -2156,6 +2168,10 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		slog.Error("syncLeadFromCall: insert disposition", "lead", leadID, "err", err)
 	}
 
+	// Carry the progress into the sales pipeline. Without this the call centre's
+	// work stays in its own book and Sales keeps seeing 'new'.
+	syncCRMContactStage(ctx, db, leadID, status, agentID)
+
 	// A lead marked do-not-call goes on the DNC list, exactly as the old Leads
 	// form did — that obligation does not depend on which screen logged the call.
 	if status == "dnc" {
@@ -2169,4 +2185,129 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 			}
 		}
 	}
+}
+
+// crmStageForLeadStatus maps a call-centre lead status to the sales pipeline
+// stage, and the rank used to keep movement forward-only.
+//
+// The two lead books were unconnected: the call centre worked
+// call_center_leads while Sales read crm_contacts.lead_stage, so an agent could
+// reach and qualify a lead all day and the pipeline would still show 'new'. That
+// is why 'contacted' and 'qualified' had never once been used.
+func crmStageForLeadStatus(status string) (stage string, rank int) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "converted":
+		return "converted", 3
+	case "dnc", "closed", "invalid":
+		return "disqualified", 3
+	case "callback", "called":
+		// Someone was reached and the lead is still worth working.
+		return "qualified", 2
+	case "no_answer", "pending":
+		// Dialled, nobody reached — the lead has been touched, nothing more.
+		return "contacted", 1
+	}
+	return "", 0
+}
+
+var crmStageRank = map[string]int{"new": 0, "contacted": 1, "qualified": 2, "converted": 3, "disqualified": 3}
+
+// syncCRMContactStage advances the linked CRM contact so call-centre work shows
+// up in the sales pipeline, and records the move in crm_lead_events.
+//
+// Forward-only: a contact already converted is never dragged back by a later
+// dial. Fire-and-forget, like the rest of syncLeadFromCall — the call is already
+// recorded, and a pipeline that lags is a smaller problem than an error thrown at
+// an agent who has just finished a conversation.
+func syncCRMContactStage(ctx context.Context, db *core.DB, leadID int64, status string, agentID *int64) {
+	stage, rank := crmStageForLeadStatus(status)
+	if stage == "" {
+		return
+	}
+	rows, err := db.PGQuery(ctx, `
+		SELECT c.id, c.lead_stage
+		  FROM call_center_leads l JOIN crm_contacts c ON c.id = l.contact_id
+		 WHERE l.id = $1`, leadID)
+	if err != nil {
+		return
+	}
+	if len(rows) == 0 {
+		// A lead imported after the two books were joined has no contact yet. It
+		// earns one the moment it is actually worked — an untouched imported
+		// number is not a sales prospect and would only inflate the CRM book.
+		if !crmLinkLeadToContact(ctx, db, leadID) {
+			return
+		}
+		if rows, err = db.PGQuery(ctx, `
+			SELECT c.id, c.lead_stage
+			  FROM call_center_leads l JOIN crm_contacts c ON c.id = l.contact_id
+			 WHERE l.id = $1`, leadID); err != nil || len(rows) == 0 {
+			return
+		}
+	}
+	contactID, current := toInt64(rows[0]["id"]), str(rows[0]["lead_stage"])
+	if crmStageRank[current] >= rank {
+		return
+	}
+	if _, err := db.PGExec(ctx,
+		`UPDATE crm_contacts SET lead_stage = $2, updated_at = NOW() WHERE id = $1`,
+		contactID, stage); err != nil {
+		slog.Error("syncCRMContactStage: update", "contact", contactID, "err", err)
+		return
+	}
+	db.PGExec(ctx, //nolint:errcheck
+		`INSERT INTO crm_lead_events (contact_id, event, from_stage, to_stage, note, created_by)
+		 VALUES ($1,'stage_changed',$2,$3,'Advanced by a call-centre call',$4)`,
+		contactID, current, stage, agentID)
+}
+
+// crmLinkLeadToContact gives a worked lead its place in the CRM book: an existing
+// contact if the number identifies one unambiguously, otherwise a new one.
+//
+// The ambiguity guard matters. Every one of the seven numbers that overlapped
+// between the two books at join time matched TWO contacts, because a phone can
+// belong to a household. Linking on a guess would attach one person's lead
+// progress to another's record, so a shared number gets a fresh contact instead.
+func crmLinkLeadToContact(ctx context.Context, db *core.DB, leadID int64) bool {
+	rows, err := db.PGQuery(ctx, `
+		SELECT id, customer_name, customer_phone, email, assigned_to
+		  FROM call_center_leads WHERE id = $1 AND COALESCE(customer_phone,'') <> ''`, leadID)
+	if err != nil || len(rows) == 0 {
+		return false
+	}
+	phone := str(rows[0]["customer_phone"])
+
+	// Exactly one contact on this number → link to it.
+	if m, err := db.PGQuery(ctx, `
+		SELECT id FROM crm_contacts
+		 WHERE `+normalizedPhoneExpr("phone")+` = `+normalizedPhoneExpr("$1")+`
+		 LIMIT 2`, phone); err == nil && len(m) == 1 {
+		if _, err := db.PGExec(ctx,
+			`UPDATE call_center_leads SET contact_id = $2 WHERE id = $1`,
+			leadID, toInt64(m[0]["id"])); err == nil {
+			return true
+		}
+		return false
+	}
+
+	name := strings.TrimSpace(str(rows[0]["customer_name"]))
+	first, last := name, ""
+	if i := strings.Index(name, " "); i > 0 {
+		first, last = name[:i], strings.TrimSpace(name[i+1:])
+	}
+	if first == "" {
+		first = "Lead"
+	}
+	created, err := db.PGQuery(ctx, `
+		INSERT INTO crm_contacts (first_name, last_name, phone, email, source, lead_source,
+		                          source_type, lead_stage, lead_owner_id, status)
+		VALUES ($1,$2,$3,NULLIF(TRIM($4),''),'call_centre','call_centre','self_sourced','new',$5,'lead')
+		RETURNING id`, first, last, phone, str(rows[0]["email"]), rows[0]["assigned_to"])
+	if err != nil || len(created) == 0 {
+		slog.Error("crmLinkLeadToContact: create contact", "lead", leadID, "err", err)
+		return false
+	}
+	_, err = db.PGExec(ctx, `UPDATE call_center_leads SET contact_id = $2 WHERE id = $1`,
+		leadID, toInt64(created[0]["id"]))
+	return err == nil
 }

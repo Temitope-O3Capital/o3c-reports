@@ -52,3 +52,7 @@ backend-go/frontend-dist/
 backend-go/o3c-backend.exe~
 backend-go/run_backend.ps1
 backend-go/logs/
+
+# Deploy trigger consumed by the keep-alive task — regenerated on every
+# deploy, so tracking it dirties the tree after each restart.
+backend-go/RESTART.flag

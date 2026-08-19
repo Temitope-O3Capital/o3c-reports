@@ -28,7 +28,7 @@ func csOverview(db *core.DB) http.HandlerFunc {
 				ROUND((AVG(duration_sec) FILTER (WHERE duration_sec IS NOT NULL) / 60.0)::numeric, 1) AS avg_handle_minutes
 			FROM helpdesk_calls`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		openTickets := int64(0)
@@ -73,7 +73,7 @@ func csCalls(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

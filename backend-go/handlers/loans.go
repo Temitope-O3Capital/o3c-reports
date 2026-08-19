@@ -75,7 +75,7 @@ func listLoans(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -87,7 +87,7 @@ func loanStats(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT stage, COUNT(*) AS count FROM loan_applications GROUP BY stage ORDER BY stage`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		stats := map[string]any{}
@@ -387,7 +387,7 @@ func getLoanComments(db *core.DB) http.HandlerFunc {
 			SELECT id, author_id, body, is_internal, created_at
 			FROM application_notes WHERE application_id=$1 ORDER BY created_at`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -430,7 +430,7 @@ func getLoanActivity(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON u.id = e.actor_user_id
 			WHERE e.application_id=$1 ORDER BY e.created_at DESC`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

@@ -83,7 +83,7 @@ func txnMonthlyTrend(db *core.DB) http.HandlerFunc {
 			 FROM app.transactions WHERE txn_date IS NOT NULL
 			 GROUP BY DATE_TRUNC('month',txn_date) ORDER BY month_sort`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -110,7 +110,7 @@ func txnTopMerchants(db *core.DB) http.HandlerFunc {
 			  GROUP BY merchant_name ORDER BY volume DESC LIMIT 10`, f.PG()),
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -137,7 +137,7 @@ func txnByType(db *core.DB) http.HandlerFunc {
 			  GROUP BY description ORDER BY volume DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)

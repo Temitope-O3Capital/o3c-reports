@@ -151,7 +151,7 @@ func settingsList(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT key, value, updated_at FROM settings ORDER BY key`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -236,7 +236,7 @@ func settingsSyncStatusList(db *core.DB) http.HandlerFunc {
 		q += " ORDER BY created_at DESC LIMIT 100"
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -292,7 +292,7 @@ func settingsUserList(db *core.DB) http.HandlerFunc {
 			WHERE deleted_at IS NULL
 			ORDER BY full_name`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

@@ -63,7 +63,7 @@ func riskListSectorCodes(db *core.DB) http.HandlerFunc {
 			) u ON u.code = c.code
 			ORDER BY COALESCE(u.book_kobo, 0) DESC, c.code`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -160,7 +160,7 @@ func riskDeleteSectorCode(db *core.DB) http.HandlerFunc {
 		inUse, err := db.PGQuery(r.Context(),
 			`SELECT EXISTS (SELECT 1 FROM cbs_loans WHERE economic_sector = $1) AS in_use`, code)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		used, _ := inUse[0]["in_use"].(bool)

@@ -112,7 +112,7 @@ func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -407,7 +407,7 @@ func recoveryOpsPendingPayments(db *core.DB) http.HandlerFunc {
 			ORDER BY rp.created_at ASC
 			LIMIT 200`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -678,7 +678,7 @@ func recoveryOpsVisitsList(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

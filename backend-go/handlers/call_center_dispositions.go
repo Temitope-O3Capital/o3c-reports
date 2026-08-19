@@ -53,6 +53,12 @@ var ccDispositions = []ccDisposition{
 		Hint: "Does not qualify (age, employer, exposure) — closes the contact"},
 	{Code: "not_ready", Label: "Not Ready Yet", Status: "", Connected: true,
 		Hint: "Interested but not now — stays in the queue for a later cycle"},
+	// Answered, then gone within seconds. Agents were forcing this into "No
+	// Answer", which is wrong twice over: it was answered, and it hides a number
+	// that is reachable but keeps cutting off. Nothing was discussed, so the
+	// contact stays workable and returns to the queue.
+	{Code: "call_dropped", Label: "Call Dropped", Status: "", Connected: true,
+		Hint: "Picked up then dropped within seconds — returns to the queue to retry"},
 	{Code: "no_answer", Label: "No Answer", Status: "", Connected: false,
 		Hint: "Rests for the cooldown, then returns to the queue"},
 	{Code: "wrong_number", Label: "Wrong Number", Status: "invalid", Connected: false,
@@ -153,4 +159,120 @@ func isRawCallOutcome(s string) bool {
 		return true
 	}
 	return false
+}
+
+// Whether a disposition asserts that a human conversation took place.
+//
+// This is the missing signal in call attachment. An agent who dials, gets no
+// answer, dials again and connects produces two rows; the write-up they then
+// save says which of the two it describes. "Not Interested" cannot be the
+// outcome of a call nobody answered, and "Unreachable / No Answer" cannot be the
+// outcome of a two-minute conversation — but the matcher only knew "most recent
+// un-written-up call", so a second dial routinely inherited the first call's
+// account of itself, and vice versa.
+//
+// Returns (expectsConversation, known). known=false means the disposition says
+// nothing either way and the caller should not bias on it — "Wrong Number" is
+// genuinely both (an invalid number, or a person telling you so), and guessing
+// would trade one wrong attachment for another.
+func dispositionExpectsConversation(s string) (expects, known bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "":
+		return false, false
+	// Nobody spoke.
+	case "unreachable / no answer", "no answer", "no_answer", "voicemail", "unreachable":
+		return false, true
+	// Ambiguous by nature — do not bias.
+	//
+	// "Call Dropped" belongs here despite the line having been answered. The
+	// "connected" test a caller applies is duration > 5s OR a recording, and a
+	// call dropped after three seconds satisfies neither reliably — biasing it
+	// toward connected calls would push these write-ups onto the wrong row for
+	// exactly the calls the disposition exists to describe.
+	case "wrong number", "wrong_number", "pending / follow-up", "call dropped", "call_dropped":
+		return false, false
+	}
+	// Everything else in the vocabulary — Interested, Not Interested, Not Ready
+	// Yet, Not Eligible, Converted, Callback Scheduled, Do Not Call, Promise to
+	// Pay, Paid, Dispute, Escalated, Resolved — is a conclusion you can only
+	// reach by speaking to someone.
+	return true, true
+}
+
+// callAttachMode maps a disposition to the ordering bias hdLatestCall applies:
+// 0 = no preference, 1 = prefer a call that connected, 2 = prefer a dial that did not.
+func callAttachMode(disposition string) int {
+	expects, known := dispositionExpectsConversation(disposition)
+	if !known {
+		return 0
+	}
+	if expects {
+		return 1
+	}
+	return 2
+}
+
+// hdBetterAttachTarget returns a call id to attach a write-up to instead of the
+// one the client chose, or 0 to keep the client's choice.
+//
+// It only ever moves a write-up between two calls the SAME agent made to the
+// SAME number within a few minutes — i.e. legs of one dialling episode, where
+// the only question is which leg the agent means. It never reaches across
+// numbers or agents.
+//
+// It intervenes only when the chosen call plainly contradicts the disposition
+// AND an un-written-up sibling plainly fits. When nothing clearly fits, the
+// client's choice stands: a wrong guess here is worse than leaving the agent's
+// own selection alone.
+func hdBetterAttachTarget(ctx context.Context, db *core.DB, chosenID int64, disposition string) int64 {
+	expects, known := dispositionExpectsConversation(disposition)
+	if !known {
+		return 0
+	}
+	rows, err := db.PGQuery(ctx, `
+		WITH chosen AS (
+		    SELECT id, agent_id, started_at,
+		           (COALESCE(duration_sec,0) > 5 OR recording_filename IS NOT NULL) AS connected,
+		           `+normalizedPhoneExpr("customer_phone")+` AS ph
+		      FROM helpdesk_calls WHERE id = $1
+		)
+		SELECT c.id
+		  FROM helpdesk_calls c, chosen
+		 WHERE `+normalizedPhoneExpr("c.customer_phone")+` = chosen.ph
+		   AND chosen.ph <> ''
+		   AND c.id <> chosen.id
+		   AND c.agent_id IS NOT DISTINCT FROM chosen.agent_id
+		   AND c.merged_into_call_id IS NULL AND c.voided_at IS NULL
+		   AND COALESCE(NULLIF(TRIM(c.notes),''), NULLIF(TRIM(c.disposition),'')) IS NULL
+		   AND c.started_at BETWEEN chosen.started_at - interval '15 min'
+		                        AND chosen.started_at + interval '15 min'
+		   -- Only act when the chosen call is the WRONG kind and this one is right.
+		   AND chosen.connected <> $2
+		   AND (COALESCE(c.duration_sec,0) > 5 OR c.recording_filename IS NOT NULL) = $2
+		 ORDER BY c.started_at DESC
+		 LIMIT 1`, chosenID, expects)
+	if err != nil || len(rows) == 0 {
+		return 0
+	}
+	return toInt64(rows[0]["id"])
+}
+
+// The SQL forms of the vocabulary above, so the absorb query can make the same
+// judgement the Go classifier makes. Kept beside it and covered by
+// TestDispositionVocabularyAgrees, because two copies of a vocabulary that drift
+// apart is exactly how a call ends up carrying another call's outcome.
+const (
+	sqlNoContactDispositions = `('unreachable / no answer','no answer','no_answer','voicemail','unreachable')`
+	sqlAmbiguousDispositions = `('wrong number','wrong_number','pending / follow-up','call dropped','call_dropped')`
+)
+
+// sqlDispositionFitsCall renders the predicate "this write-up belongs on this
+// call", given a disposition column and a boolean 'connected' column.
+func sqlDispositionFitsCall(dispositionCol, connectedCol string) string {
+	return `(CASE
+	           WHEN TRIM(COALESCE(` + dispositionCol + `,'')) = '' THEN TRUE
+	           WHEN lower(TRIM(` + dispositionCol + `)) IN ` + sqlNoContactDispositions + ` THEN NOT ` + connectedCol + `
+	           WHEN lower(TRIM(` + dispositionCol + `)) IN ` + sqlAmbiguousDispositions + ` THEN TRUE
+	           ELSE ` + connectedCol + `
+	         END)`
 }

@@ -46,3 +46,122 @@ Status: **DONE** = fixed and deployed · **PARTIAL** = improved, gap remains ·
 | F | "Query failed" 500s at a low background rate. | Pre-existing (67 before any of today's work). Cause is stripped by the 500 handler; needs its own pass. |
 | G | Three long calls today have no recording. | Recordings pair forward-only; existing attachments are not moved. |
 | H | Nothing is committed. | This, the call-centre work and Reports & BI are all uncommitted in the tree. |
+
+## 2026-08-19 — recordings latency, and write-ups on the wrong call (second pass)
+
+**Calls were already realtime; recordings were not.** Measured ingest lag on 447
+of today's calls: mean 1 minute, max 7. The Desk rows arrive on the 60-second
+fast poll as designed. Recordings did not: `runZohoVoiceSyncCycle` gated the
+Voice import on `cap >= 1000`, so it ran only on the hourly deep cycle. Since the
+recording is what distinguishes a real conversation from a dial that never
+connected — playback, call history, QA and the write-up matcher all read it — a
+call spent its first hour looking unanswered. Agents write up their calls inside
+that hour. The fast cycle now sweeps a today-only window, gated on
+`zohoRecordingsPending` so it makes no API call in the many minutes with nothing
+to collect.
+
+**Write-ups on the wrong call: the path was `absorbPendingManualLog`, not the
+matcher.** All 65 of today's write-ups sitting on a no-duration call arrived
+there via absorb, which folds a manual log into whichever Zoho row syncs first on
+that agent+number within ±15 minutes. It had no notion of what the write-up says.
+
+The correction is that **the disposition states which kind of call it describes**:
+"Not Interested" is only reachable by speaking to someone; "Unreachable / No
+Answer" is only reachable by not speaking to someone. `dispositionExpectsConversation`
+encodes this, `sqlDispositionFitsCall` renders it for the absorb query, and
+`TestDispositionVocabularyAgrees` keeps the two in step. "Wrong Number" is
+deliberately treated as unknown — it is genuinely both.
+
+This also showed **migration 170 (yesterday) was too crude**: it moved any
+write-up off a dead dial onto a connected sibling, including 8 "Unreachable / No
+Answer" write-ups that were correctly placed, producing recorded calls whose
+stated outcome was that nobody answered. Migration 171 reverses those 8.
+
+Of today's 65 absorbed write-ups, **58 were correctly placed** and 7 were not —
+the crude "on a dial with no duration" heuristic used yesterday over-counted by
+roughly ten to one. Any future repair must classify by disposition, not by the
+shape of the call row.
+
+**Not repaired, deliberately:** ~38 historic rows whose disposition contradicts
+their call and which have no un-written-up counterpart to move to. There is
+nothing to move them to, and rewriting the disposition to fit the call would
+invent an outcome no agent chose.
+
+## 2026-08-19 (later) — the lead book was never connected to Sales
+
+The largest gap in the call centre was not in the call centre. There were **two
+lead books with nothing between them**: the call centre dials
+`app.call_center_leads`; Sales reads `app.crm_contacts.lead_stage`. Only **7 of
+246** call-centre leads existed in the CRM book at all, and `lead_stage` held only
+`new` (27,869) or `converted` (1,794) — the `contacted` and `qualified` stages the
+Sales funnel is built on had **never once been used**, and `crm_lead_events` was
+empty.
+
+So an agent could reach a lead, qualify them and book a callback, and Sales would
+still see `new`. That is why the Sales pipeline read zero, and why not one lead
+has ever reached `converted` in the call-centre book: conversion had nowhere to
+land.
+
+Migration 174 gives `call_center_leads` a `contact_id`, creates a CRM contact for
+any lead that has actually been worked (an untouched imported number is not a
+prospect), and derives the stage from work already done — forward-only, so a
+converted contact is never dragged back by a later dial. 203 leads linked, 197
+stage moves recorded; the pipeline now shows 139 contacted / 54 qualified / 4
+disqualified where it previously showed none.
+
+`syncCRMContactStage` keeps it in step going forward, and `crmLinkLeadToContact`
+gives a newly imported lead its CRM place the first time it is worked.
+
+**All 7 numbers that overlapped between the two books matched TWO contacts each**,
+so none of them auto-linked — the ambiguity guard working, not failing. A shared
+number gets a fresh contact rather than attaching one person's progress to
+another's record. Same lesson as CIF-is-not-a-person.
+
+### Not a collapse: the Call Log keeps every row
+
+One conversation still arrives as several rows. The leads panel groups them; the
+Call Log deliberately does not, because it is the audit view and collapsing rows
+there would hide records a supervisor is there to see — and an episode can
+straddle a page boundary, where client-side grouping would group the wrong things.
+`hdListCalls` now returns `episode_calls`, counted server-side (0.9ms, on the
+phone-10 index), and the row says "one of N attempts".
+
+### 500s that could not be diagnosed
+
+271 "Query failed" and 84 "Lookup failed" 500s over two days, none of which logged
+their cause — `respondErr(w, 500, "Query failed")` discards `err`. The call-centre
+and helpdesk sites now use `respondErrLog`. 211 such sites remain across other
+modules; worth the same treatment.
+
+## 2026-08-19 (close-out) — the open items
+
+**Silent 500s: all 239 sites now log their cause.** `respondErr(w, 500, "Query
+failed")` discards `err`, so 271 "Query failed" and 84 "Lookup failed" 500s over
+two days said nothing about what actually broke. Every site in `handlers/` now
+uses `respondErrLog`. Zero silent sites remain.
+
+**43 unlinked leads: not a defect.** All 43 have never been called. A lead earns
+its CRM contact the first time it is worked; an untouched imported number is not
+a sales prospect. They link on first call via `crmLinkLeadToContact`.
+
+**Supervisor review had endpoints but no screen.** Flagging 11 contradictory
+write-ups and giving nobody a way to see them would have been no better than
+leaving them. `CallReviewPanel` shows the flagged logs with the reason stated and
+a "Looks right" dismissal, plus every correction and withdrawal with BOTH sides of
+each change — so a correction can be read against what it replaced rather than
+taken on trust. Supervisors only; renders nothing when both lists are empty.
+
+**CBS: I mischaracterised this as "failing".** It is not — 326 ok against 26
+errors over six hours. What was actually wrong: 58 runs stuck in 'running' since
+31 July. A run is marked 'running' at the start and closed at the end, so a
+process killed in between never closes it, and this server restarts often. Any
+"is a sync in flight?" check was permanently answered yes. Marked 'interrupted'
+(not 'error' — it was killed, not failed, and conflating the two makes the failure
+rate read far worse than it is), and `reconcileStrandedCBSRuns` now runs on every
+tick, not just at boot: a run stranded at midday would otherwise sit until the
+next restart, which is exactly how 58 accumulated.
+
+Still open there, genuinely: ~13% of CBS runs fail, split between read timeouts on
+`FixedDepositAccount/v1/Search` and **auth failures on `Product/v1/SearchProducts`**.
+`CBS_SYNC_INTERVAL=1m` with runs taking ~30s is a 50% duty cycle against Udara,
+which is worth questioning before tuning timeouts.

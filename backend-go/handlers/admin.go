@@ -144,7 +144,7 @@ func listUsers(db *core.DB) http.HandlerFunc {
 			       must_change_password, last_login, is_active, deleted_at
 			FROM o3c_users `+where+` ORDER BY created_at DESC, id DESC`, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		// extra_roles is jsonb; the db layer stringifies it. Return a real array
@@ -627,7 +627,7 @@ func listRoles(db *core.DB) http.HandlerFunc {
 		customQ += " ORDER BY created_at DESC"
 		rows, err := db.PGQuery(r.Context(), customQ, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		for _, row := range rows {
@@ -875,7 +875,7 @@ func getActivity(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1223,7 +1223,7 @@ func getUserActivity(db *core.DB) http.HandlerFunc {
 			ORDER BY ts DESC
 			LIMIT $2`, id, limit)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1244,7 +1244,7 @@ func getUserSessions(db *core.DB) http.HandlerFunc {
 			ORDER BY logged_in_at DESC
 			LIMIT 50`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1515,7 +1515,7 @@ func listWorkflowTemplates(db *core.DB) http.HandlerFunc {
 			SELECT id, name, description, notify_roles, approver_roles, poster_roles, created_at
 			FROM workflow_templates ORDER BY name`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

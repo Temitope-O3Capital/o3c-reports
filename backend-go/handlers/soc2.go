@@ -59,7 +59,7 @@ func soc2Overview(db *core.DB) http.HandlerFunc {
 			GROUP BY trust_criteria
 			ORDER BY trust_criteria`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		// Totals
@@ -144,7 +144,7 @@ func soc2ControlList(db *core.DB) http.HandlerFunc {
 			  SELECT control_id, COUNT(*) AS ev_count FROM soc2_evidence GROUP BY control_id
 			) ev ON ev.control_id = c.id`+where+` ORDER BY c.sort_order`, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, rows, "supabase")
@@ -390,7 +390,7 @@ func soc2PolicyList(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users a ON p.approved_by = a.id
 			ORDER BY p.sort_order`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, rows, "supabase")
@@ -520,7 +520,7 @@ func pentestList(db *core.DB) http.HandlerFunc {
 			GROUP BY e.id, u.full_name
 			ORDER BY e.created_at DESC`, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, rows, "supabase")
@@ -695,7 +695,7 @@ func pentestFindingListAll(db *core.DB) http.HandlerFunc {
 			  CASE f.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END,
 			  f.sla_deadline NULLS LAST`, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, rows, "supabase")

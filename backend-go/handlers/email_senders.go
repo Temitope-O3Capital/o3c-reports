@@ -31,7 +31,7 @@ func listEmailSenders(db *core.DB) http.HandlerFunc {
 			FROM email_senders
 			ORDER BY purpose, is_default DESC, label`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

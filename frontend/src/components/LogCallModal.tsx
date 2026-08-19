@@ -58,7 +58,7 @@ export const CALL_PURPOSES: { value: string; label: string }[] = [
 // collections call don't share outcomes, so the agent only ever sees the relevant few.
 const SUPPORT_DISPOSITIONS = [
   'Resolved', 'Closed', 'Information Provided', 'Escalated', 'Complaint Logged',
-  'Callback Scheduled', 'Pending / Follow-up', 'Unreachable / No Answer',
+  'Callback Scheduled', 'Pending / Follow-up', 'Unreachable / No Answer', 'Call Dropped',
 ]
 const DISPOSITIONS_BY_PURPOSE: Record<string, string[]> = {
   '':           SUPPORT_DISPOSITIONS,
@@ -66,11 +66,11 @@ const DISPOSITIONS_BY_PURPOSE: Record<string, string[]> = {
   // 'Not Eligible' and 'Not Ready Yet' used to be forced into 'Not Interested',
   // which closes the lead. They are different outcomes: not eligible is a decline
   // on our side, not ready is a timing objection worth calling back.
-  marketing:    ['Interested', 'Not Ready Yet', 'Not Eligible', 'Not Interested', 'Converted', 'Callback Scheduled', 'Wrong Number', 'Do Not Call', 'Unreachable / No Answer'],
-  sales:        ['Interested', 'Not Ready Yet', 'Not Eligible', 'Not Interested', 'Converted', 'Callback Scheduled', 'Wrong Number', 'Do Not Call', 'Unreachable / No Answer'],
-  collections:  ['Promise to Pay', 'Paid', 'Dispute', 'Callback Scheduled', 'Escalated', 'Wrong Number', 'Unreachable / No Answer'],
+  marketing:    ['Interested', 'Not Ready Yet', 'Not Eligible', 'Not Interested', 'Converted', 'Callback Scheduled', 'Wrong Number', 'Do Not Call', 'Unreachable / No Answer', 'Call Dropped'],
+  sales:        ['Interested', 'Not Ready Yet', 'Not Eligible', 'Not Interested', 'Converted', 'Callback Scheduled', 'Wrong Number', 'Do Not Call', 'Unreachable / No Answer', 'Call Dropped'],
+  collections:  ['Promise to Pay', 'Paid', 'Dispute', 'Callback Scheduled', 'Escalated', 'Wrong Number', 'Unreachable / No Answer', 'Call Dropped'],
 }
-function dispositionsFor(purpose: string): string[] {
+export function dispositionsFor(purpose: string): string[] {
   return DISPOSITIONS_BY_PURPOSE[purpose] ?? SUPPORT_DISPOSITIONS
 }
 

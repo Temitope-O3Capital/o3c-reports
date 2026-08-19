@@ -169,7 +169,7 @@ func cardsByProduct(db *core.DB) http.HandlerFunc {
 			`SELECT product_name AS product_name, COUNT(*) AS count FROM app.accounts
 			 WHERE product_name IS NOT NULL GROUP BY product_name ORDER BY count DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -181,7 +181,7 @@ func cardsByStatus(db *core.DB) http.HandlerFunc {
 		data, src, err := db.DualQuery(r.Context(),
 			`SELECT status AS status, COUNT(*) AS count FROM app.accounts GROUP BY status ORDER BY count DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -212,7 +212,7 @@ func cardsVolumeByType(db *core.DB) http.HandlerFunc {
 			  WHERE 1=1%s GROUP BY p.product_name ORDER BY volume DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -265,7 +265,7 @@ func cardsCardholders(db *core.DB) http.HandlerFunc {
 			LIMIT %d OFFSET %d`, f.PG(), search, limit, offset),
 			append(append([]any{}, f.Args()...), searchArgs...)...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 

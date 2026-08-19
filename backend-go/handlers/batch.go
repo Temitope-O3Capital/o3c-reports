@@ -91,7 +91,7 @@ func batchLastHandler(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT * FROM batch_log ORDER BY started_at DESC LIMIT 5`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

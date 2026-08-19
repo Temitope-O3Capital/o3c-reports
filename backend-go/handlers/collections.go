@@ -392,7 +392,7 @@ func collectionsByAgent(db *core.DB) http.HandlerFunc {
 			  GROUP BY "Agent" ORDER BY total DESC LIMIT 15`, f.PG()),
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -406,7 +406,7 @@ func collectionsByMode(db *core.DB) http.HandlerFunc {
 			        COALESCE(SUM("Amount"),0) AS total, COUNT(*) AS count
 			 FROM "Collections Log" GROUP BY "Mode Of Payment" ORDER BY total DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -422,7 +422,7 @@ func collectionsMonthlyTrend(db *core.DB) http.HandlerFunc {
 			 FROM "Collections Log" WHERE "Date" IS NOT NULL
 			 GROUP BY DATE_TRUNC('month',"Date") ORDER BY month_sort`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -457,7 +457,7 @@ func collectionsLog(db *core.DB) http.HandlerFunc {
 			 WHERE 1=1%s ORDER BY cl."Date" DESC LIMIT %d`, f.PG(), limit),
 			f.Args()...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, data, src)
@@ -635,7 +635,7 @@ func collectionsPortfolioAccounts(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(ctx, query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -665,7 +665,7 @@ func collectionsWatchlistList(db *core.DB) http.HandlerFunc {
 			ORDER BY cw.created_at DESC
 			LIMIT 200`, status)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

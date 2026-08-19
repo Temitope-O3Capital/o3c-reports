@@ -46,7 +46,7 @@ func uploadAuditLog(db *core.DB) http.HandlerFunc {
 			WHERE %s
 			ORDER BY a.uploaded_at DESC LIMIT $%d`, where, n), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

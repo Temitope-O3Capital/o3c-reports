@@ -417,7 +417,7 @@ func exportLog(db *core.DB) http.HandlerFunc {
 			ORDER BY el.created_at DESC
 			LIMIT $%d`, where, len(args)), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

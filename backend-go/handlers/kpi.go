@@ -188,7 +188,7 @@ func kpiPortfolio(db *core.DB) http.HandlerFunc {
 
 		snapRows, err := db.PGQuery(ctx, cbsSnapshotLiveSQL)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -223,7 +223,7 @@ func kpiPortfolioTrend(db *core.DB) http.HandlerFunc {
 			 FROM cbs_portfolio_snapshot
 			 ORDER BY snapshot_date DESC LIMIT 30`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, rows, "pg")
@@ -260,7 +260,7 @@ func kpiCollections(db *core.DB) http.HandlerFunc {
 			 WHERE DATE_TRUNC('month', kpi_date)=DATE_TRUNC('month', CURRENT_DATE)%s`, agentFilter),
 			args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -319,7 +319,7 @@ func kpiCollectionsTrend(db *core.DB) http.HandlerFunc {
 			 GROUP BY kd.kpi_date ORDER BY kd.kpi_date`, agentFilter),
 			args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, rows, "pg")
@@ -339,7 +339,7 @@ func kpiAlerts(db *core.DB) http.HandlerFunc {
 			 ORDER BY al.is_resolved ASC, al.triggered_at DESC
 			 LIMIT 20`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, rows, "pg")
@@ -386,7 +386,7 @@ func kpiTargetsList(db *core.DB) http.HandlerFunc {
 			 FROM kpi_targets WHERE role=$1 ORDER BY metric_name`,
 			user.Role)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		respond(w, rows, "pg")

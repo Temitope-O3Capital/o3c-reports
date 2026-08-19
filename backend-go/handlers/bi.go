@@ -126,7 +126,7 @@ func biListReports(db *core.DB) http.HandlerFunc {
 		q += " ORDER BY d.updated_at DESC"
 		rows, err := db.PGQuery(ctx, q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -546,7 +546,7 @@ func biExportReport(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(ctx, q)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -684,7 +684,7 @@ func biListScheduled(db *core.DB) http.HandlerFunc {
 		q += " ORDER BY s.created_at DESC"
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -745,7 +745,7 @@ func biListRuns(db *core.DB) http.HandlerFunc {
 		query += " ORDER BY rr.started_at DESC LIMIT $" + itoa(len(args)-1) + " OFFSET $" + itoa(len(args))
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

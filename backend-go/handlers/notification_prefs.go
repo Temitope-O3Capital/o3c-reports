@@ -97,7 +97,7 @@ func getAdminNotifSettings(db *core.DB) http.HandlerFunc {
 			`SELECT event_type, channel, enabled, label, description
 			 FROM notification_event_config ORDER BY event_type, channel`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

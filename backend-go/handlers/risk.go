@@ -149,7 +149,7 @@ func riskApplications(db *core.DB) http.HandlerFunc {
 				writeRiskList(w, []core.Row{}, 0)
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(countRows) > 0 {
@@ -181,7 +181,7 @@ func riskApplications(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(ctx, query, dataArgs...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -281,7 +281,7 @@ func riskReviewKPIs(db *core.DB) http.HandlerFunc {
 				respond(w, riskEmptyReviewKPIs(), "pg")
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(rows) == 0 {
@@ -310,7 +310,7 @@ func riskLoanBook(db *core.DB) http.HandlerFunc {
 		var total int64
 		countRows, err := db.PGQuery(ctx, "SELECT COUNT(*) AS total "+base, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(countRows) > 0 {
@@ -323,7 +323,7 @@ func riskLoanBook(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(ctx, query, dataArgs...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -451,7 +451,7 @@ func riskPortfolioKPIs(db *core.DB) http.HandlerFunc {
 				respond(w, riskEmptyPortfolioKPIs(), "pg")
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(rows) == 0 {
@@ -494,7 +494,7 @@ func riskPARTrend(db *core.DB) http.HandlerFunc {
 				respond(w, []core.Row{}, "pg")
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -537,7 +537,7 @@ func riskBandDistribution(db *core.DB) http.HandlerFunc {
 				respond(w, []core.Row{}, "pg")
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -585,7 +585,7 @@ func riskSectorConcentration(db *core.DB) http.HandlerFunc {
 				respond(w, []core.Row{}, "pg")
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -726,7 +726,7 @@ func riskVintage(db *core.DB) http.HandlerFunc {
 				respond(w, []core.Row{}, "pg")
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -785,7 +785,7 @@ func riskVintageKPIs(db *core.DB) http.HandlerFunc {
 				respond(w, map[string]any{"avg_par30_6m": nil, "avg_par30_12m": nil}, "pg")
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(rows) == 0 {
@@ -875,7 +875,7 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 				empty()
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(aggRows) == 0 {
@@ -1041,7 +1041,7 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 				writeRiskList(w, []core.Row{}, 0)
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(countRows) > 0 {
@@ -1055,7 +1055,7 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 				fmt.Sprintf(" ORDER BY scored_at DESC NULLS LAST LIMIT $%d OFFSET $%d", n, n+1),
 			pageArgs...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if dataRows == nil {
@@ -1102,7 +1102,7 @@ func riskEyeKPIs(db *core.DB) http.HandlerFunc {
 				}, "pg")
 				return
 			}
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if len(rows) == 0 {
@@ -1164,7 +1164,7 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 				WHERE applicant_cif = $1
 			) h ORDER BY _sort DESC NULLS LAST`, cif)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		for _, l := range loans {

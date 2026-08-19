@@ -18,9 +18,16 @@ import QAEvaluation from './QAEvaluation'
 import { BAND_COLOR } from '../../lib/qa'
 import { toast } from 'sonner'
 import LogCallModal, { LogCallInitial } from '../../components/LogCallModal'
+import CallLogEditModal from '../../components/CallLogEditModal'
+import CallReviewPanel from '../../components/CallReviewPanel'
 
 function myRole(): string { try { return String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '') } catch { return '' } }
 const CAN_EVALUATE = /head|admin|super|manager|lead|supervisor/i.test(myRole())
+// Who may correct someone else's write-up. Mirrors the server rule; the server is
+// the one that enforces it — this only decides whether the control is offered.
+const CAN_SUPERVISE = CAN_EVALUATE
+function myUserId(): number { try { return Number(JSON.parse(localStorage.getItem('o3c_user') || '{}').id) || -1 } catch { return -1 } }
+const CURRENT_USER_ID = myUserId()
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -50,6 +57,9 @@ interface CallLog {
   qa_score: number | null
   qa_band: string | null
   qa_passed: boolean | null
+  // How many times this agent rang this number within 15 minutes either side —
+  // counted server-side so it stays correct across pagination.
+  episode_calls?: number | null
 }
 
 // Server-side aggregates over the FULL filtered dataset (not just the loaded page).
@@ -321,6 +331,10 @@ export default function Calls() {
 
   // QA evaluation modal (opened from a call's Evaluate action)
   const [evalCall, setEvalCall] = useState<CallLog | null>(null)
+  const [editCall, setEditCall] = useState<CallLog | null>(null)
+  // Bumped after a correction so the review panel refetches — a call just fixed
+  // should leave the flagged list immediately, not on the next page load.
+  const [reviewKey, setReviewKey] = useState(0)
 
   // Log Call modal — the form itself is the shared components/LogCallModal.
   const [logOpen, setLogOpen] = useState(false)
@@ -485,6 +499,16 @@ export default function Calls() {
         <div>
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.medium }}>{relativeTime(r.called_at)}</div>
           <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 1 }}>{fmtDatetime(r.called_at)}</div>
+          {/* One conversation reaches us as several rows, because Zoho records
+              activity rather than calls. This table keeps every row — it is the
+              audit view — but says plainly when a row is one leg of a single
+              dialling episode, so four rows no longer read as four calls. */}
+          {(r.episode_calls ?? 0) > 1 && (
+            <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 12 }}>repeat</span>
+              one of {r.episode_calls} attempts
+            </div>
+          )}
         </div>
       ),
     },
@@ -535,6 +559,13 @@ export default function Calls() {
           ...(CAN_EVALUATE ? [{
             icon: 'grade', label: r.qa_evaluation_id ? 'Re-evaluate call (QA)' : 'Evaluate call (QA)',
             onClick: () => setEvalCall(r),
+          }] : []),
+          // Correct or withdraw the write-up. Offered on your own logs, and on any
+          // log to a supervisor; the API enforces the same rule, and every change
+          // is recorded with what it replaced.
+          ...((r.agent_id === CURRENT_USER_ID || CAN_SUPERVISE) && (r.notes || r.disposition) ? [{
+            icon: 'edit', label: 'Correct or withdraw this log',
+            onClick: () => setEditCall(r),
           }] : []),
           // Play the Zoho Voice recording in-app (streamed through our proxy) when
           // one is attached to the call.
@@ -650,6 +681,36 @@ export default function Calls() {
           pageSize={25}
         />
       </SectionCard>
+
+      {/* Flagged logs and the correction trail. Supervisors only — and the panel
+          renders nothing at all when both lists are empty, so it stays out of the
+          way on a clean day. */}
+      {CAN_SUPERVISE && (
+        <CallReviewPanel
+          reloadKey={reviewKey}
+          onEdit={id => {
+            const row = rows.find(r => r.id === id)
+            // The flagged call may not be on the page currently loaded, so fall
+            // back to the little the panel already knows rather than doing nothing.
+            setEditCall(row ?? ({ id, agent_name: '', customer_name: null, phone: '',
+              direction: 'outbound', duration_seconds: 0, disposition: null,
+              purpose: null, notes: null, resolution: null } as unknown as CallLog))
+          }}
+        />
+      )}
+
+      {editCall && (
+        <CallLogEditModal
+          call={{
+            id: editCall.id, agent_name: editCall.agent_name, customer_name: editCall.customer_name,
+            phone: editCall.phone, direction: editCall.direction,
+            duration_seconds: editCall.duration_seconds, disposition: editCall.disposition,
+            purpose: editCall.purpose, notes: editCall.notes, resolution: editCall.resolution,
+          }}
+          onClose={() => setEditCall(null)}
+          onSaved={() => { load(); loadStats(); setReviewKey(k => k + 1) }}
+        />
+      )}
 
       {evalCall && (
         <QAEvaluation

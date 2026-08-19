@@ -87,7 +87,7 @@ func losStats(db *core.DB) http.HandlerFunc {
 			GROUP BY status
 			ORDER BY status`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if byStatus == nil {
@@ -177,7 +177,7 @@ func losQueue(db *core.DB) http.HandlerFunc {
 				user.ID, limit, offset)
 		}
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -235,7 +235,7 @@ func losAll(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -878,7 +878,7 @@ func losGetEvents(db *core.DB) http.HandlerFunc {
 			WHERE e.application_id = $1
 			ORDER BY e.created_at ASC`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1177,7 +1177,7 @@ func losTeamUsers(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT id, full_name, role FROM o3c_users WHERE is_active = TRUE ORDER BY full_name ASC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1199,7 +1199,7 @@ func losGetMessages(db *core.DB) http.HandlerFunc {
 			WHERE application_id = $1
 			ORDER BY created_at ASC`, id)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {

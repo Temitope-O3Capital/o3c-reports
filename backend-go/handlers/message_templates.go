@@ -81,7 +81,7 @@ func listTemplates(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users u ON t.created_by=u.id
 			WHERE %s ORDER BY t.created_at DESC`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -147,6 +148,226 @@ func fetchList(ctx context.Context, c *udara.Client, path string, query url.Valu
 		return nil, fmt.Errorf("cbs fetch %s: parse data: %w; head=%s", path, err, truncate(env.Data, 240))
 	}
 	return items, nil
+}
+
+// Probe reports, per Search endpoint, the raw recordCount the CBS declares vs the
+// number of items a page actually returns, plus whether page 2 (same large size)
+// yields anything more. It answers "is 28 loans / 236 FDs the true total, or a
+// capped/paginated view?" without writing anything.
+func Probe(ctx context.Context, c *udara.Client) map[string]any {
+	out := map[string]any{}
+	for _, ep := range []struct{ name, path string }{
+		{"loans", "/api/LoanAccount/v1/Search"},
+		{"fixed_deposits", "/api/FixedDepositAccount/v1/Search"},
+	} {
+		r := map[string]any{}
+		items1, total1, err1 := fetchOnePage(ctx, c, ep.path, 1, defaultPageSize)
+		if err1 != nil {
+			r["page1_error"] = err1.Error()
+		} else {
+			r["declared_recordCount"] = total1
+			r["page1_items_returned"] = len(items1)
+			r["requested_pagesize"] = defaultPageSize
+			// If total > what page 1 returned, size a page to the total (what the
+			// real sync does) and see if the whole book comes back.
+			if total1 > len(items1) {
+				full, _, ferr := fetchOnePage(ctx, c, ep.path, 1, total1+buffer)
+				if ferr != nil {
+					r["full_page_error"] = ferr.Error()
+				} else {
+					r["full_page_items"] = len(full)
+				}
+			}
+			// Page 2 at the same large size: any items here mean recordCount understated.
+			items2, _, err2 := fetchOnePage(ctx, c, ep.path, 2, defaultPageSize)
+			if err2 != nil {
+				r["page2_error"] = err2.Error()
+			} else {
+				r["page2_items_returned"] = len(items2)
+			}
+		}
+		out[ep.name] = r
+	}
+	return out
+}
+
+// ProbeAll enumerates the Udara API surface: it hits a broad list of candidate
+// core-banking Search endpoints and reports, per endpoint, the HTTP status, the
+// declared recordCount, a small item sample, and the field names on the first
+// record — plus a swagger/openapi discovery check. Read-only. This answers "what
+// data can we actually get from Udara, and how much of each?"
+func ProbeAll(ctx context.Context, c *udara.Client) map[string]any {
+	endpoints := []string{
+		"/api/Customer/v1/Search",
+		"/api/CustomerAccount/v1/Search",
+		"/api/Account/v1/Search",
+		"/api/SavingsAccount/v1/Search",
+		"/api/CurrentAccount/v1/Search",
+		"/api/LoanAccount/v1/Search",
+		"/api/FixedDepositAccount/v1/Search",
+		"/api/TermDepositAccount/v1/Search",
+		"/api/DepositAccount/v1/Search",
+		"/api/Transaction/v1/Search",
+		"/api/AccountTransaction/v1/Search",
+		"/api/AccountStatement/v1/Search",
+		"/api/Product/v1/SearchProducts",
+		"/api/Branch/v1/Search",
+		"/api/GLAccount/v1/Search",
+		"/api/GeneralLedger/v1/Search",
+		"/api/Teller/v1/Search",
+		"/api/Loan/v1/Search",
+		"/api/LoanRepayment/v1/Search",
+		"/api/RepaymentSchedule/v1/Search",
+		"/api/Collateral/v1/Search",
+		"/api/Guarantor/v1/Search",
+		"/api/User/v1/Search",
+		"/api/Staff/v1/Search",
+	}
+	out := map[string]any{}
+	for _, p := range endpoints {
+		q := url.Values{}
+		q.Set("PageNumber", "1")
+		q.Set("PageSize", "3")
+		raw, code, err := c.Do(ctx, "GET", p, nil, q)
+		r := map[string]any{"http": code}
+		switch {
+		case err != nil:
+			r["error"] = err.Error()
+		case code >= 200 && code < 300:
+			var env envelope
+			if json.Unmarshal(raw, &env) == nil && len(env.Data) > 0 {
+				items, _ := extractItems(env.Data)
+				r["recordCount"] = recordCountOf(env.Data)
+				r["items_in_sample"] = len(items)
+				if len(items) > 0 {
+					r["fields"] = sortedKeys(items[0])
+				}
+			} else {
+				r["raw_head"] = truncate(raw, 200)
+			}
+		default:
+			r["body_head"] = truncate(raw, 200)
+		}
+		out[p] = r
+	}
+	disc := map[string]any{}
+	for _, p := range []string{"/swagger/v1/swagger.json", "/swagger.json", "/openapi.json", "/api-docs/v1/swagger.json"} {
+		if _, code, err := c.Do(ctx, "GET", p, nil, nil); err != nil {
+			disc[p] = err.Error()
+		} else {
+			disc[p] = code
+		}
+	}
+	out["_discovery"] = disc
+	return out
+}
+
+// ProbeDetail hunts for a per-account DETAIL endpoint. Core-banking Search lists
+// return summaries (paymentSchedules came back null); the real installment schedule
+// and richer per-account data usually live behind a Get/{id}-style endpoint. It
+// self-fetches a sample loan + FD, tries the common detail patterns, and reports
+// each response's shape — crucially, the length of any embedded schedule array.
+func ProbeDetail(ctx context.Context, c *udara.Client) map[string]any {
+	out := map[string]any{}
+	var loanID, loanAcct, fdID string
+	if items, _, _ := fetchOnePage(ctx, c, "/api/LoanAccount/v1/Search", 1, 1); len(items) > 0 {
+		loanID = fmt.Sprint(items[0]["id"])
+		loanAcct = fmt.Sprint(items[0]["accountNumber"])
+	}
+	if items, _, _ := fetchOnePage(ctx, c, "/api/FixedDepositAccount/v1/Search", 1, 1); len(items) > 0 {
+		fdID = fmt.Sprint(items[0]["id"])
+	}
+	out["_sample"] = map[string]any{"loan_id": loanID, "loan_acct": loanAcct, "fd_id": fdID}
+
+	type cand struct {
+		path string
+		q    url.Values
+	}
+	qOf := func(k, v string) url.Values { u := url.Values{}; u.Set(k, v); return u }
+	cands := []cand{
+		{"/api/LoanAccount/v1/Get", qOf("id", loanID)},
+		{"/api/LoanAccount/v1/GetById", qOf("id", loanID)},
+		{"/api/LoanAccount/v1/Get/" + loanID, nil},
+		{"/api/LoanAccount/v1/" + loanID, nil},
+		{"/api/LoanAccount/v1/Details", qOf("id", loanID)},
+		{"/api/LoanAccount/v1/GetLoanAccount", qOf("id", loanID)},
+		{"/api/LoanAccount/v1/Get", qOf("accountNumber", loanAcct)},
+		{"/api/LoanAccount/v1/RepaymentSchedule", qOf("id", loanID)},
+		{"/api/LoanAccount/v1/RepaymentSchedule", qOf("accountNumber", loanAcct)},
+		{"/api/LoanAccount/v1/Schedule", qOf("id", loanID)},
+		{"/api/LoanAccount/v1/PaymentSchedule", qOf("accountNumber", loanAcct)},
+		{"/api/FixedDepositAccount/v1/Get", qOf("id", fdID)},
+		{"/api/FixedDepositAccount/v1/GetById", qOf("id", fdID)},
+		{"/api/FixedDepositAccount/v1/Details", qOf("id", fdID)},
+	}
+	res := map[string]any{}
+	for _, cd := range cands {
+		label := cd.path
+		if len(cd.q) > 0 {
+			label += "?" + cd.q.Encode()
+		}
+		raw, code, err := c.Do(ctx, "GET", cd.path, nil, cd.q)
+		r := map[string]any{"http": code}
+		switch {
+		case err != nil:
+			r["error"] = err.Error()
+		case code >= 200 && code < 300:
+			for k, v := range inspectDetail(raw) {
+				r[k] = v
+			}
+		default:
+			r["body_head"] = truncate(raw, 120)
+		}
+		res[label] = r
+	}
+	out["detail_probes"] = res
+	return out
+}
+
+// inspectDetail reports the field names of a detail response's data object and the
+// length of any array-typed field (e.g. paymentSchedules) — the tell for a real
+// installment schedule.
+func inspectDetail(raw json.RawMessage) map[string]any {
+	var env envelope
+	data := raw
+	if json.Unmarshal(raw, &env) == nil && len(env.Data) > 0 {
+		data = env.Data
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(data, &obj) != nil {
+		return map[string]any{"data_shape": "not-an-object", "len": len(data)}
+	}
+	keys := make([]string, 0, len(obj))
+	arrays := map[string]int{}
+	for k, v := range obj {
+		keys = append(keys, k)
+		tv := bytesTrim(v)
+		if len(tv) > 0 && tv[0] == '[' {
+			var arr []json.RawMessage
+			if json.Unmarshal(v, &arr) == nil {
+				arrays[k] = len(arr)
+			}
+		}
+	}
+	sort.Strings(keys)
+	return map[string]any{"field_count": len(keys), "array_fields": arrays, "fields": keys}
+}
+
+func bytesTrim(b []byte) []byte {
+	i, j := 0, len(b)
+	for i < j && (b[i] == ' ' || b[i] == '\n' || b[i] == '\t' || b[i] == '\r') {
+		i++
+	}
+	return b[i:j]
+}
+
+func sortedKeys(m map[string]any) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
 }
 
 // fetchFullBook fetches every record for a Search endpoint in a single page.

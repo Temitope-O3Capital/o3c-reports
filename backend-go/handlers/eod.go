@@ -445,7 +445,7 @@ func eodListUploads(db *core.DB) http.HandlerFunc {
 			LEFT JOIN o3c_users usr ON usr.id = u.uploaded_by
 			ORDER BY u.txn_date DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -498,7 +498,7 @@ func eodSummary(db *core.DB) http.HandlerFunc {
 				COALESCE(AVG(amount), 0)                                 AS avg_txn_value
 			FROM eod_transactions WHERE %s`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -549,7 +549,7 @@ func eodByProduct(db *core.DB) http.HandlerFunc {
 			FROM eod_transactions WHERE %s
 			GROUP BY product_code, product_name ORDER BY total_volume DESC`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -580,7 +580,7 @@ func eodByType(db *core.DB) http.HandlerFunc {
 			FROM eod_transactions WHERE %s
 			GROUP BY txn_category ORDER BY total_volume DESC`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -608,7 +608,7 @@ func eodByBranch(db *core.DB) http.HandlerFunc {
 			GROUP BY branch_code, branch_name ORDER BY total_dr DESC`,
 			dateFrom, dateTo)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -638,7 +638,7 @@ func eodTrend(db *core.DB) http.HandlerFunc {
 			GROUP BY txn_date ORDER BY txn_date`,
 			dateFrom, dateTo)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -688,7 +688,7 @@ func eodTransactions(db *core.DB) http.HandlerFunc {
 			ORDER BY txn_date DESC, amount DESC
 			LIMIT $%d OFFSET $%d`, where, n, n+1), pageArgs...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 

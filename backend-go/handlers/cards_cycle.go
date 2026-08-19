@@ -36,7 +36,7 @@ func cardProducts(db *core.DB) http.HandlerFunc {
 			fmt.Sprintf(`SELECT * FROM card_products WHERE %s ORDER BY is_active DESC, product_name`, where),
 			args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -51,7 +51,7 @@ func cardCycleDates(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(),
 			`SELECT DISTINCT TO_CHAR(cycle_date,'YYYY-MM-DD') AS cycle_date FROM card_cycle_data ORDER BY cycle_date DESC`)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)
@@ -121,7 +121,7 @@ func cardCycleData(db *core.DB) http.HandlerFunc {
 			ORDER BY outstanding_balance_kobo DESC
 			LIMIT $%d OFFSET $%d`, where, n, n+1), args2...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
@@ -186,7 +186,7 @@ func cardCycleSummary(db *core.DB) http.HandlerFunc {
 			GROUP BY d.cycle_date, d.product_code, p.product_name, p.category, p.card_type, d.currency
 			ORDER BY d.cycle_date DESC, d.currency, total_outstanding_kobo DESC`, where), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		jsonRows(w, rows)

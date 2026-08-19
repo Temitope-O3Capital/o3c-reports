@@ -777,7 +777,7 @@ func convertLead(db *core.DB) http.HandlerFunc {
 		var exists bool
 		if err := db.PG.QueryRowContext(r.Context(),
 			`SELECT EXISTS (SELECT 1 FROM app.customers WHERE cif=$1)`, req.CIF).Scan(&exists); err != nil {
-			respondErr(w, 500, "Lookup failed")
+			respondErrLog(w, 500, "Lookup failed", err)
 			return
 		}
 		if !exists {

@@ -709,7 +709,7 @@ func campaignContactsReport(db *core.DB) http.HandlerFunc {
 			ORDER BY cc.position ASC
 			LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
 		if err != nil {
-			respondErr(w, 500, "Query failed")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 
