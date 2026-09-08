@@ -708,7 +708,7 @@ func phoenixUpsertApplication(ctx context.Context, db *core.DB, pa phoenixApplic
 			-- table with no default, so an insert MUST supply them. A Phoenix payload
 			-- that omits product_type would otherwise blow up on the constraint.
 			COALESCE(NULLIF($8,''), 'Unspecified'),
-			COALESCE($9, 0), COALESCE($10, 0), NULLIF($11,0),
+			COALESCE($9::bigint, 0), COALESCE($10, 0), NULLIF($11::bigint, 0),
 			NULLIF($12,''), NULLIF($13,''), $14, $15,
 			COALESCE($16::timestamptz, NOW()), 'not_required', NOW(), NOW(), NOW()
 		)
@@ -730,9 +730,9 @@ func phoenixUpsertApplication(ctx context.Context, db *core.DB, pa phoenixApplic
 			applicant_email       = COALESCE(NULLIF($6,''),  app.loan_applications.applicant_email),
 			employer              = COALESCE(NULLIF($7,''),  app.loan_applications.employer),
 			product_type          = COALESCE(NULLIF($8,''),  app.loan_applications.product_type),
-			amount_requested_kobo = COALESCE(NULLIF($9,0),   app.loan_applications.amount_requested_kobo),
+			amount_requested_kobo = COALESCE(NULLIF($9::bigint,0),   app.loan_applications.amount_requested_kobo),
 			tenor_months          = COALESCE(NULLIF($10,0),  app.loan_applications.tenor_months),
-			monthly_income_kobo   = COALESCE(NULLIF($11,0),  app.loan_applications.monthly_income_kobo),
+			monthly_income_kobo   = COALESCE(NULLIF($11::bigint,0),  app.loan_applications.monthly_income_kobo),
 			sector_code           = COALESCE(NULLIF($12,''), app.loan_applications.sector_code),
 			purpose               = COALESCE(NULLIF($13,''), app.loan_applications.purpose),
 			status                = COALESCE(NULLIF($14,''), app.loan_applications.status),
