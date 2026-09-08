@@ -43,10 +43,10 @@ ships safely before Phoenix is deployed.
 
 | Variable | Purpose |
 |---|---|
-| `PHOENIX_BASE_URL` | Outbound API root, e.g. `http://127.0.0.1:9200/api/v1` |
+| `PHOENIX_BASE_URL` | Outbound API root. Use `http://127.0.0.1:9200/v1` — every core-api route is under `/v1`, **not** `/api/v1`. |
 | `PHOENIX_API_KEY` | Sent as `Authorization: Bearer …` on outbound calls |
 | `PHOENIX_WEBHOOK_SECRET` | HMAC-SHA256 key Phoenix signs inbound events with |
-| `PUBLIC_BASE_URL` | Used to build the `callback_url` we hand Phoenix |
+| `PUBLIC_BASE_URL` | Builds the `callback_url` we hand Phoenix. On a same-box deployment this is loopback — `http://127.0.0.1:8000` — so it needs no public DNS and no certificate. |
 
 > **Editing `.env` on this server:** use `sed`, never PowerShell `Set-Content -Encoding utf8`.
 > That writes a BOM and the backend refuses to start.
@@ -57,6 +57,8 @@ Behaviour when unset:
   idles. Nothing is lost; it drains once configured.
 - No `PHOENIX_WEBHOOK_SECRET` → the webhook returns **503**, rather than accepting
   unauthenticated writes into the risk queue.
+- No `PUBLIC_BASE_URL` → `callback_url` is built as a bare path with no host, so every
+  Phoenix callback fails. It has no default; set it explicitly.
 
 ---
 

@@ -44,7 +44,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 const (
@@ -55,6 +55,27 @@ const (
 func phoenixBaseURL() string { return strings.TrimRight(os.Getenv("PHOENIX_BASE_URL"), "/") }
 func phoenixAPIKey() string  { return os.Getenv("PHOENIX_API_KEY") }
 func phoenixSecret() string  { return os.Getenv("PHOENIX_WEBHOOK_SECRET") }
+
+// phoenixCallbackBase is the origin Phoenix calls back on.
+//
+// It deliberately does NOT read PUBLIC_BASE_URL first. That key is shared with
+// saveCampaignImageLocal, where setting it switches campaign image URLs from
+// root-relative to absolute — correct only for "a genuinely public origin", which
+// this on-prem deployment does not have. Phoenix runs on 127.0.0.1:9200 and needs a
+// loopback callback, so pointing PUBLIC_BASE_URL at 127.0.0.1:8000 to satisfy it
+// would silently put localhost image links into customer email. Two different needs,
+// two different keys.
+//
+// The loopback default is also why this integration needs no public DNS entry and no
+// certificate: both processes sit on the same host.
+func phoenixCallbackBase() string {
+	for _, k := range []string{"PHOENIX_CALLBACK_BASE_URL", "PUBLIC_BASE_URL", "APP_BASE_URL"} {
+		if v := strings.TrimRight(strings.TrimSpace(os.Getenv(k)), "/"); v != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 // phoenixConfigured reports whether outbound submission can work at all. When false
 // the queue still fills, so nothing is lost — it drains once Phoenix is reachable.
@@ -405,7 +426,7 @@ func phoenixSubmitOne(ctx context.Context, db *core.DB, appID int64) error {
 		InterestRateBps: toInt64(a["interest_rate_bps"]),
 		SectorCode:      str(a["sector_code"]),
 		Purpose:         str(a["purpose"]),
-		CallbackURL:     strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/") + "/api/phoenix/webhook",
+		CallbackURL:     phoenixCallbackBase() + "/api/phoenix/webhook",
 	}
 
 	dec, err := phoenixSubmit(ctx, req)
