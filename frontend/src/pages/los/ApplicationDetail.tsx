@@ -1,6 +1,7 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useRef, type CSSProperties } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import './salesDetail.css'
 import {
   Page, SectionCard, Modal, ConfirmModal, Spinner, Sk, ErrBanner, KpiCard,
 } from '../../components/UI'
@@ -11,7 +12,6 @@ import { toast } from 'sonner'
 import { EBarH } from '../../components/echarts'
 import { hasPage } from '../../hooks/useAuth'
 import { canAdvance, canDecline, canRequestInfo, stageMeta, decisionMeta, syncStateMeta, isTerminalStage, STAGE_SEQUENCE } from '../../lib/losFlow'
-import CreditReport from './CreditReport'
 import PhoenixEyeReport from './eye/PhoenixEyeReport'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -275,46 +275,27 @@ const STEPPER_STAGES = STAGE_SEQUENCE.map(s => ({ stage: s, label: stageMeta(s).
 
 function PipelineStepper({ stage }: { stage: string }) {
   const currentIdx = STAGE_ORDER.indexOf(stage)
-  const declined   = stage === 'declined'
+  const declined = stage === 'declined'
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '16px 20px', overflowX: 'auto' }}>
+    <div className="sd-steps">
       {STEPPER_STAGES.map((step, i) => {
         const stepIdx = STAGE_ORDER.indexOf(step.stage)
-        const done    = !declined && stepIdx <= currentIdx
-        const active  = step.stage === stage
-        const last    = i === STEPPER_STAGES.length - 1
+        const active = step.stage === stage
+        const done = !declined && stepIdx < currentIdx
+        const cls = declined ? 'is-declined' : active ? 'is-current' : done ? 'is-done' : ''
         return (
-          <div key={step.stage} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-              <div style={{
-                width: 28, height: 28, borderRadius: '50%',
-                background: declined ? 'rgba(192,0,0,.1)' : done ? (active ? NAVY : GREEN) : 'var(--chip-bg)',
-                border: `2px solid ${declined ? RED : done ? (active ? NAVY : GREEN) : 'var(--bdr)'}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {!declined && done && !active
-                  ? <span className="material-symbols-rounded" style={{ fontSize: 13, color: '#fff' }}>check</span>
-                  : active && !declined
-                  ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff', display: 'block' }} />
-                  : <span style={{ ...NUM, fontSize: 10, fontWeight: 700, color: 'var(--txt3)' }}>{i + 1}</span>
-                }
-              </div>
-              <span style={{ fontSize: 10.5, fontWeight: active ? 700 : 500, color: active ? NAVY : 'var(--txt2)', whiteSpace: 'nowrap' }}>
-                {step.label}
-              </span>
+          <div key={step.stage} className={`sd-step ${cls}`.trim()}>
+            <div className="sd-step-dot">
+              {done
+                ? <span className="material-symbols-rounded">check</span>
+                : declined && active
+                  ? <span className="material-symbols-rounded">close</span>
+                  : i + 1}
             </div>
-            {!last && (
-              <div style={{ width: 40, height: 2, background: done && !active ? GREEN : 'var(--bdr)', marginBottom: 16, flexShrink: 0 }} />
-            )}
+            <div className="sd-step-lbl">{step.label}</div>
           </div>
         )
       })}
-      {declined && (
-        <div style={{ marginLeft: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 18, color: RED }}>cancel</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: RED }}>Declined</span>
-        </div>
-      )}
     </div>
   )
 }
@@ -878,17 +859,12 @@ function InternalThread({ appId }: { appId: number }) {
   )
 }
 
-// ── SALES VIEW ────────────────────────────────────────────────────────────────
-
-// PhoenixDecisionBanner — surfaces the credit-decisioning verdict on the application
-// row (decision / decision_reasons / sync state), shown to every role so an approver
-// sees Phoenix's recommendation before acting. Advisory only; it never advances the
-// stage. Renders nothing until Phoenix has said something.
 function PhoenixDecisionBanner({ app }: { app: Application }) {
   const decision = (app.decision ?? '').toLowerCase()
   const sync = syncStateMeta(app.phoenix_sync_state)
   const hasDecision = !!decision && decision !== 'pending'
-  if (!hasDecision && !sync) return null
+  const fromPhoenix = app.source_system === 'phoenix'
+  if (!hasDecision && !sync && !fromPhoenix) return null
   const d = decisionMeta(decision)
 
   // decision_reasons is jsonb — usually an array of factor objects, sometimes a string.
@@ -902,27 +878,34 @@ function PhoenixDecisionBanner({ app }: { app: Application }) {
     reasons = [dr]
   }
 
+  // With no decision yet this used to headline the SYNC STATE — rendering
+  // "Phoenix decision: Phoenix-originated", with the same words repeated in a pill
+  // beside it. It stated nothing, twice. A pending assessment should say it is
+  // pending; where the application came from is provenance, not a verdict.
+  const title = hasDecision ? `Credit decision: ${d.label}` : 'Awaiting credit decision'
+  const body = hasDecision
+    ? 'Advisory recommendation. A credit approver still decides — advancing or declining remains a human action.'
+    : 'This has been sent for assessment. The recommendation appears here once the credit engine returns it.'
+
   return (
-    <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 18px', borderRadius: 12, background: hasDecision ? d.bg : 'var(--card)', border: `1px solid ${hasDecision ? d.txt + '40' : 'var(--card-bdr)'}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 20, color: hasDecision ? d.txt : 'var(--txt2)' }}>{hasDecision ? d.icon : 'hourglass_empty'}</span>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: hasDecision ? d.txt : 'var(--txt)' }}>
-          Phoenix decision: {hasDecision ? d.label : (sync?.label ?? 'Pending')}
+    <div className={`sd-panel${hasDecision ? '' : ' sd-decision-pending'}`}>
+      <div className="sd-decision" style={hasDecision ? { background: d.bg } : undefined}>
+        <div className="sd-decision-icn" style={{ background: hasDecision ? d.txt : 'var(--txt3)' }}>
+          <span className="material-symbols-rounded">{hasDecision ? d.icon : 'hourglass_top'}</span>
         </div>
-        {app.source_system === 'phoenix' && (
-          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: 'rgba(124,58,237,.12)', color: '#7C3AED' }}>Phoenix-originated</span>
-        )}
-        {sync && hasDecision && <span style={{ marginLeft: 'auto', fontSize: 11.5, fontWeight: 600, color: sync.txt }}>{sync.label}</span>}
-      </div>
-      {reasons.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {reasons.map((r, i) => (
-            <span key={i} style={{ fontSize: 11.5, fontWeight: 500, padding: '3px 9px', borderRadius: 6, background: 'var(--chip-bg)', color: 'var(--txt2)' }}>{r}</span>
-          ))}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="sd-decision-title" style={hasDecision ? { color: d.txt } : undefined}>{title}</div>
+          <div className="sd-decision-body">{body}</div>
+          {reasons.length > 0 && (
+            <div className="sd-chips">
+              {reasons.map((r, i) => <span key={i} className="sd-chip">{r}</span>)}
+            </div>
+          )}
         </div>
-      )}
-      <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>
-        Advisory recommendation — a credit approver still decides. Advancing or declining remains a human action.
+        <div className="sd-decision-meta">
+          {fromPhoenix && <span className="sd-tagline">Originated in Phoenix</span>}
+          {sync && <span className="sd-tagline" style={{ color: sync.txt }}>{sync.label}</span>}
+        </div>
       </div>
     </div>
   )
@@ -974,12 +957,16 @@ function OfferPanel({ app, onRefresh }: { app: Application; onRefresh: () => voi
   }
 
   return (
-    <SectionCard title="Offer & Acceptance">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: status !== 'none' ? 12 : 10 }}>
+    <div className="sd-panel">
+      <div className="sd-panel-head">
+        <h2>Offer and acceptance</h2>
+        <span className="sd-panel-hint">Phoenix owns this step — recorded here for the file</span>
+      </div>
+      <div className="sd-panel-body">
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: status !== "none" ? 12 : 10 }}>
         <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '3px 10px', borderRadius: RADIUS.full, background: m.bg, color: m.txt }}>{m.label}</span>
         {app.offer_source && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>via {app.offer_source === 'phoenix' ? 'Phoenix' : 'workspace'}</span>}
         {app.offer_issued_at && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>issued {fmtDate(app.offer_issued_at)}</span>}
-        <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>Phoenix owns this step — recorded here for the file.</span>
       </div>
 
       {status !== 'none' && (
@@ -1002,16 +989,16 @@ function OfferPanel({ app, onRefresh }: { app: Application; onRefresh: () => voi
       {canCapture && !editing && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {(status === 'none' || status === 'expired' || status === 'declined') && (
-            <button onClick={() => setEditing(true)} style={btn(NAVY)}>
+            <button onClick={() => setEditing(true)} className="sd-btn is-primary">
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>description</span>Issue offer
             </button>
           )}
           {status === 'issued' && <>
-            <button onClick={() => setEditing(true)} style={btn('var(--card)', 'var(--txt)')}>Update terms</button>
-            <button disabled={busy} onClick={() => act('accept')} style={btn(GREEN)}>
+            <button onClick={() => setEditing(true)} className="sd-btn">Update terms</button>
+            <button disabled={busy} onClick={() => act('accept')} className="sd-btn" style={{ color: GREEN, borderColor: GREEN }}>
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check_circle</span>Record acceptance
             </button>
-            <button disabled={busy} onClick={() => act('decline')} style={btn('var(--card)', RED)}>Mark declined</button>
+            <button disabled={busy} onClick={() => act('decline')} className="sd-btn is-danger">Mark declined</button>
           </>}
         </div>
       )}
@@ -1024,12 +1011,122 @@ function OfferPanel({ app, onRefresh }: { app: Application; onRefresh: () => voi
             <label style={lbl}>Expires<input type="date" value={expiry} onChange={e => setExpiry(e.target.value)} style={inputStyle} /></label>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button disabled={busy} onClick={saveOffer} style={btn(NAVY)}>Save offer</button>
-            <button onClick={() => setEditing(false)} style={btn('var(--card)', 'var(--txt)')}>Cancel</button>
+            <button disabled={busy} onClick={saveOffer} className="sd-btn is-primary">Save offer</button>
+            <button onClick={() => setEditing(false)} className="sd-btn">Cancel</button>
           </div>
         </div>
       )}
-    </SectionCard>
+      </div>
+    </div>
+  )
+}
+
+
+// ── SALES VIEW ────────────────────────────────────────────────────────────────
+//
+// The origination-side view of an application. Sales owns the customer
+// relationship — before hand-off and after — so this answers the three questions
+// an officer actually has when they open a file: what did we capture, can this
+// customer afford it, and what do I do next.
+//
+// It is not a cut-down Risk view. Risk decides; Sales collects, chases and
+// explains. The credit verdict therefore appears as a read-only outcome, while
+// everything Sales can act on — documents, outstanding conditions, the route back
+// to the customer — is put first.
+//
+// Layout structure is borrowed from Phoenix (kicker over a large record name, a
+// stat strip for the deciding numbers, panels with a real head, a quiet
+// two-column field grid). The palette is not: this page lives in O3 chrome and
+// uses workspace tokens throughout. See salesDetail.css.
+
+// salesNextStep turns the stage into the one thing this officer should do now.
+// A stage pill says where the file IS; it does not say whose move it is, and that
+// was the gap — an officer could open a file parked on them and see nothing
+// prompting action.
+function salesNextStep(app: Application): { tone: 'act' | 'wait' | 'done' | 'stop'; icon: string; title: string; body: string } {
+  const s = app.stage
+  if (s === 'declined') {
+    return { tone: 'stop', icon: 'cancel', title: 'Declined', body: app.decline_reason || 'This application was declined. Let the customer know, and record the conversation on the thread below.' }
+  }
+  if (s === 'active' || s === 'booked') {
+    return { tone: 'done', icon: 'check_circle', title: 'Booked and live', body: 'The facility has been disbursed. Nothing further is needed from Sales on this application.' }
+  }
+  if (s === 'draft') {
+    return { tone: 'act', icon: 'edit_note', title: 'Finish and submit', body: 'This has not been submitted yet. Complete the applicant record and the document checklist, then send it for review.' }
+  }
+  if (s === 'submitted' || s === 'document_collection') {
+    return { tone: 'act', icon: 'folder_open', title: 'Collect the outstanding documents', body: 'Work the checklist below. Once every required document is in, move the application on to risk review.' }
+  }
+  if (s === 'pending_conditions') {
+    return { tone: 'act', icon: 'rule', title: 'Conditions to clear', body: 'Credit has attached conditions to this approval. Chase the customer for what is outstanding, then hand it back.' }
+  }
+  return {
+    tone: 'wait',
+    icon: 'hourglass_top',
+    title: `With ${stageMeta(app.stage).owner || 'the credit team'}`,
+    body: 'This is under review and is not waiting on you. The outcome will appear here — the customer stays yours throughout, so pick up anything the reviewers ask for on the thread below.',
+  }
+}
+
+// maskId shows only the last 4 digits of a BVN or NIN. The officer usually typed
+// these in themselves, but heads and reviewers open the same file, and the rest of
+// the estate already masks these in exports — a detail screen showing them in full
+// would be the one place that does not.
+function maskId(v: string | null | undefined): React.ReactNode {
+  const s = (v ?? '').trim()
+  if (!s) return null
+  if (s.length <= 4) return s
+  return '•'.repeat(Math.max(0, s.length - 4)) + s.slice(-4)
+}
+
+function fmtDateOnly(v: string | null | undefined): string | null {
+  const s = (v ?? '').trim()
+  if (!s) return null
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function titleCaseCode(v: string | null | undefined): string | null {
+  const s = (v ?? '').trim()
+  if (!s) return null
+  return s.replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function SDField({ label, value, wide = false, mono = false }: {
+  label: string; value: React.ReactNode; wide?: boolean; mono?: boolean
+}) {
+  const empty = value === null || value === undefined || value === ''
+  return (
+    <div className={`sd-field${wide ? ' is-wide' : ''}`}>
+      <label>{label}</label>
+      <div className={`sd-val${mono ? ' is-mono' : ''}${empty ? ' is-empty' : ''}`}>{empty ? 'Not captured' : value}</div>
+    </div>
+  )
+}
+
+function SDPanel({ title, hint, children, flush = false }: {
+  title: string; hint?: React.ReactNode; children: React.ReactNode; flush?: boolean
+}) {
+  return (
+    <div className="sd-panel">
+      <div className="sd-panel-head">
+        <h2>{title}</h2>
+        {hint ? <span className="sd-panel-hint">{hint}</span> : null}
+      </div>
+      {flush ? children : <div className="sd-panel-body">{children}</div>}
+    </div>
+  )
+}
+
+function SDStat({ label, value, sub, tone }: {
+  label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: string
+}) {
+  return (
+    <div className={`sd-stat${tone ? ' is-flagged' : ''}`} style={tone ? { color: tone } : undefined}>
+      <div className="sd-stat-lbl">{label}</div>
+      <div className="sd-stat-num" style={tone ? { color: tone } : undefined}>{value}</div>
+      {sub ? <div className="sd-stat-sub">{sub}</div> : null}
+    </div>
   )
 }
 
@@ -1045,115 +1142,191 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
 }) {
   const navigate = useNavigate()
   const meta = stageMeta(app.stage)
+  const next = salesNextStep(app)
+
+  // Affordability from what the form captured. Shown even before Phoenix has
+  // scored: it is the number an officer can sanity-check with the customer in the
+  // room, and a file that fails it obviously is one not worth submitting.
+  const income = app.monthly_income_kobo || 0
+  const oblig = app.monthly_obligation_kobo || 0
+  const disposable = income > 0 ? income - oblig : 0
+  const obligPct = income > 0 ? (oblig / income) * 100 : null
+  const dtiPct = dtiOf(app.dti_pct) ?? obligPct
+  const dtiTone = dtiPct == null ? undefined : dtiPct > 40 ? RED : dtiPct > 30 ? AMBER : undefined
+
+  const openConditions = conditions.filter(c => !c.is_met)
+
+  // Whose move is it? The stage's owner, not the viewer's permissions — see the
+  // action buttons below for why that distinction matters here.
+  const salesOwnsStage = /sales/i.test(meta.owner || '')
+
+  // The brand constants live in TS; the stylesheet reads them as variables so the
+  // colour stays defined in one place rather than duplicated across both.
+  const brand = { '--sd-navy': NAVY, '--sd-red': RED, '--sd-green': GREEN, '--sd-amber': AMBER } as React.CSSProperties
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Header strip */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '14px 18px', background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, boxShadow: 'var(--card-shadow)' }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Product</div>
-          <ProductPill product={app.product_type || 'Unknown'} />
-        </div>
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Amount</div>
-          <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{fmtKobo(app.amount_requested_kobo)}</div>
-        </div>
-        {app.tenor_months > 0 && <>
-          <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-          <div>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Tenor</div>
-            <div style={{ ...NUM, fontSize: 14, fontWeight: 600, color: 'var(--txt)' }}>{app.tenor_months}m</div>
+    <div className="sd" style={brand}>
+      {/* Header */}
+      <div className="sd-head">
+        <div style={{ minWidth: 0 }}>
+          <div className="sd-kicker">
+            <ProductPill product={app.product_type || 'Unknown'} />
+            <StagePill stage={app.stage} size="sm" />
           </div>
-        </>}
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-        <StagePill stage={app.stage} />
+          <h1 className="sd-name">{app.applicant_name}</h1>
+          <div className="sd-ref">
+            {app.reference}
+            {app.applicant_cif ? ` · CIF ${app.applicant_cif}` : ' · no CIF yet'}
+            {app.submitted_at ? ` · submitted ${fmtDateOnly(app.submitted_at)}` : ''}
+          </div>
+        </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="sd-actions">
           {app.applicant_cif && (
-            <button onClick={() => navigate(`/contacts/${app.applicant_cif}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', background: 'var(--card)', border: `1px solid ${NAVY}30`, borderRadius: 7, fontSize: 12, fontWeight: 600, color: NAVY, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>person</span>C360
+            <button className="sd-btn" onClick={onCreditFile}>
+              <span className="material-symbols-rounded">folder_shared</span>Credit file
             </button>
           )}
-          {canAdvance(app.stage) && meta.forward && (
-            <button onClick={() => onAdvance(meta.forward!)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>send</span>
-              {meta.action ?? 'Advance'}
+          {app.applicant_cif && (
+            <button className="sd-btn" onClick={() => navigate(`/contacts/${app.applicant_cif}`)}>
+              <span className="material-symbols-rounded">person</span>Customer 360
             </button>
           )}
-          {canDecline(app.stage) && (
-            <button onClick={onDecline} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: RED, border: `1px solid ${RED}40`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>Decline
+          {/* Only Sales' OWN moves appear here.
+              canAdvance() asks whether you hold the page for the stage's forward
+              transition — and los_all (sales_head, admin, COO) holds every page, so
+              on the Sales route this offered "Recommend to risk head" and "Decline"
+              while the file was sitting with Risk. Those are Risk's decisions taken
+              on Risk's screen. The stage's own `owner` is the honest test: Sales
+              owns draft and submitted, and nothing after that. */}
+          {salesOwnsStage && canAdvance(app.stage) && (
+            <button className="sd-btn is-warn" onClick={onReqInfo}>
+              <span className="material-symbols-rounded">help</span>Request info
+            </button>
+          )}
+          {salesOwnsStage && canDecline(app.stage) && (
+            <button className="sd-btn is-danger" onClick={onDecline}>
+              <span className="material-symbols-rounded">cancel</span>Withdraw
+            </button>
+          )}
+          {salesOwnsStage && canAdvance(app.stage) && meta.forward && (
+            <button className="sd-btn is-primary" onClick={() => onAdvance(meta.forward!)}>
+              <span className="material-symbols-rounded">send</span>{meta.action ?? 'Advance'}
             </button>
           )}
         </div>
       </div>
 
-      {/* Declined banner */}
-      {app.stage === 'declined' && app.decline_reason && (
-        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', borderRadius: 10, background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.2)' }}>
-          <span className="material-symbols-rounded" style={{ color: RED, fontSize: 18, flexShrink: 0 }}>cancel</span>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: RED }}>Application Declined</div>
-            <div style={{ fontSize: 13, color: 'var(--txt)', marginTop: 2 }}>{app.decline_reason}</div>
-          </div>
+      {/* What this officer does next */}
+      <div className={`sd-band sd-band-${next.tone}`}>
+        <div className="sd-band-icn"><span className="material-symbols-rounded">{next.icon}</span></div>
+        <div style={{ minWidth: 0 }}>
+          <b>{next.title}</b>
+          <span>{next.body}</span>
+        </div>
+      </div>
+
+      {/* The credit outcome, then the offer built on it. These sit here — after
+          "what do I do next", before the applicant record — because that is the
+          order Sales works in: read the verdict, then act on the offer. */}
+      <PhoenixDecisionBanner app={app} />
+      <OfferPanel app={app} onRefresh={onRefresh} />
+
+      {/* The numbers that decide the case */}
+      <div className="sd-stats">
+        <SDStat label="Amount requested" value={fmtKobo(app.amount_requested_kobo)}
+          sub={app.tenor_months ? `over ${app.tenor_months} months` : 'revolving — no term'} />
+        <SDStat label="Monthly income" value={income ? fmtKobo(income) : '—'}
+          tone={income === 0 ? AMBER : undefined} sub={income === 0 ? 'not captured' : undefined} />
+        <SDStat label="Existing obligations" value={app.monthly_obligation_kobo == null ? '—' : fmtKobo(oblig)} />
+        <SDStat label="Disposable" value={income ? fmtKobo(disposable) : '—'}
+          tone={income > 0 && disposable <= 0 ? RED : undefined}
+          sub={income > 0 && disposable <= 0 ? 'obligations exceed income' : undefined} />
+        <SDStat label="Debt-to-income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiTone}
+          sub={dtiPct == null ? 'awaiting assessment' : dtiPct > 40 ? 'above policy' : undefined} />
+      </div>
+
+      {income === 0 && (
+        <div className="sd-note is-warn">
+          <span className="material-symbols-rounded">warning</span>
+          <span>No monthly income captured. Credit scoring reads a missing income as zero and declines on affordability, so capture it before submitting this application.</span>
         </div>
       )}
 
-      {/* Pipeline progress */}
-      <SectionCard padding={false}>
-        <PipelineStepper stage={app.stage} />
-      </SectionCard>
+      {/* Progress */}
+      <div className="sd-panel"><PipelineStepper stage={app.stage} /></div>
 
-      {/* Customer info + Document checklist */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <SectionCard title="Customer Information">
-          <InfoRow label="Full Name"   value={app.applicant_name} />
-          <InfoRow label="Phone"       value={app.applicant_phone} />
-          <InfoRow label="Email"       value={app.applicant_email} />
-          <InfoRow label="CIF"         value={app.applicant_cif || 'Provisional — no CIF yet'} />
-          <InfoRow label="Employer"    value={app.employer} />
-          {app.source_lead_id
-            ? <InfoRow label="Origin" value={`Lead #${app.source_lead_id}${app.lead_source ? ` · ${app.lead_source}` : ''}`} />
-            : app.lead_source ? <InfoRow label="Source" value={app.lead_source} /> : null}
-          <InfoRow label="Submitted"   value={app.submitted_at ? fmtDatetime(app.submitted_at) : 'Not yet submitted'} />
-        </SectionCard>
+      {/* Conditions — credit sets them, Sales is who chases them */}
+      {openConditions.length > 0 && (
+        <SDPanel title="Conditions to clear" hint={`${openConditions.length} outstanding`} flush>
+          <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={false} />
+        </SDPanel>
+      )}
 
-        <SectionCard title="Document Checklist" padding={false}>
+      {/* Applicant + documents */}
+      <div className="sd-grid2">
+        <SDPanel title="Applicant">
+          <div className="sd-fields">
+            <SDField label="Phone" value={app.applicant_phone} mono />
+            <SDField label="Email" value={app.applicant_email} />
+            <SDField label="BVN" value={maskId(app.bvn)} mono />
+            <SDField label="NIN" value={maskId(app.nin)} mono />
+            <SDField label="Date of birth" value={fmtDateOnly(app.date_of_birth)} />
+            <SDField label="CIF" value={app.applicant_cif} mono />
+            <SDField label="Residential address" value={app.residential_address} wide />
+          </div>
+        </SDPanel>
+
+        <SDPanel title="Documents" flush>
           <DocumentsInline appId={app.id} />
-        </SectionCard>
+        </SDPanel>
       </div>
 
-      {/* Loan terms */}
-      <SectionCard title="Loan Terms">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
-          {[
-            { label: 'Product',         value: <ProductPill product={app.product_type || '—'} /> },
-            { label: 'Amount Requested',value: fmtKobo(app.amount_requested_kobo) },
-            { label: 'Tenor',           value: app.tenor_months ? `${app.tenor_months} months` : '—' },
-            { label: 'Interest Rate',   value: app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : '—' },
-            { label: 'Monthly Income',  value: app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : '—' },
-            { label: 'Purpose',         value: app.purpose || '—' },
-          ].map(row => (
-            <div key={row.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{row.label}</span>
-              <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--txt)' }}>{row.value}</span>
-            </div>
-          ))}
-        </div>
-      </SectionCard>
+      {/* Employment + origin */}
+      <div className="sd-grid2">
+        <SDPanel title="Employment">
+          <div className="sd-fields">
+            <SDField label="Employer" value={app.employer} />
+            <SDField label="Job title" value={app.job_title} />
+            <SDField label="Employment type" value={titleCaseCode(app.employment_type)} />
+            <SDField label="Employed since" value={fmtDateOnly(app.employment_start_date)} />
+          </div>
+        </SDPanel>
 
-      {/* Approval chain status (read-only for sales) */}
-      <SectionCard title="Where Is This Application?" padding={false}>
+        <SDPanel title="Origin">
+          <div className="sd-fields">
+            <SDField label="Reference" value={app.reference} mono />
+            <SDField label="Source" value={app.source_lead_id ? `Lead #${app.source_lead_id}` : (app.lead_source || titleCaseCode(app.source_system))} />
+            <SDField label="Submitted" value={app.submitted_at ? fmtDatetime(app.submitted_at) : null} />
+            <SDField label="Last updated" value={app.updated_at ? fmtDatetime(app.updated_at) : null} />
+          </div>
+        </SDPanel>
+      </div>
+
+      {/* Terms */}
+      <SDPanel title="Terms">
+        <div className="sd-fields">
+          <SDField label="Product" value={titleCaseCode(app.product_type)} />
+          <SDField label="Purpose" value={app.purpose} />
+          <SDField label="Amount requested" value={fmtKobo(app.amount_requested_kobo)} mono />
+          <SDField label="Amount approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
+          {/* A revolving product has no tenor. NULL says so — migration 217 removed
+              the 0 sentinel that used to claim a zero-month term. */}
+          <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving — no term'} />
+          <SDField label="Interest rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
+        </div>
+      </SDPanel>
+
+      {/* Where it is */}
+      <SDPanel title="Where is this application?" flush>
         <ApprovalChainCompact app={app} events={events} />
-      </SectionCard>
+      </SDPanel>
 
       {/* Team thread */}
       <InternalThread appId={app.id} />
     </div>
   )
 }
-
 // ── RISK VIEW ─────────────────────────────────────────────────────────────────
 
 const RATING_COLORS: Record<string, string> = { Excellent: GREEN, Good: GREEN, Fair: AMBER, Poor: RED, Bad: RED }
@@ -2520,13 +2693,30 @@ export default function ApplicationDetail() {
 
   const nextStages = ALLOWED_TRANSITIONS[app.stage] ?? []
 
-  // View = f(stage group): the layout matches WHERE the application is, so everyone
-  // sees the same stage-appropriate context. Risk stages → RiskView (eye score +
-  // assessment), Finance/Ops stages and disbursed loans → FinanceView (terms +
-  // disbursement), origination/declined → SalesView. Actions inside are page-gated.
+  // View = f(audience), falling back to f(stage group).
+  //
+  // It used to be stage alone, and that quietly made the Sales view unreachable for
+  // most of an application's life: the moment a file left document collection its
+  // group became 'risk', so a sales officer opening THEIR OWN application from
+  // Sales → Applications was shown the credit assessment instead of the
+  // origination record. Sales still owns the customer relationship after hand-off
+  // — they chase the documents and conditions and explain the outcome — so the
+  // desk you opened the file from decides the layout, not the desk that currently
+  // holds it.
+  //
+  // Routes that belong to one audience say so. Anywhere else (/applications/:id,
+  // My Approvals) keeps the original stage-driven behaviour, which is right for a
+  // shared queue where the stage IS the context.
+  const { pathname } = useLocation()
+  const audience: 'sales' | 'risk' | null =
+    pathname.startsWith('/sales/') ? 'sales'
+      : pathname.startsWith('/operations/risk/') ? 'risk'
+        : null
+
   const grp = stageMeta(app.stage).group
-  const showRisk    = !isCompliance && grp === 'risk'
-  const showFinance = !isCompliance && (grp === 'finance' || grp === 'ops' || (grp === 'terminal' && app.stage === 'active'))
+  const showRisk = !isCompliance && (audience === 'risk' || (audience === null && grp === 'risk'))
+  const showFinance = !isCompliance && audience === null &&
+    (grp === 'finance' || grp === 'ops' || (grp === 'terminal' && app.stage === 'active'))
 
   return (
     <Page
@@ -2538,39 +2728,48 @@ export default function ApplicationDetail() {
         </button>
       }
     >
-      {/* Sub-page tab bar — visible to all roles */}
-      {(() => {
-        const tabs: { key: typeof subTab; label: string; icon: string }[] = [
-          { key: 'overview',  label: 'Overview',       icon: 'dashboard' },
-          { key: 'timeline',  label: 'Activity',       icon: 'history' },
-          { key: 'approval',  label: 'Approval Queue', icon: 'approval' },
-          { key: 'eye',       label: 'Eye Report',     icon: 'query_stats' },
-          { key: 'report',    label: 'Credit Report',  icon: 'description' },
-        ]
-        return (
-          <div style={{ display: 'flex', gap: 2, padding: '4px', background: 'var(--th-bg)', borderRadius: 10, border: '1px solid var(--bdr)', marginBottom: 4, overflowX: 'auto' }}>
-            {tabs.map(t => (
-              <button key={t.key} onClick={() => setSubTab(t.key)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 7, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 13, fontWeight: subTab === t.key ? 700 : 500, background: subTab === t.key ? 'var(--card)' : 'transparent', color: subTab === t.key ? NAVY : 'var(--txt2)', boxShadow: subTab === t.key ? '0 1px 4px rgba(0,0,0,.08)' : 'none', transition: 'all 0.15s' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{t.icon}</span>
-                {t.label}
-              </button>
-            ))}
-          </div>
-        )
-      })()}
+        {/* Sub-page tabs.
+            Tailored to the desk you opened the file from. "Approval Queue" is the
+            chain view, which Sales already reads in the "Where is this application?"
+            panel on the overview — carrying it as a tab too gave Sales five tabs
+            where two said the same thing. */}
+        {(() => {
+          const ALL: { key: typeof subTab; label: string; icon: string }[] = [
+            { key: 'overview', label: 'Overview',       icon: 'dashboard' },
+            { key: 'timeline', label: 'Activity',       icon: 'history' },
+            { key: 'approval', label: 'Approval Queue', icon: 'approval' },
+            { key: 'eye',      label: 'Eye Report',     icon: 'query_stats' },
+          ]
+          const tabs = audience === 'sales' ? ALL.filter(t => t.key !== 'approval') : ALL
+          return (
+            <div className="sd sd-tabwrap" style={{ '--sd-navy': NAVY } as CSSProperties}>
+              <div className="sd-tabs" role="tablist">
+                {tabs.map(t => (
+                  <button key={t.key} role="tab" aria-selected={subTab === t.key}
+                    className={`sd-tab${subTab === t.key ? ' is-active' : ''}`}
+                    onClick={() => setSubTab(t.key)}>
+                    <span className="material-symbols-rounded">{t.icon}</span>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
 
       {/* Phoenix decision (advisory) — shown to every role on the overview tab */}
-      {subTab === 'overview' && <PhoenixDecisionBanner app={app} />}
-      {subTab === 'overview' && <div style={{ marginBottom: 16 }}><OfferPanel app={app} onRefresh={load} /></div>}
+      {/* Sales renders both of these INSIDE its own view, in sequence with the rest
+          of the page. Floating them above the layout left the offer — the one thing
+          on this screen Sales actually acts on — detached from everything around
+          it, above even the applicant's name. */}
+      {subTab === 'overview' && audience !== 'sales' && <PhoenixDecisionBanner app={app} />}
+      {subTab === 'overview' && audience !== 'sales' && <div style={{ marginBottom: 16 }}><OfferPanel app={app} onRefresh={load} /></div>}
 
       {/* Render the stage-appropriate view; actions inside are page-gated */}
       {subTab === 'timeline' ? (
         <TimelineTab events={events} notes={data.notes ?? []} />
       ) : subTab === 'approval' ? (
         <ApprovalChainTab app={app} events={events} />
-      ) : subTab === 'report' ? (
-        <CreditReport appId={app.id} />
       ) : subTab === 'eye' ? (
         <PhoenixEyeReport appId={app.id} />
       ) : showRisk ? (

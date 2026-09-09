@@ -1144,6 +1144,41 @@ export function EyeDecisionPanel({ decisionDetail, loading = false, onRefresh }:
   const [signalFilter, setSignalFilter] = useState<"all" | "positive" | "risk" | "missing">("all");
   const [activeCat, setActiveCat] = useState<string>("bureau");
 
+  // Which bureau actually came back with a report.
+  //
+  // Computed HERE, above the early returns further down, because the effect that
+  // acts on it is a hook and React requires the same hooks to run in the same
+  // order on every render. Placing the pair lower — next to the bureau rendering
+  // where they read more naturally — meant they were skipped on the loading and
+  // no-decision branches, so the hook count changed between renders and the panel
+  // died with React #310 the moment it rendered while still fetching.
+  const bureauTabTouched = useRef(false);
+  const bureauAvailability = useMemo(() => {
+    const bj = asRecord(decisionDetail?.bureau_query?.bureau_json);
+    const crc = asRecord(deepFind(bj, ["crc", "summary"]) ?? deepFind(bj, ["crc_corporate"]) ?? bj);
+    const crcErrored = deepFind(crc, ["ErrorResponse"]) != null;
+    const crcOk = !crcErrored && (
+      num(deepFind(crc, ["credit_score", "bureau_score", "score", "crc_score"])) != null ||
+      asArray(deepFind(crc, ["facilities", "credit_facilities", "loan_history"])).length > 0
+    );
+    const fc = asRecord(deepFind(bj, ["xds", "firstcentral", "first_central", "fc_data", "firstcentral_data"]));
+    const fcOk = Object.keys(fc).length > 0 && (
+      deepFind(fc, ["has_report"]) === true ||
+      num(deepFind(fc, ["bureau_score", "xds_score", "firstcentral_score", "fc_score", "fallback_score"])) != null ||
+      asArray(deepFind(fc, ["facilities", "credit_facilities", "loans"])).length > 0
+    );
+    return { crcOk, fcOk };
+  }, [decisionDetail]);
+
+  // Open on a bureau that actually has something to show. Defaulting hard to CRC
+  // meant a failed CRC lookup presented as an empty report even when the other
+  // bureau held a full record one tab away. Applies only until the user picks a
+  // tab themselves — after that their choice stands.
+  useEffect(() => {
+    if (bureauTabTouched.current) return;
+    if (!bureauAvailability.crcOk && bureauAvailability.fcOk) setBureauTab("firstcentral");
+  }, [bureauAvailability]);
+
   const [showSend, setShowSend] = useState(false);
   const [showOverride, setShowOverride] = useState(false);
   const [showOutcome, setShowOutcome] = useState(false);
@@ -1306,12 +1341,6 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
   // meant a failed CRC lookup presented as an empty report even when the other
   // bureau held a full record one tab away. Applies only until the user picks a
   // tab themselves — after that their choice stands.
-  const bureauTabTouched = useRef(false);
-  useEffect(() => {
-    if (bureauTabTouched.current) return;
-    if (!crcHasReport && fcHasReport) setBureauTab("firstcentral");
-  }, [crcHasReport, fcHasReport]);
-
   // Active bureau selection (depends on bureauTab state)
   const activePayload = bureauTab === "crc" ? crcPayload : fcPayload;
   const activeName = bureauTab === "crc" ? "CRC" : "FirstCentral";

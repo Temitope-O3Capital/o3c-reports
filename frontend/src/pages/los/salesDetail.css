@@ -1,0 +1,392 @@
+/* Sales application detail.
+ *
+ * The structure is borrowed from Phoenix — a kicker over a large record name, a
+ * strip of stat tiles for the numbers that decide the case, panels with a real
+ * head, and a two-column field grid with quiet uppercase micro-labels. What is
+ * NOT borrowed is Phoenix's palette. This page sits inside O3 chrome, so it uses
+ * the workspace's own tokens throughout and stays on brand; the only place that
+ * deliberately wears Phoenix's colours is the Eye report, which has to match
+ * Phoenix exactly.
+ *
+ * Everything is scoped to .sd so none of it can reach the rest of the app.
+ * Colours come from workspace CSS variables rather than literals, so this
+ * follows light/dark with everything else.
+ */
+
+.sd {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.sd-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.sd-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--txt2);
+  margin-bottom: 7px;
+}
+.sd-name {
+  margin: 0;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: var(--txt);
+  text-wrap: balance;
+}
+.sd-ref {
+  margin-top: 5px;
+  font-size: 12.5px;
+  color: var(--txt2);
+  font-variant-numeric: tabular-nums;
+}
+.sd-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.sd-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--bdr);
+  background: var(--card);
+  color: var(--txt);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+.sd-btn:hover { background: var(--th-bg); }
+.sd-btn:active { transform: translateY(1px); }
+.sd-btn .material-symbols-rounded { font-size: 15px; }
+.sd-btn.is-primary {
+  background: var(--sd-navy);
+  border-color: var(--sd-navy);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(14, 40, 65, .18), 0 6px 16px -8px rgba(14, 40, 65, .5);
+}
+.sd-btn.is-primary:hover { filter: brightness(1.09); background: var(--sd-navy); }
+.sd-btn.is-danger { color: var(--sd-red); border-color: color-mix(in srgb, var(--sd-red) 34%, transparent); }
+.sd-btn.is-warn { color: var(--sd-amber); border-color: color-mix(in srgb, var(--sd-amber) 42%, transparent); }
+
+/* ── Next-step band ─────────────────────────────────────────────────────── */
+/* Phoenix uses a dashed neutral band for "nothing to do" and a filled tinted one
+ * when there is. Keeping that distinction matters: a solid band everywhere trains
+ * people to ignore it. */
+
+.sd-band {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 18px;
+  border-radius: 12px;
+}
+.sd-band-icn {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  flex: none;
+  color: #fff;
+}
+.sd-band-icn .material-symbols-rounded { font-size: 20px; }
+.sd-band b { display: block; font-size: 14px; font-weight: 700; line-height: 1.3; }
+.sd-band span { display: block; font-size: 12.8px; line-height: 1.5; color: var(--txt2); margin-top: 3px; }
+.sd-band-act  { background: color-mix(in srgb, var(--sd-navy) 6%, var(--card)); border: 1px solid color-mix(in srgb, var(--sd-navy) 22%, transparent); }
+.sd-band-act  .sd-band-icn { background: var(--sd-navy); }
+.sd-band-act  b { color: var(--sd-navy); }
+.sd-band-done { background: color-mix(in srgb, var(--sd-green) 8%, var(--card)); border: 1px solid color-mix(in srgb, var(--sd-green) 26%, transparent); }
+.sd-band-done .sd-band-icn { background: var(--sd-green); }
+.sd-band-done b { color: var(--sd-green); }
+.sd-band-stop { background: color-mix(in srgb, var(--sd-red) 7%, var(--card)); border: 1px solid color-mix(in srgb, var(--sd-red) 24%, transparent); }
+.sd-band-stop .sd-band-icn { background: var(--sd-red); }
+.sd-band-stop b { color: var(--sd-red); }
+/* Waiting on someone else: dashed and unfilled, so it reads as status not action. */
+.sd-band-wait { background: transparent; border: 1.5px dashed var(--bdr); }
+.sd-band-wait .sd-band-icn { background: var(--txt3); }
+.sd-band-wait b { color: var(--txt); }
+
+/* ── Stat tiles ─────────────────────────────────────────────────────────── */
+
+.sd-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 12px;
+}
+.sd-stat {
+  position: relative;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--card-bdr);
+  border-radius: 12px;
+  padding: 15px 16px;
+  box-shadow: var(--card-shadow);
+}
+/* A hairline that only appears on the tile carrying a problem — the flag is the
+ * exception, so it should be the only thing drawing the eye. */
+.sd-stat::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: currentColor;
+  opacity: 0;
+}
+.sd-stat.is-flagged::after { opacity: 1; }
+.sd-stat.is-flagged { border-color: color-mix(in srgb, currentColor 30%, var(--card-bdr)); }
+.sd-stat-lbl {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--txt2);
+  margin-bottom: 7px;
+}
+.sd-stat-num {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.sd-stat-sub { margin-top: 5px; font-size: 11.5px; color: var(--txt2); }
+
+/* ── Panels ─────────────────────────────────────────────────────────────── */
+
+.sd-panel {
+  background: var(--card);
+  border: 1px solid var(--card-bdr);
+  border-radius: 12px;
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+.sd-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--bdr);
+}
+.sd-panel-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--txt);
+}
+.sd-panel-hint { font-size: 11.5px; color: var(--txt2); font-weight: 500; }
+.sd-panel-body { padding: 4px 18px 8px; }
+
+.sd-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .sd-grid2 { grid-template-columns: 1fr; } }
+
+/* ── Field grid ─────────────────────────────────────────────────────────── */
+
+.sd-fields { display: grid; grid-template-columns: 1fr 1fr; }
+@media (max-width: 560px) { .sd-fields { grid-template-columns: 1fr; } }
+.sd-field { padding: 12px 4px; border-bottom: 1px solid var(--bdr); min-width: 0; }
+/* Trailing row(s) keep the rhythm without a dangling rule under the panel. */
+.sd-fields > .sd-field:nth-last-child(-n+2):nth-child(odd) { border-bottom: none; }
+.sd-fields > .sd-field:last-child { border-bottom: none; }
+.sd-field label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+  color: var(--txt2);
+  margin-bottom: 5px;
+}
+.sd-field .sd-val {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.42;
+  color: var(--txt);
+  overflow-wrap: anywhere;
+}
+.sd-field .sd-val.is-mono { font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+.sd-field .sd-val.is-empty { color: var(--txt3); font-weight: 500; }
+
+/* Full-width field inside the grid — an address should not be squeezed into a
+ * half-column when there is a whole row available. */
+.sd-field.is-wide { grid-column: 1 / -1; }
+
+/* ── Inline note ────────────────────────────────────────────────────────── */
+
+.sd-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--txt2);
+}
+.sd-note .material-symbols-rounded { font-size: 16px; flex: none; margin-top: 1px; }
+.sd-note.is-warn { color: var(--sd-amber); }
+
+/* ── Pipeline stepper ───────────────────────────────────────────────────── */
+/* Every step takes an equal share of the width, so the track fills the panel
+ * instead of bunching to the left with dead space on the right — which is what a
+ * fixed 40px connector plus flex-shrink:0 produced. The connector is drawn from
+ * each step outward to its neighbours, so it stretches with the column. */
+
+.sd-steps {
+  display: flex;
+  align-items: flex-start;
+  padding: 20px 14px 16px;
+  width: 100%;
+}
+.sd-step {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+}
+/* Track: half a segment to the left, half to the right, meeting at the midpoint
+ * between two dots. Ends are suppressed so the line never overhangs. */
+.sd-step::before,
+.sd-step::after {
+  content: "";
+  position: absolute;
+  top: 13px;
+  height: 2px;
+  background: var(--bdr);
+}
+.sd-step::before { left: 0; right: 50%; margin-right: 18px; }
+.sd-step::after  { left: 50%; right: 0; margin-left: 18px; }
+.sd-step:first-child::before,
+.sd-step:last-child::after { display: none; }
+/* A completed step colours the track behind it and ahead of it. */
+.sd-step.is-done::before,
+.sd-step.is-done::after { background: var(--sd-green); }
+.sd-step.is-current::after { background: var(--bdr); }
+.sd-step.is-declined::before,
+.sd-step.is-declined::after { background: var(--bdr); }
+
+.sd-step-dot {
+  position: relative;
+  z-index: 1;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card);
+  border: 2px solid var(--bdr);
+  color: var(--txt3);
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.sd-step-dot .material-symbols-rounded { font-size: 15px; }
+.sd-step.is-done .sd-step-dot { background: var(--sd-green); border-color: var(--sd-green); color: #fff; }
+.sd-step.is-current .sd-step-dot {
+  background: var(--sd-navy); border-color: var(--sd-navy); color: #fff;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sd-navy) 14%, transparent);
+}
+.sd-step.is-declined .sd-step-dot { background: var(--sd-red); border-color: var(--sd-red); color: #fff; }
+
+.sd-step-lbl {
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--txt2);
+  text-align: center;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.sd-step.is-current .sd-step-lbl { font-weight: 700; color: var(--sd-navy); }
+.sd-step.is-done .sd-step-lbl { color: var(--txt); }
+
+/* ── Sub-tabs ───────────────────────────────────────────────────────────── */
+/* An underline bar rather than pills in a tray: the tabs are peers of the page,
+ * not a control sitting on it, and the underline ties the selected tab to the
+ * content below it instead of leaving it floating in a rounded box. */
+
+.sd-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--bdr);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sd-tabs::-webkit-scrollbar { display: none; }
+.sd-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 15px 11px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--txt2);
+  transition: color .15s ease;
+}
+.sd-tab .material-symbols-rounded { font-size: 16px; }
+.sd-tab:hover { color: var(--txt); }
+.sd-tab::after {
+  content: "";
+  position: absolute;
+  left: 10px; right: 10px; bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+}
+.sd-tab.is-active { color: var(--sd-navy); font-weight: 700; }
+.sd-tab.is-active::after { background: var(--sd-navy); }
+
+/* The tab bar borrows .sd only for its brand variables, not its column layout. */
+.sd.sd-tabwrap { display: block; gap: 0; margin-bottom: 2px; }
+
+/* ── Credit decision ────────────────────────────────────────────────────── */
+
+.sd-decision { display: flex; align-items: flex-start; gap: 14px; padding: 16px 18px; }
+.sd-decision-icn {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  flex: none; color: #fff;
+}
+.sd-decision-icn .material-symbols-rounded { font-size: 19px; }
+.sd-decision-title { font-size: 13.5px; font-weight: 700; color: var(--txt); line-height: 1.3; }
+.sd-decision-body { font-size: 12.5px; line-height: 1.5; color: var(--txt2); margin-top: 3px; }
+.sd-decision-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+/* Provenance and sync state are context, not headline — they sit right-aligned and
+ * quiet so the verdict itself carries the weight. */
+.sd-tagline { font-size: 11px; font-weight: 600; color: var(--txt3); white-space: nowrap; }
+/* A pending assessment gets a dashed edge, matching the "waiting on someone else"
+ * band above it, so the two read as the same kind of statement. */
+.sd-decision-pending { border-style: dashed; box-shadow: none; background: transparent; }
+
+.sd-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.sd-chip {
+  font-size: 11.5px; font-weight: 500;
+  padding: 3px 9px; border-radius: 6px;
+  background: var(--th-bg); color: var(--txt2);
+  border: 1px solid var(--bdr);
+}
