@@ -1505,8 +1505,9 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
         </div>
       </div>
 
-      {/* The decision engine's verdict */}
+      {/* The decision engine's verdict, then the offer built on it */}
       <PhoenixDecisionBanner app={app} />
+      <OfferPanel app={app} onRefresh={onRefresh} />
 
       {/* The numbers a credit decision turns on */}
       <div className="sd-stats">
@@ -1729,6 +1730,12 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
         </div>
       )}
 
+      {/* The verdict and the offer, for inspection. OfferPanel gates its own capture
+          actions on the los_* pages, which compliance does not hold, so this reads
+          as a record here rather than as something compliance can change. */}
+      <PhoenixDecisionBanner app={app} />
+      <OfferPanel app={app} onRefresh={onRefresh} />
+
       <div className="sd-stats">
         <SDStat label="Identification" value={`${kycOk}/${kyc.length}`}
           sub={kycComplete ? 'all captured' : 'incomplete'} tone={kycComplete ? GREEN : RED} />
@@ -1949,6 +1956,12 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
           <span>{next.body}</span>
         </div>
       </div>
+
+      {/* The credit verdict and the offer that was made on it. Finance checks the
+          terms it is about to book against the terms the customer actually accepted,
+          so both belong above the figures rather than floating over the page. */}
+      <PhoenixDecisionBanner app={app} />
+      <OfferPanel app={app} onRefresh={onRefresh} />
 
       {/* The money, as finance reads it */}
       <div className="sd-stats">
@@ -2945,13 +2958,13 @@ export default function ApplicationDetail() {
           )
         })()}
 
-      {/* Phoenix decision (advisory) — shown to every role on the overview tab */}
-      {/* Sales renders both of these INSIDE its own view, in sequence with the rest
-          of the page. Floating them above the layout left the offer — the one thing
-          on this screen Sales actually acts on — detached from everything around
-          it, above even the applicant's name. */}
-      {subTab === 'overview' && audience !== 'sales' && <PhoenixDecisionBanner app={app} />}
-      {subTab === 'overview' && audience !== 'sales' && <div style={{ marginBottom: 16 }}><OfferPanel app={app} onRefresh={load} /></div>}
+      {/* The Phoenix verdict and the offer are no longer floated above the layout.
+          Every view now renders both itself, in the order that view works in —
+          Sales reads the verdict then acts on the offer, Risk reads it as the
+          engine's opinion on its own assessment, Finance checks it against the
+          terms it is about to book, Compliance reads it as a record. Floating them
+          here left the offer detached above even the applicant's name, and once
+          Risk grew its own banner it drew the thing twice. */}
 
       {/* Render the stage-appropriate view; actions inside are page-gated */}
       {subTab === 'timeline' ? (
