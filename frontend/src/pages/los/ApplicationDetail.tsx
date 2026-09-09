@@ -14,6 +14,7 @@ import { EBarH } from '../../components/echarts'
 import { hasPage } from '../../hooks/useAuth'
 import { canAdvance, canDecline, canRequestInfo, stageMeta, decisionMeta, syncStateMeta, isTerminalStage, STAGE_SEQUENCE } from '../../lib/losFlow'
 import PhoenixEyeReport from './eye/PhoenixEyeReport'
+import PhoenixOfferPanel from './PhoenixOffer'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1241,6 +1242,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
           order Sales works in: read the verdict, then act on the offer. */}
       <PhoenixDecisionBanner app={app} />
       <OfferPanel app={app} onRefresh={onRefresh} />
+      <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />
 
       {/* The customer's own steps — consent, the amount they accepted, the mandate.
           Phoenix owns all three, so these call Phoenix and show its answer. They sit
@@ -1514,6 +1516,7 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
       {/* The decision engine's verdict, then the offer built on it */}
       <PhoenixDecisionBanner app={app} />
       <OfferPanel app={app} onRefresh={onRefresh} />
+      <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />
 
       {/* The numbers a credit decision turns on */}
       <div className="sd-stats">
@@ -1741,6 +1744,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
           as a record here rather than as something compliance can change. */}
       <PhoenixDecisionBanner app={app} />
       <OfferPanel app={app} onRefresh={onRefresh} />
+      <PhoenixOfferPanel appId={app.id} canAct={false} onRefresh={onRefresh} />
 
       <div className="sd-stats">
         <SDStat label="Identification" value={`${kycOk}/${kyc.length}`}
@@ -1968,6 +1972,7 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
           so both belong above the figures rather than floating over the page. */}
       <PhoenixDecisionBanner app={app} />
       <OfferPanel app={app} onRefresh={onRefresh} />
+      <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />
 
       {/* The money, as finance reads it */}
       <div className="sd-stats">

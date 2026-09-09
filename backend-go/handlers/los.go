@@ -94,6 +94,17 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	// Offer & acceptance CAPTURE (capture-only; Phoenix owns the process, this records it
 	// in the workspace). Does not transition the stage or gate booking.
 	r.With(door).Put("/{id}/offer", losSetOffer(db))
+	// Phoenix's real Offer — the document the customer actually received, with its
+	// frozen terms, version and expiry. Read is on viewDoor because compliance
+	// auditing a file needs to see what was put to the customer; the resend is an
+	// action, so it keeps the origination door.
+	r.With(viewDoor).Get("/{id}/offers", losOffers(db))
+	r.With(door).Post("/{id}/offers/{offer_id}/resend", losOfferResend(db))
+	// Mandate cancellation instructs the provider to stop debiting a real account,
+	// so it is separated from the remind/check-status nudges and demands a reason.
+	r.With(door).Post("/{id}/mandate/{mandate_id}/cancel", losMandateCancel(db))
+	r.With(viewDoor).Get("/{id}/mandate/{mandate_id}/collections", losMandateCollections(db))
+	r.With(viewDoor).Get("/{id}/consent", losConsentTrail(db))
 	// Full Phoenix credit report (PrequalificationReport) stored verbatim, if any.
 	r.With(viewDoor).Get("/{id}/credit-report", losCreditReport(db))
 }
