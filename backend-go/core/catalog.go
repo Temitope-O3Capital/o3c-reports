@@ -105,6 +105,9 @@ var PageCatalog = []CatalogModule{
 	{Key: "care", Label: "Care", Icon: "mark_email_unread", Pages: []CatalogPage{
 		{"care", "Care Inbox"},
 	}},
+	{Key: "feedback", Label: "Customer Feedback", Icon: "reviews", Pages: []CatalogPage{
+		{"surveys", "Surveys & Feedback"},
+	}},
 	{Key: "risk", Label: "Risk", Icon: "shield", Pages: []CatalogPage{
 		{"risk_all", "Risk (All)"},
 		{"risk_officer", "Risk Officer View"},
@@ -119,6 +122,7 @@ var PageCatalog = []CatalogModule{
 		{"audit_trail", "Audit Trail"},
 		{"audit_export", "Audit Export"},
 		{"watch_list", "Watch List"},
+		{"los_view", "Credit Files (Read Only)"},
 	}},
 	{Key: "admin", Label: "Administration", Icon: "settings", Pages: []CatalogPage{
 		{"admin_users", "User Management"},

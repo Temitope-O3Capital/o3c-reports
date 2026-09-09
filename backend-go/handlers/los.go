@@ -36,6 +36,12 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	// riskDoor gates the manual credit-assessment write — a Risk-only action (it writes
 	// the same eye_* columns Phoenix populates), so Finance/Ops must not reach it.
 	riskDoor := core.RequirePages("los_risk_review", "los_risk_head", "los_all")
+	// viewDoor = door + read-only observers. Compliance audits credit files but is not
+	// part of the origination chain, so it holds los_view and nothing else here: every
+	// route that changes an application keeps `door`, and los_view appears only on the
+	// GETs below. Widening `door` instead would have handed compliance the write routes.
+	viewDoor := core.RequirePages("los", "los_all", "los_risk_review", "los_risk_head",
+		"los_finance", "los_finance_approve", "los_booking", "los_view")
 
 	r.With(base).Get("/stats", losStats(db))
 	r.With(base).Get("/funnel", losFunnel(db))
@@ -49,7 +55,7 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	// Running-credit portfolio for a customer with no workspace application (booked
 	// directly on the CBS). Powers the app page in "portfolio mode".
 	r.With(core.RequirePages("los", "credit_portfolio")).Get("/portfolio/{cif}", losCustomerPortfolio(db))
-	r.With(door).Get("/{id}", losGet(db))
+	r.With(viewDoor).Get("/{id}", losGet(db))
 	r.With(assign).Put("/{id}/assign", losAssign(db))
 	r.With(door).Put("/{id}/advance", losAdvance(db))
 	r.With(door).Put("/{id}/decline", losDecline(db))
@@ -57,18 +63,18 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	r.With(door).Post("/{id}/conditions", losAddCondition(db))
 	r.With(door).Put("/{id}/conditions/{cid}", losMarkConditionMet(db))
 	r.With(door).Post("/{id}/notes", losAddNote(db))
-	r.With(door).Get("/{id}/events", losGetEvents(db))
+	r.With(viewDoor).Get("/{id}/events", losGetEvents(db))
 	r.With(riskDoor).Put("/{id}/credit-assessment", losSaveCreditAssessment(db))
-	r.With(door).Get("/{id}/documents", losGetDocuments(db))
+	r.With(viewDoor).Get("/{id}/documents", losGetDocuments(db))
 	r.With(door).Post("/{id}/documents", losUploadDocument(db))
 	r.With(door).Delete("/documents/{doc_id}", losDeleteDocument(db))
 	r.With(door).Get("/team-users", losTeamUsers(db))
-	r.With(door).Get("/{id}/messages", losGetMessages(db))
+	r.With(viewDoor).Get("/{id}/messages", losGetMessages(db))
 	r.With(door).Post("/{id}/messages", losPostMessage(db))
-	r.With(door).Get("/{id}/eye-report", losEyeReport(db))
+	r.With(viewDoor).Get("/{id}/eye-report", losEyeReport(db))
 	// Phoenix's full Eye decision, passed through verbatim so the workspace can
 	// render the identical credit report rather than an approximation of it.
-	r.With(door).Get("/{id}/eye-decision", losEyeDecision(db))
+	r.With(viewDoor).Get("/{id}/eye-decision", losEyeDecision(db))
 
 	// Customer-journey actions. Phoenix owns these steps and stays the system of
 	// record; these let staff take them without leaving the workspace, and record
@@ -89,7 +95,7 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	// in the workspace). Does not transition the stage or gate booking.
 	r.With(door).Put("/{id}/offer", losSetOffer(db))
 	// Full Phoenix credit report (PrequalificationReport) stored verbatim, if any.
-	r.With(door).Get("/{id}/credit-report", losCreditReport(db))
+	r.With(viewDoor).Get("/{id}/credit-report", losCreditReport(db))
 }
 
 // losCreditReport returns the full Phoenix prequalification report stored verbatim for

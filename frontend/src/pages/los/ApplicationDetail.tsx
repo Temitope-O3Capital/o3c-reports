@@ -541,7 +541,7 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
 
   const loadDocs = useCallback(async () => {
     try {
-      const res = await apiFetch<{ data: LosDoc[] }>(`/api/los/applications/${appId}/documents`)
+      const res = await apiFetch<{ data: LosDoc[] }>(`/api/los/${appId}/documents`)
       setDocs(Array.isArray(res.data) ? res.data : [])
     } catch { /* silent */ }
   }, [appId])
@@ -554,7 +554,7 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
       const token = localStorage.getItem('o3c_token') ?? ''
       const form  = new FormData()
       form.append('file', file); form.append('doc_type', docType)
-      const res = await fetch(`/api/los/applications/${appId}/documents`, {
+      const res = await fetch(`/api/los/${appId}/documents`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form,
       })
       if (!res.ok) { const err = await res.json().catch(() => ({ error: 'Upload failed' })); throw new Error(err.error ?? 'Upload failed') }
@@ -690,7 +690,10 @@ function ApprovalChainCompact({ app, events }: { app: Application; events: AppEv
 
 // ── Internal Thread (cross-team messages) ─────────────────────────────────────
 
-function InternalThread({ appId }: { appId: number }) {
+// readOnly drops the composer and the team-users lookup behind it. Compliance reads
+// the thread as part of the audit trail but holds los_view, which is read-only on the
+// server too — leaving the composer up would have offered a Send button that 403s.
+function InternalThread({ appId, readOnly = false }: { appId: number; readOnly?: boolean }) {
   const [messages,  setMessages]  = useState<AppMessage[]>([])
   const [users,     setUsers]     = useState<TeamUser[]>([])
   const [body,      setBody]      = useState('')
@@ -714,10 +717,11 @@ function InternalThread({ appId }: { appId: number }) {
   useEffect(() => { loadMessages() }, [loadMessages])
 
   useEffect(() => {
+    if (readOnly) return
     apiFetch<{ data: TeamUser[] }>('/api/los/team-users')
       .then(res => setUsers(Array.isArray(res.data) ? res.data : []))
       .catch(() => {})
-  }, [])
+  }, [readOnly])
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -807,6 +811,7 @@ function InternalThread({ appId }: { appId: number }) {
       )}
 
       {/* Compose */}
+      {readOnly ? null : (
       <div style={{ borderRadius: 10, border: '1px solid var(--bdr)', background: 'var(--card)', overflow: 'visible', position: 'relative' }}>
         <textarea ref={textareaRef}
           value={body} onChange={e => setBody(e.target.value)}
@@ -859,6 +864,7 @@ function InternalThread({ appId }: { appId: number }) {
           </button>
         </div>
       </div>
+      )}
     </SectionCard>
   )
 }
@@ -1817,7 +1823,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
         </div>
       </SDPanel>
 
-      <InternalThread appId={app.id} />
+      <InternalThread appId={app.id} readOnly />
     </div>
   )
 }

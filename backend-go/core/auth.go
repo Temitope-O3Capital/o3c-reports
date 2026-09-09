@@ -598,22 +598,22 @@ func buildRolePages() map[string][]string {
 		}
 		return out
 	}
-	util := []string{"overview", "customer360", "uploads"}
+	util := []string{"overview", "customer360"}
 
 	// Per-module page sets: agent (day-to-day) + head extras (oversight/actions).
 	salesAgent := []string{"sales", "loans", "los", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "cohort", "mail"}
 	salesHead := []string{"los_all", "los_assign", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive"}
 	bdAgent := []string{"bd", "bd_employers", "bd_pipeline", "crm_contacts", "mail"}
 	bdHead := []string{"campaigns", "contact_lists", "message_templates", "kpi_dashboard", "executive"}
-	collAgent := []string{"collections", "eod", "crm_contacts"}
+	collAgent := []string{"collections", "crm_contacts"}
 	// collHead includes "recovery" so collections leads can open the Recovery Approvals
 	// hand-off screen (route /collections/recovery-approvals gates on the recovery page);
 	// the Recovery *module* itself stays gated to recovery roles via the sidebar vis list.
-	collHead := []string{"collections_assign", "collections_payment", "collections_payment_approve", "recovery", "loans", "credit_portfolio", "kpi_dashboard", "statements", "executive"}
-	recAgent := []string{"recovery", "eod"}
+	collHead := []string{"collections_assign", "collections_payment", "collections_payment_approve", "recovery", "loans", "credit_portfolio", "kpi_dashboard", "statements", "executive", "surveys"}
+	recAgent := []string{"recovery"}
 	recHead := []string{"recovery_assign", "recovery_write_off", "loans", "credit_portfolio", "kpi_dashboard", "statements", "executive"}
-	cardsAgent := []string{"cards", "card_trends", "los_booking", "blink_card", "eod"}
-	cardsHead := []string{"los_assign", "mobile_app", "kpi_dashboard", "statements", "executive"}
+	cardsAgent := []string{"cards", "card_trends", "los_booking", "blink_card"}
+	cardsHead := []string{"los_assign", "mobile_app", "kpi_dashboard", "statements", "executive", "surveys"}
 	finAgent := []string{"income", "finance", "transactions", "fixed_deposit", "fx_rates", "eod", "settlement", "reconciliation", "core-banking", "credit_portfolio", "los_finance"}
 	finHead := []string{"los_finance_approve", "payroll", "kpi_dashboard", "statements", "executive"}
 	// Settlement & Reconciliation is its OWN Operations module (not a Finance
@@ -621,13 +621,13 @@ func buildRolePages() map[string][]string {
 	// officer does the daily matching; the head runs the desk with the oversight pages.
 	settleAgent := []string{"settlement", "reconciliation", "eod", "transactions", "credit_portfolio"}
 	settleHead := []string{"kpi_dashboard", "statements", "executive"}
-	ccAgent := []string{"call_center", "helpdesk", "helpdesk_canned", "helpdesk_kb", "transactions", "crm_contacts"}
-	ccHead := []string{"call_center_stats", "helpdesk_stats", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive"}
+	ccAgent := []string{"call_center", "helpdesk", "helpdesk_canned", "helpdesk_kb", "crm_contacts"}
+	ccHead := []string{"call_center_stats", "helpdesk_stats", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive", "surveys"}
 	// Care (customer email) is a separate team from Call Center (phone) — its own
 	// module + roles, so a call-center agent no longer sees Care and vice-versa. Care
 	// still uses the shared helpdesk ticket engine (email-channel tickets), hence the
 	// helpdesk/canned/kb keys; the "care" key + sidebar gate the module itself.
-	careAgent := []string{"care", "helpdesk", "helpdesk_canned", "helpdesk_kb", "crm_contacts"}
+	careAgent := []string{"care", "helpdesk", "helpdesk_canned", "helpdesk_kb", "crm_contacts", "surveys"}
 	careHead := []string{"helpdesk_stats", "message_templates", "kpi_dashboard", "statements", "executive"}
 	// "los" is the base page guard on every /api/los route. Without it a risk officer
 	// could open App Review, see the queue, and then 403 on Advance AND Decline — the
@@ -635,7 +635,12 @@ func buildRolePages() map[string][]string {
 	// risk_review→risk_head_review transition; it does not get you through the door.
 	riskAgent := []string{"credit_portfolio", "loans", "los", "los_risk_review", "risk_officer"}
 	riskHead := []string{"los_risk_head", "los_assign", "risk_head", "risk_all", "active_loan_book", "kpi_dashboard", "statements", "executive"}
-	compAgent := []string{"compliance_checklists", "audit_findings", "watch_list"}
+	// los_view is read-only sight of a credit file: the application, its documents,
+	// conditions, events and the Eye report. Compliance has to be able to inspect a
+	// loan it is auditing, but it is not part of the origination chain — so this is a
+	// separate key rather than the `los` door, which would also hand them the LOS
+	// queue pages and the base guard on every write route.
+	compAgent := []string{"compliance_checklists", "audit_findings", "watch_list", "los_view"}
 	compHead := []string{"compliance_all", "cbn_reports", "sars", "audit_trail", "audit_export", "kpi_dashboard", "executive"}
 	// ticketWorker is the minimum needed to RESOLVE a ticket someone hands you:
 	// the queue itself, canned responses and the knowledge base. Deliberately does
@@ -706,10 +711,50 @@ func buildRolePages() map[string][]string {
 	m["coo"] = union(util, collAgent, collHead, recAgent, recHead, cardsAgent, cardsHead,
 		finAgent, finHead, ccAgent, ccHead, riskAgent, riskHead,
 		[]string{"kpi_dashboard", "statements", "executive", "approvals", "active_loan_book", "payroll"})
+	// Head of Operations — oversight of the operational floor (Collections, Recovery,
+	// Cards, Settlement, Contact Centre, Care) with the exec dashboards + approvals. An
+	// explicit set rather than composed head blocks, so it does NOT pick up loan booking,
+	// marketing campaigns, Finance P&L/payroll, or Risk credit-decision authority — those
+	// stay with the module heads and the CFO/COO.
+	m["head_ops"] = union(util, []string{
+		"collections", "collections_assign", "collections_payment", "collections_payment_approve",
+		"recovery", "recovery_assign", "recovery_write_off",
+		"cards", "card_trends", "blink_card", "mobile_app",
+		"settlement", "reconciliation",
+		"call_center", "call_center_stats", "helpdesk", "helpdesk_stats", "helpdesk_canned", "helpdesk_kb", "care",
+		"credit_portfolio", "loans", "crm_contacts",
+		"kpi_dashboard", "statements", "executive", "approvals", "surveys",
+	})
 	m["cfo"] = union(util, finAgent, finHead,
-		[]string{"collections_payment", "collections_payment_approve", "kpi_dashboard", "statements", "executive", "approvals"})
+		// CFO is the final signatory on the HOP → COO → CFO chain for recovery write-offs,
+		// payments and debt sales, so it needs to reach those endpoints and screens:
+		// `collections` (write-off approvals screen), `recovery` (payment/debt-sale queues +
+		// endpoints, base-gated) and `recovery_write_off` (write-off endpoint). Without them
+		// the chain would 403 at the final stage.
+		[]string{"collections", "collections_payment", "collections_payment_approve",
+			"recovery", "recovery_write_off", "kpi_dashboard", "statements", "executive", "approvals"})
 	m["cmo"] = union(util, salesAgent, bdAgent,
-		[]string{"campaigns", "contact_lists", "message_templates", "kpi_dashboard", "executive"})
+		[]string{"campaigns", "contact_lists", "message_templates", "kpi_dashboard", "executive", "surveys"})
+	// Executive overview only — the exec cockpit (General Overview + its drill-downs,
+	// KPI dashboards, statements) with NO module edit access. For C-suite who oversee
+	// via the dashboards; any module supervision is layered on per-user via extra_roles
+	// (e.g. exec_overview + sales_head for a CMO). It is a management-tier role (see
+	// managementRoles in scope.go / MGMT in the frontend) so the Overview is visible,
+	// but unlike md it is NOT unrestricted — page access is exactly this set.
+	m["exec_overview"] = union(util, []string{"executive", "kpi_dashboard", "statements"})
+
+	// Uploads (bulk data import) is a senior/oversight tool, not a line-agent page.
+	// Grant it to admin/C-suite, IT, and every module head — never officers or agents.
+	for _, r := range []string{
+		"admin", "md", "coo", "cfo", "cmo", "head_ops", "it_admin",
+		"sales_head", "bd_head", "collections_head", "recovery_head", "cards_head",
+		"finance_head", "settlement_head", "call_center_head", "care_head",
+		"risk_head", "compliance_head", "bi_head",
+	} {
+		if p, ok := m[r]; ok {
+			m[r] = union(p, []string{"uploads"})
+		}
+	}
 
 	return m
 }

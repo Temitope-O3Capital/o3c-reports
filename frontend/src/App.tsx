@@ -8,11 +8,16 @@ import {
 import { Toaster, toast } from 'sonner'
 
 import Sidebar          from './components/Sidebar'
+import { RouteSkeleton } from './components/Skeleton'
 import NotificationBell from './components/NotificationBell'
+import AssistantLauncher from './components/AssistantModal'
+import CallbackReminder from './components/CallbackReminder'
+import SLAReminder from './components/SLAReminder'
+import EscalationReminder from './components/EscalationReminder'
 import GlobalSearch     from './components/GlobalSearch'
 import C360Drawer       from './components/C360Drawer'
 import { RealtimeProvider } from './hooks/useRealtime'
-import { type AuthUser, ROLE_PAGES, allRoles } from './hooks/useAuth'
+import { type AuthUser, ROLE_PAGES, allRoles, hasPage } from './hooks/useAuth'
 import { useCustomerSearch } from './hooks/useCustomerSearch'
 import { useModules } from './hooks/useModules'
 import { useAgentPresence } from './hooks/useAgentPresence'
@@ -25,25 +30,30 @@ import { ConfirmModal } from './components/UI'
 
 // ── Lazy imports ──────────────────────────────────────────────────────────────
 const CSATSurvey   = lazy(() => import('./pages/helpdesk/CSATSurvey'))
+const PublicSurvey   = lazy(() => import('./pages/feedback/PublicSurvey'))
+const Surveys        = lazy(() => import('./pages/feedback/Surveys'))
+const SurveyBuilder  = lazy(() => import('./pages/feedback/SurveyBuilder'))
+const SurveyResults  = lazy(() => import('./pages/feedback/SurveyResults'))
 const UserSettings = lazy(() => import('./pages/Settings'))
 
 // Intelligence
 const ReportsMyDashboard = lazy(() => import('./pages/reports/MyDashboard'))
-const ReportsLibrary  = lazy(() => import('./pages/reports/ReportsLibrary'))
 const ReportsKPI      = lazy(() => import('./pages/reports/KPITracker'))
-const ReportsExport   = lazy(() => import('./pages/reports/Export'))
-const BIOverview      = lazy(() => import('./pages/bi/BIOverview'))
-const BIBuilder       = lazy(() => import('./pages/bi/ReportBuilder'))
-const BIScheduled     = lazy(() => import('./pages/bi/ScheduledReports'))
+const ReportsBehaviour = lazy(() => import('./pages/reports/Behaviour'))
+const ReportsUploads  = lazy(() => import('./pages/reports/Uploads'))
+const SettlementImport = lazy(() => import('./pages/settlements/SettlementImport'))
+const GrowthActivity  = lazy(() => import('./pages/growth/GrowthActivity'))
+const ReportsBuilder  = lazy(() => import('./pages/reports/ReportBuilder'))
 const Statements    = lazy(() => import('./pages/statements/Statements'))
 const Login    = lazy(() => import('./pages/Login'))
 const Overview = lazy(() => import('./pages/Overview'))
 
 // Executive drill-down pages
 const ExecCards       = lazy(() => import('./pages/executive/Cards'))
-const ExecFinance     = lazy(() => import('./pages/executive/Finance'))
 const ExecSales       = lazy(() => import('./pages/executive/Sales'))
 const ExecCollections = lazy(() => import('./pages/executive/Collections'))
+const ExecRecovery    = lazy(() => import('./pages/executive/Recovery'))
+const ExecGrowth      = lazy(() => import('./pages/executive/Growth'))
 const ExecRisk        = lazy(() => import('./pages/executive/Risk'))
 const ExecSettlements = lazy(() => import('./pages/executive/Settlements'))
 const ExecFixedDeposits = lazy(() => import('./pages/executive/FixedDeposits'))
@@ -71,6 +81,7 @@ const ApprovalsPage  = lazy(() => import('./pages/Approvals'))
 const MailOverview   = lazy(() => import('./pages/mail/Overview'))
 const MailInbox      = lazy(() => import('./pages/mail/Inbox'))
 const MailCompose    = lazy(() => import('./pages/mail/Compose'))
+const MailOutbox     = lazy(() => import('./pages/mail/Outbox'))
 const MailThread     = lazy(() => import('./pages/mail/ThreadDetail'))
 
 // Sales
@@ -80,10 +91,13 @@ const SalesCohortDetail = lazy(() => import('./pages/sales/CohortDetail'))
 const SalesTargets   = lazy(() => import('./pages/sales/Targets'))
 const CRMContacts    = lazy(() => import('./pages/sales/Customers'))
 const SalesBook      = lazy(() => import('./pages/sales/Book'))
-const SalesBookCustomer = lazy(() => import('./pages/sales/BookCustomer'))
+// BookCustomer (the old sales-only customer page) is retired: the Book now opens the
+// canonical Customer 360 at /sales/book/:cif. File kept on disk in case its sales-specific
+// framing is folded into C360 later.
 const TaskModal      = lazy(() => import('./components/TaskModal'))
 const ScriptsDrawer  = lazy(() => import('./components/ScriptsDrawer'))
 const SalesLeads     = lazy(() => import('./pages/sales/Leads'))
+const SalesTeams     = lazy(() => import('./pages/sales/Teams'))
 const CRMContactDetail = lazy(() => import('./pages/sales/ContactDetail'))
 const ContactProfile   = lazy(() => import('./pages/contacts/ContactProfile'))
 const CustomerDirectory = lazy(() => import('./pages/directory/Customers'))
@@ -93,6 +107,7 @@ const CRMTasks       = lazy(() => import('./pages/sales/Tasks'))
 const LOSQueue         = lazy(() => import('./pages/los/Queue'))
 const LOSNewApp        = lazy(() => import('./pages/los/NewApplication'))
 const LOSAppDetail     = lazy(() => import('./pages/los/ApplicationDetail'))
+const LOSMyApprovals   = lazy(() => import('./pages/los/MyApprovals'))
 
 // Mobile App & Blink Card
 const MobileAppDashboard = lazy(() => import('./pages/mobile/Dashboard'))
@@ -103,32 +118,31 @@ const CollectionsOverview  = lazy(() => import('./pages/collections/Overview'))
 const CollectionsQueue     = lazy(() => import('./pages/collections/Queue'))
 const CollectionsPromises  = lazy(() => import('./pages/collections/Promises'))
 const CollectionsPlans     = lazy(() => import('./pages/collections/RepaymentPlans'))
-const CollectionsWriteoffs    = lazy(() => import('./pages/collections/WriteoffQueue'))
+const CollectionsWriteoffs    = lazy(() => import('./pages/collections/Writeoffs')) // merged Approvals + Requests (tabs)
 const CollectionsPortfolio    = lazy(() => import('./pages/collections/Portfolio'))
+const CollectionsPaymentTiers = lazy(() => import('./pages/collections/PaymentTiers'))
+const CollectionsDueSchedule  = lazy(() => import('./pages/collections/DueSchedule'))
 const CollectionsAccountDetail = lazy(() => import('./pages/collections/AccountDetail'))
-const CollectionsWoRequests   = lazy(() => import('./pages/collections/WriteoffRequests'))
 const CollectionsRecoveryPmts = lazy(() => import('./pages/collections/RecoveryPaymentApprovals'))
+const CollectionPaymentApprovals = lazy(() => import('./pages/collections/CollectionPaymentApprovals'))
 const CollectionsWatchlist    = lazy(() => import('./pages/collections/Watchlist'))
-const CollectionsActivityLog  = lazy(() => import('./pages/collections/ActivityLog'))
-const RecoveryActivityLog     = lazy(() => import('./pages/recovery/ActivityLog'))
+const CollectionsSupervisor   = lazy(() => import('./pages/collections/Supervisor'))
 const CreditAuditTrail        = lazy(() => import('./pages/compliance/CreditAuditTrail'))
 
 // Risk
 const RiskMyDashboard   = lazy(() => import('./pages/risk/MyDashboard'))
+const RiskSupervisor    = lazy(() => import('./pages/risk/Supervisor'))
 const RiskOverview      = lazy(() => import('./pages/risk/Overview'))
 const RiskAppReview     = lazy(() => import('./pages/risk/AppReview'))
 const RiskPortfolio     = lazy(() => import('./pages/risk/Portfolio'))
 const RiskVintage       = lazy(() => import('./pages/risk/VintageAnalysis'))
 const RiskVintageDetail = lazy(() => import('./pages/risk/VintageDetail'))
-// Previously orphaned: both files existed and were imported nowhere, so the routes
-// below did not exist and the code was dead. CreditFile is the only implementation
-// that matches the /api/risk/credit-file contract.
 const RiskEyeScore      = lazy(() => import('./pages/risk/EyeScore'))
-const RiskCreditFile    = lazy(() => import('./pages/risk/CreditFile'))
 const RiskSectorCodes   = lazy(() => import('./pages/risk/SectorCodes'))
 
 // Recovery
 const RecoveryOverview    = lazy(() => import('./pages/recovery/Overview'))
+const RecoverySupervisor  = lazy(() => import('./pages/recovery/Supervisor'))
 const RecoveryCases       = lazy(() => import('./pages/recovery/Cases'))
 const RecoveryCaseDetail  = lazy(() => import('./pages/recovery/CaseDetail'))
 const RecoveryLegal       = lazy(() => import('./pages/recovery/Legal'))
@@ -152,6 +166,9 @@ const HelpdeskEscalations = lazy(() => import('./pages/helpdesk/Escalations'))
 const HelpdeskTicketDetail = lazy(() => import('./pages/helpdesk/TicketDetail'))
 const HelpdeskNewTicket   = lazy(() => import('./pages/helpdesk/NewTicketPage'))
 const CareInbox           = lazy(() => import('./pages/care/Inbox'))
+const CareMailView        = lazy(() => import('./pages/care/MailView'))
+const CareOutbox          = lazy(() => import('./pages/care/Outbox'))
+const CareApprovals       = lazy(() => import('./pages/care/Approvals'))
 const CareHub             = lazy(() => import('./pages/care/CareHub'))
 const HelpdeskSupervisor  = lazy(() => import('./pages/helpdesk/Supervisor'))
 const HelpdeskCalls       = lazy(() => import('./pages/helpdesk/Calls'))
@@ -190,13 +207,14 @@ const AdminWorkflowTemplates     = lazy(() => import('./pages/admin/WorkflowTemp
 const AdminModules               = lazy(() => import('./pages/admin/Modules'))
 
 // Finance
-const FinanceMyDashboard  = lazy(() => import('./pages/finance/MyDashboard'))
 const FinanceOverview     = lazy(() => import('./pages/finance/Overview'))
 const FinanceTxns         = lazy(() => import('./pages/finance/Transactions'))
 const FinanceIncome       = lazy(() => import('./pages/finance/Income'))
 const FinanceFixedDeposits = lazy(() => import('./pages/finance/FixedDeposits'))
 const FinanceEOD          = lazy(() => import('./pages/finance/Eod'))
 const FinanceFXRates      = lazy(() => import('./pages/finance/FXRates'))
+const FinanceTreasury     = lazy(() => import('./pages/finance/Treasury'))
+const FinanceCommissions  = lazy(() => import('./pages/finance/Commissions'))
 
 // Settlements
 const SettleMyDashboard = lazy(() => import('./pages/settlements/MyDashboard'))
@@ -215,6 +233,7 @@ const SettleRuns       = lazy(() => import('./pages/settlements/Runs'))
 // Call Center
 const CallCenterQueue          = lazy(() => import('./pages/call-center/Queue'))
 const CallCenterLeads          = lazy(() => import('./pages/call-center/Leads'))
+const CallCenterForwards       = lazy(() => import('./pages/call-center/Forwards'))
 const CallCenterDNC            = lazy(() => import('./pages/call-center/DNC'))
 const CallCenterPerformance    = lazy(() => import('./pages/call-center/Performance'))
 const CallCenterVoiceSpike     = lazy(() => import('./pages/call-center/VoiceSpike'))
@@ -223,6 +242,7 @@ const CallCenterInbound        = lazy(() => import('./pages/call-center/Inbound'
 // Marketing
 const MarketingOverview    = lazy(() => import('./pages/marketing/Overview'))
 const MarketingAnalytics   = lazy(() => import('./pages/marketing/MarketingAnalytics'))
+const MobileAnalytics      = lazy(() => import('./pages/mobile/MobileAnalytics'))
 
 // Payroll
 const PayrollOverview = lazy(() => import('./pages/payroll/PayrollOverview'))
@@ -238,16 +258,11 @@ const ComplianceChecklists     = lazy(() => import('./pages/compliance/Checklist
 const ComplianceAuditTrail     = lazy(() => import('./pages/compliance/AuditTrail'))
 const CompliancePrudential     = lazy(() => import('./pages/compliance/PrudentialRatios'))
 const ComplianceDSAR           = lazy(() => import('./pages/compliance/DataSubjectRequests'))
-const ComplianceKYCExpiry   = lazy(() => import('./pages/compliance/KYCExpiry'))
 const ComplianceAMLRules    = lazy(() => import('./pages/compliance/AMLRules'))
 const ComplianceConcentration = lazy(() => import('./pages/compliance/ConcentrationRisk'))
 const ComplianceDPARegister   = lazy(() => import('./pages/compliance/DPARegister'))
-const ComplianceSOC2          = lazy(() => import('./pages/compliance/SOC2'))
-const ComplianceSOC2Detail    = lazy(() => import('./pages/compliance/SOC2ControlDetail'))
-const CompliancePentest       = lazy(() => import('./pages/compliance/PentestDashboard'))
 const CompliancePolicies      = lazy(() => import('./pages/compliance/PolicyDocuments'))
 const ComplianceBoardPack     = lazy(() => import('./pages/compliance/BoardPack'))
-const ComplianceCreditBureau  = lazy(() => import('./pages/compliance/CreditBureau'))
 const ComplianceBreach        = lazy(() => import('./pages/compliance/BreachIncidents'))
 
 // HR
@@ -268,24 +283,28 @@ function AgentPresence({ enabled }: { enabled: boolean }) {
 
 function homeFor(role: string): string {
   const map: Record<string, string> = {
-    md: '/', coo: '/', cfo: '/', cmo: '/', executive: '/',
-    admin: '/', management: '/', head_ops: '/', head_it: '/admin/overview',
-    sales_officer: '/sales',       sales_head: '/sales',   head_sales: '/sales',
-    bd_officer: '/bd',             bd_head: '/bd',
-    risk_officer: '/operations/risk', risk_head: '/operations/risk',
+    // Management → the Executive Overview (their dashboard). exec_overview isn't listed
+    // (it's in the MGMT set, so the "/" route shows it Overview directly).
+    md: '/', coo: '/', cfo: '/', cmo: '/', admin: '/', head_ops: '/',
+    // Officers/agents land on their My Dashboard (personal work station); heads/supervisors
+    // land on their module Overview (their command-centre). The Supervisor/Team sub-pages
+    // stay reachable from the nav — they're just not the landing. Each target is a page the
+    // role can access, so RequireAccess won't bounce it. Only live backend roles are listed
+    // (legacy/remapped roles pruned); an unknown role falls to '/' and the "/" route shows
+    // it Overview rather than looping.
+    sales_officer: '/sales/my-dashboard', sales_head: '/sales',
+    bd_officer: '/bd/my-dashboard', bd_head: '/bd',
+    risk_officer: '/operations/risk/my-dashboard', risk_head: '/operations/risk',
     finance_officer: '/finance',   finance_head: '/finance',
-    cards_ops_officer: '/cards',   cards_ops_head: '/cards',
-    collections_agent: '/collections', collections_head: '/collections',
-    head_collections: '/collections',
-    recovery_agent: '/recovery',   recovery_head: '/recovery',
-    head_recovery: '/recovery',
+    cards_agent: '/cards/my-queue', cards_head: '/cards',
+    collections_agent: '/collections-ops/agent', collections_head: '/collections',
+    recovery_agent: '/recovery-ops/agent', recovery_head: '/recovery',
     call_center_agent: '/helpdesk/my-dashboard', call_center_head: '/helpdesk',
-    compliance_officer: '/compliance', compliance_head: '/compliance',
-    internal_control_head: '/compliance',
+    care_agent: '/care', care_head: '/care',
+    compliance_officer: '/compliance/my-dashboard', compliance_head: '/compliance',
     it_admin: '/admin/overview',
-    bi_analyst: '/reports',        bi_head: '/reports',
-    settlement_officer: '/settlements', settlement_head: '/settlements',
-    payroll_officer: '/payroll',   payroll_manager: '/payroll',
+    bi_analyst: '/reports/my-dashboard', bi_head: '/reports',
+    settlement_officer: '/settlements/my-dashboard', settlement_head: '/settlements',
   }
   return map[role] ?? '/'
 }
@@ -308,19 +327,23 @@ function RequireAccess({ page, user, children }: { page: string | string[]; user
   return <>{children}</>
 }
 
+// ReportsHome resolves the "/reports" landing to a page the signed-in user can
+// actually open. The BI team lands on the Report Builder; the KPI audience (heads
+// + management, who lack the 'reports' page) lands on the KPI Tracker; anyone else
+// who reached here falls back to Growth. This is what lets KPI Tracker live inside
+// the Reports & BI module without stranding the roles that can't see the builder.
+function ReportsHome({ user }: { user: AuthUser }) {
+  if (hasPage('reports', user)) return <Navigate to="/reports/builder" replace />
+  if (hasPage('kpi_dashboard', user)) return <Navigate to="/reports/kpi" replace />
+  return <Navigate to="/growth" replace />
+}
+
 // ── Page shell utilities ──────────────────────────────────────────────────────
 
 function PageLoader() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-      <div style={{
-        width: 26, height: 26, borderRadius: '50%',
-        border: '2.5px solid var(--bdr)',
-        borderTopColor: 'var(--nav-dot)',
-        animation: 'spin 0.7s linear infinite',
-      }} />
-    </div>
-  )
+  // A page-shaped skeleton (faux header + body) instead of a lone spinner, so a cold
+  // route load reserves the layout rather than flashing empty then popping the page in.
+  return <RouteSkeleton />
 }
 
 function PageFade({ children }: { children: ReactNode }) {
@@ -341,7 +364,7 @@ class PageErrorBoundary extends Component<{ children: ReactNode }, { err: string
   static getDerivedStateFromError(e: Error) { return { err: e.message } }
   render() {
     if (this.state.err) return (
-      <div style={{ padding: 32, color: 'var(--nav-dot)', fontFamily: 'Sora, sans-serif' }}>
+      <div style={{ padding: 32, color: 'var(--nav-dot)', fontFamily: 'var(--font-sans)' }}>
         <p style={{ fontWeight: 600, marginBottom: 8 }}>Page error</p>
         <p style={{ fontSize: 13, opacity: 0.8, marginBottom: 16 }}>{this.state.err}</p>
         <button onClick={() => { this.setState({ err: null }); window.location.reload() }}
@@ -378,7 +401,6 @@ const MODULE_TITLES: [string, string, string][] = [
   ['/settlements',     'Finance',           'Settlements'],
   ['/compliance',      'Compliance',        'Compliance'],
   ['/reports',         'Analytics',         'Reports & BI'],
-  ['/bi',              'Analytics',         'Reports & BI'],
   ['/statements',      'Analytics',         'Statements'],
   ['/core-banking',              'Analytics',  'Core Banking'],
   ['/statements/credit-cards',  'Analytics',  'CC Statements'],
@@ -399,7 +421,7 @@ function HeadTitles() {
   const { crumb, title } = useModuleTitle()
   return (
     <div style={{ flexShrink: 0 }}>
-      {crumb && (
+      {crumb && crumb !== title && (
         <div style={{ fontSize: 11, color: 'var(--txt3)', marginBottom: 2 }}>
           {crumb}
         </div>
@@ -597,14 +619,14 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
           <div style={{
             padding: '12px 16px', borderBottom: '1px solid var(--bdr)',
           }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: "'Sora', sans-serif" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: "var(--font-sans)" }}>
               Pending approvals
             </span>
           </div>
 
           <div style={{ maxHeight: 380, overflowY: 'auto' }}>
             {items.length === 0 ? (
-              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13, fontFamily: "'Sora', sans-serif" }}>
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13, fontFamily: "var(--font-sans)" }}>
                 No pending approvals
               </div>
             ) : items.map(item => {
@@ -613,7 +635,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
               <div key={key} style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
                 {acted[key] ? (
                   <div style={{
-                    fontSize: 12.5, fontWeight: 600, fontFamily: "'Sora', sans-serif",
+                    fontSize: 12.5, fontWeight: 600, fontFamily: "var(--font-sans)",
                     color: acted[key] === 'approved' ? GREEN : RED,
                   }}>
                     {acted[key] === 'approved' ? '✓ Approved' : '✗ Rejected'}
@@ -621,10 +643,10 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                   </div>
                 ) : (
                   <>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 4, fontFamily: "'Sora', sans-serif", lineHeight: 1.3 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 4, fontFamily: "var(--font-sans)", lineHeight: 1.3 }}>
                       {item.title}
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginBottom: 10, fontFamily: "'Sora', sans-serif", lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginBottom: 10, fontFamily: "var(--font-sans)", lineHeight: 1.4 }}>
                       {item.description}
                       {item.amount_kobo != null && <> · <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtKobo(item.amount_kobo)}</span></>}
                       {item.requested_by && <> · raised by {item.requested_by}</>}
@@ -635,7 +657,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                         style={{
                           padding: '4px 14px', borderRadius: 6, border: 'none',
                           background: GREEN, color: '#fff', fontSize: 12, fontWeight: 600,
-                          cursor: 'pointer', fontFamily: "'Sora', sans-serif",
+                          cursor: 'pointer', fontFamily: "var(--font-sans)",
                         }}
                       >
                         Approve
@@ -645,7 +667,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
                         style={{
                           padding: '4px 14px', borderRadius: 6,
                           border: '1px solid var(--bdr)', background: 'transparent',
-                          color: 'var(--txt2)', fontSize: 12, cursor: 'pointer', fontFamily: "'Sora', sans-serif",
+                          color: 'var(--txt2)', fontSize: 12, cursor: 'pointer', fontFamily: "var(--font-sans)",
                         }}
                       >
                         Reject
@@ -661,7 +683,7 @@ function ApprovalsDropdown({ user }: { user: AuthUser }) {
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--bdr)' }}>
             <button
               onClick={() => { setOpen(false); navigate('/approvals') }}
-              style={{ fontSize: 12, color: BLUE, border: 'none', background: 'none', cursor: 'pointer', fontFamily: "'Sora', sans-serif", padding: 0, fontWeight: 500 }}
+              style={{ fontSize: 12, color: BLUE, border: 'none', background: 'none', cursor: 'pointer', fontFamily: "var(--font-sans)", padding: 0, fontWeight: 500 }}
             >
               View all approvals
             </button>
@@ -757,7 +779,7 @@ function C360Bar({ onPick }: { onPick: (r: C360Hit) => void }) {
         placeholder="Customer 360: name, CIF, phone or email…"
         style={{
           border: 'none', outline: 'none', background: 'none', flex: 1,
-          fontFamily: "'Sora', sans-serif", fontSize: 12.5, color: 'var(--txt)',
+          fontFamily: "var(--font-sans)", fontSize: 12.5, color: 'var(--txt)',
           minWidth: 0,
         }}
       />
@@ -809,7 +831,6 @@ function TopBar({
   onToggleDark: () => void
   onPickC360:  (r: C360Hit) => void
 }) {
-  const navigate = useNavigate()
   return (
     <div style={{
       flexShrink: 0,
@@ -828,6 +849,7 @@ function TopBar({
       {/* Right: icon buttons + primary action */}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
         <ThemeToggle dark={dark} onToggle={onToggleDark} />
+        <AssistantLauncher />
         <ApprovalsDropdown user={user} />
         <NotificationBell />
       </div>
@@ -905,16 +927,26 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
   const role = user.role as string
 
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true }}>
      <RealtimeProvider>
       <div style={{
         display: 'flex', height: '100vh', overflow: 'hidden',
         ...(dark ? DARK : LIGHT),
         background: 'var(--bg)',
-        fontFamily: "'Sora', sans-serif",
+        fontFamily: "var(--font-sans)",
       }}>
         <Toaster richColors position="top-right" />
         <AgentPresence enabled={role === 'call_center_agent' || role === 'call_center_head'} />
+        <CallbackReminder enabled={role === 'call_center_agent' || role === 'call_center_head'} />
+        {(() => {
+          const careRole = ['call_center_agent', 'call_center_head', 'care_agent', 'care_head'].includes(role || '')
+          return careRole ? (
+            <>
+              <SLAReminder enabled offset={130} />
+              <EscalationReminder enabled offset={260} />
+            </>
+          ) : null
+        })()}
 
         {/* Sidebar */}
         <Sidebar user={user} onLogout={onLogout} onCmdK={() => setSearchOpen(true)} enabledModules={enabledModules} />
@@ -936,14 +968,15 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
               <PageFade>
                 <Routes>
                   <Route path="/" element={
-                    MGMT.has(role) ? <Overview /> : <Navigate to={homeFor(role)} replace />
+                    (MGMT.has(role) || homeFor(role) === '/') ? <Overview /> : <Navigate to={homeFor(role)} replace />
                   } />
 
                   {/* Executive department drill-downs */}
                   <Route path="/executive/cards"        element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecCards /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/executive/finance"      element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecFinance /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/sales"        element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecSales /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/collections"  element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecCollections /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/executive/recovery"     element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecRecovery /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/executive/growth"       element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecGrowth /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/risk"         element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecRisk /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/settlements"  element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecSettlements /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/executive/fixed-deposits" element={<RequireAccess page="executive" user={user}><PageErrorBoundary><ExecFixedDeposits /></PageErrorBoundary></RequireAccess>} />
@@ -952,7 +985,8 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                       'cards' is accepted too since the feed is card activity. */}
                   <Route path="/settlements/interswitch"           element={<RequireAccess page={['settlement','cards']} user={user}><PageErrorBoundary><Interswitch /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/settlements/interswitch/half-year" element={<RequireAccess page={['settlement','cards']} user={user}><PageErrorBoundary><InterswitchReport /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/settlements/interswitch/import"    element={<RequireAccess page={['settlement','cards']} user={user}><PageErrorBoundary><InterswitchImport /></PageErrorBoundary></RequireAccess>} />
+                  {/* Re-homed under the central Data Management hub */}
+                  <Route path="/settlements/interswitch/import"    element={<Navigate to="/reports/uploads/interswitch" replace />} />
 
                   <Route path="/approvals" element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
 
@@ -982,12 +1016,16 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   {/* The account officer's book. /sales/accounts is kept as a redirect
                       so existing links and bookmarks do not break. */}
                   <Route path="/sales/book"          element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><SalesBook /></PageErrorBoundary></RequireAccess>} />
-                  {/* Sales keeps its own customer view. Linking to /customers/:cif sent
-                      the officer into the Contact Centre's ticket-first page and moved the
-                      sidebar out of Sales on every row click. */}
-                  <Route path="/sales/book/:cif"     element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><SalesBookCustomer /></PageErrorBoundary></RequireAccess>} />
+                  {/* The Book now opens the canonical Customer 360 (ContactProfile) — one
+                      customer page for the whole company, no parallel sales-only view to
+                      keep in sync. It is mounted HERE at /sales/book/:cif (not linked to
+                      /customers/:cif) so the sidebar stays in Sales and the officer isn't
+                      bounced into the Contact Centre section on every row click. C360 now
+                      opens on its Overview tab, so the old "ticket-first" objection is moot. */}
+                  <Route path="/sales/book/:cif"     element={<RequireAccess page={['customer360','crm_contacts']} user={user}><PageErrorBoundary><ContactProfile /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/accounts"      element={<Navigate to="/sales/book" replace />} />
                   <Route path="/sales/leads"         element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><SalesLeads /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/sales/teams"         element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><SalesTeams /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/customers"     element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><CRMContacts /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/customers/:id" element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><CRMContactDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/contacts/:id"        element={<RequireAccess page="crm_contacts" user={user}><PageErrorBoundary><ContactProfile /></PageErrorBoundary></RequireAccess>} />
@@ -1000,11 +1038,25 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/sales/applications"     element={<RequireAccess page="loans" user={user}><PageErrorBoundary><LOSQueue /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/applications/new" element={<RequireAccess page="loans" user={user}><PageErrorBoundary><LOSNewApp /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/sales/applications/:id" element={<RequireAccess page="loans" user={user}><PageErrorBoundary><LOSAppDetail /></PageErrorBoundary></RequireAccess>} />
+                  {/* Role-adaptive approvals inbox + shared detail route reachable by every
+                      LOS action role (Sales/Risk/Finance/Ops), so Finance and Card Ops — who
+                      hold the los_finance and los_booking action pages but not the base los
+                      page — can open and act on applications. The per-transition check still
+                      runs server-side. */}
+                  <Route path="/loans/approvals" element={<RequireAccess page={['los','los_all','los_risk_review','los_risk_head','los_finance','los_finance_approve','los_booking']} user={user}><PageErrorBoundary><LOSMyApprovals /></PageErrorBoundary></RequireAccess>} />
+                  {/* los_view is compliance's read-only sight of a credit file. It is
+                      accepted here and on the LOS GET routes only; every write route
+                      still demands one of the origination pages. */}
+                  <Route path="/applications/:id" element={<RequireAccess page={['los','los_all','los_risk_review','los_risk_head','los_finance','los_finance_approve','los_booking','los_view']} user={user}><PageErrorBoundary><LOSAppDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/loans/portfolio" element={<Navigate to="/operations/risk/portfolio" replace />} />
 
                   {/* Marketing */}
                   <Route path="/marketing/overview"    element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><MarketingOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/marketing/analytics"   element={<RequireAccess page="campaigns" user={user}><PageErrorBoundary><MarketingAnalytics /></PageErrorBoundary></RequireAccess>} />
+                  {/* Mobile Analytics — its own module in the Analytics area; one page per mobile app */}
+                  <Route path="/mobile-analytics"       element={<Navigate to="/mobile-analytics/blink" replace />} />
+                  <Route path="/mobile-analytics/blink" element={<RequireAccess page={['campaigns','reports','executive']} user={user}><PageErrorBoundary><MobileAnalytics product="blink" appName="Blink" /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mobile-analytics/app"   element={<RequireAccess page={['campaigns','reports','executive']} user={user}><PageErrorBoundary><MobileAnalytics product="app" appName="Mobile App" /></PageErrorBoundary></RequireAccess>} />
                   {/* Retired standalone pages — now tabs on /marketing/analytics */}
                   <Route path="/marketing/attribution" element={<Navigate to="/marketing/analytics?tab=attribution" replace />} />
                   <Route path="/marketing/funnel"      element={<Navigate to="/marketing/analytics?tab=funnel" replace />} />
@@ -1020,6 +1072,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/call-center"                    element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterQueue /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/queue"              element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterQueue /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/leads"              element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterLeads /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/call-center/forwards"           element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterForwards /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/dnc"                element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterDNC /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/performance"        element={<RequireAccess page="call_center_stats" user={user}><PageErrorBoundary><CallCenterPerformance /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/voice-spike"        element={<RequireAccess page="call_center_stats" user={user}><PageErrorBoundary><CallCenterVoiceSpike /></PageErrorBoundary></RequireAccess>} />
@@ -1042,6 +1095,9 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/helpdesk/new"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskNewTicket /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/care"                    element={<RequireAccess page="care" user={user}><PageErrorBoundary><CareHub /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/care/inbox"              element={<RequireAccess page="care" user={user}><PageErrorBoundary><CareInbox /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/care/mail/:id"           element={<RequireAccess page="care" user={user}><PageErrorBoundary><CareMailView /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/care/outbox"             element={<RequireAccess page="care" user={user}><PageErrorBoundary><CareOutbox /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/care/approvals"          element={<RequireAccess page="care" user={user}><PageErrorBoundary><CareApprovals /></PageErrorBoundary></RequireAccess>} />
                   {/* Supervisor is now a tab in the Care hub — keep the old path working. */}
                   <Route path="/care/supervisor"         element={<Navigate to="/care?tab=supervisor" replace />} />
                   <Route path="/helpdesk/calls"          element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskCalls /></PageErrorBoundary></RequireAccess>} />
@@ -1053,10 +1109,16 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/cbn-complaints" element={<RequireAccess page="cbn_reports" user={user}><PageErrorBoundary><HelpdeskCBNReport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/helpdesk/:id"            element={<RequireAccess page="helpdesk" user={user}><PageErrorBoundary><HelpdeskTicketDetail /></PageErrorBoundary></RequireAccess>} />
 
+                  {/* Customer Feedback & Surveys */}
+                  <Route path="/feedback"                    element={<RequireAccess page="surveys" user={user}><PageErrorBoundary><Surveys /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/feedback/surveys/:id"        element={<RequireAccess page="surveys" user={user}><PageErrorBoundary><SurveyResults /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/feedback/surveys/:id/edit"   element={<RequireAccess page="surveys" user={user}><PageErrorBoundary><SurveyBuilder /></PageErrorBoundary></RequireAccess>} />
+
                   {/* Cards */}
                   <Route path="/cards"              element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/credit-portfolio" element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardCreditPortfolio /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/cards/cycle-import" element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardCycleImport /></PageErrorBoundary></RequireAccess>} />
+                  {/* Re-homed under the central Data Management hub */}
+                  <Route path="/cards/cycle-import" element={<Navigate to="/reports/uploads/card-cycle" replace />} />
                   <Route path="/cards/at-risk" element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardAtRisk /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/trends"       element={<RequireAccess page="card_trends" user={user}><PageErrorBoundary><CardTrends /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/management"   element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMgmt /></PageErrorBoundary></RequireAccess>} />
@@ -1072,35 +1134,42 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* Operations — Risk */}
                   <Route path="/operations/risk/my-dashboard"      element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskMyDashboard /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/supervisor"        element={<RequireAccess page={['risk_head','risk_all']} user={user}><PageErrorBoundary><RiskSupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk"                   element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskOverview /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/applications"      element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskAppReview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/operations/risk/applications/cif/:cif" element={<RequireAccess page={['credit_portfolio','active_loan_book']} user={user}><PageErrorBoundary><LOSAppDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/applications/:id"  element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><LOSAppDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/portfolio"         element={<RequireAccess page={['credit_portfolio','active_loan_book']} user={user}><PageErrorBoundary><RiskPortfolio /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/vintage"           element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintage /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/vintage/:month"    element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskVintageDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/eye-scores"        element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskEyeScore /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/operations/risk/credit-file"       element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskCreditFile /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/operations/risk/sector-codes"      element={<RequireAccess page="credit_portfolio" user={user}><PageErrorBoundary><RiskSectorCodes /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Collections */}
                   <Route path="/collections"                 element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/supervisor"      element={<RequireAccess page="collections_assign" user={user}><PageErrorBoundary><CollectionsSupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/queue"           element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsQueue /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/promises"        element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPromises /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/repayment-plans" element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPlans /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/writeoffs"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWriteoffs /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/portfolio"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPortfolio /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/payment-tiers"        element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsPaymentTiers /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/due-schedule"         element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsDueSchedule /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/accounts/:cif"        element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsAccountDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/collections/watchlist"            element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWatchlist /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/collections/writeoff-requests"    element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsWoRequests /></PageErrorBoundary></RequireAccess>} />
+                  {/* Write-off Requests folded into the tabbed Write-offs page; keep the old URL working. */}
+                  <Route path="/collections/writeoff-requests"    element={<Navigate to="/collections/writeoffs" replace />} />
                   <Route path="/collections/recovery-approvals"   element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><CollectionsRecoveryPmts /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/collections/activity-log"         element={<RequireAccess page="collections" user={user}><PageErrorBoundary><CollectionsActivityLog /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/collections/payment-approvals"    element={<RequireAccess page="collections_payment_approve" user={user}><PageErrorBoundary><CollectionPaymentApprovals /></PageErrorBoundary></RequireAccess>} />
+                  {/* Collections activity log retired — its feed now lives on the Supervisor console, Customer 360 and Account Detail. */}
+                  <Route path="/collections/activity-log"         element={<Navigate to="/collections/supervisor" replace />} />
 
                   {/* Recovery */}
                   <Route path="/recovery"                element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryOverview /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/recovery/supervisor"     element={<RequireAccess page="recovery_assign" user={user}><PageErrorBoundary><RecoverySupervisor /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/cases"          element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryCases /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/cases/:id"      element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryCaseDetail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/legal"          element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryLegal /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/recovery/activity-log"   element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryActivityLog /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/recovery/debt-sales"     element={<RequireAccess page="recovery" user={user}><PageErrorBoundary><RecoveryDebtSale /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Collections Ops */}
@@ -1130,15 +1199,18 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/settlements/runs"                     element={<RequireAccess page={['settlement','reconciliation']} user={user}><PageErrorBoundary><SettleRuns /></PageErrorBoundary></RequireAccess>} />
 
                   {/* Finance */}
-                  <Route path="/finance/my-dashboard"       element={<RequireAccess page={['income','finance']} user={user}><PageErrorBoundary><FinanceMyDashboard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance"                    element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceOverview /></PageErrorBoundary></RequireAccess>} />
+                  {/* Retired: finance My Dashboard folded into Overview + End of Day */}
+                  <Route path="/finance/my-dashboard"       element={<Navigate to="/finance" replace />} />
                   <Route path="/finance/transactions"       element={<RequireAccess page="transactions" user={user}><PageErrorBoundary><FinanceTxns /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/income"             element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceIncome /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/treasury"           element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceTreasury /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/finance/commissions"        element={<RequireAccess page="income" user={user}><PageErrorBoundary><FinanceCommissions /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/deposits"                   element={<RequireAccess page="fixed_deposit" user={user}><PageErrorBoundary><FinanceFixedDeposits /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/finance/eod"                element={<RequireAccess page="eod" user={user}><PageErrorBoundary><FinanceEOD /></PageErrorBoundary></RequireAccess>} />
                   {/* Retired standalone FD pages — now tabs on /deposits */}
                   <Route path="/finance/fixed-deposit"      element={<Navigate to="/deposits?tab=register" replace />} />
-                  <Route path="/finance/fd-maturity"        element={<Navigate to="/deposits?tab=maturity" replace />} />
+                  <Route path="/finance/fd-maturity"        element={<Navigate to="/deposits?tab=overview" replace />} />
                   <Route path="/finance/fd-accrual"         element={<Navigate to="/deposits?tab=accrual" replace />} />
                   <Route path="/finance/fx-rates"           element={<RequireAccess page="fx_rates" user={user}><PageErrorBoundary><FinanceFXRates /></PageErrorBoundary></RequireAccess>} />
 
@@ -1151,17 +1223,12 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/compliance/checklists"  element={<RequireAccess page="compliance_checklists" user={user}><PageErrorBoundary><ComplianceChecklists /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/audit-trail"        element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><ComplianceAuditTrail /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/credit-audit-trail" element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><CreditAuditTrail /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/compliance/kyc-expiry"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceKYCExpiry /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/aml-rules"    element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceAMLRules /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/prudential"      element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><CompliancePrudential /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/dsar"            element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceDSAR /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/concentration"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceConcentration /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/dpa-register"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceDPARegister /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/compliance/soc2"           element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><ComplianceSOC2 /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/compliance/soc2/:id"       element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><ComplianceSOC2Detail /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/compliance/pentest"        element={<RequireAccess page="audit_trail" user={user}><PageErrorBoundary><CompliancePentest /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/policies"       element={<RequireAccess page="compliance_checklists" user={user}><PageErrorBoundary><CompliancePolicies /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/compliance/credit-bureau"   element={<RequireAccess page="watch_list" user={user}><PageErrorBoundary><ComplianceCreditBureau /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/breach-incidents" element={<RequireAccess page="compliance_all" user={user}><PageErrorBoundary><ComplianceBreach /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/compliance/board-pack"      element={<RequireAccess page="compliance_all" user={user}><PageErrorBoundary><ComplianceBoardPack /></PageErrorBoundary></RequireAccess>} />
 
@@ -1173,13 +1240,20 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* Intelligence */}
                   <Route path="/reports/my-dashboard" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsMyDashboard /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/reports"        element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsLibrary /></PageErrorBoundary></RequireAccess>} />
+                  {/* /reports resolves per-role (builder for BI, KPI for heads/mgmt);
+                      the retired /bi/* URLs redirect to the builder. */}
+                  <Route path="/reports"        element={<ReportsHome user={user} />} />
                   <Route path="/reports/kpi"    element={<RequireAccess page="kpi_dashboard" user={user}><PageErrorBoundary><ReportsKPI /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/reports/export" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsExport /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/bi"             element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIOverview /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/bi/builder"     element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIBuilder /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/bi/builder/:id" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIBuilder /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/bi/scheduled"   element={<RequireAccess page="reports" user={user}><PageErrorBoundary><BIScheduled /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/behaviour" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsBehaviour /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/uploads" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><ReportsUploads /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/uploads/card-cycle" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><CardCycleImport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/uploads/interswitch" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><InterswitchImport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/uploads/settlement" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><SettlementImport /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/builder" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsBuilder /></PageErrorBoundary></RequireAccess>} />
+                  {/* Growth & Activity — registrations / transactions / churn monitor. Open to
+                      the operating teams plus BI and management (mirrors the backend gate). */}
+                  <Route path="/growth" element={<RequireAccess page={['kpi_dashboard','reports','executive']} user={user}><PageErrorBoundary><GrowthActivity /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/bi/*"           element={<Navigate to="/reports/builder" replace />} />
                   <Route path="/core-banking"               element={<RequireAccess page="core-banking" user={user}><PageErrorBoundary><CoreBanking /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/statements/credit-cards"    element={<RequireAccess page="statements" user={user}><PageErrorBoundary><CCStatements /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/statements/credit-cards/new" element={<RequireAccess page="statements" user={user}><PageErrorBoundary><CCStatementNew /></PageErrorBoundary></RequireAccess>} />
@@ -1210,6 +1284,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/mail/sent"    element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/mail/drafts"  element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailInbox /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/mail/compose" element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailCompose /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/mail/outbox"  element={<RequireAccess page="mail" user={user}><PageErrorBoundary><MailOutbox /></PageErrorBoundary></RequireAccess>} />
                   {/* Signature moved to Settings → Email Signature. Kept as a redirect
                       because it was a sidebar entry, so it will be in bookmarks. */}
                   <Route path="/mail/signature" element={<Navigate to="/settings?tab=signature" replace />} />
@@ -1285,7 +1360,7 @@ function ForceChangePassword({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', fontFamily: "'Sora', sans-serif" }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', fontFamily: "var(--font-sans)" }}>
       <div style={{ background: 'var(--card)', borderRadius: 20, padding: 32, maxWidth: 360, width: '100%', margin: '0 16px', boxShadow: 'var(--card-shadow)' }}>
         <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', marginBottom: 6 }}>Set your password</h1>
         <p style={{ fontSize: 13, color: 'var(--txt2)', marginBottom: 24 }}>Please set a new password before continuing.</p>
@@ -1371,6 +1446,14 @@ export default function App() {
   }, [])
 
   const handleLogin  = useCallback((u: AuthUser) => {
+    // A fresh login must land on the user's OWN home (their My Dashboard / Supervisor
+    // page), regardless of whatever URL the tab was left on. Without this the router
+    // mounts on the browser's restored last-visited path and homeFor never runs — it
+    // only fires on the "/" route — which is why people were landing back on the last
+    // page (e.g. a portfolio) instead of their dashboard. Set the path before setUser
+    // so the router mounts straight onto it. (A plain reload of a deep page is
+    // unaffected: that path is restored from the token, not via handleLogin.)
+    try { window.history.replaceState(null, '', homeFor(u.role as string)) } catch { /* noop */ }
     setUser(u)
     toast.success(`Welcome back, ${u.name.split(' ')[0]}`, { description: roleLabel(u.role as string) })
   }, [])
@@ -1383,9 +1466,20 @@ export default function App() {
 
   if (typeof window !== 'undefined' && window.location.pathname.startsWith('/csat/')) {
     return (
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true }}>
         <Suspense fallback={null}>
           <Routes><Route path="/csat/:token" element={<CSATSurvey />} /></Routes>
+        </Suspense>
+      </BrowserRouter>
+    )
+  }
+
+  // Public customer survey — no app shell, no auth, opened from an email link.
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/s/')) {
+    return (
+      <BrowserRouter future={{ v7_startTransition: true }}>
+        <Suspense fallback={null}>
+          <Routes><Route path="/s/:token" element={<PublicSurvey />} /></Routes>
         </Suspense>
       </BrowserRouter>
     )
