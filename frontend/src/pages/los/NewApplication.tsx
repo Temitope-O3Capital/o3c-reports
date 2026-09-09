@@ -22,6 +22,7 @@ interface Employment {
   employer:         string
   job_title:        string
   monthly_salary:   string  // display in naira, sent as kobo
+  monthly_obligation: string // existing monthly debt service, naira; sent as kobo
   employment_type:  string
   start_date:       string
 }
@@ -44,7 +45,7 @@ const INIT: FormData = {
     full_name: '', dob: '', gender: '', phone: '', email: '', bvn: '', nin: '', address: '',
   },
   employment: {
-    employer: '', job_title: '', monthly_salary: '', employment_type: '', start_date: '',
+    employer: '', job_title: '', monthly_salary: '', monthly_obligation: '', employment_type: '', start_date: '',
   },
   loan: {
     product_type: '', amount: '', tenor_months: '', purpose: '',
@@ -107,14 +108,14 @@ const inputStyle: React.CSSProperties = {
   width: '100%', height: 38, padding: '0 12px',
   border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
   fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
 }
 
 const textareaStyle: React.CSSProperties = {
   width: '100%', padding: '10px 12px',
   border: '1px solid var(--input-bdr)', borderRadius: 8,
   fontSize: 13.5, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', resize: 'vertical',
+  fontFamily: "var(--font-sans)", outline: 'none', resize: 'vertical',
   boxSizing: 'border-box', minHeight: 80,
 }
 
@@ -202,6 +203,20 @@ function Step2({ data, onChange }: { data: Employment; onChange: (d: Employment)
           min={0}
         />
       </Field>
+      <Field label="Existing Monthly Repayments (₦)">
+        {/* Total of any loans the applicant is already servicing. Phoenix
+            receives this as monthly_obligation_kobo and it is the direct
+            input to DTI — left blank it reads as zero debt, which
+            overstates affordability. */}
+        <input
+          type="number"
+          style={inputStyle}
+          value={data.monthly_obligation}
+          onChange={set('monthly_obligation')}
+          placeholder="e.g. 40000 — leave blank if none"
+          min={0}
+        />
+      </Field>
       <Field label="Employment Type" required>
         <select style={inputStyle} value={data.employment_type} onChange={set('employment_type')}>
           <option value="">Select type</option>
@@ -226,10 +241,10 @@ function Step3({ data, onChange }: { data: LoanRequest; onChange: (d: LoanReques
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 20px' }}>
       <Field label="Product Type" required>
         <select style={inputStyle} value={data.product_type} onChange={set('product_type')}>
-          <option value="">Select product</option>
-          <option value="salary_loan">Salary Loan</option>
-          <option value="business_loan">Business Loan</option>
-          <option value="personal_loan">Personal Loan</option>
+            <option value="">Select product</option>
+            <option value="salary_loan">Salary Loan</option>
+            <option value="business_loan">Business Loan</option>
+            <option value="credit_card">Credit Card</option>
         </select>
       </Field>
       <Field label="Amount Requested (₦)" required>
@@ -505,6 +520,9 @@ export default function NewApplication() {
         employment_type:       form.employment.employment_type,
         employment_start_date: form.employment.start_date,
         monthly_income_kobo:   Math.round(Number(form.employment.monthly_salary) * 100),
+        monthly_obligation_kobo: form.employment.monthly_obligation
+          ? Math.round(Number(form.employment.monthly_obligation) * 100)
+          : 0,
         // Step 3 — loan request
         product_type:          form.loan.product_type,
         amount_requested_kobo: Math.round(Number(form.loan.amount) * 100),

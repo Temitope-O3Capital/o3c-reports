@@ -1,14 +1,17 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Page, SectionCard, Modal, ConfirmModal, Spinner, Sk,
+  Page, SectionCard, Modal, ConfirmModal, Spinner, Sk, ErrBanner, KpiCard,
 } from '../../components/UI'
 import { apiFetch, apiPut, apiPost, apiDelete } from '../../lib/api'
-import { fmtKobo, fmtDatetime, fmtDate } from '../../lib/fmt'
-import { NAVY, RED, AMBER, GREEN, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { fmtKobo, fmtDatetime, fmtDate, fmtNum } from '../../lib/fmt'
+import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
-import { BarChart, Bar, XAxis, YAxis, Cell, Tooltip, ResponsiveContainer } from 'recharts'
+import { EBarH } from '../../components/echarts'
+import { hasPage } from '../../hooks/useAuth'
+import { canAdvance, canDecline, canRequestInfo, stageMeta, decisionMeta, syncStateMeta, isTerminalStage, STAGE_SEQUENCE } from '../../lib/losFlow'
+import CreditReport from './CreditReport'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -28,6 +31,15 @@ interface Application {
   employer:                string
   monthly_income_kobo:     number
   monthly_obligation_kobo: number | null
+  // Applicant identity and employment detail. Collected by NewApplication.tsx
+  // from the start; storable only since migration 216 added the columns.
+  bvn:                     string | null
+  nin:                     string | null
+  date_of_birth:           string | null
+  residential_address:     string | null
+  job_title:               string | null
+  employment_type:         string | null
+  employment_start_date:   string | null
   status:                  string
   stage:                   string
   decline_reason:          string | null
@@ -42,6 +54,26 @@ interface Application {
   eye_rating:              string | null
   bureau_summary:          string | null
   dti_pct:                 number | null
+  // Phoenix decisioning (populated by the webhook once Phoenix is live). Advisory —
+  // the verdict informs the human approver, it does not advance the stage.
+  decision:                string | null
+  decision_reasons:        unknown
+  decline_reason_phoenix?: string | null
+  phoenix_sync_state:      string | null
+  source_system:           string | null
+  source_lead_id:          number | null
+  lead_source:             string | null
+  // Offer & acceptance capture (capture-only; Phoenix is the system of record).
+  offer_status:            string | null
+  offered_amount_kobo:     number | null
+  offered_rate_bps:        number | null
+  offered_tenor_months:    number | null
+  offer_issued_at:         string | null
+  offer_accepted_at:       string | null
+  offer_expires_at:        string | null
+  offer_source:            string | null
+  offer_ref:               string | null
+  offer_note:              string | null
 }
 
 interface AppEvent {
@@ -198,6 +230,18 @@ function ProductPill({ product }: { product: string }) {
   )
 }
 
+// dti_pct is a Postgres numeric, and pgx hands those back as STRINGS, not
+// floats — so app.dti_pct arrives as e.g. "22.40" despite being typed number.
+// A bare `x !== null` guard therefore passes a string straight into
+// x.toFixed(), which throws "toFixed is not a function" and blanks the page.
+// This stayed hidden until Phoenix started returning decisions: before that
+// dti_pct was always NULL, the guard was false, and the branch never ran.
+function dtiOf(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '9px 0', borderBottom: '1px solid var(--bdr)' }}>
@@ -211,27 +255,22 @@ const inputStyle: React.CSSProperties = {
   width: '100%', padding: '0 12px', height: 38,
   border: '1px solid var(--input-bdr)', borderRadius: 8,
   fontSize: 13.5, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
 }
 const textareaStyle: React.CSSProperties = {
   width: '100%', padding: '10px 12px',
   border: '1px solid var(--input-bdr)', borderRadius: 8,
   fontSize: 13.5, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', resize: 'vertical',
+  fontFamily: "var(--font-sans)", outline: 'none', resize: 'vertical',
   boxSizing: 'border-box', minHeight: 90,
 }
 
 // ── Pipeline progress stepper ──────────────────────────────────────────────────
 
-const STEPPER_STAGES = [
-  { stage: 'draft',               label: 'Draft' },
-  { stage: 'submitted',           label: 'Submitted' },
-  { stage: 'document_collection', label: 'Documents' },
-  { stage: 'risk_review',         label: 'Risk Review' },
-  { stage: 'pending_conditions',  label: 'Conditions' },
-  { stage: 'finance_approval',    label: 'Finance' },
-  { stage: 'active',              label: 'Disbursed' },
-]
+// Full pipeline, driven by the shared sequence so no stage (risk_head_review, booking)
+// is silently collapsed — otherwise an application sitting at a skipped stage shows no
+// active node.
+const STEPPER_STAGES = STAGE_SEQUENCE.map(s => ({ stage: s, label: stageMeta(s).short }))
 
 function PipelineStepper({ stage }: { stage: string }) {
   const currentIdx = STAGE_ORDER.indexOf(stage)
@@ -618,15 +657,17 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
 
 // ── Approval chain compact ────────────────────────────────────────────────────
 
+// The `role` shown per step is the owner from losFlow (who actually advances that stage),
+// so it can never disagree with who the server lets act. active is terminal (owner '—').
 const APPROVAL_CHAIN = [
-  { stage: 'submitted',           label: 'Submission',          role: 'Sales Officer' },
-  { stage: 'document_collection', label: 'Document Collection', role: 'Sales Officer' },
-  { stage: 'risk_review',         label: 'Risk Review',         role: 'Risk Officer' },
-  { stage: 'risk_head_review',    label: 'Risk Head Review',    role: 'Risk Head' },
-  { stage: 'pending_conditions',  label: 'Conditions',          role: 'Risk Head' },
-  { stage: 'finance_approval',    label: 'Finance Approval',    role: 'Finance Officer' },
-  { stage: 'booking',             label: 'Booking',             role: 'Finance Head' },
-  { stage: 'active',              label: 'Disbursed',           role: 'Finance Head' },
+  { stage: 'submitted',           label: 'Submission' },
+  { stage: 'document_collection', label: 'Document Collection' },
+  { stage: 'risk_review',         label: 'Risk Review' },
+  { stage: 'risk_head_review',    label: 'Risk Head Review' },
+  { stage: 'pending_conditions',  label: 'Conditions' },
+  { stage: 'finance_approval',    label: 'Finance Approval' },
+  { stage: 'booking',             label: 'Booking' },
+  { stage: 'active',              label: 'Disbursed' },
 ]
 
 function ApprovalChainCompact({ app, events }: { app: Application; events: AppEvent[] }) {
@@ -650,7 +691,7 @@ function ApprovalChainCompact({ app, events }: { app: Application; events: AppEv
               <span style={{ fontSize: 13, fontWeight: 600, color: active ? NAVY : done ? 'var(--txt)' : 'var(--txt2)' }}>{entry.label}</span>
               {ev && <span style={{ fontSize: 11.5, color: 'var(--txt3)', marginLeft: 8 }}>{ev.actor_name ? `· ${ev.actor_name}` : ''}</span>}
             </div>
-            <span style={{ fontSize: 11, color: 'var(--txt2)', fontStyle: 'italic' }}>{entry.role}</span>
+            <span style={{ fontSize: 11, color: 'var(--txt2)', fontStyle: 'italic' }}>{stageMeta(entry.stage).owner}</span>
             <span style={{ ...NUM, fontSize: 11, fontWeight: 600, color: done ? GREEN : active ? AMBER : 'var(--txt3)' }}>
               {done && !active ? 'Done' : active ? 'In Progress' : '—'}
             </span>
@@ -838,6 +879,159 @@ function InternalThread({ appId }: { appId: number }) {
 
 // ── SALES VIEW ────────────────────────────────────────────────────────────────
 
+// PhoenixDecisionBanner — surfaces the credit-decisioning verdict on the application
+// row (decision / decision_reasons / sync state), shown to every role so an approver
+// sees Phoenix's recommendation before acting. Advisory only; it never advances the
+// stage. Renders nothing until Phoenix has said something.
+function PhoenixDecisionBanner({ app }: { app: Application }) {
+  const decision = (app.decision ?? '').toLowerCase()
+  const sync = syncStateMeta(app.phoenix_sync_state)
+  const hasDecision = !!decision && decision !== 'pending'
+  if (!hasDecision && !sync) return null
+  const d = decisionMeta(decision)
+
+  // decision_reasons is jsonb — usually an array of factor objects, sometimes a string.
+  let reasons: string[] = []
+  const dr = app.decision_reasons
+  if (Array.isArray(dr)) {
+    reasons = dr.slice(0, 6).map((r: any) =>
+      typeof r === 'string' ? r : (r?.factor ?? r?.reason ?? r?.name ?? r?.label ?? '')
+    ).filter(Boolean)
+  } else if (typeof dr === 'string' && dr.trim()) {
+    reasons = [dr]
+  }
+
+  return (
+    <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 18px', borderRadius: 12, background: hasDecision ? d.bg : 'var(--card)', border: `1px solid ${hasDecision ? d.txt + '40' : 'var(--card-bdr)'}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 20, color: hasDecision ? d.txt : 'var(--txt2)' }}>{hasDecision ? d.icon : 'hourglass_empty'}</span>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: hasDecision ? d.txt : 'var(--txt)' }}>
+          Phoenix decision: {hasDecision ? d.label : (sync?.label ?? 'Pending')}
+        </div>
+        {app.source_system === 'phoenix' && (
+          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: 'rgba(124,58,237,.12)', color: '#7C3AED' }}>Phoenix-originated</span>
+        )}
+        {sync && hasDecision && <span style={{ marginLeft: 'auto', fontSize: 11.5, fontWeight: 600, color: sync.txt }}>{sync.label}</span>}
+      </div>
+      {reasons.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {reasons.map((r, i) => (
+            <span key={i} style={{ fontSize: 11.5, fontWeight: 500, padding: '3px 9px', borderRadius: 6, background: 'var(--chip-bg)', color: 'var(--txt2)' }}>{r}</span>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>
+        Advisory recommendation — a credit approver still decides. Advancing or declining remains a human action.
+      </div>
+    </div>
+  )
+}
+
+// OfferPanel — capture the offer/acceptance step in the workspace. Capture-only: Phoenix
+// is the system of record, so this records terms + acceptance and never gates the stage.
+// offer_source shows whether it came from Phoenix or was captured here.
+const OFFER_META: Record<string, { label: string; txt: string; bg: string }> = {
+  none:     { label: 'No offer captured', txt: '#6B7280', bg: 'rgba(75,85,99,.10)' },
+  issued:   { label: 'Offer issued',      txt: '#2563EB', bg: 'rgba(37,99,235,.12)' },
+  accepted: { label: 'Accepted',          txt: GREEN,     bg: 'rgba(22,163,74,.12)' },
+  declined: { label: 'Declined',          txt: RED,       bg: 'rgba(192,0,0,.10)' },
+  expired:  { label: 'Expired',           txt: AMBER,     bg: 'rgba(217,119,6,.12)' },
+}
+
+function OfferPanel({ app, onRefresh }: { app: Application; onRefresh: () => void }) {
+  const status = app.offer_status || 'none'
+  const m = OFFER_META[status] ?? OFFER_META.none
+  const canCapture = ['los', 'los_all', 'los_risk_review', 'los_risk_head', 'los_finance', 'los_finance_approve', 'los_booking'].some(p => hasPage(p))
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const baseAmt = app.offered_amount_kobo || app.amount_approved_kobo || app.amount_requested_kobo || 0
+  const [amount, setAmount] = useState(baseAmt ? String(baseAmt / 100) : '')
+  const [rate, setRate]     = useState(app.offered_rate_bps ? String(app.offered_rate_bps / 100) : (app.interest_rate_bps ? String(app.interest_rate_bps / 100) : ''))
+  const [tenor, setTenor]   = useState(app.offered_tenor_months ? String(app.offered_tenor_months) : (app.tenor_months ? String(app.tenor_months) : ''))
+  const [expiry, setExpiry] = useState(app.offer_expires_at ? app.offer_expires_at.slice(0, 10) : '')
+
+  const btn = (bg: string, fg = '#fff'): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: bg, color: fg, border: bg === 'var(--card)' ? '1px solid var(--bdr)' : 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.7 : 1 })
+  const lbl: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, color: 'var(--txt2)', fontWeight: 600 }
+
+  async function act(action: string, extra: Record<string, unknown> = {}) {
+    setBusy(true)
+    try {
+      await apiPut(`/api/los/${app.id}/offer`, { action, ...extra })
+      toast.success(action === 'issue' ? 'Offer captured' : action === 'accept' ? 'Acceptance recorded' : action === 'decline' ? 'Marked declined' : 'Marked expired')
+      setEditing(false); onRefresh()
+    } catch (e: any) { toast.error(e.message ?? 'Failed') }
+    finally { setBusy(false) }
+  }
+  function saveOffer() {
+    if (!amount || Number(amount) <= 0) { toast.error('Enter an offer amount'); return }
+    act('issue', {
+      offered_amount_kobo: Math.round(Number(amount) * 100),
+      offered_rate_bps: rate ? Math.round(Number(rate) * 100) : 0,
+      offered_tenor_months: tenor ? parseInt(tenor) : 0,
+      offer_expires_at: expiry,
+    })
+  }
+
+  return (
+    <SectionCard title="Offer & Acceptance">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: status !== 'none' ? 12 : 10 }}>
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '3px 10px', borderRadius: RADIUS.full, background: m.bg, color: m.txt }}>{m.label}</span>
+        {app.offer_source && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>via {app.offer_source === 'phoenix' ? 'Phoenix' : 'workspace'}</span>}
+        {app.offer_issued_at && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>issued {fmtDate(app.offer_issued_at)}</span>}
+        <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>Phoenix owns this step — recorded here for the file.</span>
+      </div>
+
+      {status !== 'none' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 12 }}>
+          {[
+            { label: 'Offered amount', value: app.offered_amount_kobo ? fmtKobo(app.offered_amount_kobo) : '—' },
+            { label: 'Rate', value: app.offered_rate_bps ? `${(app.offered_rate_bps / 100).toFixed(2)}%` : '—' },
+            { label: 'Tenor', value: app.offered_tenor_months ? `${app.offered_tenor_months}m` : '—' },
+            { label: status === 'accepted' ? 'Accepted' : 'Expires', value: status === 'accepted' ? (app.offer_accepted_at ? fmtDate(app.offer_accepted_at) : '—') : (app.offer_expires_at ? fmtDate(app.offer_expires_at) : '—') },
+          ].map(x => (
+            <div key={x.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{x.label}</span>
+              <span style={{ ...NUM, fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{x.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {app.offer_note && <div style={{ fontSize: 12.5, color: 'var(--txt2)', marginBottom: 12, lineHeight: 1.5 }}>{app.offer_note}</div>}
+
+      {canCapture && !editing && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {(status === 'none' || status === 'expired' || status === 'declined') && (
+            <button onClick={() => setEditing(true)} style={btn(NAVY)}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>description</span>Issue offer
+            </button>
+          )}
+          {status === 'issued' && <>
+            <button onClick={() => setEditing(true)} style={btn('var(--card)', 'var(--txt)')}>Update terms</button>
+            <button disabled={busy} onClick={() => act('accept')} style={btn(GREEN)}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check_circle</span>Record acceptance
+            </button>
+            <button disabled={busy} onClick={() => act('decline')} style={btn('var(--card)', RED)}>Mark declined</button>
+          </>}
+        </div>
+      )}
+      {canCapture && editing && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+            <label style={lbl}>Amount (₦)<input type="number" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} /></label>
+            <label style={lbl}>Rate (% p.a.)<input type="number" step="0.01" value={rate} onChange={e => setRate(e.target.value)} style={inputStyle} /></label>
+            <label style={lbl}>Tenor (months)<input type="number" value={tenor} onChange={e => setTenor(e.target.value)} style={inputStyle} /></label>
+            <label style={lbl}>Expires<input type="date" value={expiry} onChange={e => setExpiry(e.target.value)} style={inputStyle} /></label>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button disabled={busy} onClick={saveOffer} style={btn(NAVY)}>Save offer</button>
+            <button onClick={() => setEditing(false)} style={btn('var(--card)', 'var(--txt)')}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </SectionCard>
+  )
+}
+
 function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, onReqInfo, onCreditFile }: {
   app: Application
   events: AppEvent[]
@@ -848,17 +1042,8 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
   onReqInfo: () => void
   onCreditFile: () => void
 }) {
-  const navigate   = useNavigate()
-  const nextStages = ALLOWED_TRANSITIONS[app.stage] ?? []
-  const isTerminal = app.stage === 'active' || app.stage === 'declined'
-  const isSalesStage = ['draft', 'submitted', 'document_collection'].includes(app.stage)
-  const docsUploaded = 0 // from DocumentsInline, approx (no state here)
-
-  const stageAction: Record<string, string> = {
-    draft:               'Submit Application',
-    submitted:           'Send to Document Collection',
-    document_collection: 'Submit to Risk Review',
-  }
+  const navigate = useNavigate()
+  const meta = stageMeta(app.stage)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -889,13 +1074,13 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
               <span className="material-symbols-rounded" style={{ fontSize: 14 }}>person</span>C360
             </button>
           )}
-          {!isTerminal && isSalesStage && nextStages.length > 0 && (
-            <button onClick={() => onAdvance(nextStages[0])} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+          {canAdvance(app.stage) && meta.forward && (
+            <button onClick={() => onAdvance(meta.forward!)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>send</span>
-              {stageAction[app.stage] ?? 'Advance'}
+              {meta.action ?? 'Advance'}
             </button>
           )}
-          {!isTerminal && (
+          {canDecline(app.stage) && (
             <button onClick={onDecline} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: RED, border: `1px solid ${RED}40`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>Decline
             </button>
@@ -925,8 +1110,11 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
           <InfoRow label="Full Name"   value={app.applicant_name} />
           <InfoRow label="Phone"       value={app.applicant_phone} />
           <InfoRow label="Email"       value={app.applicant_email} />
-          <InfoRow label="CIF"         value={app.applicant_cif} />
+          <InfoRow label="CIF"         value={app.applicant_cif || 'Provisional — no CIF yet'} />
           <InfoRow label="Employer"    value={app.employer} />
+          {app.source_lead_id
+            ? <InfoRow label="Origin" value={`Lead #${app.source_lead_id}${app.lead_source ? ` · ${app.lead_source}` : ''}`} />
+            : app.lead_source ? <InfoRow label="Source" value={app.lead_source} /> : null}
           <InfoRow label="Submitted"   value={app.submitted_at ? fmtDatetime(app.submitted_at) : 'Not yet submitted'} />
         </SectionCard>
 
@@ -969,7 +1157,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
 
 const RATING_COLORS: Record<string, string> = { Excellent: GREEN, Good: GREEN, Fair: AMBER, Poor: RED, Bad: RED }
 
-function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, onReqInfo, onCreditFile, onCommittee }: {
+function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, onReqInfo, onCreditFile }: {
   app: Application
   conditions: AppCondition[]
   events: AppEvent[]
@@ -978,12 +1166,15 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
   onDecline: () => void
   onReqInfo: () => void
   onCreditFile: () => void
-  onCommittee: () => void
 }) {
   const navigate  = useNavigate()
-  const nextStages = ALLOWED_TRANSITIONS[app.stage] ?? []
+  const meta = stageMeta(app.stage)
   const isTerminal = app.stage === 'active' || app.stage === 'declined'
-  const isRiskStage = ['risk_review', 'risk_head_review', 'pending_conditions'].includes(app.stage)
+  // A manual assessment is a Risk-only override of the same columns Phoenix populates.
+  const canAssess = hasPage('los_risk_review') || hasPage('los_risk_head') || hasPage('los_all')
+  // Whether the current eye_* values came from the decisioning engine, so a manual edit
+  // is flagged as an override rather than silently clobbering Phoenix's output.
+  const phoenixScored = app.phoenix_sync_state === 'decided' || app.source_system === 'phoenix' || !!(app.decision && app.decision !== 'pending')
 
   const score  = app.eye_score
   const rating = app.eye_rating
@@ -992,7 +1183,7 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
   const monthlyRepayment = (app.tenor_months && app.amount_requested_kobo)
     ? Math.round(app.amount_requested_kobo / app.tenor_months * (1 + (app.interest_rate_bps ?? 0) / 10000))
     : 0
-  const dtiPct  = app.dti_pct ?? ((app.monthly_income_kobo && monthlyRepayment)
+  const dtiPct  = dtiOf(app.dti_pct) ?? ((app.monthly_income_kobo && monthlyRepayment)
     ? (monthlyRepayment / app.monthly_income_kobo) * 100 : null)
   const dtiColor  = dtiPct === null ? 'var(--txt2)' : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : GREEN
   const netAfter  = (app.monthly_income_kobo && monthlyRepayment) ? app.monthly_income_kobo - monthlyRepayment : null
@@ -1039,22 +1230,21 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
               <span className="material-symbols-rounded" style={{ fontSize: 14 }}>insert_drive_file</span>Credit File
             </button>
           )}
-          {isRiskStage && !isTerminal && (
-            <>
-              <button onClick={onReqInfo} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>help</span>Request Info
-              </button>
-              <button onClick={onCommittee} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: '#7C3AED', border: `1px solid #7C3AED40`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>groups</span>Committee
-              </button>
-              <button onClick={onDecline} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: RED, border: `1px solid ${RED}40`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>Decline
-              </button>
-              <button onClick={() => onAdvance(nextStages[0])} disabled={nextStages.length === 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 18px', background: nextStages.length === 0 ? 'var(--chip-bg)' : GREEN, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: nextStages.length === 0 ? 'not-allowed' : 'pointer' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check_circle</span>
-                {app.stage === 'risk_head_review' ? 'Send to Finance' : app.stage === 'pending_conditions' ? 'Approve to Finance' : 'Advance'}
-              </button>
-            </>
+          {canRequestInfo(app.stage) && (
+            <button onClick={onReqInfo} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>help</span>Request Info
+            </button>
+          )}
+          {canDecline(app.stage) && (
+            <button onClick={onDecline} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: RED, border: `1px solid ${RED}40`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>Decline
+            </button>
+          )}
+          {canAdvance(app.stage) && meta.forward && (
+            <button onClick={() => onAdvance(meta.forward!)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 18px', background: GREEN, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check_circle</span>
+              {meta.action ?? 'Advance'}
+            </button>
           )}
           {isTerminal && app.stage === 'active' && (
             <span style={{ fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20, background: 'rgba(22,163,74,.12)', color: GREEN }}>Disbursed</span>
@@ -1085,9 +1275,14 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
           {!score && (
             <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: 'rgba(217,119,6,.12)', color: AMBER }}>Pending</span>
           )}
-          {isRiskStage && (
+          {phoenixScored && score !== null && (
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: '#7C3AED', display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 2 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 12 }}>verified</span>via Phoenix
+            </span>
+          )}
+          {canAssess && !isTerminal && (
             <button onClick={() => setEditing(e => !e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: 11.5, cursor: 'pointer', marginTop: 4 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>edit</span>{score !== null ? 'Update' : 'Enter Score'}
+              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>edit</span>{score !== null ? (phoenixScored ? 'Override' : 'Update') : 'Enter Score'}
             </button>
           )}
         </div>
@@ -1119,6 +1314,12 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
       {/* Inline score edit form */}
       {editing && (
         <SectionCard title="Update Credit Assessment">
+          {phoenixScored && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 8, background: 'rgba(124,58,237,.06)', border: '1px solid rgba(124,58,237,.2)', marginBottom: 12 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16, color: '#7C3AED', flexShrink: 0 }}>info</span>
+              <span style={{ fontSize: 12, color: 'var(--txt2)', lineHeight: 1.5 }}>This score was set by Phoenix decisioning. Saving a manual assessment overrides the Phoenix values on record.</span>
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, color: 'var(--txt2)', fontWeight: 600 }}>
               Eye Score (0–850)
@@ -1295,8 +1496,7 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
   onDecline: () => void
   onReqInfo: () => void
 }) {
-  const nextStages = ALLOWED_TRANSITIONS[app.stage] ?? []
-  const isTerminal = app.stage === 'active' || app.stage === 'declined'
+  const meta = stageMeta(app.stage)
   const isFinanceStage = ['finance_approval', 'booking'].includes(app.stage)
 
   const score  = app.eye_score
@@ -1306,12 +1506,11 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
   const monthlyRepayment = (app.tenor_months && app.amount_requested_kobo)
     ? Math.round(app.amount_requested_kobo / app.tenor_months * (1 + (app.interest_rate_bps ?? 0) / 10000))
     : 0
-  const dtiPct    = app.dti_pct
+  const dtiPct    = dtiOf(app.dti_pct)
   const dtiColor  = dtiPct === null ? 'var(--txt2)' : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : GREEN
   const unmetCount = conditions.filter(c => !c.is_met).length
   const allConditionsMet = conditions.length > 0 && unmetCount === 0
-
-  const disbursedLabel = app.stage === 'booking' ? 'Disburse' : 'Final Approval'
+  const conditionsBlock = conditions.length > 0 && unmetCount > 0
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1341,19 +1540,21 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
         )}
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {isFinanceStage && !isTerminal && (
-            <>
-              <button onClick={onReqInfo} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>pause_circle</span>Hold
-              </button>
-              <button onClick={onDecline} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: RED, border: `1px solid ${RED}40`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>Decline
-              </button>
-              <button onClick={() => onAdvance(nextStages[0])} disabled={nextStages.length === 0 || (conditions.length > 0 && unmetCount > 0)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 18px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (conditions.length > 0 && unmetCount > 0) ? 0.5 : 1 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>payments</span>{disbursedLabel}
-              </button>
-            </>
+          {canRequestInfo(app.stage) && (
+            <button onClick={onReqInfo} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>pause_circle</span>Hold
+            </button>
+          )}
+          {canDecline(app.stage) && (
+            <button onClick={onDecline} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: RED, border: `1px solid ${RED}40`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>Decline
+            </button>
+          )}
+          {canAdvance(app.stage) && meta.forward && (
+            <button onClick={() => onAdvance(meta.forward!)} disabled={conditionsBlock}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 18px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: conditionsBlock ? 'not-allowed' : 'pointer', opacity: conditionsBlock ? 0.5 : 1 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>payments</span>{meta.action ?? 'Advance'}
+            </button>
           )}
           {app.stage === 'active' && (
             <span style={{ fontSize: 12, fontWeight: 600, padding: '4px 14px', borderRadius: 20, background: 'rgba(22,163,74,.12)', color: GREEN }}>✓ Disbursed</span>
@@ -1403,6 +1604,19 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
               { label: 'Est. Monthly Repayment', value: monthlyRepayment ? fmtKobo(monthlyRepayment) : '—' },
               { label: 'Purpose',          value: app.purpose || '—' },
               { label: 'Employer',         value: app.employer || '—' },
+              // Collected on the origination form since it was written, but
+              // discarded on save until migration 216 gave them columns: the
+              // request struct never named these fields, so encoding/json dropped
+              // them without error. Shown here so the two steps staff fill in are
+              // part of the record rather than write-only.
+              { label: 'BVN',              value: app.bvn || '—' },
+              { label: 'NIN',              value: app.nin || '—' },
+              { label: 'Date of Birth',    value: app.date_of_birth ? fmtDate(app.date_of_birth) : '—' },
+              { label: 'Address',          value: app.residential_address || '—' },
+              { label: 'Job Title',        value: app.job_title || '—' },
+              { label: 'Employment Type',  value: app.employment_type || '—' },
+              { label: 'Employed Since',   value: app.employment_start_date ? fmtDate(app.employment_start_date) : '—' },
+              { label: 'Monthly Obligations', value: app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : '—' },
             ].map(row => (
               <InfoRow key={row.label} label={row.label} value={row.value} />
             ))}
@@ -1641,7 +1855,7 @@ function ApprovalChainTab({ app, events }: { app: Application; events: AppEvent[
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: active ? NAVY : done ? 'var(--txt)' : 'var(--txt2)' }}>{entry.label}</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--txt3)', fontStyle: 'italic' }}>{entry.role}</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--txt3)', fontStyle: 'italic' }}>{stageMeta(entry.stage).owner}</span>
                   </div>
                   {ev && (
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1742,7 +1956,7 @@ function EyeTab({ app }: { app: Application }) {
   const monthlyRepayment = (app.tenor_months && app.amount_requested_kobo)
     ? Math.round(app.amount_requested_kobo / app.tenor_months * (1 + (app.interest_rate_bps ?? 0) / 10000))
     : 0
-  const dtiPct   = app.dti_pct
+  const dtiPct   = dtiOf(app.dti_pct)
   const dtiColor = dtiPct === null ? 'var(--txt2)' : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : GREEN
   const netAfter = (app.monthly_income_kobo && monthlyRepayment) ? app.monthly_income_kobo - monthlyRepayment : null
 
@@ -1880,19 +2094,14 @@ function EyeTab({ app }: { app: Application }) {
                     <span style={{ width: 10, height: 10, borderRadius: 2, background: RED, display: 'inline-block' }} />Negative influence
                   </span>
                 </div>
-                <ResponsiveContainer width="100%" height={shapData.length * 56 + 24}>
-                  <BarChart layout="vertical" data={shapData} margin={{ top: 0, right: 48, left: 4, bottom: 0 }}>
-                    <XAxis type="number" hide domain={[0, Math.max(...shapData.map(d => d.value)) * 1.25]} />
-                    <YAxis type="category" dataKey="name" width={196} tick={{ fontSize: 12.5, fill: 'var(--txt)' } as any} tickLine={false} axisLine={false} />
-                    <Tooltip
-                      formatter={(v: number, _: any, p: any) => [`Impact: ${p.payload.value.toFixed(4)}`, p.payload.dir === 'positive' ? 'Positive factor' : 'Negative factor']}
-                      contentStyle={{ fontSize: 12 }}
-                    />
-                    <Bar dataKey="value" barSize={22} radius={[0, 4, 4, 0]} label={{ position: 'right', formatter: (v: number) => v.toFixed(3), fontSize: 11, fill: 'var(--txt2)' } as any}>
-                      {shapData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <EBarH
+                  data={shapData}
+                  catKey="name"
+                  height={shapData.length * 56 + 24}
+                  legend={false}
+                  valueFmt={(v) => Number(v).toFixed(4)}
+                  series={[{ key: 'value', name: 'Impact', colorFn: (d) => d.fill }]}
+                />
               </div>
             </SectionCard>
           )}
@@ -2054,33 +2263,177 @@ function EyeTab({ app }: { app: Application }) {
 
 // ── Main ApplicationDetail ────────────────────────────────────────────────────
 
+// ── Customer credit portfolio (running credit booked on the CBS, no LOS application) ──
+
+interface PortfolioLoan {
+  account_number: string; reference_number: string | null; product_name: string; status: string
+  loan_amount_kobo: number; outstanding_principal_kobo: number; total_outstanding_kobo: number
+  interest_rate: number | null; tenor_days: number | null; installment_amount_kobo: number | null
+  start_date: string | null; approved_date: string | null; maturity_date: string | null
+  officer_name: string | null; branch_name: string | null; economic_sector: string | null; dpd: number
+}
+interface PortfolioData {
+  cif: string
+  customer: { name?: string; phone?: string; email?: string; state?: string; city?: string; full_address?: string | null }
+  loans: PortfolioLoan[]
+  summary: { loan_count: number; open_count: number; total_outstanding_kobo: number; total_disbursed_kobo: number; worst_dpd: number }
+}
+
+const LOAN_STATUS_COLOR: Record<string, string> = {
+  active: GREEN, performing: GREEN, defaulting: RED, expired: AMBER, closed: '#6B7280', revoked: '#6B7280',
+}
+
+function PLV({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium }}>{value ?? '—'}</div>
+    </div>
+  )
+}
+
+function CustomerCreditPortfolio({ cif }: { cif: string }) {
+  const navigate = useNavigate()
+  const [data, setData]       = useState<PortfolioData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true); setError(null)
+    apiFetch<{ data: PortfolioData }>(`/api/los/portfolio/${encodeURIComponent(cif)}`)
+      .then(r => setData(r.data))
+      .catch(e => setError(e.message ?? 'Failed to load portfolio'))
+      .finally(() => setLoading(false))
+  }, [cif])
+
+  const backBtn = (
+    <button onClick={() => navigate('/operations/risk/portfolio')} style={{
+      display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: RADIUS.md,
+      border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer',
+    }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_back</span>
+      Loan Portfolio
+    </button>
+  )
+
+  if (loading) return <Page title="Credit Portfolio" actions={backBtn}><div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div></Page>
+  if (error || !data) return <Page title="Credit Portfolio" actions={backBtn}><ErrBanner error={error ?? 'Not found'} /></Page>
+
+  const c = data.customer ?? {}
+  const s = data.summary
+  const name = c.name || cif
+
+  return (
+    <Page title={name} subtitle={`Running credit portfolio · CIF ${cif}`} actions={backBtn}>
+      {/* Customer header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: SP[4], marginBottom: SP[3],
+        padding: SP[4], borderRadius: RADIUS.lg,
+        background: 'linear-gradient(135deg, var(--card) 0%, var(--th-bg) 100%)', border: '1px solid var(--bdr)',
+      }}>
+        <div style={{
+          width: 54, height: 54, borderRadius: '50%', flexShrink: 0, background: `${NAVY}14`, color: NAVY,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: FW.bold,
+        }}>{name.charAt(0).toUpperCase()}</div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+            <span style={{ fontSize: 20, fontWeight: FW.bold, color: 'var(--txt)' }}>{name}</span>
+            <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: PURPLE, background: `${PURPLE}18`, padding: '2px 9px', borderRadius: RADIUS['2xl'] }}>RUNNING CREDIT</span>
+          </div>
+          <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap', alignItems: 'center', fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+            <span>CIF <strong style={{ ...NUM, color: 'var(--txt)' }}>{cif}</strong></span>
+            {c.phone && <a href={`tel:${c.phone}`} style={{ color: NAVY, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: FW.medium }}><span className="material-symbols-rounded" style={{ fontSize: 15 }}>call</span>{c.phone}</a>}
+            {c.email && <a href={`mailto:${c.email}`} style={{ color: NAVY, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: FW.medium }}><span className="material-symbols-rounded" style={{ fontSize: 15 }}>mail</span>{c.email}</a>}
+            {(c.city || c.state) && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span className="material-symbols-rounded" style={{ fontSize: 15 }}>location_on</span>{[c.city, c.state].filter(Boolean).join(', ')}</span>}
+          </div>
+        </div>
+        <button onClick={() => navigate(`/customers/${encodeURIComponent(cif)}`)} style={{
+          padding: '6px 14px', borderRadius: RADIUS.md, border: `1px solid ${NAVY}30`, background: `${NAVY}08`,
+          color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+        }}>Customer 360</button>
+      </div>
+
+      {/* Summary KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
+        <KpiCard label="Total Outstanding" value={fmtKobo(s.total_outstanding_kobo)} icon="account_balance_wallet" accent={s.total_outstanding_kobo > 0 ? RED : GREEN} />
+        <KpiCard label="Open Loans" value={`${fmtNum(s.open_count)} / ${fmtNum(s.loan_count)}`} sub="open / total" icon="account_balance" accent={NAVY} />
+        <KpiCard label="Worst DPD" value={s.worst_dpd > 0 ? `${fmtNum(s.worst_dpd)} days` : 'Current'} icon="event_busy" accent={s.worst_dpd > 90 ? RED : s.worst_dpd > 0 ? AMBER : GREEN} />
+        <KpiCard label="Total Disbursed" value={fmtKobo(s.total_disbursed_kobo)} icon="payments" accent={BLUE} />
+      </div>
+
+      {/* Loans */}
+      <SectionCard title="Facilities" subtitle="Running and closed credit on the core banking book" badge={data.loans.length} padding={false}>
+        {data.loans.length === 0 ? (
+          <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
+            No credit facilities on the core banking book for this customer.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {data.loans.map((l, i) => {
+              const sc = LOAN_STATUS_COLOR[String(l.status).toLowerCase()] ?? NAVY
+              return (
+                <div key={l.reference_number || l.account_number || i} style={{ padding: '16px 20px', borderTop: i === 0 ? 'none' : '1px solid var(--bdr)' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                        <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)' }}>{l.product_name || 'Loan'}</span>
+                        <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: sc, background: `${sc}18`, padding: '2px 8px', borderRadius: RADIUS['2xl'] }}>{l.status}</span>
+                        {l.dpd > 0 && <span style={{ ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.bold, color: RED, background: `${RED}12`, padding: '2px 8px', borderRadius: RADIUS['2xl'] }}>{fmtNum(l.dpd)} DPD</span>}
+                      </div>
+                      <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{l.reference_number || l.account_number}{l.branch_name ? ` · ${l.branch_name}` : ''}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.extrabold, color: sc, letterSpacing: '-0.4px' }}>{fmtKobo(l.total_outstanding_kobo)}</div>
+                      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>outstanding</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12 }}>
+                    <PLV label="Disbursed" value={<span style={NUM}>{fmtKobo(l.loan_amount_kobo)}</span>} />
+                    <PLV label="Principal Out." value={<span style={NUM}>{fmtKobo(l.outstanding_principal_kobo)}</span>} />
+                    <PLV label="Installment" value={l.installment_amount_kobo != null ? <span style={NUM}>{fmtKobo(l.installment_amount_kobo)}</span> : '—'} />
+                    <PLV label="Interest Rate" value={l.interest_rate != null ? `${l.interest_rate}%` : '—'} />
+                    <PLV label="Disbursed On" value={l.start_date ? fmtDate(l.start_date) : '—'} />
+                    <PLV label="Maturity" value={l.maturity_date ? fmtDate(l.maturity_date) : '—'} />
+                    <PLV label="Officer" value={l.officer_name || '—'} />
+                    <PLV label="Sector" value={l.economic_sector || '—'} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </SectionCard>
+    </Page>
+  )
+}
+
 export default function ApplicationDetail() {
-  const { id }   = useParams<{ id: string }>()
+  const { id, cif } = useParams<{ id?: string; cif?: string }>()
   const navigate = useNavigate()
 
   const [data,    setData]    = useState<DetailData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
-  const [subTab,  setSubTab]  = useState<'overview' | 'timeline' | 'approval' | 'eye'>('overview')
+  const [subTab,  setSubTab]  = useState<'overview' | 'timeline' | 'approval' | 'eye' | 'report'>('overview')
 
   const userObj      = (() => { try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}') } catch { return {} } })()
   const userRole     = userObj?.role ?? ''
   const roleKey      = userRole.toLowerCase()
-  const isRisk       = roleKey.includes('risk')
-  const isFinance    = roleKey.includes('finance')
+  // Compliance is a read-only oversight overlay regardless of stage. Every other view
+  // is chosen by the application's stage group (below), not the viewer's job title —
+  // the action bar is gated separately by page, so a viewer only ever sees the moves
+  // they can actually make.
   const isCompliance = roleKey.includes('compliance')
 
   const [advanceOpen,   setAdvanceOpen]   = useState(false)
   const [declineOpen,   setDeclineOpen]   = useState(false)
   const [reqInfoOpen,   setReqInfoOpen]   = useState(false)
-  const [committeeOpen, setCommitteeOpen] = useState(false)
   const [showCreditFile,setShowCreditFile]= useState(false)
 
   const [toStage,       setToStage]       = useState('')
   const [advanceNotes,  setAdvanceNotes]  = useState('')
   const [declineReason, setDeclineReason] = useState('')
   const [reqInfoNotes,  setReqInfoNotes]  = useState('')
-  const [committeeNote, setCommitteeNote] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
 
   const load = useCallback(async (silent = false) => {
@@ -2131,19 +2484,12 @@ export default function ApplicationDetail() {
     finally { setActionLoading(false) }
   }
 
-  async function doCommittee() {
-    if (!committeeNote.trim()) { toast.error('Reason is required'); return }
-    setActionLoading(true)
-    try {
-      await apiPost(`/api/los/${id}/notes`, { body: `[COMMITTEE REFERRAL] ${committeeNote}`, is_internal: true })
-      toast.success('Referred to committee')
-      setCommitteeOpen(false); setCommitteeNote('')
-      load()
-    } catch (e: any) { toast.error(e.message ?? 'Failed') }
-    finally { setActionLoading(false) }
-  }
-
   function openAdvance(stage: string) { setToStage(stage); setAdvanceOpen(true) }
+
+  // Portfolio mode: reached by CIF from the Loan Portfolio for a customer whose credit is
+  // booked directly on the CBS (no workspace application). Show their running-credit
+  // portfolio instead of the application workflow (and instead of a "not found" error).
+  if (cif) return <CustomerCreditPortfolio cif={cif} />
 
   if (loading && !data) {
     return (
@@ -2173,13 +2519,13 @@ export default function ApplicationDetail() {
 
   const nextStages = ALLOWED_TRANSITIONS[app.stage] ?? []
 
-  // For exec/admin roles (md, coo, cfo, etc.) that don't match a specific team,
-  // pick the view that matches the application's current stage so they always
-  // see the contextually appropriate layout.
-  const RISK_STAGES    = ['risk_review', 'risk_head_review', 'pending_conditions']
-  const FINANCE_STAGES = ['finance_approval', 'booking', 'active']
-  const showRisk    = isRisk    || (!isFinance && !isCompliance && RISK_STAGES.includes(app.stage))
-  const showFinance = isFinance || (!isRisk    && !isCompliance && FINANCE_STAGES.includes(app.stage))
+  // View = f(stage group): the layout matches WHERE the application is, so everyone
+  // sees the same stage-appropriate context. Risk stages → RiskView (eye score +
+  // assessment), Finance/Ops stages and disbursed loans → FinanceView (terms +
+  // disbursement), origination/declined → SalesView. Actions inside are page-gated.
+  const grp = stageMeta(app.stage).group
+  const showRisk    = !isCompliance && grp === 'risk'
+  const showFinance = !isCompliance && (grp === 'finance' || grp === 'ops' || (grp === 'terminal' && app.stage === 'active'))
 
   return (
     <Page
@@ -2198,6 +2544,7 @@ export default function ApplicationDetail() {
           { key: 'timeline',  label: 'Activity',       icon: 'history' },
           { key: 'approval',  label: 'Approval Queue', icon: 'approval' },
           { key: 'eye',       label: 'Eye Report',     icon: 'query_stats' },
+          { key: 'report',    label: 'Credit Report',  icon: 'description' },
         ]
         return (
           <div style={{ display: 'flex', gap: 2, padding: '4px', background: 'var(--th-bg)', borderRadius: 10, border: '1px solid var(--bdr)', marginBottom: 4, overflowX: 'auto' }}>
@@ -2212,11 +2559,17 @@ export default function ApplicationDetail() {
         )
       })()}
 
-      {/* Render role-specific view, with stage-based fallback for exec/admin roles */}
+      {/* Phoenix decision (advisory) — shown to every role on the overview tab */}
+      {subTab === 'overview' && <PhoenixDecisionBanner app={app} />}
+      {subTab === 'overview' && <div style={{ marginBottom: 16 }}><OfferPanel app={app} onRefresh={load} /></div>}
+
+      {/* Render the stage-appropriate view; actions inside are page-gated */}
       {subTab === 'timeline' ? (
         <TimelineTab events={events} notes={data.notes ?? []} />
       ) : subTab === 'approval' ? (
         <ApprovalChainTab app={app} events={events} />
+      ) : subTab === 'report' ? (
+        <CreditReport appId={app.id} />
       ) : subTab === 'eye' ? (
         <EyeTab app={app} />
       ) : showRisk ? (
@@ -2227,7 +2580,6 @@ export default function ApplicationDetail() {
           onDecline={() => setDeclineOpen(true)}
           onReqInfo={() => setReqInfoOpen(true)}
           onCreditFile={() => setShowCreditFile(true)}
-          onCommittee={() => setCommitteeOpen(true)}
         />
       ) : showFinance ? (
         <FinanceView
@@ -2300,25 +2652,6 @@ export default function ApplicationDetail() {
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={reqInfoNotes} onChange={e => setReqInfoNotes(e.target.value)}
             style={textareaStyle} placeholder="Describe what additional information is needed…" />
-        </div>
-      </Modal>
-
-      <Modal open={committeeOpen} title="Refer to Credit Committee"
-        onClose={() => { setCommitteeOpen(false); setCommitteeNote('') }}
-        footer={
-          <>
-            <button onClick={() => { setCommitteeOpen(false); setCommitteeNote('') }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>Cancel</button>
-            <button onClick={doCommittee} disabled={actionLoading} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px', borderRadius: 8, border: 'none', background: '#7C3AED', color: '#fff', fontSize: 13, fontWeight: 600, cursor: actionLoading ? 'wait' : 'pointer', opacity: actionLoading ? 0.7 : 1 }}>
-              {actionLoading && <Spinner size={14} color="#fff" />}Refer
-            </button>
-          </>
-        }>
-        <div>
-          <p style={{ margin: '0 0 12px', fontSize: 13.5, color: 'var(--txt2)', lineHeight: 1.55 }}>This will post an internal note flagging the application for committee review.</p>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Reason <span style={{ color: RED }}>*</span></div>
-          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-            value={committeeNote} onChange={e => setCommitteeNote(e.target.value)}
-            style={textareaStyle} placeholder="State why this application needs committee review…" />
         </div>
       </Modal>
 
