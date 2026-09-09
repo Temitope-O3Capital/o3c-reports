@@ -81,6 +81,48 @@ func phoenixCallbackBase() string {
 // the queue still fills, so nothing is lost — it drains once Phoenix is reachable.
 func phoenixConfigured() bool { return phoenixBaseURL() != "" && phoenixAPIKey() != "" }
 
+// phoenixProductNames maps the workspace's canonical product codes onto the product
+// NAMES configured in Phoenix. The two vocabularies are deliberately allowed to
+// differ: lib/products.ts and handlers/products.go treat snake_case codes as the
+// single source of truth for the whole workspace — Sales, BI, reporting and the
+// product-line classifier all key off them — so the workspace does not rename its
+// products to suit an integration. Phoenix, for its part, matches
+// CreditProduct.Name EXACTLY and returns 422 on anything unrecognised, which the
+// outbox then abandons without retrying.
+//
+// Translating here, at the one point where the two systems meet, keeps both
+// internally consistent. Adding a product means adding it in Phoenix, in
+// PRODUCT_SUBS, and here.
+var phoenixProductNames = map[string]string{
+	"salary_loan":   "Salary Loan",
+	"business_loan": "Business Loan",
+	"credit_card":   "Credit Card",
+}
+
+// phoenixRevolvingProducts lists the workspace product codes that map to a
+// REVOLVING product in Phoenix. A card is a limit the customer draws against;
+// a term loan is a principal that amortises. Phoenix enforces the distinction
+// and rejects the wrong one, so the workspace has to know which is which.
+var phoenixRevolvingProducts = map[string]bool{
+	"credit_card": true,
+}
+
+func phoenixIsRevolving(code string) bool {
+	return phoenixRevolvingProducts[strings.TrimSpace(code)]
+}
+
+// phoenixProductName translates a workspace product code for Phoenix. An unmapped
+// code is passed through untouched rather than guessed at: Phoenix will reject it
+// with a 422 naming the product, which is a visible, diagnosable failure. Silently
+// coercing it to something plausible would file the application under the wrong
+// product and price it wrongly.
+func phoenixProductName(code string) string {
+	if name, ok := phoenixProductNames[strings.TrimSpace(code)]; ok {
+		return name
+	}
+	return code
+}
+
 // PhoenixWebhook is the inbound event endpoint. It authenticates by HMAC signature
 // over the raw body, NOT by session — Phoenix is a server, not a logged-in user — so
 // main.go mounts it in the public block, alongside the other machine-to-machine
@@ -103,16 +145,22 @@ func RegisterPhoenix(r chi.Router, db *core.DB) {
 // phoenixSubmitRequest is what we send Phoenix to ask for a decision. Field names are
 // provisional pending the real Phoenix API (see the file header).
 type phoenixSubmitRequest struct {
-	ExternalID      string  `json:"external_id"` // our loan_applications.id
-	Reference       string  `json:"reference"`
-	ApplicantName   string  `json:"applicant_name"`
-	ApplicantCIF    string  `json:"applicant_cif,omitempty"`
-	BVN             string  `json:"bvn,omitempty"`
-	Phone           string  `json:"phone,omitempty"`
-	Email           string  `json:"email,omitempty"`
-	Employer        string  `json:"employer,omitempty"`
-	ProductType     string  `json:"product_type,omitempty"`
-	AmountKobo      int64   `json:"amount_requested_kobo"`
+	ExternalID    string `json:"external_id"` // our loan_applications.id
+	Reference     string `json:"reference"`
+	ApplicantName string `json:"applicant_name"`
+	ApplicantCIF  string `json:"applicant_cif,omitempty"`
+	BVN           string `json:"bvn,omitempty"`
+	Phone         string `json:"phone,omitempty"`
+	Email         string `json:"email,omitempty"`
+	Employer      string `json:"employer,omitempty"`
+	ProductType   string `json:"product_type,omitempty"`
+	// A revolving product is granted a LIMIT to draw against, not a principal to
+	// amortise, and Phoenix rejects a principal on one outright:
+	// "requested_limit_minor is required for a REVOLVING product". So exactly one
+	// of these is sent, chosen by product — see phoenixIsRevolving. Both carry
+	// omitempty for that reason; sending both would fail the other way round.
+	AmountKobo      int64   `json:"amount_requested_kobo,omitempty"`
+	RequestedLimit  int64   `json:"requested_limit_kobo,omitempty"`
 	TenorMonths     int64   `json:"tenor_months,omitempty"`
 	MonthlyIncome   int64   `json:"monthly_income_kobo,omitempty"`
 	MonthlyOblig    int64   `json:"monthly_obligation_kobo,omitempty"`
@@ -137,6 +185,9 @@ type phoenixDecision struct {
 	Reasons       json.RawMessage `json:"reasons"`
 	DeclineReason string          `json:"decline_reason"`
 	DecidedAt     string          `json:"decided_at"`
+	// Report is the full prequalification report Phoenix now includes on the webhook,
+	// stored verbatim so the workspace can render Phoenix's report identically.
+	Report json.RawMessage `json:"report"`
 }
 
 // phoenixSubmit performs the HTTP call. The ONLY place that knows Phoenix's wire
@@ -410,16 +461,26 @@ func phoenixSubmitOne(ctx context.Context, db *core.DB, appID int64) error {
 	}
 	a := rows[0]
 
+	// Exactly one of amount/limit, chosen by product: Phoenix rejects a
+	// principal on a REVOLVING product and a limit on an INSTALMENT one.
+	var amountKobo, limitKobo int64
+	if phoenixIsRevolving(str(a["product_type"])) {
+		limitKobo = toInt64(a["amount_kobo"])
+	} else {
+		amountKobo = toInt64(a["amount_kobo"])
+	}
 	req := phoenixSubmitRequest{
 		ExternalID:      strconv.FormatInt(appID, 10),
 		Reference:       str(a["reference"]),
 		ApplicantName:   str(a["applicant_name"]),
 		ApplicantCIF:    str(a["applicant_cif"]),
+		BVN:             str(a["bvn"]),
 		Phone:           str(a["phone"]),
 		Email:           str(a["email"]),
 		Employer:        str(a["employer"]),
-		ProductType:     str(a["product_type"]),
-		AmountKobo:      toInt64(a["amount_kobo"]),
+		ProductType:     phoenixProductName(str(a["product_type"])),
+		AmountKobo:      amountKobo,
+		RequestedLimit:  limitKobo,
 		TenorMonths:     toInt64(a["tenor_months"]),
 		MonthlyIncome:   toInt64(a["monthly_income_kobo"]),
 		MonthlyOblig:    toInt64(a["monthly_obligation_kobo"]),
@@ -502,6 +563,20 @@ func phoenixApplyDecision(ctx context.Context, db *core.DB, appID int64, dec pho
 		return err
 	}
 
+	// Store the full prequalification report verbatim when Phoenix included it on the
+	// webhook. Best-effort: the decision itself is already applied above, so a failure to
+	// persist the (large, optional) report must not fail decision processing.
+	if len(dec.Report) > 0 {
+		if _, err := db.PGExec(ctx, `
+			INSERT INTO app.loan_application_reports (application_id, source, report, updated_at)
+			VALUES ($1, 'phoenix', $2::jsonb, NOW())
+			ON CONFLICT (application_id) DO UPDATE
+			   SET report = EXCLUDED.report, source = EXCLUDED.source, updated_at = NOW()`,
+			appID, []byte(dec.Report)); err != nil {
+			slog.Error("phoenix: store credit report failed", "application_id", appID, "err", err)
+		}
+	}
+
 	// Tell whoever is carrying the application that a decision landed. Without this
 	// a decision sits silently in the queue until someone happens to refresh.
 	go func() {
@@ -546,7 +621,10 @@ type phoenixEvent struct {
 
 // phoenixApplication is a Phoenix-originated application as pushed to us.
 type phoenixApplication struct {
-	PhoenixID     string           `json:"phoenix_id"`
+	PhoenixID string `json:"phoenix_id"`
+	// ExternalID is our own loan_applications.id, echoed back by Phoenix when the
+	// request originated here. See phoenixUpsertApplication for why it matters.
+	ExternalID    string           `json:"external_id"`
 	Reference     string           `json:"reference"`
 	ApplicantName string           `json:"applicant_name"`
 	ApplicantCIF  string           `json:"applicant_cif"`
@@ -681,6 +759,43 @@ func phoenixProcessEvent(ctx context.Context, db *core.DB, ev phoenixEvent) (int
 // COALESCE on every field: an "updated" event may carry only what changed, and a
 // partial payload must not blank out data we already hold.
 func phoenixUpsertApplication(ctx context.Context, db *core.DB, pa phoenixApplication) (int64, error) {
+	// An application.created carrying external_id is OUR application coming back:
+	// Phoenix announces every credit request it creates, including ones submitted
+	// through /v1/applications, and that announcement races the HTTP response the
+	// outbox is still waiting on. Keyed only on phoenix_id, the callback finds no
+	// match — we have not learned the phoenix_id yet — and inserts a second row for
+	// the same applicant. The outbox then tries to write that phoenix_id onto the
+	// original and dies on idx_loan_applications_phoenix_id, leaving a duplicate
+	// with amount 0 and the real application stuck at sync_state='pending'.
+	//
+	// Matching on external_id first closes the race deterministically: it is our own
+	// loan_applications.id, so the row is found whether or not phoenix_id has landed
+	// yet. Only genuinely Phoenix-originated requests omit it, and those still take
+	// the insert path below, which is what should happen for them.
+	if ext := strings.TrimSpace(pa.ExternalID); ext != "" {
+		if id, err := strconv.ParseInt(ext, 10, 64); err == nil && id > 0 {
+			rows, err := db.PGQuery(ctx, `
+				UPDATE app.loan_applications
+				   SET phoenix_id        = COALESCE(phoenix_id, $2),
+				       phoenix_sync_state = CASE WHEN phoenix_sync_state = 'pending' THEN 'sent'
+				                                 ELSE phoenix_sync_state END,
+				       phoenix_synced_at  = NOW(),
+				       updated_at         = NOW()
+				 WHERE id = $1
+				RETURNING id`, id, pa.PhoenixID)
+			if err != nil {
+				return 0, err
+			}
+			if len(rows) > 0 {
+				return toInt64(rows[0]["id"]), nil
+			}
+			// external_id named a row we no longer hold. Fall through and mirror it
+			// as a new application rather than dropping the event on the floor.
+			slog.Warn("phoenix: external_id has no matching application, mirroring as new",
+				"external_id", ext, "phoenix_id", pa.PhoenixID)
+		}
+	}
+
 	ref := pa.Reference
 	if ref == "" {
 		ref = "PHX-" + pa.PhoenixID

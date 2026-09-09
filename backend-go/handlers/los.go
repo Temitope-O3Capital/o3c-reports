@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 func RegisterLOS(r chi.Router, db *core.DB) {
@@ -23,29 +23,275 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	all := core.RequirePages("los_all")
 	assign := core.RequirePages("los_all", "los_assign")
 
+	// door = "may open and act on an individual application". The base `los` page is
+	// held only by Sales and Risk; Finance (los_finance/los_finance_approve) and Card
+	// Ops (los_booking) own the back half of the pipeline but do NOT hold `los`, so a
+	// door of RequirePages("los") locked them out at the route before the per-transition
+	// check in losAdvance ever ran — leaving pending_conditions→…→active executable only
+	// by admin/md/coo. This widens the door to every LOS action page (RequirePages is
+	// OR); the specific transition each user may perform is still enforced inside
+	// losAdvance via transitionRequiredPage.
+	door := core.RequirePages("los", "los_all", "los_risk_review", "los_risk_head",
+		"los_finance", "los_finance_approve", "los_booking")
+	// riskDoor gates the manual credit-assessment write — a Risk-only action (it writes
+	// the same eye_* columns Phoenix populates), so Finance/Ops must not reach it.
+	riskDoor := core.RequirePages("los_risk_review", "los_risk_head", "los_all")
+
 	r.With(base).Get("/stats", losStats(db))
 	r.With(base).Get("/funnel", losFunnel(db))
 	r.With(base).Get("/overview", losOverview(db))
 	r.With(base).Get("/queue", losQueue(db))
+	// inbox = "applications awaiting THIS user's action", resolved from their pages.
+	// Powers the per-role My Approvals queue (Sales, Risk officer/head, Finance, Ops).
+	r.With(door).Get("/inbox", losInbox(db))
 	r.With(all).Get("/all", losAll(db))
 	r.With(base).Post("/", losCreate(db))
-	r.With(base).Get("/{id}", losGet(db))
+	// Running-credit portfolio for a customer with no workspace application (booked
+	// directly on the CBS). Powers the app page in "portfolio mode".
+	r.With(core.RequirePages("los", "credit_portfolio")).Get("/portfolio/{cif}", losCustomerPortfolio(db))
+	r.With(door).Get("/{id}", losGet(db))
 	r.With(assign).Put("/{id}/assign", losAssign(db))
-	r.With(base).Put("/{id}/advance", losAdvance(db))
-	r.With(base).Put("/{id}/decline", losDecline(db))
-	r.With(base).Put("/{id}/request-info", losRequestInfo(db))
-	r.With(base).Post("/{id}/conditions", losAddCondition(db))
-	r.With(base).Put("/{id}/conditions/{cid}", losMarkConditionMet(db))
-	r.With(base).Post("/{id}/notes", losAddNote(db))
-	r.With(base).Get("/{id}/events", losGetEvents(db))
-	r.With(base).Put("/{id}/credit-assessment", losSaveCreditAssessment(db))
-	r.With(base).Get("/{id}/documents", losGetDocuments(db))
-	r.With(base).Post("/{id}/documents", losUploadDocument(db))
-	r.With(base).Delete("/documents/{doc_id}", losDeleteDocument(db))
-	r.With(base).Get("/team-users", losTeamUsers(db))
-	r.With(base).Get("/{id}/messages", losGetMessages(db))
-	r.With(base).Post("/{id}/messages", losPostMessage(db))
-	r.With(base).Get("/{id}/eye-report", losEyeReport(db))
+	r.With(door).Put("/{id}/advance", losAdvance(db))
+	r.With(door).Put("/{id}/decline", losDecline(db))
+	r.With(door).Put("/{id}/request-info", losRequestInfo(db))
+	r.With(door).Post("/{id}/conditions", losAddCondition(db))
+	r.With(door).Put("/{id}/conditions/{cid}", losMarkConditionMet(db))
+	r.With(door).Post("/{id}/notes", losAddNote(db))
+	r.With(door).Get("/{id}/events", losGetEvents(db))
+	r.With(riskDoor).Put("/{id}/credit-assessment", losSaveCreditAssessment(db))
+	r.With(door).Get("/{id}/documents", losGetDocuments(db))
+	r.With(door).Post("/{id}/documents", losUploadDocument(db))
+	r.With(door).Delete("/documents/{doc_id}", losDeleteDocument(db))
+	r.With(door).Get("/team-users", losTeamUsers(db))
+	r.With(door).Get("/{id}/messages", losGetMessages(db))
+	r.With(door).Post("/{id}/messages", losPostMessage(db))
+	r.With(door).Get("/{id}/eye-report", losEyeReport(db))
+	// Offer & acceptance CAPTURE (capture-only; Phoenix owns the process, this records it
+	// in the workspace). Does not transition the stage or gate booking.
+	r.With(door).Put("/{id}/offer", losSetOffer(db))
+	// Full Phoenix credit report (PrequalificationReport) stored verbatim, if any.
+	r.With(door).Get("/{id}/credit-report", losCreditReport(db))
+}
+
+// losCreditReport returns the full Phoenix prequalification report stored verbatim for
+// this application (or {report:null} when Phoenix has not sent one). The report is
+// returned as real JSON — not re-encoded — so the Credit Report view renders Phoenix's
+// report field-for-field.
+func losCreditReport(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID")
+			return
+		}
+		var raw []byte
+		var source string
+		var updatedAt time.Time
+		err = db.PG.QueryRowContext(r.Context(),
+			`SELECT report, source, updated_at FROM app.loan_application_reports WHERE application_id=$1`, id).
+			Scan(&raw, &source, &updatedAt)
+		if err == sql.ErrNoRows || len(raw) == 0 {
+			respond(w, map[string]any{"report": nil}, "pg")
+			return
+		}
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
+		sj, _ := json.Marshal(source)
+		uj, _ := json.Marshal(updatedAt)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":{"source":`)) //nolint:errcheck
+		w.Write(sj)                            //nolint:errcheck
+		w.Write([]byte(`,"updated_at":`))      //nolint:errcheck
+		w.Write(uj)                            //nolint:errcheck
+		w.Write([]byte(`,"report":`))          //nolint:errcheck
+		w.Write(raw)                           //nolint:errcheck
+		w.Write([]byte(`}}`))                  //nolint:errcheck
+	}
+}
+
+// losSetOffer records the offer/acceptance step in the workspace (CRM). It writes the
+// offer terms + status onto the application and an event to the trail, but does NOT
+// advance the LOS stage or gate booking — Phoenix is the system of record for this step,
+// and offer_source='crm' marks a workspace-captured offer so a later Phoenix mirror is
+// distinguishable. Actions: issue | accept | decline | expire.
+func losSetOffer(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Action        string `json:"action"`
+		OfferedAmount int64  `json:"offered_amount_kobo"`
+		OfferedRate   int    `json:"offered_rate_bps"`
+		OfferedTenor  int    `json:"offered_tenor_months"`
+		ExpiresAt     string `json:"offer_expires_at"`
+		Ref           string `json:"offer_ref"`
+		Note          string `json:"note"`
+	}
+	newStatus := map[string]string{"issue": "issued", "accept": "accepted", "decline": "declined", "expire": "expired"}
+	evtName := map[string]string{"issue": "offer_issued", "accept": "offer_accepted", "decline": "offer_declined", "expire": "offer_expired"}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if newStatus[b.Action] == "" {
+			respondErr(w, 400, "action must be issue, accept, decline or expire")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		var cur string
+		if err := db.PG.QueryRowContext(ctx, `SELECT status FROM loan_applications WHERE id=$1`, id).Scan(&cur); err != nil {
+			respondErr(w, 404, "Application not found")
+			return
+		}
+		note := strings.TrimSpace(b.Note)
+
+		switch b.Action {
+		case "issue":
+			if b.OfferedAmount <= 0 {
+				respondErr(w, 400, "offered_amount_kobo must be greater than zero")
+				return
+			}
+			var expiry any // nil → NULL
+			if s := strings.TrimSpace(b.ExpiresAt); s != "" {
+				for _, layout := range []string{time.RFC3339, "2006-01-02"} {
+					if t, e := time.Parse(layout, s); e == nil {
+						expiry = t
+						break
+					}
+				}
+			}
+			_, err = db.PG.ExecContext(ctx, `
+				UPDATE loan_applications
+				   SET offer_status='issued', offered_amount_kobo=$2, offered_rate_bps=$3,
+				       offered_tenor_months=$4, offer_expires_at=$5, offer_ref=$6, offer_note=$7,
+				       offer_source='crm', offer_issued_at=NOW(), updated_at=NOW()
+				 WHERE id=$1`,
+				id, b.OfferedAmount, b.OfferedRate, b.OfferedTenor, expiry, strings.TrimSpace(b.Ref), note)
+		case "accept":
+			_, err = db.PG.ExecContext(ctx, `
+				UPDATE loan_applications
+				   SET offer_status='accepted', offer_accepted_at=NOW(),
+				       offer_note=COALESCE(NULLIF($2,''), offer_note), updated_at=NOW()
+				 WHERE id=$1`, id, note)
+		case "decline":
+			_, err = db.PG.ExecContext(ctx, `
+				UPDATE loan_applications
+				   SET offer_status='declined', offer_note=COALESCE(NULLIF($2,''), offer_note), updated_at=NOW()
+				 WHERE id=$1`, id, note)
+		case "expire":
+			_, err = db.PG.ExecContext(ctx, `UPDATE loan_applications SET offer_status='expired', updated_at=NOW() WHERE id=$1`, id)
+		}
+		if err != nil {
+			respondErr(w, 500, "Could not record the offer: "+err.Error())
+			return
+		}
+
+		// Trail entry (best-effort — the offer itself is already recorded).
+		_, _ = db.PG.ExecContext(ctx, `
+			INSERT INTO application_events (application_id, event_type, actor_user_id, notes, created_at)
+			VALUES ($1,$2,$3,$4,NOW())`, id, evtName[b.Action], user.ID, note)
+
+		respond(w, map[string]any{"ok": true, "offer_status": newStatus[b.Action]}, "pg")
+	}
+}
+
+// losStageForwardPage maps a from-stage to the page that authorises its forward
+// transition — derived from allowedTransitions + transitionRequiredPage so it can
+// never drift from what losAdvance actually enforces.
+func losStageForwardPage(stage string) string {
+	next := allowedTransitions[stage]
+	if len(next) != 1 {
+		return ""
+	}
+	return transitionRequiredPage[stage+":"+next[0]]
+}
+
+// losActionableStages returns the set of stages the user may act on (advance), based
+// on the page that authorises each stage's forward transition. los_all sees them all.
+func losActionableStages(user *core.Claims) []string {
+	var out []string
+	for stage := range allowedTransitions {
+		page := losStageForwardPage(stage)
+		if page == "" {
+			continue
+		}
+		if user.HasPage("los_all") || user.HasPage(page) {
+			out = append(out, stage)
+		}
+	}
+	return out
+}
+
+// losInbox lists the applications sitting at a stage the caller is authorised to move
+// forward — i.e. "waiting on me". This is the per-role My Approvals queue; a Finance
+// head sees finance_approval, a Risk officer sees document_collection + risk_review,
+// and so on. When the caller can act on no stage, it returns an empty list rather than
+// erroring.
+func losInbox(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		limit := qint(r, "limit", 200, 1, 500)
+
+		stages := losActionableStages(user)
+		if len(stages) == 0 {
+			writeRiskList(w, []core.Row{}, 0)
+			return
+		}
+
+		ph := make([]string, len(stages))
+		args := make([]any, 0, len(stages)+1)
+		for i, s := range stages {
+			ph[i] = fmt.Sprintf("$%d", i+1)
+			args = append(args, s)
+		}
+		args = append(args, limit)
+
+		q := fmt.Sprintf(`
+			SELECT la.id, la.reference, la.applicant_name, la.applicant_cif,
+			       COALESCE(la.product_type, la.loan_type, '') AS product_type,
+			       COALESCE(la.amount_requested_kobo, 0) AS amount_requested_kobo,
+			       COALESCE(la.amount_approved_kobo, 0)  AS amount_approved_kobo,
+			       la.status, la.stage,
+			       la.eye_score, la.eye_rating AS risk_band, la.dti_pct,
+			       la.decision, la.phoenix_sync_state, la.source_system,
+			       COALESCE(la.monthly_income_kobo, 0) AS monthly_income_kobo,
+			       la.submitted_at, la.updated_at,
+			       EXTRACT(DAY FROM NOW() - COALESCE(la.updated_at, la.submitted_at))::int AS days_in_stage,
+			       u.full_name AS assigned_officer_name
+			FROM loan_applications la
+			LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
+			WHERE la.stage IN (%s)
+			  AND la.status NOT IN ('declined','active','closed','written_off')
+			ORDER BY la.submitted_at ASC NULLS LAST, la.id ASC
+			LIMIT %s`, strings.Join(ph, ","), fmt.Sprintf("$%d", len(stages)+1))
+
+		rows, err := db.PGQuery(ctx, q, args...)
+		if err != nil {
+			// Tolerate the pre-Phoenix schema (decision/phoenix_sync_state/source_system
+			// may not exist yet) by retrying without those columns.
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "column") {
+				q2 := strings.Replace(q, "la.decision, la.phoenix_sync_state, la.source_system,", "", 1)
+				rows, err = db.PGQuery(ctx, q2, args...)
+			}
+			if err != nil {
+				respondErrLog(w, 500, "Query failed", err)
+				return
+			}
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		writeRiskList(w, rows, int64(len(rows)))
+	}
 }
 
 // allowedTransitions maps from_stage → []to_stage
@@ -150,7 +396,7 @@ func losQueue(db *core.DB) http.HandlerFunc {
 			rows, err = db.PGQuery(r.Context(), `
 				SELECT la.id, la.reference, la.applicant_name, la.applicant_cif, la.product_type,
 				       la.amount_requested_kobo, la.amount_approved_kobo, la.status, la.stage,
-				       la.assigned_to_user_id, la.submitted_at, la.disbursed_at, la.created_at, la.updated_at,
+				       la.assigned_to_user_id, la.submitted_at, la.disbursed_at, la.created_at, la.updated_at, la.decision, la.phoenix_sync_state,
 				       u.full_name AS assigned_officer_name
 				FROM loan_applications la
 				LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
@@ -167,7 +413,7 @@ func losQueue(db *core.DB) http.HandlerFunc {
 			rows, err = db.PGQuery(r.Context(), `
 				SELECT la.id, la.reference, la.applicant_name, la.applicant_cif, la.product_type,
 				       la.amount_requested_kobo, la.amount_approved_kobo, la.status, la.stage,
-				       la.assigned_to_user_id, la.submitted_at, la.disbursed_at, la.created_at, la.updated_at,
+				       la.assigned_to_user_id, la.submitted_at, la.disbursed_at, la.created_at, la.updated_at, la.decision, la.phoenix_sync_state,
 				       u.full_name AS assigned_officer_name
 				FROM loan_applications la
 				LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
@@ -293,6 +539,71 @@ func losGet(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// losCustomerPortfolio returns a customer's running-credit portfolio from the CBS loan
+// book (cbs_loans). These customers were booked directly on Udara, so there is no
+// workspace loan_application — the app page shows this portfolio instead of erroring.
+func losCustomerPortfolio(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cif := chi.URLParam(r, "cif")
+		if cif == "" {
+			respondErr(w, 400, "cif required")
+			return
+		}
+		ctx := r.Context()
+
+		customer := core.Row{}
+		if crows, _ := db.PGQuery(ctx, `
+			SELECT cif,
+			       TRIM(CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,''))) AS name,
+			       phone, email, state, city,
+			       COALESCE(NULLIF(TRIM(full_address),''),
+			                NULLIF(TRIM(CONCAT_WS(', ', NULLIF(address_1,''), NULLIF(address_2,''), NULLIF(city,''), NULLIF(state,''))),'')) AS full_address
+			FROM app.customers WHERE cif = $1 LIMIT 1`, cif); len(crows) > 0 {
+			customer = crows[0]
+		}
+
+		loans, _ := db.PGQuery(ctx, `
+			SELECT cbs_account_number AS account_number, reference_number, product_name, status,
+			       loan_amount_kobo, outstanding_principal_kobo, outstanding_interest_kobo, outstanding_fee_kobo,
+			       (COALESCE(outstanding_principal_kobo,0)+COALESCE(outstanding_interest_kobo,0)+COALESCE(outstanding_fee_kobo,0)) AS total_outstanding_kobo,
+			       interest_rate, tenor_days, installment_amount_kobo,
+			       start_date, approved_date, maturity_date, officer_name, branch_name, economic_sector,
+			       GREATEST(0, (CURRENT_DATE - maturity_date::date))::int AS dpd
+			FROM cbs_loans
+			WHERE cbs_customer_id = $1
+			ORDER BY outstanding_principal_kobo DESC NULLS LAST`, cif)
+		if loans == nil {
+			loans = []core.Row{}
+		}
+
+		var totalOutstanding, totalDisbursed int64
+		worstDPD, openCount := 0, 0
+		for _, l := range loans {
+			totalOutstanding += toInt64(l["total_outstanding_kobo"])
+			totalDisbursed += toInt64(l["loan_amount_kobo"])
+			if d := int(toInt64(l["dpd"])); d > worstDPD {
+				worstDPD = d
+			}
+			if st := strings.ToLower(fmt.Sprint(l["status"])); st != "closed" && st != "revoked" {
+				openCount++
+			}
+		}
+
+		respond(w, map[string]any{
+			"cif":      cif,
+			"customer": customer,
+			"loans":    loans,
+			"summary": core.Row{
+				"loan_count":             len(loans),
+				"open_count":             openCount,
+				"total_outstanding_kobo": totalOutstanding,
+				"total_disbursed_kobo":   totalDisbursed,
+				"worst_dpd":              worstDPD,
+			},
+		}, "pg")
+	}
+}
+
 func losCreate(db *core.DB) http.HandlerFunc {
 	type body struct {
 		ApplicantName   string `json:"applicant_name"`
@@ -306,6 +617,25 @@ func losCreate(db *core.DB) http.HandlerFunc {
 		Purpose         string `json:"purpose"`
 		Employer        string `json:"employer"`
 		MonthlyIncome   int64  `json:"monthly_income_kobo"`
+		// Everything below was already being POSTed by NewApplication.tsx and
+		// silently discarded: the struct did not name the fields, so
+		// encoding/json dropped them without error. Staff completed the whole
+		// Personal Info and Employment steps and none of it was stored.
+		// Columns added in migration 216.
+		BVN                 string `json:"bvn"`
+		NIN                 string `json:"nin"`
+		DateOfBirth         string `json:"date_of_birth"`
+		Address             string `json:"address"`
+		JobTitle            string `json:"job_title"`
+		EmploymentType      string `json:"employment_type"`
+		EmploymentStartDate string `json:"employment_start_date"`
+		// Existing monthly debt service. The column already existed but was only
+		// writable later, at credit assessment — while the Phoenix outbox submits
+		// at risk_review. An application therefore reached the decision engine
+		// with obligations of zero, overstating affordability on the one input
+		// that most directly drives DTI.
+		MonthlyObligation int64  `json:"monthly_obligation_kobo"`
+		SectorCode        string `json:"sector_code"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -336,13 +666,23 @@ func losCreate(db *core.DB) http.HandlerFunc {
 				reference, applicant_name, applicant_cif, applicant_email, applicant_phone,
 				product_type, amount_requested_kobo, tenor_months, interest_rate_bps,
 				purpose, employer, monthly_income_kobo,
+				bvn, nin, date_of_birth, residential_address,
+				job_title, employment_type, employment_start_date,
+				monthly_obligation_kobo, sector_code,
 				status, stage, sales_officer_id, assigned_to_user_id,
 				created_at, updated_at
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'draft','draft',$13,$13,NOW(),NOW())
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+				NULLIF($13,''), NULLIF($14,''), NULLIF($15,'')::date, NULLIF($16,''),
+				NULLIF($17,''), NULLIF($18,''), NULLIF($19,'')::date,
+				NULLIF($20,0)::bigint, NULLIF($21,''),
+				'draft','draft',$22,$22,NOW(),NOW())
 			RETURNING id, reference, status, stage`,
 			ref, b.ApplicantName, b.ApplicantCIF, b.ApplicantEmail, b.ApplicantPhone,
 			b.ProductType, b.AmountRequested, b.TenorMonths, b.InterestRateBPS,
-			b.Purpose, b.Employer, b.MonthlyIncome, user.ID)
+			b.Purpose, b.Employer, b.MonthlyIncome,
+			b.BVN, b.NIN, b.DateOfBirth, b.Address,
+			b.JobTitle, b.EmploymentType, b.EmploymentStartDate,
+			b.MonthlyObligation, b.SectorCode, user.ID)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
