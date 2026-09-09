@@ -401,3 +401,92 @@ func maskAccount(v string) string {
 	}
 	return strings.Repeat("•", len(s)-4) + s[len(s)-4:]
 }
+
+// ── Cards ────────────────────────────────────────────────────────────────────
+//
+// A card is the end of the journey for a revolving product: Phoenix issues it once
+// the mandate is live, and from then on it can be frozen, unfrozen or cancelled.
+// Those are customer-service actions, and the people who take them work in the
+// workspace — so having them only in Phoenix meant a caller asking to freeze a card
+// waited while someone opened another system.
+
+// losCards lists the cards Phoenix holds for this applicant.
+func losCards(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID")
+			return
+		}
+		c, err := phoenixLoadAppContext(r.Context(), db, id)
+		if err != nil {
+			respond(w, map[string]any{"cards": nil, "reason": err.Error()}, "phoenix")
+			return
+		}
+		raw, err := phoenixCall(r.Context(), http.MethodGet, "/card-accounts?customer_id="+c.CustomerID, nil)
+		if err != nil {
+			respondErrLog(w, 502, "Could not read cards from Phoenix", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":{"cards":`)) //nolint:errcheck
+		w.Write(raw)                         //nolint:errcheck
+		w.Write([]byte(`}}`))                //nolint:errcheck
+	}
+}
+
+// losCardAction performs one of Phoenix's per-card operations.
+//
+// A reason is required for freeze and cancel. Both restrict a customer's access to
+// credit they have been granted, and "who froze this and why" is the first question
+// asked when the customer rings back — a trail that cannot answer it is not worth
+// keeping.
+func losCardAction(db *core.DB, action string) http.HandlerFunc {
+	type body struct {
+		Reason string `json:"reason"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID")
+			return
+		}
+		cardID := strings.TrimSpace(chi.URLParam(r, "card_id"))
+		if cardID == "" {
+			respondErr(w, 400, "card_id is required")
+			return
+		}
+		var b body
+		_ = json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+		reason := strings.TrimSpace(b.Reason)
+		if (action == "freeze" || action == "cancel") && reason == "" {
+			respondErr(w, 422, "A reason is required to "+action+" a card")
+			return
+		}
+
+		payload := map[string]any{}
+		if reason != "" {
+			payload["reason"] = reason
+		}
+		raw, err := phoenixCall(r.Context(), http.MethodPost, "/card-accounts/"+cardID+"/"+action, payload)
+		if err != nil {
+			respondErrLog(w, 502, err.Error(), err)
+			return
+		}
+		label := map[string]string{
+			"activate": "Card activated",
+			"freeze":   "Card frozen",
+			"unfreeze": "Card unfrozen",
+			"cancel":   "Card cancelled",
+		}[action]
+		if reason != "" {
+			label += " — " + reason
+		}
+		user := core.UserFromCtx(r.Context())
+		phoenixLogWorkspaceAction(r.Context(), db, id, user.ID, "card."+action, label)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":`)) //nolint:errcheck
+		w.Write(raw)                //nolint:errcheck
+		w.Write([]byte(`}`))        //nolint:errcheck
+	}
+}

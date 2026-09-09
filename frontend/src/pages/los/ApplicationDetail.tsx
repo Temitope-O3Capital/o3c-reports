@@ -62,6 +62,8 @@ interface Application {
   decision_reasons:        unknown
   decline_reason_phoenix?: string | null
   phoenix_sync_state:      string | null
+  phoenix_stage?:          string | null
+  phoenix_status?:         string | null
   source_system:           string | null
   source_lead_id:          number | null
   lead_source:             string | null
@@ -1241,6 +1243,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
           on. */}
       <CustomerJourney
         appId={app.id}
+        phoenixStage={app.phoenix_stage}
         approvedKobo={app.amount_approved_kobo}
         requestedKobo={app.amount_requested_kobo}
         onRefresh={onRefresh}

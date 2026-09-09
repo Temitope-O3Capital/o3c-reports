@@ -230,6 +230,57 @@ func phoenixCall(ctx context.Context, method, path string, body any) (json.RawMe
 	return json.RawMessage(out), nil
 }
 
+// phoenixSyncStage mirrors Phoenix's customer-journey stage onto our row.
+//
+// The value is read out of a response we already have rather than fetched
+// separately: the eye-decision payload embeds the credit request, and asking
+// Phoenix twice for something it just told us is how a page that renders in one
+// call ends up making two.
+//
+// Best-effort by design. Failing to mirror a display value must never fail the
+// request that carried it — the caller still has the live answer in hand, and the
+// mirror catches up on the next event or the next fetch.
+func phoenixSyncStage(ctx context.Context, db *core.DB, appID int64, raw json.RawMessage) {
+	var payload struct {
+		CreditRequest *struct {
+			Status        string `json:"status"`
+			WorkflowStage string `json:"workflow_stage"`
+		} `json:"credit_request"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil || payload.CreditRequest == nil {
+		return
+	}
+	stage := strings.TrimSpace(payload.CreditRequest.WorkflowStage)
+	status := strings.TrimSpace(payload.CreditRequest.Status)
+	if stage == "" && status == "" {
+		return
+	}
+	// Only touch the row when something actually moved, so an unchanged stage does
+	// not keep bumping phoenix_stage_at and make the mirror look fresher than it is.
+	if _, err := db.PGExec(ctx, `
+		UPDATE app.loan_applications
+		   SET phoenix_stage    = COALESCE(NULLIF($2,''), phoenix_stage),
+		       phoenix_status   = COALESCE(NULLIF($3,''), phoenix_status),
+		       phoenix_stage_at = NOW()
+		 WHERE id = $1
+		   AND (COALESCE(phoenix_stage,'')  IS DISTINCT FROM COALESCE(NULLIF($2,''), phoenix_stage, '')
+		     OR COALESCE(phoenix_status,'') IS DISTINCT FROM COALESCE(NULLIF($3,''), phoenix_status, ''))`,
+		appID, stage, status); err != nil {
+		slog.Error("phoenix: could not mirror workflow stage", "application_id", appID, "err", err)
+	}
+}
+
+// phoenixRefreshStage fetches the decision purely to refresh the mirrored stage.
+// Used after a lifecycle event, which tells us something changed but not what the
+// stage became.
+func phoenixRefreshStage(ctx context.Context, db *core.DB, appID int64, phoenixID string) {
+	raw, err := phoenixEyeDecision(ctx, phoenixID)
+	if err != nil || raw == nil {
+		return
+	}
+	phoenixSyncStage(ctx, db, appID, raw)
+}
+
 // phoenixProductNames maps the workspace's canonical product codes onto the product
 // NAMES configured in Phoenix. The two vocabularies are deliberately allowed to
 // differ: lib/products.ts and handlers/products.go treat snake_case codes as the
@@ -327,21 +378,21 @@ type phoenixSubmitRequest struct {
 	// assumes self_employed when this is absent, which is the wrong model for most
 	// of this book, so send it whenever the form captured it.
 	EmploymentType string `json:"employment_type,omitempty"`
-	ProductType   string `json:"product_type,omitempty"`
+	ProductType    string `json:"product_type,omitempty"`
 	// A revolving product is granted a LIMIT to draw against, not a principal to
 	// amortise, and Phoenix rejects a principal on one outright:
 	// "requested_limit_minor is required for a REVOLVING product". So exactly one
 	// of these is sent, chosen by product — see phoenixIsRevolving. Both carry
 	// omitempty for that reason; sending both would fail the other way round.
-	AmountKobo      int64   `json:"amount_requested_kobo,omitempty"`
-	RequestedLimit  int64   `json:"requested_limit_kobo,omitempty"`
-	TenorMonths     int64   `json:"tenor_months,omitempty"`
-	MonthlyIncome   int64   `json:"monthly_income_kobo,omitempty"`
-	MonthlyOblig    int64   `json:"monthly_obligation_kobo,omitempty"`
-	InterestRateBps int64   `json:"interest_rate_bps,omitempty"`
-	SectorCode      string  `json:"sector_code,omitempty"`
-	Purpose         string  `json:"purpose,omitempty"`
-	CallbackURL     string  `json:"callback_url,omitempty"`
+	AmountKobo      int64  `json:"amount_requested_kobo,omitempty"`
+	RequestedLimit  int64  `json:"requested_limit_kobo,omitempty"`
+	TenorMonths     int64  `json:"tenor_months,omitempty"`
+	MonthlyIncome   int64  `json:"monthly_income_kobo,omitempty"`
+	MonthlyOblig    int64  `json:"monthly_obligation_kobo,omitempty"`
+	InterestRateBps int64  `json:"interest_rate_bps,omitempty"`
+	SectorCode      string `json:"sector_code,omitempty"`
+	Purpose         string `json:"purpose,omitempty"`
+	CallbackURL     string `json:"callback_url,omitempty"`
 	// No dti_pct here on purpose. Phoenix's application schema rejects it outright
 	// ("unexpected property", 422) — it derives DTI itself from the income and
 	// obligation we already send. The field existed but was never assigned, so
@@ -997,7 +1048,12 @@ func phoenixProcessEvent(ctx context.Context, db *core.DB, ev phoenixEvent) (int
 				notes = alt
 			}
 		}
-		return appID, phoenixLogEvent(ctx, db, appID, ev.EventType, lc.label, lc.actor, "", ev.EventID, notes)
+		if err := phoenixLogEvent(ctx, db, appID, ev.EventType, lc.label, lc.actor, "", ev.EventID, notes); err != nil {
+			return appID, err
+		}
+		// The event says something moved but not where to; refresh the mirror.
+		phoenixRefreshStage(ctx, db, appID, ev.PhoenixID)
+		return appID, nil
 	}
 
 	switch ev.EventType {
@@ -1213,4 +1269,36 @@ func phoenixVerifySignature(secret, header string, body []byte) bool {
 	want.Write(body)
 	expected := hex.EncodeToString(want.Sum(nil))
 	return subtle.ConstantTimeCompare([]byte(strings.ToLower(sig)), []byte(expected)) == 1
+}
+
+// phoenixPushStage tells Phoenix where OUR approval chain has reached.
+//
+// Phoenix runs the customer journey; the workspace runs an internal chain Phoenix
+// has no concept of — risk review, risk head, finance approval, booking. Without
+// this the two ran blind to each other: a credit request sat at MANUAL_REVIEW in
+// Phoenix while it had in fact cleared risk here and was waiting on finance, and
+// neither operator could see the other half of the file.
+//
+// Fire-and-forget, exactly like the submit enqueue above it: an officer's click must
+// not fail because the other system is slow or restarting. The stage is a display
+// value on both sides, so a missed push costs a stale label, not a lost decision —
+// and the next transition overwrites it.
+func phoenixPushStage(ctx context.Context, db *core.DB, appID int64, stage, note string) {
+	if !phoenixConfigured() || strings.TrimSpace(stage) == "" {
+		return
+	}
+	rows, err := db.PGQuery(ctx, `SELECT COALESCE(phoenix_id,'') AS phoenix_id FROM app.loan_applications WHERE id=$1`, appID)
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	phoenixID := str(rows[0]["phoenix_id"])
+	if phoenixID == "" {
+		return // never submitted; nothing over there to annotate
+	}
+	if _, err := phoenixCall(ctx, http.MethodPost,
+		"/credit-requests/"+phoenixID+"/partner-stage",
+		map[string]any{"stage": stage, "note": note}); err != nil {
+		slog.Error("phoenix: could not push partner stage",
+			"application_id", appID, "stage", stage, "err", err)
+	}
 }

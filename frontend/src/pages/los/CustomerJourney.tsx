@@ -27,6 +27,8 @@ type Mandate = {
 
 type Props = {
   appId: number
+  /** Phoenix's own customer-journey stage, mirrored onto our row by the webhook. */
+  phoenixStage?: string | null
   /** Approved ceiling, so the amount step can show what the customer may take. */
   approvedKobo?: number | null
   requestedKobo?: number | null
@@ -83,7 +85,7 @@ function Step({ icon, title, sub, status, children }: {
   )
 }
 
-export default function CustomerJourney({ appId, approvedKobo, requestedKobo, onRefresh }: Props) {
+export default function CustomerJourney({ appId, phoenixStage, approvedKobo, requestedKobo, onRefresh }: Props) {
   const [mandates, setMandates] = useState<Mandate[] | null>(null)
   const [reason, setReason] = useState<string | undefined>()
   const [busy, setBusy] = useState<string | null>(null)
@@ -144,7 +146,11 @@ export default function CustomerJourney({ appId, approvedKobo, requestedKobo, on
     <div className="sd-panel">
       <div className="sd-panel-head">
         <h2>Customer journey</h2>
-        <span className="sd-panel-hint">Phoenix owns these steps — taken here, recorded there</span>
+        <span className="sd-panel-hint">
+          {phoenixStage
+            ? <>Phoenix stage: <b style={{ color: "var(--txt)" }}>{phoenixStage.replace(/_/g, " ").toLowerCase()}</b></>
+            : "Phoenix owns these steps — taken here, recorded there"}
+        </span>
       </div>
       <div className="sd-panel-body">
 

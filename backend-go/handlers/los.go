@@ -80,6 +80,11 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	r.With(door).Post("/{id}/mandate/{mandate_id}/check-status", losMandateAction(db, "check-status"))
 	r.With(door).Post("/{id}/confirm-amount", losConfirmAmount(db))
 	r.With(door).Post("/{id}/consent", losRecordConsent(db))
+	r.With(door).Get("/{id}/cards", losCards(db))
+	r.With(door).Post("/{id}/cards/{card_id}/activate", losCardAction(db, "activate"))
+	r.With(door).Post("/{id}/cards/{card_id}/freeze", losCardAction(db, "freeze"))
+	r.With(door).Post("/{id}/cards/{card_id}/unfreeze", losCardAction(db, "unfreeze"))
+	r.With(door).Post("/{id}/cards/{card_id}/cancel", losCardAction(db, "cancel"))
 	// Offer & acceptance CAPTURE (capture-only; Phoenix owns the process, this records it
 	// in the workspace). Does not transition the stage or gate booking.
 	r.With(door).Put("/{id}/offer", losSetOffer(db))
@@ -116,12 +121,12 @@ func losCreditReport(db *core.DB) http.HandlerFunc {
 		uj, _ := json.Marshal(updatedAt)
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"data":{"source":`)) //nolint:errcheck
-		w.Write(sj)                            //nolint:errcheck
-		w.Write([]byte(`,"updated_at":`))      //nolint:errcheck
-		w.Write(uj)                            //nolint:errcheck
-		w.Write([]byte(`,"report":`))          //nolint:errcheck
-		w.Write(raw)                           //nolint:errcheck
-		w.Write([]byte(`}}`))                  //nolint:errcheck
+		w.Write(sj)                           //nolint:errcheck
+		w.Write([]byte(`,"updated_at":`))     //nolint:errcheck
+		w.Write(uj)                           //nolint:errcheck
+		w.Write([]byte(`,"report":`))         //nolint:errcheck
+		w.Write(raw)                          //nolint:errcheck
+		w.Write([]byte(`}}`))                 //nolint:errcheck
 	}
 }
 
@@ -932,6 +937,20 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Tell Phoenix where OUR chain has reached, on every transition.
+		//
+		// Phoenix runs the customer journey; this is the internal approval chain it
+		// has no concept of. Only the initial risk_review hand-off was ever sent, so
+		// Phoenix showed MANUAL_REVIEW for an application that had already cleared
+		// risk here and was waiting on a finance signature — each side blind to the
+		// other half of the same file.
+		//
+		// Post-commit and fire-and-forget, for the same reason the notifications
+		// below are: the stage has already changed here, and an officer's click must
+		// not fail because the other system is slow. A missed push costs a stale
+		// label over there, which the next transition corrects.
+		go phoenixPushStage(context.WithoutCancel(ctx), db, id, b.ToStage, "")
+
 		// Post-commit notifications (non-blocking)
 		switch b.ToStage {
 		case "submitted":
@@ -1709,6 +1728,9 @@ func losEyeDecision(db *core.DB) http.HandlerFunc {
 			respond(w, map[string]any{"decision": nil, "reason": "not_scored"}, "pg")
 			return
 		}
+
+		// Mirror Phoenix's customer-journey stage from the payload we just fetched.
+		phoenixSyncStage(r.Context(), db, id, raw)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"data":{"decision":`)) //nolint:errcheck
