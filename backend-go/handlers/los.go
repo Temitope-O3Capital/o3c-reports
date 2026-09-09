@@ -678,7 +678,10 @@ func losCreate(db *core.DB) http.HandlerFunc {
 				'draft','draft',$22,$22,NOW(),NOW())
 			RETURNING id, reference, status, stage`,
 			ref, b.ApplicantName, b.ApplicantCIF, b.ApplicantEmail, b.ApplicantPhone,
-			b.ProductType, b.AmountRequested, b.TenorMonths, b.InterestRateBPS,
+			// A revolving product has no tenor, and the form leaves it blank. Storing
+			// the resulting 0 would claim a zero-month term (see migration 217), so an
+			// absent tenor goes in as NULL.
+			b.ProductType, b.AmountRequested, nullIfZero(int64(b.TenorMonths)), b.InterestRateBPS,
 			b.Purpose, b.Employer, b.MonthlyIncome,
 			b.BVN, b.NIN, b.DateOfBirth, b.Address,
 			b.JobTitle, b.EmploymentType, b.EmploymentStartDate,

@@ -123,6 +123,27 @@ func phoenixProductName(code string) string {
 	return code
 }
 
+// phoenixProductCode is the inverse: Phoenix's display name back to the workspace
+// code. Without it a Phoenix-originated application lands in loan_applications
+// carrying "Credit Card" while every workspace-originated row carries
+// "credit_card", and the two never group together — the product-line classifier,
+// Sales, BI and phoenixIsRevolving all key off the code, so a mirrored
+// application quietly drops out of all of them.
+//
+// Matched case-insensitively because the name is Phoenix-side configuration and a
+// stray capital should not fork the vocabulary. An unrecognised name is passed
+// through unchanged rather than guessed at, for the same reason as above: a
+// visibly odd product_type is diagnosable, a plausible wrong one is not.
+func phoenixProductCode(name string) string {
+	n := strings.TrimSpace(name)
+	for code, display := range phoenixProductNames {
+		if strings.EqualFold(display, n) {
+			return code
+		}
+	}
+	return n
+}
+
 // PhoenixWebhook is the inbound event endpoint. It authenticates by HMAC signature
 // over the raw body, NOT by session — Phoenix is a server, not a logged-in user — so
 // main.go mounts it in the public block, alongside the other machine-to-machine
@@ -819,11 +840,13 @@ func phoenixUpsertApplication(ctx context.Context, db *core.DB, pa phoenixApplic
 		) VALUES (
 			'phoenix', $1, $2, $3, NULLIF($4,''),
 			NULLIF($5,''), NULLIF($6,''), NULLIF($7,''),
-			-- product_type, amount_requested_kobo and tenor_months are NOT NULL on this
-			-- table with no default, so an insert MUST supply them. A Phoenix payload
-			-- that omits product_type would otherwise blow up on the constraint.
+			-- product_type and amount_requested_kobo are NOT NULL on this table with no
+			-- default, so an insert MUST supply them. A Phoenix payload that omits
+			-- product_type would otherwise blow up on the constraint. tenor_months is
+			-- nullable since migration 217 -- a revolving product has no tenor, and
+			-- NULL says that where 0 claimed a zero-month term.
 			COALESCE(NULLIF($8,''), 'Unspecified'),
-			COALESCE($9::bigint, 0), COALESCE($10, 0), NULLIF($11::bigint, 0),
+			COALESCE($9::bigint, 0), NULLIF($10, 0), NULLIF($11::bigint, 0),
 			NULLIF($12,''), NULLIF($13,''), $14, $15,
 			COALESCE($16::timestamptz, NOW()), 'not_required', NOW(), NOW(), NOW()
 		)
@@ -838,7 +861,15 @@ func phoenixUpsertApplication(ctx context.Context, db *core.DB, pa phoenixApplic
 		-- so using it here would let a partial "updated" event overwrite a real
 		-- product type with 'Unspecified', or a real tenor with 0.
 		ON CONFLICT (phoenix_id) WHERE phoenix_id IS NOT NULL DO UPDATE SET
-			reference             = COALESCE(NULLIF($2,''),  app.loan_applications.reference),
+			-- Reference is OURS on anything we originated. Phoenix mints its own
+			-- reference for every credit request, including the ones we submitted,
+			-- so an unguarded overwrite renames a workspace application out from
+			-- under the people working it: the reference is what Sales quotes to the
+			-- customer and what Collections and the approval chain search on. Only
+			-- take Phoenix's on rows Phoenix actually originated.
+			reference             = CASE WHEN app.loan_applications.source_system = 'phoenix'
+			                             THEN COALESCE(NULLIF($2,''), app.loan_applications.reference)
+			                             ELSE app.loan_applications.reference END,
 			applicant_name        = COALESCE(NULLIF($3,''),  app.loan_applications.applicant_name),
 			applicant_cif         = COALESCE(NULLIF($4,''),  app.loan_applications.applicant_cif),
 			applicant_phone       = COALESCE(NULLIF($5,''),  app.loan_applications.applicant_phone),
@@ -856,7 +887,7 @@ func phoenixUpsertApplication(ctx context.Context, db *core.DB, pa phoenixApplic
 			updated_at            = NOW()
 		RETURNING id, (xmax = 0) AS inserted`,
 		pa.PhoenixID, ref, pa.ApplicantName, pa.ApplicantCIF,
-		pa.Phone, pa.Email, pa.Employer, pa.ProductType,
+		pa.Phone, pa.Email, pa.Employer, phoenixProductCode(pa.ProductType),
 		pa.AmountKobo, pa.TenorMonths, pa.MonthlyIncome,
 		pa.SectorCode, pa.Purpose, status, stage,
 		nullIfEmpty(pa.SubmittedAt))
