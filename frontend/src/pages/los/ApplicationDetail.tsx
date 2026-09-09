@@ -1345,8 +1345,48 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
   )
 }
 // ── RISK VIEW ─────────────────────────────────────────────────────────────────
+//
+// The credit desk's view of an application. Where Sales asks "what did we capture
+// and what do I chase", Risk asks "can this be lent to, and on what terms".
+//
+// So the assessment leads: score, band, affordability and the bureau position sit
+// at the top as the numbers a decision turns on, with the decision engine's own
+// verdict beside them. The applicant record is present but secondary — Risk reads
+// it to sanity-check the assessment, not to work the customer.
+//
+// Same visual language as the Sales view (salesDetail.css); a different subject.
 
-const RATING_COLORS: Record<string, string> = { Excellent: GREEN, Good: GREEN, Fair: AMBER, Poor: RED, Bad: RED }
+const RATING_COLORS: Record<string, string> = {
+  Excellent: GREEN, Good: GREEN, Fair: AMBER, Poor: RED, Bad: RED,
+  Prime: GREEN, 'Near-Prime': AMBER, 'Sub-Prime': RED, 'High-Risk': RED,
+}
+
+// riskNextStep says whose move it is, in Risk's terms. A stage pill says where the
+// file is; it does not say whether this desk owes the next action.
+function riskNextStep(app: Application, unmet: number): { tone: 'act' | 'wait' | 'done' | 'stop'; icon: string; title: string; body: string } {
+  const s = app.stage
+  if (s === 'declined') {
+    return { tone: 'stop', icon: 'cancel', title: 'Declined', body: app.decline_reason || 'This application was declined.' }
+  }
+  if (s === 'active' || s === 'booked') {
+    return { tone: 'done', icon: 'check_circle', title: 'Booked and live', body: 'The facility has been disbursed. Nothing further is needed from the credit desk.' }
+  }
+  if (s === 'risk_review') {
+    return { tone: 'act', icon: 'fact_check', title: 'Assess and recommend', body: 'Review the assessment and the bureau position, attach any conditions, then recommend to the risk head or decline.' }
+  }
+  if (s === 'risk_head_review') {
+    return { tone: 'act', icon: 'gavel', title: 'Credit approval', body: 'The officer has recommended this. Approve it on credit grounds, or send it back.' }
+  }
+  if (s === 'pending_conditions') {
+    return unmet > 0
+      ? { tone: 'act', icon: 'rule', title: `${unmet} condition${unmet === 1 ? '' : 's'} outstanding`, body: 'Approval is conditional. It cannot move to finance until every condition is cleared.' }
+      : { tone: 'done', icon: 'check_circle', title: 'Conditions cleared', body: 'Every condition has been met. This can go to finance.' }
+  }
+  if (s === 'draft' || s === 'submitted' || s === 'document_collection') {
+    return { tone: 'wait', icon: 'hourglass_top', title: 'With Sales', body: 'Still in origination — documents are being collected. It reaches this desk at risk review.' }
+  }
+  return { tone: 'wait', icon: 'hourglass_top', title: `With ${stageMeta(app.stage).owner || 'another desk'}`, body: 'Credit has done its part. This is not waiting on the risk desk.' }
+}
 
 function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, onReqInfo, onCreditFile }: {
   app: Application
@@ -1358,229 +1398,254 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
   onReqInfo: () => void
   onCreditFile: () => void
 }) {
-  const navigate  = useNavigate()
+  const navigate = useNavigate()
   const meta = stageMeta(app.stage)
   const isTerminal = app.stage === 'active' || app.stage === 'declined'
   // A manual assessment is a Risk-only override of the same columns Phoenix populates.
   const canAssess = hasPage('los_risk_review') || hasPage('los_risk_head') || hasPage('los_all')
-  // Whether the current eye_* values came from the decisioning engine, so a manual edit
-  // is flagged as an override rather than silently clobbering Phoenix's output.
+  // Whether the current eye_* values came from the decisioning engine, so a manual
+  // edit is flagged as an override rather than silently clobbering Phoenix's output.
   const phoenixScored = app.phoenix_sync_state === 'decided' || app.source_system === 'phoenix' || !!(app.decision && app.decision !== 'pending')
 
-  const score  = app.eye_score
+  const score = app.eye_score
   const rating = app.eye_rating
-  const scoreColor = score === null ? 'var(--txt3)' : score >= 650 ? GREEN : score >= 500 ? AMBER : RED
+  const scoreColor = score === null ? undefined : score >= 650 ? GREEN : score >= 500 ? AMBER : RED
 
   const monthlyRepayment = (app.tenor_months && app.amount_requested_kobo)
     ? Math.round(app.amount_requested_kobo / app.tenor_months * (1 + (app.interest_rate_bps ?? 0) / 10000))
     : 0
-  const dtiPct  = dtiOf(app.dti_pct) ?? ((app.monthly_income_kobo && monthlyRepayment)
+  const dtiPct = dtiOf(app.dti_pct) ?? ((app.monthly_income_kobo && monthlyRepayment)
     ? (monthlyRepayment / app.monthly_income_kobo) * 100 : null)
-  const dtiColor  = dtiPct === null ? 'var(--txt2)' : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : GREEN
-  const netAfter  = (app.monthly_income_kobo && monthlyRepayment) ? app.monthly_income_kobo - monthlyRepayment : null
+  const dtiColor = dtiPct === null ? undefined : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : undefined
+  const netAfter = (app.monthly_income_kobo && monthlyRepayment) ? app.monthly_income_kobo - monthlyRepayment : null
   const unmetCount = conditions.filter(c => !c.is_met).length
+  const next = riskNextStep(app, unmetCount)
 
-  // Inline credit assessment editing
-  const [form,    setForm]    = useState({ eye_score: score !== null ? String(score) : '', eye_rating: rating ?? '', bureau_summary: app.bureau_summary ?? '', dti_pct: app.dti_pct !== null ? String(app.dti_pct) : '' })
+  const [form, setForm] = useState({
+    eye_score: score !== null ? String(score) : '',
+    eye_rating: rating ?? '',
+    bureau_summary: app.bureau_summary ?? '',
+    dti_pct: app.dti_pct !== null && app.dti_pct !== undefined ? String(app.dti_pct) : '',
+  })
   const [editing, setEditing] = useState(false)
-  const [saving,  setSaving]  = useState(false)
+  const [saving, setSaving] = useState(false)
 
   async function saveAssessment() {
     setSaving(true)
     try {
       await apiPut(`/api/los/${app.id}/credit-assessment`, {
-        eye_score:      form.eye_score      ? Number(form.eye_score)  : null,
-        eye_rating:     form.eye_rating     || null,
+        eye_score: form.eye_score ? Number(form.eye_score) : null,
+        eye_rating: form.eye_rating || null,
         bureau_summary: form.bureau_summary || null,
-        dti_pct:        form.dti_pct        ? Number(form.dti_pct)    : null,
+        dti_pct: form.dti_pct ? Number(form.dti_pct) : null,
       })
       toast.success('Assessment saved'); setEditing(false); onRefresh()
     } catch (e: any) { toast.error(e.message ?? 'Failed to save') }
     finally { setSaving(false) }
   }
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Header strip */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '14px 18px', background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, boxShadow: 'var(--card-shadow)' }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Applicant</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{app.applicant_name}</div>
-        </div>
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Amount</div>
-          <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{fmtKobo(app.amount_requested_kobo)}</div>
-        </div>
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-        <StagePill stage={app.stage} />
+  const brand = { '--sd-navy': NAVY, '--sd-red': RED, '--sd-green': GREEN, '--sd-amber': AMBER } as CSSProperties
+  const fieldInput: CSSProperties = {
+    width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid var(--bdr)',
+    background: 'var(--card)', color: 'var(--txt)', fontSize: 13, marginTop: 4,
+  }
+  const fieldLabel: CSSProperties = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--txt2)' }
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+  return (
+    <div className="sd" style={brand}>
+      {/* Header */}
+      <div className="sd-head">
+        <div style={{ minWidth: 0 }}>
+          <div className="sd-kicker">
+            <ProductPill product={app.product_type || 'Unknown'} />
+            <StagePill stage={app.stage} size="sm" />
+          </div>
+          <h1 className="sd-name">{app.applicant_name}</h1>
+          <div className="sd-ref">
+            {app.reference}
+            {app.applicant_cif ? ` · CIF ${app.applicant_cif}` : ' · no CIF yet'}
+            {` · ${fmtKobo(app.amount_requested_kobo)}`}
+            {app.tenor_months ? ` over ${app.tenor_months} months` : ' · revolving'}
+          </div>
+        </div>
+
+        <div className="sd-actions">
+          <button className="sd-btn" onClick={onCreditFile}>
+            <span className="material-symbols-rounded">folder_shared</span>Credit file
+          </button>
           {app.applicant_cif && (
-            <button onClick={onCreditFile} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 7, fontSize: 12, fontWeight: 600, color: 'var(--txt2)', cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>insert_drive_file</span>Credit File
+            <button className="sd-btn" onClick={() => navigate(`/contacts/${app.applicant_cif}`)}>
+              <span className="material-symbols-rounded">person</span>Customer 360
             </button>
           )}
-          {canRequestInfo(app.stage) && (
-            <button onClick={onReqInfo} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>help</span>Request Info
+          {canAdvance(app.stage) && !isTerminal && (
+            <button className="sd-btn is-warn" onClick={onReqInfo}>
+              <span className="material-symbols-rounded">help</span>Request info
             </button>
           )}
           {canDecline(app.stage) && (
-            <button onClick={onDecline} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: RED, border: `1px solid ${RED}40`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>Decline
+            <button className="sd-btn is-danger" onClick={onDecline}>
+              <span className="material-symbols-rounded">cancel</span>Decline
             </button>
           )}
           {canAdvance(app.stage) && meta.forward && (
-            <button onClick={() => onAdvance(meta.forward!)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 18px', background: GREEN, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check_circle</span>
-              {meta.action ?? 'Advance'}
+            <button className="sd-btn is-primary" onClick={() => onAdvance(meta.forward!)}>
+              <span className="material-symbols-rounded">send</span>{meta.action ?? 'Advance'}
             </button>
-          )}
-          {isTerminal && app.stage === 'active' && (
-            <span style={{ fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20, background: 'rgba(22,163,74,.12)', color: GREEN }}>Disbursed</span>
-          )}
-          {isTerminal && app.stage === 'declined' && (
-            <span style={{ fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20, background: 'rgba(192,0,0,.1)', color: RED }}>Declined</span>
           )}
         </div>
       </div>
 
-      {/* Declined banner */}
-      {app.stage === 'declined' && app.decline_reason && (
-        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', borderRadius: 10, background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.2)' }}>
-          <span className="material-symbols-rounded" style={{ color: RED, fontSize: 18, flexShrink: 0 }}>cancel</span>
-          <div><div style={{ fontSize: 13, fontWeight: 700, color: RED }}>Application Declined</div><div style={{ fontSize: 13, color: 'var(--txt)', marginTop: 2 }}>{app.decline_reason}</div></div>
-        </div>
-      )}
-
-      {/* Score hero — always visible */}
-      <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 16, padding: '20px 24px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)' }}>
-        {/* Score circle */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '16px 0', borderRight: '1px solid var(--bdr)' }}>
-          <div style={{ ...NUM, fontSize: 62, fontWeight: 800, color: scoreColor, lineHeight: 1 }}>{score ?? '—'}</div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Eye Score</div>
-          {rating && (
-            <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 12px', borderRadius: 20, background: `${RATING_COLORS[rating] ?? 'var(--txt2)'}18`, color: RATING_COLORS[rating] ?? 'var(--txt2)' }}>{rating}</span>
-          )}
-          {!score && (
-            <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: 'rgba(217,119,6,.12)', color: AMBER }}>Pending</span>
-          )}
-          {phoenixScored && score !== null && (
-            <span style={{ fontSize: 10.5, fontWeight: 600, color: '#7C3AED', display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 2 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 12 }}>verified</span>via Phoenix
-            </span>
-          )}
-          {canAssess && !isTerminal && (
-            <button onClick={() => setEditing(e => !e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: 11.5, cursor: 'pointer', marginTop: 4 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>edit</span>{score !== null ? (phoenixScored ? 'Override' : 'Update') : 'Enter Score'}
-            </button>
-          )}
-        </div>
-
-        {/* Risk metrics */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 16, padding: '0 0 16px', borderBottom: '1px solid var(--bdr)', marginBottom: 16 }}>
-            {[
-              { label: 'Monthly Income',        value: app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : '—', color: 'var(--txt)' },
-              { label: 'Est. Monthly Repayment', value: monthlyRepayment ? fmtKobo(monthlyRepayment) : '—', color: 'var(--txt)' },
-              { label: 'DTI Ratio',              value: dtiPct !== null ? `${dtiPct.toFixed(1)}%` : '—', color: dtiColor },
-              { label: 'Net After Deduction',    value: netAfter !== null ? fmtKobo(netAfter) : '—', color: netAfter !== null ? (netAfter > 0 ? GREEN : RED) : 'var(--txt)' },
-            ].map(m => (
-              <div key={m.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{m.label}</span>
-                <span style={{ ...NUM, fontSize: 15, fontWeight: 700, color: m.color }}>{m.value}</span>
-              </div>
-            ))}
-          </div>
-          {app.bureau_summary && (
-            <div style={{ fontSize: 13, color: 'var(--txt2)', lineHeight: 1.6 }}>{app.bureau_summary}</div>
-          )}
-          {!app.bureau_summary && score === null && (
-            <div style={{ fontSize: 13, color: 'var(--txt3)', fontStyle: 'italic' }}>Enter the Eye Score to populate risk metrics.</div>
-          )}
+      {/* Whose move */}
+      <div className={`sd-band sd-band-${next.tone}`}>
+        <div className="sd-band-icn"><span className="material-symbols-rounded">{next.icon}</span></div>
+        <div style={{ minWidth: 0 }}>
+          <b>{next.title}</b>
+          <span>{next.body}</span>
         </div>
       </div>
 
-      {/* Inline score edit form */}
-      {editing && (
-        <SectionCard title="Update Credit Assessment">
-          {phoenixScored && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 8, background: 'rgba(124,58,237,.06)', border: '1px solid rgba(124,58,237,.2)', marginBottom: 12 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16, color: '#7C3AED', flexShrink: 0 }}>info</span>
-              <span style={{ fontSize: 12, color: 'var(--txt2)', lineHeight: 1.5 }}>This score was set by Phoenix decisioning. Saving a manual assessment overrides the Phoenix values on record.</span>
+      {/* The decision engine's verdict */}
+      <PhoenixDecisionBanner app={app} />
+
+      {/* The numbers a credit decision turns on */}
+      <div className="sd-stats">
+        <SDStat label="Eye score" value={score ?? '—'} tone={scoreColor}
+          sub={rating ? <span style={{ color: RATING_COLORS[rating] ?? 'var(--txt2)', fontWeight: 700 }}>{rating}</span> : 'not rated'} />
+        <SDStat label="Debt-to-income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiColor}
+          sub={dtiPct == null ? 'not assessed' : dtiPct > 50 ? 'above policy' : dtiPct > 33 ? 'elevated' : 'within policy'} />
+        <SDStat label="Monthly repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : '—'}
+          sub={app.tenor_months ? `over ${app.tenor_months} months` : 'revolving — no term'} />
+        <SDStat label="Net after repayment" value={netAfter == null ? '—' : fmtKobo(netAfter)}
+          tone={netAfter != null && netAfter <= 0 ? RED : undefined}
+          sub={netAfter != null && netAfter <= 0 ? 'repayment exceeds income' : undefined} />
+        <SDStat label="Exposure requested" value={fmtKobo(app.amount_requested_kobo)}
+          sub={app.amount_approved_kobo ? `approved ${fmtKobo(app.amount_approved_kobo)}` : undefined} />
+      </div>
+
+      {/* Progress */}
+      <div className="sd-panel"><PipelineStepper stage={app.stage} /></div>
+
+      {/* Conditions — Risk owns these */}
+      <SDPanel
+        title="Conditions"
+        hint={unmetCount > 0 ? `${unmetCount} outstanding` : conditions.length ? 'all cleared' : 'none attached'}
+        flush>
+        <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={canAssess && !isTerminal} />
+      </SDPanel>
+
+      {/* Credit assessment */}
+      <SDPanel
+        title="Credit assessment"
+        hint={phoenixScored
+          ? <span style={{ color: AMBER }}>scored by Phoenix — editing overrides it</span>
+          : 'entered manually'}>
+        {!editing ? (
+          <>
+            <div className="sd-fields">
+              <SDField label="Eye score" value={score ?? null} mono />
+              <SDField label="Rating" value={rating} />
+              <SDField label="Debt-to-income" value={dtiPct == null ? null : `${dtiPct.toFixed(2)}%`} mono />
+              <SDField label="Bureau summary" value={app.bureau_summary} wide />
             </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, color: 'var(--txt2)', fontWeight: 600 }}>
-              Eye Score (0–850)
-              <input type="number" min={0} max={850} value={form.eye_score} onChange={e => setForm(f => ({ ...f, eye_score: e.target.value }))} style={{ ...inputStyle }} />
+            {canAssess && !isTerminal && (
+              <div style={{ marginTop: 12 }}>
+                <button className="sd-btn" onClick={() => setEditing(true)}>
+                  <span className="material-symbols-rounded">edit</span>
+                  {phoenixScored ? 'Override assessment' : 'Enter assessment'}
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ padding: '4px 0 8px' }}>
+            {phoenixScored && (
+              <div className="sd-note is-warn" style={{ marginBottom: 12 }}>
+                <span className="material-symbols-rounded">warning</span>
+                <span>These figures came from the decision engine. Saving replaces them with your own, and the change is recorded against you on the activity trail.</span>
+              </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
+              <label style={fieldLabel}>Eye score
+                <input style={fieldInput} type="number" min={0} max={850} value={form.eye_score}
+                  onChange={e => setForm(f => ({ ...f, eye_score: e.target.value }))} />
+              </label>
+              <label style={fieldLabel}>Rating
+                <select style={{ ...fieldInput, cursor: 'pointer' }} value={form.eye_rating}
+                  onChange={e => setForm(f => ({ ...f, eye_rating: e.target.value }))}>
+                  <option value="">— select —</option>
+                  {['Excellent', 'Good', 'Fair', 'Poor', 'Bad'].map(r => <option key={r}>{r}</option>)}
+                </select>
+              </label>
+              <label style={fieldLabel}>Debt-to-income (%)
+                <input style={fieldInput} type="number" step="0.01" value={form.dti_pct}
+                  onChange={e => setForm(f => ({ ...f, dti_pct: e.target.value }))} />
+              </label>
+            </div>
+            <label style={{ ...fieldLabel, display: 'block', marginTop: 12 }}>Bureau summary
+              <textarea rows={3} spellCheck={false} data-gramm="false" value={form.bureau_summary}
+                onChange={e => setForm(f => ({ ...f, bureau_summary: e.target.value }))}
+                style={{ ...fieldInput, minHeight: 64, resize: 'vertical', fontFamily: 'inherit' }} />
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, color: 'var(--txt2)', fontWeight: 600 }}>
-              Rating
-              <select value={form.eye_rating} onChange={e => setForm(f => ({ ...f, eye_rating: e.target.value }))} style={{ ...inputStyle, cursor: 'pointer' }}>
-                <option value="">— select —</option>
-                {['Excellent','Good','Fair','Poor','Bad'].map(r => <option key={r}>{r}</option>)}
-              </select>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, color: 'var(--txt2)', fontWeight: 600 }}>
-              DTI % (override)
-              <input type="number" step="0.01" value={form.dti_pct} onChange={e => setForm(f => ({ ...f, dti_pct: e.target.value }))} style={{ ...inputStyle }} />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, color: 'var(--txt2)', fontWeight: 600 }}>
-              Bureau Summary
-              <textarea rows={2} value={form.bureau_summary} spellCheck={false} data-gramm="false"
-                onChange={e => setForm(f => ({ ...f, bureau_summary: e.target.value }))} style={{ ...textareaStyle, minHeight: 0 }} />
-            </label>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button className="sd-btn is-primary" onClick={saveAssessment} disabled={saving || !form.eye_score}>
+                {saving ? 'Saving…' : 'Save assessment'}
+              </button>
+              <button className="sd-btn" onClick={() => setEditing(false)}>Cancel</button>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button onClick={saveAssessment} disabled={saving || !form.eye_score}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 18px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, cursor: (saving || !form.eye_score) ? 'not-allowed' : 'pointer', opacity: (saving || !form.eye_score) ? 0.6 : 1 }}>
-              {saving && <Spinner size={13} color="#fff" />}Save Assessment
-            </button>
-            <button onClick={() => setEditing(false)} style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+        )}
+      </SDPanel>
+
+      {/* Applicant + documents — read to sanity-check the assessment */}
+      <div className="sd-grid2">
+        <SDPanel title="Applicant">
+          <div className="sd-fields">
+            <SDField label="Employer" value={app.employer} />
+            <SDField label="Job title" value={app.job_title} />
+            <SDField label="Monthly income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
+            <SDField label="Existing obligations" value={app.monthly_obligation_kobo == null ? null : fmtKobo(app.monthly_obligation_kobo)} mono />
+            <SDField label="BVN" value={maskId(app.bvn)} mono />
+            <SDField label="Date of birth" value={fmtDateOnly(app.date_of_birth)} />
+            <SDField label="Purpose" value={app.purpose} wide />
           </div>
-        </SectionCard>
-      )}
+        </SDPanel>
 
-      {/* Conditions + Summary side by side */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <SectionCard title="Conditions" padding={false}>
-          <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={true} />
-        </SectionCard>
-
-        <SectionCard title="Application Summary">
-          <InfoRow label="Applicant"       value={app.applicant_name} />
-          <InfoRow label="Phone"           value={app.applicant_phone} />
-          <InfoRow label="Employer"        value={app.employer} />
-          <InfoRow label="Amount Requested"value={fmtKobo(app.amount_requested_kobo)} />
-          <InfoRow label="Tenor"           value={app.tenor_months ? `${app.tenor_months} months` : null} />
-          <InfoRow label="Interest Rate"   value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} />
-          <InfoRow label="Purpose"         value={app.purpose} />
-          <InfoRow label="Submitted"       value={app.submitted_at ? fmtDatetime(app.submitted_at) : 'Not submitted'} />
-        </SectionCard>
+        <SDPanel title="Supporting documents" flush>
+          <DocumentsInline appId={app.id} readOnly={isTerminal} />
+        </SDPanel>
       </div>
 
-      {/* Conditions warning */}
-      {app.stage === 'pending_conditions' && unmetCount > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, background: 'rgba(124,58,237,.06)', border: '1px solid rgba(124,58,237,.2)' }}>
-          <span className="material-symbols-rounded" style={{ color: '#7C3AED', fontSize: 16 }}>pending_actions</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#7C3AED' }}>{unmetCount} condition{unmetCount !== 1 ? 's' : ''} must be satisfied before advancing to Finance</span>
-        </div>
-      )}
+      {/* Approval chain */}
+      <SDPanel title="Approval chain" flush>
+        <ApprovalChainCompact app={app} events={events} />
+      </SDPanel>
 
-      {/* Documents — read-only view for risk */}
-      <SectionCard title="Supporting Documents" padding={false}>
-        <DocumentsInline appId={app.id} readOnly />
-      </SectionCard>
-
-      {/* Team thread */}
       <InternalThread appId={app.id} />
     </div>
   )
 }
 
 // ── COMPLIANCE VIEW ───────────────────────────────────────────────────────────
+//
+// Compliance never moves an application — it inspects one. The questions are whether
+// the customer was properly identified, whether the file supports the decision, and
+// whether the chain of approvals actually happened in the right order. So this view
+// carries no action buttons at all, and leads with the KYC identifiers rather than
+// with the money.
+//
+// Identifiers are masked to the last four the same way sales sees them. Compliance
+// can confirm an identifier is on file and matches what it holds elsewhere without
+// this page becoming a place BVNs are read off a screen.
+
+function kycAudit(app: Application): { label: string; value: React.ReactNode; ok: boolean }[] {
+  return [
+    { label: 'BVN', value: maskId(app.bvn), ok: !!(app.bvn ?? '').trim() },
+    { label: 'NIN', value: maskId(app.nin), ok: !!(app.nin ?? '').trim() },
+    { label: 'Date of birth', value: app.date_of_birth ? fmtDate(app.date_of_birth) : null, ok: !!app.date_of_birth },
+    { label: 'Residential address', value: app.residential_address, ok: !!(app.residential_address ?? '').trim() },
+  ]
+}
 
 function ComplianceView({ app, events, conditions, onRefresh }: {
   app: Application
@@ -1588,95 +1653,219 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
   conditions: AppCondition[]
   onRefresh: () => void
 }) {
-  const navigate = useNavigate()
+  const meta = stageMeta(app.stage)
+  const kyc = kycAudit(app)
+  const kycOk = kyc.filter(k => k.ok).length
+  const kycComplete = kycOk === kyc.length
+
+  const unmetCount = conditions.filter(c => !c.is_met).length
+  const dtiPct = dtiOf(app.dti_pct)
+  const score = app.eye_score
+  const scoreColor = score === null ? undefined : score >= 650 ? GREEN : score >= 500 ? AMBER : RED
+
+  // Age of the file, from submission (or creation, for one never submitted).
+  const startedAt = app.submitted_at || app.created_at
+  const daysOpen = startedAt ? Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 86_400_000)) : null
+
+  const brand = { '--sd-navy': NAVY, '--sd-red': RED, '--sd-green': GREEN, '--sd-amber': AMBER } as CSSProperties
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Header strip */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '14px 18px', background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, boxShadow: 'var(--card-shadow)' }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Applicant</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{app.applicant_name}</div>
+    <div className="sd" style={brand}>
+      <div className="sd-head">
+        <div style={{ minWidth: 0 }}>
+          <div className="sd-kicker">
+            <ProductPill product={app.product_type || 'Unknown'} />
+            <StagePill stage={app.stage} size="sm" />
+          </div>
+          <h1 className="sd-name">{app.applicant_name}</h1>
+          <div className="sd-ref">
+            {app.reference}
+            {` · ${fmtKobo(app.amount_approved_kobo || app.amount_requested_kobo)}`}
+            {app.tenor_months ? ` over ${app.tenor_months} months` : ' · revolving'}
+            {app.applicant_cif ? ` · CIF ${app.applicant_cif}` : ' · no CIF yet'}
+          </div>
         </div>
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Product</div>
-          <ProductPill product={app.product_type || '—'} />
-        </div>
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Amount</div>
-          <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{fmtKobo(app.amount_requested_kobo)}</div>
-        </div>
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-        <StagePill stage={app.stage} />
-        <div style={{ marginLeft: 'auto' }}>
-          <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 12px', borderRadius: 20, background: 'rgba(124,58,237,.08)', color: '#7C3AED' }}>Compliance View, Read Only</span>
+
+        <div className="sd-actions">
+          <span className="sd-btn" style={{ cursor: 'default', color: PURPLE, borderColor: 'color-mix(in srgb, currentColor 34%, transparent)' }}>
+            <span className="material-symbols-rounded">visibility</span>Read only
+          </span>
         </div>
       </div>
 
-      {/* Declined banner */}
-      {app.stage === 'declined' && app.decline_reason && (
-        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', borderRadius: 10, background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.2)' }}>
-          <span className="material-symbols-rounded" style={{ color: RED, fontSize: 18, flexShrink: 0 }}>cancel</span>
-          <div><div style={{ fontSize: 13, fontWeight: 700, color: RED }}>Application Declined</div><div style={{ fontSize: 13, color: 'var(--txt)', marginTop: 2 }}>{app.decline_reason}</div></div>
+      {/* Compliance does not act on the file, so the band reports what it found rather
+          than what to do next. Identification gaps outrank everything else here. */}
+      {app.stage === 'declined' ? (
+        <div className="sd-band sd-band-stop">
+          <div className="sd-band-icn"><span className="material-symbols-rounded">cancel</span></div>
+          <div style={{ minWidth: 0 }}>
+            <b>Declined</b>
+            <span>{app.decline_reason || 'No reason was recorded against this decline.'}</span>
+          </div>
+        </div>
+      ) : !kycComplete ? (
+        <div className="sd-band sd-band-stop">
+          <div className="sd-band-icn"><span className="material-symbols-rounded">badge</span></div>
+          <div style={{ minWidth: 0 }}>
+            <b>Identification incomplete — {kyc.length - kycOk} of {kyc.length} missing</b>
+            <span>{kyc.filter(k => !k.ok).map(k => k.label).join(', ')} not captured on this application.</span>
+          </div>
+        </div>
+      ) : unmetCount > 0 ? (
+        <div className="sd-band sd-band-wait">
+          <div className="sd-band-icn"><span className="material-symbols-rounded">rule</span></div>
+          <div style={{ minWidth: 0 }}>
+            <b>{unmetCount} condition{unmetCount === 1 ? '' : 's'} outstanding</b>
+            <span>Identification is complete. The file cannot be disbursed until finance clears the remaining conditions.</span>
+          </div>
+        </div>
+      ) : (
+        <div className="sd-band sd-band-done">
+          <div className="sd-band-icn"><span className="material-symbols-rounded">verified</span></div>
+          <div style={{ minWidth: 0 }}>
+            <b>File is complete</b>
+            <span>Identification captured in full and every condition of approval cleared.</span>
+          </div>
         </div>
       )}
 
-      {/* Customer info + Documents side by side */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <SectionCard title="Applicant Information">
-          <InfoRow label="Full Name"    value={app.applicant_name} />
-          <InfoRow label="Phone"        value={app.applicant_phone} />
-          <InfoRow label="Email"        value={app.applicant_email} />
-          <InfoRow label="CIF"          value={app.applicant_cif} />
-          <InfoRow label="Employer"     value={app.employer} />
-          <InfoRow label="Purpose"      value={app.purpose} />
-          <InfoRow label="Submitted"    value={app.submitted_at ? fmtDatetime(app.submitted_at) : '—'} />
-        </SectionCard>
-
-        <SectionCard title="Submitted Documents" padding={false}>
-          <DocumentsInline appId={app.id} readOnly />
-        </SectionCard>
+      <div className="sd-stats">
+        <SDStat label="Identification" value={`${kycOk}/${kyc.length}`}
+          sub={kycComplete ? 'all captured' : 'incomplete'} tone={kycComplete ? GREEN : RED} />
+        <SDStat label="Conditions" value={conditions.length === 0 ? 'None' : `${conditions.length - unmetCount}/${conditions.length}`}
+          sub={conditions.length === 0 ? 'none attached' : unmetCount > 0 ? `${unmetCount} outstanding` : 'all cleared'}
+          tone={unmetCount > 0 ? AMBER : conditions.length > 0 ? GREEN : undefined} />
+        <SDStat label="Eye score" value={score ?? '—'} tone={scoreColor} sub={app.eye_rating ?? 'not rated'} />
+        <SDStat label="Debt-to-income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`}
+          sub={dtiPct == null ? 'not computed' : 'of monthly income'} />
+        <SDStat label="Days on file" value={daysOpen == null ? '—' : daysOpen}
+          sub={app.submitted_at ? 'since submission' : 'since created — not submitted'} />
       </div>
 
-      {/* Loan terms */}
-      <SectionCard title="Loan Details">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
-          {[
-            { label: 'Product',          value: <ProductPill product={app.product_type || '—'} /> },
-            { label: 'Amount Requested', value: fmtKobo(app.amount_requested_kobo) },
-            { label: 'Tenor',            value: app.tenor_months ? `${app.tenor_months} months` : '—' },
-            { label: 'Interest Rate',    value: app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : '—' },
-            { label: 'Monthly Income',   value: app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : '—' },
-            { label: 'Current Stage',    value: <StagePill stage={app.stage} /> },
-          ].map(row => (
-            <div key={row.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{row.label}</span>
-              <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--txt)' }}>{row.value}</span>
-            </div>
+      <div className="sd-panel"><PipelineStepper stage={app.stage} /></div>
+
+      {/* Identification, front and centre — this is compliance's first question */}
+      <SDPanel
+        title="Identification"
+        hint={kycComplete
+          ? <span style={{ color: GREEN, fontWeight: 700 }}>complete</span>
+          : <span style={{ color: RED, fontWeight: 700 }}>{kyc.length - kycOk} missing</span>}>
+        <div className="sd-fields">
+          {kyc.map(k => (
+            <SDField key={k.label} label={k.label} value={k.value}
+              wide={k.label === 'Residential address'} mono={k.label === 'BVN' || k.label === 'NIN'} />
           ))}
         </div>
-      </SectionCard>
+      </SDPanel>
 
-      {/* Conditions (read-only) + Approval chain */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <SectionCard title="Conditions" padding={false}>
-          <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={false} />
-        </SectionCard>
+      <div className="sd-grid2">
+        <SDPanel title="Applicant">
+          <div className="sd-fields">
+            <SDField label="Full name" value={app.applicant_name} />
+            <SDField label="CIF" value={app.applicant_cif} mono />
+            <SDField label="Phone" value={app.applicant_phone} mono />
+            <SDField label="Email" value={app.applicant_email} />
+            <SDField label="Employer" value={app.employer} />
+            <SDField label="Job title" value={app.job_title} />
+            <SDField label="Employment type" value={titleCaseCode(app.employment_type)} />
+            <SDField label="Employed since" value={app.employment_start_date ? fmtDate(app.employment_start_date) : null} />
+          </div>
+        </SDPanel>
 
-        <SectionCard title="Approval Chain" padding={false}>
-          <ApprovalChainCompact app={app} events={events} />
-        </SectionCard>
+        <SDPanel title="Facility">
+          <div className="sd-fields">
+            <SDField label="Product" value={titleCaseCode(app.product_type)} />
+            <SDField label="Purpose" value={app.purpose} />
+            <SDField label="Amount requested" value={fmtKobo(app.amount_requested_kobo)} mono />
+            <SDField label="Amount approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
+            <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving — no term'} />
+            <SDField label="Interest rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
+            <SDField label="Monthly income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
+            <SDField label="Existing obligations" value={app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : null} mono />
+          </div>
+        </SDPanel>
       </div>
 
-      {/* Team thread */}
+      <SDPanel title="Documents on file" hint="read only" flush>
+        <DocumentsInline appId={app.id} readOnly />
+      </SDPanel>
+
+      <div className="sd-grid2">
+        <SDPanel title="Conditions of approval" flush>
+          <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={false} />
+        </SDPanel>
+
+        <SDPanel title="Approval chain" hint="who signed off, and when" flush>
+          <ApprovalChainCompact app={app} events={events} />
+        </SDPanel>
+      </div>
+
+      <SDPanel title="Credit decision" hint={`current owner: ${meta.owner}`}>
+        <div className="sd-fields">
+          <SDField label="Eye score" value={score === null ? null : <span style={{ color: scoreColor, fontWeight: 800 }}>{score}</span>} mono />
+          <SDField label="Rating" value={app.eye_rating} />
+          <SDField label="Debt-to-income" value={dtiPct == null ? null : `${dtiPct.toFixed(2)}%`} mono />
+          <SDField label="Decline reason" value={app.decline_reason} />
+          <SDField label="Bureau summary" value={app.bureau_summary} wide />
+        </div>
+      </SDPanel>
+
       <InternalThread appId={app.id} />
     </div>
   )
 }
 
 // ── FINANCE VIEW ──────────────────────────────────────────────────────────────
+//
+// Finance and Card Ops are the last desks before money moves. Credit has already
+// decided this is lendable; the questions here are different — are the terms right,
+// has every condition of that approval actually been cleared, and is it ready to book.
+//
+// So the conditions gate leads, and it is enforced rather than merely displayed. Per
+// losFlow the finance officer is the one who clears conditions (pending_conditions),
+// the finance head approves disbursement, and Card Ops books. An approval with
+// conditions outstanding is not an approval yet, and this view must never let it
+// look like one.
+
+function financeNextStep(app: Application, unmet: number, total: number): { tone: 'act' | 'wait' | 'done' | 'stop'; icon: string; title: string; body: string } {
+  const s = app.stage
+  if (s === 'declined') {
+    return { tone: 'stop', icon: 'cancel', title: 'Declined', body: app.decline_reason || 'This application was declined. Nothing to disburse.' }
+  }
+  if (s === 'active') {
+    return { tone: 'done', icon: 'check_circle', title: 'Booked and disbursed', body: 'The facility is live. Servicing and collections take it from here.' }
+  }
+  if (s === 'pending_conditions') {
+    return unmet > 0
+      ? {
+        tone: 'act', icon: 'rule', title: `Clear ${unmet} outstanding condition${unmet === 1 ? '' : 's'}`,
+        body: 'Credit approved this subject to conditions. Tick each one off as the evidence lands, then send it to finance approval.',
+      }
+      : {
+        tone: 'act', icon: 'task_alt', title: 'Conditions cleared',
+        body: total > 0 ? 'Every condition has been met. Send it to finance approval.' : 'No conditions were attached. Send it to finance approval.',
+      }
+  }
+  if (s === 'finance_approval') {
+    return unmet > 0
+      ? {
+        tone: 'stop', icon: 'block', title: `Blocked — ${unmet} condition${unmet === 1 ? '' : 's'} outstanding`,
+        body: 'This cannot be approved for disbursement until every condition of the credit approval is cleared.',
+      }
+      : { tone: 'act', icon: 'account_balance_wallet', title: 'Approve disbursement', body: 'Check the terms against the credit approval, then release it for booking.' }
+  }
+  if (s === 'booking') {
+    return unmet > 0
+      ? { tone: 'stop', icon: 'block', title: `Blocked — ${unmet} condition${unmet === 1 ? '' : 's'} outstanding`, body: 'Do not book this facility while conditions of the approval remain unmet.' }
+      : { tone: 'act', icon: 'inventory', title: 'Book and disburse', body: 'Finance has approved. Create the facility on the core and release the funds.' }
+  }
+  const owner = stageMeta(s).owner
+  return {
+    tone: 'wait', icon: 'hourglass_top',
+    title: `With ${owner && owner !== '—' ? owner.toLowerCase() : 'another desk'}`,
+    body: 'Not on finance yet. It reaches this desk once credit has approved it.',
+  }
+}
 
 function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline, onReqInfo }: {
   app: Application
@@ -1688,190 +1877,157 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
   onReqInfo: () => void
 }) {
   const meta = stageMeta(app.stage)
-  const isFinanceStage = ['finance_approval', 'booking'].includes(app.stage)
+  const isTerminal = app.stage === 'active' || app.stage === 'declined'
 
-  const score  = app.eye_score
+  const score = app.eye_score
   const rating = app.eye_rating
-  const scoreColor = score === null ? 'var(--txt3)' : score >= 650 ? GREEN : score >= 500 ? AMBER : RED
+  const scoreColor = score === null ? undefined : score >= 650 ? GREEN : score >= 500 ? AMBER : RED
 
-  const monthlyRepayment = (app.tenor_months && app.amount_requested_kobo)
-    ? Math.round(app.amount_requested_kobo / app.tenor_months * (1 + (app.interest_rate_bps ?? 0) / 10000))
+  // The figure finance disburses is the approved amount; fall back to the request
+  // only so the tile is never blank, and say which one is on screen.
+  const principalKobo = app.amount_approved_kobo || app.amount_requested_kobo
+  const monthlyRepayment = (app.tenor_months && principalKobo)
+    ? Math.round(principalKobo / app.tenor_months * (1 + (app.interest_rate_bps ?? 0) / 10000))
     : 0
-  const dtiPct    = dtiOf(app.dti_pct)
-  const dtiColor  = dtiPct === null ? 'var(--txt2)' : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : GREEN
+  const dtiPct = dtiOf(app.dti_pct)
+  const dtiColor = dtiPct === null ? undefined : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : undefined
+
   const unmetCount = conditions.filter(c => !c.is_met).length
-  const allConditionsMet = conditions.length > 0 && unmetCount === 0
-  const conditionsBlock = conditions.length > 0 && unmetCount > 0
+  // Outstanding conditions block the forward move outright — that is the entire
+  // reason pending_conditions exists as a stage, so it is enforced on the button
+  // rather than left to the officer to notice a count further down the page.
+  const blocked = unmetCount > 0 && !isTerminal
+  const next = financeNextStep(app, unmetCount, conditions.length)
+
+  const brand = { '--sd-navy': NAVY, '--sd-red': RED, '--sd-green': GREEN, '--sd-amber': AMBER } as CSSProperties
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Header strip */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '14px 18px', background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 12, boxShadow: 'var(--card-shadow)' }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Applicant</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{app.applicant_name}</div>
-        </div>
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Amount</div>
-          <div style={{ ...NUM, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>
-            {app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : fmtKobo(app.amount_requested_kobo)}
+    <div className="sd" style={brand}>
+      <div className="sd-head">
+        <div style={{ minWidth: 0 }}>
+          <div className="sd-kicker">
+            <ProductPill product={app.product_type || 'Unknown'} />
+            <StagePill stage={app.stage} size="sm" />
+          </div>
+          <h1 className="sd-name">{app.applicant_name}</h1>
+          <div className="sd-ref">
+            {app.reference}
+            {` · ${fmtKobo(principalKobo)}`}
+            {app.tenor_months ? ` over ${app.tenor_months} months` : ' · revolving'}
+            {app.applicant_cif ? ` · CIF ${app.applicant_cif}` : ' · no CIF yet'}
           </div>
         </div>
-        <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-        <StagePill stage={app.stage} />
-        {score !== null && (
-          <>
-            <div style={{ width: 1, height: 36, background: 'var(--bdr)' }} />
-            <div>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 2 }}>Eye Score</div>
-              <div style={{ ...NUM, fontSize: 14, fontWeight: 800, color: scoreColor }}>{score} {rating ? `· ${rating}` : ''}</div>
-            </div>
-          </>
-        )}
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="sd-actions">
           {canRequestInfo(app.stage) && (
-            <button onClick={onReqInfo} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: AMBER, border: `1px solid ${AMBER}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>pause_circle</span>Hold
+            <button className="sd-btn is-warn" onClick={onReqInfo}>
+              <span className="material-symbols-rounded">help</span>Request info
             </button>
           )}
           {canDecline(app.stage) && (
-            <button onClick={onDecline} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', background: 'var(--card)', color: RED, border: `1px solid ${RED}40`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>cancel</span>Decline
+            <button className="sd-btn is-danger" onClick={onDecline}>
+              <span className="material-symbols-rounded">cancel</span>Decline
             </button>
           )}
           {canAdvance(app.stage) && meta.forward && (
-            <button onClick={() => onAdvance(meta.forward!)} disabled={conditionsBlock}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 18px', background: NAVY, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: conditionsBlock ? 'not-allowed' : 'pointer', opacity: conditionsBlock ? 0.5 : 1 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>payments</span>{meta.action ?? 'Advance'}
+            <button
+              className="sd-btn is-primary"
+              disabled={blocked}
+              title={blocked ? `${unmetCount} condition${unmetCount === 1 ? '' : 's'} of the credit approval still outstanding` : undefined}
+              style={blocked ? { opacity: .45, cursor: 'not-allowed' } : undefined}
+              onClick={() => { if (!blocked) onAdvance(meta.forward!) }}>
+              <span className="material-symbols-rounded">send</span>{meta.action ?? 'Advance'}
             </button>
           )}
-          {app.stage === 'active' && (
-            <span style={{ fontSize: 12, fontWeight: 600, padding: '4px 14px', borderRadius: 20, background: 'rgba(22,163,74,.12)', color: GREEN }}>✓ Disbursed</span>
-          )}
-          {app.stage === 'declined' && (
-            <span style={{ fontSize: 12, fontWeight: 600, padding: '4px 14px', borderRadius: 20, background: 'rgba(192,0,0,.1)', color: RED }}>Declined</span>
-          )}
         </div>
       </div>
 
-      {/* Conditions gate banner */}
-      {isFinanceStage && conditions.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 10, background: allConditionsMet ? 'rgba(22,163,74,.06)' : 'rgba(192,0,0,.05)', border: `1px solid ${allConditionsMet ? 'rgba(22,163,74,.2)' : 'rgba(192,0,0,.18)'}` }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 20, color: allConditionsMet ? GREEN : RED }}>
-            {allConditionsMet ? 'check_circle' : 'block'}
-          </span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: allConditionsMet ? GREEN : RED }}>
-              {allConditionsMet ? 'All conditions satisfied: disbursement cleared' : `${unmetCount} condition${unmetCount !== 1 ? 's' : ''} not yet satisfied`}
-            </div>
-            {!allConditionsMet && <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>Pending conditions must be met before this application can be disbursed</div>}
-          </div>
-          <span style={{ ...NUM, fontSize: 13, fontWeight: 700, color: allConditionsMet ? GREEN : RED }}>
-            {conditions.length - unmetCount}/{conditions.length} met
-          </span>
+      <div className={`sd-band sd-band-${next.tone}`}>
+        <div className="sd-band-icn"><span className="material-symbols-rounded">{next.icon}</span></div>
+        <div style={{ minWidth: 0 }}>
+          <b>{next.title}</b>
+          <span>{next.body}</span>
         </div>
-      )}
-
-      {/* Declined banner */}
-      {app.stage === 'declined' && app.decline_reason && (
-        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', borderRadius: 10, background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.2)' }}>
-          <span className="material-symbols-rounded" style={{ color: RED, fontSize: 18, flexShrink: 0 }}>cancel</span>
-          <div><div style={{ fontSize: 13, fontWeight: 700, color: RED }}>Application Declined</div><div style={{ fontSize: 13, color: 'var(--txt)', marginTop: 2 }}>{app.decline_reason}</div></div>
-        </div>
-      )}
-
-      {/* Loan terms + Risk summary side by side */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <SectionCard title="Loan Terms">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {[
-              { label: 'Product',          value: <ProductPill product={app.product_type || '—'} /> },
-              { label: 'Amount Approved',  value: app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : <span style={{ color: AMBER }}>Pending</span> },
-              { label: 'Amount Requested', value: fmtKobo(app.amount_requested_kobo) },
-              { label: 'Tenor',            value: app.tenor_months ? `${app.tenor_months} months` : '—' },
-              { label: 'Interest Rate',    value: app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : '—' },
-              { label: 'Est. Monthly Repayment', value: monthlyRepayment ? fmtKobo(monthlyRepayment) : '—' },
-              { label: 'Purpose',          value: app.purpose || '—' },
-              { label: 'Employer',         value: app.employer || '—' },
-              // Collected on the origination form since it was written, but
-              // discarded on save until migration 216 gave them columns: the
-              // request struct never named these fields, so encoding/json dropped
-              // them without error. Shown here so the two steps staff fill in are
-              // part of the record rather than write-only.
-              { label: 'BVN',              value: app.bvn || '—' },
-              { label: 'NIN',              value: app.nin || '—' },
-              { label: 'Date of Birth',    value: app.date_of_birth ? fmtDate(app.date_of_birth) : '—' },
-              { label: 'Address',          value: app.residential_address || '—' },
-              { label: 'Job Title',        value: app.job_title || '—' },
-              { label: 'Employment Type',  value: app.employment_type || '—' },
-              { label: 'Employed Since',   value: app.employment_start_date ? fmtDate(app.employment_start_date) : '—' },
-              { label: 'Monthly Obligations', value: app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : '—' },
-            ].map(row => (
-              <InfoRow key={row.label} label={row.label} value={row.value} />
-            ))}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Risk Decision Summary">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Score display */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 18px', borderRadius: 10, background: 'var(--th-bg)', border: '1px solid var(--bdr)' }}>
-              <div style={{ textAlign: 'center', flexShrink: 0 }}>
-                <div style={{ ...NUM, fontSize: 42, fontWeight: 800, color: scoreColor, lineHeight: 1 }}>{score ?? '—'}</div>
-                <div style={{ fontSize: 10.5, color: 'var(--txt3)', marginTop: 2 }}>Eye Score</div>
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {rating && <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 12, background: `${RATING_COLORS[rating] ?? 'var(--txt2)'}18`, color: RATING_COLORS[rating] ?? 'var(--txt2)', alignSelf: 'flex-start' }}>{rating}</span>}
-                {dtiPct !== null && (
-                  <div style={{ fontSize: 13, color: 'var(--txt2)' }}>DTI: <span style={{ ...NUM, fontWeight: 700, color: dtiColor }}>{dtiPct.toFixed(1)}%</span></div>
-                )}
-                {app.bureau_summary && <div style={{ fontSize: 12, color: 'var(--txt2)', lineHeight: 1.5 }}>{app.bureau_summary}</div>}
-                {!score && !app.bureau_summary && <div style={{ fontSize: 12, color: 'var(--txt3)' }}>No credit assessment on file</div>}
-              </div>
-            </div>
-
-            {/* Key metrics */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              {[
-                { label: 'Monthly Income',     value: app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : '—', color: 'var(--txt)' },
-                { label: 'Monthly Obligations',value: app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : '—', color: 'var(--txt)' },
-              ].map(m => (
-                <div key={m.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{m.label}</span>
-                  <span style={{ ...NUM, fontSize: 14, fontWeight: 700, color: m.color }}>{m.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </SectionCard>
       </div>
 
-      {/* Approval chain + Conditions side by side */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <SectionCard title="Approval Chain" padding={false}>
-          <ApprovalChainCompact app={app} events={events} />
-        </SectionCard>
-
-        <SectionCard title="Conditions" padding={false}>
-          <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={true} />
-        </SectionCard>
+      {/* The money, as finance reads it */}
+      <div className="sd-stats">
+        <SDStat
+          label={app.amount_approved_kobo ? 'Amount approved' : 'Amount requested'}
+          value={fmtKobo(principalKobo)}
+          sub={app.amount_approved_kobo ? 'to disburse' : 'not yet approved by credit'}
+          tone={app.amount_approved_kobo ? undefined : AMBER} />
+        <SDStat label="Monthly repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : '—'}
+          sub={app.tenor_months ? `over ${app.tenor_months} months` : 'revolving — no term'} />
+        <SDStat label="Interest rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}%` : '—'} sub="per annum" />
+        <SDStat label="Conditions" value={conditions.length === 0 ? 'None' : `${conditions.length - unmetCount}/${conditions.length}`}
+          sub={conditions.length === 0 ? 'none attached' : unmetCount > 0 ? `${unmetCount} outstanding` : 'all cleared'}
+          tone={unmetCount > 0 ? RED : conditions.length > 0 ? GREEN : undefined} />
+        <SDStat label="Debt-to-income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiColor}
+          sub={dtiPct == null ? 'not computed' : 'of monthly income'} />
       </div>
 
-      {/* Finance-specific dates */}
-      {(app.finance_approved_at || app.booked_at) && (
-        <SectionCard title="Key Dates">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <InfoRow label="Submitted"        value={app.submitted_at ? fmtDatetime(app.submitted_at) : '—'} />
-            <InfoRow label="Finance Approved" value={app.finance_approved_at ? fmtDatetime(app.finance_approved_at) : 'Pending'} />
-            <InfoRow label="Booked / Disbursed" value={app.booked_at ? fmtDatetime(app.booked_at) : 'Pending'} />
-            <InfoRow label="Created"          value={fmtDate(app.created_at)} />
-          </div>
-        </SectionCard>
-      )}
+      <div className="sd-panel"><PipelineStepper stage={app.stage} /></div>
 
-      {/* Team thread */}
+      {/* The gate */}
+      <SDPanel
+        title="Conditions of approval"
+        hint={conditions.length === 0 ? 'none attached'
+          : unmetCount > 0 ? <span style={{ color: RED, fontWeight: 700 }}>{unmetCount} outstanding — cannot proceed</span>
+            : <span style={{ color: GREEN, fontWeight: 700 }}>all cleared</span>}
+        flush>
+        <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={!isTerminal} />
+      </SDPanel>
+
+      <div className="sd-grid2">
+        <SDPanel title="Terms to book">
+          <div className="sd-fields">
+            <SDField label="Product" value={titleCaseCode(app.product_type)} />
+            <SDField label="Purpose" value={app.purpose} />
+            <SDField label="Amount requested" value={fmtKobo(app.amount_requested_kobo)} mono />
+            <SDField label="Amount approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
+            <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving — no term'} />
+            <SDField label="Interest rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
+            <SDField label="Monthly repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : null} mono />
+            <SDField label="Monthly income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
+          </div>
+        </SDPanel>
+
+        <SDPanel title="Credit decision" hint="set by the credit desk">
+          <div className="sd-fields">
+            <SDField label="Eye score" value={score === null ? null : <span style={{ color: scoreColor, fontWeight: 800 }}>{score}</span>} mono />
+            <SDField label="Rating" value={rating} />
+            <SDField label="Debt-to-income" value={dtiPct == null ? null : `${dtiPct.toFixed(2)}%`} mono />
+            <SDField label="Bureau summary" value={app.bureau_summary} wide />
+          </div>
+        </SDPanel>
+      </div>
+
+      <div className="sd-grid2">
+        <SDPanel title="Beneficiary">
+          <div className="sd-fields">
+            <SDField label="Name" value={app.applicant_name} />
+            <SDField label="CIF" value={app.applicant_cif} mono />
+            <SDField label="Phone" value={app.applicant_phone} mono />
+            <SDField label="Email" value={app.applicant_email} />
+            <SDField label="Employer" value={app.employer} wide />
+          </div>
+        </SDPanel>
+
+        <SDPanel title="Key dates">
+          <div className="sd-fields">
+            <SDField label="Submitted" value={app.submitted_at ? fmtDatetime(app.submitted_at) : null} />
+            <SDField label="Finance approved" value={app.finance_approved_at ? fmtDatetime(app.finance_approved_at) : null} />
+            <SDField label="Booked" value={app.booked_at ? fmtDatetime(app.booked_at) : null} />
+            <SDField label="Last updated" value={app.updated_at ? fmtDatetime(app.updated_at) : null} />
+          </div>
+        </SDPanel>
+      </div>
+
+      <SDPanel title="Approval chain" hint="who signed off, and when" flush>
+        <ApprovalChainCompact app={app} events={events} />
+      </SDPanel>
+
       <InternalThread appId={app.id} />
     </div>
   )
