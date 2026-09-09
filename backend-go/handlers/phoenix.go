@@ -138,6 +138,98 @@ func phoenixEyeDecision(ctx context.Context, requestID string) (json.RawMessage,
 	return json.RawMessage(raw), nil
 }
 
+// phoenixCall performs an authenticated request against Phoenix's machine surface
+// and returns the raw response.
+//
+// Phoenix's generic /v1 endpoints authenticate on the API key but do NOT infer the
+// tenant from it — they answer 400 "tenant_id is required" — so every caller has to
+// supply it. Rather than have each action remember that, tenant_id is injected here:
+// into the query for a GET, and into the body for anything with one.
+//
+// A non-2xx returns the response body in the error. Phoenix's validation messages
+// are specific and actionable ("requested_limit_minor is required for a REVOLVING
+// product"), and swallowing them in favour of a generic failure is how an operator
+// ends up staring at "Request failed" with no idea what to change.
+func phoenixCall(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
+	if !phoenixConfigured() {
+		return nil, fmt.Errorf("phoenix is not configured")
+	}
+	tenant := phoenixTenantID()
+	if tenant == "" {
+		return nil, fmt.Errorf("PHOENIX_TENANT_ID is not set")
+	}
+
+	var payload io.Reader
+	if body != nil {
+		// Inject tenant_id without the caller having to carry it in every struct.
+		m := map[string]any{}
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return nil, err
+		}
+		if _, ok := m["tenant_id"]; !ok {
+			m["tenant_id"] = tenant
+		}
+		enc, err := json.Marshal(m)
+		if err != nil {
+			return nil, err
+		}
+		payload = bytes.NewReader(enc)
+	}
+
+	u := phoenixBaseURL() + path
+	if body == nil {
+		sep := "?"
+		if strings.Contains(u, "?") {
+			sep = "&"
+		}
+		u += sep + "tenant_id=" + url.QueryEscape(tenant)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, method, u, payload)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+phoenixAPIKey())
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	out, err := io.ReadAll(io.LimitReader(resp.Body, phoenixMaxBody))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		detail := strings.TrimSpace(string(out))
+		// Phoenix wraps errors as RFC7807; surface just the human part when present.
+		var perr struct {
+			Detail string `json:"detail"`
+			Title  string `json:"title"`
+		}
+		if json.Unmarshal(out, &perr) == nil {
+			if perr.Detail != "" {
+				detail = perr.Detail
+			} else if perr.Title != "" {
+				detail = perr.Title
+			}
+		}
+		return nil, fmt.Errorf("phoenix %s %s: %d — %s", method, path, resp.StatusCode, detail)
+	}
+	return json.RawMessage(out), nil
+}
+
 // phoenixProductNames maps the workspace's canonical product codes onto the product
 // NAMES configured in Phoenix. The two vocabularies are deliberately allowed to
 // differ: lib/products.ts and handlers/products.go treat snake_case codes as the

@@ -69,6 +69,17 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	// Phoenix's full Eye decision, passed through verbatim so the workspace can
 	// render the identical credit report rather than an approximation of it.
 	r.With(door).Get("/{id}/eye-decision", losEyeDecision(db))
+
+	// Customer-journey actions. Phoenix owns these steps and stays the system of
+	// record; these let staff take them without leaving the workspace, and record
+	// each on the activity trail against the user who did it. Same door as every
+	// other per-application action — whoever may act on the file may act on it here.
+	r.With(door).Get("/{id}/mandate", losMandate(db))
+	r.With(door).Post("/{id}/mandate", losMandateSetup(db))
+	r.With(door).Post("/{id}/mandate/{mandate_id}/remind", losMandateAction(db, "remind"))
+	r.With(door).Post("/{id}/mandate/{mandate_id}/check-status", losMandateAction(db, "check-status"))
+	r.With(door).Post("/{id}/confirm-amount", losConfirmAmount(db))
+	r.With(door).Post("/{id}/consent", losRecordConsent(db))
 	// Offer & acceptance CAPTURE (capture-only; Phoenix owns the process, this records it
 	// in the workspace). Does not transition the stage or gate booking.
 	r.With(door).Put("/{id}/offer", losSetOffer(db))

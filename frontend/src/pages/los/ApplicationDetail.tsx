@@ -2,6 +2,7 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useRef, type CSSProperties } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import './salesDetail.css'
+import CustomerJourney from './CustomerJourney'
 import {
   Page, SectionCard, Modal, ConfirmModal, Spinner, Sk, ErrBanner, KpiCard,
 } from '../../components/UI'
@@ -1232,6 +1233,18 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
           order Sales works in: read the verdict, then act on the offer. */}
       <PhoenixDecisionBanner app={app} />
       <OfferPanel app={app} onRefresh={onRefresh} />
+
+      {/* The customer's own steps — consent, the amount they accepted, the mandate.
+          Phoenix owns all three, so these call Phoenix and show its answer. They sit
+          under the offer because that is the order the customer moves through them,
+          and above the applicant record because they are what the file is waiting
+          on. */}
+      <CustomerJourney
+        appId={app.id}
+        approvedKobo={app.amount_approved_kobo}
+        requestedKobo={app.amount_requested_kobo}
+        onRefresh={onRefresh}
+      />
 
       {/* The numbers that decide the case */}
       <div className="sd-stats">
