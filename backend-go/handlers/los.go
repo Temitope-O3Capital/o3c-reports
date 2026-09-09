@@ -1243,7 +1243,7 @@ func losGetEvents(db *core.DB) http.HandlerFunc {
 			return
 		}
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT e.*, u.full_name AS actor_name
+			SELECT e.*, COALESCE(u.full_name, e.actor_label) AS actor_name
 			FROM application_events e
 			LEFT JOIN o3c_users u ON e.actor_user_id = u.id
 			WHERE e.application_id = $1

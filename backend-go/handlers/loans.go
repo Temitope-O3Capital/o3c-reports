@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 func RegisterLoans(r chi.Router, db *core.DB) {
@@ -425,7 +425,8 @@ func getLoanActivity(db *core.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT e.id, e.event_type, e.from_stage, e.to_stage,
-			       e.actor_user_id, e.notes, e.created_at, u.full_name AS actor_name
+			       e.actor_user_id, e.notes, e.created_at, e.actor_source,
+			       COALESCE(u.full_name, e.actor_label) AS actor_name
 			FROM application_events e
 			LEFT JOIN o3c_users u ON u.id = e.actor_user_id
 			WHERE e.application_id=$1 ORDER BY e.created_at DESC`, id)

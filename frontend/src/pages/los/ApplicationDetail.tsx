@@ -85,6 +85,7 @@ interface AppEvent {
   to_stage:       string | null
   actor_user_id:  number | null
   actor_name:     string | null
+  actor_source?:  string | null
   notes:          string | null
   created_at:     string
 }
@@ -2033,9 +2034,24 @@ function ApprovalChainTab({ app, events }: { app: Application; events: AppEvent[
                   </div>
                   {ev && (
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {/* Who acted, and from where. A trail that says "offer
+                          accepted" without saying whether the CUSTOMER accepted it
+                          or an operator recorded it on their behalf is not an audit
+                          trail. The icon separates the sources at a glance. */}
                       {ev.actor_name && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--txt2)', fontWeight: 500 }}>
-                          <span className="material-symbols-rounded" style={{ fontSize: 13 }}>person</span>{ev.actor_name}
+                          <span className="material-symbols-rounded" style={{ fontSize: 13 }}>
+                            {ev.actor_source === 'customer' ? 'account_circle'
+                              : ev.actor_source === 'system' ? 'schedule'
+                                : ev.actor_source === 'phoenix' ? 'hub'
+                                  : 'person'}
+                          </span>
+                          {ev.actor_name}
+                        </span>
+                      )}
+                      {ev.actor_source && ev.actor_source !== 'workspace' && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 5, background: 'var(--chip-bg)', color: 'var(--txt3)' }}>
+                          {ev.actor_source === 'system' ? 'automated' : ev.actor_source}
                         </span>
                       )}
                       <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(ev.created_at)}</span>

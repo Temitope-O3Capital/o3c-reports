@@ -792,7 +792,122 @@ func phoenixWebhook(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// phoenixLifecycleEvent describes how a Phoenix event should read in the
+// workspace's activity trail, and who to credit it to.
+//
+// Phoenix emits nineteen event types across the credit lifecycle; the workspace
+// handled three, and phoenixProcessEvent returned an error for the rest — which
+// answers the webhook with 500, so Phoenix retried and eventually gave up. Offer
+// acceptances, mandate progress, NDPA consent and card issuance were therefore not
+// merely missing from the timeline, they were being rejected at the door.
+//
+// The actor matters as much as the event. "Offer accepted" tells you nothing about
+// whether the customer accepted it or an operator recorded it on their behalf; the
+// activity trail is only worth reading if it says who did what.
+type phoenixLifecycleEvent struct {
+	label string
+	// actor is where the action came from — see migration 223's actor_source.
+	// A workspace user is never the actor here by definition: these arrive from
+	// Phoenix, so the actor is Phoenix, the customer, or a scheduled job.
+	actor string
+}
+
+var phoenixLifecycleEvents = map[string]phoenixLifecycleEvent{
+	"credit_request.submitted":           {"Submitted for decisioning", "phoenix"},
+	"credit_request.amount_confirmed":    {"Customer confirmed the amount", "customer"},
+	"credit_request.withdrawn":           {"Application withdrawn", "customer"},
+	"credit_request.approved_ceiling":    {"Approved ceiling set", "phoenix"},
+	"credit_request.decline_overridden":  {"Decline overridden by a credit officer", "phoenix"},
+	"credit_request.activation_override": {"Activation overridden by a credit officer", "phoenix"},
+
+	"offer.accepted": {"Customer accepted the offer", "customer"},
+	"offer.declined": {"Customer declined the offer", "customer"},
+	"offer.expired":  {"Offer expired", "system"},
+
+	"consent.recorded": {"Consent recorded (NDPA)", "customer"},
+
+	"mandate.reminder":      {"Mandate reminder due", "system"},
+	"mandate.reminder_sent": {"Mandate reminder sent to the customer", "system"},
+
+	"card.issued":    {"Card issued", "phoenix"},
+	"card.activated": {"Card activated", "phoenix"},
+	"card.frozen":    {"Card frozen", "phoenix"},
+	"card.unfrozen":  {"Card unfrozen", "phoenix"},
+	"card.cancelled": {"Card cancelled", "phoenix"},
+}
+
+// phoenixLogEvent writes one row onto an application's activity trail.
+//
+// external_event_id carries Phoenix's own event id, and migration 223 puts a
+// unique index on it: Phoenix retries any non-2xx, so without that a retry would
+// duplicate the entry every time. ON CONFLICT DO NOTHING makes a redelivery a
+// no-op rather than an error, which is what lets the webhook answer 200 and stop
+// the retry loop.
+func phoenixLogEvent(ctx context.Context, db *core.DB, appID int64, eventType, label, actor, actorLabel, externalID, notes string) error {
+	if actorLabel == "" {
+		switch actor {
+		case "customer":
+			actorLabel = "Customer"
+		case "system":
+			actorLabel = "Phoenix (automated)"
+		default:
+			actorLabel = "Phoenix"
+		}
+	}
+	body := label
+	if strings.TrimSpace(notes) != "" {
+		body = label + " — " + strings.TrimSpace(notes)
+	}
+	_, err := db.PGExec(ctx, `
+		INSERT INTO app.application_events
+			(application_id, event_type, actor_user_id, actor_source, actor_label, notes, external_event_id, created_at)
+		VALUES ($1, $2, NULL, $3, $4, $5, NULLIF($6,''), NOW())
+		ON CONFLICT (external_event_id) WHERE external_event_id IS NOT NULL DO NOTHING`,
+		appID, eventType, actor, actorLabel, body, externalID)
+	return err
+}
+
+// phoenixAppIDFor resolves our application id from Phoenix's credit request id.
+func phoenixAppIDFor(ctx context.Context, db *core.DB, phoenixID string) (int64, error) {
+	if strings.TrimSpace(phoenixID) == "" {
+		return 0, fmt.Errorf("phoenix_id is required")
+	}
+	rows, err := db.PGQuery(ctx, `SELECT id FROM app.loan_applications WHERE phoenix_id=$1`, phoenixID)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, fmt.Errorf("no application for phoenix_id %s", phoenixID)
+	}
+	return toInt64(rows[0]["id"]), nil
+}
+
 func phoenixProcessEvent(ctx context.Context, db *core.DB, ev phoenixEvent) (int64, error) {
+	// Lifecycle events are recorded on the activity trail. They are handled before
+	// the switch so a new Phoenix event type only needs a line in the map above.
+	if lc, ok := phoenixLifecycleEvents[ev.EventType]; ok {
+		appID, err := phoenixAppIDFor(ctx, db, ev.PhoenixID)
+		if err != nil {
+			return 0, err
+		}
+		// Carry any human-readable detail Phoenix included, without trusting its
+		// shape: these payloads differ per event type.
+		var detail struct {
+			Reason  string `json:"reason"`
+			Note    string `json:"note"`
+			Message string `json:"message"`
+			Status  string `json:"status"`
+		}
+		_ = json.Unmarshal(ev.Data, &detail) //nolint:errcheck
+		notes := detail.Reason
+		for _, alt := range []string{detail.Note, detail.Message, detail.Status} {
+			if notes == "" {
+				notes = alt
+			}
+		}
+		return appID, phoenixLogEvent(ctx, db, appID, ev.EventType, lc.label, lc.actor, "", ev.EventID, notes)
+	}
+
 	switch ev.EventType {
 	case "application.created", "application.updated":
 		var pa phoenixApplication
@@ -969,6 +1084,16 @@ func phoenixUpsertApplication(ctx context.Context, db *core.DB, pa phoenixApplic
 	// Announce genuinely new applications only — an "updated" event for a row we
 	// already hold must not re-alert the risk desk.
 	if inserted, _ := rows[0]["inserted"].(bool); inserted {
+		// Open the activity trail with how this application arrived. Without it a
+		// mirrored application showed an empty Activity tab until somebody happened
+		// to act on it, which reads as "nothing has happened" when in fact the
+		// entire origination happened — just in Phoenix.
+		if err := phoenixLogEvent(ctx, db, appID, "application.created",
+			"Application received from Phoenix", "phoenix", "",
+			"phx-created-"+pa.PhoenixID,
+			fmt.Sprintf("%s · %s", ref, pa.ApplicantName)); err != nil {
+			slog.Error("phoenix: could not log created event", "application_id", appID, "err", err)
+		}
 		go func() {
 			nctx := context.WithoutCancel(ctx)
 			NotifyRoles(nctx, db, []string{"risk_officer", "risk_head"}, NotifPayload{
