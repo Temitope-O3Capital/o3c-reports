@@ -38,6 +38,42 @@ type Props = {
 const naira = (kobo?: number | null) =>
   kobo == null ? '—' : '₦' + (kobo / 100).toLocaleString('en-NG', { maximumFractionDigits: 2 })
 
+// Phoenix's workflow stages in order, so a later stage can be read as evidence that
+// an earlier step happened.
+//
+// This is the only signal available for consent and amount confirmation: Phoenix
+// exposes no GET for either — consent-records is POST-only, and the confirmed amount
+// is not surfaced on any payload the machine key can read. So these steps report
+// what the LAST STAGE PHOENIX REPORTED implies, and say so, rather than asserting a
+// state nobody checked.
+//
+// The earlier version simply hardcoded both, which meant the panel said "Awaiting
+// the customer" after the customer had already confirmed — a confident wrong answer
+// on the one screen whose job is telling an officer what a file is waiting on.
+const STAGE_ORDER = [
+  'SUBMITTED', 'DATA_ANALYSIS', 'CRC_CHECK', 'PREQUALIFIED',
+  'AUTO_APPROVED', 'MANUAL_REVIEW', 'OFFER_SENT', 'OFFER_ACCEPTED',
+  'CONSENT_COMPLETED', 'MANDATE_COMPLETED', 'CARD_CREATED',
+]
+const TERMINAL = new Set(['REJECTED', 'EXPIRED', 'EXCEPTION'])
+
+function stageRank(stage?: string | null): number {
+  const i = STAGE_ORDER.indexOf((stage ?? '').toUpperCase())
+  return i // -1 when unknown or terminal
+}
+
+// reached() answers "has Phoenix reported a stage at or beyond this one".
+// Unknown stage returns null — not false — because "we cannot tell" and "it has not
+// happened" are different answers and the UI must not merge them.
+function reached(stage: string | null | undefined, mark: string): boolean | null {
+  const s = (stage ?? '').toUpperCase()
+  if (!s || TERMINAL.has(s)) return null
+  const r = stageRank(s)
+  const m = STAGE_ORDER.indexOf(mark)
+  if (r < 0 || m < 0) return null
+  return r >= m
+}
+
 // Mandate states worth distinguishing. Anything Phoenix returns that is not in this
 // map is shown verbatim rather than forced into a bucket — inventing a status is how
 // a real provider state gets hidden.
@@ -131,6 +167,12 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
     }
   }
 
+  // Derived from the stage Phoenix last reported — see STAGE_ORDER. null means the
+  // stage tells us nothing either way, which is shown as "not verifiable" rather
+  // than being rendered as a negative.
+  const consentDone = reached(phoenixStage, 'CONSENT_COMPLETED')
+  const amountConfirmed = reached(phoenixStage, 'OFFER_ACCEPTED')
+
   const active = mandates?.find(m => ['ACTIVE', 'APPROVED'].includes((m.status ?? '').toUpperCase()))
   const latest = active ?? mandates?.[0]
   const mStatus = (latest?.status ?? '').toUpperCase()
@@ -158,8 +200,16 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
         <Step
           icon="verified_user"
           title="Consent (NDPA)"
-          sub="Phoenix will not score an applicant without consent on file. Capture it when the customer gives it on a call."
-          status={<Pill text="Capture when given" tone="idle" />}>
+          sub={consentDone === true
+            ? 'Phoenix has consent on file for this applicant.'
+            : consentDone === false
+              ? 'Phoenix has not reported consent yet. It will not score an applicant without it — capture it when the customer gives it on a call.'
+              : 'Phoenix exposes no way to read consent state, so this cannot be confirmed here. Recording it again is harmless.'}
+          status={
+            consentDone === true ? <Pill text="On file" tone="good" />
+              : consentDone === false ? <Pill text="Not yet recorded" tone="warn" />
+                : <Pill text="Not verifiable here" tone="idle" />
+          }>
           <button className="sd-btn" disabled={busy !== null}
             onClick={() => run('consent', () => apiPost(`/api/los/${appId}/consent`, { channel: 'phone' }), 'Consent recorded')}>
             <span className="material-symbols-rounded">how_to_reg</span>
@@ -171,10 +221,16 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
         <Step
           icon="price_check"
           title="Amount confirmed"
-          sub={approvedKobo
-            ? <>Phoenix approved a ceiling of <b>{naira(approvedKobo)}</b>. Record what the customer actually accepted.</>
-            : 'Phoenix approves a ceiling; the customer then chooses what to take. Record their choice here.'}
-          status={<Pill text="Awaiting the customer" tone="warn" />}>
+          sub={amountConfirmed === true
+            ? 'The customer has accepted an amount. Phoenix holds the figure.'
+            : approvedKobo
+              ? <>Phoenix approved a ceiling of <b>{naira(approvedKobo)}</b>. Record what the customer actually accepted.</>
+              : 'Phoenix approves a ceiling; the customer then chooses what to take. Record their choice here.'}
+          status={
+            amountConfirmed === true ? <Pill text="Confirmed" tone="good" />
+              : amountConfirmed === false ? <Pill text="Awaiting the customer" tone="warn" />
+                : <Pill text="Not reported yet" tone="idle" />
+          }>
           <button className="sd-btn" disabled={busy !== null} onClick={() => { setAmount(''); setShowAmount(v => !v) }}>
             <span className="material-symbols-rounded">edit</span>Confirm amount
           </button>
