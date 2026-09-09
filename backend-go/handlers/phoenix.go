@@ -38,6 +38,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -80,6 +81,62 @@ func phoenixCallbackBase() string {
 // phoenixConfigured reports whether outbound submission can work at all. When false
 // the queue still fills, so nothing is lost — it drains once Phoenix is reachable.
 func phoenixConfigured() bool { return phoenixBaseURL() != "" && phoenixAPIKey() != "" }
+
+// phoenixTenantID is our tenant in Phoenix. The machine API key authenticates us but
+// does NOT by itself scope a read: Phoenix's generic /v1 surface requires tenant_id
+// explicitly and answers 400 "tenant_id is required" without it. The submit path
+// never needed this because Phoenix infers the tenant when creating.
+func phoenixTenantID() string { return strings.TrimSpace(os.Getenv("PHOENIX_TENANT_ID")) }
+
+// phoenixEyeDecision fetches the full Eye decision for a credit request and returns
+// Phoenix's response verbatim.
+//
+// Verbatim is the point. The workspace renders this with a port of Phoenix's own
+// credit-report panel, so anything reshaped here would show staff a different report
+// from the one Phoenix shows — the exact drift this endpoint exists to prevent.
+//
+// requestID is Phoenix's credit request id (our loan_applications.phoenix_id). The
+// endpoint also accepts a decision id, but the workspace never learns one.
+func phoenixEyeDecision(ctx context.Context, requestID string) (json.RawMessage, error) {
+	if !phoenixConfigured() {
+		return nil, fmt.Errorf("phoenix not configured")
+	}
+	tenant := phoenixTenantID()
+	if tenant == "" {
+		return nil, fmt.Errorf("PHOENIX_TENANT_ID is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	u := fmt.Sprintf("%s/credit-requests/%s/eye-decision?tenant_id=%s",
+		phoenixBaseURL(), url.PathEscape(requestID), url.QueryEscape(tenant))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+phoenixAPIKey())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, phoenixMaxBody))
+	if err != nil {
+		return nil, err
+	}
+	// 404 is a normal state, not a fault: an application that has not been scored yet
+	// has no decision. The caller renders "not scored", so don't dress it as an error.
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("phoenix eye-decision %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	return json.RawMessage(raw), nil
+}
 
 // phoenixProductNames maps the workspace's canonical product codes onto the product
 // NAMES configured in Phoenix. The two vocabularies are deliberately allowed to
@@ -174,6 +231,10 @@ type phoenixSubmitRequest struct {
 	Phone         string `json:"phone,omitempty"`
 	Email         string `json:"email,omitempty"`
 	Employer      string `json:"employer,omitempty"`
+	// Phoenix scores salaried and self-employed borrowers on different models. It
+	// assumes self_employed when this is absent, which is the wrong model for most
+	// of this book, so send it whenever the form captured it.
+	EmploymentType string `json:"employment_type,omitempty"`
 	ProductType   string `json:"product_type,omitempty"`
 	// A revolving product is granted a LIMIT to draw against, not a principal to
 	// amortise, and Phoenix rejects a principal on one outright:
@@ -189,7 +250,11 @@ type phoenixSubmitRequest struct {
 	SectorCode      string  `json:"sector_code,omitempty"`
 	Purpose         string  `json:"purpose,omitempty"`
 	CallbackURL     string  `json:"callback_url,omitempty"`
-	DTIPct          float64 `json:"dti_pct,omitempty"`
+	// No dti_pct here on purpose. Phoenix's application schema rejects it outright
+	// ("unexpected property", 422) — it derives DTI itself from the income and
+	// obligation we already send. The field existed but was never assigned, so
+	// omitempty always dropped it and nothing broke; populating it later would
+	// have started 422-ing every submit. Verified against the live API 2026-09-09.
 }
 
 // phoenixDecision is the decision Phoenix returns — either synchronously from a
@@ -465,6 +530,7 @@ func phoenixSubmitOne(ctx context.Context, db *core.DB, appID int64) error {
 		       COALESCE(applicant_phone, phone, '') AS phone,
 		       COALESCE(applicant_email, email, '') AS email,
 		       COALESCE(employer,'') AS employer,
+		       COALESCE(employment_type,'') AS employment_type,
 		       COALESCE(product_type, loan_type, '') AS product_type,
 		       COALESCE(amount_requested_kobo, loan_amount_kobo, 0) AS amount_kobo,
 		       COALESCE(tenor_months, 0) AS tenor_months,
@@ -499,6 +565,7 @@ func phoenixSubmitOne(ctx context.Context, db *core.DB, appID int64) error {
 		Phone:           str(a["phone"]),
 		Email:           str(a["email"]),
 		Employer:        str(a["employer"]),
+		EmploymentType:  str(a["employment_type"]),
 		ProductType:     phoenixProductName(str(a["product_type"])),
 		AmountKobo:      amountKobo,
 		RequestedLimit:  limitKobo,

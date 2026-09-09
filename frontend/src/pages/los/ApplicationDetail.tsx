@@ -12,6 +12,7 @@ import { EBarH } from '../../components/echarts'
 import { hasPage } from '../../hooks/useAuth'
 import { canAdvance, canDecline, canRequestInfo, stageMeta, decisionMeta, syncStateMeta, isTerminalStage, STAGE_SEQUENCE } from '../../lib/losFlow'
 import CreditReport from './CreditReport'
+import PhoenixEyeReport from './eye/PhoenixEyeReport'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -2571,7 +2572,7 @@ export default function ApplicationDetail() {
       ) : subTab === 'report' ? (
         <CreditReport appId={app.id} />
       ) : subTab === 'eye' ? (
-        <EyeTab app={app} />
+        <PhoenixEyeReport appId={app.id} />
       ) : showRisk ? (
         <RiskView
           app={app} conditions={conditions} events={events}

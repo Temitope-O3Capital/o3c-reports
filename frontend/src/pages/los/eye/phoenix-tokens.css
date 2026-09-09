@@ -1,0 +1,76 @@
+/* Phoenix design tokens, scoped to the ported credit-report panel.
+ *
+ * The panel is styled entirely in Phoenix's token vocabulary (--ink, --rule,
+ * --r-lg, --font …). Those names do not exist in the workspace, and several of
+ * them (--accent, --good, --bad) DO exist here with different values, so letting
+ * this land on :root would silently repaint the workspace in Phoenix's palette.
+ *
+ * Scoping to .phx-eye-report gives the report Phoenix's exact appearance —
+ * which is the point, the report must read identically in both systems — while
+ * leaving the surrounding O3 navy/red chrome untouched.
+ *
+ * Copied verbatim from apps/veyonra/src/styles.css. Re-copy if Phoenix retunes.
+ */
+.phx-eye-report {
+  /* ---- Neutrals: cool ink, faint cobalt bias — chosen, not defaulted ---- */
+  --ink: #14172A;
+  --ink-soft: #4C5170;
+  --ink-faint: #868CAE;
+  --paper: #EEF0F6;
+  --paper-deep: #E2E5F0;
+  --panel: #FFFFFF;
+  --rule: rgba(20,23,42,0.09);
+  --rule-soft: rgba(20,23,42,0.052);
+
+  /* ---- Sidebar ---- */
+  --sidebar-top: #191D38;
+  --sidebar-bottom: #0F1226;
+  --sidebar-fg: #9BA1C7;
+  --sidebar-fg-active: #FFFFFF;
+
+  /* ---- Brand: cobalt-indigo accent, gold reserved for money-states ---- */
+  --accent: #4552A0;
+  --accent-2: #6E7BC7;
+  --accent-deep: #2C356F;
+  --accent-ink: #333F8E;
+  --accent-wash: #ECEEFA;
+  --gold: #A8792E;
+  --gold-2: #D6A758;
+  --gold-wash: #F8F0E1;
+
+  /* ---- Semantic ---- */
+  --good: #227A5B;
+  --good-2: #2E9E77;
+  --good-wash: #E3F3EC;
+  --warn: #A8792E;
+  --warn-wash: #F8F0E1;
+  --bad: #B03B33;
+  --bad-2: #C94F45;
+  --bad-wash: #FAEAE8;
+
+  /* ---- Elevation: soft, layered, diffuse — not a single hard drop shadow ---- */
+  --shadow-xs: 0 1px 1px rgba(20,23,42,0.04);
+  --shadow-sm: 0 1px 2px rgba(20,23,42,0.04), 0 2px 6px -2px rgba(20,23,42,0.06);
+  --shadow-md: 0 2px 4px rgba(20,23,42,0.04), 0 16px 32px -18px rgba(20,23,42,0.22);
+  --shadow-lg: 0 4px 8px rgba(20,23,42,0.05), 0 28px 56px -24px rgba(20,23,42,0.30);
+  --shadow-accent: 0 8px 20px -8px rgba(69,82,160,0.45);
+
+  /* ---- Radius scale ---- */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-pill: 999px;
+
+  /* ---- Motion ---- */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --dur-fast: 120ms;
+  --dur-med: 220ms;
+  --dur-slow: 420ms;
+
+  /* ---- Type ---- */
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}

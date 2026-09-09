@@ -66,6 +66,9 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	r.With(door).Get("/{id}/messages", losGetMessages(db))
 	r.With(door).Post("/{id}/messages", losPostMessage(db))
 	r.With(door).Get("/{id}/eye-report", losEyeReport(db))
+	// Phoenix's full Eye decision, passed through verbatim so the workspace can
+	// render the identical credit report rather than an approximation of it.
+	r.With(door).Get("/{id}/eye-decision", losEyeDecision(db))
 	// Offer & acceptance CAPTURE (capture-only; Phoenix owns the process, this records it
 	// in the workspace). Does not transition the stage or gate booking.
 	r.With(door).Put("/{id}/offer", losSetOffer(db))
@@ -381,10 +384,35 @@ func losStats(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// losQueueScope decides which applications the Sales Applications page shows.
+// $1 is the caller's user id; $2 is true when the caller holds los_all.
+//
+// This was a bare `assigned_to_user_id = $1`, which made the page a personal
+// queue. That is too narrow twice over. Sales originates applications and has to
+// keep tracking them after they move on to Risk — the stage moves, the ownership
+// does not. And because NULL = $1 is never true, an application with no assignee
+// matched NOBODY: it could sit in Risk's review list while appearing nowhere in
+// Sales for any user at all, which is exactly how one went missing.
+//
+// So: holders of los_all — sales_head, admin, COO — see the whole book. An agent
+// sees only their own: assigned to them, or originated by them. Ownership follows
+// the person, not the stage, so an agent keeps seeing their application after it
+// moves to Risk.
+//
+// Unclaimed applications are deliberately NOT shown to agents. They are the
+// supervisor's to distribute, and los_all already sees them.
+const losQueueScope = `$2
+			   OR la.assigned_to_user_id = $1
+			   OR la.sales_officer_id    = $1
+			   OR la.created_by          = $1`
+
 func losQueue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
 		limit := qint(r, "limit", 50, 1, 200)
+		// Passed as a bound parameter, not spliced into the SQL, so both pagination
+		// branches keep one fixed placeholder layout regardless of the caller's role.
+		seeAll := user.HasPage("los_all")
 		// M10: cursor-based pagination via after_id (keyset on updated_at + id).
 		// Falls back to offset-based when after_id is absent for backwards compatibility.
 		afterID := qint(r, "after_id", 0, 0, 1<<62)
@@ -400,13 +428,13 @@ func losQueue(db *core.DB) http.HandlerFunc {
 				       u.full_name AS assigned_officer_name
 				FROM loan_applications la
 				LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
-				WHERE la.assigned_to_user_id = $1
+				WHERE (`+losQueueScope+`)
 				  AND (la.updated_at, la.id) < (
-				      SELECT updated_at, id FROM loan_applications WHERE id = $2
+				      SELECT updated_at, id FROM loan_applications WHERE id = $3
 				  )
 				ORDER BY la.updated_at DESC, la.id DESC
-				LIMIT $3`,
-				user.ID, afterID, limit)
+				LIMIT $4`,
+				user.ID, seeAll, afterID, limit)
 		} else {
 			offset := qint(r, "offset", 0, 0, 1<<30)
 			// H3: join users table so assigned_officer_name is available without a second fetch.
@@ -417,10 +445,10 @@ func losQueue(db *core.DB) http.HandlerFunc {
 				       u.full_name AS assigned_officer_name
 				FROM loan_applications la
 				LEFT JOIN o3c_users u ON u.id = la.assigned_to_user_id
-				WHERE la.assigned_to_user_id = $1
+				WHERE (`+losQueueScope+`)
 				ORDER BY la.updated_at DESC, la.id DESC
-				LIMIT $2 OFFSET $3`,
-				user.ID, limit, offset)
+				LIMIT $3 OFFSET $4`,
+				user.ID, seeAll, limit, offset)
 		}
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
@@ -1625,6 +1653,59 @@ func losPostMessage(db *core.DB) http.HandlerFunc {
 // losEyeReport proxies to the Phoenix OS Eye scoring service.
 // On the first call it scores on demand and caches the Eye application_id (eye_report_id).
 // Subsequent calls retrieve the cached decision via GET instead of re-scoring.
+// losEyeDecision returns Phoenix's full Eye decision for an application, exactly as
+// Phoenix returns it.
+//
+// The payload is passed through untouched and rendered by a port of Phoenix's own
+// credit-report panel. Reshaping it here would mean staff read a different report
+// from the one Phoenix shows for the same decision, which is precisely the drift
+// this path exists to avoid.
+//
+// Two states are "no report" rather than failures, and both answer 200 with a null
+// body so the page can say so plainly: an application never submitted to Phoenix
+// (no phoenix_id), and one submitted but not yet scored (Phoenix 404s).
+func losEyeDecision(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID")
+			return
+		}
+
+		var phoenixID string
+		err = db.PG.QueryRowContext(r.Context(),
+			`SELECT COALESCE(phoenix_id, '') FROM app.loan_applications WHERE id = $1`, id).
+			Scan(&phoenixID)
+		if err == sql.ErrNoRows {
+			respondErr(w, 404, "Application not found")
+			return
+		}
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
+		if strings.TrimSpace(phoenixID) == "" {
+			respond(w, map[string]any{"decision": nil, "reason": "not_submitted"}, "pg")
+			return
+		}
+
+		raw, err := phoenixEyeDecision(r.Context(), phoenixID)
+		if err != nil {
+			respondErrLog(w, 502, "Could not reach Phoenix", err)
+			return
+		}
+		if raw == nil {
+			respond(w, map[string]any{"decision": nil, "reason": "not_scored"}, "pg")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":{"decision":`)) //nolint:errcheck
+		w.Write(raw)                            //nolint:errcheck
+		w.Write([]byte(`}}`))                   //nolint:errcheck
+	}
+}
+
 func losEyeReport(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		eyeURL := strings.TrimRight(os.Getenv("EYE_SERVICE_URL"), "/")

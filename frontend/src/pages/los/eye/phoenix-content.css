@@ -1,0 +1,298 @@
+/* Phoenix's content stylesheet, scoped to the ported credit-report panel.
+ *
+ * The panel's markup leans on Phoenix's ELEMENT rules (table, thead th, tbody td)
+ * and utility classes (.panel, .btn, .stats, .skel*) as much as on its tokens.
+ * Porting only the tokens — as the first version of this did — left the report
+ * recognisable but wrong: default table spacing, unstyled buttons, no panel chrome.
+ *
+ * Every selector below is prefixed with .phx-eye-report so none of it reaches the
+ * workspace's own chrome. @keyframes are the deliberate exception: they are
+ * referenced by name, and scoping them would leave every animation unresolved.
+ *
+ * Generated from apps/veyonra/src/styles.css lines 230-543. Re-generate if Phoenix
+ * restyles; do not hand-edit.
+ */
+
+/* Base rules the panel inherits from Phoenix's body, re-scoped. Without these the
+ * font stack, base size and border-box sizing all fall back to the workspace's,
+ * which changes every measurement inside the report. */
+.phx-eye-report,
+.phx-eye-report * { box-sizing: border-box; }
+.phx-eye-report {
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.phx-eye-report button,
+.phx-eye-report input,
+.phx-eye-report select,
+.phx-eye-report textarea { font-family: var(--font); }
+
+
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes spin { to { transform: rotate(360deg); } }/* Skeleton shimmer — a highlight band sweeping left→right across the placeholder. */
+@keyframes shimmer { from { background-position: -180% 0; } to { background-position: 180% 0; } }/* breathe is the reduced-motion stand-in for any looping indicator: opacity only,
+   no transform, so it signals "working" without vestibular motion. */
+@keyframes breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }/* Modal enter/exit. Scale is subtle (.97) — enough to read as "arriving from the
+   page" without the zoom feel that triggers motion sensitivity. */
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes dialog-in { from { opacity: 0; transform: scale(0.97) translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes dialog-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(0.98) translateY(-4px); } }/* Row/card stagger — same shape as `rise` but shorter, for list children. */
+@keyframes rise-sm { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }/* Ambient drift for the login brand panel — very slow, very small. */
+@keyframes drift { 0%, 100% { transform: translate3d(0,0,0) scale(1); } 50% { transform: translate3d(2%, -1.5%, 0) scale(1.04); } }/* Route exit — the outgoing page leaving. Pairs with `rise` on the incoming
+   <main>. --ease-in (accelerating) because it's departing, not arriving. */
+@keyframes route-leave { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-4px); } }/* Gauge arc draw. Relies on pathLength="100" so the dash units are normalised
+   and this works regardless of the arc's real geometry. */
+@keyframes gauge-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }/* Bar/meter fill — width is set inline per-instance, so this only ramps opacity
+   in; the width itself is transitioned, not keyframed. */
+@keyframes meter-in { from { opacity: 0; } to { opacity: 1; } }
+.phx-eye-report .kicker { font: 650 11px/1 var(--font); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent-ink); margin-bottom: 10px; }
+.phx-eye-report h1 { font: 600 32px/1.15 var(--font-display); margin: 0; color: var(--ink); letter-spacing: -0.01em; }
+.phx-eye-report .sub { font: 400 14.5px/1.65 var(--font); color: var(--ink-faint); max-width: 62ch; margin: 12px 0 30px; }/* ────────────────────────────── Stat strip ────────────────────────────── */
+.phx-eye-report .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 14px; margin-bottom: 30px; }
+.phx-eye-report .stat {
+  background: var(--panel); border: 1px solid var(--rule); border-radius: var(--r-lg);
+  padding: 19px 21px; box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--dur-med) var(--ease), transform var(--dur-med) var(--ease), border-color var(--dur-med) var(--ease);
+  position: relative; overflow: hidden;
+}
+.phx-eye-report .stat::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; background: linear-gradient(90deg, var(--accent-2), transparent); opacity: 0; transition: opacity var(--dur-med) var(--ease); }
+.phx-eye-report .stat:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 22%, var(--rule)); }
+.phx-eye-report .stat:hover::after { opacity: 1; }
+.phx-eye-report .stat.flagged { border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: var(--gold-wash); }
+.phx-eye-report .stat.flagged::after { background: linear-gradient(90deg, var(--warn), transparent); opacity: 1; }
+.phx-eye-report .stat-top { display: flex; align-items: center; justify-content: space-between; }
+.phx-eye-report .stat .num { font: 500 30px/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--ink); letter-spacing: -0.015em; }
+.phx-eye-report .stat.flagged .num { color: var(--warn); }
+.phx-eye-report .stat .icn { width: 32px; height: 32px; border-radius: var(--r-sm); background: var(--accent-wash); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; }
+.phx-eye-report .stat.flagged .icn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.phx-eye-report .stat .icn svg { width: 15px; height: 15px; }
+.phx-eye-report .stat .lbl { font: 500 12.5px/1.4 var(--font); color: var(--ink-faint); margin-top: 9px; }
+.phx-eye-report .stat.flagged .lbl { color: var(--ink-soft); }/* ────────────────────────────── Panel / table ────────────────────────────── */
+.phx-eye-report .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--r-xl); overflow: hidden; box-shadow: var(--shadow-md); }
+.phx-eye-report .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--rule); }
+.phx-eye-report .panel-head h2 { font: 600 15.5px/1 var(--font-display); margin: 0; color: var(--ink); letter-spacing: -0.005em; }
+.phx-eye-report .panel-head .hint { font: 500 12px/1 var(--font); color: var(--ink-faint); }
+.phx-eye-report .tblwrap { overflow-x: auto; }
+.phx-eye-report table { width: 100%; border-collapse: collapse; }
+.phx-eye-report thead th { text-align: left; font: 600 10px/1 var(--font); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faint); padding: 12px 24px; background: var(--rule-soft); white-space: nowrap; border-bottom: 1px solid var(--rule); }
+.phx-eye-report tbody td { padding: 14px 24px; border-bottom: 1px solid var(--rule-soft); vertical-align: middle; font-size: 13.5px; white-space: nowrap; }
+.phx-eye-report tbody tr:last-child td { border-bottom: none; }
+.phx-eye-report tbody tr { transition: background var(--dur-fast) var(--ease); }
+.phx-eye-report tbody tr:hover { background: var(--rule-soft); }
+.phx-eye-report .who { display: flex; align-items: center; gap: 11px; }
+.phx-eye-report .chip { width: 32px; height: 32px; border-radius: 50%; background: var(--accent-wash); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; font: 650 12px/1 var(--font); flex: none; }
+.phx-eye-report .cust { font: 600 13.5px/1.3 var(--font); color: var(--ink); }
+.phx-eye-report .acct { font: 500 11.5px/1.3 var(--font-mono); color: var(--ink-faint); margin-top: 2px; }
+.phx-eye-report .amt { font: 600 13.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+.phx-eye-report .days { font: 600 13px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+.phx-eye-report .days.over { color: var(--bad); }
+.phx-eye-report .pill { display: inline-flex; align-items: center; gap: 6px; font: 600 10.5px/1 var(--font); letter-spacing: 0.03em; padding: 5px 10px 5px 8px; border-radius: var(--r-pill); white-space: nowrap; }
+.phx-eye-report .pill::before { content:""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent); }
+.phx-eye-report .pill.warn { color: var(--warn); background: var(--warn-wash); }
+.phx-eye-report .pill.good { color: var(--good); background: var(--good-wash); }
+.phx-eye-report .pill.bad { color: var(--bad); background: var(--bad-wash); }
+.phx-eye-report .btn {
+  font: 600 12.5px/1 var(--font); padding: 9px 15px; border-radius: var(--r-sm);
+  border: 1px solid var(--rule); background: var(--panel); color: var(--ink-soft); cursor: pointer;
+  transition: all var(--dur-fast) var(--ease);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.phx-eye-report .btn.primary {
+  background: linear-gradient(155deg, var(--accent-2), var(--accent) 70%);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-accent);
+}
+.phx-eye-report .btn.primary:hover:not(:disabled) { filter: brightness(1.05); transform: translateY(-1px); box-shadow: 0 10px 24px -8px rgba(69,82,160,0.55); }
+.phx-eye-report .btn:hover:not(.primary):not(:disabled) { border-color: var(--ink-faint); background: var(--rule-soft); }
+.phx-eye-report .btn:active:not(:disabled) { transform: translateY(0); }
+.phx-eye-report .btn:disabled { opacity: 0.5; cursor: default; }
+.phx-eye-report .note { display: flex; gap: 13px; margin-top: 24px; padding: 16px 20px; background: var(--accent-wash); border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); border-radius: var(--r-lg); font: 400 13px/1.6 var(--font); color: var(--ink); }
+.phx-eye-report .note svg { width: 17px; height: 17px; color: var(--accent-ink); flex: none; margin-top: 1px; }
+.phx-eye-report .note b { color: var(--accent-ink); }
+.phx-eye-report .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; padding: 60px 20px; text-align: center; }
+.phx-eye-report .empty svg { width: 30px; height: 30px; color: var(--ink-faint); }
+.phx-eye-report .empty h3 { font: 600 15px/1.3 var(--font-display); color: var(--ink); margin: 0; }
+.phx-eye-report .empty p { font: 400 13px/1.5 var(--font); color: var(--ink-faint); margin: 0; max-width: 42ch; }/* ────────────────────────────── Loading ──────────────────────────────
+   Two primitives, both driven from React components in shared/components:
+   .skel*  — content-shaped placeholders (preferred: no layout shift on land)
+   .spinner — only for waits with no known shape yet (route/auth/module gates) */
+.phx-eye-report .skel {
+  border-radius: var(--r-sm);
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--ink) 6%, transparent) 0%,
+      color-mix(in srgb, var(--ink) 11%, transparent) 45%,
+      color-mix(in srgb, var(--ink) 6%, transparent) 90%);
+  background-size: 220% 100%;
+  animation: shimmer 1.35s var(--ease) infinite;
+}/* Text-line skeletons inherit the line-height of the text they stand in for so
+   swapping placeholder → real copy doesn't shift the row. */
+.phx-eye-report .skel-line { height: 0.72em; border-radius: var(--r-pill); }
+.phx-eye-report .skel-line + .skel-line { margin-top: 7px; }/* Table skeleton: reuses the real thead/td padding so columns line up with the
+   loaded table and the header doesn't jump when data arrives. */
+.phx-eye-report .skel-table td, .phx-eye-report .skel-row td { padding: 14px 24px; border-bottom: 1px solid var(--rule-soft); }
+.phx-eye-report .skel-table tr:last-child td, .phx-eye-report .skel-row:last-child td { border-bottom: none; }/* Skeleton rows aren't interactive — suppress the real row hover tint. */
+.phx-eye-report .skel-table tr:hover, .phx-eye-report tr.skel-row:hover { background: transparent; }/* Stat-card ghost — same box model as .stat so the strip keeps its height. */
+.phx-eye-report .skel-stat {
+  background: var(--panel); border: 1px solid var(--rule); border-radius: var(--r-lg);
+  padding: 19px 21px; box-shadow: var(--shadow-sm);
+}
+.phx-eye-report .spinner {
+  border-radius: 50%;
+  border: 2.5px solid var(--rule);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}/* Centering wrapper so every "no shape known yet" wait looks identical. */
+.phx-eye-report .spinner-wrap { display: flex; align-items: center; justify-content: center; }/* ────────────────────────────── Data-arrival stagger ──────────────────────────────
+   Real table rows ease in when data replaces a skeleton. Deliberately small
+   (4px) and short, and capped at 6 rows — this is an ops tool people use all
+   day, so the motion has to register once and then get out of the way. Rows
+   past the cap render with no delay rather than compounding into a slow crawl
+   down a 50-row table. */
+.phx-eye-report tbody:not(.skel-table) > tr { animation: rise-sm var(--dur-fast) var(--ease) both; }
+.phx-eye-report tbody:not(.skel-table) > tr:nth-child(1) { animation-delay: 0ms; }
+.phx-eye-report tbody:not(.skel-table) > tr:nth-child(2) { animation-delay: 26ms; }
+.phx-eye-report tbody:not(.skel-table) > tr:nth-child(3) { animation-delay: 52ms; }
+.phx-eye-report tbody:not(.skel-table) > tr:nth-child(4) { animation-delay: 78ms; }
+.phx-eye-report tbody:not(.skel-table) > tr:nth-child(5) { animation-delay: 104ms; }
+.phx-eye-report tbody:not(.skel-table) > tr:nth-child(n+6) { animation-delay: 130ms; }/* Skeleton rows must not also stagger — they already shimmer, and stacking the
+   two reads as a glitch. */
+.phx-eye-report tbody.skel-table > tr, .phx-eye-report tr.skel-row { animation: none; }/* ────────────────────────────── Application screen ────────────────────────────── */
+.phx-eye-report .app-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 760px) { .phx-eye-report .app-grid { grid-template-columns: 1fr; } }
+.phx-eye-report .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 16px 24px; border-bottom: 1px solid var(--rule-soft); }
+.phx-eye-report .field label { display: block; font: 600 10.5px/1 var(--font); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 6px; }
+.phx-eye-report .field .val { font: 600 13.5px/1.4 var(--font); color: var(--ink); }
+.phx-eye-report .field .val.mono { font-family: var(--font-mono); font-size: 13px; }
+.phx-eye-report .reasons { list-style: none; margin: 0; padding: 14px 24px 18px; display: flex; flex-direction: column; gap: 9px; }
+.phx-eye-report .reasons li { display: flex; gap: 9px; font: 400 12.5px/1.5 var(--font); color: var(--ink-soft); }
+.phx-eye-report .reasons li svg { width: 14px; height: 14px; color: var(--good); flex: none; margin-top: 2px; }
+.phx-eye-report .decision-band { margin: 4px 24px 22px; padding: 18px 20px; border-radius: var(--r-lg); display: flex; align-items: center; gap: 15px; }
+.phx-eye-report .decision-band.good { background: var(--good-wash); border: 1px solid color-mix(in srgb, var(--good) 22%, transparent); }
+.phx-eye-report .decision-band.warn { background: var(--warn-wash); border: 1px solid color-mix(in srgb, var(--warn) 26%, transparent); }
+.phx-eye-report .decision-band .icn { width: 38px; height: 38px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+.phx-eye-report .decision-band.good .icn { background: var(--good); }
+.phx-eye-report .decision-band.warn .icn { background: var(--warn); }
+.phx-eye-report .decision-band .icn svg { width: 19px; height: 19px; }
+.phx-eye-report .decision-band b { font: 600 15px/1.3 var(--font-display); display: block; }
+.phx-eye-report .decision-band.good b { color: var(--good); }
+.phx-eye-report .decision-band.warn b { color: var(--warn); }
+.phx-eye-report .decision-band span { font: 400 12.5px/1.4 var(--font); color: var(--ink-soft); }
+.phx-eye-report .next-step { margin: 0 24px 24px; padding: 16px 20px; border-radius: var(--r-lg); border: 1.5px dashed var(--rule); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.phx-eye-report .next-step div b { font: 650 13px/1.4 var(--font); color: var(--ink); display: block; }
+.phx-eye-report .next-step div span { font: 500 12px/1.4 var(--font); color: var(--ink-faint); }/* ────────────────────────────── Login ────────────────────────────── */
+@media (max-width: 860px) { .phx-eye-report .login-split { grid-template-columns: 1fr !important; } .phx-eye-report .login-brand { display: none; } }
+.phx-eye-report .login-brand {
+  position: relative; overflow: hidden;
+  background: linear-gradient(165deg, var(--sidebar-top), var(--sidebar-bottom) 70%);
+  padding: 44px 52px;
+}
+.phx-eye-report .login-brand__glow {
+  position: absolute; inset: -20% -10% auto auto; width: 640px; height: 640px;
+  background: radial-gradient(closest-side, rgba(110,123,199,0.35), transparent 70%);
+  filter: blur(10px);
+  /* Very slow, very small — the panel should feel alive while someone types a
+     password, not animated at them. 22s and a 4% scale keeps it below the
+     threshold where the eye tracks it as movement. LoginPage marks this
+     [data-ambient], which stops it outright under prefers-reduced-motion —
+     NOT [data-loop-motion], which would pulse it instead; that opt-out is for
+     progress indicators that still need to signal "working". */
+  animation: drift 22s ease-in-out infinite;
+  will-change: transform;
+}
+.phx-eye-report .login-brand__glow::after {
+  content: ""; position: absolute; left: -120px; bottom: -420px; width: 480px; height: 480px;
+  background: radial-gradient(closest-side, rgba(214,167,88,0.16), transparent 70%);
+}
+.phx-eye-report .login-brand__grid {
+  position: absolute; inset: 0;
+  background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(680px 520px at 30% 40%, #000 0%, transparent 75%);
+  mask-image: radial-gradient(680px 520px at 30% 40%, #000 0%, transparent 75%);
+}
+.phx-eye-report .login-brand__eyebrow { font: 650 11px/1 var(--font); letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold-2); margin: 0 0 16px; }
+.phx-eye-report .login-brand__headline { font: 500 42px/1.14 var(--font-display); color: #fff; letter-spacing: -0.015em; margin: 0 0 18px; max-width: 15ch; }
+.phx-eye-report .login-brand__headline em { font-style: italic; color: var(--gold-2); }
+.phx-eye-report .login-brand__sub { font: 400 14.5px/1.65 var(--font); color: #9BA1C7; max-width: 38ch; margin: 0; }
+.phx-eye-report .login-brand__foot { font: 500 11.5px/1 var(--font); color: #565C86; margin-top: 40px; letter-spacing: 0.02em; }/* ────────────────────────────── Detail hero ────────────────────────────── */
+.phx-eye-report .crumbline { font: 500 12px/1 var(--font); color: var(--ink-faint); display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
+.phx-eye-report .crumbline button { border: 0; background: none; cursor: pointer; color: var(--ink-faint); font: inherit; padding: 0; }
+.phx-eye-report .crumbline button:hover { color: var(--accent-ink); }
+.phx-eye-report .crumbline .sep { color: var(--ink-faint); opacity: 0.5; }
+.phx-eye-report .crumbline .cur { color: var(--ink-soft); font-weight: 600; }
+.phx-eye-report .hero {
+  position: relative; overflow: hidden; border-radius: var(--r-xl);
+  padding: 28px 32px; margin-bottom: 20px;
+  background: linear-gradient(135deg, var(--sidebar-top) 0%, #232858 55%, var(--sidebar-bottom) 100%);
+  box-shadow: var(--shadow-lg);
+}
+.phx-eye-report .hero__glow { position: absolute; inset: 0; background: radial-gradient(560px 320px at 18% 30%, rgba(110,123,199,0.30), transparent 65%); pointer-events: none; }
+.phx-eye-report .hero__row { position: relative; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.phx-eye-report .hero__avatar {
+  width: 64px; height: 64px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(214,167,88,0.16); border: 2px solid rgba(214,167,88,0.35);
+  display: grid; place-items: center;
+  font: 600 21px/1 var(--font-display); color: var(--gold-2);
+}
+.phx-eye-report .hero__name { font: 600 21px/1.25 var(--font-display); color: #fff; letter-spacing: -0.01em; margin: 0 0 7px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.phx-eye-report .hero__meta { font: 400 12.5px/1.4 var(--font-mono); color: rgba(255,255,255,0.55); }
+.phx-eye-report .hero__badge { padding: 3px 9px; border-radius: var(--r-pill); font: 650 10.5px/1.5 var(--font); letter-spacing: 0.02em; }
+.phx-eye-report .hero__badge.good { background: rgba(46,158,119,0.22); border: 1px solid rgba(46,158,119,0.4); color: #7EE0BB; }
+.phx-eye-report .hero__badge.neutral { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.78); }
+.phx-eye-report .hero__badge.warn { background: rgba(214,167,88,0.2); border: 1px solid rgba(214,167,88,0.4); color: var(--gold-2); }
+.phx-eye-report .hero__actions { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.phx-eye-report .hero__actions .btn:not(.primary) { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); color: rgba(255,255,255,0.85); }
+.phx-eye-report .hero__actions .btn:not(.primary):hover { background: rgba(255,255,255,0.14); }/* ────────────────────────────── Tabs ────────────────────────────── */
+.phx-eye-report .tabbar { display: flex; gap: 4px; border-bottom: 1px solid var(--rule); margin-bottom: 22px; }
+.phx-eye-report .tabbtn {
+  border: 0; background: none; cursor: pointer; padding: 11px 4px; margin-right: 22px;
+  font: 600 13px/1 var(--font); color: var(--ink-faint);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  display: flex; align-items: center; gap: 7px;
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.phx-eye-report .tabbtn:hover { color: var(--ink-soft); }
+.phx-eye-report .tabbtn.is-active { color: var(--accent-ink); border-bottom-color: var(--accent); }
+.phx-eye-report .tabbtn__count { font: 650 10px/1 var(--font-mono); background: var(--rule-soft); color: var(--ink-faint); padding: 2px 6px; border-radius: var(--r-pill); }
+.phx-eye-report .tabbtn.is-active .tabbtn__count { background: var(--accent-wash); color: var(--accent-ink); }/* ────────────────────────────── Master/detail split ────────────────────────────── */
+.phx-eye-report .split { display: grid; grid-template-columns: 328px minmax(0,1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .phx-eye-report .split { grid-template-columns: 1fr; } }
+.phx-eye-report .split-list { max-height: calc(100vh - 260px); overflow-y: auto; }
+.phx-eye-report .split-row {
+  display: flex; align-items: center; gap: 12px; padding: 13px 16px; cursor: pointer;
+  border-bottom: 1px solid var(--rule-soft); border-left: 2px solid transparent;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.phx-eye-report .split-row:hover { background: var(--rule-soft); }
+.phx-eye-report .split-row.is-active { background: var(--accent-wash); border-left-color: var(--accent); }
+.phx-eye-report .split-row .chip { width: 36px; height: 36px; }/* ────────────────────────────── Card visual ────────────────────────────── */
+.phx-eye-report .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+.phx-eye-report .card-visual {
+  position: relative; aspect-ratio: 1.586; border-radius: 18px; padding: 22px 24px;
+  display: flex; flex-direction: column; justify-content: space-between; overflow: hidden;
+  background: linear-gradient(135deg, var(--sidebar-top) 0%, #232858 55%, var(--sidebar-bottom) 100%);
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--dur-med) var(--ease), filter var(--dur-med) var(--ease);
+}
+.phx-eye-report .card-visual:hover { transform: translateY(-3px); }
+.phx-eye-report .card-visual__glow { position: absolute; inset: 0; background: radial-gradient(420px 240px at 85% 110%, rgba(214,167,88,0.22), transparent 60%); pointer-events: none; }
+.phx-eye-report .card-visual__top { position: relative; display: flex; justify-content: space-between; align-items: flex-start; }
+.phx-eye-report .card-visual__chip { width: 38px; height: 28px; border-radius: 6px; background: linear-gradient(155deg, #E7CE93, var(--gold-2) 65%, var(--gold)); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15); }
+.phx-eye-report .card-visual__brand { font: 600 13px/1 var(--font-display); color: rgba(255,255,255,0.85); letter-spacing: -0.01em; }
+.phx-eye-report .card-visual__pan { position: relative; font: 500 18px/1 var(--font-mono); color: #fff; letter-spacing: 0.09em; }
+.phx-eye-report .card-visual__bottom { position: relative; display: flex; justify-content: space-between; align-items: flex-end; }
+.phx-eye-report .card-visual__holder { font: 600 12.5px/1.4 var(--font); color: rgba(255,255,255,0.92); text-transform: uppercase; letter-spacing: 0.03em; }
+.phx-eye-report .card-visual__limit { font: 500 11px/1.4 var(--font-mono); color: rgba(255,255,255,0.55); margin-top: 3px; }
+.phx-eye-report .card-visual__status { font: 650 10px/1 var(--font); letter-spacing: 0.05em; text-transform: uppercase; padding: 4px 9px; border-radius: var(--r-pill); }
+.phx-eye-report .card-visual__status.good { background: rgba(46,158,119,0.22); border: 1px solid rgba(46,158,119,0.4); color: #7EE0BB; }
+.phx-eye-report .card-visual__status.warn { background: rgba(214,167,88,0.2); border: 1px solid rgba(214,167,88,0.4); color: var(--gold-2); }
+.phx-eye-report .card-visual__status.bad { background: rgba(219,110,98,0.18); border: 1px solid rgba(219,110,98,0.4); color: #E8ACA1; }
+.phx-eye-report .card-visual.is-frozen { filter: grayscale(0.85) brightness(0.8); }
+.phx-eye-report .card-visual__error { font: 500 11px/1.4 var(--font); color: #E8ACA1; margin-top: 10px; }
+.phx-eye-report .card-visual__actions { display: flex; gap: 8px; margin-top: 12px; }

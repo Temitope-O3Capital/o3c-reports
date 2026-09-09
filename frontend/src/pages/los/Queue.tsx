@@ -6,6 +6,7 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { decisionMeta, syncStateMeta } from '../../lib/losFlow'
 
 interface LoanApp {
   id: number
@@ -21,6 +22,8 @@ interface LoanApp {
   disbursed_at: string | null
   updated_at: string
   created_at: string
+  decision?: string | null
+  phoenix_sync_state?: string | null
 }
 
 interface StageRow { stage: string; count: number }
@@ -262,6 +265,22 @@ export default function LOSQueue() {
     { key: 'stage', label: 'Stage', render: r => <StagePill stage={r.stage} /> },
     { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} size="sm" /> },
     {
+      key: 'decision', label: 'Phoenix',
+      render: r => {
+        const d = (r.decision ?? '').toLowerCase()
+        if (d && d !== 'pending') {
+          const m = decisionMeta(d)
+          return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: m.bg, color: m.txt, whiteSpace: 'nowrap' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{m.icon}</span>{m.label}
+            </span>
+          )
+        }
+        const s = syncStateMeta(r.phoenix_sync_state)
+        return s ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: s.txt }}>{s.label}</span> : <span style={{ color: 'var(--txt3)' }}>—</span>
+      },
+    },
+    {
       key: 'assigned_officer_name', label: 'Officer',
       render: r => r.assigned_officer_name
         ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.assigned_officer_name}</span>
@@ -289,7 +308,9 @@ export default function LOSQueue() {
   return (
     <Page
       title="Credit Applications"
-      subtitle="Your assigned applications queue"
+      subtitle="Applications assigned to you or that you originated"
+      loading={loading && !stats}
+      skeletonKpis={4}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
