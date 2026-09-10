@@ -12,8 +12,9 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../../lib/api'
+import { fmtKobo, fmtDatetime } from '../../../lib/fmt'
 import { EyeDecisionPanel } from './EyeDecisionPanel'
-import CreditReport from '../CreditReport'
+import { CreditReportBody, type ReportResp } from '../CreditReport'
 import type { EyeDecisionDetail } from './eyeTypes'
 import './phoenix-tokens.css'
 import './phoenix-content.css'
@@ -100,31 +101,86 @@ export default function PhoenixEyeReport({ appId }: { appId: number | string }) 
   )
 }
 
-// The report Phoenix posts alongside its decision, stored verbatim by the webhook.
-// Collapsed by default: it is the supporting document, not the headline, and the
-// decision detail above already carries everything an officer reads first.
+// Phoenix's prequalification report — the affordability and bureau case behind the
+// decision. A one-line headline of the figures that decide it, expanding to every
+// field Phoenix sends. Each view places it directly under the verdict, because it is
+// the evidence for it; it used to follow the offer panels (or, on the Risk view, the
+// documents), well below where anyone reading the verdict would look.
 export function PrequalSection({ appId }: { appId: number | string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen]   = useState(false)
+  const [data, setData]   = useState<ReportResp | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let current = true
+    setData(null); setError(null)
+    apiFetch<{ data: ReportResp }>(`/api/los/${appId}/credit-report`)
+      .then(res => { if (current) setData(res.data ?? { report: null }) })
+      .catch(e => { if (current) setError(e instanceof Error ? e.message : 'Could not load the report') })
+    return () => { current = false }
+  }, [appId])
+
+  const r = data?.report ?? null
+  const route = String(r?.recommended_route ?? '').toUpperCase()
+  const routeTone = route === 'APPROVE' ? '#15803D' : route === 'DECLINE' ? '#C00000' : route ? '#B45309' : ''
+
+  // The figures a credit decision turns on, in the order an officer weighs them.
+  const facts: string[] = []
+  if (r) {
+    if (r.risk_band) facts.push(`Band ${r.risk_band}`)
+    if (r.probability_of_default != null) facts.push(`PD ${Math.round(Number(r.probability_of_default) * 100)}%`)
+    if (r.max_loan_amount_minor != null) facts.push(`Max loan ${fmtKobo(Number(r.max_loan_amount_minor))}`)
+    if (r.recommended_limit_minor != null) facts.push(`Limit ${fmtKobo(Number(r.recommended_limit_minor))}`)
+    else if (r.recommended_amount_minor != null) facts.push(`Amount ${fmtKobo(Number(r.recommended_amount_minor))}`)
+    if (r.disposable_income_minor != null) facts.push(`Disposable ${fmtKobo(Number(r.disposable_income_minor))}/mo`)
+  }
+  const gateRaw = r?.hard_gate_triggered ? String(r.hard_gate_reason ?? '').replace(/^hard_gate_/, '').replace(/_/g, ' ') : ''
+  const gate = gateRaw.length > 0 && gateRaw.length <= 4 ? gateRaw.toUpperCase() : gateRaw
+  const flags = Array.isArray(r?.risk_flags) ? r!.risk_flags.length : 0
+
   return (
     <div style={{ border: '1px solid var(--card-bdr)', borderRadius: 12, background: 'var(--card)', overflow: 'hidden' }}>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => r && setOpen(o => !o)}
         aria-expanded={open}
+        disabled={!r}
         style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '13px 18px',
-          background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
+          width: '100%', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '12px 18px',
+          background: 'transparent', border: 'none', cursor: r ? 'pointer' : 'default', textAlign: 'left',
         }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt2)' }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt2)', visibility: r ? 'visible' : 'hidden' }}>
           {open ? 'expand_more' : 'chevron_right'}
         </span>
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>Prequalification report</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--txt2)' }}>
-          as posted by Phoenix with the decision
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>Prequalification</span>
+        {route && (
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', padding: '2px 9px', borderRadius: 20,
+            color: routeTone, background: `color-mix(in srgb, ${routeTone} 12%, transparent)` }}>
+            {route.replace(/_/g, ' ')}
+          </span>
+        )}
+        <span style={{ fontSize: 12.5, color: 'var(--txt2)', flex: '1 1 240px', minWidth: 0, lineHeight: 1.5 }}>
+          {error
+            ? error
+            : !data
+              ? 'Reading the report from Phoenix…'
+              : !r
+                ? (data.stale_reason || 'No report yet. Phoenix produces it when it scores the application.')
+                : <>
+                    {facts.join(' · ')}
+                    {gate && <b style={{ color: '#C00000' }}>{facts.length ? ' · ' : ''}Hard gate: {gate}</b>}
+                    {flags > 0 && ` · ${flags} risk flag${flags === 1 ? '' : 's'}`}
+                  </>}
         </span>
+        {r && (
+          <span title={data?.stale_reason || undefined}
+            style={{ fontSize: 11.5, color: data?.live ? 'var(--txt3)' : '#B45309', whiteSpace: 'nowrap' }}>
+            {data?.live ? 'live from Phoenix' : `stored copy${data?.updated_at ? ` · ${fmtDatetime(data.updated_at)}` : ''}`}
+          </span>
+        )}
       </button>
-      {open && (
-        <div style={{ borderTop: '1px solid var(--bdr)', padding: '4px 18px 10px' }}>
-          <CreditReport appId={appId} />
+      {open && r && data && (
+        <div style={{ borderTop: '1px solid var(--bdr)', padding: '12px 18px 14px' }}>
+          <CreditReportBody data={data} />
         </div>
       )}
     </div>

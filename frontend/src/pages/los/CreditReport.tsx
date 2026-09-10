@@ -1,16 +1,24 @@
-import { useEffect, useState, useCallback, type ReactNode, type CSSProperties } from 'react'
-import { SectionCard, ErrBanner, Sk } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { type ReactNode, type CSSProperties } from 'react'
+import { SectionCard } from '../../components/UI'
 import { fmtKobo, fmtDate, fmtDatetime, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, RADIUS, NAVY, GREEN, AMBER, RED, NUM } from '../../lib/design'
 
 // Renders Phoenix's PrequalificationReport verbatim — the same field set Phoenix's report
-// endpoint serves, mirrored to the workspace via the decision.completed webhook. Kept
-// faithful to Phoenix's units: *_minor / *_kobo are kobo, income_variance_pct is a raw
-// ratio, probability_of_default / *_rate / credit_utilization are 0–1 fractions.
+// endpoint serves. Kept faithful to Phoenix's units: *_minor / *_kobo are kobo,
+// income_variance_pct is a raw ratio, probability_of_default / *_rate /
+// credit_utilization are 0–1 fractions. Loading and the collapsed headline live in
+// PrequalSection; this is the expanded body.
 
 type AnyObj = Record<string, any>
-interface ReportResp { source?: string; updated_at?: string; report: AnyObj | null }
+export interface ReportResp {
+  source?: string
+  updated_at?: string
+  // true when read from Phoenix just now; false for the stored copy.
+  live?: boolean
+  // Why the stored copy is showing instead of the live report, when it is.
+  stale_reason?: string
+  report: AnyObj | null
+}
 
 const money   = (k: any) => (k === null || k === undefined || k === '') ? '—' : fmtKobo(Number(k))
 const pct01   = (v: any) => (v === null || v === undefined || v === '') ? '—' : `${(Number(v) * 100).toFixed(1)}%`
@@ -19,6 +27,8 @@ const dt      = (v: any) => v ? fmtDate(v) : '—'
 const yn      = (v: any) => v === true ? 'Yes' : v === false ? 'No' : '—'
 const txt     = (v: any) => (v === null || v === undefined || v === '') ? '—' : String(v)
 const pretty  = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+const anyVal  = (v: any) => typeof v === 'boolean' ? yn(v) : typeof v === 'number' ? num(v)
+  : v !== null && typeof v === 'object' ? JSON.stringify(v) : txt(v)
 
 // A labelled key/value grid.
 function KV({ rows, cols = 3 }: { rows: [string, ReactNode][]; cols?: number }) {
@@ -94,37 +104,25 @@ function BureauSummary({ b }: { b: AnyObj }) {
 const sub: CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 8 }
 const chip: CSSProperties = { fontSize: 11.5, fontWeight: 500, padding: '3px 9px', borderRadius: 6, background: 'var(--chip-bg)', color: 'var(--txt2)' }
 
-export default function CreditReport({ appId }: { appId: number | string }) {
-  const [data, setData] = useState<ReportResp | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState<string | null>(null)
+// Every field the sections below place. Anything else Phoenix sends lands in "Other
+// fields" rather than being dropped — a field Phoenix adds reaches the page the day it
+// ships, instead of the day someone notices it is missing.
+const PLACED = new Set([
+  'application_reference', 'recommended_route', 'currency', 'generated_at', 'recommended_amount_minor',
+  'recommended_limit_minor', 'policy_version', 'decision_trace', 'credit_score', 'risk_band',
+  'probability_of_default', 'max_loan_amount_minor', 'hard_gate_triggered', 'hard_gate_reason', 'scored_at',
+  'risk_flags', 'customer_name', 'kyc_status', 'customer_id', 'credit_request_id', 'employer_name',
+  'stated_monthly_income_minor', 'pay_frequency', 'income_variance_pct', 'income_mismatch_flag',
+  'statement_on_file', 'verified_monthly_income_minor', 'avg_monthly_inflow_minor', 'avg_monthly_outflow_minor',
+  'disposable_income_minor', 'closing_balance_minor', 'aggregate_source', 'gsi_debit_detected',
+  'gsi_debit_total_minor', 'bureau_checked', 'bureau_fetched_at', 'bureau_summary',
+])
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null)
-    try {
-      const res = await apiFetch<{ data: ReportResp }>(`/api/los/${appId}/credit-report`)
-      setData(res.data ?? { report: null })
-    } catch (e: any) { setErr(e.message ?? 'Failed to load') }
-    finally { setLoading(false) }
-  }, [appId])
-  useEffect(() => { load() }, [load])
-
-  if (loading) return <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}><Sk h={80} /><Sk h={200} /><Sk h={200} /></div>
-  if (err) return <ErrBanner error={err} onRetry={load} />
-
-  const r = data?.report
-  if (!r) {
-    return (
-      <SectionCard title="Credit Report">
-        <div style={{ padding: '28px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13.5 }}>
-          No Phoenix credit report yet. It appears here verbatim once Phoenix returns a decision for this application.
-        </div>
-      </SectionCard>
-    )
-  }
-
+export function CreditReportBody({ data }: { data: ReportResp }) {
+  const r: AnyObj = data.report ?? {}
   const route = String(r.recommended_route ?? '')
   const kyc = String(r.kyc_status ?? 'NOT_STARTED')
+  const extra = Object.keys(r).filter(k => !PLACED.has(k) && !k.startsWith('$'))
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -134,9 +132,13 @@ export default function CreditReport({ appId }: { appId: number | string }) {
         {r.application_reference && <span style={{ fontSize: 12, color: 'var(--txt2)' }}>{r.application_reference}</span>}
         {route && <Pill text={pretty(route)} color={ROUTE_COLOR[route] ?? '#6B7280'} />}
         <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--txt3)' }}>
-          {r.currency ?? 'NGN'} · generated {r.generated_at ? fmtDatetime(r.generated_at) : '—'}{data?.source ? ` · via ${data.source}` : ''}
+          {r.currency ?? 'NGN'} · generated {r.generated_at ? fmtDatetime(r.generated_at) : '—'}
+          {data.live ? ' · live from Phoenix' : data.updated_at ? ` · stored copy of ${fmtDatetime(data.updated_at)}` : ''}
         </span>
       </div>
+      {!data.live && data.stale_reason && (
+        <div style={{ fontSize: 12.5, color: AMBER, lineHeight: 1.5 }}>{data.stale_reason}</div>
+      )}
 
       {/* Recommendation / decision trace */}
       <SectionCard title="Recommendation & Decision">
@@ -186,6 +188,7 @@ export default function CreditReport({ appId }: { appId: number | string }) {
           ['Customer name', txt(r.customer_name)],
           ['KYC status', <Pill text={pretty(kyc)} color={KYC_COLOR[kyc] ?? '#6B7280'} />],
           ['Customer id', <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{txt(r.customer_id)}</span>],
+          ['Credit request', <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{txt(r.credit_request_id)}</span>],
         ]} />
       </SectionCard>
 
@@ -233,6 +236,12 @@ export default function CreditReport({ appId }: { appId: number | string }) {
           ? <BureauSummary b={r.bureau_summary} />
           : <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No bureau summary.</span>}
       </SectionCard>
+
+      {extra.length > 0 && (
+        <SectionCard title="Other fields">
+          <KV rows={extra.map(k => [pretty(k), anyVal(r[k])])} />
+        </SectionCard>
+      )}
     </div>
   )
 }
