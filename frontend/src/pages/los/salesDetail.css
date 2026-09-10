@@ -361,8 +361,16 @@
 .sd-tab.is-active { color: var(--sd-navy); font-weight: 700; }
 .sd-tab.is-active::after { background: var(--sd-navy); }
 
-/* The tab bar borrows .sd only for its brand variables, not its column layout. */
-.sd.sd-tabwrap { display: block; gap: 0; margin-bottom: 2px; }
+/* The tab bar borrows .sd only for its brand variables, not its column layout.
+ * One row: the tabs on the left, the file's product and stage on the right, under
+ * one shared underline so the pills sit on the bar rather than floating above it. */
+.sd.sd-tabwrap {
+  display: flex; flex-direction: row; align-items: flex-end; flex-wrap: wrap;
+  gap: 4px 12px; margin-bottom: 2px;
+  border-bottom: 1px solid var(--bdr);
+}
+.sd-tabwrap .sd-tabs { border-bottom: none; flex: 1 1 auto; min-width: 0; }
+.sd-tabtags { display: flex; align-items: center; gap: 6px; padding-bottom: 9px; margin-left: auto; flex: none; }
 
 /* ── Credit decision ────────────────────────────────────────────────────── */
 
@@ -390,6 +398,19 @@
   background: var(--th-bg); color: var(--txt2);
   border: 1px solid var(--bdr);
 }
+/* A factor's pull on the score: down in red, up in green, the points in bold. */
+.sd-chip b { font-weight: 700; }
+.sd-chip.is-neg {
+  color: var(--sd-red);
+  background: color-mix(in srgb, var(--sd-red) 6%, transparent);
+  border-color: color-mix(in srgb, var(--sd-red) 26%, transparent);
+}
+.sd-chip.is-pos {
+  color: var(--sd-green);
+  background: color-mix(in srgb, var(--sd-green) 7%, transparent);
+  border-color: color-mix(in srgb, var(--sd-green) 26%, transparent);
+}
+.sd-chip-more { font-size: 11.5px; color: var(--txt3); align-self: center; }
 
 /* ── Risk memo ──────────────────────────────────────────────────────────── */
 /* The risk page reads as a credit memo: the engine's verdict, what could stop it,
