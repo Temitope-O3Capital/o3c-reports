@@ -119,6 +119,12 @@ func cardBlockCardholder(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "block failed")
 			return
 		}
+		aid, aname, ateam := actorOf(user)
+		logActivitySafe(r.Context(), db, Activity{
+			CIF: cif, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "decision", Outcome: "blocked", Subject: "Card blocked", Body: req.Reason,
+			Source: "card_ops", EntityType: "card", EntityID: cif,
+		})
 		writeJSON(w, map[string]any{"blocked": true, "cif": cif})
 	}
 }
@@ -137,6 +143,12 @@ func cardUnblockCardholder(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "unblock failed")
 			return
 		}
+		aid, aname, ateam := actorOf(core.UserFromCtx(r.Context()))
+		logActivitySafe(r.Context(), db, Activity{
+			CIF: cif, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "decision", Outcome: "unblocked", Subject: "Card unblocked",
+			Source: "card_ops", EntityType: "card", EntityID: cif,
+		})
 		writeJSON(w, map[string]any{"blocked": false, "cif": cif})
 	}
 }
@@ -259,11 +271,23 @@ func cardAdvanceIssuance(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "invalid status")
 			return
 		}
-		if _, err := db.PGExec(r.Context(),
-			`UPDATE card_issuance_requests SET status=$1, updated_at=NOW() WHERE id=$2`,
-			req.Status, id); err != nil {
+		urows, err := db.PGQuery(r.Context(),
+			`UPDATE card_issuance_requests SET status=$1, updated_at=NOW() WHERE id=$2
+			 RETURNING cif_number, card_type`,
+			req.Status, id)
+		if err != nil {
 			respondErr(w, 500, "update failed")
 			return
+		}
+		if len(urows) > 0 {
+			aid, aname, ateam := actorOf(core.UserFromCtx(r.Context()))
+			logActivitySafe(r.Context(), db, Activity{
+				CIF: str(urows[0]["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+				Type: "stage_change", Outcome: req.Status,
+				Subject: "Card issuance — " + req.Status, Source: "card_ops",
+				EntityType: "card_issuance", EntityID: strconv.FormatInt(id, 10),
+				Metadata: map[string]any{"card_type": str(urows[0]["card_type"])},
+			})
 		}
 		writeJSON(w, map[string]any{"id": id, "status": req.Status})
 	}
@@ -420,7 +444,7 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 		res, err := db.PGQuery(r.Context(),
 			fmt.Sprintf(`UPDATE card_disputes SET status=$1%s, updated_at=NOW()
 			 WHERE id=$2 AND status NOT IN ('resolved','declined')
-			 RETURNING id, amount_kobo`, resolvedClause),
+			 RETURNING id, amount_kobo, cif_number`, resolvedClause),
 			req.Status, id)
 		if err != nil {
 			respondErr(w, 500, "update failed")
@@ -429,6 +453,15 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 		if len(res) == 0 {
 			respondErr(w, 409, "dispute is already in a terminal state")
 			return
+		}
+		{
+			aid, aname, ateam := actorOf(core.UserFromCtx(r.Context()))
+			logActivitySafe(r.Context(), db, Activity{
+				CIF: str(res[0]["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+				Type: "stage_change", Outcome: req.Status, Subject: "Card dispute — " + req.Status,
+				Source: "card_ops", EntityType: "card_dispute", EntityID: strconv.FormatInt(id, 10),
+				Metadata: map[string]any{"amount_kobo": toInt64(res[0]["amount_kobo"])},
+			})
 		}
 		// C6: GL entry for chargeback outcome
 		disputeAmount := toInt64(res[0]["amount_kobo"])
@@ -595,7 +628,7 @@ func cardDecideCreditLimit(db *core.DB) http.HandlerFunc {
 		res, err := db.PGQuery(r.Context(),
 			`UPDATE card_credit_limit_reviews SET status=$1, decided_by=$2, updated_at=NOW()
 			 WHERE id=$3 AND status NOT IN ('approved','declined')
-			 RETURNING id, customer_name, card_type, proposed_limit_kobo`,
+			 RETURNING id, customer_name, card_type, proposed_limit_kobo, cif_number`,
 			req.Decision, user.ID, id)
 		if err != nil {
 			respondErr(w, 500, "update failed")
@@ -611,6 +644,15 @@ func cardDecideCreditLimit(db *core.DB) http.HandlerFunc {
 				Title:     "Credit Limit Change Approved",
 				Body:      fmt.Sprintf("CLR-%d — %s (%s) new limit approved", id, res[0]["customer_name"], res[0]["card_type"]),
 				ActionURL: "/cards/credit-limits",
+			})
+		}
+		{
+			aid, aname, ateam := actorOf(user)
+			logActivitySafe(r.Context(), db, Activity{
+				CIF: str(res[0]["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+				Type: "decision", Outcome: req.Decision, Subject: "Credit-limit review — " + req.Decision,
+				Source: "card_ops", EntityType: "card_limit_review", EntityID: strconv.FormatInt(id, 10),
+				Metadata: map[string]any{"proposed_limit_kobo": toInt64(res[0]["proposed_limit_kobo"]), "card_type": str(res[0]["card_type"])},
 			})
 		}
 		writeJSON(w, map[string]any{"id": id, "status": req.Decision})

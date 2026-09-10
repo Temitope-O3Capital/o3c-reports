@@ -125,6 +125,24 @@ func createAccommodation(db *core.DB) http.HandlerFunc {
 		if len(rows) > 0 {
 			id = toInt64(rows[0]["id"])
 		}
+		// Activity stream: a concession/restructure request is a credit milestone with no
+		// event log of its own — record it on the customer's timeline.
+		if id != 0 {
+			var aid *int64
+			var aname, ateam string
+			if u := core.UserFromCtx(r.Context()); u != nil {
+				aid = &u.ID
+				aname = u.FullName
+				ateam = teamFromRole(u.Role)
+			}
+			logActivitySafe(r.Context(), db, Activity{
+				CIF: b.CIF, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+				Type: "task", Status: "pending", Subject: "Credit accommodation requested",
+				Body: b.Reason, Source: "credit_accommodation",
+				EntityType: "credit_accommodation", EntityID: strconv.FormatInt(id, 10),
+				Metadata: map[string]any{"kind": b.Kind, "concession_type": b.ConcessionType, "amount_kobo": b.AmountKobo},
+			})
+		}
 		respond(w, core.Row{"id": id, "status": "pending"}, "pg")
 	}
 }
@@ -158,6 +176,24 @@ func decideAccommodation(db *core.DB, outcome string) http.HandlerFunc {
 			respondErr(w, 409, "Not found or already decided")
 			return
 		}
+		// Activity stream: the approve/reject decision on the customer's timeline.
+		var cif string
+		if rr, _ := db.PGQuery(r.Context(), `SELECT cif FROM app.credit_accommodations WHERE id=$1`, id); len(rr) > 0 {
+			cif = str(rr[0]["cif"])
+		}
+		var aid *int64
+		var aname, ateam string
+		if u := core.UserFromCtx(r.Context()); u != nil {
+			aid = &u.ID
+			aname = u.FullName
+			ateam = teamFromRole(u.Role)
+		}
+		logActivitySafe(r.Context(), db, Activity{
+			CIF: cif, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "decision", Outcome: outcome, Subject: "Credit accommodation " + outcome,
+			Body: b.Note, Source: "credit_accommodation",
+			EntityType: "credit_accommodation", EntityID: strconv.FormatInt(id, 10),
+		})
 		respond(w, core.Row{"id": id, "status": outcome}, "pg")
 	}
 }

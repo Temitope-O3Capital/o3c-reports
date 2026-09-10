@@ -507,6 +507,47 @@ func complianceSARGet(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// emitSARActivity records a Suspicious Activity Report on the customer's timeline as a
+// 'compliance_flag' activity — a bare flag for everyone, full detail for compliance only
+// (the redaction is enforced in the timeline readers, viewerSeesSAR). Anchored on the party
+// behind the SAR's account number via cbs_links; if the account isn't linked to a customer
+// nothing is emitted, rather than creating an orphan flag. Best-effort, never fails the SAR.
+func emitSARActivity(ctx context.Context, db *core.DB, u *core.Claims, sarID int64, sarRef, accountNumber, status string) {
+	if strings.TrimSpace(accountNumber) == "" {
+		return
+	}
+	var partyID *int64
+	if rows, _ := db.PGQuery(ctx,
+		`SELECT entity_id FROM app.cbs_links WHERE entity_type='party' AND cbs_account_number=$1 LIMIT 1`,
+		accountNumber); len(rows) > 0 {
+		if p := toInt64(rows[0]["entity_id"]); p > 0 {
+			partyID = &p
+		}
+	}
+	if partyID == nil {
+		return // account not linked to a customer — no timeline to attach to
+	}
+	aid, aname, ateam := actorOf(u)
+	logActivitySafe(ctx, db, Activity{
+		PartyID: partyID, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+		Type: "compliance_flag", Status: status, Outcome: status,
+		Subject: "Suspicious Activity Report " + sarRef, Source: "sar",
+		EntityType: "sar", EntityID: strconv.FormatInt(sarID, 10),
+		Metadata: map[string]any{"sar_ref": sarRef, "account_number": accountNumber, "status": status},
+	})
+}
+
+// updateSARActivityStatus keeps the single compliance_flag activity for a SAR in step with
+// its lifecycle, instead of stacking a new flag on every escalation.
+func updateSARActivityStatus(ctx context.Context, db *core.DB, sarID int64, status string) {
+	db.PGExec(ctx, //nolint:errcheck
+		`UPDATE app.activities
+		    SET status = $1, outcome = $1,
+		        metadata = jsonb_set(COALESCE(metadata,'{}'::jsonb), '{status}', to_jsonb($1::text))
+		  WHERE source='sar' AND entity_type='sar' AND entity_id=$2`,
+		status, strconv.FormatInt(sarID, 10))
+}
+
 func complianceSARCreate(db *core.DB) http.HandlerFunc {
 	type body struct {
 		SubjectNameEncrypted string `json:"subject_name_encrypted"`
@@ -555,6 +596,7 @@ func complianceSARCreate(db *core.DB) http.HandlerFunc {
 		}
 
 		newID := toInt64(rows[0]["id"])
+		emitSARActivity(ctx, db, user, newID, sarRef, b.AccountNumber, "draft")
 		go NotifyRole(ctx, db, "compliance_head", NotifPayload{
 			EventType: EvtSARFiled,
 			Title:     "New SAR Filed: " + sarRef,
@@ -657,6 +699,9 @@ func complianceSAREscalate(db *core.DB) http.HandlerFunc {
 			INSERT INTO sar_escalation_log (sar_id, from_status, to_status, actor_id, notes, created_at)
 			VALUES ($1, $2, $3, $4, $5, NOW())`,
 			id, fromStatus, b.ToStatus, user.ID, b.Notes) //nolint:errcheck
+
+		// Keep the customer-timeline compliance flag in step with the SAR's status.
+		updateSARActivityStatus(ctx, db, id, b.ToStatus)
 
 		respondOK(w, "SAR escalated")
 	}

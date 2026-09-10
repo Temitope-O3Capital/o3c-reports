@@ -726,6 +726,7 @@ func c360Activity(db *core.DB) http.HandlerFunc {
 			),
 			ids AS (
 			  SELECT
+			    (SELECT party_id FROM me) AS party_id,
 			    (SELECT array_agg(DISTINCT cif) FILTER (WHERE cif IS NOT NULL AND cif <> '') FROM cust) AS cifs,
 			    -- Union of last-10 phone keys across the customer master AND any CRM
 			    -- lead whose cif_number/converted_cif is one of the person's CIFs, so a
@@ -737,7 +738,15 @@ func c360Activity(db *core.DB) http.HandlerFunc {
 			       WHERE cc.cif_number    IN (SELECT cif FROM cust WHERE cif <> '')
 			          OR cc.converted_cif IN (SELECT cif FROM cust WHERE cif <> '')
 			     ) ph WHERE p <> '') AS phones,
-			    (SELECT array_agg(DISTINCT lower(email)) FILTER (WHERE email IS NOT NULL AND email <> '') FROM cust) AS emails
+			    (SELECT array_agg(DISTINCT lower(email)) FILTER (WHERE email IS NOT NULL AND email <> '') FROM cust) AS emails,
+			    -- Pre-resolved id sets for the activity-stream branch, computed ONCE here
+			    -- (by indexed CIF match) so that branch is a simple array membership test
+			    -- instead of a correlated subquery per activity row.
+			    (SELECT array_agg(DISTINCT cc.id) FROM app.crm_contacts cc
+			      WHERE cc.cif_number    IN (SELECT cif FROM cust WHERE cif <> '')
+			         OR cc.converted_cif IN (SELECT cif FROM cust WHERE cif <> '')) AS contact_ids,
+			    (SELECT array_agg(DISTINCT la.id) FROM app.loan_applications la
+			      WHERE la.applicant_cif IN (SELECT cif FROM cust WHERE cif <> '')) AS app_ids
 			)
 			SELECT * FROM (
 				SELECT 'call'::text AS kind, h.started_at AS ts,
@@ -902,15 +911,11 @@ func c360Activity(db *core.DB) http.HandlerFunc {
 				FROM app.activities a, ids
 				WHERE a.type <> 'call'
 				  AND (
-				    a.cif = ANY(ids.cifs)
-				    OR a.phone = ANY(ids.phones)
-				    OR a.contact_id IN (
-				         SELECT cc.id FROM app.crm_contacts cc
-				          WHERE cc.cif_number = ANY(ids.cifs)
-				             OR cc.converted_cif = ANY(ids.cifs)
-				             OR app.norm_phone(cc.phone) = ANY(ids.phones))
-				    OR a.application_id IN (
-				         SELECT la.id FROM app.loan_applications la WHERE la.applicant_cif = ANY(ids.cifs))
+				    (ids.party_id IS NOT NULL AND a.party_id = ids.party_id)
+				    OR a.cif            = ANY(ids.cifs)
+				    OR a.phone          = ANY(ids.phones)
+				    OR a.contact_id     = ANY(ids.contact_ids)
+				    OR a.application_id = ANY(ids.app_ids)
 				  )
 			) tl
 			WHERE ts IS NOT NULL
@@ -923,9 +928,19 @@ func c360Activity(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		// Tidy the free-text body of each row (emails/notes) so the timeline reads
-		// cleanly instead of dumping raw HTML/CSS and the whole quoted thread.
+		// Anti-tipping-off: a SAR (activity type 'compliance_flag') shows to non-compliance
+		// viewers as a bare flag with NO detail; compliance roles see it in full. Redacted
+		// server-side so SAR detail never reaches a non-compliance browser.
+		seesSAR := viewerSeesSAR(core.UserFromCtx(ctx))
 		for _, row := range rows {
+			if str(row["purpose"]) == "compliance_flag" && !seesSAR {
+				row["title"] = "Compliance flag"
+				row["detail"] = ""
+				row["outcome"] = ""
+				continue
+			}
+			// Tidy the free-text body of each row (emails/notes) so the timeline reads
+			// cleanly instead of dumping raw HTML/CSS and the whole quoted thread.
 			if d, ok := row["detail"].(string); ok && d != "" {
 				row["detail"] = cleanActivityDetail(d)
 			}

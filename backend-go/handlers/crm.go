@@ -894,6 +894,19 @@ func updateDeal(db *core.DB) http.HandlerFunc {
 		// Notify the deal owner when stage changes.
 		// Check body["stage_id"] — that is the column name in dealUpdateCols.
 		if _, stageChanged := body["stage_id"]; stageChanged {
+			// Activity stream: a deal moving stage is a sales milestone on the contact's
+			// timeline. Anchored on contact_id; the deal id rides in entity_id (a deal is a
+			// sub-entity of a contact, so it needs no dedicated anchor column).
+			aid, aname, ateam := actorOf(core.UserFromCtx(r.Context()))
+			act := Activity{
+				ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+				Type: "stage_change", Subject: fmt.Sprintf(`Deal "%s" stage changed`, str(updated["title"])),
+				Source: "crm_deal", EntityType: "deal", EntityID: fmt.Sprintf("%v", updated["id"]),
+			}
+			if cid := toInt64(updated["contact_id"]); cid > 0 {
+				act.ContactID = &cid
+			}
+			logActivitySafe(r.Context(), db, act)
 			if ownerID, _ := updated["assigned_to"].(int64); ownerID != 0 {
 				actor := core.UserFromCtx(r.Context())
 				if ownerID != actor.ID {

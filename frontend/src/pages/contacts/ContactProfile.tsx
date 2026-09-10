@@ -1499,6 +1499,7 @@ const KIND_ICON: Record<string, string> = {
 const STREAM_ICON: Record<string, string> = {
   handoff: 'swap_horiz', decision: 'gavel', note: 'sticky_note_2', document: 'description',
   stage_change: 'trending_up', task: 'task_alt', email: 'mail', sms: 'sms', meeting: 'groups',
+  compliance_flag: 'flag',
 }
 
 function fmtDur(s?: number | null): string {

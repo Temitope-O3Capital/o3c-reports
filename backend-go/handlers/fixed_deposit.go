@@ -391,7 +391,7 @@ func fdEarlyWithdrawalRequest(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
-		fdRows, err := db.PGQuery(ctx, `SELECT id, principal, maturity_date, rate, transaction_type FROM fd_transactions WHERE id=$1`, id)
+		fdRows, err := db.PGQuery(ctx, `SELECT id, principal, maturity_date, rate, transaction_type, cif_number FROM fd_transactions WHERE id=$1`, id)
 		if err != nil || len(fdRows) == 0 {
 			respondErr(w, 404, "FD not found")
 			return
@@ -425,6 +425,13 @@ func fdEarlyWithdrawalRequest(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Failed to create request")
 			return
 		}
+		aid, aname, ateam := actorOf(user)
+		logActivitySafe(ctx, db, Activity{
+			CIF: str(fd["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "task", Status: "pending", Subject: "FD early-withdrawal requested",
+			Source: "fd_ops", EntityType: "fd_transaction", EntityID: fmt.Sprintf("%v", id),
+			Metadata: map[string]any{"principal_kobo": principal, "penalty_kobo": penalty, "net_payout_kobo": netPayout},
+		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -495,6 +502,17 @@ func fdEarlyWithdrawalApprove(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		var cif string
+		if cr, _ := db.PGQuery(ctx, `SELECT cif_number FROM fd_transactions WHERE id=$1`, req["fd_transaction_id"]); len(cr) > 0 {
+			cif = str(cr[0]["cif_number"])
+		}
+		aid, aname, ateam := actorOf(user)
+		logActivitySafe(ctx, db, Activity{
+			CIF: cif, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "decision", Outcome: "approved", Subject: "FD early withdrawal approved",
+			Source: "fd_ops", EntityType: "fd_transaction", EntityID: fmt.Sprintf("%v", req["fd_transaction_id"]),
+			Metadata: map[string]any{"net_payout_kobo": netPayout},
+		})
 		respond(w, map[string]any{"status": "approved", "net_payout_kobo": req["net_payout_kobo"]}, "json")
 	}
 }
@@ -509,7 +527,7 @@ func fdEarlyWithdrawalReject(db *core.DB) http.HandlerFunc {
 		var b body
 		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
 
-		reqRows, err := db.PGQuery(ctx, `SELECT status FROM fd_early_withdrawal_requests WHERE id=$1`, reqID)
+		reqRows, err := db.PGQuery(ctx, `SELECT status, fd_transaction_id FROM fd_early_withdrawal_requests WHERE id=$1`, reqID)
 		if err != nil || len(reqRows) == 0 {
 			respondErr(w, 404, "Request not found")
 			return
@@ -523,6 +541,17 @@ func fdEarlyWithdrawalReject(db *core.DB) http.HandlerFunc {
 			`UPDATE fd_early_withdrawal_requests SET status='rejected', rejection_reason=$1, updated_at=NOW() WHERE id=$2`,
 			b.Reason, reqID)
 
+		fdTxnID := reqRows[0]["fd_transaction_id"]
+		var cif string
+		if cr, _ := db.PGQuery(ctx, `SELECT cif_number FROM fd_transactions WHERE id=$1`, fdTxnID); len(cr) > 0 {
+			cif = str(cr[0]["cif_number"])
+		}
+		aid, aname, ateam := actorOf(core.UserFromCtx(ctx))
+		logActivitySafe(ctx, db, Activity{
+			CIF: cif, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "decision", Outcome: "rejected", Subject: "FD early withdrawal rejected", Body: b.Reason,
+			Source: "fd_ops", EntityType: "fd_transaction", EntityID: fmt.Sprintf("%v", fdTxnID),
+		})
 		respond(w, map[string]any{"status": "rejected"}, "json")
 	}
 }
@@ -648,6 +677,13 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		aid, aname, ateam := actorOf(user)
+		logActivitySafe(ctx, db, Activity{
+			CIF: str(fd["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "stage_change", Outcome: "rolled_over", Subject: "Fixed deposit rolled over",
+			Source: "fd_ops", EntityType: "fd_transaction", EntityID: fmt.Sprintf("%d", newID),
+			Metadata: map[string]any{"principal_kobo": int64(principalVal), "rate_pct": rate, "tenor_days": tenor, "prior_fd_id": id},
+		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(newRow) //nolint:errcheck
@@ -663,7 +699,7 @@ func fdLiquidate(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(ctx)
 
 		fdRows, err := db.PGQuery(ctx,
-			`SELECT id, transaction_type, COALESCE(ngn_amount, 0) AS ngn_amount, COALESCE(gross_amount, 0) AS gross_amount FROM fd_transactions WHERE id=$1`, id)
+			`SELECT id, transaction_type, COALESCE(ngn_amount, 0) AS ngn_amount, COALESCE(gross_amount, 0) AS gross_amount, cif_number FROM fd_transactions WHERE id=$1`, id)
 		if err != nil || len(fdRows) == 0 {
 			respondErr(w, 404, "FD not found")
 			return
@@ -714,6 +750,13 @@ func fdLiquidate(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		aid, aname, ateam := actorOf(user)
+		logActivitySafe(ctx, db, Activity{
+			CIF: str(fdRows[0]["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "stage_change", Outcome: "liquidated", Subject: "Fixed deposit liquidated at maturity",
+			Source: "fd_ops", EntityType: "fd_transaction", EntityID: fmt.Sprintf("%v", id),
+			Metadata: map[string]any{"payout_kobo": amount},
+		})
 		respond(w, map[string]any{"status": "liquidated"}, "json")
 	}
 }
