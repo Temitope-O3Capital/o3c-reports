@@ -38,14 +38,20 @@ type Props = {
 const naira = (kobo?: number | null) =>
   kobo == null ? '—' : '₦' + (kobo / 100).toLocaleString('en-NG', { maximumFractionDigits: 2 })
 
+const fmtDay = (iso: string) => {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 // Phoenix's workflow stages in order, so a later stage can be read as evidence that
 // an earlier step happened.
 //
-// This is the only signal available for consent and amount confirmation: Phoenix
-// exposes no GET for either — consent-records is POST-only, and the confirmed amount
-// is not surfaced on any payload the machine key can read. So these steps report
-// what the LAST STAGE PHOENIX REPORTED implies, and say so, rather than asserting a
-// state nobody checked.
+// This is the only signal available for amount confirmation: the confirmed amount is
+// not surfaced on any payload the machine key can read, so that step reports what the
+// LAST STAGE PHOENIX REPORTED implies, and says so, rather than asserting a state
+// nobody checked. Consent used to work the same way. Phoenix now exposes its consent
+// ledger to the machine key, so that step reads the ledger directly and falls back to
+// the stage only when the ledger cannot be reached.
 //
 // The earlier version simply hardcoded both, which meant the panel said "Awaiting
 // the customer" after the customer had already confirmed — a confident wrong answer
@@ -130,6 +136,9 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
   // "unavailable", or the button would disappear for the wrong reason.
   const [ddAvailable, setDdAvailable] = useState<boolean | null>(null)
   const [ddNote, setDdNote] = useState('')
+  // NDPA consent as Phoenix's own ledger reports it. readable=false when Phoenix could
+  // not be asked, in which case the step falls back to what the stage implies.
+  const [consent, setConsent] = useState<{ readable: boolean; granted: boolean; at: string | null; note?: string } | null>(null)
 
   const [showMandate, setShowMandate] = useState(false)
   const [acct, setAcct] = useState('')
@@ -159,6 +168,27 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
       setReason(e instanceof Error ? e.message : 'Could not read mandates')
       setMandates([])
     }
+    // Consent comes from Phoenix's ledger, in its own try: a mandate read failing must
+    // not blank the consent step, nor the other way round.
+    try {
+      const c = await apiFetch<{ data: {
+        granted?: boolean
+        phoenix_records?: { consent_type?: string; granted_at?: string; revoked_at?: string | null }[] | null
+        phoenix_note?: string
+      } }>(`/api/los/${appId}/consent`)
+      const pr = c.data?.phoenix_records
+      const recs = Array.isArray(pr) ? pr : []
+      // Newest first, so the first NDPA row is the one that decides.
+      const ndpa = recs.find(r => (r.consent_type ?? '').toUpperCase() === 'NDPA')
+      setConsent({
+        readable: !c.data?.phoenix_note,
+        granted: !!c.data?.granted,
+        at: ndpa?.granted_at ?? null,
+        note: c.data?.phoenix_note || undefined,
+      })
+    } catch (e) {
+      setConsent({ readable: false, granted: false, at: null, note: e instanceof Error ? e.message : undefined })
+    }
   }, [appId])
 
   useEffect(() => { void load() }, [load])
@@ -182,7 +212,9 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
   // Derived from the stage Phoenix last reported — see STAGE_ORDER. null means the
   // stage tells us nothing either way, which is shown as "not verifiable" rather
   // than being rendered as a negative.
-  const consentDone = reached(phoenixStage, 'CONSENT_COMPLETED')
+  // Phoenix's consent ledger decides whenever it can be read; the stage is only the
+  // fallback for when it cannot.
+  const consentDone = consent?.readable ? consent.granted : reached(phoenixStage, 'CONSENT_COMPLETED')
   const amountConfirmed = reached(phoenixStage, 'OFFER_ACCEPTED')
 
   const active = mandates?.find(m => ['ACTIVE', 'APPROVED'].includes((m.status ?? '').toUpperCase()))
@@ -213,20 +245,26 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
           icon="verified_user"
           title="Consent (NDPA)"
           sub={consentDone === true
-            ? 'Phoenix has consent on file for this applicant.'
+            ? <>Phoenix has NDPA consent on file{consent?.readable && consent.at ? <> since <b>{fmtDay(consent.at)}</b></> : null}.
+                {!consent?.readable ? ' This is inferred from its stage — the consent ledger could not be read.' : null}</>
             : consentDone === false
-              ? 'Phoenix has not reported consent yet. It will not score an applicant without it — capture it when the customer gives it on a call.'
-              : 'Phoenix exposes no way to read consent state, so this cannot be confirmed here. Recording it again is harmless.'}
+              ? 'Phoenix has no NDPA consent for this applicant. It will not run a bureau check against them without it — capture it when the customer gives it.'
+              : `Consent could not be confirmed${consent?.note ? ` — ${consent.note}` : ''}.`}
           status={
             consentDone === true ? <Pill text="On file" tone="good" />
-              : consentDone === false ? <Pill text="Not yet recorded" tone="warn" />
-                : <Pill text="Not verifiable here" tone="idle" />
+              : consentDone === false ? <Pill text="Not on file" tone="warn" />
+                : <Pill text="Not verifiable" tone="idle" />
           }>
-          <button className="sd-btn" disabled={busy !== null}
-            onClick={() => run('consent', () => apiPost(`/api/los/${appId}/consent`, { channel: 'phone' }), 'Consent recorded')}>
-            <span className="material-symbols-rounded">how_to_reg</span>
-            {busy === 'consent' ? 'Recording…' : 'Record consent'}
-          </button>
+          {/* Withheld once the ledger shows consent. Every press writes another row into
+              a legal record of consent, so a second one is not harmless once the first
+              can be seen. */}
+          {!(consent?.readable && consent.granted) && (
+            <button className="sd-btn" disabled={busy !== null}
+              onClick={() => run('consent', () => apiPost(`/api/los/${appId}/consent`, { channel: 'phone' }), 'Consent recorded')}>
+              <span className="material-symbols-rounded">how_to_reg</span>
+              {busy === 'consent' ? 'Recording…' : 'Record consent'}
+            </button>
+          )}
         </Step>
 
         {/* Amount the customer accepted */}

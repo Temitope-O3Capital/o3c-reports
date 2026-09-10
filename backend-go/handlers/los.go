@@ -1729,10 +1729,12 @@ func losPostMessage(db *core.DB) http.HandlerFunc {
 // losEyeDecision returns Phoenix's full Eye decision for an application, exactly as
 // Phoenix returns it.
 //
-// The payload is passed through untouched and rendered by a port of Phoenix's own
-// credit-report panel. Reshaping it here would mean staff read a different report
-// from the one Phoenix shows for the same decision, which is precisely the drift
-// this path exists to avoid.
+// The payload is passed through and rendered by a port of Phoenix's own credit-report
+// panel. Reshaping it here would mean staff read a different report from the one
+// Phoenix shows for the same decision, which is precisely the drift this path exists
+// to avoid. The single exception is national identity numbers: Phoenix returns BVN
+// and NIN in plain text, so they are masked to the last four before sending, the same
+// rule every other workspace screen follows.
 //
 // Two states are "no report" rather than failures, and both answer 200 with a null
 // body so the page can say so plainly: an application never submitted to Phoenix
@@ -1775,9 +1777,18 @@ func losEyeDecision(db *core.DB) http.HandlerFunc {
 		// Mirror Phoenix's customer-journey stage from the payload we just fetched.
 		phoenixSyncStage(r.Context(), db, id, raw)
 
+		// Mask national identity numbers before anything reaches the browser — see
+		// maskPhoenixIdentifiers. Fail closed: a payload that cannot be safely masked
+		// is not sent at all.
+		safe, err := maskPhoenixIdentifiers(raw)
+		if err != nil {
+			respondErrLog(w, 502, "Could not prepare the Eye report safely", err)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"data":{"decision":`)) //nolint:errcheck
-		w.Write(raw)                            //nolint:errcheck
+		w.Write(safe)                           //nolint:errcheck
 		w.Write([]byte(`}}`))                   //nolint:errcheck
 	}
 }

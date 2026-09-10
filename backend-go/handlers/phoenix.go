@@ -243,15 +243,40 @@ func phoenixCall(ctx context.Context, method, path string, body any) (json.RawMe
 func phoenixSyncStage(ctx context.Context, db *core.DB, appID int64, raw json.RawMessage) {
 	var payload struct {
 		CreditRequest *struct {
-			Status        string `json:"status"`
-			WorkflowStage string `json:"workflow_stage"`
+			Status               string `json:"status"`
+			WorkflowStage        string `json:"workflow_stage"`
+			RequestedAmountMinor *int64 `json:"requested_amount_minor"`
+			RequestedLimitMinor  *int64 `json:"requested_limit_minor"`
 		} `json:"credit_request"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil || payload.CreditRequest == nil {
 		return
 	}
-	stage := strings.TrimSpace(payload.CreditRequest.WorkflowStage)
-	status := strings.TrimSpace(payload.CreditRequest.Status)
+	cr := payload.CreditRequest
+
+	// Requested exposure. Phoenix's outbound event carries amount_requested_kobo only,
+	// so a revolving request — a credit card asks for a LIMIT, not an amount — arrived
+	// as 0, and every workspace screen showed "₦0 requested" for a ₦500,000 card. The
+	// workspace already treats amount_requested_kobo as "exposure requested" for both
+	// kinds (the outbound path sends it to Phoenix as requested_limit for revolving
+	// products), so the limit belongs in the same column. Only a zero is filled: an
+	// amount entered in the workspace is never overwritten from here.
+	var exposure int64
+	if cr.RequestedAmountMinor != nil && *cr.RequestedAmountMinor > 0 {
+		exposure = *cr.RequestedAmountMinor
+	} else if cr.RequestedLimitMinor != nil && *cr.RequestedLimitMinor > 0 {
+		exposure = *cr.RequestedLimitMinor
+	}
+	if exposure > 0 {
+		if _, err := db.PGExec(ctx, `
+			UPDATE app.loan_applications SET amount_requested_kobo = $2
+			 WHERE id = $1 AND COALESCE(amount_requested_kobo, 0) = 0`, appID, exposure); err != nil {
+			slog.Error("phoenix: could not backfill requested exposure", "application_id", appID, "err", err)
+		}
+	}
+
+	stage := strings.TrimSpace(cr.WorkflowStage)
+	status := strings.TrimSpace(cr.Status)
 	if stage == "" && status == "" {
 		return
 	}
