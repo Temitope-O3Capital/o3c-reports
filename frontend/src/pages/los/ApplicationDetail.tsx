@@ -933,6 +933,42 @@ function InternalThread({ appId, readOnly = false }: { appId: number; readOnly?:
   )
 }
 
+// decision_reasons as the page receives it. The column is jsonb, but the row comes
+// back with it as JSON text, so it fell into the plain-string branch and the whole
+// array — seventy-odd factors, most of them zero — rendered as a single chip.
+//
+// Parsed, it is Phoenix's factor list with each factor's pull on the score. Only
+// the factors that moved it are worth a reviewer's glance: the largest pulling it
+// down and holding it up, led by whichever side the verdict went. The rest stay in
+// the Eye report, which lists them all.
+type DecisionReason = { label: string; impact: number }
+function decisionReasons(raw: unknown, decision: string): { shown: DecisionReason[]; hidden: number } {
+  let v: unknown = raw
+  if (typeof v === 'string') {
+    const s = v.trim()
+    if (!s) return { shown: [], hidden: 0 }
+    try { v = JSON.parse(s) } catch { return { shown: [{ label: s, impact: 0 }], hidden: 0 } }
+  }
+  if (typeof v === 'string') return { shown: v.trim() ? [{ label: v.trim(), impact: 0 }] : [], hidden: 0 }
+  if (!Array.isArray(v)) return { shown: [], hidden: 0 }
+
+  // Plain reason strings carry no weights; show them as given.
+  if (v.every(r => typeof r === 'string')) {
+    const all = (v as string[]).map(s => s.trim()).filter(Boolean)
+    return { shown: all.slice(0, 6).map(label => ({ label, impact: 0 })), hidden: Math.max(0, all.length - 6) }
+  }
+  const moved: DecisionReason[] = v
+    .map((r: any) => ({
+      label: String(r?.factor ?? r?.reason ?? r?.name ?? r?.label ?? '').trim(),
+      impact: Number(r?.impact ?? r?.points ?? 0) || 0,
+    }))
+    .filter(r => r.label && r.impact !== 0)
+  const down = moved.filter(r => r.impact < 0).sort((a, b) => a.impact - b.impact).slice(0, 5)
+  const up = moved.filter(r => r.impact > 0).sort((a, b) => b.impact - a.impact).slice(0, 3)
+  const shown = decision.includes('approve') ? [...up, ...down] : [...down, ...up]
+  return { shown, hidden: moved.length - shown.length }
+}
+
 function PhoenixDecisionBanner({ app }: { app: Application }) {
   const decision = (app.decision ?? '').toLowerCase()
   const sync = syncStateMeta(app.phoenix_sync_state)
@@ -941,16 +977,7 @@ function PhoenixDecisionBanner({ app }: { app: Application }) {
   if (!hasDecision && !sync && !fromPhoenix) return null
   const d = decisionMeta(decision)
 
-  // decision_reasons is jsonb — usually an array of factor objects, sometimes a string.
-  let reasons: string[] = []
-  const dr = app.decision_reasons
-  if (Array.isArray(dr)) {
-    reasons = dr.slice(0, 6).map((r: any) =>
-      typeof r === 'string' ? r : (r?.factor ?? r?.reason ?? r?.name ?? r?.label ?? '')
-    ).filter(Boolean)
-  } else if (typeof dr === 'string' && dr.trim()) {
-    reasons = [dr]
-  }
+  const { shown: reasons, hidden: moreReasons } = decisionReasons(app.decision_reasons, decision)
 
   // With no decision yet this used to headline the SYNC STATE — rendering
   // "Phoenix decision: Phoenix-originated", with the same words repeated in a pill
@@ -975,7 +1002,13 @@ function PhoenixDecisionBanner({ app }: { app: Application }) {
           <div className="sd-decision-body">{body}</div>
           {reasons.length > 0 && (
             <div className="sd-chips">
-              {reasons.map((r, i) => <span key={i} className="sd-chip">{r}</span>)}
+              {reasons.map((r, i) => (
+                <span key={i} className={`sd-chip${r.impact < 0 ? ' is-neg' : r.impact > 0 ? ' is-pos' : ''}`}
+                  title={r.impact ? `${r.impact > 0 ? 'Added' : 'Took off'} ${Math.abs(r.impact)} points` : undefined}>
+                  {r.label}{r.impact !== 0 && <b>{r.impact > 0 ? ' +' : ' −'}{Math.abs(r.impact)}</b>}
+                </span>
+              ))}
+              {moreReasons > 0 && <span className="sd-chip-more">+{moreReasons} smaller factors in the Eye report</span>}
             </div>
           )}
           {failed && <PhoenixSendFailure app={app} />}
@@ -1333,10 +1366,6 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
       {/* Header */}
       <div className="sd-head">
         <div style={{ minWidth: 0 }}>
-          <div className="sd-kicker">
-            <ProductPill product={app.product_type || 'Unknown'} />
-            <StagePill stage={app.stage} size="sm" />
-          </div>
           <h1 className="sd-name">{app.applicant_name}</h1>
           <div className="sd-ref">
             {app.reference}
@@ -1661,10 +1690,6 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
       {/* Header */}
       <div className="sd-head">
         <div style={{ minWidth: 0 }}>
-          <div className="sd-kicker">
-            <ProductPill product={app.product_type || 'Unknown'} />
-            <StagePill stage={app.stage} size="sm" />
-          </div>
           <h1 className="sd-name">{app.applicant_name}</h1>
           <div className="sd-ref">
             {app.reference}
@@ -1901,10 +1926,6 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
     <div className="sd" style={brand}>
       <div className="sd-head">
         <div style={{ minWidth: 0 }}>
-          <div className="sd-kicker">
-            <ProductPill product={app.product_type || 'Unknown'} />
-            <StagePill stage={app.stage} size="sm" />
-          </div>
           <h1 className="sd-name">{app.applicant_name}</h1>
           <div className="sd-ref">
             {app.reference}
@@ -2141,10 +2162,6 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
     <div className="sd" style={brand}>
       <div className="sd-head">
         <div style={{ minWidth: 0 }}>
-          <div className="sd-kicker">
-            <ProductPill product={app.product_type || 'Unknown'} />
-            <StagePill stage={app.stage} size="sm" />
-          </div>
           <h1 className="sd-name">{app.applicant_name}</h1>
           <div className="sd-ref">
             {app.reference}
@@ -3184,6 +3201,13 @@ export default function ApplicationDetail() {
                     {t.label}
                   </button>
                 ))}
+              </div>
+              {/* What the file is and where it stands. On the tab row rather than in
+                  each view's header, so it reads the same on every tab — it used to
+                  vanish on Activity and Eye Report. */}
+              <div className="sd-tabtags">
+                <ProductPill product={app.product_type || 'Unknown'} />
+                <StagePill stage={app.stage} size="sm" />
               </div>
             </div>
           )
