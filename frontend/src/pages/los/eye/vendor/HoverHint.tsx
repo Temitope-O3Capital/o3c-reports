@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode, type CSSProperties } from "react";
 
 // Ported from Portal's EyeReportPage.tsx HoverHint — same delayed-show tooltip
 // behavior so Eye's feature explanations read identically across apps.
-export function HoverHint({ hint, children, style }: { hint: string; children: ReactNode; style?: CSSProperties }) {
+export function HoverHint({ hint, children, style, placement = "up" }: { hint: string; children: ReactNode; style?: CSSProperties; placement?: "up" | "down" }) {
   const [open, setOpen] = useState(false);
   const timer = useRef<number | null>(null);
   const show = () => {
@@ -23,7 +23,12 @@ export function HoverHint({ hint, children, style }: { hint: string; children: R
           style={{
             position: "absolute",
             left: 12,
-            bottom: "calc(100% + 8px)",
+            // Rows near the top of a clipped/scrollable ancestor (e.g. the Eye
+            // decision panel's "All signals" list, which sits inside its own
+            // overflow:auto box) have nowhere for an upward-opening tooltip to
+            // render without getting cut off by that ancestor's own boundary —
+            // callers pass placement="down" for those rows.
+            ...(placement === "down" ? { top: "calc(100% + 8px)" } : { bottom: "calc(100% + 8px)" }),
             zIndex: 20,
             maxWidth: 320,
             padding: "8px 10px",

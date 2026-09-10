@@ -1764,7 +1764,9 @@ func losEyeReport(db *core.DB) http.HandlerFunc {
 		eyeTenant := os.Getenv("EYE_TENANT_ID")
 
 		if eyeURL == "" {
-			respondErr(w, 503, "Eye service not configured — set EYE_SERVICE_URL")
+			// Not respondErr: its 5xx scrubbing turned this into "Internal server error".
+			writePhoenixFailure(w, phoenixFailure{http.StatusServiceUnavailable, "EYE_NOT_CONFIGURED",
+				"The Eye scoring service is not configured on this workspace server (EYE_SERVICE_URL), so there is no Eye report to show."}, nil)
 			return
 		}
 
@@ -1838,14 +1840,15 @@ func losEyeReport(db *core.DB) http.HandlerFunc {
 
 		eyeResp, err := http.DefaultClient.Do(eyeHTTPReq)
 		if err != nil {
-			respondErr(w, 502, "Eye service unreachable: "+err.Error())
+			respondEyeServiceErr(w, err)
 			return
 		}
 		defer eyeResp.Body.Close()
 
 		respBody, err := io.ReadAll(eyeResp.Body)
 		if err != nil {
-			respondErr(w, 502, "Failed to read Eye response")
+			writePhoenixFailure(w, phoenixFailure{http.StatusBadGateway, "EYE_BAD_REPLY",
+				"The Eye scoring service answered, but its reply could not be read. Try again."}, err)
 			return
 		}
 
