@@ -55,6 +55,26 @@ func salesAppRouting(productType string) (stage string, notifyRoles []string) {
 	}
 }
 
+// salesHandToPhoenix queues a credit application for a Phoenix decision.
+//
+// The LOS stage transition into risk_review does this, but every Sales entry point
+// sets the stage directly — a one-shot raise, a raise from a lead, and a draft
+// submitted from the quick form all route credit products straight to risk_review —
+// so none of them ever passed through that transition. The application reached
+// Risk, and Phoenix never heard of it. Queued rather than called inline for the
+// same reason as the LOS path: a slow or restarting Phoenix must not fail the
+// officer's click, and the worker drains the queue once Phoenix answers.
+func salesHandToPhoenix(ctx context.Context, db *core.DB, appID int64, routedStage string) {
+	if routedStage != "risk_review" {
+		return // prepaid and fixed deposits go to Operations, not credit decisioning
+	}
+	go func() {
+		if err := phoenixEnqueue(context.WithoutCancel(ctx), db, appID); err != nil {
+			slog.Error("phoenix enqueue failed", "application_id", appID, "err", err)
+		}
+	}()
+}
+
 func RegisterSalesApplications(r chi.Router, db *core.DB) {
 	access := core.RequirePages("sales", "crm_contacts")
 	r.With(access).Get("/applications/products", listSalesProducts())
@@ -62,6 +82,8 @@ func RegisterSalesApplications(r chi.Router, db *core.DB) {
 	r.With(access).Post("/applications", createSalesApplication(db))
 	r.With(access).Patch("/applications/{id}", updateSalesAppDraft(db))
 	r.With(access).Post("/applications/{id}/submit", submitSalesAppDraft(db))
+	// A declined application is resubmitted as a new draft — see sales_resubmit.go.
+	r.With(access).Post("/applications/{id}/resubmit", resubmitSalesApp(db))
 	r.With(access).Delete("/applications/{id}", deleteSalesAppDraft(db))
 	r.With(access).Get("/applications/{id}/booking", applicationBooking(db))
 	// Origination on-ramp: raise an application directly from a CRM lead, carrying its
@@ -238,6 +260,12 @@ func raiseSalesAppFromLead(db *core.DB) http.HandlerFunc {
 		if err := tx.Commit(); err != nil {
 			respondErr(w, 500, "Commit failed")
 			return
+		}
+
+		// Credit applications go to Phoenix for a decision — see salesHandToPhoenix. A
+		// draft has no routed stage yet; it is queued when it is submitted.
+		if !req.Draft {
+			salesHandToPhoenix(ctx, db, appID, routedStage)
 		}
 
 		if !req.Draft && len(notifyRoles) > 0 {
@@ -618,6 +646,9 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Credit applications go to Phoenix for a decision — see salesHandToPhoenix.
+		salesHandToPhoenix(ctx, db, appID, routedStage)
+
 		app := map[string]any{
 			"id": appID, "reference": appRef, "stage": appStage,
 			"status": appStatus, "submitted_at": appSubmitted,
@@ -873,6 +904,9 @@ func submitSalesAppDraft(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Commit failed")
 			return
 		}
+
+		// Credit applications go to Phoenix for a decision — see salesHandToPhoenix.
+		salesHandToPhoenix(r.Context(), db, appID, routedStage)
 
 		go NotifyRoles(context.Background(), db, notifyRoles, NotifPayload{
 			EventType: "los_application_submitted",

@@ -15,6 +15,7 @@ import { hasPage } from '../../hooks/useAuth'
 import { canAdvance, canDecline, canRequestInfo, stageMeta, decisionMeta, syncStateMeta, isTerminalStage, STAGE_SEQUENCE } from '../../lib/losFlow'
 import PhoenixEyeReport, { PrequalSection } from './eye/PhoenixEyeReport'
 import PhoenixOfferPanel from './PhoenixOffer'
+import NewApplicationModal, { type DraftApp } from '../../components/NewApplicationModal'
 import { useEyeDecision, deriveMemo, pct, DecisionSummary, FlagList, AffordabilityPanel, BureauPanel, StatementPanel, DriversPanel, EyeUnavailable } from './RiskMemo'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1122,7 +1123,10 @@ function OfferPanel({ app, onRefresh }: { app: Application; onRefresh: () => voi
 function salesNextStep(app: Application): { tone: 'act' | 'wait' | 'done' | 'stop'; icon: string; title: string; body: string } {
   const s = app.stage
   if (s === 'declined') {
-    return { tone: 'stop', icon: 'cancel', title: 'Declined', body: app.decline_reason || 'This application was declined. Let the customer know, and record the conversation on the thread below.' }
+    return {
+      tone: 'stop', icon: 'cancel', title: 'Declined',
+      body: `${app.decline_reason ? app.decline_reason.trim().replace(/\.?$/, '.') + ' ' : 'This application was declined. '}Let the customer know. If something can be fixed, Resubmit starts a new application from this one for you to correct before it goes.`,
+    }
   }
   if (s === 'active' || s === 'booked') {
     return { tone: 'done', icon: 'check_circle', title: 'Booked and live', body: 'The facility has been disbursed. Nothing further is needed from Sales on this application.' }
@@ -1236,6 +1240,41 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
   // action buttons below for why that distinction matters here.
   const salesOwnsStage = /sales/i.test(meta.owner || '')
 
+  // Editing a draft and resubmitting a declined application both open the quick form
+  // the officer raised it with, so there is one way to change an application before
+  // it goes, not two.
+  const [draftModal, setDraftModal] = useState<{ draft: DraftApp; title: string; intro?: string; resubmit: boolean } | null>(null)
+  const [resubmitting, setResubmitting] = useState(false)
+  const asDraft = (): DraftApp => ({
+    id: app.id, product_type: app.product_type, applicant_cif: app.applicant_cif ?? '',
+    applicant_name: app.applicant_name, amount_requested_kobo: app.amount_requested_kobo,
+    tenor_months: app.tenor_months, purpose: app.purpose, employer: app.employer,
+    monthly_income_kobo: app.monthly_income_kobo,
+  })
+
+  // A declined application cannot be sent again as it is — Phoenix would replay its
+  // answer — so Resubmit asks the server for a new draft copied from this one and
+  // opens it for the officer to correct.
+  async function startResubmit() {
+    setResubmitting(true)
+    try {
+      const res = await apiPost<{ data: DraftApp & { reference: string; existing?: boolean } }>(`/api/sales/applications/${app.id}/resubmit`, {})
+      const d = res.data
+      setDraftModal({
+        draft: d,
+        resubmit: true,
+        title: `Resubmit ${app.reference}`,
+        intro: d.existing
+          ? `You already started a resubmission of this application — ${d.reference}. Carry on from where you left it.`
+          : `This is a new application, ${d.reference}, copied from the declined one with everything it held. Correct what needs correcting, then submit it, or save it as a draft.`,
+      })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not start a resubmission')
+    } finally {
+      setResubmitting(false)
+    }
+  }
+
   // The brand constants live in TS; the stylesheet reads them as variables so the
   // colour stays defined in one place rather than duplicated across both.
   const brand = { '--sd-navy': NAVY, '--sd-red': RED, '--sd-green': GREEN, '--sd-amber': AMBER } as React.CSSProperties
@@ -1268,6 +1307,16 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
               <span className="material-symbols-rounded">person</span>Customer 360
             </button>
           )}
+          {app.stage === 'draft' && (
+            <button className="sd-btn" onClick={() => setDraftModal({ draft: asDraft(), title: `Edit ${app.reference}`, resubmit: false })}>
+              <span className="material-symbols-rounded">edit</span>Edit draft
+            </button>
+          )}
+          {app.stage === 'declined' && (
+            <button className="sd-btn is-primary" disabled={resubmitting} onClick={startResubmit}>
+              <span className="material-symbols-rounded">replay</span>{resubmitting ? 'Preparing…' : 'Resubmit'}
+            </button>
+          )}
           {/* Only Sales' OWN moves appear here.
               canAdvance() asks whether you hold the page for the stage's forward
               transition — and los_all (sales_head, admin, COO) holds every page, so
@@ -1292,6 +1341,19 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
           )}
         </div>
       </div>
+
+      <NewApplicationModal
+        open={!!draftModal}
+        draft={draftModal?.draft ?? null}
+        title={draftModal?.title}
+        intro={draftModal?.intro}
+        onClose={() => setDraftModal(null)}
+        onSaved={() => {
+          // A resubmission is a different application; take the officer to it.
+          if (draftModal?.resubmit) navigate(`/sales/applications/${draftModal.draft.id}`)
+          else onRefresh()
+        }}
+      />
 
       {/* What this officer does next */}
       <div className={`sd-band sd-band-${next.tone}`}>

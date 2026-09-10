@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Modal, Button, Input, Select } from './UI'
 import { apiFetch } from '../lib/api'
 import { TEXT, FW, SP, RADIUS, NAVY } from '../lib/design'
@@ -34,6 +34,10 @@ interface Props {
   /** Raise from a CRM lead: posts to the lead on-ramp and makes the CIF optional
    *  (a prospect may not have one yet — it lands provisional and reconciles later). */
   leadId?: number
+  /** Overrides the heading — e.g. "Resubmit LOS-…" when the draft is a resubmission. */
+  title?: string
+  /** A line above the form saying what the officer is looking at. */
+  intro?: ReactNode
 }
 
 // Amount label reads naturally per product.
@@ -46,7 +50,7 @@ function amountLabel(code: string): string {
   }
 }
 
-export default function NewApplicationModal({ open, onClose, onSaved, draft, presetCif, presetName, leadId }: Props) {
+export default function NewApplicationModal({ open, onClose, onSaved, draft, presetCif, presetName, leadId, title, intro }: Props) {
   const [product, setProduct] = useState('')
   const [cif, setCif]         = useState('')
   const [name, setName]       = useState('')
@@ -93,7 +97,10 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
 
   async function saveDraft() {
     if (!product) { toast.error('Choose a product'); return }
-    if (!leadId && !cif.trim()) { toast.error('Enter the customer CIF'); return }
+    // An existing draft already carries its CIF — or deliberately has none yet, like
+    // one copied from an application that began in Phoenix. The draft update never
+    // changes the CIF, so demanding one here only blocked the submit.
+    if (!leadId && !draft && !cif.trim()) { toast.error('Enter the customer CIF'); return }
     setBusy(true)
     try {
       if (leadId) {
@@ -111,7 +118,10 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
 
   async function submit() {
     if (!product) { toast.error('Choose a product'); return }
-    if (!leadId && !cif.trim()) { toast.error('Enter the customer CIF'); return }
+    // An existing draft already carries its CIF — or deliberately has none yet, like
+    // one copied from an application that began in Phoenix. The draft update never
+    // changes the CIF, so demanding one here only blocked the submit.
+    if (!leadId && !draft && !cif.trim()) { toast.error('Enter the customer CIF'); return }
     if (!amount || Number(amount) <= 0) { toast.error('Enter an amount before submitting'); return }
     setBusy(true)
     try {
@@ -131,7 +141,7 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={leadId ? 'Raise application from lead' : draft ? 'Resume application' : 'New application'} width={560}
+    <Modal open={open} onClose={onClose} title={title ?? (leadId ? 'Raise application from lead' : draft ? 'Resume application' : 'New application')} width={560}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -140,6 +150,11 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
         </div>
       }
     >
+      {intro && (
+        <div style={{ marginBottom: 14, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, background: `${NAVY}0A`, border: `1px solid ${NAVY}1F`, fontSize: TEXT.sm, color: 'var(--txt)', lineHeight: 1.55 }}>
+          {intro}
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div style={{ gridColumn: '1 / -1' }}>
           <Select label="Product" value={product} onChange={e => setProduct(e.target.value)}>
@@ -153,7 +168,12 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
             ))}
           </Select>
         </div>
-        <Input label={leadId ? 'Customer CIF (optional)' : 'Customer CIF'} value={cif} onChange={e => setCif(e.target.value)} placeholder={leadId ? 'blank = prospect, links later' : 'e.g. 21013'} />
+        {/* Fixed once the application exists: the draft update does not change it, so
+            an editable box here would promise something the save never does. */}
+        <Input label={draft ? 'Customer CIF (fixed on this application)' : leadId ? 'Customer CIF (optional)' : 'Customer CIF'}
+          value={draft && !cif ? 'none yet — links once the customer exists' : cif}
+          onChange={e => setCif(e.target.value)} disabled={!!draft}
+          placeholder={leadId ? 'blank = prospect, links later' : 'e.g. 21013'} />
         <Input label="Customer name (optional)" value={name} onChange={e => setName(e.target.value)} />
         <Input label={amountLabel(product)} type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
         {showTenor && (
