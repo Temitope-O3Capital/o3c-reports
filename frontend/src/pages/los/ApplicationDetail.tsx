@@ -15,6 +15,7 @@ import { hasPage } from '../../hooks/useAuth'
 import { canAdvance, canDecline, canRequestInfo, stageMeta, decisionMeta, syncStateMeta, isTerminalStage, STAGE_SEQUENCE } from '../../lib/losFlow'
 import PhoenixEyeReport, { PrequalSection } from './eye/PhoenixEyeReport'
 import PhoenixOfferPanel from './PhoenixOffer'
+import { useEyeDecision, deriveMemo, pct, DecisionSummary, FlagList, AffordabilityPanel, BureauPanel, StatementPanel, DriversPanel, EyeUnavailable } from './RiskMemo'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1436,8 +1437,13 @@ const RATING_COLORS: Record<string, string> = {
 
 // riskNextStep says whose move it is, in Risk's terms. A stage pill says where the
 // file is; it does not say whether this desk owes the next action.
-function riskNextStep(app: Application, unmet: number): { tone: 'act' | 'wait' | 'done' | 'stop'; icon: string; title: string; body: string } {
+function riskNextStep(app: Application, unmet: number, engine?: { outcome: string | null; gate: string | null }): { tone: 'act' | 'wait' | 'done' | 'stop'; icon: string; title: string; body: string } {
   const s = app.stage
+  // The engine's view goes in the band itself, so the officer meets it before any
+  // figure — and meets it as a recommendation, which is all it is.
+  const eng = engine?.outcome
+    ? ` Phoenix recommends ${engine.outcome.toLowerCase().replace(/_/g, ' ')}${engine.gate ? ` on a hard gate (${engine.gate.replace(/\.$/, '').toLowerCase()})` : ''}.`
+    : ''
   if (s === 'declined') {
     return { tone: 'stop', icon: 'cancel', title: 'Declined', body: app.decline_reason || 'This application was declined.' }
   }
@@ -1445,10 +1451,10 @@ function riskNextStep(app: Application, unmet: number): { tone: 'act' | 'wait' |
     return { tone: 'done', icon: 'check_circle', title: 'Booked and live', body: 'The facility has been disbursed. Nothing further is needed from the credit desk.' }
   }
   if (s === 'risk_review') {
-    return { tone: 'act', icon: 'fact_check', title: 'Assess and recommend', body: 'Review the assessment and the bureau position, attach any conditions, then recommend to the risk head or decline.' }
+    return { tone: 'act', icon: 'fact_check', title: 'Assess and recommend', body: 'Read the engine’s view, the affordability and the bureau position, attach any conditions, then recommend to the risk head or decline.' + eng }
   }
   if (s === 'risk_head_review') {
-    return { tone: 'act', icon: 'gavel', title: 'Credit approval', body: 'The officer has recommended this. Approve it on credit grounds, or send it back.' }
+    return { tone: 'act', icon: 'gavel', title: 'Credit approval', body: 'The officer has recommended this. Approve it on credit grounds, or send it back.' + eng }
   }
   if (s === 'pending_conditions') {
     return unmet > 0
@@ -1461,6 +1467,13 @@ function riskNextStep(app: Application, unmet: number): { tone: 'act' | 'wait' |
   return { tone: 'wait', icon: 'hourglass_top', title: `With ${stageMeta(app.stage).owner || 'another desk'}`, body: 'Credit has done its part. This is not waiting on the risk desk.' }
 }
 
+// The risk desk's view of an application, laid out as a credit memo.
+//
+// It leads with Phoenix's decision rather than the workspace's copies of it: the
+// verdict and why, then what could stop it, whether the customer can afford it, what
+// the bureau and statement say, and what moved the score — see RiskMemo.tsx. The
+// officer's own tools follow: conditions, an override of the assessment, the
+// applicant's documents, and the approval chain.
 function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, onReqInfo, onCreditFile }: {
   app: Application
   conditions: AppCondition[]
@@ -1480,19 +1493,23 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
   // edit is flagged as an override rather than silently clobbering Phoenix's output.
   const phoenixScored = app.phoenix_sync_state === 'decided' || app.source_system === 'phoenix' || !!(app.decision && app.decision !== 'pending')
 
+  // Phoenix's own decision is the spine of the page. The workspace's eye_* columns are
+  // a copy that can lag or be overridden; the memo reads the engine directly.
+  const eye = useEyeDecision(app.id)
+  const facts = deriveMemo(app, eye.detail)
+
+  const unmetCount = conditions.filter(c => !c.is_met).length
+  const next = riskNextStep(app, unmetCount, { outcome: facts.outcome, gate: facts.hardGate?.label ?? null })
+
+  const exposureKobo = facts.requestedKobo
+  const dtiPct = facts.dtiPct
+  const dtiColor = dtiPct === null ? undefined : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : undefined
+  const pd = facts.pd
+  const pdColor = pd === null ? undefined : pd >= 0.2 ? RED : pd >= 0.08 ? AMBER : undefined
+
   const score = app.eye_score
   const rating = app.eye_rating
-  const scoreColor = score === null ? undefined : score >= 650 ? GREEN : score >= 500 ? AMBER : RED
-
-  const monthlyRepayment = (app.tenor_months && app.amount_requested_kobo)
-    ? Math.round(app.amount_requested_kobo / app.tenor_months * (1 + (app.interest_rate_bps ?? 0) / 10000))
-    : 0
-  const dtiPct = dtiOf(app.dti_pct) ?? ((app.monthly_income_kobo && monthlyRepayment)
-    ? (monthlyRepayment / app.monthly_income_kobo) * 100 : null)
-  const dtiColor = dtiPct === null ? undefined : dtiPct > 50 ? RED : dtiPct > 33 ? AMBER : undefined
-  const netAfter = (app.monthly_income_kobo && monthlyRepayment) ? app.monthly_income_kobo - monthlyRepayment : null
-  const unmetCount = conditions.filter(c => !c.is_met).length
-  const next = riskNextStep(app, unmetCount)
+  const storedDti = dtiOf(app.dti_pct)
 
   const [form, setForm] = useState({
     eye_score: score !== null ? String(score) : '',
@@ -1517,6 +1534,10 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
     finally { setSaving(false) }
   }
 
+  // An offer exists only once credit has approved. At risk review the panel could
+  // only ever say "no offer yet", so it waits until there can be one.
+  const offerStage = ['pending_conditions', 'finance_approval', 'booking', 'active'].includes(app.stage)
+
   const brand = { '--sd-navy': NAVY, '--sd-red': RED, '--sd-green': GREEN, '--sd-amber': AMBER } as CSSProperties
   const fieldInput: CSSProperties = {
     width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid var(--bdr)',
@@ -1537,8 +1558,8 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
           <div className="sd-ref">
             {app.reference}
             {app.applicant_cif ? ` · CIF ${app.applicant_cif}` : ' · no CIF yet'}
-            {` · ${fmtKobo(app.amount_requested_kobo)}`}
-            {app.tenor_months ? ` over ${app.tenor_months} months` : ' · revolving'}
+            {exposureKobo !== null ? ` · ${fmtKobo(exposureKobo)}${facts.requestedKind === 'limit' ? ' limit' : ''}` : ''}
+            {app.tenor_months ? ` over ${app.tenor_months} months` : facts.requestedKind === 'limit' ? ' · revolving' : ''}
           </div>
         </div>
 
@@ -1551,7 +1572,7 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
               <span className="material-symbols-rounded">person</span>Customer 360
             </button>
           )}
-          {canAdvance(app.stage) && !isTerminal && (
+          {canRequestInfo(app.stage) && (
             <button className="sd-btn is-warn" onClick={onReqInfo}>
               <span className="material-symbols-rounded">help</span>Request info
             </button>
@@ -1569,7 +1590,7 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
         </div>
       </div>
 
-      {/* Whose move */}
+      {/* Whose move — with the engine's recommendation in it */}
       <div className={`sd-band sd-band-${next.tone}`}>
         <div className="sd-band-icn"><span className="material-symbols-rounded">{next.icon}</span></div>
         <div style={{ minWidth: 0 }}>
@@ -1578,26 +1599,42 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
         </div>
       </div>
 
-      {/* The decision engine's verdict, then the offer built on it */}
-      <PhoenixDecisionBanner app={app} />
-      <OfferPanel app={app} onRefresh={onRefresh} />
-      <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />
-      <PrequalSection appId={app.id} />
+      {/* The engine's verdict. When Phoenix has none, say why, and keep the sync
+          banner, which is the only thing that can explain a stuck submission. */}
+      {eye.detail
+        ? <DecisionSummary facts={facts} />
+        : <><PhoenixDecisionBanner app={app} /><EyeUnavailable state={eye} /></>}
 
-      {/* The numbers a credit decision turns on */}
+      {/* The numbers a credit decision turns on, as Phoenix used them */}
       <div className="sd-stats">
-        <SDStat label="Eye score" value={score ?? '—'} tone={scoreColor}
-          sub={rating ? <span style={{ color: RATING_COLORS[rating] ?? 'var(--txt2)', fontWeight: 700 }}>{rating}</span> : 'not rated'} />
-        <SDStat label="Debt-to-income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiColor}
-          sub={dtiPct == null ? 'not assessed' : dtiPct > 50 ? 'above policy' : dtiPct > 33 ? 'elevated' : 'within policy'} />
-        <SDStat label="Monthly repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : '—'}
-          sub={app.tenor_months ? `over ${app.tenor_months} months` : 'revolving — no term'} />
-        <SDStat label="Net after repayment" value={netAfter == null ? '—' : fmtKobo(netAfter)}
-          tone={netAfter != null && netAfter <= 0 ? RED : undefined}
-          sub={netAfter != null && netAfter <= 0 ? 'repayment exceeds income' : undefined} />
-        <SDStat label="Exposure requested" value={fmtKobo(app.amount_requested_kobo)}
-          sub={app.amount_approved_kobo ? `approved ${fmtKobo(app.amount_approved_kobo)}` : undefined} />
+        <SDStat label="Engine score" value={facts.score ?? '—'} tone={facts.hardGate ? RED : undefined}
+          sub={facts.hardGate ? 'hard-gate zero, not a score' : facts.band ? `band ${facts.band}` : 'not scored'} />
+        <SDStat label="Default probability" value={pd === null ? '—' : pct(pd)} tone={pdColor}
+          sub={pd === null ? 'not scored' : pd >= 0.2 ? 'high' : pd >= 0.08 ? 'elevated' : 'low'} />
+        <SDStat label="Debt-to-income" value={dtiPct === null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiColor}
+          sub={dtiPct === null ? 'not assessed' : facts.dtiExplained ? 'repayments ÷ income' : facts.dtiSource ? `per ${facts.dtiSource}` : undefined} />
+        <SDStat label="Monthly income" value={facts.incomeKobo === null ? '—' : fmtKobo(facts.incomeKobo)}
+          sub={facts.incomeKobo === null ? 'not recorded' : facts.incomeFromPhoenix ? 'as Phoenix used it' : facts.incomeSource} />
+        <SDStat label="Exposure requested" value={exposureKobo === null ? '—' : fmtKobo(exposureKobo)}
+          sub={app.amount_approved_kobo ? `approved ${fmtKobo(app.amount_approved_kobo)}` : facts.requestedKind === 'limit' ? 'credit limit' : undefined} />
       </div>
+
+      {/* What could stop it */}
+      {facts.flags.length > 0 && <FlagList flags={facts.flags} />}
+
+      {/* The memo */}
+      {eye.detail && (
+        <div className="sd-grid2">
+          <AffordabilityPanel facts={facts} />
+          <BureauPanel facts={facts} />
+        </div>
+      )}
+      {eye.detail && (
+        <div className="sd-grid2">
+          <StatementPanel facts={facts} />
+          <DriversPanel facts={facts} />
+        </div>
+      )}
 
       {/* Progress */}
       <div className="sd-panel"><PipelineStepper stage={app.stage} /></div>
@@ -1610,18 +1647,19 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
         <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={canAssess && !isTerminal} />
       </SDPanel>
 
-      {/* Credit assessment */}
+      {/* The officer's assessment — secondary to the engine's, and overriding it is
+          recorded as an override. */}
       <SDPanel
-        title="Credit assessment"
+        title="Your assessment"
         hint={phoenixScored
           ? <span style={{ color: AMBER }}>scored by Phoenix — editing overrides it</span>
           : 'entered manually'}>
         {!editing ? (
           <>
             <div className="sd-fields">
-              <SDField label="Eye score" value={score ?? null} mono />
-              <SDField label="Rating" value={rating} />
-              <SDField label="Debt-to-income" value={dtiPct == null ? null : `${dtiPct.toFixed(2)}%`} mono />
+              <SDField label="Recorded score" value={score ?? null} mono />
+              <SDField label="Recorded rating" value={rating ? <span style={{ color: RATING_COLORS[rating] ?? 'var(--txt)' }}>{rating}</span> : null} />
+              <SDField label="Recorded DTI" value={storedDti == null ? null : `${storedDti.toFixed(2)}%`} mono />
               <SDField label="Bureau summary" value={app.bureau_summary} wide />
             </div>
             {canAssess && !isTerminal && (
@@ -1679,8 +1717,8 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
           <div className="sd-fields">
             <SDField label="Employer" value={app.employer} />
             <SDField label="Job title" value={app.job_title} />
-            <SDField label="Monthly income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
-            <SDField label="Existing obligations" value={app.monthly_obligation_kobo == null ? null : fmtKobo(app.monthly_obligation_kobo)} mono />
+            <SDField label="Declared monthly income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
+            <SDField label="Declared obligations" value={app.monthly_obligation_kobo == null ? null : fmtKobo(app.monthly_obligation_kobo)} mono />
             <SDField label="BVN" value={maskId(app.bvn)} mono />
             <SDField label="Date of birth" value={fmtDateOnly(app.date_of_birth)} />
             <SDField label="Purpose" value={app.purpose} wide />
@@ -1691,6 +1729,9 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
           <DocumentsInline appId={app.id} readOnly={isTerminal} />
         </SDPanel>
       </div>
+
+      {offerStage && <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />}
+      <PrequalSection appId={app.id} />
 
       {/* Approval chain */}
       <SDPanel title="Approval chain" flush>
