@@ -100,6 +100,11 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	// action, so it keeps the origination door.
 	r.With(viewDoor).Get("/{id}/offers", losOffers(db))
 	r.With(door).Post("/{id}/offers/{offer_id}/resend", losOfferResend(db))
+	// The customer's answer. Phoenix confirms the amount and activates the credit
+	// account on accept, and declines the credit request on decline, so these are
+	// the two most consequential actions on this page.
+	r.With(door).Post("/{id}/offers/{offer_id}/accept", losOfferDecision(db, "accept"))
+	r.With(door).Post("/{id}/offers/{offer_id}/decline", losOfferDecision(db, "decline"))
 	// Mandate cancellation instructs the provider to stop debiting a real account,
 	// so it is separated from the remind/check-status nudges and demands a reason.
 	r.With(door).Post("/{id}/mandate/{mandate_id}/cancel", losMandateCancel(db))

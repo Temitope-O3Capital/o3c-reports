@@ -107,6 +107,87 @@ func losOfferResend(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// losOfferAccept and losOfferDecline record the customer's answer to the offer.
+//
+// Phoenix does the real work: accepting confirms the frozen amount and activates the
+// credit account (rolling the offer status back if activation fails), and declining
+// also declines the linked credit request. The workspace only carries the decision an
+// officer took with the customer.
+//
+// acted_by_label carries who that officer was. An API key has no Phoenix staff user
+// behind it, so Phoenix cannot attribute the decision to an account — the label is a
+// free-text breadcrumb on its audit trail, and the workspace's own activity row is
+// the attributable record.
+func losOfferDecision(db *core.DB, action string) http.HandlerFunc {
+	type body struct {
+		Reason string `json:"reason"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID")
+			return
+		}
+		offerID := strings.TrimSpace(chi.URLParam(r, "offer_id"))
+		if offerID == "" {
+			respondErr(w, 400, "offer_id is required")
+			return
+		}
+		var b body
+		// Accept carries no body; tolerate an absent or empty one rather than 400.
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&b)
+		}
+		reason := strings.TrimSpace(b.Reason)
+		if action == "decline" && reason == "" {
+			respondErr(w, 400, "A reason is required to decline an offer")
+			return
+		}
+
+		user := core.UserFromCtx(r.Context())
+		payload := map[string]any{}
+		if user != nil && strings.TrimSpace(user.FullName) != "" {
+			payload["acted_by_label"] = "O3 Workspace — " + strings.TrimSpace(user.FullName)
+		} else {
+			payload["acted_by_label"] = "O3 Workspace"
+		}
+		if action == "decline" {
+			payload["reason"] = reason
+		}
+
+		raw, err := phoenixCall(r.Context(), http.MethodPost, "/offers/"+offerID+"/"+action, payload)
+		if err != nil {
+			// Phoenix enforces the rules here — an offer already accepted, declined or
+			// past its expiry is refused, and its reason is the useful message.
+			respondErrLog(w, 502, err.Error(), err)
+			return
+		}
+
+		var o struct {
+			Reference string `json:"reference"`
+		}
+		_ = json.Unmarshal(raw, &o)
+		ref := o.Reference
+		if ref == "" {
+			ref = "offer"
+		}
+		note := "Customer accepted " + ref
+		if action == "decline" {
+			note = "Customer declined " + ref + ": " + reason
+		}
+		var uid int64
+		if user != nil {
+			uid = user.ID
+		}
+		phoenixLogWorkspaceAction(r.Context(), db, id, uid, "offer."+action+"ed", note)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":`)) //nolint:errcheck
+		w.Write(raw)                //nolint:errcheck
+		w.Write([]byte(`}`))        //nolint:errcheck
+	}
+}
+
 // ── Mandate cancellation ─────────────────────────────────────────────────────
 
 // losMandateCancel cancels a direct-debit mandate.
@@ -192,23 +273,55 @@ func losMandateCollections(db *core.DB) http.HandlerFunc {
 
 // ── Consent ──────────────────────────────────────────────────────────────────
 
-// losConsentTrail reports what the workspace knows about NDPA consent for this
-// application.
+// losConsentTrail reports NDPA consent for this application from both sides.
 //
-// It reads the workspace's own activity trail, not Phoenix. That is a limitation,
-// not a design choice: Phoenix can be written to machine-to-machine (POST
-// /v1/portal/customers/{id}/consent-records takes tenant_id in the body) but the
-// only way to read consent back is /v1/admin/compliance/consent, which needs a
-// console super-admin session. So the workspace can say "consent was recorded from
-// here, by this person, at this time" — which is the question staff actually ask
-// before a bureau pull — but it cannot yet confirm consent captured in Phoenix's
-// own intake wizard. A tenant-scoped read endpoint on Phoenix would close that.
+// Phoenix is the system of record and is asked first: GET /v1/customers/{id}/
+// consent-records returns its ledger newest-first, so the first row of a consent
+// type is the one that decides whether that consent currently holds — the same rule
+// Phoenix's own HasActiveConsent applies. That endpoint did not exist until the
+// consent read-back landed; before it, consent could be written machine-to-machine
+// but only read as a console super-admin, so the workspace was flying blind on
+// something that gates bureau lookups.
+//
+// The workspace's own activity rows are returned alongside, because Phoenix's ledger
+// records that consent exists but not which officer captured it from here.
 func losConsentTrail(db *core.DB) http.HandlerFunc {
+	type consentRec struct {
+		ConsentType string  `json:"consent_type"`
+		Granted     bool    `json:"granted"`
+		GrantedAt   string  `json:"granted_at"`
+		RevokedAt   *string `json:"revoked_at"`
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := losParseID(r)
 		if err != nil {
 			respondErr(w, 400, "Invalid application ID")
 			return
+		}
+
+		// Phoenix's ledger. A failure here is reported rather than fatal: the
+		// workspace's own trail below is still worth showing, and an application
+		// that never reached Phoenix has no customer to ask about.
+		var phoenixRecords []consentRec
+		var phoenixNote string
+		granted := false
+		if c, cerr := phoenixLoadAppContext(r.Context(), db, id); cerr != nil {
+			phoenixNote = cerr.Error()
+		} else if c.CustomerID == "" {
+			phoenixNote = "Phoenix has no customer id for this application yet"
+		} else if raw, perr := phoenixCall(r.Context(), http.MethodGet,
+			"/customers/"+c.CustomerID+"/consent-records", nil); perr != nil {
+			phoenixNote = perr.Error()
+		} else if jerr := json.Unmarshal(raw, &phoenixRecords); jerr != nil {
+			phoenixNote = "Phoenix returned consent records the workspace could not read"
+		} else {
+			// Newest first, so the first NDPA row decides.
+			for _, rec := range phoenixRecords {
+				if strings.EqualFold(rec.ConsentType, "NDPA") {
+					granted = rec.Granted && rec.RevokedAt == nil
+					break
+				}
+			}
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT e.event_type,
@@ -226,12 +339,15 @@ func losConsentTrail(db *core.DB) http.HandlerFunc {
 			return
 		}
 		respond(w, map[string]any{
-			"records": rows,
-			// Whether consent currently holds is decided by the newest record, the
-			// same rule Phoenix's HasActiveConsent applies to its own ledger.
-			"granted":          len(rows) > 0 && !strings.Contains(strings.ToLower(str(rows[0]["event_type"])), "revoke"),
-			"phoenix_readable": false,
-			"phoenix_read_gap": "Phoenix exposes no tenant-scoped consent read; this is the workspace's own record.",
+			// Phoenix decides. granted reflects its newest NDPA row, not ours — a
+			// consent captured in Phoenix's own intake wizard counts just as much as
+			// one recorded from here, and only Phoenix sees both.
+			"granted":         granted,
+			"phoenix_records": phoenixRecords,
+			"phoenix_note":    phoenixNote,
+			// Our rows say who captured it from the workspace, which Phoenix's
+			// ledger does not record.
+			"workspace_events": rows,
 		}, "")
 	}
 }

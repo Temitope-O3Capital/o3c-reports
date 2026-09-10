@@ -57,6 +57,10 @@ const OFFER_STATUS: Record<string, { label: string; tone: string; hint: string }
 // or decline from SENT or VIEWED, and only before expires_at.
 const LIVE = new Set(['DRAFT', 'SENT', 'VIEWED'])
 
+// Phoenix will only accept or decline from SENT or VIEWED — a DRAFT has not reached
+// the customer, so there is no answer to record yet.
+const DECIDABLE = new Set(['SENT', 'VIEWED'])
+
 function daysUntil(iso: string | null): number | null {
   if (!iso) return null
   const ms = new Date(iso).getTime() - Date.now()
@@ -95,6 +99,8 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy]       = useState(false)
   const [showAll, setShowAll] = useState(false)
+  const [declining, setDeclining]         = useState(false)
+  const [declineReason, setDeclineReason] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -121,6 +127,29 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
       onRefresh?.()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Phoenix rejected the resend')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Phoenix owns the outcome: it confirms the amount and activates the credit account
+  // on accept, and declines the credit request on decline. Whatever it answers is what
+  // we show, so a refusal (already answered, or past expiry) surfaces its reason
+  // rather than an optimistic local guess.
+  async function decide(offer: PhoenixOffer, action: 'accept' | 'decline') {
+    setBusy(true)
+    try {
+      await apiPost(`/api/los/${appId}/offers/${offer.id}/${action}`,
+        action === 'decline' ? { reason: declineReason.trim() } : {})
+      toast.success(action === 'accept'
+        ? `Acceptance recorded — ${offer.reference} activated in Phoenix`
+        : `Decline recorded against ${offer.reference}`)
+      setDeclining(false)
+      setDeclineReason('')
+      await load()
+      onRefresh?.()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : `Phoenix rejected the ${action}`)
     } finally {
       setBusy(false)
     }
@@ -161,6 +190,9 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
   const meta = OFFER_STATUS[current.status] ?? { label: current.status, tone: '#6B7280', hint: '' }
   const left = daysUntil(current.expires_at)
   const expiringSoon = LIVE.has(current.status) && left !== null && left <= 3
+  // Phoenix refuses a decision past expires_at even while the status still reads SENT,
+  // because the expiry sweep runs hourly and may not have caught this one yet.
+  const expired = left !== null && left <= 0
 
   return (
     <div className="sd-panel">
@@ -217,6 +249,20 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* Accept and decline are only legal from SENT or VIEWED, and only before
+              expiry — Phoenix refuses otherwise, so the buttons follow the same rule
+              rather than offering an action that would come back as an error. */}
+          {canAct && DECIDABLE.has(current.status) && !expired && (
+            <>
+              <button className="sd-btn is-primary" disabled={busy} onClick={() => decide(current, 'accept')}>
+                {busy ? <Spinner size={13} color="#fff" /> : <span className="material-symbols-rounded">check_circle</span>}
+                Customer accepted
+              </button>
+              <button className="sd-btn is-danger" disabled={busy} onClick={() => setDeclining(true)}>
+                <span className="material-symbols-rounded">cancel</span>Customer declined
+              </button>
+            </>
+          )}
           {canAct && LIVE.has(current.status) && current.status !== 'DRAFT' && (
             <button className="sd-btn" disabled={busy} onClick={() => resend(current)}>
               {busy ? <Spinner size={13} /> : <span className="material-symbols-rounded">forward_to_inbox</span>}
@@ -231,12 +277,37 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
           )}
         </div>
 
-        {/* Say plainly where the missing action lives, rather than leaving an
-            officer hunting for a button that is not here. */}
-        {LIVE.has(current.status) && (
+        {/* Accepting activates the credit account, so say so before it is clicked. */}
+        {canAct && DECIDABLE.has(current.status) && !expired && !declining && (
           <div style={{ fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.6, borderTop: '1px solid var(--bdr)', paddingTop: 10 }}>
-            The customer's acceptance or decline is recorded in Phoenix. Phoenix does not
-            expose those two actions to an integration, so they cannot be taken from here yet.
+            Recording an acceptance confirms these terms in Phoenix and activates the credit
+            account. A decline also declines the credit request.
+          </div>
+        )}
+
+        {declining && (
+          <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)' }}>
+              Why did the customer decline?
+            </label>
+            <textarea
+              rows={2} autoFocus value={declineReason} spellCheck={false}
+              onChange={e => setDeclineReason(e.target.value)}
+              placeholder="Recorded against the offer and the credit request in Phoenix"
+              style={{
+                width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--bdr)',
+                background: 'var(--card)', color: 'var(--txt)', fontSize: 13, fontFamily: 'inherit',
+                resize: 'vertical', boxSizing: 'border-box',
+              }} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="sd-btn is-danger" disabled={busy || !declineReason.trim()}
+                onClick={() => decide(current, 'decline')}>
+                {busy ? <Spinner size={13} /> : <span className="material-symbols-rounded">cancel</span>}
+                Record decline
+              </button>
+              <button className="sd-btn" disabled={busy}
+                onClick={() => { setDeclining(false); setDeclineReason('') }}>Cancel</button>
+            </div>
           </div>
         )}
 
