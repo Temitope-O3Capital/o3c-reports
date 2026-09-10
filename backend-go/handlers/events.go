@@ -25,6 +25,14 @@ var liveTopics = []struct{ Name, SQL string }{
 	{"manual_postings", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM manual_postings`},
 	{"collections", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM collection_assignments`},
 	{"recovery", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM recovery_cases`},
+	// Approval queues: signature over the (id,status) of the still-pending rows so ANY
+	// change — a new request, a stage advance, or an item leaving on approve/reject —
+	// flips the topic and the approval pages refetch live. (Approve/advance touches only
+	// `status`, no timestamp, so a MAX(updated_at) signature would miss stage moves.)
+	{"writeoffs", `SELECT COALESCE(md5(string_agg(id::text||status, ',' ORDER BY id)),'-')||':'||COUNT(*) FROM recovery_write_off_approvals WHERE status NOT IN ('approved','rejected')`},
+	{"recovery_payments", `SELECT COALESCE(md5(string_agg(id::text||status, ',' ORDER BY id)),'-')||':'||COUNT(*) FROM recovery_payments WHERE status NOT IN ('approved','rejected')`},
+	{"collection_payments", `SELECT COALESCE(md5(string_agg(id::text||status, ',' ORDER BY id)),'-')||':'||COUNT(*) FROM app.collection_payments WHERE status NOT IN ('approved','rejected')`},
+	{"debt_sales", `SELECT COALESCE(md5(string_agg(id::text||status, ',' ORDER BY id)),'-')||':'||COUNT(*) FROM debt_sales WHERE deleted_at IS NULL AND status NOT IN ('approved','rejected')`},
 	{"cards", `SELECT COUNT(*)||':'||COALESCE(MAX(id)::text,'0') FROM card_cycle_data`},
 	{"fixed_deposits", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM fd_transactions`},
 	{"mail", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(received_at)::text,'') FROM inbound_mail)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM mail_messages)`},
@@ -40,6 +48,14 @@ var liveTopics = []struct{ Name, SQL string }{
 	// TICKET changed or the window regained focus — a call landing from Zoho Voice
 	// left the page stale until the agent clicked away and back.
 	{"calls", `SELECT COUNT(*)||':'||COALESCE(MAX(started_at)::text,'') FROM helpdesk_calls`},
+	// The call-centre lead book and outbound queue are their own tables — a lead's
+	// status/assignment moving (syncLeadFromCall runs async, just after the call
+	// event) and a queue contact's disposition changing were invisible to the
+	// change-feed, so the Leads list, the supervisor team panel and the queue only
+	// went live on the 'calls' event (which fires BEFORE the status is written) or a
+	// focus-refresh. Watch the tables themselves so those moves push too.
+	{"cc_leads", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM call_center_leads`},
+	{"cc_contacts", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM call_center_contacts`},
 }
 
 // ── Event hub — one poller, many subscribers ────────────────────────────────

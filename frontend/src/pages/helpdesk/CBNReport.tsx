@@ -70,6 +70,8 @@ export default function CBNReport() {
     <Page
       title="CBN Consumer Protection Report"
       subtitle="Quarterly complaint summary for regulatory submission"
+      loading={loading && !data}
+      skeletonKpis={5}
       actions={
         <div style={{ display: 'flex', gap: SP[2] }}>
           {data && (
@@ -151,7 +153,7 @@ export default function CBNReport() {
                         <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtNum(row.total)}</td>
                         <td style={{ padding: '9px 14px', textAlign: 'right', color: GREEN, fontWeight: FW.semibold }}>{fmtNum(row.resolved)}</td>
                         <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: FW.bold, color: rate >= 80 ? GREEN : rate >= 60 ? AMBER : RED }}>
-                          {fmtPct(rate / 100)}
+                          {fmtPct(rate)}
                         </td>
                       </tr>
                     )
@@ -181,7 +183,7 @@ export default function CBNReport() {
                       <tr key={row.channel} style={{ borderTop: i > 0 ? '1px solid var(--bdr)' : 'none' }}>
                         <td style={{ padding: '9px 14px', color: 'var(--txt)', fontWeight: FW.medium, textTransform: 'capitalize' }}>{row.channel}</td>
                         <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtNum(row.n)}</td>
-                        <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--txt2)' }}>{fmtPct(pct)}</td>
+                        <td style={{ padding: '9px 14px', textAlign: 'right', color: 'var(--txt2)' }}>{fmtPct(pct * 100)}</td>
                       </tr>
                     )
                   })}

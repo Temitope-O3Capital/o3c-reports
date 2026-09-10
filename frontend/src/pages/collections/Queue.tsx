@@ -1,15 +1,20 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useDebouncedValue } from '../../hooks/useDebounce'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Page, ExpandableFilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
-  filterInputStyle, DateFilter, NameCell, ActionRow,
+  filterInputStyle, NameCell, ActionRow, KpiCard,
 } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
+import { RepaymentPatternMini } from '../../components/RepaymentPatternMini'
+import { dispositionsFor } from '../../components/LogCallModal'
+import CallsPanel from '../../components/CallsPanel'
+import { COLLECTIONS_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
+import { BankLogo } from '../../components/BankLogo'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
-import { GREEN, AMBER, RED, DARKRED, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { fmtKoboExact, fmtExact, fmtNum, fmtDate } from '../../lib/fmt'
+import { GREEN, AMBER, RED, DARKRED, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -26,6 +31,9 @@ const isCollectionsStaff = (role: string) =>
 function storedRole(): string {
   try { return (JSON.parse(localStorage.getItem('o3c_user') ?? 'null') as { role?: string } | null)?.role ?? '' } catch { return '' }
 }
+function storedUserId(): number | null {
+  try { return (JSON.parse(localStorage.getItem('o3c_user') ?? 'null') as { id?: number } | null)?.id ?? null } catch { return null }
+}
 const HEAD_ROLES = ['collections_head', 'head_collections', 'admin', 'management', 'md', 'coo', 'head_ops']
 
 interface Assignment {
@@ -38,6 +46,36 @@ interface Assignment {
   notes: string | null
   last_contact_at: string | null
   assignment_date: string | null
+  // 'card' (default) or 'loan'; and provenance: 'core' (Udara/live feed) vs
+  // 'manual' (bulk-loaded from an uploaded spreadsheet — see collectionsOpsQueue).
+  product_type: string | null
+  data_source: string | null
+  customer_id: string | null      // universal workspace id (every customer has one)
+  real_cif: string | null         // the card CIF, only when the customer actually has one
+  // Loan fields (product_type='loan'; from the uploaded sheet — migration 204).
+  loan_ref: string | null          // Mandate ID
+  officer_name: string | null
+  loan_tenor: string | null
+  repayment_kobo: number | null
+  loan_rate: string | null
+  debit_day: string | null
+  disbursement_date: string | null
+  maturity_date: string | null
+  // Per-row enrichment (see collectionsOpsQueue). Billing values are NAIRA.
+  customer_name: string | null
+  full_address: string | null
+  city: string | null
+  state: string | null
+  phone: string | null
+  current_bill: number | null
+  bill_balance: number | null
+  min_payment: number | null
+  credit_limit: number | null
+  last_payment_amount: number | null
+  last_payment_date: string | null
+  payment_due_date: string | null
+  recovery_agent_name: string | null
+  recovery_status: string | null
 }
 
 interface ContactEntry {
@@ -84,6 +122,52 @@ function DpdBadge({ bucket }: { bucket: string }) {
       DPD {bucket}
     </span>
   )
+}
+
+// ── Source provenance badge ─────────────────────────────────────────────────
+// Marks rows that were bulk-loaded from an uploaded spreadsheet, so they read as
+// distinct from the Udara core-banking feed. Only shown for data_source='manual'.
+// Provenance chip: Uploaded (manual spreadsheet), CCS (cards) or Udara (core loans).
+function SourceBadge({ source, product }: { source: string | null; product?: string | null }) {
+  const uploaded = source === 'manual'
+  let label: string, color: string, txt: string, icon: string, title: string
+  if (uploaded) {
+    label = product === 'loan' ? 'Uploaded loan' : 'Manual upload'
+    color = AMBER; txt = DARKRED; icon = 'upload_file'
+    title = 'Uploaded from a spreadsheet — not from CCS or Udara'
+  } else if (product === 'card') {
+    label = 'CCS'; color = BLUE; txt = BLUE; icon = 'credit_card'
+    title = 'From the CCS card system'
+  } else {
+    label = 'Udara'; color = GREEN; txt = GREEN; icon = 'verified'
+    title = 'From the Udara core banking system'
+  }
+  return (
+    <span
+      title={title}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3,
+        fontSize: TEXT.xs, fontWeight: FW.semibold,
+        padding: '1px 7px', borderRadius: RADIUS['2xl'],
+        background: `${color}1A`, color: txt,
+        border: `1px solid ${color}55`, whiteSpace: 'nowrap',
+      }}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 12 }}>{icon}</span>
+      {label}
+    </span>
+  )
+}
+
+// The imported note carries a leading 'imp:<marker> | …' tag used for reversibility;
+// strip that first segment for display so the officer sees only the loan detail.
+function cleanNote(notes: string | null): string | null {
+  if (!notes) return null
+  if (notes.startsWith('imp:')) {
+    const i = notes.indexOf(' | ')
+    return i >= 0 ? notes.slice(i + 3) : null
+  }
+  return notes
 }
 
 // ── Label/value row ───────────────────────────────────────────────────────────
@@ -133,19 +217,15 @@ const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
   border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
   fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
 }
 
 // ── Log Call tab ──────────────────────────────────────────────────────────────
 
-const DISPOSITIONS = [
-  'Answered — Interested',
-  'Answered — Not Interested',
-  'No Answer',
-  'Wrong Number',
-  'Promise to Pay',
-  'Callback Requested',
-]
+// Use the CENTRAL collections disposition set (shared with the call-centre log-call
+// form) so the queue speaks the same workflow vocabulary — PTP / Paid / Dispute /
+// Callback Scheduled / Escalated / Wrong Number / Unreachable / Call Dropped.
+const DISPOSITIONS = dispositionsFor('collections')
 
 function LogCallTab({ assignmentId, onDone }: { assignmentId: number; onDone: () => void }) {
   const [disposition, setDisposition] = useState(DISPOSITIONS[0])
@@ -330,69 +410,15 @@ function EscalateTab({ assignmentId, onDone }: { assignmentId: number; onDone: (
 
 // ── Assign Agent tab ──────────────────────────────────────────────────────────
 
-function AssignAgentTab({ assignmentId, agents, onDone }: {
-  assignmentId: number; agents: AgentUser[]; onDone: () => void
-}) {
-  const [agentId, setAgentId] = useState('')
-  const [notes,   setNotes]   = useState('')
-  const [saving,  setSaving]  = useState(false)
-  const [err,     setErr]     = useState<string | null>(null)
-
-  const collectionAgents = agents.filter(a =>
-    isCollectionsStaff(a.role)
-  )
-
-  async function submit() {
-    if (!agentId) return
-    setSaving(true); setErr(null)
-    try {
-      await apiPut(`/api/collections-ops/${assignmentId}/assign`, { agent_id: Number(agentId), notes })
-      toast.success('Agent assigned')
-      setNotes(''); onDone()
-    } catch (e: any) {
-      setErr(e.message ?? 'Failed to assign agent')
-    } finally { setSaving(false) }
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <ErrBanner error={err} />
-      <div>
-        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-          Agent
-        </label>
-        <select value={agentId} onChange={e => setAgentId(e.target.value)}
-          style={{ ...filterInputStyle, height: 36, width: '100%' }}>
-          <option value="">Select agent…</option>
-          {collectionAgents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-        </select>
-      </div>
-      <div>
-        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-          Notes
-        </label>
-        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
-          placeholder="Assignment notes…" style={{ ...fieldStyle, resize: 'vertical' }} />
-      </div>
-      <Btn onClick={submit} loading={saving} disabled={!agentId}>Assign Agent</Btn>
-    </div>
-  )
-}
 
 // ── Log Payment tab ───────────────────────────────────────────────────────────
 
-const PAYMENT_CHANNELS = [
-  { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'cash',          label: 'Cash' },
-  { value: 'pos',           label: 'POS' },
-  { value: 'mobile_money',  label: 'Mobile Money' },
-  { value: 'cheque',        label: 'Cheque' },
-]
+const PAYMENT_CHANNELS = COLLECTIONS_PAYMENT_CHANNELS
 
 function LogPaymentTab({ assignmentId, onDone }: { assignmentId: number; onDone: () => void }) {
   const [amountNaira, setAmountNaira] = useState('')
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10))
-  const [channel,     setChannel]     = useState('bank_transfer')
+  const [channel,     setChannel]     = useState(COLLECTIONS_PAYMENT_CHANNELS[0].value)
   const [reference,   setReference]   = useState('')
   const [saving,      setSaving]      = useState(false)
   const [err,         setErr]         = useState<string | null>(null)
@@ -442,17 +468,21 @@ function LogPaymentTab({ assignmentId, onDone }: { assignmentId: number; onDone:
       <div>
         <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Channel</label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {PAYMENT_CHANNELS.map(c => (
-            <button key={c.value} onClick={() => setChannel(c.value)}
-              style={{
-                padding: '4px 11px', borderRadius: RADIUS.md, fontSize: TEXT.xs,
-                fontWeight: FW.semibold, cursor: 'pointer',
-                border: `1.5px solid ${channel === c.value ? NAVY : 'var(--bdr)'}`,
-                background: channel === c.value ? NAVY : 'var(--card)',
-                color: channel === c.value ? '#fff' : 'var(--txt)',
-              }}
-            >{c.label}</button>
-          ))}
+          {PAYMENT_CHANNELS.map(c => {
+            const on = channel === c.value
+            return (
+              <button key={c.value} onClick={() => setChannel(c.value)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '4px 11px 4px 6px', borderRadius: RADIUS.md, fontSize: TEXT.xs,
+                  fontWeight: FW.semibold, cursor: 'pointer',
+                  border: `1.5px solid ${on ? NAVY : 'var(--bdr)'}`,
+                  background: on ? `${NAVY}0E` : 'var(--card)',
+                  color: on ? NAVY : 'var(--txt)',
+                }}
+              ><BankLogo code={c.value} size={20} />{c.label}</button>
+            )
+          })}
         </div>
       </div>
       <div>
@@ -505,7 +535,7 @@ function PaymentHistory({ payments, loading }: { payments: PaymentEntry[]; loadi
           border: `1px solid ${GREEN}30`, background: `${GREEN}06`,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-            <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: GREEN, ...NUM }}>{fmtKobo(p.amount_kobo)}</span>
+            <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: GREEN, ...NUM }}>{fmtKoboExact(p.amount_kobo)}</span>
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>{fmtDate(p.payment_date)}</span>
           </div>
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', display: 'flex', gap: 8 }}>
@@ -562,7 +592,6 @@ const ACTION_TABS = [
   { key: 'call',     label: 'Log Call' },
   { key: 'ptp',      label: 'Record PTP' },
   { key: 'payment',  label: 'Log Payment' },
-  { key: 'assign',   label: 'Assign Agent' },
   { key: 'escalate', label: 'Escalate' },
 ]
 
@@ -589,12 +618,12 @@ function SendToRecoveryButton({ assignment, onDone }: { assignment: Assignment; 
 
   if (confirming) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Send to recovery?</span>
-        <button onClick={send} disabled={saving} style={{ padding: '4px 12px', borderRadius: RADIUS.sm, border: 'none', background: RED, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Send to recovery?</span>
+        <button onClick={send} disabled={saving} style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: 'none', background: RED, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
           {saving ? 'Sending…' : 'Confirm'}
         </button>
-        <button onClick={() => setConfirming(false)} style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer' }}>Cancel</button>
+        <button onClick={() => setConfirming(false)} style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'none', color: 'var(--txt2)', fontSize: TEXT.xs, cursor: 'pointer' }}>Cancel</button>
       </div>
     )
   }
@@ -602,9 +631,9 @@ function SendToRecoveryButton({ assignment, onDone }: { assignment: Assignment; 
   return (
     <button
       onClick={() => setConfirming(true)}
-      style={{ marginTop: 12, padding: '6px 14px', borderRadius: RADIUS.md, border: `1.5px solid ${RED}`, background: 'rgba(192,0,0,.06)', color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+      style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1.5px solid ${RED}`, background: 'rgba(192,0,0,.06)', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
     >
-      <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>assignment_late</span>
+      <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>assignment_late</span>
       Send to Recovery
     </button>
   )
@@ -612,11 +641,9 @@ function SendToRecoveryButton({ assignment, onDone }: { assignment: Assignment; 
 
 function DetailPanel({
   assignment,
-  agents,
   onAction,
 }: {
   assignment: Assignment
-  agents: AgentUser[]
   onAction: () => void
 }) {
   const navigate = useNavigate()
@@ -660,14 +687,19 @@ function DetailPanel({
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 2 }}>
-              CIF: {assignment.account_cif}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 15, fontWeight: FW.bold, color: 'var(--txt)' }}>
+                {assignment.customer_name ?? `CIF: ${assignment.account_cif}`}
+              </span>
+              <SourceBadge source={assignment.data_source} product={assignment.product_type} />
             </div>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
-              Assigned to: {assignment.agent_name ?? 'Unassigned'}
+              {assignment.product_type === 'loan'
+                ? `Customer ${assignment.customer_id ?? assignment.account_cif}${assignment.phone ? ` · ${assignment.phone}` : ''}`
+                : `CIF ${assignment.real_cif ?? assignment.account_cif}${assignment.phone ? ` · ${assignment.phone}` : ''}`}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <DpdBadge bucket={assignment.dpd_bucket} />
             <button
               onClick={() => navigate(`/collections/accounts/${assignment.account_cif}`)}
@@ -681,6 +713,9 @@ function DetailPanel({
             >
               C360
             </button>
+            {/* Account-level escalation lives with the other account actions in the
+                header, not dangling under the routine call/PTP/payment tabs. */}
+            <SendToRecoveryButton assignment={assignment} onDone={onAction} />
           </div>
         </div>
       </div>
@@ -690,20 +725,78 @@ function DetailPanel({
         <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>
           Loan Summary
         </div>
-        <LV label="Outstanding" value={<span style={NUM}>{fmtKobo(assignment.outstanding_kobo)}</span>} />
+        <LV label="Outstanding" value={<span style={NUM}>{fmtKoboExact(assignment.outstanding_kobo)}</span>} />
         <LV label="DPD Bucket"  value={<DpdBadge bucket={assignment.dpd_bucket} />} />
         <LV label="Stage"       value={assignment.current_stage ?? '—'} />
         <LV label="Assigned On" value={fmtDate(assignment.assignment_date)} />
         <LV label="Last Contact" value={fmtDate(assignment.last_contact_at)} />
-        {assignment.notes && (
+        <LV label="Collections Agent" value={assignment.agent_name ?? <span style={{ color: RED }}>Unassigned</span>} />
+        <LV label="Recovery Agent" value={
+          assignment.recovery_agent_name
+            ? <span>{assignment.recovery_agent_name}{assignment.recovery_status ? ` · ${assignment.recovery_status}` : ''}</span>
+            : <span style={{ color: 'var(--txt3)' }}>Not in recovery</span>
+        } />
+        {cleanNote(assignment.notes) && (
           <div style={{
             marginTop: 8, padding: '8px 10px', borderRadius: RADIUS.sm,
             background: 'rgba(14,40,65,0.04)', border: '1px solid var(--bdr)',
             fontSize: TEXT.sm, color: 'var(--txt)', lineHeight: 1.5,
           }}>
-            {assignment.notes}
+            {cleanNote(assignment.notes)}
           </div>
         )}
+      </div>
+
+      {/* Loan details — the fields from the uploaded Loan Repayment CRM sheet, in
+          their own columns (migration 204), shown only for uploaded loans. */}
+      {assignment.product_type === 'loan' && (
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>
+            Loan Details
+          </div>
+          <LV label="Customer ID"  value={assignment.customer_id ?? '—'} />
+          <LV label="Mandate ID"   value={assignment.loan_ref ?? '—'} />
+          <LV label="Officer"      value={assignment.officer_name ?? '—'} />
+          <LV label="Approved"     value={<span style={NUM}>{fmtKoboExact(assignment.outstanding_kobo)}</span>} />
+          <LV label="Repayment"    value={assignment.repayment_kobo != null ? <span style={NUM}>{fmtKoboExact(assignment.repayment_kobo)}</span> : '—'} />
+          <LV label="Tenor"        value={assignment.loan_tenor ?? '—'} />
+          <LV label="Rate"         value={assignment.loan_rate ? `${assignment.loan_rate}%` : '—'} />
+          <LV label="Debit Day"    value={assignment.debit_day ?? '—'} />
+          <LV label="Disbursed"    value={fmtDate(assignment.disbursement_date)} />
+          <LV label="Matures"      value={fmtDate(assignment.maturity_date)} />
+        </div>
+      )}
+
+      {/* Address & card billing */}
+      {(assignment.full_address || assignment.current_bill != null || assignment.bill_balance != null ||
+        assignment.min_payment != null || assignment.last_payment_amount != null) && (
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>
+            Address & Billing
+          </div>
+          {assignment.full_address && <LV label="Address" value={assignment.full_address} />}
+          {(assignment.city || assignment.state) && (
+            <LV label="City / State" value={[assignment.city, assignment.state].filter(Boolean).join(', ') || '—'} />
+          )}
+          {assignment.current_bill != null && <LV label="Current Bill"  value={<span style={NUM}>{fmtExact(assignment.current_bill)}</span>} />}
+          {assignment.bill_balance != null && <LV label="Bill Balance"  value={<span style={NUM}>{fmtExact(assignment.bill_balance)}</span>} />}
+          {assignment.min_payment  != null && <LV label="Min Payment"   value={<span style={NUM}>{fmtExact(assignment.min_payment)}</span>} />}
+          {assignment.credit_limit != null && <LV label="Credit Limit"  value={<span style={NUM}>{fmtExact(assignment.credit_limit)}</span>} />}
+          {assignment.payment_due_date && <LV label="Payment Due"   value={fmtDate(assignment.payment_due_date)} />}
+          {assignment.last_payment_amount != null && (
+            <LV label="Last Payment" value={
+              <span><span style={NUM}>{fmtExact(assignment.last_payment_amount)}</span>{assignment.last_payment_date ? <span style={{ color: 'var(--txt2)', fontWeight: FW.normal }}> · {fmtDate(assignment.last_payment_date)}</span> : null}</span>
+            } />
+          )}
+        </div>
+      )}
+
+      {/* Repayment cadence (real money-in from the transaction feed, same as C360) */}
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+          Repayment Pattern
+        </div>
+        <RepaymentPatternMini cif={assignment.account_cif} endpointBase="/api/collections-ops" />
       </div>
 
       {/* Payment history */}
@@ -716,10 +809,25 @@ function DetailPanel({
         </div>
       )}
 
+      {/* Call-centre activity — calls the call centre has made to this customer,
+          crosswalked by CIF / phone (read-only; dispositions come from the call log). */}
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          Call Centre Activity
+        </div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 10, marginTop: 2 }}>
+          Calls dialled by the call-centre / telesales team (from the phone system), matched to this customer.
+        </div>
+        <CallsPanel cif={assignment.account_cif} />
+      </div>
+
       {/* Contact history */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
-        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
           Contact History
+        </div>
+        <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 10, marginTop: 2 }}>
+          Touches a collections officer logged here (call, SMS, email, visit) with the disposition and notes.
         </div>
         <ContactHistory contacts={contacts} loading={contactsLoading} />
       </div>
@@ -733,86 +841,9 @@ function DetailPanel({
         {tab === 'call'     && <LogCallTab     assignmentId={assignment.id} onDone={refreshHistory} />}
         {tab === 'ptp'      && <RecordPTPTab   assignmentId={assignment.id} onDone={refreshHistory} />}
         {tab === 'payment'  && <LogPaymentTab  assignmentId={assignment.id} onDone={refreshHistory} />}
-        {tab === 'assign'   && <AssignAgentTab assignmentId={assignment.id} agents={agents} onDone={refreshHistory} />}
         {tab === 'escalate' && <EscalateTab    assignmentId={assignment.id} onDone={refreshHistory} />}
-        <SendToRecoveryButton assignment={assignment} onDone={onAction} />
       </div>
     </div>
-  )
-}
-
-// ── Bulk reassign modal ───────────────────────────────────────────────────────
-
-function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
-  open: boolean; onClose: () => void
-  selectedIds: Set<number>; agents: AgentUser[]
-  onDone: () => void
-}) {
-  const [agentId, setAgentId] = useState('')
-  const [notes,   setNotes]   = useState('')
-  const [saving,  setSaving]  = useState(false)
-  const [err,     setErr]     = useState<string | null>(null)
-
-  const collectionAgents = agents.filter(a =>
-    isCollectionsStaff(a.role)
-  )
-
-  async function submit() {
-    if (!agentId) return
-    setSaving(true); setErr(null)
-    try {
-      await Promise.all([...selectedIds].map(id =>
-        apiPut(`/api/collections-ops/${id}/assign`, { agent_id: Number(agentId), notes })
-      ))
-      toast.success(`${selectedIds.size} account${selectedIds.size !== 1 ? 's' : ''} reassigned`)
-      setAgentId(''); setNotes(''); onDone()
-    } catch (e: any) {
-      setErr(e.message ?? 'Reassign failed')
-    } finally { setSaving(false) }
-  }
-
-  return (
-    <Modal open={open} onClose={onClose} title={`Reassign ${selectedIds.size} Account${selectedIds.size !== 1 ? 's' : ''}`} width={440}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <ErrBanner error={err} />
-        <div>
-          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-            Agent
-          </label>
-          <select value={agentId} onChange={e => setAgentId(e.target.value)}
-            style={{ ...filterInputStyle, height: 36, width: '100%' }}>
-            <option value="">Select agent…</option>
-            {collectionAgents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-            Notes
-          </label>
-          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
-            placeholder="Assignment notes…" style={{ ...fieldStyle, resize: 'vertical' }} />
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={submit} disabled={!agentId || saving}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: RADIUS.md, border: 'none',
-              background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold,
-              cursor: !agentId || saving ? 'not-allowed' : 'pointer',
-              opacity: !agentId || saving ? 0.6 : 1,
-            }}
-          >
-            {saving && <Spinner size={13} color="#fff" />}
-            Assign {selectedIds.size} Account{selectedIds.size !== 1 ? 's' : ''}
-          </button>
-          <button onClick={onClose} style={{
-            padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
-            background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer',
-          }}>Cancel</button>
-        </div>
-      </div>
-    </Modal>
   )
 }
 
@@ -898,18 +929,39 @@ export default function CollectionsQueue() {
   const [err,     setErr]     = useState<string | null>(null)
   const [selected,     setSelected]     = useState<Assignment | null>(null)
   const [checkedIds,   setCheckedIds]   = useState<Set<number>>(new Set())
-  const [reassignOpen, setReassignOpen] = useState(false)
+  const [bulkAgentId, setBulkAgentId] = useState('')
+  const [assigning, setAssigning] = useState(false)
   const [distributeOpen, setDistributeOpen] = useState(false)
   const isHead = HEAD_ROLES.includes(storedRole())
 
   // Filters
   const [fDpd,     setFDpd]     = useState(new Set<string>())
   const [fContact, setFContact] = useState(new Set<string>())
+  const [fProduct, setFProduct] = useState(new Set<string>())
   const [search,   setSearch]   = useState('')
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
+
+  // Agent scope from the URL: ?mine=1 (this agent's own book, from the My-Dashboard
+  // tiles) or ?agent=<id> (a specific agent, from the Supervisor leaderboard's "View
+  // queue"). Filtered server-side via agent_id so it spans the whole queue, and shown
+  // as a clearable banner. A collections_agent is already auto-scoped server-side, so
+  // this mainly narrows the head/supervisor view.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const myId = storedUserId()
+  const [agentFilter, setAgentFilter] = useState<number | null>(() => {
+    if (searchParams.get('mine') === '1') return myId
+    const a = searchParams.get('agent')
+    return a ? Number(a) : null
+  })
+  useEffect(() => {
+    if (searchParams.get('mine') === '1') { setAgentFilter(myId); return }
+    const a = searchParams.get('agent')
+    setAgentFilter(a ? Number(a) : null)
+  }, [searchParams, myId])
 
   const fDpdKey = [...fDpd].sort().join(',')
+  // Product filter is single-valued server-side (card|loan); only apply when exactly
+  // one is chosen — both (or none) means "all".
+  const fProductKey = fProduct.size === 1 ? [...fProduct][0] : ''
   // Search on the server (CIF or agent name) so it spans the whole queue, not just the
   // loaded page of 100. Debounced to one request per pause.
   const dq = useDebouncedValue(search, 300)
@@ -918,10 +970,10 @@ export default function CollectionsQueue() {
     if (!silent) setLoading(true)
     setErr(null)
     const params = new URLSearchParams({ limit: '100' })
-    if (fDpdKey)   params.set('dpd_bucket', fDpdKey)
-    if (dq.trim()) params.set('q', dq.trim())
-    if (dateFrom)  params.set('from', dateFrom)
-    if (dateTo)    params.set('to', dateTo)
+    if (fDpdKey)     params.set('dpd_bucket', fDpdKey)
+    if (fProductKey) params.set('product_type', fProductKey)
+    if (dq.trim())   params.set('q', dq.trim())
+    if (agentFilter) params.set('agent_id', String(agentFilter))
 
     try {
       const [queueRes, usersRes] = await Promise.all([
@@ -936,7 +988,7 @@ export default function CollectionsQueue() {
     } finally {
       setLoading(false)
     }
-  }, [fDpdKey, dq, dateFrom, dateTo])
+  }, [fDpdKey, fProductKey, dq, agentFilter])
 
   const displayed = useMemo(() => {
     let result = items
@@ -966,10 +1018,27 @@ export default function CollectionsQueue() {
     return result
   }, [items, fContact])
 
+  // Compact KPI strip — everything is derived from the page already loaded, so it
+  // costs no extra request and always agrees with the list below it.
+  const kpis = useMemo(() => {
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0)
+    const untouched = items.filter(r => !r.last_contact_at || new Date(r.last_contact_at) < startOfDay).length
+    const unassigned = items.filter(r => !r.agent_name).length
+    const outstanding = items.reduce((sum, r) => sum + (r.outstanding_kobo || 0), 0)
+    return { inQueue: items.length, untouched, unassigned, outstanding }
+  }, [items])
+
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   const groups: FilterGroupDef[] = [
+    {
+      key: 'product',
+      label: 'PRODUCT',
+      options: [{ value: 'card', label: 'Cards' }, { value: 'loan', label: 'Loans' }],
+      selected: fProduct,
+      onChange: setFProduct,
+    },
     {
       key: 'dpd',
       label: 'DPD BUCKET',
@@ -986,7 +1055,18 @@ export default function CollectionsQueue() {
     },
   ]
 
-  function resetFilters() { setFDpd(new Set()); setFContact(new Set()); setSearch('') }
+  const clearAgentFilter = useCallback(() => {
+    setAgentFilter(null)
+    const next = new URLSearchParams(searchParams)
+    next.delete('mine'); next.delete('agent')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
+  const agentFilterName = agentFilter == null ? ''
+    : agentFilter === myId ? 'your accounts'
+    : `${agents.find(a => a.id === agentFilter)?.full_name ?? 'this agent'}’s accounts`
+
+  function resetFilters() { setFDpd(new Set()); setFContact(new Set()); setFProduct(new Set()); setSearch(''); clearAgentFilter() }
 
   function toggleCheck(id: number, e: React.MouseEvent) {
     e.stopPropagation()
@@ -997,7 +1077,27 @@ export default function CollectionsQueue() {
     })
   }
 
-  function clearChecked() { setCheckedIds(new Set()) }
+  function clearChecked() { setCheckedIds(new Set()); setBulkAgentId('') }
+
+  // Bulk assign, call-centre style: tick accounts in the list, pick an agent in the
+  // selection bar, Assign. Replaces the per-account "Assign Agent" tab that used to
+  // live in the detail panel.
+  const collectionAgents = agents.filter(a => isCollectionsStaff(a.role))
+
+  async function handleBulkAssign() {
+    if (!bulkAgentId || checkedIds.size === 0) return
+    setAssigning(true)
+    try {
+      await Promise.all([...checkedIds].map(id =>
+        apiPut(`/api/collections-ops/${id}/assign`, { agent_id: Number(bulkAgentId), notes: '' })
+      ))
+      const name = collectionAgents.find(a => a.id === Number(bulkAgentId))?.full_name ?? 'agent'
+      toast.success(`${checkedIds.size} account${checkedIds.size !== 1 ? 's' : ''} assigned to ${name}`)
+      setBulkAgentId(''); setCheckedIds(new Set()); load()
+    } catch (e: any) {
+      toast.error(e.message ?? 'Assign failed')
+    } finally { setAssigning(false) }
+  }
 
   return (
     <Page
@@ -1020,11 +1120,28 @@ export default function CollectionsQueue() {
               Distribute Queue
             </button>
           )}
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
         </div>
       }
     >
-      <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+
+        {/* ── KPI strip ──────────────────────────────────────────────────────── */}
+        <div style={{
+          padding: '14px 16px',
+          borderBottom: '1px solid var(--bdr)',
+          flexShrink: 0,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 14,
+        }}>
+          <KpiCard label="Accounts in Queue" value={fmtNum(kpis.inQueue)} icon="account_balance" accent={NAVY} loading={loading} />
+          <KpiCard label="Untouched Today"   value={fmtNum(kpis.untouched)}  sub="no contact yet today" icon="notifications_active" accent={AMBER} loading={loading} />
+          <KpiCard label="Unassigned"        value={fmtNum(kpis.unassigned)} sub="awaiting an agent"    icon="person_off" accent={RED} loading={loading} />
+          <KpiCard label="Outstanding in View" value={fmtKoboExact(kpis.outstanding)} icon="payments" accent={GREEN} loading={loading} />
+        </div>
+
+        {/* ── Master / detail ────────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
 
         {/* ── Left panel ─────────────────────────────────────────────────────── */}
         <div style={{
@@ -1046,34 +1163,53 @@ export default function CollectionsQueue() {
             placeholder="Search CIF, DPD, agent…"
           />
 
-          {/* Batch bar */}
+          {/* Agent-scope banner — set by ?mine=1 / ?agent=<id>, clearable */}
+          {agentFilter != null && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', background: `${NAVY}0D`, borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: NAVY }}>filter_alt</span>
+              <span style={{ fontSize: TEXT.sm, color: NAVY, fontWeight: FW.semibold }}>Showing {agentFilterName}</span>
+              <button onClick={clearAgentFilter} style={{ marginLeft: 'auto', fontSize: TEXT.xs, fontWeight: FW.medium, color: 'var(--txt2)', background: 'none', border: '1px solid var(--bdr)', borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer' }}>Clear</button>
+            </div>
+          )}
+
+          {/* Batch bar — call-centre style: pick an agent, Assign the ticked accounts */}
           {checkedIds.size > 0 && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8,
-              padding: '7px 14px', background: '#F0F4FF',
+              padding: '7px 14px', background: `${NAVY}0D`,
               borderBottom: '1px solid var(--bdr)', flexShrink: 0,
             }}>
-              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, whiteSpace: 'nowrap' }}>
                 {checkedIds.size} selected
               </span>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                <button
-                  onClick={() => setReassignOpen(true)}
-                  style={{
-                    fontSize: TEXT.xs, fontWeight: FW.medium, color: NAVY,
-                    background: 'none', border: `1px solid ${NAVY}30`,
-                    borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer',
-                  }}
-                >
-                  Reassign
-                </button>
-                <button onClick={clearChecked} style={{
-                  width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%',
-                }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
-                </button>
-              </div>
+              <select
+                value={bulkAgentId}
+                onChange={e => setBulkAgentId(e.target.value)}
+                style={{ ...filterInputStyle, height: 30, minWidth: 0, flex: 1 }}
+              >
+                <option value="">Assign to…</option>
+                {collectionAgents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+              </select>
+              <button
+                onClick={handleBulkAssign}
+                disabled={!bulkAgentId || assigning}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+                  padding: '4px 12px', borderRadius: RADIUS.sm, border: 'none',
+                  background: !bulkAgentId || assigning ? `${NAVY}66` : NAVY, color: '#fff',
+                  fontSize: TEXT.sm, fontWeight: FW.semibold,
+                  cursor: !bulkAgentId || assigning ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {assigning && <Spinner size={11} color="#fff" />}
+                Assign
+              </button>
+              <button onClick={clearChecked} style={{
+                width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%', flexShrink: 0,
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
+              </button>
             </div>
           )}
 
@@ -1121,18 +1257,35 @@ export default function CollectionsQueue() {
                       style={{ marginTop: 3, cursor: 'pointer', accentColor: RED, flexShrink: 0 }}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
-                        <NameCell name={item.account_cif} sub={item.agent_name ?? null} avatar={false} />
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <NameCell
+                            name={item.customer_name ?? item.account_cif}
+                            sub={item.product_type === 'loan'
+                              ? `Loan${item.agent_name ? ` · ${item.agent_name}` : ''}`
+                              : `CIF ${item.account_cif}${item.agent_name ? ` · ${item.agent_name}` : ''}`}
+                            avatar={false}
+                          />
+                          <div style={{ marginTop: 3 }}>
+                            <SourceBadge source={item.data_source} product={item.product_type} />
+                          </div>
+                        </div>
                         <DpdBadge bucket={item.dpd_bucket} />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                         <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                          {fmtKobo(item.outstanding_kobo)}
+                          {fmtKoboExact(item.outstanding_kobo)}
                         </span>
                         <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                           {item.last_contact_at ? `Contact: ${fmtDate(item.last_contact_at)}` : 'No contact yet'}
                         </span>
                       </div>
+                      {item.last_payment_amount != null && (
+                        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>
+                          Last paid <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtExact(item.last_payment_amount)}</span>
+                          {item.last_payment_date ? ` · ${fmtDate(item.last_payment_date)}` : ''}
+                        </div>
+                      )}
                       <ActionRow actions={[
                         { icon: 'phone',       label: 'Call',       onClick: () => setSelected(item) },
                         { icon: 'handshake',   label: 'Record PTP', onClick: () => setSelected(item) },
@@ -1152,7 +1305,6 @@ export default function CollectionsQueue() {
             <DetailPanel
               key={selected.id}
               assignment={selected}
-              agents={agents}
               onAction={load}
             />
           ) : (
@@ -1169,16 +1321,10 @@ export default function CollectionsQueue() {
           )}
         </div>
 
+        </div>{/* master / detail */}
+
       </div>
 
-      {/* Bulk reassign modal */}
-      <ReassignModal
-        open={reassignOpen}
-        onClose={() => setReassignOpen(false)}
-        selectedIds={checkedIds}
-        agents={agents}
-        onDone={() => { setReassignOpen(false); setCheckedIds(new Set()); load() }}
-      />
       <DistributeModal
         open={distributeOpen}
         onClose={() => setDistributeOpen(false)}

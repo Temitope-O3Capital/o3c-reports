@@ -331,6 +331,8 @@ export default function BDAssignments() {
     <Page
       title="BD Assignments"
       subtitle={`${fmtNum(filtered.length)} assignments`}
+      loading={loading && rows.length === 0}
+      skeletonKpis={4}
     >
       <ErrBanner error={err} onRetry={load} />
 

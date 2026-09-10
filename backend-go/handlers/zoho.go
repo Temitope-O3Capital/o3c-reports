@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,6 +37,19 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
 )
+
+// recoverPanic contains a panic inside a background goroutine so one malformed record
+// or unexpected provider payload logs a stack and is skipped, instead of taking down
+// the whole backend for every user. Deferred at the top of each recurring sync cycle
+// and every long-lived sync goroutine. The recurring loops call their cycle work
+// through functions carrying this, so a panic ends only that cycle — the ticker keeps
+// firing and the next cycle runs normally.
+func recoverPanic(where string) {
+	if r := recover(); r != nil {
+		slog.Error("recovered from panic in background job", "where", where, "panic", r,
+			"stack", string(debug.Stack()))
+	}
+}
 
 // voiceRefreshUserToken exchanges a Zoho Voice refresh token for a new access token.
 // Used only by zohoInitiateCall to refresh per-user tokens for call initiation.
@@ -117,6 +131,7 @@ func RegisterZohoAdmin(r chi.Router, db *core.DB, adminSecret string) {
 	r.With(guard).Post("/admin/backfill-assignees", zohoBackfillAssignees(db))
 	r.With(guard).Post("/admin/relink-assignees", zohoRelinkAssignees(db))
 	r.With(guard).Post("/admin/onboard-agents", zohoOnboardAgents(db))
+	r.With(guard).Post("/admin/backfill-ring-legs", zohoBackfillRingLegs(db))
 }
 
 // ── Credential helpers ────────────────────────────────────────────────────────
@@ -178,6 +193,53 @@ func zohoWrite(ctx context.Context, method, path string, body io.Reader) (*http.
 	return zohoHTTP.Do(req)
 }
 
+// Only a Zoho Desk inline-image path is proxyable — an SSRF guard so this endpoint
+// can never be pointed at another Zoho resource or host.
+var zohoInlineImgPathRe = regexp.MustCompile(`^threads/[0-9]+/inlineImages/[A-Za-z0-9._~=+%-]+$`)
+
+// HdMailInlineImage streams a Zoho Desk inline email image through our backend with
+// the org OAuth token attached. Email bodies reference these images by a relative
+// Zoho path that the browser can neither resolve (wrong origin) nor authenticate
+// (an <img> tag can't send our JWT), so they render broken. This is a PUBLIC route
+// authed by the same short-lived ticket as SSE (passed as ?k=), because an image
+// request carries no Authorization header.
+func HdMailInlineImage(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, err := core.VerifySSEToken(r.URL.Query().Get("k")); err != nil {
+			respondErr(w, 401, "unauthorized")
+			return
+		}
+		p := r.URL.Query().Get("p")
+		if !zohoInlineImgPathRe.MatchString(p) {
+			respondErr(w, 400, "bad image path")
+			return
+		}
+		if !zohoEnsureConfigured(r.Context(), db) {
+			respondErr(w, 503, "zoho not configured")
+			return
+		}
+		resp, err := zohoWrite(r.Context(), "GET", p, nil)
+		if err != nil {
+			respondErr(w, 502, "image fetch failed")
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			respondErr(w, resp.StatusCode, "image unavailable")
+			return
+		}
+		ct := resp.Header.Get("Content-Type")
+		if !strings.HasPrefix(ct, "image/") {
+			ct = "image/png"
+		}
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("Cache-Control", "private, max-age=3600")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		io.Copy(w, resp.Body) //nolint:errcheck
+	}
+}
+
 // ── Zoho Voice — import call logs ─────────────────────────────────────────────
 
 // runZohoVoiceImport fetches call logs from Zoho Voice and inserts them into
@@ -191,6 +253,12 @@ func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate strin
 	voiceBase := "https://voice.zoho.com/rest/json/zv"
 	pageFrom := 0
 	pageSize := 100
+	// Provider-neutral enrichment counters (logged, not returned — callers key on the
+	// recording imported/skipped/failed triple). ringFetchCap bounds ringingOrder calls
+	// per run to stay well under Zoho's 30-req/min ceiling; the next run picks up the rest.
+	enriched := 0
+	ringFetches := 0
+	const ringFetchCap = 250
 
 	for {
 		reqURL := fmt.Sprintf("%s/logs?from=%d&size=%d&fromDate=%s&toDate=%s",
@@ -246,24 +314,13 @@ func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate strin
 		}
 
 		for _, c := range logs {
-			// This importer's job is recordings, not another copy of the call log.
-			// The Desk /calls sync already owns the call ledger (~110k rows); Zoho
-			// Voice is where the AUDIO lives. So we only care about logs that carry a
-			// recording, and we ATTACH that recording onto the matching Desk row
-			// rather than insert a duplicate.
-			cr, _ := c["call_recording"].(map[string]any)
-			recFile := ""
-			if cr != nil {
-				recFile = strings.TrimSpace(zohoStr(cr["recording_filename"]))
-			}
-			if recFile == "" {
-				skipped++ // unanswered / no recording — nothing to attach
-				continue
-			}
-
+			// Call identity first — needed both for the neutral telephony enrichment
+			// (which runs for EVERY inbound log, recorded or not) and for the recording
+			// attach further down.
 			voiceID := zohoStr(c["logid"])
+			callType := strings.ToLower(zohoStr(c["call_type"]))
 			direction := "inbound"
-			if strings.Contains(strings.ToLower(zohoStr(c["call_type"])), "out") {
+			if strings.Contains(callType, "out") {
 				direction = "outbound"
 			}
 			// The customer is the far end of the call: the destination on an outbound
@@ -277,7 +334,7 @@ func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate strin
 			startedAt := zohoParseMillisTime(c["start_time"])
 			if startedAt.IsZero() || last10 == "" {
 				// Without a usable phone + timestamp there is no safe way to match a
-				// recording to the right call — skip rather than mis-attach.
+				// Voice log to the right call row — skip rather than mis-attach.
 				skipped++
 				continue
 			}
@@ -285,6 +342,69 @@ func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate strin
 			// its duration is completedTime − startTime on the RECORD, a proxy. So
 			// this value is used twice — to pick the right row, and to correct it.
 			voiceDur := zohoCallDuration(c)
+
+			// ── Provider-neutral telephony enrichment ─────────────────────────────
+			// Zoho is only the first PRODUCER of this data; it maps the Voice log into
+			// the neutral CallTelephony / RingLeg model (handlers/telephony.go). The
+			// inbound API + UI read the neutral columns, never Zoho's shapes, so moving
+			// to our own telephony later is a new producer, not a rewrite. This runs for
+			// every inbound log — including missed/abandoned ones the recording path skips.
+			if callID := zohoResolveCallRow(ctx, db, voiceID, direction, last10, startedAt); callID != nil {
+				answeredAt := zohoParseMillisTime(c["answer_time"])
+				var ansPtr *time.Time
+				if !answeredAt.IsZero() {
+					ansPtr = &answeredAt
+				}
+				// Wait = ring-to-answer when answered, else ring-until-hangup (abandoned).
+				var waitPtr *int
+				endAt := zohoParseMillisTime(c["end_time"])
+				if ansPtr != nil {
+					if w := int(answeredAt.Sub(startedAt).Seconds()); w >= 0 && w <= 3600 {
+						waitPtr = &w
+					}
+				} else if !endAt.IsZero() {
+					if w := int(endAt.Sub(startedAt).Seconds()); w >= 0 && w <= 3600 {
+						waitPtr = &w
+					}
+				}
+				disc := zohoStr(c["disconnected_by"])
+				queue := strings.TrimSpace(zohoStr(c["department"]))
+				abandoned := direction == "inbound" && ansPtr == nil && normDisconnectedBy(disc) == "caller"
+				if err := enrichCallTelephony(ctx, db, *callID, CallTelephony{
+					Provider:       "zoho_voice",
+					AnsweredAt:     ansPtr,
+					WaitSec:        waitPtr,
+					DisconnectedBy: disc,
+					HangupCause:    zohoStr(c["hangup_cause"]),
+					QueueName:      queue,
+					Abandoned:      &abandoned,
+				}); err == nil {
+					enriched++
+				}
+				// Ring legs: who it rang, in order, and who let it pass on — but only for
+				// a queued inbound call, only when we don't already have the legs, and
+				// bounded per run so a backfill can't blow the rate limit.
+				if direction == "inbound" && queue != "" && ringFetches < ringFetchCap && !ringLegsExist(ctx, db, *callID) {
+					ringFetches++
+					if strategy, legs := zohoFetchRingingOrder(ctx, token, voiceBase, voiceID); len(legs) > 0 {
+						upsertRingLegs(ctx, db, *callID, "zoho_voice", queue, strategy, legs)
+					}
+				}
+			}
+
+			// ── Recording attach (audio only; the ledger stays Desk's) ────────────
+			// The Desk /calls sync owns the call rows; Zoho Voice is where the AUDIO
+			// lives, so we attach the recording onto the matching Desk row rather than
+			// insert a duplicate. Logs with no recording are done after enrichment above.
+			cr, _ := c["call_recording"].(map[string]any)
+			recFile := ""
+			if cr != nil {
+				recFile = strings.TrimSpace(zohoStr(cr["recording_filename"]))
+			}
+			if recFile == "" {
+				skipped++ // unanswered / no recording — nothing more to attach
+				continue
+			}
 
 			// Attach to the RIGHT Desk call: same direction, same customer number
 			// (last 10 digits — the app's canonical phone key), within a 3-minute
@@ -328,6 +448,12 @@ func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate strin
 				    ORDER BY
 				      CASE WHEN $7 > 0 AND duration_sec IS NOT NULL
 				           THEN abs(duration_sec - $7) ELSE 999999 END ASC,
+				      -- A recording means someone spoke: between two equidistant legs of a
+				      -- redial (e.g. to a shared number), prefer the one that looks answered
+				      -- over a missed/no-answer leg. A tiebreaker only — never excludes, so a
+				      -- lone missed-marked row can still receive its recording.
+				      CASE WHEN lower(coalesce(outcome,'')) IN ('missed','no_answer','voicemail')
+				           THEN 1 ELSE 0 END ASC,
 				      abs(extract(epoch FROM (started_at - $6::timestamptz))) ASC
 				    LIMIT 1
 				 )`,
@@ -353,8 +479,199 @@ func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate strin
 		}
 	}
 
-	slog.Info("runZohoVoiceImport done", "imported", imported, "skipped", skipped, "failed", failed)
+	slog.Info("runZohoVoiceImport done", "imported", imported, "skipped", skipped, "failed", failed,
+		"enriched", enriched, "ring_fetches", ringFetches)
 	return imported, skipped, failed, nil
+}
+
+// zohoResolveCallRow finds the helpdesk_calls row a Voice log belongs to: the one already
+// linked by voice id if present, else the closest call on the same number+direction within
+// a 3-minute window. Returns nil when nothing matches (nothing to enrich).
+func zohoResolveCallRow(ctx context.Context, db *core.DB, voiceID, direction, last10 string, startedAt time.Time) *int64 {
+	if voiceID != "" {
+		if r, _ := db.PGQuery(ctx, `SELECT id FROM helpdesk_calls WHERE zoho_voice_id = $1 LIMIT 1`, voiceID); len(r) > 0 {
+			id := toInt64(r[0]["id"])
+			return &id
+		}
+	}
+	r, _ := db.PGQuery(ctx, `
+		SELECT id FROM helpdesk_calls
+		 WHERE direction = $1
+		   AND `+normalizedPhoneExpr("customer_phone")+` = $2
+		   AND started_at BETWEEN $3::timestamptz - interval '180 seconds'
+		                      AND $3::timestamptz + interval '180 seconds'
+		   AND merged_into_call_id IS NULL AND voided_at IS NULL
+		 ORDER BY abs(extract(epoch FROM (started_at - $3::timestamptz))) ASC
+		 LIMIT 1`, direction, last10, startedAt)
+	if len(r) > 0 {
+		id := toInt64(r[0]["id"])
+		return &id
+	}
+	return nil
+}
+
+// ringLegsExist reports whether this call already has its ring sequence stored, so the
+// hourly re-sync doesn't re-fetch ringingOrder for calls it has already covered.
+func ringLegsExist(ctx context.Context, db *core.DB, callID int64) bool {
+	r, _ := db.PGQuery(ctx, `SELECT 1 FROM call_ring_legs WHERE call_id = $1 LIMIT 1`, callID)
+	return len(r) > 0
+}
+
+// zohoFetchRingingOrder calls Zoho Voice's ringing-order endpoint for one call log and
+// maps the response into the provider-neutral (strategy, []RingLeg). Zoho's exact JSON
+// keys aren't fully documented, so the parse is deliberately lenient — it tries the
+// plausible key names and stores whatever it finds, logging the raw shape once so it can
+// be tuned against real data. Any other provider maps its own ring data to the same
+// RingLeg slice; nothing downstream depends on Zoho's field names.
+func zohoFetchRingingOrder(ctx context.Context, token, voiceBase, logid string) (strategy string, legs []RingLeg) {
+	reqURL := fmt.Sprintf("%s/logs/queue/ringingOrder?logid=%s", voiceBase, url.QueryEscape(logid))
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		return "", nil
+	}
+	req.Header.Set("Authorization", "Zoho-oauthtoken "+token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := zohoHTTP.Do(req)
+	if err != nil {
+		return "", nil
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		slog.Warn("zohoFetchRingingOrder: non-200", "status", resp.StatusCode, "logid", logid,
+			"body", string(body[:min(len(body), 200)]))
+		return "", nil
+	}
+	var root map[string]any
+	if json.Unmarshal(body, &root) != nil {
+		return "", nil
+	}
+
+	// Real Zoho Voice shape (verified 2026-09-10 against live data):
+	//   { "code":"200", "status":"SUCCESS",
+	//     "ringingOrder":[ { "queueName":..., "strategy":"agent-with-fewest-calls",
+	//                        "wait_time":14,
+	//                        "agentHistory":[ { "agent_name":"King Okoro",
+	//                                           "ringing_time":13, "start_time":<ms>,
+	//                                           "is_answered":true, "answered_time":<ms>,
+	//                                           "duration":<talk s>,
+	//                                           "hangup_cause":{ "hangupcause":"NORMAL_CLEARING", ... } }, ... ] } ] }
+	// `ringingOrder` is an ARRAY — one entry per queue the call passed through — and the
+	// agents it rang, in order, live in each entry's `agentHistory`. Flatten them into one
+	// ordered leg list. A single closure keeps the per-agent field mapping in one place.
+	pos := 0
+	parseAgent := func(am map[string]any) {
+		name := firstStr(am, "agent_name", "agentName", "name", "displayName", "user_name", "userName", "agent")
+		if name == "" {
+			return
+		}
+		pos++
+		leg := RingLeg{Position: pos, AgentName: name}
+		// Outcome: is_answered wins; otherwise fold the hang-up cause (normLegOutcome
+		// maps NO_ANSWER/USER_BUSY/ORIGINATOR_CANCEL/… in upsertRingLegs).
+		answered := false
+		switch v := am["is_answered"].(type) {
+		case bool:
+			answered = v
+		case float64:
+			answered = v != 0
+		case string:
+			answered = strings.EqualFold(strings.TrimSpace(v), "true")
+		}
+		switch {
+		case answered:
+			leg.Outcome = "answered"
+		default:
+			if hm, ok := am["hangup_cause"].(map[string]any); ok {
+				leg.Outcome = firstStr(hm, "hangupcause", "hangup_cause", "hangup_cause_displayname", "hangup_cause_description")
+			}
+			if leg.Outcome == "" {
+				leg.Outcome = firstStr(am, "status", "state", "result", "action")
+			}
+			if leg.Outcome == "" {
+				leg.Outcome = "no_answer"
+			}
+		}
+		if rs := firstNum(am, "ringing_time", "ringingTime", "ring_duration", "ringingDuration", "ringTime"); rs > 0 {
+			secs := int(rs)
+			if secs > 3600 { // some providers report ms
+				secs /= 1000
+			}
+			leg.RingSec = &secs
+		}
+		if ts := firstNum(am, "start_time", "startTime", "ringStartTime", "ring_start_time", "rangAt"); ts > 1_000_000_000 {
+			if t := zohoParseMillisTime(ts); !t.IsZero() {
+				leg.RangAt = &t
+			}
+		}
+		legs = append(legs, leg)
+	}
+
+	if queues, ok := root["ringingOrder"].([]any); ok && len(queues) > 0 {
+		for _, qv := range queues {
+			qm, ok := qv.(map[string]any)
+			if !ok {
+				continue
+			}
+			if strategy == "" {
+				strategy = firstStr(qm, "strategy", "ringStrategy", "ring_strategy")
+			}
+			hist, _ := qm["agentHistory"].([]any)
+			if hist == nil {
+				for _, k := range []string{"agent_history", "agents", "history"} {
+					if a, ok := qm[k].([]any); ok {
+						hist = a
+						break
+					}
+				}
+			}
+			for _, av := range hist {
+				if am, ok := av.(map[string]any); ok {
+					parseAgent(am)
+				}
+			}
+		}
+		return strategy, legs
+	}
+
+	// A shape we haven't seen — log the raw once so it can be mapped.
+	slog.Info("zohoFetchRingingOrder: unrecognised shape", "logid", logid,
+		"raw", string(body[:min(len(body), 400)]))
+	return strategy, legs
+}
+
+// firstStr returns the first non-empty string value among the given keys.
+func firstStr(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			if s := strings.TrimSpace(zohoStr(v)); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// firstNum returns the first parseable numeric value among the given keys (0 if none).
+func firstNum(m map[string]any, keys ...string) float64 {
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			switch n := v.(type) {
+			case float64:
+				return n
+			case int64:
+				return float64(n)
+			case int:
+				return float64(n)
+			case string:
+				var f float64
+				if _, err := fmt.Sscanf(strings.TrimSpace(n), "%g", &f); err == nil {
+					return f
+				}
+			}
+		}
+	}
+	return 0
 }
 
 func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
@@ -396,6 +713,102 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"imported": imported, "skipped": skipped, "failed": failed,
+		})
+	}
+}
+
+// zohoBackfillRingLegs is the one-off catch-up for ring-sequence history. The hourly
+// deep Voice sync only covers a 3-day window, so older inbound calls that carry a Zoho
+// Voice log id but no ring legs are swept here: for each we fetch the ringing order and
+// store the per-agent sequence via the same producer path the live sync uses. It runs
+// ASYNC and rate-limited (~1 call / 2.1s, under Zoho's 30-req/min ceiling), so the sweep
+// can take many minutes without tripping the request write timeout; progress goes to the
+// log ("backfill-ring-legs"). Idempotent — re-running only picks up calls still missing
+// legs. Query params: days (lookback, 0/absent = all), max (safety cap, default 5000).
+func zohoBackfillRingLegs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if !zohoEnsureConfigured(ctx, db) || !zohoVoiceConfigured(ctx, db) {
+			respondErr(w, 503, "Zoho Voice not configured")
+			return
+		}
+		days := 0
+		if v := r.URL.Query().Get("days"); v != "" {
+			days, _ = strconv.Atoi(v)
+		}
+		maxCalls := 5000
+		if v := r.URL.Query().Get("max"); v != "" {
+			if n, e := strconv.Atoi(v); e == nil && n > 0 {
+				maxCalls = n
+			}
+		}
+		where := `direction='inbound' AND zoho_voice_id IS NOT NULL AND zoho_voice_id<>''
+		          AND NOT EXISTS (SELECT 1 FROM call_ring_legs l WHERE l.call_id=helpdesk_calls.id)`
+		if days > 0 {
+			where += fmt.Sprintf(" AND started_at > now() - interval '%d days'", days)
+		}
+		rows, err := db.PGQuery(ctx,
+			`SELECT id, zoho_voice_id FROM helpdesk_calls WHERE `+where+` ORDER BY started_at DESC LIMIT $1`, maxCalls)
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		type job struct {
+			id      int64
+			voiceID string
+		}
+		var jobs []job
+		for _, row := range rows {
+			id, _ := row["id"].(int64)
+			vid, _ := row["zoho_voice_id"].(string)
+			if id != 0 && vid != "" {
+				jobs = append(jobs, job{id, vid})
+			}
+		}
+
+		go func() {
+			defer recoverPanic("backfill-ring-legs")
+			bg := context.Background()
+			voiceBase := "https://voice.zoho.com/rest/json/zv"
+			var withLegs, empty, consecErr int
+			for i, j := range jobs {
+				token, terr := zohoVoiceAccessToken(bg, db)
+				if terr != nil {
+					// Transient (DNS/token-refresh) blips shouldn't abort the whole sweep.
+					// Skip this one and retry the next; only give up if it's clearly stuck.
+					consecErr++
+					slog.Warn("backfill-ring-legs: token error, skipping", "err", terr, "done", i, "consec", consecErr)
+					if consecErr >= 15 {
+						slog.Error("backfill-ring-legs: too many consecutive token errors, stopping", "done", i)
+						return
+					}
+					time.Sleep(3 * time.Second)
+					continue
+				}
+				consecErr = 0
+				strategy, legs := zohoFetchRingingOrder(bg, token, voiceBase, j.voiceID)
+				if len(legs) > 0 {
+					// queue name isn't in the ringingOrder payload; the leg count and
+					// sequence are what this backfill is for. Live-window calls still get
+					// queue_name from the /logs enrichment path.
+					upsertRingLegs(bg, db, j.id, "zoho_voice", "", strategy, legs)
+					withLegs++
+				} else {
+					empty++
+				}
+				if (i+1)%50 == 0 {
+					slog.Info("backfill-ring-legs: progress", "done", i+1, "total", len(jobs), "with_legs", withLegs, "no_ring", empty)
+				}
+				time.Sleep(2100 * time.Millisecond) // under Zoho's 30 req/min ceiling
+			}
+			slog.Info("backfill-ring-legs: done", "total", len(jobs), "with_legs", withLegs, "no_ring", empty)
+		}()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"started":    true,
+			"candidates": len(jobs),
+			"note":       "runs in background, ~1 call/2.1s; watch backend log for 'backfill-ring-legs'",
 		})
 	}
 }
@@ -496,6 +909,7 @@ func recordZohoSyncResult(ctx context.Context, db *core.DB, job string, imported
 // so a transient DNS/connection blip doesn't skip the whole hour. Records the
 // outcome either way.
 func runZohoVoiceSyncCycle(db *core.DB, cap int) {
+	defer recoverPanic("runZohoVoiceSyncCycle")
 	ctx := context.Background()
 	if !zohoEnsureConfigured(ctx, db) {
 		return
@@ -542,15 +956,40 @@ func runZohoVoiceSyncCycle(db *core.DB, cap int) {
 			// stays small; the hourly deep cycle keeps the full 3-day reconcile for
 			// late-arriving records. Isolated from the Desk result either way — a
 			// Voice failure is logged, never fails the call sync.
-			if zohoVoiceConfigured(ctx, db) && (cap >= 1000 || zohoRecordingsPending(ctx, db)) {
+			//
+			// Run the voice import whenever the Desk sync just brought in call rows
+			// (imported > 0), not only when a recording is pending. A MISSED/abandoned
+			// call has no recording, so the old recordings-pending gate left its queue
+			// name, wait time and ring sequence waiting up to an hour for the deep cycle;
+			// tying it to "new calls arrived" pulls that data within one 60s poll for
+			// every call — answered or missed — while staying idle (skipping the import)
+			// when no new calls came in. Enrichment + ring fetch are idempotent and
+			// bounded (ringFetchCap, ringLegsExist), so this never re-does finished work.
+			if zohoVoiceConfigured(ctx, db) && (cap >= 1000 || imported > 0 || zohoRecordingsPending(ctx, db)) {
 				vFrom, vTo := from, to
 				if cap < 1000 {
-					vFrom = time.Now().Format("2006-01-02")
+					// Yesterday, not just today: a recording that publishes just after
+					// midnight for a call placed before it lands on the previous date, which
+					// a today-only window misses until the hourly deep sweep — up to an hour
+					// with an answered call showing as unanswered at the day boundary.
+					vFrom = time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 				}
 				if att, skip, vfail, verr := runZohoVoiceImport(ctx, db, vFrom, vTo); verr != nil {
+					// Surface a Voice failure on the worker beat, not just the log —
+					// otherwise "recordings never download" (most often ZVT022: the token
+					// is scoped to Desk + PhoneBridge, not Zoho Voice) stays invisible
+					// while the Desk call sync reports green.
+					msg := "voice recording import failed: " + verr.Error()
+					if strings.Contains(verr.Error(), "ZVT022") || strings.Contains(strings.ToLower(verr.Error()), "invalid oauth scope") {
+						msg = "Zoho Voice recordings unavailable: the OAuth token is scoped to Zoho Desk + PhoneBridge, not Zoho Voice (ZVT022). Recordings will not download until a Voice-scoped token is configured."
+					}
 					slog.Warn("zoho auto-sync: voice recordings", "err", verr)
-				} else if att > 0 || cap >= 1000 {
-					slog.Info("zoho auto-sync: voice recordings", "attached", att, "skipped", skip, "failed", vfail, "from", vFrom)
+					WorkerBeat(ctx, db, "zoho_recordings", "error", msg, verr.Error())
+				} else {
+					if att > 0 || cap >= 1000 {
+						slog.Info("zoho auto-sync: voice recordings", "attached", att, "skipped", skip, "failed", vfail, "from", vFrom)
+					}
+					WorkerBeat(ctx, db, "zoho_recordings", "ok", fmt.Sprintf("%d attached, %d skipped", att, skip), "")
 				}
 			}
 			return
@@ -619,7 +1058,11 @@ func StartZohoAutoSync(db *core.DB) {
 			case <-fast.C:
 				runZohoVoiceSyncCycle(db, 200)
 			case <-deep.C:
-				runZohoVoiceSyncCycle(db, 1000)
+				// High ceiling, not a scan target: the window-floor early-stop in the
+				// import job means a normal reconcile still stops within the 3-day window
+				// after a few pages, while a high-volume burst can page the whole window
+				// instead of dropping older-but-new calls at a 1000-row cap.
+				runZohoVoiceSyncCycle(db, 20000)
 			}
 		}
 	}()
@@ -640,6 +1083,7 @@ func StartZohoDeskAutoSync(db *core.DB) {
 		// content in gentle batches until caught up, then stop. Runs alongside (the
 		// hourly deep sweep maintains it afterwards). Bounded so a bug can't loop forever.
 		go func() {
+			defer recoverPanic("zoho conversation backfill")
 			for i := 0; i < 80; i++ {
 				if zohoSweepConversations(db, 100) < 100 {
 					break // fewer than a full batch remained — backlog drained
@@ -669,6 +1113,7 @@ func StartZohoDeskAutoSync(db *core.DB) {
 // automatically instead of only when an agent opens each mail. Bounded by cap and
 // gated on Zoho being configured. (The ticket sync imports tickets but not threads.)
 func zohoSweepConversations(db *core.DB, cap int) int {
+	defer recoverPanic("zohoSweepConversations")
 	ctx := context.Background()
 	if !zohoEnsureConfigured(ctx, db) {
 		return 0
@@ -1418,6 +1863,17 @@ func zohoFetchThreadContent(ctx context.Context, ticketZohoID, threadID string) 
 	return zohoStr(result["content"]), nil
 }
 
+// zohoFetchThread returns a thread's full HTML body and its Cc recipients. The
+// /conversations list omits both; the individual thread endpoint carries `content`
+// and the `cc` header (comma-separated addresses) which powers "Reply all".
+func zohoFetchThread(ctx context.Context, ticketZohoID, threadID string) (content, cc string, err error) {
+	result, err := zohoFetch(ctx, "tickets/"+ticketZohoID+"/threads/"+threadID, nil)
+	if err != nil {
+		return "", "", err
+	}
+	return zohoStr(result["content"]), zohoStr(result["cc"]), nil
+}
+
 // zohoFetchConversations returns the combined thread/comment timeline for a ticket.
 func zohoFetchConversations(ctx context.Context, ticketZohoID string) ([]map[string]any, error) {
 	result, err := zohoFetch(ctx, "tickets/"+ticketZohoID+"/conversations", url.Values{"limit": {"100"}})
@@ -1546,15 +2002,19 @@ func zohoImportTicketConversations(ctx context.Context, db *core.DB, localID int
 		// thread, so fetch it for threads and store the complete text (+ HTML). Notes/
 		// comments are short — their summary is the whole thing.
 		body := zohoStr(c["summary"])
-		var bodyHTML string
+		var bodyHTML, ccRaw string
 		if strings.EqualFold(zohoStr(c["type"]), "thread") {
-			if html, ferr := zohoFetchThreadContent(ctx, zohoID, extID); ferr == nil && html != "" {
-				bodyHTML = html
-				if txt := strings.TrimSpace(htmlToText(html)); txt != "" {
-					body = txt
+			if html, cc, ferr := zohoFetchThread(ctx, zohoID, extID); ferr == nil {
+				ccRaw = cc
+				if html != "" {
+					bodyHTML = html
+					if txt := strings.TrimSpace(htmlToText(html)); txt != "" {
+						body = txt
+					}
 				}
 			}
 		}
+		ccJSON := careCcJSON(ccRaw)
 		createdAt := zohoParseTime(c["createdTime"])
 		if createdAt.IsZero() {
 			createdAt = time.Now()
@@ -1564,13 +2024,16 @@ func zohoImportTicketConversations(ctx context.Context, db *core.DB, localID int
 		res, ierr := db.PGExec(ctx, `
 			INSERT INTO helpdesk_messages
 			  (ticket_id, direction, channel, author_name, body_text, body_html,
-			   is_internal_note, external_id, source_system, created_at)
-			VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,'zoho_desk',$9)
+			   is_internal_note, external_id, source_system, created_at, cc_addrs)
+			VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,'zoho_desk',$9,$10::jsonb)
 			ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET
 			  body_text = CASE WHEN length(EXCLUDED.body_text) > length(COALESCE(helpdesk_messages.body_text,''))
 			                   THEN EXCLUDED.body_text ELSE helpdesk_messages.body_text END,
-			  body_html = COALESCE(EXCLUDED.body_html, helpdesk_messages.body_html)`,
-			localID, direction, ch, author, body, bodyHTML, isNote, extID, createdAt)
+			  body_html = COALESCE(EXCLUDED.body_html, helpdesk_messages.body_html),
+			  cc_addrs  = CASE WHEN helpdesk_messages.cc_addrs IS NULL THEN EXCLUDED.cc_addrs
+			                   WHEN EXCLUDED.cc_addrs <> '[]'::jsonb   THEN EXCLUDED.cc_addrs
+			                   ELSE helpdesk_messages.cc_addrs END`,
+			localID, direction, ch, author, body, bodyHTML, isNote, extID, createdAt, ccJSON)
 		if ierr != nil {
 			slog.Warn("zohoImportTicketConversations: insert", "ext", extID, "err", ierr)
 			continue
@@ -1670,6 +2133,7 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 			agentMap[id] = zAgent{name: name, email: strings.ToLower(strings.TrimSpace(zohoStr(a["emailId"])))}
 		}
 	}
+	enteredWindow := false // set once a page contains an in-[from,to] row
 	for {
 		params := url.Values{
 			"from":   {fmt.Sprintf("%d", offset)},
@@ -1689,6 +2153,7 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 			return
 		}
 
+		pageHadInWindow := false
 		for _, c := range batch {
 			imp, skip, fail := 0, 0, 0
 			func() {
@@ -1720,6 +2185,7 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 					skip = 1
 					return
 				}
+				pageHadInWindow = true
 
 				// Direction — Zoho's field is clean ("inbound"/"outbound"). When absent,
 				// infer from the subject ("Outgoing call to …" / "Incoming call …") so
@@ -1780,18 +2246,18 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 						agentName, agentEmail = a.name, a.email
 					}
 				}
-				if mb, ok := c["modifiedBy"].(map[string]any); ok {
-					if agentZID == "" {
-						agentZID = zohoStr(mb["id"])
-					}
-					if agentName == "" {
+				// modifiedBy is whoever last touched the Zoho record — frequently a
+				// supervisor or a system user, NOT the caller. Use it only as a display-name
+				// fallback; never as the attribution id/email, which would mis-attribute the
+				// call and teach zoho_agent_map the wrong agent. With no ownerId the call is
+				// left unmatched (agent_id NULL) rather than attributed to the modifier.
+				resolveName := agentName // owner-derived only; safe to match on
+				if agentName == "" {
+					if mb, ok := c["modifiedBy"].(map[string]any); ok {
 						agentName = strings.TrimSpace(zohoStr(mb["firstName"]) + " " + zohoStr(mb["lastName"]))
 					}
-					if agentEmail == "" {
-						agentEmail = strings.ToLower(strings.TrimSpace(zohoStr(mb["emailId"])))
-					}
 				}
-				agentID := zohoResolveAgent(ctx, db, agentZID, agentEmail, agentName)
+				agentID := zohoResolveAgent(ctx, db, agentZID, agentEmail, resolveName)
 
 				// Customer via the Zoho contact id -> crm_contacts; phone falls back to subject.
 				var custName, custPhone, custCIF string
@@ -1917,6 +2383,15 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 		j.Unlock()
 
 		if len(batch) < pageSize {
+			return
+		}
+		// Newest-first: once we've been inside the [from,to] window and a full page no
+		// longer contains any in-window row, we've paged past the window floor —
+		// everything below is older than `from`. Stopping here bounds normal runs
+		// cheaply AND (with a raised offset ceiling) lets a high-volume burst page the
+		// entire window instead of stranding older-but-new calls at a fixed cap.
+		enteredWindow = enteredWindow || pageHadInWindow
+		if enteredWindow && !pageHadInWindow {
 			return
 		}
 		offset += pageSize
@@ -2151,15 +2626,13 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Log the outbound call attempt.
-		agentName := ""
-		if user != nil {
-			agentName = user.FullName
-		}
-		db.PGExec(ctx, `
-			INSERT INTO helpdesk_calls (agent_name, customer_phone, direction, outcome, ticket_id)
-			VALUES ($1,$2,'outbound','in_progress',$3)`,
-			agentName, b.PhoneNumber, b.TicketID) //nolint:errcheck
+		// Deliberately no placeholder row here. This used to INSERT an outbound
+		// 'in_progress' helpdesk_calls row with no zoho_call_id — but the WebSDK dials
+		// browser-side with no completion callback, so the row was never advanced past
+		// 'in_progress', and the Zoho Desk sync then imported the SAME call as its own
+		// row: a permanent duplicate plus a stuck phantom that absorbPendingManualLog
+		// (which only folds rows carrying a write-up) never reconciled. The Desk call
+		// sync is authoritative and backfills this call within the minute.
 
 		// Return token + agent ID to the frontend — the Zoho Voice WebSDK handles the actual dial.
 		w.Header().Set("Content-Type", "application/json")

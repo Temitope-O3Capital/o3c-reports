@@ -120,6 +120,8 @@ export default function CohortDetail() {
 
   return (
     <Page
+      loading={loading && !detail}
+      skeletonKpis={4}
       title={`Cohort: ${month ?? '…'}`}
       subtitle={age ? `Drilling into ${age} retention window` : 'Booking month cohort detail'}
       back={{ label: 'Cohort Analysis', to: '/sales/cohort' }}

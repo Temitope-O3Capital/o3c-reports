@@ -77,15 +77,21 @@ export async function apiLogout(): Promise<void> {
 
 // silent: true suppresses signOut() on auth failure — use for background polling
 // effects so a stale token doesn't log the user out without their action.
+// timeoutMs overrides the 30s default for the rare endpoint that legitimately
+// runs longer. The AI assistant is the reason this exists: a single turn on the
+// local CPU model takes 20-80s, so the default abort killed every request at 30s
+// and surfaced the browser's useless "signal is aborted without reason".
 export async function apiFetch<T = any>(
   path: string,
-  init?: RequestInit & { silent?: boolean },
+  init?: RequestInit & { silent?: boolean; timeoutMs?: number },
 ): Promise<T> {
-  const { silent, ...fetchInit } = init ?? {}
+  const { silent, timeoutMs, ...fetchInit } = init ?? {}
   const method = (fetchInit.method ?? 'GET').toUpperCase()
   const isMutation = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE'
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 30_000)
+  const limitMs = timeoutMs ?? 30_000
+  let timedOut = false
+  const timeout = setTimeout(() => { timedOut = true; controller.abort() }, limitMs)
 
   const isFormData = fetchInit.body instanceof FormData
   const makeHeaders = (): HeadersInit => ({
@@ -149,6 +155,13 @@ export async function apiFetch<T = any>(
     }
     if (res.status === 204) return undefined as T
     return res.json()
+  } catch (e: any) {
+    // The browser reports an aborted fetch as "signal is aborted without reason",
+    // which tells the user nothing. Say what actually happened.
+    if (timedOut || e?.name === 'AbortError') {
+      throw new Error(`This request took longer than ${Math.round(limitMs / 1000)}s and was cancelled.`)
+    }
+    throw e
   } finally {
     clearTimeout(timeout)
   }

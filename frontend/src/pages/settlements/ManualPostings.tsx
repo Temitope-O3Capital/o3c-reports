@@ -110,7 +110,7 @@ function ReasonModal({ open, title, confirmLabel, confirmColor, onClose, onSubmi
       }
     >
       <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={reason} onChange={e => setReason(e.target.value)} rows={4} placeholder="Write a reason…"
-        style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
+        style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box' }} />
     </Modal>
   )
 }
@@ -236,7 +236,7 @@ function NewPostingModal({ open, onClose, onSuccess }: { open: boolean; onClose:
           <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Description *</label>
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={description} onChange={e => setDescription(e.target.value)} rows={3}
             placeholder="Reason for manual posting…"
-            style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: "'Sora', sans-serif" }} />
+            style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: "var(--font-sans)" }} />
         </div>
 
         <div>
@@ -526,6 +526,7 @@ export default function ManualPostings() {
     <Page
       title="Manual Postings"
       subtitle="Three-stage approval workflow for ledger corrections — raise, approve, post"
+      loading={loading && rows.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

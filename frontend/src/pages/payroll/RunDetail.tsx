@@ -55,7 +55,7 @@ function PayslipModal({ data, period, onClose }: { data: PayslipData; period: st
             ].map(row => (
               <tr key={row.label} style={{ borderTop: '1px solid var(--bdr)' }}>
                 <td style={{ padding: '8px 0', color: 'var(--txt2)', fontWeight: row.bold ? 700 : 400 }}>{row.label}</td>
-                <td style={{ padding: '8px 0', textAlign: 'right', fontFamily: 'Inter, monospace', fontWeight: row.bold ? 700 : 500, color: row.bold ? GREEN : 'var(--txt)' }}>{row.value}</td>
+                <td style={{ padding: '8px 0', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: row.bold ? 700 : 500, color: row.bold ? GREEN : 'var(--txt)' }}>{row.value}</td>
               </tr>
             ))}
           </tbody>
@@ -321,7 +321,7 @@ export default function RunDetail() {
           ].map(({ label, value }) => (
             <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '14px 18px' }}>
               <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.medium, marginBottom: SP[1] }}>{label}</div>
-              <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{value}</div>
+              <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: 'var(--font-sans)' }}>{value}</div>
             </div>
           ))}
         </div>
@@ -358,7 +358,7 @@ export default function RunDetail() {
             display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr',
             padding: '10px 16px', borderTop: '2px solid var(--bdr)',
             background: 'var(--th-bg)', fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)',
-            fontFamily: 'Inter, sans-serif',
+            fontFamily: 'var(--font-sans)',
           }}>
             <span>Total ({filtered.length})</span>
             <span />

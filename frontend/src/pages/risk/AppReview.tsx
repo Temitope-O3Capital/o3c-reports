@@ -4,8 +4,9 @@ import { toast } from 'sonner'
 import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter, NameCell, ActionRow, Modal } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
+import { canAdvance, canDecline, stageMeta, decisionMeta, syncStateMeta } from '../../lib/losFlow'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,8 @@ interface RiskApp {
   submitted_at: string | null
   stage?: string | null
   days_in_stage?: number | null
+  decision?: string | null
+  phoenix_sync_state?: string | null
 }
 
 // ── Risk band pill ────────────────────────────────────────────────────────────
@@ -286,7 +289,7 @@ export default function RiskAppReview() {
     { key: 'risk_band', label: 'Risk Band', render: r => <BandPill band={r.risk_band} /> },
     {
       key: 'monthly_income_kobo', label: 'Monthly Income', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.monthly_income_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKoboExact(r.monthly_income_kobo)}</span>,
     },
     {
       key: 'dti_pct', label: 'DTI %', align: 'right',
@@ -298,47 +301,55 @@ export default function RiskAppReview() {
     },
     {
       key: 'amount_requested_kobo', label: 'Amount', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.amount_requested_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKoboExact(r.amount_requested_kobo)}</span>,
     },
     { key: 'product_type', label: 'Product', render: r => <ProductPill product={r.product_type} /> },
+    {
+      key: 'decision', label: 'Phoenix',
+      render: r => {
+        const d = (r.decision ?? '').toLowerCase()
+        if (d && d !== 'pending') {
+          const m = decisionMeta(d)
+          return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full, background: m.bg, color: m.txt, whiteSpace: 'nowrap' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{m.icon}</span>{m.label}
+            </span>
+          )
+        }
+        const s = syncStateMeta(r.phoenix_sync_state)
+        return s ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: s.txt }}>{s.label}</span> : <span style={{ color: 'var(--txt3)' }}>—</span>
+      },
+    },
     {
       key: 'submitted_at', label: 'Submitted', sortable: true,
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.submitted_at)}</span>,
     },
     {
+      // Actions are gated to what THIS user may actually do at the row's stage — a risk
+      // officer sees Advance on risk_review, the risk head on risk_head_review; neither
+      // sees an Advance the server would 403.
       key: '_actions', label: '',
-      render: r => (
-        <ActionRow actions={[
-          {
-            icon: 'check_circle',
-            label: 'Advance Stage',
-            onClick: () => setAdvanceApp(r),
-          },
-          {
-            icon: 'cancel',
-            label: 'Decline',
-            onClick: () => setDeclineApp(r),
-            danger: true,
-          },
-          {
-            icon: 'visibility',
-            label: 'View Application',
-            onClick: () => navigate(`/operations/risk/applications/${r.id}`),
-          },
-        ]} />
-      ),
+      render: r => {
+        const actions: { icon: string; label: string; onClick: () => void; danger?: boolean }[] = []
+        if (canAdvance(r.stage)) actions.push({ icon: 'check_circle', label: stageMeta(r.stage).action ?? 'Advance', onClick: () => setAdvanceApp(r) })
+        if (canDecline(r.stage)) actions.push({ icon: 'cancel', label: 'Decline', onClick: () => setDeclineApp(r), danger: true })
+        actions.push({ icon: 'visibility', label: 'View Application', onClick: () => navigate(`/operations/risk/applications/${r.id}`) })
+        return <ActionRow actions={actions} />
+      },
     },
   ]
 
   return (
     <Page
-      title="App Review"
+      title="Loan/Credit Card Review"
       subtitle="Risk review queue: applications pending credit decision"
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
         </div>
       }
+      loading={loading && rows.length === 0}
+      skeletonKpis={4}
     >
       <ErrBanner error={error} onRetry={() => load(0)} />
 
@@ -380,22 +391,24 @@ export default function RiskAppReview() {
               key: 'stage',
               label: 'Stage',
               options: [
-                { value: 'risk_review',       label: 'Risk Review',       color: AMBER },
-                { value: 'risk_head_review',  label: 'Risk Head Review',  color: '#2563EB' },
-                { value: 'pending_committee', label: 'Pending Committee', color: NAVY },
+                { value: 'document_collection', label: 'Document Collection', color: '#2563EB' },
+                { value: 'risk_review',          label: 'Risk Review',          color: AMBER },
+                { value: 'risk_head_review',     label: 'Risk Head Review',     color: NAVY },
               ],
               selected: fStages,
               onChange: setFStages,
             } as FilterGroupDef] : []),
             {
+              // Real product_type taxonomy (matches sales_applications + products.ts), so
+              // the filter actually matches rows. The old list was invented product names.
               key: 'product',
               label: 'Product',
               options: [
-                { value: 'Payday Loan' },
-                { value: 'Salary Advance' },
-                { value: 'Business Loan' },
-                { value: 'Education Loan' },
-                { value: 'Auto Loan' },
+                { value: 'salary_loan',          label: 'Salary Loan' },
+                { value: 'business_loan',        label: 'Business Loan' },
+                { value: 'individual_loan',      label: 'Individual Loan' },
+                { value: 'credit_card',          label: 'Credit Card' },
+                { value: 'card_limit_increase',  label: 'Card Limit Increase' },
               ],
               selected: fProducts,
               onChange: setFProducts,

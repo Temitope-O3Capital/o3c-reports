@@ -1,14 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  ResponsiveContainer, LineChart, Line, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, LabelList,
-} from 'recharts'
-import {
   Page, KpiCard, SectionCard, ErrBanner, Spinner, EmptyState, DateFilter, Button,
 } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, monthStart, today } from '../../lib/fmt'
-import { GREEN, RED, AMBER, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { GREEN, RED, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { ELine, EChart, baseTooltip, tipCard, axisVal, CHART_FONT } from '../../components/echarts'
+import type { ChartTokens } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -59,36 +57,15 @@ interface ChannelRow {
 // Series slots are assigned in fixed order and never cycled. Both themes are
 // validated against their own card surface (see LIGHT/DARK in lib/design).
 const SERIES = [
-  { key: 'funding_in_kobo',    name: 'Funding in',     color: 'var(--sc-2)' },
-  { key: 'transfers_out_kobo', name: 'Transfers out',  color: 'var(--sc-1)' },
-  { key: 'settled_kobo',       name: 'Settled to bank', color: 'var(--sc-3)' },
+  { key: 'funding_in_kobo',    name: 'Funding in',     color: GREEN },
+  { key: 'transfers_out_kobo', name: 'Transfers out',  color: BLUE },
+  { key: 'settled_kobo',       name: 'Settled to bank', color: PURPLE },
 ] as const
 
 function nairaAxis(v: number) {
   if (v >= 1_000_000_00) return `₦${(v / 1_000_000_00).toFixed(0)}m`
   if (v >= 1_000_00) return `₦${(v / 1_000_00).toFixed(0)}k`
   return v === 0 ? '0' : ''
-}
-
-function Tip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{
-      background: 'var(--card)', border: '1px solid var(--card-bdr)',
-      borderRadius: RADIUS.md, padding: '8px 10px', boxShadow: 'var(--card-shadow)',
-    }}>
-      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: TEXT.sm }}>
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
-          <span style={{ color: 'var(--txt2)' }}>{p.name}</span>
-          <span style={{ ...NUM, color: 'var(--txt)', fontWeight: FW.semibold, marginLeft: 'auto' }}>
-            {fmtKobo(p.value)}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
 }
 
 const tdBase: React.CSSProperties = {
@@ -139,7 +116,12 @@ export default function SettlementPosition() {
 
   const t = pos?.totals
   const unrec = pos?.unreconciled
-  const series = (pos?.series ?? []).map(s => ({ ...s, day: fmtDate(s.day, { day: '2-digit', month: 'short' }) }))
+  const series = (pos?.series ?? []).map(s => ({
+    ...s, day: fmtDate(s.day, { day: '2-digit', month: 'short' }),
+    funding_in_kobo: Number(s.funding_in_kobo),
+    transfers_out_kobo: Number(s.transfers_out_kobo),
+    settled_kobo: Number(s.settled_kobo),
+  }))
   const worst = channels.length
     ? [...channels].sort((a, b) => Number(a.completion_pct) - Number(b.completion_pct))[0]
     : null
@@ -148,6 +130,8 @@ export default function SettlementPosition() {
     <Page
       title="Settlement Position"
       subtitle="What came in, what went out, and what is still unreconciled"
+      loading={loading && !pos}
+      skeletonKpis={4}
       actions={<DateFilter from={from} to={to} onChange={(f, tt) => { setFrom(f); setTo(tt) }} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />
@@ -205,23 +189,14 @@ export default function SettlementPosition() {
             </table>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={series} margin={{ top: 8, right: 12, bottom: 8, left: 8 }}>
-              <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
-              <XAxis dataKey="day" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }}
-                axisLine={false} tickLine={false} tickMargin={8} minTickGap={24} />
-              <YAxis width={72} tickFormatter={nairaAxis}
-                tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }}
-                axisLine={false} tickLine={false} />
-              <Tooltip content={<Tip />} cursor={{ stroke: 'var(--chart-grid)', strokeWidth: 1 }} />
-              <Legend iconType="plainline" wrapperStyle={{ fontSize: TEXT.xs, color: 'var(--txt2)' }} />
-              {SERIES.map(s => (
-                <Line key={s.key} type="monotone" dataKey={s.key} name={s.name}
-                  stroke={s.color} strokeWidth={2} dot={false}
-                  activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--card)' }} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+          <ELine
+            data={series}
+            xKey="day"
+            height={260}
+            valueFmt={fmtKobo}
+            axisFmt={nairaAxis}
+            series={SERIES.map(s => ({ key: s.key, name: s.name, color: s.color })) as any}
+          />
         )}
       </SectionCard>
 
@@ -249,43 +224,45 @@ export default function SettlementPosition() {
                 </span>
               </div>
             )}
-            <ResponsiveContainer width="100%" height={40 + channels.length * 44}>
-              <BarChart data={channels} layout="vertical" margin={{ top: 4, right: 56, bottom: 4, left: 8 }}
-                barCategoryGap="30%">
-                <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" horizontal={false} strokeWidth={1} />
-                <XAxis type="number" domain={[0, 100]} unit="%" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }}
-                  axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="channel" width={110}
-                  tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }}
-                  axisLine={false} tickLine={false} />
-                <Tooltip
-                  cursor={{ fill: 'var(--row-hvr)' }}
-                  content={({ active, payload }: any) => {
-                    if (!active || !payload?.length) return null
-                    const c: ChannelRow = payload[0].payload
-                    return (
-                      <div style={{
-                        background: 'var(--card)', border: '1px solid var(--card-bdr)',
-                        borderRadius: RADIUS.md, padding: '8px 10px', boxShadow: 'var(--card-shadow)', fontSize: TEXT.sm,
-                      }}>
-                        <div style={{ fontWeight: FW.semibold, marginBottom: 4 }}>{c.channel}</div>
-                        <div style={{ color: 'var(--txt2)' }}>{fmtNum(c.success)} of {fmtNum(c.attempts)} completed</div>
-                        <div style={{ color: 'var(--txt2)' }}>{fmtNum(c.abandoned)} abandoned · {fmtNum(c.failed)} failed</div>
-                        <div style={{ ...NUM, marginTop: 4 }}>{fmtKobo(c.success_kobo)} funded</div>
-                      </div>
-                    )
-                  }}
-                />
-                <Bar dataKey="completion_pct" name="Completion" radius={[0, 4, 4, 0]} barSize={18}>
-                  {channels.map(c => (
-                    <Cell key={c.channel} fill={completionColor(Number(c.completion_pct))} />
-                  ))}
-                  <LabelList dataKey="completion_pct" position="right"
-                    formatter={(v: number) => `${Number(v).toFixed(1)}%`}
-                    style={{ fontSize: 11, fill: 'var(--txt2)', fontFamily: INTER }} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <EChart
+              height={40 + channels.length * 44}
+              option={(t: ChartTokens) => ({
+                grid: { top: 4, right: 56, bottom: 4, left: 8, containLabel: true },
+                tooltip: {
+                  trigger: 'item', ...baseTooltip(t),
+                  formatter: (p: any) => {
+                    const c: ChannelRow = p.data.row
+                    return tipCard(t, c.channel, [
+                      { color: p.color, name: 'Completed', value: `${fmtNum(c.success)} / ${fmtNum(c.attempts)}` },
+                      { color: p.color, name: 'Abandoned', value: fmtNum(c.abandoned) },
+                      { color: p.color, name: 'Failed', value: fmtNum(c.failed) },
+                      { color: p.color, name: 'Funded', value: fmtKobo(c.success_kobo) },
+                    ])
+                  },
+                },
+                xAxis: { ...axisVal(t, (v: number) => `${v}%`), min: 0, max: 100 },
+                yAxis: {
+                  type: 'category',
+                  inverse: true,
+                  data: channels.map(c => c.channel),
+                  axisLine: { show: false }, axisTick: { show: false },
+                  axisLabel: { color: t.lbl, fontSize: 11, fontFamily: CHART_FONT },
+                },
+                series: [{
+                  type: 'bar', name: 'Completion', barMaxWidth: 18,
+                  label: {
+                    show: true, position: 'right',
+                    formatter: (p: any) => `${Number(p.value).toFixed(1)}%`,
+                    color: t.txt2, fontSize: 11, fontFamily: CHART_FONT,
+                  },
+                  data: channels.map(c => ({
+                    value: Number(c.completion_pct), row: c,
+                    itemStyle: { color: completionColor(Number(c.completion_pct)), borderRadius: [0, 4, 4, 0] },
+                  })),
+                }],
+                animationDuration: 700,
+              })}
+            />
 
             <div style={{ overflowX: 'auto', marginTop: SP[4] }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>

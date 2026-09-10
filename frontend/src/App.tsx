@@ -402,7 +402,7 @@ const MODULE_TITLES: [string, string, string][] = [
   ['/compliance',      'Compliance',        'Compliance'],
   ['/reports',         'Analytics',         'Reports & BI'],
   ['/statements',      'Analytics',         'Statements'],
-  ['/core-banking',              'Analytics',  'Core Banking'],
+  ['/core-banking',              'Analytics',  'Udara'],
   ['/statements/credit-cards',  'Analytics',  'CC Statements'],
   ['/admin',           'Admin',             'System Admin'],
   ['/settings',        'Workspace',         'Settings'],

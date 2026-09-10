@@ -33,26 +33,38 @@ type ccDisposition struct {
 	// Connected records whether a human actually spoke. Drives connect-rate reporting
 	// and keeps "attempts with no connect" honest.
 	Connected bool `json:"connected"`
+	// Purposes scopes a disposition to the kind of call it belongs to
+	// ('marketing','collections','support'). Empty means it applies to every purpose
+	// (callback / no-answer / wrong-number / DNC are universal). The queue's log form
+	// shows an agent only the dispositions that fit the contact they're calling, so a
+	// telesales call never offers "Promise to Pay" and a collections call never offers
+	// "Not Eligible".
+	Purposes []string `json:"purposes,omitempty"`
 	// Hint is shown under the option so an agent knows what they are committing to.
 	Hint string `json:"hint"`
 }
 
 var ccDispositions = []ccDisposition{
 	{Code: "answered_interested", Label: "Answered — Interested", Status: "", Connected: true,
-		Hint: "Stays in the queue for follow-up"},
+		Purposes: []string{"marketing"}, Hint: "Stays in the queue for follow-up"},
 	{Code: "answered_not_interested", Label: "Answered — Not Interested", Status: "closed", Connected: true,
-		Hint: "Closes the contact — no further calls"},
+		Purposes: []string{"marketing"}, Hint: "Closes the contact — no further calls"},
 	{Code: "callback", Label: "Callback Requested", Status: "", NeedsCallback: true, Connected: true,
 		Hint: "Served again at the time you set, ahead of everything else"},
 	{Code: "ptp", Label: "Promise to Pay", Status: "", Connected: true,
-		Hint: "Recorded in the Collections promise book"},
+		Purposes: []string{"collections"}, Hint: "Recorded in the Collections promise book"},
 	// "Not eligible" and "not ready" were being forced into "Not Interested",
 	// which CLOSES the contact. They are different outcomes with different
 	// follow-ups, and collapsing them lost every not-yet lead worth calling back.
 	{Code: "not_eligible", Label: "Not Eligible", Status: "closed", Connected: true,
-		Hint: "Does not qualify (age, employer, exposure) — closes the contact"},
+		Purposes: []string{"marketing"}, Hint: "Does not qualify (age, employer, exposure) — closes the contact"},
 	{Code: "not_ready", Label: "Not Ready Yet", Status: "", Connected: true,
-		Hint: "Interested but not now — stays in the queue for a later cycle"},
+		Purposes: []string{"marketing"}, Hint: "Interested but not now — stays in the queue for a later cycle"},
+	// Support calls close on a resolution, not on interest. Without a "resolved"
+	// disposition a support callback had nothing honest to log, so it borrowed a
+	// marketing label. Scoped to support so it only shows there.
+	{Code: "resolved", Label: "Resolved", Status: "closed", Connected: true,
+		Purposes: []string{"support"}, Hint: "The customer's issue was handled — closes the contact"},
 	// Answered, then gone within seconds. Agents were forcing this into "No
 	// Answer", which is wrong twice over: it was answered, and it hides a number
 	// that is reachable but keeps cutting off. Nothing was discussed, so the
@@ -65,6 +77,31 @@ var ccDispositions = []ccDisposition{
 		Hint: "Removes the contact — the number is not the customer"},
 	{Code: "do_not_call", Label: "Do Not Call", Status: "closed", AddToDNC: true, Connected: true,
 		Hint: "Closes the contact and suppresses the number from all future lists"},
+}
+
+// ccDispositionsForPurpose returns the dispositions valid for a call purpose
+// ('marketing','collections','support'); an unknown or empty purpose gets the full list
+// so nothing is ever hidden by accident. Universal dispositions (empty Purposes) are
+// always included.
+func ccDispositionsForPurpose(purpose string) []ccDisposition {
+	purpose = strings.ToLower(strings.TrimSpace(purpose))
+	if purpose == "" {
+		return ccDispositions
+	}
+	out := make([]ccDisposition, 0, len(ccDispositions))
+	for _, d := range ccDispositions {
+		if len(d.Purposes) == 0 {
+			out = append(out, d)
+			continue
+		}
+		for _, p := range d.Purposes {
+			if p == purpose {
+				out = append(out, d)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // ccDispositionByCode resolves a code, and also accepts the legacy display labels the
@@ -93,6 +130,53 @@ func ccDispositionByCode(s string) (ccDisposition, bool) {
 		}
 	}
 	return ccDisposition{}, false
+}
+
+// ccDispositionCode normalizes any disposition string — a canonical code, a current or
+// legacy label, or one of the older shared-form labels the reporting table accumulated
+// ("Unreachable / No Answer", "Not Interested", "Callback Scheduled", "Interested") — to
+// the canonical code. This is the single writer-side normalizer, mirrored by the SQL
+// backfill in migration 193 so the stored column and new writes speak one vocabulary.
+//
+// Empty in → "". A raw connected telephony outcome (completed/answered/resolved) → the
+// soft code "connected" (a human spoke, but the agent recorded no business disposition).
+// Anything else non-empty → "other", so it still groups rather than masquerading as a
+// real code. Ordering matters: "not interested" is tested before "interested".
+func ccDispositionCode(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if d, ok := ccDispositionByCode(s); ok {
+		return d.Code
+	}
+	l := strings.ToLower(s)
+	switch {
+	case strings.Contains(l, "do not call"):
+		return "do_not_call"
+	case strings.Contains(l, "promise to pay"), l == "ptp":
+		return "ptp"
+	case strings.Contains(l, "not eligible"):
+		return "not_eligible"
+	case strings.Contains(l, "not ready"):
+		return "not_ready"
+	case strings.Contains(l, "callback"):
+		return "callback"
+	case strings.Contains(l, "drop"):
+		return "call_dropped"
+	case strings.Contains(l, "not interested"):
+		return "answered_not_interested"
+	case strings.Contains(l, "interested"):
+		return "answered_interested"
+	case strings.Contains(l, "wrong number"):
+		return "wrong_number"
+	case strings.Contains(l, "unreachable"), strings.Contains(l, "no answer"),
+		l == "no_answer", strings.Contains(l, "voicemail"), l == "missed":
+		return "no_answer"
+	case l == "completed", l == "answered", l == "resolved", l == "connected":
+		return "connected"
+	}
+	return "other"
 }
 
 // ccListDispositions serves the vocabulary so the frontend renders from one list
@@ -127,6 +211,11 @@ func ccApplyDisposition(ctx context.Context, db *core.DB, contactID string,
 		} else {
 			cb = "tomorrow 09:00"
 		}
+	} else if d.Code == "not_ready" && callbackAt != nil && *callbackAt != "" {
+		// "Not Ready Yet" can carry an OPTIONAL try-again date without being a promised
+		// callback: set, it floats the contact back into the queue on that day; left
+		// blank, it just rests and returns after the cooldown.
+		cb = *callbackAt
 	}
 
 	db.PGExec(ctx, //nolint:errcheck

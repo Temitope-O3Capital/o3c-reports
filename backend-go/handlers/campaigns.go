@@ -938,7 +938,10 @@ func createCampaign(db *core.DB) http.HandlerFunc {
 			db.PGExec(r.Context(), //nolint:errcheck
 				`INSERT INTO campaign_contacts
 				    (campaign_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position, tracking_id)
-				SELECT $1, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data,
+				SELECT $1, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number,
+				       CASE WHEN NULLIF(state,'') IS NOT NULL
+				            THEN jsonb_set(COALESCE(merge_data,'{}'::jsonb), '{state}', to_jsonb(state))
+				            ELSE COALESCE(merge_data,'{}'::jsonb) END,
 				       ROW_NUMBER() OVER (ORDER BY id) - 1, gen_random_uuid()
 				FROM contact_list_members WHERE list_id=$2 AND status='active'`,
 				campID, *b.ListID)
@@ -1074,7 +1077,10 @@ func startCampaign(db *core.DB) http.HandlerFunc {
 				db.PGExec(r.Context(), //nolint:errcheck
 					`INSERT INTO campaign_contacts
 					    (campaign_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data, position, tracking_id)
-					SELECT $1, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data,
+					SELECT $1, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number,
+					       CASE WHEN NULLIF(state,'') IS NOT NULL
+					            THEN jsonb_set(COALESCE(merge_data,'{}'::jsonb), '{state}', to_jsonb(state))
+					            ELSE COALESCE(merge_data,'{}'::jsonb) END,
 					       ROW_NUMBER() OVER (ORDER BY id) - 1, gen_random_uuid()
 					FROM contact_list_members WHERE list_id=$2 AND status='active'`,
 					campID, lid)
@@ -1239,7 +1245,7 @@ func listCampaignContacts(db *core.DB) http.HandlerFunc {
 			total = int(toInt64(tr[0]["n"]))
 		}
 		rows, err := db.PGQuery(r.Context(),
-			fmt.Sprintf("SELECT * FROM campaign_contacts WHERE %s ORDER BY position ASC LIMIT $%d OFFSET $%d",
+			fmt.Sprintf("SELECT *, merge_data->>'state' AS state FROM campaign_contacts WHERE %s ORDER BY position ASC LIMIT $%d OFFSET $%d",
 				where, n, n+1), args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
@@ -1405,6 +1411,7 @@ func campaignPushToCallCenter(db *core.DB) http.HandlerFunc {
 
 		// ── 6. Bulk insert into call_center_leads ───────────────────────────
 		created := int64(0)
+		mktID := toInt64FromStr(campaignID) // origin marketing campaign, for attribution
 		for _, c := range contacts {
 			firstName := str(c["first_name"])
 			lastName := str(c["last_name"])
@@ -1421,11 +1428,13 @@ func campaignPushToCallCenter(db *core.DB) http.HandlerFunc {
 			// ON CONFLICT DO NOTHING returns nothing when a duplicate is skipped.
 			inserted, err := db.PGQuery(ctx,
 				`INSERT INTO call_center_leads
-				   (campaign_id, customer_cif, customer_name, customer_phone, lead_score, assigned_to, status)
-				 VALUES ($1,$2,$3,$4,50,$5,'pending')
-				 ON CONFLICT DO NOTHING
+				   (campaign_id, marketing_campaign_id, source, customer_cif, customer_name, customer_phone, lead_score, assigned_to, status)
+				 VALUES ($1,$2,'campaign',$3,$4,$5,50,$6,'pending')
+				 ON CONFLICT (campaign_id, customer_phone)
+				   WHERE customer_phone IS NOT NULL AND customer_phone <> ''
+				 DO NOTHING
 				 RETURNING id`,
-				ccCampaignID, cif, fullName, phone, b.AssignedTo)
+				ccCampaignID, mktID, cif, fullName, phone, b.AssignedTo)
 			if err == nil {
 				created += int64(len(inserted))
 			}

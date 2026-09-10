@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Page, SectionCard, ErrBanner, Spinner, Modal, ConfirmModal } from '../../components/UI'
+import CallsPanel from '../../components/CallsPanel'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtDatetime } from '../../lib/fmt'
-import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
+import { hasPage } from '../../hooks/useAuth'
+import { fmtKoboExact, fmtKobo, fmtExact, fmtDate, fmtDatetime, fmtNum } from '../../lib/fmt'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM } from '../../lib/design'
 import { toast } from 'sonner'
 
 const POLL_INTERVAL = 10_000
@@ -14,6 +16,12 @@ interface RecoveryCase {
   id: number
   case_ref:               string | null
   account_cif:            string
+  customer_name:          string | null
+  product_type:           string | null   // 'card' | 'loan'
+  officer_name:           string | null
+  loan_ref:               string | null
+  loan_amount_kobo:       number | null
+  maturity_date:          string | null
   assigned_agent_id:      number | null
   agent_name:             string | null
   assigned_by_name:       string | null
@@ -24,6 +32,20 @@ interface RecoveryCase {
   status:                 string
   opened_at:              string | null
   closed_at:              string | null
+  dpd_at_handoff:         string | null
+}
+
+interface Customer {
+  name?: string; phone?: string; email?: string; state?: string; city?: string
+  full_address?: string | null
+  // Card billing (NAIRA, not kobo) — same snapshot the Cases side-panel shows.
+  current_bill?: number | null; bill_balance?: number | null; min_payment?: number | null
+  credit_limit?: number | null; last_payment_amount?: number | null; last_payment_date?: string | null
+}
+interface Loan {
+  reference: string; product_name: string; status: string
+  outstanding_kobo: number; loan_amount_kobo: number
+  start_date?: string; maturity_date?: string
 }
 
 interface Payment {
@@ -58,6 +80,10 @@ interface AgentUser { id: number; full_name: string; role: string }
 
 interface FullDetail {
   case:             RecoveryCase
+  customer:         Customer
+  dpd_current:      number
+  book_outstanding_kobo: number
+  loans:            Loan[]
   payments:         Payment[]
   proceedings:      Proceeding[]
   visits:           Visit[]
@@ -121,7 +147,7 @@ const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
   border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
   fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
 }
 const labelStyle: React.CSSProperties = {
   fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5,
@@ -137,7 +163,21 @@ function LV({ label, value }: { label: string; value: React.ReactNode }) {
 
 // ── Action tab types ───────────────────────────────────────────────────────────
 
-type ActionTab = 'visit' | 'legal' | 'payment' | 'writeoff' | 'reassign'
+type ActionTab = 'visit' | 'legal' | 'payment' | 'writeoff' | 'reassign' | 'step'
+
+// Typed step channels, matching the backend's stepTypes vocabulary. Logging a step
+// writes to the shared credit_activity_log so it shows on this case's timeline and on
+// Customer 360 — the "standard approach" that lets anyone see what has been done.
+const STEP_TYPES: { value: string; label: string }[] = [
+  { value: 'call',        label: 'Call' },
+  { value: 'email',       label: 'Email' },
+  { value: 'sms',         label: 'SMS' },
+  { value: 'whatsapp',    label: 'WhatsApp' },
+  { value: 'letter',      label: 'Letter' },
+  { value: 'field_visit', label: 'Field visit' },
+  { value: 'file',        label: 'File / document' },
+  { value: 'note',        label: 'Note' },
+]
 
 const VISIT_TYPES    = ['Physical Visit', 'Phone Call', 'WhatsApp', 'Email', 'Legal Notice']
 const VISIT_OUTCOMES = ['Customer Met', 'Not Home', 'Promised to Pay', 'Refused to Pay', 'No Response', 'Other']
@@ -238,6 +278,61 @@ function LogVisitModal({ caseId, open, onClose, onDone }: {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Btn onClick={submit} loading={saving} disabled={!visitDate || !outcome}>Log Visit</Btn>
+          <Btn onClick={onClose} outline>Cancel</Btn>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ── Log Step Modal ─────────────────────────────────────────────────────────────
+// A generic typed step (call / email / SMS / letter / field-visit / file / note),
+// written through the unified step-log so the whole recovery/collections trail is in
+// one place regardless of channel.
+function LogStepModal({ cif, caseId, open, onClose, onDone }: {
+  cif: string; caseId: number; open: boolean; onClose: () => void; onDone: () => void
+}) {
+  const [stepType, setStepType] = useState('call')
+  const [outcome,  setOutcome]  = useState('')
+  const [notes,    setNotes]    = useState('')
+  const [saving,   setSaving]   = useState(false)
+  const [err,      setErr]      = useState<string | null>(null)
+
+  async function submit() {
+    if (!notes.trim() && !outcome.trim()) { setErr('Add an outcome or a note'); return }
+    setSaving(true); setErr(null)
+    try {
+      await apiPost('/api/collections/step', {
+        module: 'recovery', cif, entity_id: String(caseId), step_type: stepType, outcome, notes,
+      })
+      toast.success('Step logged')
+      setOutcome(''); setNotes(''); setStepType('call'); onDone()
+    } catch (e: any) { setErr(e.message ?? 'Failed') } finally { setSaving(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Log a Step" width={480}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <ErrBanner error={err} />
+        <div>
+          <label style={labelStyle}>Channel</label>
+          <select value={stepType} onChange={e => setStepType(e.target.value)} style={{ ...fieldStyle, height: 36 }}>
+            {STEP_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Outcome</label>
+          <input value={outcome} onChange={e => setOutcome(e.target.value)}
+            placeholder="e.g. reached, no answer, promised to pay…" style={{ ...fieldStyle, height: 36 }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Notes</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+            spellCheck={false} data-gramm="false" data-gramm_editor="false"
+            placeholder="What was done / said…" style={{ ...fieldStyle, resize: 'vertical' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn onClick={submit} loading={saving}>Log Step</Btn>
           <Btn onClick={onClose} outline>Cancel</Btn>
         </div>
       </div>
@@ -390,9 +485,10 @@ function ReassignModal({ caseId, agents, open, onClose, onDone }: {
   const [saving,  setSaving]  = useState(false)
   const [err,     setErr]     = useState<string | null>(null)
 
-  const recoveryAgents = agents.filter(a =>
-    a.role.includes('recovery') || a.role === 'admin' || a.role === 'management'
-  )
+  // The /api/recovery-ops/agents endpoint already returns the eligible pool
+  // (recovery + collections + call-centre + admin/management), so use it as-is —
+  // filtering by role here would drop the call-centre agents who actually work the book.
+  const recoveryAgents = agents
 
   async function submit() {
     if (!agentId) return
@@ -461,12 +557,12 @@ function WriteOffModal({ caseId, outstanding, open, onClose, onDone }: {
           background: `${RED}08`, border: `1px solid ${RED}25`,
           fontSize: TEXT.sm, color: RED, lineHeight: 1.5,
         }}>
-          Submits for supervisor approval. Outstanding: {fmtKobo(outstanding)}.
+          Submits for supervisor approval. Outstanding: {fmtKoboExact(outstanding)}.
         </div>
         <div>
           <label style={labelStyle}>Amount (NGN): leave blank to write off full outstanding</label>
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
-            placeholder={fmtKobo(outstanding)} style={{ ...fieldStyle, height: 36 }} />
+            placeholder={fmtKoboExact(outstanding)} style={{ ...fieldStyle, height: 36 }} />
         </div>
         <div>
           <label style={labelStyle}>Reason *</label>
@@ -490,6 +586,23 @@ function WriteOffModal({ caseId, outstanding, open, onClose, onDone }: {
   )
 }
 
+// ── KPI tile ────────────────────────────────────────────────────────────────
+
+function KpiTile({ label, value, sub, color, icon }: {
+  label: string; value: React.ReactNode; sub?: React.ReactNode; color?: string; icon?: string
+}) {
+  return (
+    <div style={{ padding: '13px 15px', background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 7 }}>
+        <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        {icon && <span className="material-symbols-rounded" style={{ fontSize: 15, color: color ?? NAVY, opacity: 0.85, flexShrink: 0 }}>{icon}</span>}
+      </div>
+      <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: color ?? 'var(--txt)', lineHeight: 1.1, letterSpacing: '-0.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+      {sub && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function RecoveryCaseDetail() {
@@ -506,24 +619,29 @@ export default function RecoveryCaseDetail() {
 
   const [activeModal, setActiveModal] = useState<ActionTab | null>(null)
 
-  const role   = getStoredRole()
-  const isHead = ['recovery_head', 'head_recovery', 'admin', 'management', 'md', 'coo'].includes(role)
+  // Reassigning is a supervisor capability — gate on the recovery_assign page (same as
+  // the backend), so a plain agent sees the case but no Assign/Reassign control.
+  const isHead = hasPage('recovery_assign')
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const [res, usersRes] = await Promise.all([
-        apiFetch<{ data: FullDetail }>(`/api/recovery-ops/cases/${caseId}/full`),
-        isHead ? apiFetch<{ data: AgentUser[] }>('/api/admin/users') : Promise.resolve({ data: [] }),
-      ])
+      const res = await apiFetch<{ data: FullDetail }>(`/api/recovery-ops/cases/${caseId}/full`)
       setDetail(res.data)
-      setAgents(usersRes.data ?? [])
       setVersion(v => v + 1)
     } catch (e: any) {
       setError(e.message ?? 'Failed to load case')
     } finally {
       if (!silent) setLoading(false)
+    }
+    // Agent list for assign/reassign — head only, non-fatal (recovery roles have no
+    // admin access, so this uses the recovery-ops pool, not /api/admin/users).
+    if (isHead) {
+      try {
+        const u = await apiFetch<{ data: AgentUser[] }>('/api/recovery-ops/agents')
+        setAgents(u.data ?? [])
+      } catch { /* assign dropdown just stays empty */ }
     }
   }, [caseId, isHead])
 
@@ -546,10 +664,16 @@ export default function RecoveryCaseDetail() {
   )
 
   const { case: rc, payments, proceedings, visits, write_off_approval, activity_log, coll_contacts, coll_promises } = detail
+  const cust = detail.customer ?? {}
+  const loans = detail.loans ?? []
   const net = rc.outstanding_kobo - rc.recovered_kobo
   const recoveryPct = rc.outstanding_kobo > 0
     ? Math.round(100 * rc.recovered_kobo / rc.outstanding_kobo)
     : 0
+  const daysInRecovery = rc.opened_at ? Math.max(0, Math.floor((Date.now() - new Date(rc.opened_at).getTime()) / 864e5)) : 0
+  const contactsCount = coll_contacts.length + visits.length
+  const promisesTotal = coll_promises.length
+  const promisesKept  = coll_promises.filter(p => p.is_kept).length
 
   // Build unified timeline: activity_log + recovery events merged and sorted
   type TL = { date: string; label: string; actor?: string; detail?: string; color: string }
@@ -577,7 +701,7 @@ export default function RecoveryCaseDetail() {
     })),
     ...payments.map(p => ({
       date:   p.payment_date + 'T00:00:00Z',
-      label:  `Payment: ${fmtKobo(p.amount_kobo)}`,
+      label:  `Payment: ${fmtKoboExact(p.amount_kobo)}`,
       actor:  p.agent_name ?? undefined,
       detail: `${p.channel}${p.reference ? ' · ' + p.reference : ''}`,
       color:  GREEN,
@@ -604,84 +728,84 @@ export default function RecoveryCaseDetail() {
       }
     >
 
-      {/* ── Header strip ──────────────────────────────────────────────────── */}
+      {/* ── Hero: debtor identity + debt summary ──────────────────────────── */}
       <div style={{
-        display: 'grid', gridTemplateColumns: '1fr auto',
-        gap: SP[4], marginBottom: SP[4],
-        padding: SP[4], borderRadius: RADIUS.lg,
-        background: 'var(--card)', border: '1px solid var(--bdr)',
+        display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: SP[5], marginBottom: SP[3],
+        padding: SP[5], borderRadius: RADIUS.lg,
+        background: 'linear-gradient(135deg, var(--card) 0%, var(--th-bg) 100%)', border: '1px solid var(--bdr)',
       }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-            <StatusPill status={rc.status} />
-            {rc.legal_stage && (
-              <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: RED }}>
-                ⚖ {rc.legal_stage}
-              </span>
-            )}
-            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-              Opened {rc.opened_at ? fmtDate(rc.opened_at) : '—'}
-            </span>
-            {rc.closed_at && (
-              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>· Closed {fmtDate(rc.closed_at)}</span>
-            )}
+        {/* Identity */}
+        <div style={{ display: 'flex', gap: SP[4], minWidth: 0 }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
+            background: `${NAVY}14`, color: NAVY,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 23, fontWeight: FW.bold,
+          }}>
+            {(cust.name || rc.customer_name || rc.account_cif).charAt(0).toUpperCase()}
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: SP[6], flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 2 }}>Net Outstanding</div>
-              <div style={{ ...NUM, fontSize: 26, fontWeight: FW.bold, color: net > 0 ? RED : GREEN, letterSpacing: '-0.5px' }}>
-                {fmtKobo(net)}
-              </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 7 }}>
+              <span style={{ fontSize: 21, fontWeight: FW.bold, color: 'var(--txt)' }}>{cust.name || rc.customer_name || rc.account_cif}</span>
+              <StatusPill status={rc.status} />
+              {rc.product_type === 'loan' && (
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: PURPLE, background: `${PURPLE}18`, padding: '2px 9px', borderRadius: RADIUS['2xl'] }}>LOAN</span>
+              )}
+              {rc.legal_stage && (
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: RED, background: `${RED}12`, padding: '2px 9px', borderRadius: RADIUS['2xl'] }}>Legal: {rc.legal_stage}</span>
+              )}
             </div>
-            <div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 2 }}>Total Outstanding</div>
-              <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtKobo(rc.outstanding_kobo)}</div>
+            <div style={{ display: 'flex', gap: SP[3], rowGap: 4, flexWrap: 'wrap', alignItems: 'center', fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: 11 }}>
+              <span>CIF <strong style={{ ...NUM, color: 'var(--txt)' }}>{rc.account_cif}</strong></span>
+              {rc.case_ref && <span>Case <strong style={{ color: 'var(--txt)' }}>{rc.case_ref}</strong></span>}
+              {cust.phone && <a href={`tel:${cust.phone}`} style={{ color: NAVY, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: FW.medium }}><span className="material-symbols-rounded" style={{ fontSize: 15 }}>call</span>{cust.phone}</a>}
+              {cust.email && <a href={`mailto:${cust.email}`} style={{ color: NAVY, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: FW.medium }}><span className="material-symbols-rounded" style={{ fontSize: 15 }}>mail</span>{cust.email}</a>}
+              {cust.state && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span className="material-symbols-rounded" style={{ fontSize: 15 }}>location_on</span>{cust.state}</span>}
             </div>
-            <div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 2 }}>Recovered</div>
-              <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.semibold, color: GREEN }}>
-                {fmtKobo(rc.recovered_kobo)}
-                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.normal, marginLeft: 5 }}>({recoveryPct}%)</span>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Handler</span>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: rc.agent_name ? 'var(--txt)' : RED }}>
+                {rc.agent_name ?? 'Unassigned'}{rc.assigned_by_name ? <span style={{ color: 'var(--txt3)', fontWeight: FW.normal }}> · by {rc.assigned_by_name}</span> : null}
+              </span>
+              {isHead && (
+                <button onClick={() => setActiveModal('reassign')} style={{
+                  padding: '4px 11px', borderRadius: RADIUS.sm, border: 'none', background: NAVY, color: '#fff',
+                  fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer',
+                }}>{rc.agent_name ? 'Reassign' : 'Assign'}</button>
+              )}
+              <button onClick={() => navigate(`/customers/${encodeURIComponent(rc.account_cif)}`)} style={{
+                padding: '4px 11px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`,
+                color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer',
+              }}>C360</button>
             </div>
-            {rc.write_off_amount_kobo > 0 && (
-              <div>
-                <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 2 }}>Written Off</div>
-                <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.semibold, color: '#6B7280' }}>{fmtKobo(rc.write_off_amount_kobo)}</div>
-              </div>
-            )}
           </div>
         </div>
-        <div style={{ textAlign: 'right', minWidth: 160 }}>
-          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 6 }}>Handler</div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-            {rc.agent_name ?? <span style={{ color: RED }}>Unassigned</span>}
+
+        {/* Debt summary */}
+        <div style={{
+          minWidth: 210, paddingLeft: SP[5], borderLeft: '1px solid var(--bdr)',
+          display: 'flex', flexDirection: 'column', justifyContent: 'center',
+        }}>
+          <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Net Outstanding</div>
+          <div style={{ ...NUM, fontSize: 27, fontWeight: FW.bold, color: net > 0 ? RED : GREEN, letterSpacing: '-0.6px', lineHeight: 1.15 }}>{fmtKoboExact(net)}</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 9 }}>of {fmtKoboExact(rc.outstanding_kobo)} handed off</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Recovered {fmtKoboExact(rc.recovered_kobo)}</span>
+            <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, color: GREEN }}>{recoveryPct}%</span>
           </div>
-          {rc.assigned_by_name && (
-            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3 }}>Assigned by {rc.assigned_by_name}</div>
-          )}
-          <button
-            onClick={() => navigate(`/contacts/${rc.account_cif}`)}
-            style={{
-              marginTop: 12, padding: '4px 10px', borderRadius: RADIUS.sm,
-              border: `1px solid ${NAVY}30`, background: `${NAVY}08`,
-              color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer',
-            }}
-          >
-            C360 Profile
-          </button>
+          <div style={{ height: 7, borderRadius: 4, background: 'var(--bdr)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${Math.min(100, recoveryPct)}%`, background: GREEN, borderRadius: 4 }} />
+          </div>
+          {rc.write_off_amount_kobo > 0 && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 5 }}>{fmtKoboExact(rc.write_off_amount_kobo)} written off</div>}
         </div>
       </div>
 
-      {/* Recovery progress bar */}
-      <div style={{ marginBottom: SP[4] }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Recovery progress</span>
-          <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, color: GREEN }}>{recoveryPct}%</span>
-        </div>
-        <div style={{ height: 8, borderRadius: 4, background: 'var(--bdr)', overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${Math.min(100, recoveryPct)}%`, background: GREEN, borderRadius: 4 }} />
-        </div>
+      {/* ── Operational metrics ───────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[2], marginBottom: SP[4] }}>
+        <KpiTile label="DPD at Handoff" value={rc.dpd_at_handoff ? fmtNum(Number(rc.dpd_at_handoff)) : '—'} sub={detail.dpd_current ? `now ${fmtNum(detail.dpd_current)}` : 'days past due'} color={AMBER} icon="event_busy" />
+        <KpiTile label="Days in Recovery" value={fmtNum(daysInRecovery)} sub={rc.opened_at ? `since ${fmtDate(rc.opened_at)}` : undefined} color={NAVY} icon="hourglass_bottom" />
+        <KpiTile label="Contacts" value={fmtNum(contactsCount)} sub={`${visits.length} field visit${visits.length === 1 ? '' : 's'}`} color={BLUE} icon="forum" />
+        <KpiTile label="Promises" value={`${promisesKept}/${promisesTotal}`} sub="kept / made" color={promisesTotal > 0 && promisesKept < promisesTotal ? AMBER : GREEN} icon="handshake" />
       </div>
 
       {/* Write-off approval banner */}
@@ -700,7 +824,7 @@ export default function RecoveryCaseDetail() {
             {write_off_approval.status === 'approved' ? 'check_circle' : 'pending'}
           </span>
           <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-            Write-off {write_off_approval.status}: {fmtKobo(write_off_approval.amount_kobo)}
+            Write-off {write_off_approval.status}: {fmtKoboExact(write_off_approval.amount_kobo)}
           </span>
           {write_off_approval.approver_name && (
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
@@ -716,6 +840,10 @@ export default function RecoveryCaseDetail() {
         padding: SP[3], borderRadius: RADIUS.md,
         background: 'var(--card)', border: '1px solid var(--bdr)',
       }}>
+        <Btn onClick={() => setActiveModal('step')}>
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>fact_check</span>
+          Log Step
+        </Btn>
         <Btn onClick={() => setActiveModal('visit')}>
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>directions_walk</span>
           Log Visit
@@ -732,12 +860,6 @@ export default function RecoveryCaseDetail() {
           <Btn onClick={() => setActiveModal('writeoff')} danger>
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>cancel</span>
             Request Write-off
-          </Btn>
-        )}
-        {isHead && (
-          <Btn onClick={() => setActiveModal('reassign')} outline>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>swap_horiz</span>
-            Reassign
           </Btn>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -762,6 +884,11 @@ export default function RecoveryCaseDetail() {
                 ))}
               </div>
             )}
+          </SectionCard>
+
+          {/* Call-centre calls for this customer (crosswalk by CIF / phone) */}
+          <SectionCard title="Call Centre Calls" subtitle="Calls dialled by the call centre for this customer">
+            <CallsPanel cif={rc.account_cif} />
           </SectionCard>
 
           {/* Collections-phase contacts */}
@@ -797,7 +924,7 @@ export default function RecoveryCaseDetail() {
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                            {fmtKobo(p.promised_amount_kobo)}
+                            {fmtKoboExact(p.promised_amount_kobo)}
                           </span>
                           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>promised by {fmtDate(p.promised_date)}</span>
                         </div>
@@ -823,7 +950,16 @@ export default function RecoveryCaseDetail() {
 
           <SectionCard title="Case Details">
             <LV label="Case Reference"  value={rc.case_ref} />
-            <LV label="Account CIF"     value={rc.account_cif} />
+            <LV label="Product"         value={rc.product_type === 'loan' ? 'Loan' : 'Card'} />
+            <LV label={rc.product_type === 'loan' ? 'Mandate' : 'Account CIF'} value={rc.account_cif} />
+            {rc.product_type === 'loan' && (
+              <>
+                {rc.loan_ref && <LV label="Loan Ref" value={rc.loan_ref} />}
+                {rc.officer_name && <LV label="Loan Officer" value={rc.officer_name} />}
+                {rc.loan_amount_kobo != null && <LV label="Approved Amount" value={<span style={NUM}>{fmtKoboExact(rc.loan_amount_kobo)}</span>} />}
+                {rc.maturity_date && <LV label="Maturity" value={fmtDate(rc.maturity_date)} />}
+              </>
+            )}
             <LV label="Status"          value={<StatusPill status={rc.status} />} />
             <LV label="Handler"         value={rc.agent_name ?? <span style={{ color: RED }}>Unassigned</span>} />
             <LV label="Assigned By"     value={rc.assigned_by_name} />
@@ -831,6 +967,44 @@ export default function RecoveryCaseDetail() {
             <LV label="Opened"          value={rc.opened_at ? fmtDate(rc.opened_at) : '—'} />
             {rc.closed_at && <LV label="Closed" value={fmtDate(rc.closed_at)} />}
           </SectionCard>
+
+          {/* Address & card billing — cards only (a loan's account is a mandate with no
+              CIF-linked card book, so these come back null and the card hides). */}
+          {(cust.full_address || cust.current_bill != null || cust.bill_balance != null ||
+            cust.min_payment != null || cust.credit_limit != null || cust.last_payment_amount != null) && (
+            <SectionCard title="Address & Billing">
+              {cust.full_address && <LV label="Address" value={cust.full_address} />}
+              {(cust.city || cust.state) && <LV label="City / State" value={[cust.city, cust.state].filter(Boolean).join(', ') || '—'} />}
+              {cust.current_bill != null && <LV label="Current Bill" value={<span style={NUM}>{fmtExact(cust.current_bill)}</span>} />}
+              {cust.bill_balance != null && <LV label="Bill Balance" value={<span style={NUM}>{fmtExact(cust.bill_balance)}</span>} />}
+              {cust.min_payment  != null && <LV label="Min Payment"  value={<span style={NUM}>{fmtExact(cust.min_payment)}</span>} />}
+              {cust.credit_limit != null && <LV label="Credit Limit" value={<span style={NUM}>{fmtExact(cust.credit_limit)}</span>} />}
+              {cust.last_payment_amount != null && (
+                <LV label="Last Payment" value={
+                  <span><span style={NUM}>{fmtExact(cust.last_payment_amount)}</span>{cust.last_payment_date ? <span style={{ color: 'var(--txt2)', fontWeight: FW.normal }}> · {fmtDate(cust.last_payment_date)}</span> : null}</span>
+                } />
+              )}
+            </SectionCard>
+          )}
+
+          {/* Facilities behind the debt — the loans/cards being recovered against */}
+          {loans.length > 0 && (
+            <SectionCard title="Facilities" subtitle="Accounts behind this debt" badge={loans.length}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {loans.map((l, i) => (
+                  <div key={l.reference || i} style={{ padding: '8px 10px', borderRadius: RADIUS.md, background: 'var(--th-bg)', border: '1px solid var(--bdr)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{l.product_name || 'Loan'}</span>
+                      <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: RED }}>{fmtKoboExact(l.outstanding_kobo)}</span>
+                    </div>
+                    <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 3 }}>
+                      {l.reference}{l.status ? ` · ${l.status}` : ''}{l.maturity_date ? ` · matures ${fmtDate(l.maturity_date)}` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
 
           {/* Legal proceedings */}
           {proceedings.length > 0 && (
@@ -857,7 +1031,7 @@ export default function RecoveryCaseDetail() {
                 {payments.map(p => (
                   <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', borderBottom: '1px solid var(--bdr)' }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: GREEN }}>{fmtKobo(p.amount_kobo)}</div>
+                      <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: GREEN }}>{fmtKoboExact(p.amount_kobo)}</div>
                       <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
                         {p.channel} · {fmtDate(p.payment_date)}
                         {p.reference ? ` · ${p.reference}` : ''}
@@ -893,6 +1067,7 @@ export default function RecoveryCaseDetail() {
       </div>
 
       {/* ── Modals ────────────────────────────────────────────────────────── */}
+      <LogStepModal    cif={rc.account_cif} caseId={caseId} open={activeModal === 'step'} onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
       <LogVisitModal   caseId={caseId} open={activeModal === 'visit'}   onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
       <LogPaymentModal caseId={caseId} open={activeModal === 'payment'} onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
       <LegalModal      caseId={caseId} open={activeModal === 'legal'}   onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />

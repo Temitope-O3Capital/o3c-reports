@@ -77,7 +77,7 @@ export const TRANSITION = {
 
 // Tabular numbers — for any column showing digits, amounts, counts
 export const NUM: React.CSSProperties = {
-  fontFamily: MONO,
+  fontFamily: "var(--font-sans)",   // figures in Segoe (same family as the rest); tabular keeps columns aligned
   fontVariantNumeric: 'tabular-nums',
   fontFeatureSettings: "'tnum' 1",
 }
@@ -131,15 +131,12 @@ export const LIGHT: ThemeVars = {
   '--sub-act': '#FFFFFF',
   '--card': '#FFFFFF', '--card-bdr': '#E8EBF2',
   '--card-shadow': '0 1px 2px rgba(0,0,0,0.04), 0 4px 18px rgba(0,0,0,0.05)',
-  '--txt': '#0F1623', '--txt2': '#5A6672', '--txt3': '#8A95A1',
+  '--txt': '#0F1623', '--txt2': '#4C5865', '--txt3': '#697585',
   '--bdr': '#E8EBF2', '--row-hvr': '#F8F9FC', '--row-sel': '#FFF2F2',
   '--th-bg': '#F6F8FC', '--input-bg': '#F2F4F9', '--input-bdr': '#DDE0EA',
   '--chip-bg': '#EEF0F8', '--chip-txt': '#4A5270',
   '--chart-grid': '#E8EBF2', '--chart-lbl': '#9AA4B8',
   '--fp-bg': '#FFFFFF', '--fp-bdr': '#E8EBF2',
-  // Categorical series slots. Validated against the #FFFFFF card surface:
-  // lightness band, chroma floor, CVD separation, normal-vision floor and
-  // contrast all pass. Assign in order; never generate a 4th.
   '--sc-1': '#2563EB', '--sc-2': '#16A34A', '--sc-3': '#7C3AED',
 }
 
@@ -162,15 +159,12 @@ export const DARK: ThemeVars = {
   '--sub-act': '#FFFFFF',
   '--card': '#131F2D', '--card-bdr': '#1E2E42',
   '--card-shadow': '0 1px 3px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.3)',
-  '--txt': '#E8EDF2', '--txt2': '#9FB0C0', '--txt3': '#64788C',
+  '--txt': '#E8EDF2', '--txt2': '#AEBFCE', '--txt3': '#8195A6',
   '--bdr': '#22303F', '--row-hvr': '#182635', '--row-sel': '#1C1830',
   '--th-bg': '#0E1722', '--input-bg': '#131F2D', '--input-bdr': '#22303F',
   '--chip-bg': '#0F1A30', '--chip-txt': '#506898',
   '--chart-grid': '#0F1626', '--chart-lbl': '#242E44',
   '--fp-bg': '#0A0E1A', '--fp-bdr': '#121C30',
-  // Dark steps are chosen, not flipped: blue and green re-validate unchanged
-  // against the #131F2D card surface, but #7C3AED lands at 2.9:1 contrast there,
-  // so slot 3 lifts to #8B5CF6 to clear 3:1.
   '--sc-1': '#2563EB', '--sc-2': '#16A34A', '--sc-3': '#8B5CF6',
 }
 

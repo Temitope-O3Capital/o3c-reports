@@ -116,6 +116,7 @@ export default function Segments() {
     <Page
       title="Contact Segments"
       subtitle="Saved, refreshable audiences built from the loan portfolio"
+      loading={loading && segments.length === 0}
       actions={
         <button onClick={() => setBuilder({ open: true, editing: null })} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>

@@ -114,7 +114,6 @@ export default function ComplianceMyDashboard() {
           <HeroButton icon="policy" label="Findings" primary onClick={() => navigate('/compliance/findings')} />
           <HeroButton icon="checklist" label="Checklists" onClick={() => navigate('/compliance/checklists')} />
           <HeroButton icon="event" label="Regulatory Calendar" onClick={() => navigate('/compliance/regulatory')} />
-          <HeroButton icon="badge" label="KYC Expiry" onClick={() => navigate('/compliance/kyc-expiry')} />
           <HeroButton icon="gpp_maybe" label="AML Watchlist" onClick={() => navigate('/compliance/watchlist')} />
         </>}
       />
@@ -130,8 +129,6 @@ export default function ComplianceMyDashboard() {
         <MyDayTile icon="gavel" count={fmtNum(regOpen)} label="Regulatory deadlines"
           sub={regOverdue > 0 ? `${fmtNum(regOverdue)} overdue` : 'reports you own'}
           color={PURPLE} urgent={regOverdue > 0} onClick={() => navigate('/compliance/regulatory')} />
-        <MyDayTile icon="badge" count={fmtNum(kycExpiring)} label="KYC expiring (30d)"
-          sub="customers to re-verify" color={BLUE} onClick={() => navigate('/compliance/kyc-expiry')} />
       </MyDaySection>
 
       {/* My findings */}

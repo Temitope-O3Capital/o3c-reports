@@ -13,7 +13,7 @@ interface ImportResult {
   errors: string[]
 }
 
-const back = { label: 'Credit Card Portfolio', to: '/cards/credit-portfolio' }
+const back = { label: 'Data Management', to: '/reports/uploads' }
 
 function DropZone({ onFiles }: { onFiles: (f: FileList) => void }) {
   const [over, setOver] = useState(false)

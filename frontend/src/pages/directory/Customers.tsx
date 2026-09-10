@@ -20,11 +20,13 @@ interface DirectoryRow {
   product_count:  number
   active_products:number
   product_lines:  string
+  activity_status:string
+  last_activity?: string
 }
 
-interface Summary { total: number; active: number; with_email: number; with_phone: number; states: number }
+interface Summary { total: number; active: number; lapsing?: number; dormant?: number; never_active?: number; with_email: number; with_phone: number; states: number }
 interface FacetVal { v: string; n?: number }
-interface Facets   { states: FacetVal[]; statuses: FacetVal[]; product_lines: FacetVal[]; total: number }
+interface Facets   { states: FacetVal[]; statuses: FacetVal[]; product_lines: FacetVal[]; activity?: FacetVal[]; total: number }
 
 const PAGE_SIZE = 50
 
@@ -41,6 +43,24 @@ const STATUS_META: Record<string, { color: string; bg: string }> = {
   'legal acti':{ color: RED,       bg: `${RED}14` },
   terminated:  { color: '#6B7280', bg: 'rgba(107,114,128,.13)' },
   inactive:    { color: '#6B7280', bg: 'rgba(107,114,128,.13)' },
+}
+
+// Transaction-based activity (from the ledger, not the account_status text).
+const ACTIVITY_META: Record<string, { label: string; color: string; bg: string }> = {
+  active:  { label: 'Active',  color: GREEN,     bg: `${GREEN}18` },
+  lapsing: { label: 'Lapsing', color: AMBER,     bg: `${AMBER}1e` },
+  dormant: { label: 'Dormant', color: '#B45309', bg: 'rgba(180,83,9,.13)' },
+  never:   { label: 'Never',   color: '#6B7280', bg: 'rgba(107,114,128,.13)' },
+}
+
+function ActivityPill({ status }: { status: string }) {
+  const m = ACTIVITY_META[(status ?? '').toLowerCase()] ?? ACTIVITY_META.never
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: FW.semibold,
+      padding: '2px 9px', borderRadius: 20, background: m.bg, color: m.color, whiteSpace: 'nowrap',
+    }}>{m.label}</span>
+  )
 }
 
 // ── Small presentational helpers ────────────────────────────────────────────────
@@ -93,6 +113,7 @@ export default function CustomerDirectory() {
   const [fStatuses, setFStatuses] = useState<Set<string>>(new Set())
   const [fLines,    setFLines]    = useState<Set<string>>(new Set())
   const [fContact,  setFContact]  = useState<Set<string>>(new Set())  // 'email' | 'phone'
+  const [fActivity, setFActivity] = useState<Set<string>>(new Set())  // active|lapsing|dormant|never
 
   // Any filter/search change returns to the first page.
   const set = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setOffset(0) }
@@ -122,13 +143,14 @@ export default function CustomerDirectory() {
       if (fLines.size)    p.set('product_line', [...fLines].join(','))
       if (fContact.has('email')) p.set('has_email', '1')
       if (fContact.has('phone')) p.set('has_phone', '1')
+      if (fActivity.size) p.set('activity', [...fActivity].join(','))
       const res = await apiFetch<{ data: DirectoryRow[]; total: number; summary: Summary }>(`/api/customer360/directory?${p}`)
       setRows(Array.isArray(res?.data) ? res.data : [])
       setTotal(res?.total ?? 0)
       setSummary(res?.summary ?? null)
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [debounced, offset, fStates, fStatuses, fLines, fContact])
+  }, [debounced, offset, fStates, fStatuses, fLines, fContact, fActivity])
 
   useEffect(() => { load() }, [load])
 
@@ -140,7 +162,7 @@ export default function CustomerDirectory() {
 
   const resetFilters = () => {
     setSearch(''); setDebounced('')
-    setFStates(new Set()); setFStatuses(new Set()); setFLines(new Set()); setFContact(new Set())
+    setFStates(new Set()); setFStatuses(new Set()); setFLines(new Set()); setFContact(new Set()); setFActivity(new Set())
     setOffset(0)
   }
 
@@ -156,16 +178,16 @@ export default function CustomerDirectory() {
   }
 
   return (
-    <Page title="Customer Directory" subtitle={`${fmtNum(baseTotal)} customer${baseTotal === 1 ? '' : 's'} across the O3 base`}>
+    <Page title="Customer Directory" subtitle={`${fmtNum(baseTotal)} customer${baseTotal === 1 ? '' : 's'} across the O3 base`} loading={loading && rows.length === 0} skeletonKpis={5}>
       <ErrBanner error={err} onRetry={load} />
 
       {/* ── KPI strip ──────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[3], marginBottom: SP[4] }}>
-        <KpiCard label="Customers"    value={fmtNum(summary?.total ?? 0)}      icon="groups"       accent={NAVY}   loading={!summary} />
-        <KpiCard label="Active"       value={fmtNum(summary?.active ?? 0)}     icon="check_circle" accent={GREEN}  sub={pctLabel(summary?.active, summary?.total)}     loading={!summary} />
-        <KpiCard label="With Email"   value={fmtNum(summary?.with_email ?? 0)} icon="mail"         accent={BLUE}   sub={pctLabel(summary?.with_email, summary?.total)} loading={!summary} />
-        <KpiCard label="With Phone"   value={fmtNum(summary?.with_phone ?? 0)} icon="call"         accent={PURPLE} sub={pctLabel(summary?.with_phone, summary?.total)} loading={!summary} />
-        <KpiCard label="States"       value={fmtNum(summary?.states ?? 0)}     icon="map"          accent={AMBER}  sub="represented"                                   loading={!summary} />
+        <KpiCard label="Customers"        value={fmtNum(summary?.total ?? 0)}                                    icon="groups"        accent={NAVY}    loading={!summary} />
+        <KpiCard label="Active (90d)"     value={fmtNum(summary?.active ?? 0)}                                   icon="bolt"          accent={GREEN}   sub={pctLabel(summary?.active, summary?.total)}                              loading={!summary} />
+        <KpiCard label="Dormant (>1yr)"   value={fmtNum(summary?.dormant ?? 0)}                                  icon="bedtime"       accent="#B45309" sub={pctLabel(summary?.dormant, summary?.total)}                             loading={!summary} />
+        <KpiCard label="Never transacted" value={fmtNum(summary?.never_active ?? 0)}                             icon="do_not_disturb_on" accent="#6B7280" sub={pctLabel(summary?.never_active, summary?.total)}                        loading={!summary} />
+        <KpiCard label="With Email"       value={fmtNum(summary?.with_email ?? 0)}                               icon="mail"          accent={BLUE}    sub={pctLabel(summary?.with_email, summary?.total)}                          loading={!summary} />
       </div>
 
       <SectionCard title="All Customers" badge={total} padding={false}>
@@ -196,6 +218,14 @@ export default function CustomerDirectory() {
               selected: fLines, onChange: set(setFLines),
             },
             {
+              key: 'activity', label: 'Activity',
+              options: (facets?.activity ?? []).map(s => ({
+                value: s.v, label: ACTIVITY_META[s.v]?.label ?? s.v, count: s.n,
+                color: ACTIVITY_META[s.v]?.color,
+              })),
+              selected: fActivity, onChange: set(setFActivity),
+            },
+            {
               key: 'contact', label: 'Contact',
               options: [
                 { value: 'email', label: 'Has email', color: BLUE },
@@ -207,7 +237,7 @@ export default function CustomerDirectory() {
           onReset={resetFilters}
           resultCount={total}
           totalCount={baseTotal}
-          maxCols={4}
+          maxCols={5}
         />
 
         {/* ── Table ───────────────────────────────────────────────────────── */}
@@ -219,19 +249,20 @@ export default function CustomerDirectory() {
                 <th style={{ ...TH, width: '28%' }}>Contact</th>
                 <th style={{ ...TH, width: '20%' }}>Location</th>
                 <th style={TH}>Status</th>
+                <th style={TH}>Activity</th>
                 <th style={{ ...TH, textAlign: 'right' }}>Joined</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} style={{ ...TD, textAlign: 'center', padding: SP[10] }}>
+                  <td colSpan={6} style={{ ...TD, textAlign: 'center', padding: SP[10] }}>
                     <div style={{ display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ ...TD, padding: 0 }}>
+                  <td colSpan={6} style={{ ...TD, padding: 0 }}>
                     <EmptyState
                       icon="person_search"
                       title="No customers found"
@@ -291,6 +322,16 @@ export default function CustomerDirectory() {
 
                       {/* Status */}
                       <td style={TD}><StatusPill status={r.account_status} /></td>
+
+                      {/* Activity — transaction-based engagement */}
+                      <td style={TD}>
+                        <ActivityPill status={r.activity_status} />
+                        {r.last_activity && (
+                          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
+                            last {joinYear(r.last_activity)}
+                          </div>
+                        )}
+                      </td>
 
                       {/* Joined */}
                       <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{joinYear(r.created_at)}</td>

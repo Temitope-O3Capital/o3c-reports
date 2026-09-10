@@ -1,13 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts'
-import { Page, SectionCard, KpiCard, Spinner, ErrBanner } from '../../components/UI'
+import { useSearchParams } from 'react-router-dom'
+import { Page, SectionCard, KpiCard, Spinner, ErrBanner, DateFilter } from '../../components/UI'
+import { EArea, EBarH } from '../../components/echarts'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
+import { fmtKobo, fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
-import { PeriodFilter, Tip, Stat, Note, ytick, type Period } from './shared'
+import { Stat, Note, ytick } from './shared'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -55,7 +53,7 @@ interface ExecCards {
 // Categorical hues assigned in fixed order and never cycled, so a category keeps its
 // colour when the mix changes shape between periods.
 const CAT_COLOR: Record<string, string> = {
-  Spend: NAVY, Repayments: GREEN, Interest: AMBER, Fees: BLUE, Other: '#94A3B8',
+  Spend: NAVY, Repayments: GREEN, Interest: AMBER, Fees: BLUE, Other: '#5B7A94',
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -64,22 +62,24 @@ export default function ExecCards() {
   const [data, setData] = useState<ExecCards | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [period, setPeriod] = useState<Period>('mtd')
+  const [sp] = useSearchParams()
+  const [from, setFrom] = useState(sp.get('from') || monthStart())
+  const [to,   setTo]   = useState(sp.get('to')   || today())
 
-  const load = useCallback(async (p: Period) => {
+  const load = useCallback(async (f: string, t: string) => {
     setLoading(true); setError(null)
     try {
-      const r = await apiFetch<{ data: ExecCards }>(`/api/executive/cards?period=${p}`)
+      const r = await apiFetch<{ data: ExecCards }>(`/api/executive/cards?period=custom&start=${f}&end=${t}`)
       setData(r.data)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load(period) }, [load, period])
+  useEffect(() => { load(from, to) }, [load, from, to])
 
   const title = 'Cards: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
-  const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
+  const actions = <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
 
   if (loading) return (
     <Page title={title} back={back} actions={actions}>
@@ -88,7 +88,7 @@ export default function ExecCards() {
   )
   if (error) return (
     <Page title={title} back={back} actions={actions}>
-      <ErrBanner error={error} onRetry={() => load(period)} />
+      <ErrBanner error={error} onRetry={() => load(from, to)} />
     </Page>
   )
   if (!data) return null
@@ -166,43 +166,33 @@ export default function ExecCards() {
       {/* ── Where the money moved ──────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', gap: SP[3], marginBottom: 14 }}>
         <SectionCard title="Activity Mix" subtitle="By value this period">
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={data.category_mix} margin={{ top: 4, right: 8, bottom: 14, left: 8 }} layout="vertical">
-              <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" horizontal={false} strokeWidth={1} />
-              <XAxis type="number" tickFormatter={ytick} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="category" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} width={82} />
-              <Tooltip content={<Tip fmt={fmtKobo} />} cursor={{ fill: 'var(--row-hvr)' }} />
-              <Bar dataKey="volume_kobo" name="Value" radius={[0, 4, 4, 0]} barSize={18}>
-                {data.category_mix.map(entry => (
-                  <Cell key={entry.category} fill={CAT_COLOR[entry.category] ?? CAT_COLOR.Other} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <EBarH
+            data={data.category_mix}
+            catKey="category"
+            height={240}
+            legend={false}
+            valueFmt={fmtKobo}
+            axisFmt={ytick}
+            series={[{ key: 'volume_kobo', name: 'Value', color: NAVY, colorFn: (row) => CAT_COLOR[row.category] ?? CAT_COLOR.Other }]}
+          />
         </SectionCard>
 
         <SectionCard title="12-Month Trend" subtitle="Spend, repayments and interest">
-          <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={data.monthly_trend} margin={{ top: 4, right: 8, bottom: 14, left: 8 }}>
-              <defs>
-                {[['spend', NAVY], ['repayments', GREEN], ['interest', AMBER]].map(([k, c]) => (
-                  <linearGradient key={k} id={`cgrad_${k}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={c} stopOpacity={0.2} />
-                    <stop offset="100%" stopColor={c} stopOpacity={0} />
-                  </linearGradient>
-                ))}
-              </defs>
-              <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
-              <XAxis dataKey="month" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
-              <YAxis width={70} tickFormatter={ytick} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-              <Tooltip content={<Tip fmt={fmtKobo} />} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs, fontFamily: INTER, color: 'var(--txt2)' }} />
-              {([['spend_kobo', 'Spend', NAVY], ['repayments_kobo', 'Repayments', GREEN], ['interest_kobo', 'Interest', AMBER]] as const).map(([k, label, c]) => (
-                <Area key={k} type="monotone" dataKey={k} name={label} stroke={c} strokeWidth={2} fill={`url(#cgrad_${k.replace('_kobo', '')})`}
-                  dot={{ r: 2, fill: c, strokeWidth: 0 }} activeDot={{ r: 4, fill: c, stroke: '#fff', strokeWidth: 2 }} />
-              ))}
-            </AreaChart>
-          </ResponsiveContainer>
+          <EArea
+            data={data.monthly_trend}
+            xKey="month"
+            height={240}
+            dots
+            endLabel
+            endFmt={ytick}
+            valueFmt={fmtKobo}
+            axisFmt={ytick}
+            series={[
+              { key: 'spend_kobo', name: 'Spend', color: NAVY },
+              { key: 'repayments_kobo', name: 'Repayments', color: GREEN },
+              { key: 'interest_kobo', name: 'Interest', color: AMBER },
+            ]}
+          />
           {gapMonths.length > 0 && (
             <div style={{ marginTop: SP[2] }}>
               <Note tone={AMBER}>

@@ -1,16 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import {
-  ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts'
+import { EBar, EDonut } from '../../components/echarts'
 import { Page, KpiCard, SectionCard, Spinner, ErrBanner, Modal } from '../../components/UI'
 import QAHub from './QAHub'
 import PerformancePanel from './PerformancePanel'
 import { AgentMatchingPanel } from '../call-center/AgentMatching'
 import { BAND_COLOR, qaBand } from '../../lib/qa'
 import { apiFetch } from '../../lib/api'
+import { hasPage } from '../../hooks/useAuth'
 import { fmtNum, fmtPct, today } from '../../lib/fmt'
-import { RED, AMBER, GREEN, NAVY, BLUE, PURPLE, INTER, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import { RED, AMBER, GREEN, NAVY, BLUE, PURPLE, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -35,7 +33,7 @@ interface SupervisorData {
   recent_breaches: BreachRow[]
 }
 interface CallStats {
-  summary: { total: number; connected: number; missed: number }
+  summary: { total: number; connected: number; missed: number; inbound_missed: number; outbound_noanswer: number }
   by_hour: { hour: number; inbound: number; outbound: number }[]
   by_outcome: { outcome: string; count: number }[]
 }
@@ -61,22 +59,6 @@ const pct = (n: number, d: number) => (d > 0 ? n / d : 0)
 const OUTCOME_LABEL: Record<string, string> = { completed: 'Completed', missed: 'Missed', resolved: 'Resolved', no_answer: 'No Answer', voicemail: 'Voicemail' }
 const OUTCOME_COLOR: Record<string, string> = { completed: GREEN, resolved: GREEN, missed: RED, no_answer: AMBER, voicemail: PURPLE }
 const outcomeLabel = (o: string) => OUTCOME_LABEL[o] ?? (o ? o.replace(/_/g, ' ') : 'Unknown')
-
-function Tip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: '#0E2841', borderRadius: RADIUS.lg, padding: '9px 13px', boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
-      {label != null && <div style={{ fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.5)', fontFamily: INTER, marginBottom: 5, textTransform: 'uppercase' }}>{label}</div>}
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: i > 0 ? 3 : 0 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? p.payload?.fill }} />
-          <span style={{ fontSize: TEXT.sm, color: '#fff', fontWeight: FW.bold, ...NUM }}>{fmtNum(p.value)}</span>
-          <span style={{ fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.5)' }}>{p.name}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 function Ago({ since }: { since: Date | null }) {
   const [, tick] = useState(0)
@@ -162,9 +144,14 @@ export default function Supervisor() {
     } catch (e: any) { toast.error(e.message) }
   }
 
+  // QA is gated to `call_center` on the server; hide the tab from helpdesk-only heads
+  // (care/finance/…) so it can't 403. Everyone keeps Team Live + Performance.
+  const tabDefs: Array<['live' | 'perf' | 'qa', string]> =
+    [['live', 'Team Live'], ['perf', 'Performance']]
+  if (hasPage('call_center')) tabDefs.push(['qa', 'Quality (QA)'])
   const viewTabs = (
     <div style={{ display: 'inline-flex', background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: 3 }}>
-      {([['live', 'Team Live'], ['perf', 'Performance'], ['qa', 'Quality (QA)']] as const).map(([v, l]) => {
+      {tabDefs.map(([v, l]) => {
         const on = view === v
         return (
           <button key={v} onClick={() => setView(v)} style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, padding: '5px 14px', borderRadius: RADIUS.sm, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: on ? 'var(--card)' : 'transparent', color: on ? NAVY : 'var(--txt2)', boxShadow: on ? '0 1px 2px rgba(0,0,0,.08)' : 'none' }}>{l}</button>
@@ -192,7 +179,11 @@ export default function Supervisor() {
   const online = agents.filter(a => !isOffline(a.helpdesk_status)).length
   const calls = cs?.summary?.total ?? 0
   const connected = cs?.summary?.connected ?? 0
-  const missed = cs?.summary?.missed ?? 0
+  // Direction-aware: "Missed" is the customer calls that went unanswered (inbound), the
+  // metric a supervisor acts on — NOT lumped with outbound dials that didn't pick up,
+  // which in an outbound-heavy centre made this read as a 5-figure false alarm.
+  const missed = cs?.summary?.inbound_missed ?? 0
+  const noAnswer = cs?.summary?.outbound_noanswer ?? 0
   const connRate = pct(connected, calls)
 
   const hourData = Array.from({ length: 24 }, (_, h) => {
@@ -253,8 +244,8 @@ export default function Supervisor() {
       {/* Team KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Calls Today"   value={fmtNum(calls)}       icon="call"        accent={NAVY} />
-        <KpiCard label="Connect Rate"  value={fmtPct(connRate)}    icon="call_made"   accent={connRate >= 0.4 ? GREEN : connRate >= 0.2 ? AMBER : RED} />
-        <KpiCard label="Missed"        value={fmtNum(missed)}      icon="call_missed" accent={missed > connected ? RED : AMBER} />
+        <KpiCard label="Connect Rate"  value={fmtPct(connRate * 100)} icon="call_made" accent={connRate >= 0.4 ? GREEN : connRate >= 0.2 ? AMBER : RED} />
+        <KpiCard label="Missed"        value={fmtNum(missed)}      icon="call_missed" accent={missed > connected ? RED : AMBER} sub={`${fmtNum(noAnswer)} outbound no-answer`} />
         <KpiCard label="Agents Online" value={`${online}/${agents.length}`} icon="group" accent={GREEN} />
         <KpiCard label="Queue Depth"   value={fmtNum(sup?.totals.open ?? 0)}  icon="inbox" accent={BLUE} sub={`${fmtNum(sup?.totals.unassigned ?? 0)} unassigned`} />
         <KpiCard label="SLA Breaches"  value={fmtNum(sup?.totals.sla_breached ?? 0)} icon="alarm" accent={(sup?.totals.sla_breached ?? 0) > 0 ? RED : GREEN} />
@@ -295,7 +286,7 @@ export default function Supervisor() {
                   </select>
                   <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtNum(a.calls_today)}</span>
                   <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtNum(a.connected_today)}</span>
-                  <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, fontWeight: FW.semibold, color: a.calls_today === 0 ? 'var(--txt3)' : cr >= 0.3 ? GREEN : cr >= 0.15 ? AMBER : RED }}>{a.calls_today ? fmtPct(cr) : '—'}</span>
+                  <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, fontWeight: FW.semibold, color: a.calls_today === 0 ? 'var(--txt3)' : cr >= 0.3 ? GREEN : cr >= 0.15 ? AMBER : RED }}>{a.calls_today ? fmtPct(cr * 100) : '—'}</span>
                   <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDur(a.avg_talk_sec)}</span>
                   <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, color: a.open_tickets > 10 ? AMBER : 'var(--txt2)' }}>{fmtNum(a.open_tickets)}</span>
                   <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, fontWeight: FW.bold, color: a.sla_breached > 0 ? RED : 'var(--txt3)' }}>{fmtNum(a.sla_breached)}</span>
@@ -316,17 +307,17 @@ export default function Supervisor() {
           {calls === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls yet today</div>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={hourData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }} barCategoryGap="20%">
-                <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-                <XAxis dataKey="label" interval={0} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <Tooltip cursor={{ fill: 'var(--row-hvr)' }} content={(p: any) => <Tip {...p} label={p?.label != null ? `${p.label}:00` : ''} />} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs, fontFamily: INTER }} />
-                <Bar dataKey="inbound"  stackId="h" name="Inbound"  fill={BLUE} maxBarSize={24} />
-                <Bar dataKey="outbound" stackId="h" name="Outbound" fill={NAVY} radius={[3, 3, 0, 0]} maxBarSize={24} />
-              </BarChart>
-            </ResponsiveContainer>
+            <EBar
+              data={hourData}
+              xKey="label"
+              height={200}
+              stack
+              valueFmt={(v) => fmtNum(v)}
+              series={[
+                { key: 'inbound', name: 'Inbound', color: BLUE },
+                { key: 'outbound', name: 'Outbound', color: NAVY },
+              ]}
+            />
           )}
         </SectionCard>
 
@@ -335,18 +326,19 @@ export default function Supervisor() {
             <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls yet</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[3] }}>
-              <div style={{ position: 'relative' }}>
-                <PieChart width={150} height={150}>
-                  <Pie data={outcomes} cx={72} cy={72} innerRadius={46} outerRadius={70} dataKey="count" nameKey="outcome" stroke="none" paddingAngle={2} startAngle={90} endAngle={-270}>
-                    {outcomes.map((o, i) => <Cell key={i} fill={OUTCOME_COLOR[o.outcome] ?? NAVY} />)}
-                  </Pie>
-                  <Tooltip content={(p: any) => <Tip {...p} />} />
-                </PieChart>
-                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
-                  <div style={{ fontSize: TEXT.xl, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, lineHeight: 1 }}>{fmtNum(donutTotal)}</div>
-                  <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>calls</div>
-                </div>
-              </div>
+              <EDonut
+                data={outcomes.map(o => ({ ...o, count: Number(o.count) }))}
+                valueKey="count"
+                nameKey="outcome"
+                colorFn={(o) => OUTCOME_COLOR[o.outcome] ?? NAVY}
+                size={150}
+                inner={46}
+                outer={70}
+                centerValue={fmtNum(donutTotal)}
+                centerLabel="calls"
+                showPercent={false}
+                valueFmt={(v) => fmtNum(v)}
+              />
               <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: SP[1] }}>
                 {outcomes.map(o => (
                   <div key={o.outcome} style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>

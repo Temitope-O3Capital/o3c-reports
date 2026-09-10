@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
-} from 'recharts'
+import { EBar } from '../../components/echarts'
 import { Page, KpiCard, SectionCard, StatusBadge, EmptyState, Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { useLiveData } from '../../hooks/useRealtime'
@@ -21,7 +19,7 @@ interface Overview {
 }
 interface Perf { sent: number; delivered: number; opened: number; clicked: number; open_rate: number; delivery_rate: number }
 
-const CHANNEL_COLOR: Record<string, string> = { email: BLUE, sms: GREEN, whatsapp: '#25D366', multi: PURPLE }
+const CHANNEL_COLOR: Record<string, string> = { email: BLUE, sms: GREEN, whatsapp: AMBER, multi: PURPLE }
 const chColor = (t: string) => CHANNEL_COLOR[t] ?? NAVY
 const pct = (n: number) => `${(n ?? 0).toFixed(1)}%`
 const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s
@@ -59,7 +57,7 @@ export default function MarketingOverview() {
   )
 
   return (
-    <Page title="Marketing" subtitle="Campaigns, audience and messaging performance" actions={newBtn}>
+    <Page title="Marketing" subtitle="Campaigns, audience and messaging performance" actions={newBtn} loading={loading && !data} skeletonKpis={4}>
       {err && <ErrBanner error={err} onRetry={() => load()} />}
 
       {/* KPI strip */}
@@ -86,17 +84,15 @@ export default function MarketingOverview() {
           {loading ? <ChartLoad /> : mix.length === 0 ? (
             <EmptyState icon="bar_chart" title="No sends yet" description="Channel volume appears once campaigns go out." />
           ) : (
-            <ResponsiveContainer width="100%" height={230}>
-              <BarChart data={mix} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} allowDecimals={false} width={38} />
-                <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 12 }} cursor={{ fill: 'var(--row-hvr)' }} />
-                <Bar dataKey="sent" name="Sent" radius={[6, 6, 0, 0]} maxBarSize={64}>
-                  {mix.map((m, i) => <Cell key={i} fill={chColor(m.type)} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <EBar
+              data={mix}
+              xKey="label"
+              height={230}
+              legend={false}
+              valueFmt={(v) => fmtNum(v)}
+              axisFmt={(v) => fmtNum(v)}
+              series={[{ key: 'sent', name: 'Sent', colorFn: (m) => chColor(m.type) }]}
+            />
           )}
         </SectionCard>
 

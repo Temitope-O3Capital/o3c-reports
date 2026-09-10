@@ -118,11 +118,19 @@ func RegisterMail(r chi.Router, db *core.DB) {
 	r.With(admin).Get("/suppressions", mailListSuppressions(db))
 	r.With(admin).Post("/suppressions/import", mailImportSuppressions(db))
 	r.With(admin).Delete("/suppressions/{email}", mailRemoveSuppression(db))
+	// SendGrid-side suppression lists (global unsubscribes, bounces, blocks, spam,
+	// invalid) — view, look up one address, and remove entries from the CRM.
+	r.With(admin).Get("/sendgrid/suppressions", sgSuppressionsList(db))
+	r.With(admin).Get("/sendgrid/suppressions/lookup", sgSuppressionLookup(db))
+	r.With(admin).Delete("/sendgrid/suppressions/{type}/{email}", sgSuppressionDelete(db))
 	// Drafts
 	r.With(access).Get("/drafts", mailListDrafts(db))
 	r.With(access).Post("/drafts", mailSaveDraft(db))
 	r.With(access).Get("/drafts/{id}", mailGetDraft(db))
 	r.With(access).Delete("/drafts/{id}", mailDeleteDraft(db))
+	// Outbox (undo-send / recall)
+	r.With(access).Get("/outbox", mailOutboxList(db))
+	r.With(access).Post("/outbox/{id}/cancel", mailOutboxCancel(db))
 	// Signature
 	r.With(access).Get("/signature", mailGetSignature(db))
 	r.With(access).Put("/signature", mailSaveSignature(db))
@@ -282,6 +290,7 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 		SendAt           string           `json:"send_at"`
 		Attachments      []MailAttachment `json:"attachments"`
 		SendCopyToSender *bool            `json:"send_copy_to_sender"`
+		HoldSeconds      int              `json:"hold_seconds"` // >0 = park in the outbox for this many seconds (undo-send window)
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := ensureMailSchema(r.Context(), db); err != nil {
@@ -312,6 +321,29 @@ func sendSingleMail(db *core.DB) http.HandlerFunc {
 		}
 		fromEmail := strings.TrimSpace(b.FromAddress)
 		fromName := strings.TrimSpace(b.FromName)
+
+		// Undo-send window: park the mail in the outbox and let the dispatcher send
+		// it after HoldSeconds, so the user can recall it in the meantime.
+		if b.HoldSeconds > 0 {
+			if b.HoldSeconds > 600 {
+				b.HoldSeconds = 600
+			}
+			id, err := stageOutboxMail(r.Context(), db, user.ID, outboxPayload{
+				To: b.To, CC: b.CC, BCC: b.BCC, Subject: b.Subject,
+				HTMLBody: b.HTMLBody, TextBody: b.TextBody,
+				FromEmail: fromEmail, FromName: fromName,
+				ReplyToEmail: user.Sub, ReplyToName: user.FullName,
+				Attachments: b.Attachments, SendCopyToSender: copyToSender,
+			}, b.HoldSeconds)
+			if err != nil {
+				respondErr(w, 500, "Could not queue the message: "+err.Error())
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"held": true, "outbox_id": id, "hold_seconds": b.HoldSeconds}) //nolint:errcheck
+			return
+		}
+
 		res := SendMail(r.Context(), db, SendMailOptions{
 			To:                 b.To,
 			CC:                 b.CC,
@@ -1872,6 +1904,19 @@ func recordMailEvent(ctx context.Context, db *core.DB, providerID, eventType str
 	if eventType == "bounce" || eventType == "dropped" || eventType == "spamreport" || eventType == "unsubscribe" || eventType == "group_unsubscribe" {
 		addSuppression(ctx, db, str(event["email"]), eventStatus(eventType), "sendgrid_event")
 	}
+	// Reflect delivery engagement onto a linked survey invitation, if this mail was
+	// one. A bounce/drop/spam marks the send bounced (so it shows in Distribution
+	// status and is excluded from response-rate); an email-open advances 'sent'→
+	// 'opened'. Never downgrades a send that has already been responded to.
+	_, _ = db.PGExec(ctx, `
+		UPDATE survey_sends SET
+		  status = CASE
+		    WHEN $1 IN ('bounced','dropped','spam_report','unsubscribed') THEN 'bounced'
+		    WHEN $1 = 'opened' AND status = 'sent' THEN 'opened'
+		    ELSE status END,
+		  error_text = CASE WHEN $1 IN ('bounced','dropped','spam_report','unsubscribed') THEN $2 ELSE error_text END
+		WHERE mail_id = $3 AND status <> 'responded'`,
+		eventStatus(eventType), eventType, mailID)
 }
 
 func verifySendGridSignature(publicKeyRaw string, timestamp string, signatureRaw string, payload []byte) bool {

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { BLUE, NAVY, INTER, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { INTER, NUM, TEXT, FW, RADIUS } from '../../lib/design'
 
 // Pieces every executive drilldown needs. Each of the seven pages had its own copy of
 // the period filter and the chart tooltip, which meant a fix to one of them reached one
@@ -32,23 +32,6 @@ export function PeriodFilter({ period, onChange }: { period: Period; onChange: (
   )
 }
 
-// Dark tooltip, readable over any chart surface in either theme.
-export function Tip({ active, payload, label, fmt }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: NAVY, borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
-      {label && <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER, marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</div>}
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>{fmt ? fmt(p.value) : p.value}</span>
-          {p.name && payload.length > 1 && <span style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>}
-        </div>
-      ))}
-    </div>
-  )
-}
-
 // A labelled figure with an optional qualifier underneath. The qualifier is where the
 // caveat goes — "as at 14 Jul", "of gross" — so a number is never stranded without the
 // basis it was computed on.
@@ -62,15 +45,13 @@ export function Stat({ label, value, sub, tone }: { label: string; value: string
   )
 }
 
-// An inline explanation. Used where a figure would otherwise read as a bug, or where a
-// panel is empty for a reason the reader cannot infer.
-export function Note({ children, tone = BLUE }: { children: ReactNode; tone?: string }) {
+// Plain, unobtrusive helper line — used for empty-state placeholders. The old colored
+// caveat boxes (amber/red explanation panels) read as a work-in-progress/test module, so
+// this now renders as quiet muted text; the verbose explanatory notes were removed from
+// the exec pages. `tone` is accepted but ignored so existing call sites keep compiling.
+export function Note({ children }: { children: ReactNode; tone?: string }) {
   return (
-    <div style={{
-      padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.md,
-      background: `${tone}0F`, border: `1px solid ${tone}33`,
-      fontSize: TEXT.xs, color: 'var(--txt2)', lineHeight: 1.55,
-    }}>{children}</div>
+    <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5, padding: '4px 0', fontFamily: INTER }}>{children}</div>
   )
 }
 

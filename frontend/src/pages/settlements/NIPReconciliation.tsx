@@ -211,6 +211,8 @@ export default function NIPReconciliation() {
     <Page
       title="NIP Reconciliation"
       subtitle="Daily NIP inflows vs core banking credits — flag and resolve exceptions"
+      loading={loading && batches.length === 0}
+      skeletonKpis={3}
       actions={<DateFilter from={date} to={date} onChange={(f, _t) => setDate(f)} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />

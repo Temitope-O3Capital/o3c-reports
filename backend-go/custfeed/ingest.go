@@ -8,11 +8,19 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/feedcore"
 )
+
+// testNameRE flags test/dummy/vendor customer records (e.g. "AMEX TEST", "Bevertec",
+// "TEST 1"). These are skipped at ingest so they never enter app.customers — they used
+// to reappear after every manual delete precisely because this feed re-created them.
+// RE2 uses \b for word boundaries (not Postgres's \m/\M).
+var testNameRE = regexp.MustCompile(`(?i)\b(test|bevertec|dummy|fastest)\b|testcard|questtest`)
 
 // Dir returns the cust_file directory. DATA_FEED_DIR points at the drop root; the
 // customer stream is one subdirectory of it.
@@ -240,7 +248,10 @@ func applyFile(ctx context.Context, db *core.DB, path string, meta FileMeta, res
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+		// Transcode any Windows-1252/Latin-1 bytes (accented names, 0xA0 nbsp) to UTF-8
+		// before parsing — otherwise the upsert fails at the DB with "invalid byte
+		// sequence for encoding UTF8" and the whole file is quarantined.
+		line := strings.TrimSpace(feedcore.ToUTF8(sc.Bytes()))
 		if line == "" {
 			continue
 		}
@@ -261,8 +272,14 @@ func applyFile(ctx context.Context, db *core.DB, path string, meta FileMeta, res
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	var inserted, updated int
+	var inserted, updated, skippedTest int
 	for _, c := range custs {
+		// Skip test/dummy/vendor records at the source so they never enter the customer
+		// base (they are feed-owned, so deleting them downstream is futile).
+		if testNameRE.MatchString(c.FirstName + " " + c.LastName + " " + c.FullName()) {
+			skippedTest++
+			continue
+		}
 		var isNew bool
 		err := tx.QueryRowContext(ctx, upsertSQL,
 			c.CIF, c.FirstName, c.LastName, c.FullName(), c.Email, c.Phone,
@@ -277,6 +294,10 @@ func applyFile(ctx context.Context, db *core.DB, path string, meta FileMeta, res
 		} else {
 			updated++
 		}
+	}
+	rejected += skippedTest // test/dummy records are counted as rejected rows
+	if skippedTest > 0 {
+		slog.Info("custfeed: skipped test/dummy records at ingest", "file", meta.Name, "count", skippedTest)
 	}
 
 	if _, err := tx.ExecContext(ctx, `

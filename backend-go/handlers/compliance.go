@@ -74,9 +74,9 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 
 	// Phase 12 — Regulatory
 	r.With(cbn).Get("/prudential-ratios", compliancePrudentialRatios(db))
-	r.With(cbn).Get("/credit-bureau-export", complianceCreditBureauExport(db))
-	r.With(cbn).Get("/bureau-submissions", complianceBureauSubmissionList(db))
-	r.With(cbn).Post("/bureau-submissions", complianceBureauSubmissionCreate(db))
+	// Credit Bureau (export + submission log) dropped 2026-08-26: a compliant CRC/
+	// FirstCentral file needs borrower/servicing detail that lives in Udara, not the
+	// workspace, so it can't be produced here. Handler funcs retained, unrouted.
 	r.With(all).Get("/data-subject-requests", complianceDSARList(db))
 	r.With(all).Post("/data-subject-requests", complianceDSARCreate(db))
 	r.With(all).Patch("/data-subject-requests/{id}", complianceDSARUpdate(db))
@@ -96,9 +96,9 @@ func RegisterCompliance(r chi.Router, db *core.DB) {
 	r.With(aml).Post("/aml-rules", complianceCreateAMLRule(db))
 	r.With(aml).Delete("/aml-rules/{id}", complianceDeleteAMLRule(db))
 
-	// Phase 12 — KYC Expiry (C2)
-	r.With(all).Get("/kyc-expiry", complianceListKYCExpiry(db))
-	r.With(all).Post("/kyc-expiry/{cif}/action", complianceKYCExpiryAction(db))
+	// KYC Expiry dropped 2026-08-26: no KYC document-expiry source exists in the
+	// workspace (app.customers carries only BVN, no expiry dates) — it would need a
+	// Udara-fed source. Handler funcs retained, unrouted.
 
 	// M34: Board Pack — JSON data + printable HTML export
 	r.With(all).Get("/board-pack", complianceBoardPack(db))
@@ -1274,32 +1274,37 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// NPL ratio: loans with DPD > 90 / total active loan book
+		// Repointed onto the live Udara book (cbs_loans/cbs_fixed_deposits) — the old
+		// workspace-native loan_accounts/fixed_deposits tables are empty. DPD is derived
+		// from the amortisation schedule via app.cbs_loan_dpd (same helper the risk /
+		// collections pages use); the open book is status NOT IN ('Closed','Revoked').
 		nplRows, _ := db.PGQuery(ctx, `
-			SELECT
-			  COALESCE(SUM(outstanding_balance_kobo) FILTER (WHERE days_past_due > 90), 0) AS npl_kobo,
-			  COALESCE(SUM(outstanding_balance_kobo), 0)                                   AS total_kobo
-			FROM loan_accounts WHERE status = 'active'`)
+			WITH b AS (SELECT outstanding_principal_kobo AS bal, `+cbsLoanDPDBare+` AS od
+			           FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
+			SELECT COALESCE(SUM(bal) FILTER (WHERE od > 90), 0) AS npl_kobo,
+			       COALESCE(SUM(bal), 0)                        AS total_kobo
+			FROM b`)
 
 		// PAR30, PAR60, PAR90
 		parRows, _ := db.PGQuery(ctx, `
-			SELECT
-			  COALESCE(SUM(outstanding_balance_kobo) FILTER (WHERE days_past_due > 30), 0) AS par30_kobo,
-			  COALESCE(SUM(outstanding_balance_kobo) FILTER (WHERE days_past_due > 60), 0) AS par60_kobo,
-			  COALESCE(SUM(outstanding_balance_kobo) FILTER (WHERE days_past_due > 90), 0) AS par90_kobo,
-			  COALESCE(SUM(outstanding_balance_kobo), 0)                                   AS total_kobo
-			FROM loan_accounts WHERE status = 'active'`)
+			WITH b AS (SELECT outstanding_principal_kobo AS bal, `+cbsLoanDPDBare+` AS od
+			           FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
+			SELECT COALESCE(SUM(bal) FILTER (WHERE od > 30), 0) AS par30_kobo,
+			       COALESCE(SUM(bal) FILTER (WHERE od > 60), 0) AS par60_kobo,
+			       COALESCE(SUM(bal) FILTER (WHERE od > 90), 0) AS par90_kobo,
+			       COALESCE(SUM(bal), 0)                        AS total_kobo
+			FROM b`)
 
-		// Fixed deposit liabilities (liquidity denominator proxy)
+		// Fixed deposit liabilities (liquidity denominator proxy) — live deposit book.
 		fdRows, _ := db.PGQuery(ctx, `
 			SELECT COALESCE(SUM(principal_kobo), 0) AS total_fd_kobo
-			FROM fixed_deposits WHERE status = 'active'`)
+			FROM cbs_fixed_deposits`)
 
 		// Total disbursed (loan book)
 		bookRows, _ := db.PGQuery(ctx, `
 			SELECT COALESCE(SUM(loan_amount_kobo), 0) AS total_disbursed_kobo,
 			       COUNT(*) AS active_loans
-			FROM loan_accounts WHERE status = 'active'`)
+			FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')`)
 
 		result := map[string]any{}
 
@@ -1891,23 +1896,24 @@ func complianceConcentrationRisk(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// Total active loan book for percentage calculations.
+		// Repointed onto the live loan book (cbs_loans); the old loan_applications table
+		// is empty. Exposure = outstanding principal on the open book.
 		bookRows, _ := db.PGQuery(ctx,
-			`SELECT COALESCE(SUM(disbursed_amount_kobo), 0) AS total FROM loan_applications WHERE status='disbursed'`)
+			`SELECT COALESCE(SUM(outstanding_principal_kobo), 0) AS total FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')`)
 		var totalKobo int64
 		if len(bookRows) > 0 {
 			totalKobo = toInt64(bookRows[0]["total"])
 		}
 
-		// Top 10 obligors (by applicant_cif, falling back to applicant_name).
+		// Top 10 obligors (by CBS customer id).
 		obligorRows, _ := db.PGQuery(ctx, `
 			SELECT
-			    COALESCE(NULLIF(applicant_cif,''), applicant_name) AS obligor,
-			    applicant_name                                      AS name,
-			    SUM(disbursed_amount_kobo)                          AS exposure_kobo,
-			    COUNT(*)                                            AS loan_count
-			FROM loan_applications
-			WHERE status = 'disbursed' AND disbursed_amount_kobo > 0
+			    COALESCE(NULLIF(cbs_customer_id::text,''), cbs_account_number)      AS obligor,
+			    'Customer ' || COALESCE(NULLIF(cbs_customer_id::text,''), cbs_account_number) AS name,
+			    SUM(outstanding_principal_kobo)                                     AS exposure_kobo,
+			    COUNT(*)                                                            AS loan_count
+			FROM cbs_loans
+			WHERE status NOT IN ('Closed','Revoked') AND outstanding_principal_kobo > 0
 			GROUP BY 1, 2
 			ORDER BY 3 DESC
 			LIMIT 10`)
@@ -1921,14 +1927,14 @@ func complianceConcentrationRisk(db *core.DB) http.HandlerFunc {
 			obligorRows[i]["exposure_pct"] = pct
 		}
 
-		// Loan type breakdown (salary, personal, business, etc.)
+		// Loan type breakdown — by product on the live book.
 		typeRows, _ := db.PGQuery(ctx, `
 			SELECT
-			    COALESCE(NULLIF(loan_type,''), NULLIF(product_type,''), 'Other') AS loan_type,
-			    SUM(disbursed_amount_kobo)                                        AS exposure_kobo,
-			    COUNT(*)                                                          AS count
-			FROM loan_applications
-			WHERE status = 'disbursed' AND disbursed_amount_kobo > 0
+			    COALESCE(NULLIF(product_name,''), 'Other') AS loan_type,
+			    SUM(outstanding_principal_kobo)            AS exposure_kobo,
+			    COUNT(*)                                   AS count
+			FROM cbs_loans
+			WHERE status NOT IN ('Closed','Revoked') AND outstanding_principal_kobo > 0
 			GROUP BY 1
 			ORDER BY 2 DESC`)
 
@@ -1941,15 +1947,15 @@ func complianceConcentrationRisk(db *core.DB) http.HandlerFunc {
 			typeRows[i]["exposure_pct"] = pct
 		}
 
-		// Employer concentration — top 10 employers.
-		// M1: COUNT(DISTINCT applicant_cif) counts unique borrowers per employer, not loans.
+		// Sector concentration — the loan book carries economic_sector, not employer, so
+		// this reads as sector exposure (the frontend labels this section "By Sector").
 		empRows, _ := db.PGQuery(ctx, `
 			SELECT
-			    COALESCE(NULLIF(employer,''), 'Unknown')          AS employer,
-			    SUM(disbursed_amount_kobo)                        AS exposure_kobo,
-			    COUNT(DISTINCT NULLIF(applicant_cif,''))          AS borrower_count
-			FROM loan_applications
-			WHERE status = 'disbursed' AND disbursed_amount_kobo > 0
+			    COALESCE(NULLIF(economic_sector,''), 'Unclassified') AS employer,
+			    SUM(outstanding_principal_kobo)                      AS exposure_kobo,
+			    COUNT(DISTINCT cbs_customer_id)                      AS borrower_count
+			FROM cbs_loans
+			WHERE status NOT IN ('Closed','Revoked') AND outstanding_principal_kobo > 0
 			GROUP BY 1
 			ORDER BY 2 DESC
 			LIMIT 10`)

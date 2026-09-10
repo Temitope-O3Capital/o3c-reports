@@ -1,10 +1,7 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar,
-  PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts'
+import { EBar, EArea, EDonut } from '../../components/echarts'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -39,7 +36,7 @@ const STAGE_COLORS: Record<string, string> = {
   prospect: '#6B7280', qualified: BLUE, proposal: AMBER,
   negotiation: '#7C3AED', won: GREEN, lost: RED,
 }
-const SOURCE_COLORS = [NAVY, BLUE, AMBER, GREEN, PURPLE, RED, '#6B7280']
+const SOURCE_COLORS = [NAVY, BLUE, AMBER, GREEN, PURPLE, RED, '#5B7A94']
 
 function StagePill({ stage }: { stage: string }) {
   const c = STAGE_COLORS[stage] ?? '#6B7280'
@@ -138,6 +135,7 @@ export default function BDOverview() {
   const pipelineValue = pipeline.reduce((s, p) => s + Number(p.total_value_kobo || 0), 0)
 
   const monthlyTrend = getMonthlyTrend(leads)
+  const pipelineData = pipeline.map(p => ({ stage: p.stage, count: Number(p.count) }))
   const sourceBreak  = getSourceBreakdown(leads)
   const officerPerf  = getOfficerPerf(leads)
   // Rank employers by payroll size (deal-value signal), lead count as tiebreak.
@@ -198,6 +196,8 @@ export default function BDOverview() {
     <Page
       title="Business Development"
       subtitle="Pipeline, performance and employer overview"
+      loading={loading && !stats}
+      skeletonKpis={4}
       actions={
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
@@ -215,32 +215,14 @@ export default function BDOverview() {
       {/* ── Current pipeline state ─────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
         <SectionCard title="Pipeline by Stage" subtitle="Lead count per stage">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={pipeline} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="stage" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-              <Tooltip
-                content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null
-                  const d = payload[0].payload as PipelineStage
-                  return (
-                    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, fontSize: TEXT.sm, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                      <p style={{ fontWeight: FW.semibold, color: 'var(--txt)', textTransform: 'capitalize', marginBottom: 4 }}>{label}</p>
-                      <p style={{ color: 'var(--txt2)', marginBottom: 2 }}>Leads: {d.count}</p>
-                      <p style={{ color: 'var(--txt2)' }}>Value: {fmtKobo(d.total_value_kobo)}</p>
-                    </div>
-                  )
-                }}
-              />
-              <Bar dataKey="count" name="Leads" fill={AMBER} radius={[4, 4, 0, 0]}
-                label={({ x, y, width, value }) => (
-                  <text x={Number(x) + Number(width) / 2} y={Number(y) - 4} textAnchor="middle"
-                    style={{ fontSize: TEXT.xs, fill: '#6B7280' }}>{value > 0 ? value : ''}</text>
-                )}
-              />
-            </BarChart>
-          </ResponsiveContainer>
+          <EBar
+            data={pipelineData}
+            xKey="stage"
+            height={220}
+            legend={false}
+            valueFmt={fmtNum}
+            series={[{ key: 'count', name: 'Leads', color: AMBER }]}
+          />
         </SectionCard>
 
         <SectionCard title="Employer Partners" subtitle="MOU status">
@@ -272,34 +254,31 @@ export default function BDOverview() {
       {/* ── Trends ────────────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
         <SectionCard title="Lead Volume: Last 12 Months">
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={monthlyTrend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="bdAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={NAVY} stopOpacity={0.18} />
-                  <stop offset="95%" stopColor={NAVY} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} />
-              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
-              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-              <Area type="monotone" dataKey="leads" stroke={NAVY} strokeWidth={2} fill="url(#bdAreaGrad)" name="Leads" />
-            </AreaChart>
-          </ResponsiveContainer>
+          <EArea
+            data={monthlyTrend}
+            xKey="month"
+            height={200}
+            hideYAxis
+            endLabel
+            valueFmt={fmtNum}
+            endFmt={fmtNum}
+            series={[{ key: 'leads', name: 'Leads', color: NAVY }]}
+          />
         </SectionCard>
 
         <SectionCard title="Lead Source">
           {sourceBreak.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={sourceBreak} cx="50%" cy="44%" innerRadius={46} outerRadius={72} dataKey="value" nameKey="name">
-                  {sourceBreak.map((_, i) => <Cell key={i} fill={SOURCE_COLORS[i % SOURCE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-                <Legend iconSize={9} wrapperStyle={{ fontSize: TEXT.xs }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <EDonut
+              data={sourceBreak}
+              valueKey="value"
+              nameKey="name"
+              colorFn={(_, i) => SOURCE_COLORS[i % SOURCE_COLORS.length]}
+              size={200}
+              inner={46}
+              outer={72}
+              legend
+              valueFmt={fmtNum}
+            />
           ) : (
             <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>No lead source data</div>
           )}
@@ -322,17 +301,16 @@ export default function BDOverview() {
       {/* ── Officer performance ───────────────────────────────────────────────── */}
       {officerPerf.length > 0 && (
         <SectionCard title="Conversion by Officer" subtitle="Total leads vs won" style={{ marginBottom: 14 }}>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={officerPerf} margin={{ top: 4, right: 8, bottom: 20, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} interval={0} textAnchor="middle" />
-              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
-              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-              <Legend iconSize={10} wrapperStyle={{ fontSize: TEXT.xs }} />
-              <Bar dataKey="total" fill={NAVY}  radius={[4, 4, 0, 0]} name="Total Leads" />
-              <Bar dataKey="won"   fill={GREEN} radius={[4, 4, 0, 0]} name="Won" />
-            </BarChart>
-          </ResponsiveContainer>
+          <EBar
+            data={officerPerf}
+            xKey="name"
+            height={200}
+            valueFmt={fmtNum}
+            series={[
+              { key: 'total', name: 'Total Leads', color: NAVY },
+              { key: 'won', name: 'Won', color: GREEN },
+            ]}
+          />
         </SectionCard>
       )}
 

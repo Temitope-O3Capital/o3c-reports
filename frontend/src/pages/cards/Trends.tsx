@@ -1,14 +1,12 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
-import {
-  ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, PieChart, Pie, Cell, Legend,
-} from 'recharts'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
-import { RED, GREEN, AMBER, BLUE, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
+import { CHART_SERIES } from '../../components/charts'
+import { ELine, EDonut, EBar } from '../../components/echarts'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -51,26 +49,7 @@ const STATUS_COLORS: Record<string, string> = {
   SUSPENDED:      AMBER,
 }
 
-const PIE_FALLBACK = [NAVY, RED, BLUE, GREEN, AMBER, PURPLE, '#0EA5E9', '#06B6D4']
-
-// ── Custom tooltip ─────────────────────────────────────────────────────────────
-
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{
-      background: 'var(--card)', border: '1px solid var(--bdr)',
-      borderRadius: RADIUS.md, padding: '10px 14px', fontSize: TEXT.sm,
-    }}>
-      <div style={{ fontWeight: FW.semibold, marginBottom: 4, color: 'var(--txt)' }}>{label}</div>
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ color: p.color ?? 'var(--txt2)' }}>
-          {p.name}: {fmtNum(p.value)}
-        </div>
-      ))}
-    </div>
-  )
-}
+const PIE_FALLBACK = CHART_SERIES
 
 function EmptyMsg({ text }: { text: string }) {
   return (
@@ -160,6 +139,8 @@ export default function CardTrends() {
     <Page
       title="Card Trends"
       subtitle="Issuance and portfolio analytics"
+      loading={loading && !kpis}
+      skeletonKpis={4}
       actions={
         <DateFilter
           from={dateFrom} to={dateTo}
@@ -201,26 +182,14 @@ export default function CardTrends() {
         {issuance.length === 0 && !loading
           ? <EmptyMsg text="No issuance data for selected period" />
           : (
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={issuance} margin={{ top: 4, right: 20, bottom: 0, left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 11, fill: 'var(--txt2)' }}
-                  axisLine={false} tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: 'var(--txt2)' }}
-                  axisLine={false} tickLine={false} width={48}
-                />
-                <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--bdr)', strokeWidth: 1.5 }} />
-                <Line
-                  type="monotone" dataKey="issued" name="Cards Issued"
-                  stroke={NAVY} strokeWidth={2.5}
-                  dot={{ r: 3, fill: NAVY }} activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <ELine
+              data={issuance}
+              xKey="month"
+              series={[{ key: 'issued', name: 'Cards Issued', color: NAVY }]}
+              height={220}
+              valueFmt={(v) => fmtNum(v)}
+              axisFmt={(v) => fmtNum(v)}
+            />
           )
         }
       </SectionCard>
@@ -232,19 +201,18 @@ export default function CardTrends() {
           {pieData.length === 0 && !loading
             ? <EmptyMsg text="No status data" />
             : (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={pieData} cx="50%" cy="48%"
-                    innerRadius={58} outerRadius={86}
-                    dataKey="value" paddingAngle={2}
-                  >
-                    {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                  </Pie>
-                  <Tooltip formatter={(v: number, name: string) => [fmtNum(v), name]} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11.5 }} />
-                </PieChart>
-              </ResponsiveContainer>
+              <EDonut
+                data={pieData}
+                valueKey="value"
+                nameKey="name"
+                colorFn={(d) => d.color}
+                size={220}
+                inner={58}
+                outer={86}
+                legend
+                valueFmt={(v) => fmtNum(v)}
+                showPercent={false}
+              />
             )
           }
         </SectionCard>
@@ -253,24 +221,18 @@ export default function CardTrends() {
           {programs.length === 0 && !loading
             ? <EmptyMsg text="No program data" />
             : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={programs} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                  <XAxis
-                    dataKey="program"
-                    tick={{ fontSize: 11, fill: 'var(--txt2)' }}
-                    axisLine={false} tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: 'var(--txt2)' }}
-                    axisLine={false} tickLine={false} width={48}
-                  />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11.5 }} />
-                  <Bar dataKey="active"   name="Active"   fill={GREEN} radius={[4, 4, 0, 0]} stackId="a" />
-                  <Bar dataKey="inactive" name="Inactive" fill={AMBER} radius={[4, 4, 0, 0]} stackId="a" />
-                </BarChart>
-              </ResponsiveContainer>
+              <EBar<ProgramRow>
+                data={programs}
+                xKey="program"
+                series={[
+                  { key: 'active', name: 'Active', color: GREEN },
+                  { key: 'inactive', name: 'Inactive', color: AMBER },
+                ]}
+                stack
+                height={220}
+                valueFmt={(v) => fmtNum(v)}
+                axisFmt={(v) => fmtNum(v)}
+              />
             )
           }
         </SectionCard>

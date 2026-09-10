@@ -287,7 +287,10 @@ func qaCompute(params []qaParam, scores map[string]qaScore, pass float64, autoFa
 		secEarned[p.SectionKey] += (rating / 5.0) * p.MaxPoints
 		secMax[p.SectionKey] += p.MaxPoints
 	}
-	var weightedPct, totalWeight float64
+	var weightedPct, totalWeight, fullWeight float64
+	for _, wt := range secWeight {
+		fullWeight += wt // every section's weight, scored or not
+	}
 	for sec, wt := range secWeight {
 		if secMax[sec] <= 0 {
 			continue // whole section N/A → excluded, its weight redistributes
@@ -305,6 +308,14 @@ func qaCompute(params []qaParam, scores map[string]qaScore, pass float64, autoFa
 	passed := total >= pass
 	if critical && autoFail {
 		passed = false
+	}
+	// Coverage floor: renormalisation over only the scored sections means a scorecard
+	// with almost nothing rated inflates to a perfect score — rating a single criterion
+	// 5/5 and leaving the rest unrated used to return 100 / "Outstanding" / passed. An
+	// evaluation covering less than half the scorecard's section weight is INCOMPLETE,
+	// not a score, and can never be a pass.
+	if fullWeight > 0 && totalWeight < 0.5*fullWeight {
+		return total, "Incomplete", false
 	}
 	return total, band, passed
 }
@@ -346,14 +357,28 @@ func qaCreateEvaluation(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "call_id and scores are required")
 			return
 		}
+		// Reject an empty submission outright: with no criterion scored it would compute
+		// to 0 and save as a real (failing) 0-score row that then drags the agent's
+		// average. A scorecard must actually rate something.
+		scored := 0
+		for _, sc := range b.Scores {
+			if !sc.NA && sc.Rating != nil {
+				scored++
+			}
+		}
+		if scored == 0 {
+			respondErr(w, 400, "Score at least one criterion before submitting the evaluation")
+			return
+		}
 		ctx := r.Context()
 
-		// Pull the call for denormalised context on the evaluation.
+		// Pull the call for denormalised context on the evaluation. Exclude merged/voided
+		// rows so a phantom stub or a struck-out mis-log can't be evaluated.
 		var agentID int64
 		var agentName, direction, custName, zohoID string
 		var startedAt any
 		if rows, _ := db.PGQuery(ctx,
-			`SELECT agent_id, agent_name, direction, customer_name, zoho_call_id, started_at FROM helpdesk_calls WHERE id=$1`, b.CallID); len(rows) > 0 {
+			`SELECT agent_id, agent_name, direction, customer_name, zoho_call_id, started_at FROM helpdesk_calls WHERE id=$1 AND merged_into_call_id IS NULL AND voided_at IS NULL`, b.CallID); len(rows) > 0 {
 			agentID = toInt64(rows[0]["agent_id"])
 			agentName = str(rows[0]["agent_name"])
 			direction = str(rows[0]["direction"])
@@ -500,14 +525,41 @@ func qaStats(db *core.DB) http.HandlerFunc {
 			FROM qa_evaluations WHERE %s`, where), args...); len(rows) > 0 {
 			summary = rows[0]
 		}
+
+		// QA COVERAGE: of the connected calls in the period, what share were evaluated?
+		// A QA programme can show a healthy average while sampling a fraction of a
+		// percent of calls; coverage is the KPI that exposes that. Aligned on the call's
+		// own date (not the evaluation date) and on the same connected-call definition
+		// the rest of the module uses, with merged/voided excluded.
+		covWhere := "h.merged_into_call_id IS NULL AND h.voided_at IS NULL AND " + callConnectedExpr("h.")
+		var covArgs []any
+		if v := qstr(r, "from"); v != "" {
+			covArgs = append(covArgs, v)
+			covWhere += fmt.Sprintf(" AND h.started_at::date >= $%d::date", len(covArgs))
+		}
+		if v := qstr(r, "to"); v != "" {
+			covArgs = append(covArgs, v)
+			covWhere += fmt.Sprintf(" AND h.started_at::date <= $%d::date", len(covArgs))
+		}
+		var connectedCalls, evaluatedCalls int
+		db.PG.QueryRowContext(ctx, "SELECT COUNT(*) FROM helpdesk_calls h WHERE "+covWhere, covArgs...).Scan(&connectedCalls)                                                       //nolint:errcheck
+		db.PG.QueryRowContext(ctx, "SELECT COUNT(DISTINCT q.call_id) FROM qa_evaluations q JOIN helpdesk_calls h ON h.id = q.call_id WHERE "+covWhere, covArgs...).Scan(&evaluatedCalls) //nolint:errcheck
+		coverage := 0.0
+		if connectedCalls > 0 {
+			coverage = math.Round(float64(evaluatedCalls)/float64(connectedCalls)*1000) / 10
+		}
+		summary["connected_calls"] = connectedCalls
+		summary["evaluated_calls"] = evaluatedCalls
+		summary["coverage_pct"] = coverage
+
 		byAgent, _ := db.PGQuery(ctx, fmt.Sprintf(`
-			SELECT agent_id, COALESCE(NULLIF(agent_name,''),'Unknown') AS agent_name,
+			SELECT agent_id, COALESCE(NULLIF(MAX(agent_name),''),'Unknown') AS agent_name,
 			       COUNT(*)::int AS evaluations,
 			       ROUND(AVG(total_score),1) AS avg_score,
 			       COUNT(*) FILTER (WHERE passed)::int AS passed,
 			       COUNT(*) FILTER (WHERE critical_error)::int AS critical_errors
 			FROM qa_evaluations WHERE %s
-			GROUP BY agent_id, agent_name ORDER BY avg_score DESC NULLS LAST`, where), args...)
+			GROUP BY agent_id ORDER BY avg_score DESC NULLS LAST`, where), args...)
 		byBand, _ := db.PGQuery(ctx, fmt.Sprintf(`
 			SELECT rating_band, COUNT(*)::int AS count FROM qa_evaluations WHERE %s GROUP BY rating_band`, where), args...)
 		trend, _ := db.PGQuery(ctx, fmt.Sprintf(`

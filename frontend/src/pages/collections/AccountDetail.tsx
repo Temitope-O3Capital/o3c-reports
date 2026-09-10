@@ -1,13 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+// Collections → Credit File. Opened from the Credit Portfolio, the Queue and the
+// Watchlist by CIF.
+//
+// This page used to show one aggregated outstanding figure for the CIF and four
+// counters. That answered "how late is this account?" but not the questions an
+// officer on a call actually has: what credit is this, what was it supposed to
+// repay and when, how much of each instalment has landed, and is this even the
+// same customer Customer 360 is showing? It now answers all four — identity comes
+// through the same party layer C360 uses, and the credit itself is broken out
+// facility by facility with a schedule under each one.
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import {
-  Page, SectionCard, Spinner, ErrBanner, Modal,
-} from '../../components/UI'
+import { Page, SectionCard, Spinner, ErrBanner, Modal, EmptyState } from '../../components/UI'
 import { LogPaymentModal } from '../../components/LogPaymentModal'
+import CallsPanel from '../../components/CallsPanel'
+import {
+  useCreditDossier, ExposureStrip, FacilityRail, FacilityTerms, ScheduleTable,
+  RepaymentLedger, CaseContext, CustomerDetails, Meter, isInternalId, type Facility,
+} from '../../components/CreditFile'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtDatetime } from '../../lib/fmt'
-import { RED, AMBER, GREEN, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { hasPage } from '../../hooks/useAuth'
+import { fmtKoboExact, fmtDate, fmtDatetime } from '../../lib/fmt'
+import { RED, AMBER, GREEN, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 function getStoredRole(): string {
   try { return (JSON.parse(localStorage.getItem('o3c_user') ?? 'null') as { role?: string } | null)?.role ?? '' } catch { return '' }
@@ -78,8 +93,10 @@ interface PaymentEntry {
   amount_kobo: number
   payment_date: string
   payment_method: string
+  channel?: string | null
   reference: string | null
   received_by_name: string | null
+  status?: string | null
 }
 
 interface AgentUser { id: number; full_name: string; role: string }
@@ -229,7 +246,7 @@ function ChipGroup<T extends string>({
 
 // ── Tab content ───────────────────────────────────────────────────────────────
 
-function TimelineTab({ cif, version }: { cif: string; version: number }) {
+export function TimelineTab({ cif, version }: { cif: string; version: number }) {
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -288,7 +305,7 @@ function TimelineTab({ cif, version }: { cif: string; version: number }) {
   )
 }
 
-function ContactsTab({ assignmentId, version }: { assignmentId: number | null; version: number }) {
+export function ContactsTab({ assignmentId, version }: { assignmentId: number | null; version: number }) {
   const [contacts, setContacts] = useState<ContactEntry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -338,7 +355,7 @@ function ContactsTab({ assignmentId, version }: { assignmentId: number | null; v
   )
 }
 
-function PromisesTab({ cif, version }: { cif: string; version: number }) {
+export function PromisesTab({ cif, version }: { cif: string; version: number }) {
   const [promises, setPromises] = useState<PromiseEntry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -367,7 +384,7 @@ function PromisesTab({ cif, version }: { cif: string; version: number }) {
         }}>
           <div>
             <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>
-              {fmtKobo(p.promise_amount_kobo)}, due {fmtDate(p.promise_date)}
+              {fmtKoboExact(p.promise_amount_kobo)}, due {fmtDate(p.promise_date)}
             </div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
               {p.agent_name ?? '—'} · {fmtDatetime(p.created_at)}
@@ -386,21 +403,29 @@ function PromisesTab({ cif, version }: { cif: string; version: number }) {
   )
 }
 
-function PaymentsTab({ assignmentId, version }: { assignmentId: number | null; version: number }) {
+// PaymentsTab is CIF-keyed. It used to read /collections-ops/{assignmentId}/payments,
+// which could only ever see payments carrying an assignment_id — and 1,721 of the
+// 1,798 rows in the book (the historical and CRM imports) carry none, so the tab
+// showed nothing while the header counted them in "total paid". The CIF is the key
+// collection_payments is actually stored under.
+export function PaymentsTab({ cif, assignmentId, version }: { cif?: string; assignmentId: number | null; version: number }) {
   const [payments, setPayments] = useState<PaymentEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!assignmentId) { setLoading(false); return }
+    if (!cif && !assignmentId) { setLoading(false); return }
     setLoading(true)
-    apiFetch<{ data: PaymentEntry[] }>(`/api/collections-ops/${assignmentId}/payments`)
+    const url = cif
+      ? `/api/collections-ops/payments/by-cif?cif=${encodeURIComponent(cif)}`
+      : `/api/collections-ops/${assignmentId}/payments`
+    apiFetch<{ data: PaymentEntry[] }>(url)
       .then(r => setPayments(r.data ?? []))
       .catch(() => setPayments([]))
       .finally(() => setLoading(false))
-  }, [assignmentId, version])
+  }, [cif, assignmentId, version])
 
   if (loading) return <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
-  if (!assignmentId) return <div style={{ padding: SP[4], color: 'var(--txt3)', fontSize: TEXT.sm }}>No assignment on record</div>
+  if (!cif && !assignmentId) return <div style={{ padding: SP[4], color: 'var(--txt3)', fontSize: TEXT.sm }}>No assignment on record</div>
 
   if (payments.length === 0) return (
     <div style={{ padding: `${SP[8]} ${SP[4]}`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
@@ -417,10 +442,10 @@ function PaymentsTab({ assignmentId, version }: { assignmentId: number | null; v
         }}>
           <div>
             <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: GREEN, marginBottom: 2 }}>
-              {fmtKobo(p.amount_kobo)}
+              {fmtKoboExact(p.amount_kobo)}
             </div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-              {(p.payment_method ?? '').replace(/_/g, ' ')}
+              {(p.payment_method ?? p.channel ?? '').replace(/_/g, ' ')}
               {p.reference ? ` · ${p.reference}` : ''}
               {p.received_by_name ? ` · by ${p.received_by_name}` : ''}
             </div>
@@ -451,13 +476,15 @@ export default function CollectionsAccountDetail() {
   const [detail, setDetail]     = useState<AccountDetail | null>(null)
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
-  const [activeTab, setTab]     = useState<'timeline' | 'contacts' | 'promises' | 'payments'>('timeline')
+  const [activeTab, setTab]     = useState<'schedule' | 'repayments' | 'timeline' | 'contacts' | 'calls' | 'promises'>('schedule')
   const [openModal, setModal]   = useState<ModalType>(null)
   const [agents, setAgents]     = useState<AgentUser[]>([])
   const [saving, setSaving]     = useState(false)
-  // version bumps to trigger tab refetches (both on user action and on poll)
   const [version, setVersion]   = useState(0)
-  const pollRef                  = useRef<number | null>(null)
+  const [selectedKey, setSelectedKey] = useState('')
+  const pollRef                 = useRef<number | null>(null)
+
+  const { data: credit, loading: creditLoading, error: creditError, reload: reloadCredit } = useCreditDossier(cif)
 
   // Log contact form
   const [ctType, setCtType]       = useState<string>('phone')
@@ -491,9 +518,10 @@ export default function CollectionsAccountDetail() {
     }
   }, [cif])
 
+  const refreshAll = useCallback(() => { loadDetail(); reloadCredit() }, [loadDetail, reloadCredit])
+
   useEffect(() => {
     loadDetail()
-    // Start polling
     pollRef.current = window.setInterval(() => loadDetail(true), POLL_INTERVAL)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [loadDetail])
@@ -506,6 +534,17 @@ export default function CollectionsAccountDetail() {
     }
   }, [isHead])
 
+  // Open on the facility this account is actually filed under.
+  useEffect(() => {
+    if (!credit || credit.facilities.length === 0) return
+    setSelectedKey(k => (credit.facilities.some(f => f.key === k) ? k : credit.facilities[0].key))
+  }, [credit])
+
+  const selected: Facility | null = useMemo(
+    () => credit?.facilities.find(f => f.key === selectedKey) ?? credit?.facilities[0] ?? null,
+    [credit, selectedKey],
+  )
+
   async function logContact() {
     if (!detail?.assignment_id) return
     setSaving(true)
@@ -515,7 +554,7 @@ export default function CollectionsAccountDetail() {
       })
       toast.success('Contact logged')
       setModal(null); setCtNotes(''); setCtType('phone'); setCtOutcome('answered')
-      loadDetail()
+      refreshAll()
     } catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
   }
 
@@ -532,7 +571,7 @@ export default function CollectionsAccountDetail() {
       })
       toast.success('PTP created')
       setModal(null); setPtpAmount(''); setPtpDate('')
-      loadDetail()
+      refreshAll()
     } catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
   }
 
@@ -546,7 +585,7 @@ export default function CollectionsAccountDetail() {
       })
       toast.success('Added to watchlist')
       setModal(null); setWlNotes(''); setWlScenario('unreachable')
-      loadDetail()
+      refreshAll()
     } catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
   }
 
@@ -559,7 +598,7 @@ export default function CollectionsAccountDetail() {
       })
       toast.success(rvStatus === 'resolved' ? 'Flag resolved' : 'Escalated to recovery')
       setModal(null); setRvNotes(''); setRvStatus('resolved')
-      loadDetail()
+      refreshAll()
     } catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
   }
 
@@ -572,7 +611,7 @@ export default function CollectionsAccountDetail() {
       })
       toast.success('Account reassigned')
       setModal(null); setNewAgentId('')
-      loadDetail()
+      refreshAll()
     } catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
   }
 
@@ -583,7 +622,7 @@ export default function CollectionsAccountDetail() {
       await apiPost(`/api/collections-ops/${detail.assignment_id}/send-to-recovery`, {})
       toast.success('Sent to recovery')
       setModal(null)
-      loadDetail()
+      refreshAll()
     } catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
   }
 
@@ -592,34 +631,61 @@ export default function CollectionsAccountDetail() {
   )
 
   const TABS = [
-    { key: 'timeline'  as const, label: 'Timeline',  icon: 'history'    },
-    { key: 'contacts'  as const, label: 'Contacts',  icon: 'call'       },
-    { key: 'promises'  as const, label: 'Promises',  icon: 'handshake'  },
-    { key: 'payments'  as const, label: 'Payments',  icon: 'payments'   },
+    { key: 'schedule'   as const, label: 'Repayment Schedule', icon: 'calendar_month' },
+    { key: 'repayments' as const, label: 'Repayments',         icon: 'payments'       },
+    { key: 'timeline'   as const, label: 'Timeline',           icon: 'history'        },
+    { key: 'contacts'   as const, label: 'Contacts',           icon: 'call'           },
+    { key: 'calls'      as const, label: 'Calls',              icon: 'phone_in_talk'  },
+    { key: 'promises'   as const, label: 'Promises',           icon: 'handshake'      },
   ]
 
   if (loading) return (
-    <Page title="Account Detail">
+    <Page title="Credit File">
       <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div>
     </Page>
   )
 
   if (error || !detail) return (
-    <Page title="Account Detail">
+    <Page title="Credit File">
       <ErrBanner error={error ?? 'Account not found'} onRetry={() => loadDetail()} />
     </Page>
   )
 
   const d = detail
+  const cust = credit?.customer
+  // The collections book carries its own uploaded spelling of the name; the customer
+  // master is canonical. Show the master name, and surface the book's alias so an
+  // officer holding the uploaded sheet still recognises the record.
+  const displayName = cust?.name || (d.applicant_name !== d.applicant_cif ? d.applicant_name : `Account ${d.applicant_cif}`)
+  const bookAlias = d.applicant_name && d.applicant_name !== d.applicant_cif
+    && cust?.name && d.applicant_name.toLowerCase() !== cust.name.toLowerCase()
+    ? d.applicant_name : ''
+  const linkedCount = (cust?.linked_ids?.length ?? 1) - 1
+
+  // Three identifiers, and only three: the Customer ID, the card CIF, and the Udara
+  // id. The account key this page was opened on is an internal handle for borrowers
+  // who hold a loan and no card — it is not a CIF and is never shown as one.
+  const idLine = (() => {
+    const parts: string[] = []
+    if (cust?.customer_id) parts.push(cust.customer_id)
+    const cifs = (cust?.cifs ?? []).filter(c => !isInternalId(c))
+    if (cifs.length === 1) parts.push(`CIF ${cifs[0]}`)
+    else if (cifs.length > 1) parts.push(`${cifs.length} CIFs`)
+    else parts.push('No card')
+    const udara = cust?.udara_customers ?? []
+    if (udara.length) parts.push(`Udara ${udara.join(', ')}`)
+    if (d.product_type && d.product_type !== '—') parts.push(d.product_type)
+    return parts.join(' · ')
+  })()
 
   return (
     <Page
-      title={d.applicant_name && d.applicant_name !== d.applicant_cif ? d.applicant_name : `Account ${d.applicant_cif}`}
-      subtitle={`CIF: ${d.applicant_cif}${d.product_type ? ` · ${d.product_type}` : ''}`}
+      title={displayName}
+      subtitle={idLine}
       actions={
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
-            onClick={() => loadDetail()}
+            onClick={refreshAll}
             title="Refresh"
             style={{
               padding: '6px 10px', borderRadius: RADIUS.md, cursor: 'pointer',
@@ -642,27 +708,28 @@ export default function CollectionsAccountDetail() {
             Back
           </button>
           <button
-            onClick={() => navigate(`/contacts/${d.applicant_cif}`)}
+            onClick={() => navigate(`/customers/${d.applicant_cif}`)}
             style={{
               padding: '6px 12px', borderRadius: RADIUS.md, cursor: 'pointer',
-              border: `1.5px solid ${NAVY}40`, background: `${NAVY}08`, color: NAVY,
+              border: 'none', background: NAVY, color: '#fff',
               fontSize: TEXT.sm, fontWeight: FW.semibold,
               display: 'inline-flex', alignItems: 'center', gap: 5,
             }}
           >
-            Full C360
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>account_circle</span>
+            Customer 360
           </button>
         </div>
       }
     >
-      {/* ── Header card ──────────────────────────────────────────────────────── */}
+      {/* ── Identity masthead ────────────────────────────────────────────────── */}
       <div style={{
         background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl,
         padding: `${SP[4]} ${SP[5]}`, marginBottom: SP[4],
-        display: 'grid', gridTemplateColumns: '1fr auto', gap: SP[6], alignItems: 'start',
+        display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: SP[6], alignItems: 'start',
       }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: SP[2] }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: SP[3] }}>
             <DpdBadge dpd={d.dpd_lower} bucket={d.dpd_bucket} />
             <span style={{
               fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.05em',
@@ -688,38 +755,64 @@ export default function CollectionsAccountDetail() {
                 {SCENARIOS.find(s => s.value === d.watchlist_scenario)?.label ?? d.watchlist_scenario}
               </span>
             )}
+            {linkedCount > 0 && (
+              <span style={{
+                fontSize: TEXT['2xs'], fontWeight: FW.semibold,
+                padding: '2px 8px', borderRadius: RADIUS.full,
+                background: `${PURPLE}14`, color: PURPLE,
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 11 }}>link</span>
+                {linkedCount} other {linkedCount === 1 ? 'id' : 'ids'} on this customer
+              </span>
+            )}
           </div>
 
-          <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', marginBottom: SP[1] }}>
-            Handler:{' '}
-            <span style={{ fontWeight: FW.semibold, color: 'var(--txt)' }}>
-              {d.agent_name ?? 'Unassigned'}
-            </span>
-            {d.assignment_date && ` · since ${fmtDate(d.assignment_date)}`}
-          </div>
-          {d.last_contact_at && (
-            <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>
-              Last contact:{' '}
-              <span style={{ color: 'var(--txt)' }}>{fmtDate(d.last_contact_at)}</span>
-              {d.last_contact_outcome && (
-                <> · <span style={{ color: 'var(--txt2)' }}>{d.last_contact_outcome.replace(/_/g, ' ')}</span></>
-              )}
+          {bookAlias && (
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: SP[2] }}>
+              Filed in the collections book as <span style={{ fontWeight: FW.semibold, color: 'var(--txt2)' }}>{bookAlias}</span>
             </div>
           )}
+
+          <div style={{
+            display: 'grid', gap: `${SP[2]} ${SP[5]}`,
+            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+          }}>
+            <IdLine icon="badge" label="Handler" value={d.agent_name ?? 'Unassigned'}
+                    sub={d.assignment_date ? `since ${fmtDate(d.assignment_date)}` : ''} />
+            {cust?.phone && <IdLine icon="call" label="Phone" value={cust.phone} />}
+            {cust?.email && <IdLine icon="mail" label="Email" value={cust.email} />}
+            {cust?.employer && <IdLine icon="apartment" label="Employer" value={cust.employer} />}
+            {d.last_contact_at && (
+              <IdLine icon="history" label="Last contact" value={fmtDate(d.last_contact_at)}
+                      sub={d.last_contact_outcome ? d.last_contact_outcome.replace(/_/g, ' ') : ''} />
+            )}
+            {(cust?.city || cust?.state) && (
+              <IdLine icon="location_on" label="Location" value={[cust?.city, cust?.state].filter(Boolean).join(', ')} />
+            )}
+          </div>
         </div>
 
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', marginBottom: 6, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+          <div style={{
+            fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', marginBottom: 6,
+            letterSpacing: '0.07em', textTransform: 'uppercase',
+          }}>
             Outstanding
           </div>
           <div style={{
-            ...NUM, fontSize: 32, fontWeight: FW.extrabold, lineHeight: 1,
+            ...NUM, fontSize: 34, fontWeight: FW.extrabold, lineHeight: 1,
             color: d.dpd_lower > 90 ? RED : d.dpd_lower > 30 ? AMBER : GREEN,
           }}>
-            {fmtKobo(d.outstanding_kobo)}
+            {fmtKoboExact(d.outstanding_kobo)}
           </div>
           <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 6 }}>
-            Principal: {fmtKobo(d.principal_kobo)}
+            {fmtKoboExact(d.total_paid_kobo)} received to date
+          </div>
+          <div style={{ display: 'flex', gap: SP[4], justifyContent: 'flex-end', marginTop: SP[3] }}>
+            <MiniStat label="Contacts" value={d.total_contacts} />
+            <MiniStat label="PTPs" value={d.ptps_created} />
+            <MiniStat label="Kept" value={d.ptps_kept} color={GREEN} />
           </div>
         </div>
       </div>
@@ -759,34 +852,81 @@ export default function CollectionsAccountDetail() {
         )}
       </div>
 
-      {/* ── Stats strip ──────────────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[4] }}>
-        {[
-          { label: 'Total Contacts', value: d.total_contacts,            color: NAVY,  icon: 'call'          },
-          { label: 'PTPs Created',   value: d.ptps_created,              color: GREEN, icon: 'handshake'     },
-          { label: 'PTPs Kept',      value: d.ptps_kept,                 color: GREEN, icon: 'check_circle'  },
-          { label: 'Total Paid',     value: fmtKobo(d.total_paid_kobo), color: GREEN, icon: 'payments'      },
-        ].map(s => (
-          <div key={s.label} style={{
-            background: 'var(--card)', border: '1px solid var(--bdr)',
-            borderRadius: RADIUS.lg, padding: `${SP[3]} ${SP[4]}`,
-            display: 'flex', flexDirection: 'column', gap: 4,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15, color: s.color }}>{s.icon}</span>
-              <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)' }}>{s.label}</span>
-            </div>
-            <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: s.color, lineHeight: 1 }}>
-              {s.value}
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* ── The credit itself ────────────────────────────────────────────────── */}
+      {creditError && <ErrBanner error={creditError} onRetry={() => reloadCredit()} />}
 
-      {/* ── Tab section ──────────────────────────────────────────────────────── */}
-      <SectionCard title="" padding={false}>
+      {creditLoading && !credit && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: SP[10] }}><Spinner size={26} /></div>
+      )}
+
+      {credit && (
+        <>
+          <CaseContext
+            recovery={credit.recovery_case}
+            accommodations={credit.accommodations ?? []}
+            // Only offer the jump to someone who can actually open Recovery.
+            onOpenRecovery={hasPage('recovery') && credit.recovery_case?.id
+              ? () => navigate(`/recovery/cases/${credit.recovery_case.id}`)
+              : undefined}
+          />
+          <CustomerDetails c={credit.customer} />
+          <ExposureStrip t={credit.totals} />
+
+          <SectionCard
+            title="Facilities"
+            subtitle={
+              credit.facilities.length === 0
+                ? 'No card or loan facility is linked to this customer'
+                : `Every credit line held by ${credit.customer.name}${linkedCount > 0 ? `, across all ${credit.customer.linked_ids.length} of their ids` : ''}. Select one to see its schedule.`
+            }
+            padding={false}
+          >
+            <div style={{ padding: `${SP[4]} ${SP[4]} 0` }}>
+              <FacilityRail facilities={credit.facilities} selected={selected?.key ?? ''} onSelect={setSelectedKey} />
+            </div>
+          </SectionCard>
+        </>
+      )}
+
+      {/* ── Selected facility + working tabs ─────────────────────────────────── */}
+      <SectionCard title="" padding={false} style={{ marginTop: SP[4] }}>
+        {selected && (
+          <div style={{
+            padding: `${SP[4]} ${SP[5]} ${SP[3]}`, borderBottom: '1px solid var(--bdr)',
+            display: 'flex', alignItems: 'center', gap: SP[4], flexWrap: 'wrap',
+          }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>
+                {selected.product}
+              </div>
+              <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
+                {selected.origin} · {selected.ref || '—'}{selected.cif ? ` · CIF ${selected.cif}` : ''}
+              </div>
+            </div>
+            {selected.scheduled_kobo > 0 && (
+              <div style={{ minWidth: 190 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--txt3)' }}>
+                    Schedule paid
+                  </span>
+                  <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, color: selected.paid_pct >= 80 ? GREEN : selected.paid_pct >= 40 ? AMBER : RED }}>
+                    {selected.paid_pct.toFixed(1)}%
+                  </span>
+                </div>
+                <Meter pct={selected.paid_pct} color={selected.paid_pct >= 80 ? GREEN : selected.paid_pct >= 40 ? AMBER : RED} />
+                <div style={{ ...NUM, fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 5 }}>
+                  {fmtKoboExact(selected.paid_kobo)} of {fmtKoboExact(selected.scheduled_kobo)}
+                  {selected.arrears_kobo > 0 && <span style={{ color: RED }}> · {fmtKoboExact(selected.arrears_kobo)} in arrears</span>}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {selected && <FacilityTerms f={selected} />}
+
         {/* Tab bar */}
-        <div style={{ display: 'flex', gap: 2, padding: '8px 16px', borderBottom: '1px solid var(--bdr)' }}>
+        <div style={{ display: 'flex', gap: 2, padding: '8px 16px', borderBottom: '1px solid var(--bdr)', flexWrap: 'wrap' }}>
           {TABS.map(t => (
             <button
               key={t.key}
@@ -797,7 +937,7 @@ export default function CollectionsAccountDetail() {
                 border: activeTab === t.key ? `1.5px solid ${NAVY}` : '1.5px solid transparent',
                 background: activeTab === t.key ? NAVY : 'transparent',
                 color: activeTab === t.key ? '#fff' : 'var(--txt2)',
-                display: 'inline-flex', alignItems: 'center', gap: 6,
+                display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
               }}
             >
               <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{t.icon}</span>
@@ -810,10 +950,21 @@ export default function CollectionsAccountDetail() {
           </span>
         </div>
 
-        {activeTab === 'timeline' && <TimelineTab cif={d.applicant_cif}       version={version} />}
+        {activeTab === 'schedule' && (
+          selected
+            ? <ScheduleTable f={selected} />
+            : <EmptyState icon="credit_card_off" title="No facility on file"
+                          description="No card or loan is linked to this CIF, so there is no schedule to show." />
+        )}
+        {activeTab === 'repayments' && (
+          credit
+            ? <RepaymentLedger repayments={credit.repayments} />
+            : <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
+        )}
+        {activeTab === 'timeline' && <TimelineTab cif={d.applicant_cif} version={version} />}
         {activeTab === 'contacts' && <ContactsTab assignmentId={d.assignment_id} version={version} />}
-        {activeTab === 'promises' && <PromisesTab cif={d.applicant_cif}       version={version} />}
-        {activeTab === 'payments' && <PaymentsTab assignmentId={d.assignment_id} version={version} />}
+        {activeTab === 'calls'    && <CallsPanel cif={d.applicant_cif} />}
+        {activeTab === 'promises' && <PromisesTab cif={d.applicant_cif} version={version} />}
       </SectionCard>
 
       {/* ── Modals ───────────────────────────────────────────────────────────── */}
@@ -870,7 +1021,7 @@ export default function CollectionsAccountDetail() {
           onClose={() => setModal(null)}
           title={`Log Payment: ${d.applicant_cif}`}
           endpoint={`/api/collections-ops/${d.assignment_id}/payment`}
-          onSuccess={() => { setModal(null); loadDetail() }}
+          onSuccess={() => { setModal(null); refreshAll() }}
         />
       )}
 
@@ -967,11 +1118,46 @@ export default function CollectionsAccountDetail() {
         >
           <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0, lineHeight: 1.6 }}>
             This will escalate <strong>{d.applicant_cif}</strong> (outstanding:{' '}
-            <strong>{fmtKobo(d.outstanding_kobo)}</strong>) to the Recovery team. The action is
+            <strong>{fmtKoboExact(d.outstanding_kobo)}</strong>) to the Recovery team. The action is
             logged and will appear in the credit audit trail.
           </p>
         </Modal>
       )}
     </Page>
+  )
+}
+
+// ── Masthead bits ─────────────────────────────────────────────────────────────
+
+function IdLine({ icon, label, value, sub }: { icon: string; label: string; value: string; sub?: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, minWidth: 0 }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)', marginTop: 2 }}>{icon}</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{
+          fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.06em',
+          textTransform: 'uppercase', color: 'var(--txt3)',
+        }}>{label}</div>
+        <div style={{
+          fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>{value}</div>
+        {sub && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{sub}</div>}
+      </div>
+    </div>
+  )
+}
+
+function MiniStat({ label, value, color }: { label: string; value: number; color?: string }) {
+  return (
+    <div style={{ textAlign: 'right' }}>
+      <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: color ?? 'var(--txt)', lineHeight: 1.1 }}>
+        {value}
+      </div>
+      <div style={{
+        fontSize: TEXT['2xs'], fontWeight: FW.semibold, letterSpacing: '0.05em',
+        textTransform: 'uppercase', color: 'var(--txt3)', marginTop: 2,
+      }}>{label}</div>
+    </div>
   )
 }

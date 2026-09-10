@@ -7,10 +7,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtPct } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { FunnelChart, type FunnelStep } from '../marketing/FunnelChart'
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  PieChart, Pie, Cell,
-} from 'recharts'
+import { EBar, EDonut } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,6 +35,19 @@ interface AnalyticsResp {
   top_campaigns: TopCampaign[]
 }
 
+// The campaign → lead → sales → customer funnel (GET /api/campaigns/conversion-funnel).
+interface ConvCampaign {
+  campaign_id: number; campaign_name: string; channel: string
+  leads: number; contacted: number; interested: number; forwarded: number; converted: number
+}
+interface ConversionResp {
+  campaigns: ConvCampaign[]
+  funnel: { stage: string; count: number }[]
+  leads: number
+  converted: number
+  conversion_rate: number
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const WA_GREEN = '#25D366'
@@ -60,6 +70,7 @@ export default function CampaignPerformance() {
   const [channel, setChannel]   = useState('')
 
   const [data, setData]       = useState<AnalyticsResp | null>(null)
+  const [conv, setConv]       = useState<ConversionResp | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr]         = useState<string | null>(null)
 
@@ -70,8 +81,12 @@ export default function CampaignPerformance() {
       if (dateFrom) p.set('date_from', dateFrom)
       if (dateTo)   p.set('date_to',   dateTo)
       if (channel)  p.set('channel',   channel)
-      const res = await apiFetch<AnalyticsResp>(`/api/campaigns/analytics?${p}`)
+      const [res, cf] = await Promise.all([
+        apiFetch<AnalyticsResp>(`/api/campaigns/analytics?${p}`),
+        apiFetch<ConversionResp>(`/api/campaigns/conversion-funnel?${p}`).catch(() => null),
+      ])
       setData(res)
+      setConv(cf)
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
   }, [dateFrom, dateTo, channel])
@@ -111,6 +126,27 @@ export default function CampaignPerformance() {
 
   const monthlyData  = (data?.monthly_volume ?? []).slice().sort((a, b) => a.month.localeCompare(b.month))
   const channelSplit = data?.channel_split ?? []
+
+  // Lead → Customer conversion funnel: campaign leads → contacted → interested →
+  // forwarded → converted. The stages come from the server so the labels stay in step.
+  const CONV_COLORS = [NAVY, BLUE, AMBER, PURPLE, GREEN]
+  const convSteps: FunnelStep[] = (conv?.funnel ?? []).map((s, i) => ({
+    label: s.stage, value: toN(s.count), color: CONV_COLORS[i % CONV_COLORS.length],
+  }))
+  const convHasData = convSteps.some(s => s.value > 0)
+  const convCols: TableCol<ConvCampaign>[] = [
+    { key: 'campaign_name', label: 'Campaign', render: r => <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', cursor: 'pointer' }} onClick={() => navigate(`/campaigns/${r.campaign_id}/report?tab=results`)}>{r.campaign_name}</span> },
+    { key: 'channel', label: 'Type', render: r => <ChannelTag channel={r.channel} /> },
+    { key: 'leads',      label: 'Leads',      align: 'right', render: r => <span style={NUM}>{fmtNum(toN(r.leads))}</span> },
+    { key: 'contacted',  label: 'Contacted',  align: 'right', render: r => <span style={{ ...NUM, color: BLUE }}>{fmtNum(toN(r.contacted))}</span> },
+    { key: 'interested', label: 'Interested', align: 'right', render: r => <span style={{ ...NUM, color: AMBER }}>{fmtNum(toN(r.interested))}</span> },
+    { key: 'forwarded',  label: 'Forwarded',  align: 'right', render: r => <span style={{ ...NUM, color: PURPLE }}>{fmtNum(toN(r.forwarded))}</span> },
+    { key: 'converted',  label: 'Converted',  align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: GREEN }}>{fmtNum(toN(r.converted))}</span> },
+    { key: '_rate',      label: 'Conv. rate', align: 'right', render: r => {
+        const rate = toN(r.leads) > 0 ? (toN(r.converted) / toN(r.leads)) * 100 : 0
+        return <span style={{ ...NUM, color: rate > 0 ? GREEN : 'var(--txt3)' }}>{fmtPct(rate)}</span>
+      } },
+  ]
 
   return (
     <>
@@ -160,15 +196,17 @@ export default function CampaignPerformance() {
 
         <SectionCard title="Channel Mix" subtitle="Campaigns by channel">
           {channelSplit.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={channelSplit} cx="50%" cy="46%" innerRadius={46} outerRadius={74} dataKey="count" nameKey="channel">
-                  {channelSplit.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-                <Legend iconSize={9} wrapperStyle={{ fontSize: TEXT.xs }} formatter={v => String(v).toUpperCase()} />
-              </PieChart>
-            </ResponsiveContainer>
+            <EDonut
+              data={channelSplit.map(r => ({ channel: String(r.channel).toUpperCase(), count: Number(r.count) }))}
+              valueKey="count"
+              nameKey="channel"
+              colorFn={(_, i) => PIE_COLORS[i % PIE_COLORS.length]}
+              size={200}
+              inner={46}
+              outer={74}
+              legend
+              valueFmt={(v) => fmtNum(v)}
+            />
           ) : (
             <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>No data</div>
           )}
@@ -178,18 +216,19 @@ export default function CampaignPerformance() {
       {/* Monthly volume */}
       <SectionCard title="Monthly Send Volume" subtitle="Mails sent per month by channel" style={{ marginBottom: 14 }}>
         {monthlyData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={monthlyData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} />
-              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
-              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-              <Legend iconSize={10} wrapperStyle={{ fontSize: TEXT.xs }} />
-              <Bar dataKey="email"    fill={BLUE}     name="Email"    radius={[3,3,0,0]} stackId="a" />
-              <Bar dataKey="sms"      fill={PURPLE}   name="SMS"      radius={[3,3,0,0]} stackId="a" />
-              <Bar dataKey="whatsapp" fill={WA_GREEN} name="WhatsApp" radius={[3,3,0,0]} stackId="a" />
-            </BarChart>
-          </ResponsiveContainer>
+          <EBar
+            data={monthlyData}
+            xKey="month"
+            height={220}
+            stack
+            valueFmt={(v) => fmtNum(v)}
+            axisFmt={(v) => fmtNum(v)}
+            series={[
+              { key: 'email', name: 'Email', color: BLUE },
+              { key: 'sms', name: 'SMS', color: PURPLE },
+              { key: 'whatsapp', name: 'WhatsApp', color: GREEN },
+            ]}
+          />
         ) : (
           <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>No volume data</div>
         )}
@@ -201,6 +240,41 @@ export default function CampaignPerformance() {
           <DataTable<ByChannel> cols={channelTableCols} rows={data?.by_channel ?? []} keyFn={(_, i) => i} emptyText="" skeletonRows={loading ? 3 : 0} />
         </SectionCard>
       )}
+
+      {/* Lead → Customer conversion. Engagement (above) ends at the click; this picks
+          up where a click becomes a lead and follows it to a booked customer. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
+        <SectionCard title="Lead → Customer Funnel" subtitle="Campaign leads → contacted → interested → forwarded → converted">
+          {convHasData
+            ? <FunnelChart steps={convSteps} showCumulative />
+            : <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base, textAlign: 'center', padding: 16 }}>
+                No campaign leads have been pushed to the call centre in this window yet. Push a campaign to the call centre to start tracking conversions here.
+              </div>}
+        </SectionCard>
+        <SectionCard title="Conversion" subtitle="Campaign leads that became customers">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], padding: '8px 4px' }}>
+            <div>
+              <div style={{ ...NUM, fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: GREEN, lineHeight: 1.1 }}>{fmtPct(toN(conv?.conversion_rate))}</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>overall conversion rate</div>
+            </div>
+            <div style={{ display: 'flex', gap: SP[3] }}>
+              <div>
+                <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)' }}>{fmtNum(toN(conv?.leads))}</div>
+                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>leads</div>
+              </div>
+              <div>
+                <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: GREEN }}>{fmtNum(toN(conv?.converted))}</div>
+                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>customers</div>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* Per-campaign conversion breakdown */}
+      <SectionCard title="Conversion by Campaign" subtitle="How many people each campaign turned into customers" badge={(conv?.campaigns ?? []).length} padding={false} style={{ marginBottom: 14 }}>
+        <DataTable<ConvCampaign> cols={convCols} rows={conv?.campaigns ?? []} keyFn={r => r.campaign_id} emptyText="No campaigns have been pushed to the call centre yet." skeletonRows={loading ? 4 : 0} />
+      </SectionCard>
 
       {/* Top campaigns */}
       <SectionCard title="Top Campaigns" subtitle="Ranked by open rate" badge={(data?.top_campaigns ?? []).length} padding={false}>

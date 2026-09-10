@@ -253,6 +253,8 @@ export default function CRMTasks() {
 
   return (
     <Page
+      loading={loading && tasks.length === 0}
+      skeletonKpis={4}
       title="Sales Tasks"
       subtitle="Activity tasks and follow-ups"
       actions={

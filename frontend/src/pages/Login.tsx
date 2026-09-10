@@ -62,7 +62,7 @@ const LOGIN_CSS = `
     border: none;
     outline: none;
     background: transparent;
-    font-family: 'Sora', sans-serif;
+    font-family: var(--font-sans);
     font-size: 15px;
     color: #0A1929;
     box-sizing: border-box;
@@ -107,7 +107,7 @@ const LOGIN_CSS = `
   .o3-ghost {
     background: none;
     border: none;
-    font-family: 'Sora', sans-serif;
+    font-family: var(--font-sans);
     font-size: 13px;
     font-weight: 500;
     color: #9BA8B8;
@@ -159,7 +159,7 @@ function FloatingField({ id, label, type = 'text', value, onChange, autoFocus, a
           htmlFor={id}
           style={{
             position: 'absolute', left: 16, pointerEvents: 'none', zIndex: 2,
-            fontFamily: "'Sora', sans-serif",
+            fontFamily: "var(--font-sans)",
             top: active ? 9 : '50%',
             transform: active ? 'none' : 'translateY(-50%)',
             fontSize: active ? 10 : 15,
@@ -303,7 +303,7 @@ function PrimaryBtn({
         background: '#0E2841',
         color: '#fff',
         fontSize: 15, fontWeight: FW.semibold,
-        fontFamily: "'Sora', sans-serif",
+        fontFamily: "var(--font-sans)",
         letterSpacing: '-0.15px',
         cursor: loading ? 'not-allowed' : 'pointer',
         opacity: loading ? 0.65 : 1,
@@ -586,7 +586,7 @@ export default function Login({ onLogin }: LoginProps) {
   const txtSecondary = wide ? '#8C9CAD' : 'rgba(255,255,255,0.36)'
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Sora', sans-serif" }}>
+    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "var(--font-sans)" }}>
 
       {wide && <BrandPanel />}
       {wide && <PanelDivider />}

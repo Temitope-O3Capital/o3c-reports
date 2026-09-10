@@ -140,7 +140,8 @@ func listUsers(db *core.DB) http.HandlerFunc {
 			SELECT id, email, full_name,
 			       COALESCE(first_name,'') AS first_name,
 			       COALESCE(last_name,'')  AS last_name,
-			       role, COALESCE(extra_roles,'[]'::jsonb) AS extra_roles, department, created_at,
+			       role, COALESCE(extra_roles,'[]'::jsonb) AS extra_roles, department,
+			       COALESCE(office_location,'') AS office_location, created_at,
 			       must_change_password, last_login, is_active, deleted_at
 			FROM o3c_users `+where+` ORDER BY created_at DESC, id DESC`, args...)
 		if err != nil {
@@ -165,6 +166,7 @@ func createUser(db *core.DB) http.HandlerFunc {
 		Role       string   `json:"role"`
 		ExtraRoles []string `json:"extra_roles"`
 		Department string   `json:"department"`
+		Office     string   `json:"office_location"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -213,10 +215,10 @@ func createUser(db *core.DB) http.HandlerFunc {
 		}
 		extraRolesJSON, _ := json.Marshal(extraRoles)
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO o3c_users (email, password_hash, full_name, first_name, last_name, role, extra_roles, department, must_change_password)
-			VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,TRUE)
-			RETURNING id, email, full_name, first_name, last_name, role, extra_roles, department, created_at, must_change_password`,
-			b.Email, hash, fullName, b.FirstName, b.LastName, b.Role, string(extraRolesJSON), b.Department)
+			INSERT INTO o3c_users (email, password_hash, full_name, first_name, last_name, role, extra_roles, department, office_location, must_change_password)
+			VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,NULLIF(TRIM($9),''),TRUE)
+			RETURNING id, email, full_name, first_name, last_name, role, extra_roles, department, office_location, created_at, must_change_password`,
+			b.Email, hash, fullName, b.FirstName, b.LastName, b.Role, string(extraRolesJSON), b.Department, b.Office)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -251,6 +253,7 @@ func updateUser(db *core.DB) http.HandlerFunc {
 		Role       *string   `json:"role"`
 		ExtraRoles *[]string `json:"extra_roles"`
 		Department *string   `json:"department"`
+		Office     *string   `json:"office_location"`
 		Password   *string   `json:"password"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -360,6 +363,9 @@ func updateUser(db *core.DB) http.HandlerFunc {
 		}
 		if b.Department != nil {
 			setCols["department"] = *b.Department
+		}
+		if b.Office != nil {
+			setCols["office_location"] = strings.TrimSpace(*b.Office)
 		}
 		if b.Password != nil && *b.Password != "" {
 			if len(*b.Password) < 12 {

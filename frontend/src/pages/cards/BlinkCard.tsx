@@ -121,6 +121,8 @@ export default function BlinkCard() {
     <Page
       title="Blink Card"
       subtitle="Virtual card issuing module: card accounts and status overview"
+      loading={loading && !summary}
+      skeletonKpis={3}
     >
       <ErrBanner error={err} onRetry={load} />
 

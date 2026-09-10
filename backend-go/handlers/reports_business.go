@@ -359,6 +359,7 @@ func reportServicePerformance(db *core.DB) http.HandlerFunc {
 			       ROUND(SUM(duration_sec)/3600.0, 1)           AS total_hours
 			FROM app.helpdesk_calls
 			WHERE COALESCE(started_at, created_at)::date BETWEEN $1::date AND $2::date
+			  AND merged_into_call_id IS NULL AND voided_at IS NULL
 			GROUP BY 1 ORDER BY 2 DESC`, from, to)
 
 		out := map[string]any{

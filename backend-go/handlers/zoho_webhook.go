@@ -47,6 +47,7 @@ func zohoFailedSpike(imported, failed int) (bool, string) {
 // runZohoTicketSync imports the newest `cap` Zoho Desk tickets (idempotent upserts,
 // newest-first). Shared by the desk auto-sync poller and the webhook trigger.
 func runZohoTicketSync(db *core.DB, cap int) {
+	defer recoverPanic("runZohoTicketSync")
 	ctx := context.Background()
 	if !zohoEnsureConfigured(ctx, db) {
 		return

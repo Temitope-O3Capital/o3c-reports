@@ -204,6 +204,7 @@ export default function AdminEmailSenders() {
       back={{ label: 'Admin', to: '/admin' }}
       title="Email Senders"
       subtitle="Verified sender identities for transactional and campaign emails"
+      loading={loading && rows.length === 0}
       actions={
         <button onClick={() => setEditing({})} style={{
           display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,

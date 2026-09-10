@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,6 +64,240 @@ func RegisterSalesApplications(r chi.Router, db *core.DB) {
 	r.With(access).Post("/applications/{id}/submit", submitSalesAppDraft(db))
 	r.With(access).Delete("/applications/{id}", deleteSalesAppDraft(db))
 	r.With(access).Get("/applications/{id}/booking", applicationBooking(db))
+	// Origination on-ramp: raise an application directly from a CRM lead, carrying its
+	// identity + provenance and tolerating a lead with no CIF yet (provisional).
+	r.With(access).Post("/leads/{id}/application", raiseSalesAppFromLead(db))
+
+	// Reconcile provisional (pre-CIF) applications to a customer once one appears in the
+	// feed. Background, best-effort, conservative (only an unambiguous phone match).
+	go losReconcileWorker(db)
+}
+
+// raiseSalesAppFromLead raises an application directly from a CRM lead — the origination
+// on-ramp. It carries the lead's identity and provenance (source_lead_id + lead_source)
+// onto the loan_applications row and supports a PROVISIONAL applicant: a prospect with no
+// CIF yet lands with applicant_cif NULL and is reconciled to a customer later by
+// losReconcileWorker. When the lead already resolves to a CIF (converted/matched) the
+// application is keyed to that customer as usual. Credit products route to Risk, prepaid
+// to Card Ops, FD to Finance — same salesAppRouting as a book-raised application.
+func raiseSalesAppFromLead(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		leadID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		if err != nil || leadID <= 0 {
+			respondErr(w, 400, "Invalid lead id")
+			return
+		}
+		var req salesAppReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if _, ok := salesProductTypes[req.ProductType]; !ok {
+			respondErr(w, 400, "Unknown product_type")
+			return
+		}
+		if !req.Draft && req.AmountRequested <= 0 {
+			respondErr(w, 400, "amount_requested_kobo must be greater than zero")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		ctx := r.Context()
+
+		// Load the lead and confirm the caller may work it (its owner, a sales head, or
+		// anyone when it is unowned) — the same gate as advancing/converting a lead.
+		var (
+			first, last, phone, email                string
+			leadSource                               string
+			convertedCIF, cifNumber, matchedCIF      string
+			owner                                    sql.NullInt64
+		)
+		err = db.PG.QueryRowContext(ctx, `
+			SELECT COALESCE(first_name,''), COALESCE(last_name,''), COALESCE(phone,''), COALESCE(email,''),
+			       COALESCE(NULLIF(lead_source,''), source, ''),
+			       COALESCE(converted_cif,''), COALESCE(cif_number,''), COALESCE(matched_customer_cif,''),
+			       lead_owner_id
+			  FROM app.crm_contacts WHERE id = $1`, leadID).
+			Scan(&first, &last, &phone, &email, &leadSource, &convertedCIF, &cifNumber, &matchedCIF, &owner)
+		if err == sql.ErrNoRows {
+			respondErr(w, 404, "No lead with that id")
+			return
+		}
+		if err != nil {
+			respondErr(w, 500, "Could not load the lead")
+			return
+		}
+		if !canWorkLead(user, owner) {
+			respondErr(w, 403, "That lead is not yours to work")
+			return
+		}
+
+		// Resolve a CIF if the lead already maps to a customer; otherwise the application
+		// is provisional (applicant_cif NULL) until reconciliation attaches one.
+		effectiveCIF := firstNonEmpty(convertedCIF, cifNumber, matchedCIF)
+		name := strings.TrimSpace(first + " " + last)
+		if name == "" {
+			name = fmt.Sprintf("Lead #%d", leadID)
+		}
+
+		tx, err := db.PG.BeginTx(ctx, nil)
+		if err != nil {
+			respondErr(w, 500, "Could not start transaction")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		// One live application per (lead, product): a second raise returns the existing one
+		// rather than minting a duplicate.
+		var (
+			dupID                       int64
+			dupRef, dupStage, dupStatus string
+		)
+		dupErr := tx.QueryRowContext(ctx, `
+			SELECT id, reference, stage, status FROM app.loan_applications
+			 WHERE source_lead_id = $1 AND product_type = $2 AND stage NOT IN ('declined','closed')
+			 ORDER BY created_at DESC LIMIT 1`, leadID, req.ProductType).
+			Scan(&dupID, &dupRef, &dupStage, &dupStatus)
+		if dupErr == nil {
+			if err := tx.Commit(); err != nil {
+				respondErr(w, 500, "Commit failed")
+				return
+			}
+			respond(w, map[string]any{"id": dupID, "reference": dupRef, "stage": dupStage, "status": dupStatus, "duplicate": true}, "pg")
+			return
+		}
+		if dupErr != sql.ErrNoRows {
+			respondErr(w, 500, "Duplicate check failed")
+			return
+		}
+
+		var seq int64
+		if err := tx.QueryRowContext(ctx, `SELECT nextval('los_ref_seq')`).Scan(&seq); err != nil {
+			respondErr(w, 500, "Reference generation failed")
+			return
+		}
+		ref := fmt.Sprintf("LOS-%s-%04d", time.Now().UTC().Format("200601"), seq)
+
+		status, stage := "draft", "draft"
+		var routedStage string
+		var notifyRoles []string
+		var cifArg, submittedArg any // nil → NULL
+		if effectiveCIF != "" {
+			cifArg = effectiveCIF
+		}
+		if !req.Draft {
+			routedStage, notifyRoles = salesAppRouting(req.ProductType)
+			status, stage = "submitted", routedStage
+			submittedArg = time.Now().UTC()
+		}
+
+		var appID int64
+		var appRef, appStage, appStatus string
+		if err := tx.QueryRowContext(ctx, `
+			INSERT INTO app.loan_applications (
+			    reference, applicant_name, applicant_cif, applicant_email, applicant_phone,
+			    product_type, amount_requested_kobo, tenor_months, purpose, employer, monthly_income_kobo,
+			    lead_source, source_lead_id, status, stage,
+			    sales_officer_id, assigned_to_user_id, created_by, submitted_at, created_at, updated_at
+			) VALUES (
+			    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16,$16,$17,NOW(),NOW()
+			) RETURNING id, reference, stage, status`,
+			ref, name, cifArg, email, phone,
+			req.ProductType, req.AmountRequested, req.TenorMonths, req.Purpose, req.Employer, req.MonthlyIncome,
+			leadSource, leadID, status, stage, user.ID, submittedArg).
+			Scan(&appID, &appRef, &appStage, &appStatus); err != nil {
+			respondErr(w, 500, "Could not raise the application: "+err.Error())
+			return
+		}
+
+		// Application event trail (only a submitted application has a stage transition).
+		if !req.Draft {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO application_events (application_id, event_type, to_stage, actor_user_id, notes, created_at)
+				VALUES ($1,'submitted',$2,$3,$4,NOW())`,
+				appID, routedStage, user.ID,
+				strings.TrimSpace(fmt.Sprintf("Raised by Sales from lead #%d (%s). %s", leadID, name, req.Note))); err != nil {
+				respondErr(w, 500, "Could not record the application event: "+err.Error())
+				return
+			}
+		}
+
+		// Lead trail: record that this lead produced an application, so the lead history
+		// shows the origination outcome. No event CHECK constraint on crm_lead_events.
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO crm_lead_events (contact_id, event, note, created_by)
+			VALUES ($1,'application_raised',$2,$3)`,
+			leadID, fmt.Sprintf("%s %s (%s)", salesProductTypes[req.ProductType], ref, appStatus), user.ID); err != nil {
+			respondErr(w, 500, "Could not record the lead event: "+err.Error())
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+
+		if !req.Draft && len(notifyRoles) > 0 {
+			who := name
+			if effectiveCIF != "" {
+				who = fmt.Sprintf("%s (CIF %s)", name, effectiveCIF)
+			} else {
+				who = name + " (prospect — no CIF yet)"
+			}
+			go NotifyRoles(context.Background(), db, notifyRoles, NotifPayload{
+				EventType: "los_application_submitted",
+				Title:     fmt.Sprintf("New %s application", salesProductTypes[req.ProductType]),
+				Body:      fmt.Sprintf("%s raised %s for %s, %s", user.FullName, ref, who, fmtKoboServer(req.AmountRequested)),
+				ActionURL: fmt.Sprintf("/los/applications/%d", appID),
+				EntityRef: ref,
+			})
+		}
+
+		respond(w, map[string]any{
+			"id": appID, "reference": appRef, "stage": appStage, "status": appStatus,
+			"provisional": effectiveCIF == "",
+		}, "pg")
+	}
+}
+
+// losReconcileWorker periodically attaches a CIF to provisional applications once the
+// customer surfaces in the feed. Conservative: only when the applicant's phone maps to
+// exactly one customer CIF (so shared/placeholder numbers never mis-link).
+func losReconcileWorker(db *core.DB) {
+	time.Sleep(45 * time.Second)
+	for {
+		reconcileProvisionalCIFs(db)
+		time.Sleep(15 * time.Minute)
+	}
+}
+
+func reconcileProvisionalCIFs(db *core.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	res, err := db.PG.ExecContext(ctx, `
+		UPDATE app.loan_applications la
+		   SET applicant_cif = m.cif, updated_at = NOW()
+		  FROM (
+		    SELECT la2.id, MIN(c.cif) AS cif, COUNT(DISTINCT c.cif) AS n
+		      FROM app.loan_applications la2
+		      JOIN app.customers c
+		        ON app.normalise_ng_phone(c.phone) = app.normalise_ng_phone(la2.applicant_phone)
+		     WHERE la2.applicant_cif IS NULL
+		       AND COALESCE(la2.applicant_phone,'') <> ''
+		       AND app.normalise_ng_phone(la2.applicant_phone) <> ''
+		     GROUP BY la2.id
+		  ) m
+		 WHERE la.id = m.id AND m.n = 1`)
+	if err != nil {
+		slog.Error("provisional CIF reconcile failed", "err", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		slog.Info("provisional applications reconciled to a CIF", "count", n)
+	}
 }
 
 func listSalesProducts() http.HandlerFunc {
@@ -135,7 +371,9 @@ func listSalesApplications(db *core.DB) http.HandlerFunc {
 			       -- Booked in the workspace is not the same as booked in the core
 			       -- system. Surfacing both is the whole point of the monitoring ask.
 			       EXISTS (
-			           SELECT 1 FROM cbs_loans l WHERE l.cbs_customer_id = a.applicant_cif
+			           SELECT 1 FROM cbs_loans l
+		           JOIN app.cbs_links k ON k.entity_type='party' AND k.cbs_customer_id = l.cbs_customer_id
+		           WHERE k.entity_id = (SELECT party_id FROM app.customers WHERE COALESCE(NULLIF(cif,''),contact_id) = a.applicant_cif LIMIT 1)
 			       ) AS present_in_cbs
 			  FROM loan_applications a
 			  LEFT JOIN o3c_users u ON u.id = a.sales_officer_id

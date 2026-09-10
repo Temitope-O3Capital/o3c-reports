@@ -13,6 +13,10 @@ const TOPICS = [
   // activity and none of them were live — a call landing from Zoho Voice left every
   // one of them stale until the window regained focus.
   'calls',
+  // The call-centre lead book and outbound queue: a lead's status/assignment moving
+  // and a queue contact's disposition changing are their own tables, so they need
+  // their own topics — the 'calls' event fires before the (async) status write lands.
+  'cc_leads', 'cc_contacts',
 ] as const
 
 type Listener = () => void

@@ -145,6 +145,7 @@ export default function CampaignTemplates() {
     <Page
       title="Message Templates"
       subtitle="Reusable email, SMS and WhatsApp templates"
+      loading={loading && templates.length === 0}
       actions={canWrite && (
         <button onClick={() => setPickChannel(true)} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>

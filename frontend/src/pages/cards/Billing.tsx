@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, Sk, FilterBar, filterInputStyle, DateFilter, NameCell } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -117,11 +117,11 @@ function AccountPanel({ cycleDate, productCode }: { cycleDate: string; productCo
               <td style={{ padding: '8px 10px', ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{a.account_number}</td>
               <td style={{ padding: '8px 10px', ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)' }}>{a.cif}</td>
               <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, fontWeight: FW.semibold }}>{a.currency}</td>
-              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM }}>{fmtKobo(a.outstanding_balance_kobo)}</td>
-              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: a.overdue_amount_kobo > 0 ? RED : 'var(--txt2)' }}>{fmtKobo(a.overdue_amount_kobo)}</td>
-              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: GREEN }}>{fmtKobo(a.interest_charged_kobo)}</td>
-              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: AMBER }}>{fmtKobo(a.fees_kobo)}</td>
-              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{fmtKobo(a.credit_limit_kobo)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM }}>{fmtKoboExact(a.outstanding_balance_kobo)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: a.overdue_amount_kobo > 0 ? RED : 'var(--txt2)' }}>{fmtKoboExact(a.overdue_amount_kobo)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: GREEN }}>{fmtKoboExact(a.interest_charged_kobo)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: AMBER }}>{fmtKoboExact(a.fees_kobo)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'right', ...NUM, color: 'var(--txt2)' }}>{fmtKoboExact(a.credit_limit_kobo)}</td>
             </tr>
           ))}
         </tbody>
@@ -187,6 +187,8 @@ export default function CardsBilling() {
     <Page
       title="Billing Cycles"
       subtitle="Card statement cycles from the processing system"
+      loading={loading && allRows.length === 0}
+      skeletonKpis={3}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -209,8 +211,8 @@ export default function CardsBilling() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[4], marginBottom: SP[5] }}>
           {[
             { label: 'Total Accounts',  value: totals.accounts.toLocaleString(), icon: 'credit_card',    color: NAVY },
-            { label: 'Outstanding',     value: fmtKobo(totals.outstanding),     icon: 'account_balance', color: '#0EA5E9' },
-            { label: 'Overdue',         value: fmtKobo(totals.overdue),         icon: 'warning',         color: RED },
+            { label: 'Outstanding',     value: fmtKoboExact(totals.outstanding),     icon: 'account_balance', color: '#0EA5E9' },
+            { label: 'Overdue',         value: fmtKoboExact(totals.overdue),         icon: 'warning',         color: RED },
           ].map(k => (
             <div key={k.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: `${SP[4]} ${SP[5]}`, display: 'flex', alignItems: 'center', gap: 14 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 28, color: k.color, opacity: 0.85 }}>{k.icon}</span>
@@ -250,7 +252,7 @@ export default function CardsBilling() {
                     <td style={{ padding: '10px 14px', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(cycleStart(row.cycle_date))}</td>
                     <td style={{ padding: '10px 14px', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(row.cycle_date)}</td>
                     <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM }}>{Number(row.account_count).toLocaleString()}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, fontWeight: FW.semibold }}>{fmtKobo(row.total_outstanding_kobo)}</td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, fontWeight: FW.semibold }}>{fmtKoboExact(row.total_outstanding_kobo)}</td>
                     <td style={{ padding: '10px 14px', textAlign: 'right', ...NUM, color: Number(row.overdue_accounts) > 0 ? RED : 'var(--txt2)' }}>{Number(row.overdue_accounts).toLocaleString()}</td>
                     <td style={{ padding: '10px 14px' }}><StatusPill date={row.cycle_date} /></td>
                     <td style={{ padding: '10px 14px', textAlign: 'center', color: 'var(--txt2)' }}>

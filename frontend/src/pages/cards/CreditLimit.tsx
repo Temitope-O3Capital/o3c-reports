@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, DateFilter, NameCell, StatusBadge } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtPct, monthStart, today } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtPct, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -228,13 +228,13 @@ export default function CardsCreditLimit() {
     { key: 'customer_name', label: 'Customer',
       render: r => <NameCell name={r.customer_name} sub={r.ref} /> },
     { key: 'current_limit_kobo', label: 'Current Limit', align: 'right',
-      render: r => <span style={{ ...NUM }}>{fmtKobo(Number(r.current_limit_kobo))}</span> },
+      render: r => <span style={{ ...NUM }}>{fmtKoboExact(Number(r.current_limit_kobo))}</span> },
     { key: 'proposed_limit_kobo', label: 'Proposed', align: 'right',
       render: r => {
         const up = Number(r.proposed_limit_kobo) > Number(r.current_limit_kobo)
         return (
           <span style={{ ...NUM, fontWeight: 600, color: up ? GREEN : RED }}>
-            {fmtKobo(Number(r.proposed_limit_kobo))}
+            {fmtKoboExact(Number(r.proposed_limit_kobo))}
             {up && <span style={{ fontSize: 10, marginLeft: 4 }}>↑</span>}
           </span>
         )
@@ -273,6 +273,8 @@ export default function CardsCreditLimit() {
     <Page
       title="Credit Limit Review"
       subtitle="Cards recommend · Risk approve / decline"
+      loading={loading && rows.length === 0}
+      skeletonKpis={3}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -291,7 +293,7 @@ export default function CardsCreditLimit() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: SP[5] }}>
         {[
           { label: 'Awaiting Risk Decision', value: pendingApproval, color: AMBER },
-          { label: 'Total Proposed Credit',  value: fmtKobo(totalProposed), color: 'var(--txt)' },
+          { label: 'Total Proposed Credit',  value: fmtKoboExact(totalProposed), color: 'var(--txt)' },
           { label: 'Approved',               value: approvedCount, color: GREEN },
         ].map(({ label, value, color }) => (
           <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>

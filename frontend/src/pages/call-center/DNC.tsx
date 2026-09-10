@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
   ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger, KpiCard,
-  NameCell, ActionRow,
+  ActionRow,
 } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -25,7 +25,7 @@ interface DNCEntry {
 interface DncKPIs {
   total_dnc: number
   added_this_month: number
-  bulk_removes: number
+  from_calls: number
 }
 
 // ── Field style ───────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
   border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
   fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -136,12 +136,34 @@ export default function CallCenterDNC() {
     setRemoveConfirm(true)
   }
 
+  // A DNC number auto-captured from a call carries the "Agent disposition:" reason tag;
+  // everything else was added by hand. Surfacing the source next to the reason tells a
+  // supervisor at a glance whether opt-outs are coming off live calls or manual entry.
+  const isFromCall = (r: DNCEntry) => (r.reason ?? '').toLowerCase().startsWith('agent disposition')
+
   const cols: TableCol<DNCEntry>[] = [
     {
       key: 'phone',
       label: 'Phone',
       sortable: true,
-      render: r => <NameCell name={r.phone} sub={r.reason ?? 'DNC'} avatar={false} />,
+      render: r => (
+        <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.phone}</span>
+      ),
+    },
+    {
+      key: 'reason',
+      label: 'Reason',
+      sortable: true,
+      render: r => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          {isFromCall(r) && (
+            <span title="Captured from a call disposition" className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: 'var(--txt3)', flexShrink: 0 }}>call</span>
+          )}
+          <span style={{ fontSize: TEXT.base, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {r.reason || '—'}
+          </span>
+        </div>
+      ),
     },
     {
       key: 'added_by',
@@ -159,10 +181,9 @@ export default function CallCenterDNC() {
         <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.added_at)}</span>
       ),
     },
-    { key: '_actions', label: '', sortable: false,
+    { key: '_actions', label: '', sortable: false, align: 'right',
       render: r => {
         const actions: RowAction[] = [
-          { icon: 'info', label: 'View reason', onClick: () => toast.info(r.reason || 'No reason provided') },
           { icon: 'remove_circle', label: 'Remove', onClick: () => confirmRemoveSingle(r), danger: true },
         ]
         return <ActionRow actions={actions} />
@@ -170,36 +191,24 @@ export default function CallCenterDNC() {
     },
   ]
 
-  const bulkBar = selectedIds.size > 0 ? (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: SP[2],
-      padding: '7px 14px', background: '#F0F4FF',
-      borderBottom: '1px solid var(--bdr)',
-    }}>
-      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>
-        {selectedIds.size} selected
-      </span>
-      <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-        <button
-          onClick={() => setRemoveConfirm(true)}
-          style={{ ...btnDanger, padding: `${SP[1]} ${SP[3]}`, fontSize: TEXT.sm }}
-        >
-          Remove from DNC
-        </button>
-        <button
-          onClick={() => setSelectedIds(new Set())}
-          style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)', borderRadius: '50%' }}
-        >
-          <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>close</span>
-        </button>
-      </div>
-    </div>
-  ) : undefined
+  // DataTable already renders the "N selected" bar, its background and a Clear button —
+  // bulkBar holds ONLY the action buttons (matches Employers/Pipeline). Passing a whole
+  // re-styled bar here produced a bar-inside-a-bar with the count and close doubled.
+  const bulkBar = (
+    <button
+      onClick={() => setRemoveConfirm(true)}
+      style={{ ...btnDanger, padding: `${SP[1]} ${SP[3]}`, fontSize: TEXT.sm }}
+    >
+      Remove from DNC
+    </button>
+  )
 
   return (
     <Page
       title="Do Not Call List"
       subtitle="Manage numbers excluded from outbound calls"
+      loading={loading && rows.length === 0}
+      skeletonKpis={3}
       actions={
         <button onClick={() => setAddOpen(true)} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>
@@ -213,7 +222,7 @@ export default function CallCenterDNC() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: SP[5] }}>
         <KpiCard label="Total DNC" value={kpis ? fmtNum(kpis.total_dnc) : '—'} icon="do_not_disturb_on" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Added This Month" value={kpis ? fmtNum(kpis.added_this_month) : '—'} icon="add_circle" accent={AMBER} loading={kpiLoading} />
-        <KpiCard label="Bulk Removes" value={kpis ? fmtNum(kpis.bulk_removes) : '—'} icon="remove_circle" accent={RED} loading={kpiLoading} />
+        <KpiCard label="From Call Opt-outs" value={kpis ? fmtNum(kpis.from_calls) : '—'} icon="call" accent={RED} loading={kpiLoading} />
       </div>
 
       <SectionCard title="DNC Entries" badge={displayedDnc.length} padding={false}>

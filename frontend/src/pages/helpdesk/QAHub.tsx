@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
+import { EArea } from '../../components/echarts'
 import { SectionCard, KpiCard, Spinner, ErrBanner, Modal, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDatetime, fmtDate, today } from '../../lib/fmt'
-import { NAVY, GREEN, RED, AMBER, MONO, INTER, SORA, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import { NAVY, GREEN, RED, AMBER, MONO, SORA, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { QAConfig, BAND_COLOR, qaBand } from '../../lib/qa'
 import { toast } from 'sonner'
 
@@ -41,8 +41,9 @@ function Dashboard() {
         <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
       </div>
       <ErrBanner error={err} onRetry={load} />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[3] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3] }}>
         <KpiCard label="Evaluations" value={num(s.evaluations).toLocaleString()} icon="fact_check" accent={NAVY} loading={loading} sub={`${num(s.agents_evaluated)} agents`} />
+        <KpiCard label="Coverage" value={`${num(s.coverage_pct)}%`} icon="donut_large" accent={num(s.coverage_pct) >= 5 ? GREEN : num(s.coverage_pct) >= 1 ? AMBER : RED} loading={loading} sub={`${num(s.evaluated_calls).toLocaleString()} of ${num(s.connected_calls).toLocaleString()} connected`} />
         <KpiCard label="Avg QA Score" value={`${num(s.avg_score)}%`} icon="grade" accent={scoreColor(num(s.avg_score))} loading={loading} sub={qaBand(num(s.avg_score))} />
         <KpiCard label="Pass Rate" value={`${passRate}%`} icon="check_circle" accent={GREEN} loading={loading} sub={`${num(s.passed)} passed`} />
         <KpiCard label="Failed" value={num(s.failed).toLocaleString()} icon="cancel" accent={RED} loading={loading} />
@@ -52,16 +53,14 @@ function Dashboard() {
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: SP[4] }}>
         <SectionCard title="Average QA Score" subtitle="Trend over the selected range">
           {trend.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No evaluations in range</div> : (
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={trend} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
-                <defs><linearGradient id="qaG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={NAVY} stopOpacity={0.28} /><stop offset="100%" stopColor={NAVY} stopOpacity={0} /></linearGradient></defs>
-                <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-                <XAxis dataKey="day" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} minTickGap={20} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }} />
-                <Area type="monotone" dataKey="score" name="Avg score" stroke={NAVY} strokeWidth={2.4} fill="url(#qaG)" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <EArea
+              data={trend}
+              xKey="day"
+              height={200}
+              endLabel
+              valueFmt={(v) => `${v}%`}
+              series={[{ key: 'score', name: 'Avg score', color: NAVY }]}
+            />
           )}
         </SectionCard>
         <SectionCard title="Rating Distribution">

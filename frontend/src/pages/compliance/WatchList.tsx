@@ -161,6 +161,7 @@ export default function Watchlist() {
     <Page
       title="AML Watchlist"
       subtitle="PEP, sanctions, and internal watchlist entries"
+      loading={loading && entries.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

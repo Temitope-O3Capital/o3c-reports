@@ -1,14 +1,12 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  PieChart, Pie, Cell, Legend,
-} from 'recharts'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
-import { RED, GREEN, AMBER, BLUE, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { RED, GREEN, AMBER, BLUE, NAVY, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
+import { CHART_SERIES } from '../../components/charts'
+import { EBar, EDonut } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -39,23 +37,10 @@ const PRODUCT_COLORS: Record<string, string> = {
 const STATUS_COLORS: Record<string, string> = {
   'Open': GREEN, 'Active': GREEN,
   'Inactive': AMBER, 'Closed': 'var(--chart-lbl)', 'Terminated': RED,
-  'Legal Suspended': '#7C3AED',
+  'Legal Suspended': PURPLE,
 }
 
-const PIE_FALLBACK = [RED, BLUE, GREEN, AMBER, NAVY, '#7C3AED']
-
-// ── Custom tooltip ─────────────────────────────────────────────────────────────
-
-function VolumeTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '10px 14px', fontSize: TEXT.sm }}>
-      <div style={{ fontWeight: FW.semibold, marginBottom: 4, color: 'var(--txt)' }}>{label}</div>
-      <div style={{ color: NAVY }}>Volume: ₦{fmtNum(payload[0]?.value / 100)}</div>
-      <div style={{ color: 'var(--txt2)' }}>Txns: {fmtNum(payload[1]?.value ?? 0)}</div>
-    </div>
-  )
-}
+const PIE_FALLBACK = CHART_SERIES
 
 // ── Product table ──────────────────────────────────────────────────────────────
 
@@ -124,7 +109,7 @@ export default function CardsOverview() {
   })
 
   return (
-    <Page title="Cards Overview" subtitle="Card portfolio health and transaction activity" actions={
+    <Page title="Cards Overview" subtitle="Card portfolio health and transaction activity" loading={loading && !kpis} skeletonKpis={4} actions={
       <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
     }>
       <ErrBanner error={error} onRetry={load} />
@@ -148,21 +133,14 @@ export default function CardsOverview() {
               No transaction data for current period
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={volumeData} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--txt2)' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--txt2)' }} axisLine={false} tickLine={false}
-                  tickFormatter={v => `₦${fmtNum(v / 100)}`} width={70} />
-                <Tooltip content={<VolumeTooltip />} cursor={{ fill: 'rgba(14,40,65,.05)' }} />
-                <Bar dataKey="volume" radius={[4, 4, 0, 0]}>
-                  {volumeData.map((d, i) => (
-                    <Cell key={i} fill={PRODUCT_COLORS[d.name] ?? PIE_FALLBACK[i % PIE_FALLBACK.length]} />
-                  ))}
-                </Bar>
-                <Bar dataKey="txns" radius={[4, 4, 0, 0]} fill="rgba(14,40,65,.15)" />
-              </BarChart>
-            </ResponsiveContainer>
+            <EBar
+              data={volumeData} xKey="name" height={220}
+              axisFmt={v => `₦${fmtNum(v / 100)}`}
+              series={[
+                { key: 'volume', name: 'Volume', fmt: v => `₦${fmtNum(v / 100)}`, colorFn: (d, i) => PRODUCT_COLORS[d.name] ?? PIE_FALLBACK[i % PIE_FALLBACK.length] },
+                { key: 'txns', name: 'Txns', color: 'rgba(14,40,65,.15)', fmt: v => fmtNum(v) },
+              ]}
+            />
           )}
         </SectionCard>
 
@@ -173,16 +151,11 @@ export default function CardsOverview() {
               No product data
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={pieData} cx="50%" cy="48%" innerRadius={60} outerRadius={88}
-                  dataKey="value" paddingAngle={2}>
-                  {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-                <Tooltip formatter={(v: number, name: string) => [fmtNum(v), name]} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11.5 }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <EDonut
+              data={pieData} valueKey="value" nameKey="name" colorFn={(d) => d.color}
+              size={220} inner={60} outer={88} legend showPercent={false}
+              valueFmt={(v) => fmtNum(v)}
+            />
           )}
         </SectionCard>
       </div>

@@ -353,6 +353,8 @@ export default function CreditAuditTrail() {
     <Page
       title="Credit Audit Trail"
       subtitle="Full regulatory audit trail across Collections, Recovery, and Risk"
+      loading={loading && data.length === 0}
+      skeletonKpis={3}
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {/* Compliance badge */}
@@ -424,7 +426,7 @@ export default function CreditAuditTrail() {
               style={{
                 border: 'none', background: 'transparent', outline: 'none',
                 flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--txt)',
-                fontFamily: "'Sora', ui-sans-serif, sans-serif",
+                fontFamily: "var(--font-sans)",
               }}
             />
             {search && (

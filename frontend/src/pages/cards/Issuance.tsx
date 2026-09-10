@@ -221,6 +221,7 @@ export default function CardsIssuance() {
     <Page
       title="Issuance Queue"
       subtitle="Card issuance requests and status tracking"
+      loading={loading && rows.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

@@ -100,7 +100,7 @@ function ResolveModal({ open, rowId, onClose, onSuccess }: ResolveModalProps) {
         </div>
         <div>
           <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Notes</label>
-          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add resolution notes…" rows={4} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box' }} />
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add resolution notes…" rows={4} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: 7, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', resize: 'vertical', fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box' }} />
         </div>
       </div>
     </Modal>
@@ -346,6 +346,8 @@ export default function NIPReconciliation() {
     <Page
       title="NIP Reconciliation"
       subtitle="Match and resolve NIP settlement entries against core banking credits"
+      loading={loading && rows.length === 0}
+      skeletonKpis={5}
       actions={<DateFilter from={dateFilter} to={dateFilter} onChange={(f) => setDateFilter(f)} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />

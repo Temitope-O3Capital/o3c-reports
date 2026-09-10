@@ -2,14 +2,11 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, KpiCard, ErrBanner, Spinner, DateFilter } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtNum, fmtPct, fmtDate, today, monthStart } from '../../lib/fmt'
+import { fmtNum, fmtDate, today } from '../../lib/fmt'
 import {
   NAVY, GREEN, AMBER, RED, BLUE, PURPLE, INTER, NUM, FW, RADIUS, SP, TEXT,
 } from '../../lib/design'
-import {
-  ResponsiveContainer, ComposedChart, BarChart, Bar, Line, LabelList, Legend,
-  PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
-} from 'recharts'
+import { EBar, ELine, EDonut } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -23,6 +20,7 @@ interface TicketStats { open: number; sla_breached: number; agents: TicketAgent[
 interface CallSummary {
   total: number; inbound: number; outbound: number
   missed: number; connected: number
+  inbound_missed: number; outbound_noanswer: number
   inbound_connected: number; outbound_connected: number
   total_talk_sec: number; agents: number
   avg_duration_sec: number | null; avg_inbound_sec: number | null; avg_outbound_sec: number | null
@@ -30,6 +28,10 @@ interface CallSummary {
 interface CallDay   { day: string; inbound: number; outbound: number }
 interface CallHour  { hour: number; total: number; inbound: number; outbound: number }
 interface CallAgent { agent_name: string; total: number; connected: number; avg_duration_sec: number | null }
+interface CallPurpose {
+  purpose: string; total: number; inbound: number; outbound: number
+  connected: number; inbound_missed: number; outbound_noanswer: number; avg_duration_sec: number | null
+}
 
 interface AgentPerf { name: string; calls: number; connected: number; avg: number | null; open: number; resolved: number }
 
@@ -46,34 +48,33 @@ function fmtHours(sec: number | null | undefined): string {
   return h >= 10 ? `${Math.round(h)}h` : `${h.toFixed(1)}h`
 }
 const pct = (n: number, d: number) => (d > 0 ? n / d : 0)
+// fmtPct expects a 0–100 number, but pct() returns a 0–1 ratio — so every percentage
+// on this page must scale by 100 before formatting. fpct does that in one place.
+const fpct = (r: number | null | undefined) => `${((Number(r) || 0) * 100).toFixed(1)}%`
 
-// ── Tooltip ───────────────────────────────────────────────────────────────────
-
-function Tip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: '#0E2841', borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
-      {label != null && <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER, marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</div>}
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? p.payload?.fill ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>{fmtNum(p.value)}</span>
-          <span style={{ fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>
-        </div>
-      ))}
-    </div>
-  )
+// Call type / purpose → label + colour, kept in step with Calls.tsx PURPOSE_META.
+const PURPOSE_LABEL: Record<string, { label: string; color: string }> = {
+  marketing:   { label: 'Marketing / Leads',     color: BLUE },
+  sales:       { label: 'Outbound Sales',        color: PURPLE },
+  collections: { label: 'Collections',           color: RED },
+  retention:   { label: 'Retention',             color: AMBER },
+  other:       { label: 'Other',                 color: NAVY },
+  support:     { label: 'Support',               color: GREEN },
+  unspecified: { label: 'Support / Unspecified', color: GREEN },
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CallCenterOverview() {
-  const [from, setFrom]   = useState(monthStart())
+  // Call data is historical (synced from Zoho), so default to the last 12 months —
+  // a "this month" default opened the page on empty charts. Matches the Call Log.
+  const [from, setFrom]   = useState(new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10))
   const [to, setTo]       = useState(today())
   const [tk, setTk]       = useState<TicketStats | null>(null)
   const [cs, setCs]       = useState<CallSummary | null>(null)
   const [byDay, setByDay]       = useState<CallDay[]>([])
   const [byHour, setByHour]     = useState<CallHour[]>([])
+  const [byPurpose, setByPurpose] = useState<CallPurpose[]>([])
   const [callAgents, setCallAgents] = useState<CallAgent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
@@ -93,6 +94,7 @@ export default function CallCenterOverview() {
       setCs(obj(cd?.summary))
       setByDay(arr(cd?.by_day))
       setByHour(arr(cd?.by_hour))
+      setByPurpose(arr(cd?.by_purpose))
       setCallAgents(arr(cd?.by_agent))
     } catch (e: any) {
       setError(e.message)
@@ -120,8 +122,11 @@ export default function CallCenterOverview() {
   // with My Dashboard / the Call Log (which are already direction-aware). This is an
   // outbound-heavy centre, so the lumped figure otherwise reads as a 5-figure "missed"
   // alarm when almost all of it is just dials that didn't pick up.
-  const inboundMissed = Math.max(0, inbound  - (cs?.inbound_connected  ?? 0))
-  const outboundNoAns = Math.max(0, outbound - (cs?.outbound_connected ?? 0))
+  // Direction-aware unanswered counts come straight from the backend now (outcome IN
+  // missed/no_answer/voicemail, split by direction) — not inbound − inbound_connected,
+  // which wrongly counted blank-outcome inbound rows as missed customer calls.
+  const inboundMissed = cs?.inbound_missed ?? 0
+  const outboundNoAns = cs?.outbound_noanswer ?? 0
   const inMissRate    = pct(inboundMissed, inbound)
 
   // Outcome donut, rebuilt direction-aware so the three slices add up to total calls
@@ -157,12 +162,12 @@ export default function CallCenterOverview() {
   const Th = ({ children, right }: { children: string; right?: boolean }) => (
     <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textAlign: right ? 'right' : 'left' }}>{children}</span>
   )
-  const barLabel = { fontSize: 10, fill: 'var(--txt2)', fontFamily: INTER, fontWeight: 600 }
-
   return (
     <Page
       title="Call Center"
       subtitle="Calls, tickets & team performance"
+      loading={loading && !cs}
+      skeletonKpis={6}
       actions={<DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />
@@ -174,7 +179,7 @@ export default function CallCenterOverview() {
           {/* ── KPI strip ─────────────────────────────────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: SP[3], marginBottom: SP[3] }}>
             <KpiCard label="Total Calls"    value={fmtNum(total)}                accent={NAVY}  sub={`${fmtNum(outbound)} out · ${fmtNum(inbound)} in`} />
-            <KpiCard label="Connected"      value={fmtNum(connected)}            accent={GREEN} sub={`${fmtPct(connectRate)} connect rate`} />
+            <KpiCard label="Connected"      value={fmtNum(connected)}            accent={GREEN} sub={`${fpct(connectRate)} connect rate`} />
             <KpiCard label="Missed Inbound" value={fmtNum(inboundMissed)}        accent={inMissRate >= 0.2 ? RED : AMBER} sub={`${fmtNum(outboundNoAns)} outbound no-answer`} />
             <KpiCard label="Avg Handle"     value={fmtDur(cs?.avg_duration_sec)} accent={PURPLE} />
             <KpiCard label="Talk Time"      value={fmtHours(cs?.total_talk_sec)} accent={BLUE} />
@@ -183,8 +188,8 @@ export default function CallCenterOverview() {
 
           {/* ── Team-lead metric strip ────────────────────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[4] }}>
-            <MiniStat label="Inbound Answer Rate"  value={fmtPct(inAns)}   good={inAns >= 0.8}  hint={`${fmtNum(cs?.inbound_connected ?? 0)} / ${fmtNum(cs?.inbound ?? 0)} answered`} />
-            <MiniStat label="Outbound Connect Rate" value={fmtPct(outConn)} good={outConn >= 0.3} hint={`${fmtNum(cs?.outbound_connected ?? 0)} / ${fmtNum(cs?.outbound ?? 0)} connected`} />
+            <MiniStat label="Inbound Answer Rate"  value={fpct(inAns)}   good={inAns >= 0.8}  hint={`${fmtNum(cs?.inbound_connected ?? 0)} / ${fmtNum(cs?.inbound ?? 0)} answered`} />
+            <MiniStat label="Outbound Connect Rate" value={fpct(outConn)} good={outConn >= 0.3} hint={`${fmtNum(cs?.outbound_connected ?? 0)} / ${fmtNum(cs?.outbound ?? 0)} connected`} />
             <MiniStat label="Active Agents"        value={fmtNum(activeAgents)} hint="made calls in range" />
             <MiniStat label="Avg Calls / Agent"    value={fmtNum(avgPerAgent)}  hint="workload balance" />
           </div>
@@ -195,21 +200,17 @@ export default function CallCenterOverview() {
               {byDay.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls in this range</div>
               ) : (
-                <ResponsiveContainer width="100%" height={230}>
-                  <BarChart data={byDay} margin={{ top: 22, right: 8, bottom: 0, left: 0 }} barGap={3} barCategoryGap="24%">
-                    <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-                    <XAxis dataKey="day" tickFormatter={(v: string) => fmtDate(v, { month: 'short', day: 'numeric' })} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} minTickGap={16} />
-                    <YAxis hide />
-                    <Tooltip cursor={{ fill: 'var(--row-hvr)' }} content={(p: any) => <Tip {...p} label={p?.label ? fmtDate(p.label) : ''} />} />
-                    <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs, fontFamily: INTER }} />
-                    <Bar dataKey="inbound"  name="Inbound"  fill={BLUE} radius={[3, 3, 0, 0]} maxBarSize={34}>
-                      <LabelList dataKey="inbound"  position="top" formatter={(v: number) => (v ? fmtNum(v) : '')} style={barLabel} />
-                    </Bar>
-                    <Bar dataKey="outbound" name="Outbound" fill={NAVY} radius={[3, 3, 0, 0]} maxBarSize={34}>
-                      <LabelList dataKey="outbound" position="top" formatter={(v: number) => (v ? fmtNum(v) : '')} style={barLabel} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <EBar
+                  data={byDay.map(x => ({ label: fmtDate(x.day, { month: 'short', day: 'numeric' }), inbound: Number(x.inbound), outbound: Number(x.outbound) }))}
+                  xKey="label"
+                  height={230}
+                  valueFmt={fmtNum}
+                  axisFmt={fmtNum}
+                  series={[
+                    { key: 'inbound', name: 'Inbound', color: BLUE },
+                    { key: 'outbound', name: 'Outbound', color: NAVY },
+                  ]}
+                />
               )}
             </SectionCard>
 
@@ -226,17 +227,44 @@ export default function CallCenterOverview() {
             {total === 0 ? (
               <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No calls in this range</div>
             ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <ComposedChart data={hourData} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
-                  <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-                  <XAxis dataKey="label" interval={1} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                  <Tooltip cursor={{ stroke: 'var(--chart-grid)' }} content={(p: any) => <Tip {...p} label={p?.label ?? ''} />} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs, fontFamily: INTER }} />
-                  <Line type="monotone" dataKey="inbound"  name="Inbound"  stroke={BLUE} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                  <Line type="monotone" dataKey="outbound" name="Outbound" stroke={NAVY} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
+              <ELine
+                data={hourData}
+                xKey="label"
+                height={200}
+                valueFmt={fmtNum}
+                axisFmt={fmtNum}
+                series={[
+                  { key: 'inbound', name: 'Inbound', color: BLUE },
+                  { key: 'outbound', name: 'Outbound', color: NAVY },
+                ]}
+              />
+            )}
+          </SectionCard>
+
+          {/* ── Calls by type / purpose ───────────────────────────────────── */}
+          <SectionCard title="Calls by Type" subtitle="What the calls were for — volume, mix & connect rate per book" style={{ marginBottom: SP[4] }}>
+            {byPurpose.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No calls in this range</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], paddingTop: 4 }}>
+                {byPurpose.map((p) => {
+                  const meta = PURPOSE_LABEL[p.purpose] ?? { label: p.purpose, color: NAVY }
+                  const cr = pct(p.connected, p.total)
+                  const share = pct(p.total, total)
+                  return (
+                    <div key={p.purpose} style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, background: meta.color, flexShrink: 0 }} />
+                      <span style={{ width: 150, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{meta.label}</span>
+                      <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'var(--bdr)', overflow: 'hidden', minWidth: 60 }}>
+                        <div style={{ width: `${Math.round(share * 100)}%`, height: '100%', background: meta.color, borderRadius: 4 }} />
+                      </div>
+                      <span style={{ ...NUM, width: 92, textAlign: 'right', fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>{fmtNum(p.total)}</span>
+                      <span style={{ ...NUM, width: 54, textAlign: 'right', fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fpct(share)}</span>
+                      <span style={{ ...NUM, width: 96, textAlign: 'right', fontSize: TEXT.xs, color: cr >= 0.3 ? GREEN : cr >= 0.15 ? AMBER : 'var(--txt2)' }}>{fpct(cr)} conn.</span>
+                    </div>
+                  )
+                })}
+              </div>
             )}
           </SectionCard>
 
@@ -247,17 +275,18 @@ export default function CallCenterOverview() {
                 <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls yet</div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: SP[4] }}>
-                  <div style={{ position: 'relative', flexShrink: 0 }}>
-                    <PieChart width={160} height={160}>
-                      <Pie data={outcomeBreakdown} cx={76} cy={76} innerRadius={48} outerRadius={74} dataKey="count" nameKey="label" stroke="none" paddingAngle={2} startAngle={90} endAngle={-270}>
-                        {outcomeBreakdown.map((o) => <Cell key={o.key} fill={o.color} />)}
-                      </Pie>
-                      <Tooltip content={(p: any) => <Tip {...p} />} />
-                    </PieChart>
-                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
-                      <div style={{ fontSize: TEXT.xl, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, lineHeight: 1 }}>{fmtNum(donutTotal)}</div>
-                      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER }}>calls</div>
-                    </div>
+                  <div style={{ flexShrink: 0, width: 160 }}>
+                    <EDonut
+                      data={outcomeBreakdown}
+                      valueKey="count"
+                      nameKey="label"
+                      colorFn={(o) => o.color}
+                      size={160}
+                      inner={48}
+                      centerValue={fmtNum(donutTotal)}
+                      centerLabel="calls"
+                      valueFmt={fmtNum}
+                    />
                   </div>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: SP[2], minWidth: 0 }}>
                     {outcomeBreakdown.map((o) => (
@@ -265,7 +294,7 @@ export default function CallCenterOverview() {
                         <span style={{ width: 9, height: 9, borderRadius: 3, background: o.color, flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: TEXT.sm, color: 'var(--txt)' }}>{o.label}</span>
                         <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', ...NUM }}>{fmtNum(o.count)}</span>
-                        <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', ...NUM, width: 40, textAlign: 'right' }}>{fmtPct(pct(o.count, donutTotal))}</span>
+                        <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', ...NUM, width: 40, textAlign: 'right' }}>{fpct(pct(o.count, donutTotal))}</span>
                       </div>
                     ))}
                   </div>
@@ -288,7 +317,7 @@ export default function CallCenterOverview() {
                         <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name || 'Unknown'}</span>
                         <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtNum(a.calls)}</span>
                         <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtNum(a.connected)}</span>
-                        <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, fontWeight: FW.semibold, color: a.calls === 0 ? 'var(--txt3)' : cr >= 0.3 ? GREEN : cr >= 0.15 ? AMBER : RED }}>{a.calls ? fmtPct(cr) : '—'}</span>
+                        <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, fontWeight: FW.semibold, color: a.calls === 0 ? 'var(--txt3)' : cr >= 0.3 ? GREEN : cr >= 0.15 ? AMBER : RED }}>{a.calls ? fpct(cr) : '—'}</span>
                         <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDur(a.avg)}</span>
                         <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, color: a.open > 10 ? AMBER : 'var(--txt2)' }}>{fmtNum(a.open)}</span>
                         <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, fontWeight: FW.semibold, color: a.resolved > 0 ? GREEN : 'var(--txt3)' }}>{fmtNum(a.resolved)}</span>
@@ -332,7 +361,7 @@ function SplitRow({ label, icon, color, volume, rate, rateLabel, avg }: {
           <div style={{ width: `${Math.min(100, Math.round(rate * 100))}%`, height: '100%', background: color, borderRadius: 3 }} />
         </div>
         <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-          <span style={{ color: 'var(--txt)', fontWeight: FW.semibold }}>{fmtPct(rate)}</span> {rateLabel} · avg {fmtDur(avg)}
+          <span style={{ color: 'var(--txt)', fontWeight: FW.semibold }}>{fpct(rate)}</span> {rateLabel} · avg {fmtDur(avg)}
         </div>
       </div>
     </div>

@@ -297,7 +297,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
               {profileKVs.length > 0 && (
                 <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bdr)' }}>
                   <div style={SEC_TITLE}>Profile</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '14px 20px' }}>
                     {profileKVs.map(([k, v]) => (
                       <div key={k}>
                         <div style={{ fontSize: 10.5, color: 'var(--txt3)', marginBottom: 3 }}>{k}</div>

@@ -38,6 +38,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -224,7 +225,15 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 	ensureHelpdeskColumns(context.Background(), db)
 	ensureKBFeedbackSchema(context.Background(), db)
 	ensureCallScriptsSchema(context.Background(), db)
+	ensureCareSchema(context.Background(), db)
 	go StartSLABreachMonitor(db)
+	go StartCareWorkers(db)
+	// One-off (self-idempotent) recovery of Cc on open Zoho email tickets ingested
+	// before Cc capture existed. No-op once every open ticket is filled.
+	go func() { time.Sleep(2 * time.Minute); careBackfillZohoCc(db) }()
+	// One-off (self-idempotent) classification of the Care email backlog into inbox
+	// folders (subgroups). Runs quickly — pure keyword classification, no API calls.
+	go func() { time.Sleep(30 * time.Second); careBackfillSubgroups(db) }()
 
 	r.Group(func(r chi.Router) {
 		r.Use(core.RequirePages("helpdesk"))
@@ -250,6 +259,17 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		r.Get("/tickets/{id}", hdGetTicket(db))
 		r.Patch("/tickets/{id}", hdUpdateTicket(db))
 		r.Post("/tickets/{id}/messages", hdSendMessage(db))
+		r.Post("/tickets/{id}/messages/{msgId}/recall", hdRecallMessage(db))
+		// Care workspace: outbox, flag, subgroup, deletion approval, popup feeds
+		r.Get("/outbox", hdOutbox(db))
+		r.Post("/tickets/{id}/flag", hdFlagTicket(db))
+		r.Post("/tickets/{id}/subgroup", hdSetSubgroup(db))
+		r.Get("/subgroups", hdSubgroupCounts(db))
+		r.Post("/tickets/{id}/delete-request", hdRequestDelete(db))
+		r.Get("/delete-requests", hdListDeleteRequests(db))
+		r.Post("/delete-requests/{id}/decide", hdDecideDelete(db))
+		r.Get("/sla/due", hdSLADue(db))
+		r.Get("/escalations/due", hdEscalationsDue(db))
 		r.Post("/tickets/{id}/promise", hdTicketPromise(db))
 		r.Post("/tickets/{id}/merge", hdMergeTicket(db))
 		r.Get("/canned-responses", hdListCanned(db))
@@ -267,7 +287,10 @@ func RegisterHelpdesk(r chi.Router, db *core.DB) {
 		// "which call is this?".
 		r.Get("/calls/candidates", hdCallCandidates(db))
 		r.Get("/calls/stats", hdCallStats(db))
-		r.Get("/calls/{id}/recording", hdCallRecording(db)) // streams Zoho Voice audio on demand
+		r.Get("/calls/{id}/recording", hdCallRecording(db))              // streams Zoho Voice audio on demand
+		r.Get("/calls/{id}/recording/status", hdCallRecordingStatus(db)) // ready|downloading|missing — player pre-check
+		r.Post("/calls/{id}/fetch-recording", hdCallFetchRecording(db))  // manual "pull live from Zoho" for THIS call
+		r.Post("/recordings/prefetch", hdRecordingsPrefetchTrigger(db))  // back-fill the retention window on demand
 
 		// Correcting a log. Agents may fix their own; supervisors may fix any and
 		// see every change. Removal is a void, never a delete — see
@@ -862,11 +885,19 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM call_center_contacts WHERE status = 'pending'`); len(rows) > 0 {
 			queuePending = toInt64(rows[0]["n"])
 		}
-		// Callbacks this agent has promised (populates as outbound dispositions land
-		// in the call ledger).
+		// Callbacks this agent has promised. These live on the lead/contact books' own
+		// callback_at columns (set when a "Callback" disposition is applied), NOT on
+		// helpdesk_calls.outcome — outcome only ever holds completed/missed/no_answer/etc,
+		// so the old `outcome ILIKE '%callback%'` matched nothing and the tile read 0.
 		var callbacksDue int64
 		if user != nil {
-			if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM helpdesk_calls WHERE agent_id = $1 AND outcome ILIKE '%callback%'`, user.ID); len(rows) > 0 {
+			if rows, _ := db.PGQuery(ctx, `
+				SELECT (SELECT COUNT(*) FROM call_center_leads
+				          WHERE assigned_to = $1 AND callback_at IS NOT NULL
+				            AND status NOT IN ('converted','closed','dnc','invalid'))
+				     + (SELECT COUNT(*) FROM call_center_contacts
+				          WHERE assigned_to = $1 AND callback_at IS NOT NULL AND status = 'pending')
+				  AS n`, user.ID); len(rows) > 0 {
 				callbacksDue = toInt64(rows[0]["n"])
 			}
 		}
@@ -911,12 +942,12 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			  COUNT(*)                                                                                  AS calls_today,
 			  COUNT(*) FILTER (WHERE lower(direction)='outbound')                                       AS outbound_today,
 			  COUNT(*) FILTER (WHERE lower(direction)='inbound')                                        AS inbound_today,
-			  COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected_today,
+			  COUNT(*) FILTER (WHERE `+callConnectedSQL+`) AS connected_today,
 			  -- A "missed call" is an INBOUND call we failed to answer. An unanswered
 			  -- OUTBOUND dial is "no answer" — the customer didn't pick, not the agent's miss.
-			  COUNT(*) FILTER (WHERE lower(direction)='inbound'  AND outcome IN ('missed','no_answer','voicemail')) AS missed_today,
-			  COUNT(*) FILTER (WHERE lower(direction)='outbound' AND outcome IN ('missed','no_answer','voicemail')) AS no_answer_today,
-			  COALESCE(ROUND(AVG(duration_sec) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail',''))),0)::int AS avg_talk_sec,
+			  COUNT(*) FILTER (WHERE lower(direction)='inbound'  AND `+callUnansweredSQL+`) AS missed_today,
+			  COUNT(*) FILTER (WHERE lower(direction)='outbound' AND `+callUnansweredSQL+`) AS no_answer_today,
+			  COALESCE(ROUND(AVG(duration_sec) FILTER (WHERE `+callConnectedSQL+`)),0)::int AS avg_talk_sec,
 			  COALESCE(SUM(duration_sec),0)::int                                                        AS talk_time_sec
 			FROM helpdesk_calls
 			WHERE (agent_id = $1 OR agent_name = $2) AND started_at::date = CURRENT_DATE`, uid, agentName)
@@ -933,7 +964,7 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			SELECT TO_CHAR(d.day,'YYYY-MM-DD') AS day,
 			       TO_CHAR(d.day,'Dy')          AS dow,
 			       COUNT(hc.id)                                                                                                  AS total,
-			       COUNT(hc.id) FILTER (WHERE lower(hc.direction)='inbound' AND hc.outcome IN ('missed','no_answer','voicemail')) AS missed
+			       COUNT(hc.id) FILTER (WHERE lower(hc.direction)='inbound' AND `+callUnansweredExpr("hc.")+`) AS missed
 			FROM days d
 			LEFT JOIN helpdesk_calls hc
 			  ON hc.started_at::date = d.day AND (hc.agent_id = $1 OR hc.agent_name = $2)
@@ -950,7 +981,8 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 			       COALESCE(customer_phone,'') AS phone,
 			       LOWER(COALESCE(NULLIF(purpose,''),'')) AS purpose,
 			       COALESCE(customer_cif,'') AS customer_cif,
-			       outcome, duration_sec, started_at, ticket_id
+			       outcome, duration_sec, started_at, ticket_id,
+			       (recording_filename IS NOT NULL) AS has_recording
 			FROM helpdesk_calls
 			WHERE (agent_id = $1 OR agent_name = $2)
 			ORDER BY started_at DESC LIMIT 20`, uid, agentName)
@@ -990,7 +1022,7 @@ func hdMyDashboard(db *core.DB) http.HandlerFunc {
 		byHourToday, _ := db.PGQuery(ctx, `
 			SELECT EXTRACT(HOUR FROM started_at)::int AS hour,
 			       COUNT(*)                                                              AS total,
-			       COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail')) AS missed
+			       COUNT(*) FILTER (WHERE `+callUnansweredSQL+`) AS missed
 			FROM helpdesk_calls
 			WHERE (agent_id = $1 OR agent_name = $2) AND started_at::date = CURRENT_DATE
 			GROUP BY hour ORDER BY hour`, uid, agentName)
@@ -1159,7 +1191,7 @@ func hdCreateTicket(db *core.DB) http.HandlerFunc {
 		// Send via channel
 		ctx := r.Context()
 		if b.CustomerEmail != nil && *b.CustomerEmail != "" {
-			go hdSendTicketEmail(context.Background(), db, ticket, b.MessageText, ptrStr(b.MessageHTML), "", "", "", nil)
+			go hdSendTicketEmail(context.Background(), db, ticket, b.MessageText, ptrStr(b.MessageHTML), "", "", user.FullName, nil, nil, nil)
 		}
 		if b.CustomerPhone != nil && *b.CustomerPhone != "" && b.Channel == "sms" {
 			go sendSMS(context.Background(), db, *b.CustomerPhone, b.MessageText)
@@ -1187,6 +1219,10 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 		offset := (page - 1) * perPage
 
 		where := "1=1"
+		// Soft-deleted mail is hidden everywhere except an explicit deleted view.
+		if qstr(r, "include_deleted") != "1" {
+			where += " AND t.deleted_at IS NULL"
+		}
 		var args []any
 		n := 1
 
@@ -1231,6 +1267,19 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 			where += fmt.Sprintf(" AND t.customer_cif=$%d", n)
 			args = append(args, v)
 			n++
+		}
+		// Care inbox subgroup (New Registration, Support, …).
+		if v := qstr(r, "subgroup"); v != "" {
+			if strings.EqualFold(v, "unsorted") {
+				where += " AND (t.mail_subgroup IS NULL OR t.mail_subgroup='')"
+			} else {
+				where += fmt.Sprintf(" AND t.mail_subgroup=$%d", n)
+				args = append(args, v)
+				n++
+			}
+		}
+		if qstr(r, "flagged") == "1" {
+			where += " AND t.is_flagged=TRUE"
 		}
 		if v := qstr(r, "assigned_to"); v != "" {
 			switch v {
@@ -1327,6 +1376,8 @@ func hdListTickets(db *core.DB) http.HandlerFunc {
 				t.id, t.ticket_ref, t.channel, t.status, t.priority, t.subject,
 				t.customer_name, t.customer_cif, t.customer_email, t.assigned_to, t.department,
 				t.sla_due_at, t.created_at, t.first_response_at,
+				t.is_flagged, t.mail_subgroup, t.escalation_due_at, t.delete_requested,
+				(t.escalated_at IS NOT NULL AND t.escalation_resolved_at IS NULL) AS escalated,
 				LEFT(t.description, 160) AS description_preview,
 				u.full_name AS assigned_to_name,
 				msg.message_count, msg.last_message_at, msg.last_message_preview, msg.last_message_direction,
@@ -1499,6 +1550,96 @@ func sqlInLower(col, raw string) string {
 		return ""
 	}
 	return fmt.Sprintf(" AND lower(%s) IN (%s)", col, strings.Join(vals, ","))
+}
+
+// callConnectMinSec is the floor, in seconds, below which a 'completed' call with
+// no recording is treated as never having connected. A 1–4 second "call" is a
+// dial that dropped before a conversation, not a connect — counting it as
+// connected inflated every connect rate. A call WITH a recording is always a
+// connect regardless of length, and a manually-logged call_center row is exempt
+// (the agent logged a real interaction).
+const callConnectMinSec = 5
+
+// callUnansweredExpr / callConnectedExpr are the SINGLE source of truth for whether a
+// helpdesk_calls row reached a conversation. EVERY surface that reports a connect
+// count, connect rate, missed/no-answer count or average talk time — the Call Log,
+// Overview, Supervisor, the agent dashboards, the agent drawer and QA coverage —
+// must use these, so the figure is identical everywhere. "Did not connect" is an
+// explicit missed/no_answer/voicemail, OR a 'completed' dial under callConnectMinSec
+// seconds with no recording (and not a manually-logged call_center row).
+// "Connected" is any non-blank outcome that is not a non-connect. p is the column
+// prefix ("" for a bare table, "hc." when aliased).
+func callUnansweredExpr(p string) string {
+	return fmt.Sprintf("(%[1]soutcome IN ('missed','no_answer','voicemail') OR (%[1]soutcome='completed' AND COALESCE(%[1]sduration_sec,0) < %[2]d AND %[1]srecording_filename IS NULL AND %[1]ssource_system IS DISTINCT FROM 'call_center'))", p, callConnectMinSec)
+}
+
+func callConnectedExpr(p string) string {
+	return "(COALESCE(" + p + "outcome,'') NOT IN ('missed','no_answer','voicemail','') AND NOT " + callUnansweredExpr(p) + ")"
+}
+
+// Convenience strings for direct concatenation into unqualified helpdesk_calls queries.
+var callConnectedSQL = callConnectedExpr("")
+var callUnansweredSQL = callUnansweredExpr("")
+
+// resultCategoryExpr builds the SQL predicate for one *displayed* call-result
+// category — the exact label the Call Log pill shows. The pill folds direction and
+// the "completed but never actually connected" edge into the raw telephony outcome:
+// an inbound unanswered call reads "Missed", an outbound one "No Answer", and a
+// 'completed' row shorter than callConnectMinSec with no recording is treated as
+// unanswered. This reproduces that so ?result=missed returns precisely the rows
+// that show "Missed". p is the column prefix ("" bare, "hc." when aliased).
+func resultCategoryExpr(cat, p string) string {
+	// A call that never reached a conversation, matching the pill's rule.
+	unanswered := callUnansweredExpr(p)
+	switch cat {
+	case "connected":
+		return fmt.Sprintf("(%[1]soutcome IN ('completed','connected') AND NOT (%[1]soutcome='completed' AND COALESCE(%[1]sduration_sec,0) < 5 AND %[1]srecording_filename IS NULL AND %[1]ssource_system IS DISTINCT FROM 'call_center'))", p)
+	case "resolved":
+		return fmt.Sprintf("%soutcome='resolved'", p)
+	case "missed":
+		return fmt.Sprintf("(lower(%sdirection)='inbound' AND %s)", p, unanswered)
+	case "no_answer":
+		return fmt.Sprintf("(lower(%sdirection)<>'inbound' AND %s)", p, unanswered)
+	case "transferred":
+		return fmt.Sprintf("%soutcome='transferred'", p)
+	case "escalated":
+		return fmt.Sprintf("%soutcome='escalated'", p)
+	}
+	return ""
+}
+
+// sqlResultFilter turns ?result=missed,connected into an AND clause over the
+// displayed-result categories (see resultCategoryExpr). Empty when the param is
+// blank or holds only unrecognised categories.
+func sqlResultFilter(raw, p string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	var parts []string
+	for _, c := range strings.Split(raw, ",") {
+		if e := resultCategoryExpr(strings.ToLower(strings.TrimSpace(c)), p); e != "" {
+			parts = append(parts, e)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " AND (" + strings.Join(parts, " OR ") + ")"
+}
+
+// resultCategoryCaseExpr is the mirror of resultCategoryExpr as a single CASE that
+// maps every row to its displayed category — used to GROUP BY category for the
+// filter options and the By-Outcome donut. Kept in lock-step with the predicates
+// above so counts and filtering can never disagree.
+func resultCategoryCaseExpr(p string) string {
+	return fmt.Sprintf(`CASE
+	    WHEN %[1]soutcome='resolved'    THEN 'resolved'
+	    WHEN %[1]soutcome='transferred' THEN 'transferred'
+	    WHEN %[1]soutcome='escalated'   THEN 'escalated'
+	    WHEN (%[1]soutcome IN ('missed','no_answer','voicemail') OR (%[1]soutcome='completed' AND COALESCE(%[1]sduration_sec,0) < 5 AND %[1]srecording_filename IS NULL AND %[1]ssource_system IS DISTINCT FROM 'call_center'))
+	         THEN CASE WHEN lower(%[1]sdirection)='inbound' THEN 'missed' ELSE 'no_answer' END
+	    WHEN %[1]soutcome IN ('completed','connected') THEN 'connected'
+	    ELSE COALESCE(NULLIF(%[1]soutcome,''),'other') END`, p)
 }
 
 // ── Bulk ticket actions ───────────────────────────────────────────────────────
@@ -2104,6 +2245,20 @@ func hdGetTicket(db *core.DB) http.HandlerFunc {
 			events = []core.Row{}
 		}
 
+		// Surface each message's Cc as a clean email list (cc_addrs is jsonb, which
+		// serialises as base64 bytes otherwise). Lets the composer offer "Reply all".
+		for _, m := range msgs {
+			var cc []MailAddress
+			jsonInto(m["cc_addrs"], &cc)
+			emails := make([]string, 0, len(cc))
+			for _, a := range cc {
+				if e := strings.TrimSpace(a.Email); e != "" {
+					emails = append(emails, e)
+				}
+			}
+			m["cc"] = emails
+		}
+
 		// Build customer context from CIF
 		cif := str(ticket["customer_cif"])
 		customerCtx := hdCustomerContext(r.Context(), db, cif)
@@ -2374,6 +2529,9 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 			IsInternalNote bool             `json:"is_internal_note"`
 			Channel        *string          `json:"channel"`
 			Attachments    []MailAttachment `json:"attachments"`
+			CC             []MailAddress    `json:"cc"`
+			BCC            []MailAddress    `json:"bcc"`
+			HoldSeconds    *int             `json:"hold_seconds"` // nil = default recall window; 0 = send immediately
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -2396,16 +2554,47 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 			channel = *b.Channel
 		}
 
+		// Fill merge fields ({{customer_name}}, {{ticket_ref}}, {{agent_name}} …)
+		// server-side so both the stored thread copy and the email match.
+		mergeData := careMergeData(ticket, user.FullName)
+		b.BodyText = renderTemplate(b.BodyText, mergeData)
+		if b.BodyHTML != nil && strings.TrimSpace(*b.BodyHTML) != "" {
+			merged := renderTemplate(*b.BodyHTML, mergeData)
+			b.BodyHTML = &merged
+		}
+
 		attachJSON := "[]"
 		if len(b.Attachments) > 0 {
 			if raw, err := json.Marshal(b.Attachments); err == nil {
 				attachJSON = string(raw)
 			}
 		}
+		ccJSON, bccJSON := "[]", "[]"
+		if len(b.CC) > 0 {
+			if raw, err := json.Marshal(b.CC); err == nil {
+				ccJSON = string(raw)
+			}
+		}
+		if len(b.BCC) > 0 {
+			if raw, err := json.Marshal(b.BCC); err == nil {
+				bccJSON = string(raw)
+			}
+		}
+
+		// Hold window: outbound customer-facing replies wait in the outbox so they
+		// can be recalled; internal notes are never sent, so they land as 'sent'.
+		holdSecs := careHoldSeconds
+		if b.HoldSeconds != nil {
+			holdSecs = *b.HoldSeconds
+		}
+		sendState := "pending"
+		if b.IsInternalNote {
+			sendState, holdSecs = "sent", 0
+		}
 
 		// Generate email Message-ID
 		msgUUID := hdNewUUID()
-		emailMsgID := fmt.Sprintf("<msg-%s@o3ccards.com>", msgUUID)
+		emailMsgID := fmt.Sprintf("<msg-%s@o3cards.com>", msgUUID)
 
 		// Get last message email_message_id for In-Reply-To
 		lastMsgRows, _ := db.PGQuery(ctx, `
@@ -2420,12 +2609,15 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 		msgRows, err := db.PGQuery(ctx, `
 			INSERT INTO helpdesk_messages
 			    (ticket_id, direction, channel, author_user_id, author_name,
-			     body_text, body_html, attachments, email_message_id, in_reply_to, is_internal_note)
-			VALUES ($1,'outbound',$2,$3,$4,$5,$6,$7::jsonb,$8,NULLIF($9,''),$10)
+			     body_text, body_html, attachments, email_message_id, in_reply_to, is_internal_note,
+			     cc_addrs, bcc_addrs, send_state, send_after)
+			VALUES ($1,'outbound',$2,$3,$4,$5,$6,$7::jsonb,$8,NULLIF($9,''),$10,
+			        $11::jsonb,$12::jsonb,$13, NOW() + ($14 || ' seconds')::interval)
 			RETURNING *`,
 			ticketID, channel, user.ID, user.FullName,
 			b.BodyText, ptrOrNil(b.BodyHTML), attachJSON,
-			emailMsgID, inReplyTo, b.IsInternalNote)
+			emailMsgID, inReplyTo, b.IsInternalNote,
+			ccJSON, bccJSON, sendState, strconv.Itoa(holdSecs))
 		if err != nil {
 			slog.Error("hdSendMessage: insert", "err", err)
 			respondErr(w, 500, "Could not insert message")
@@ -2442,24 +2634,10 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 			db.PGExec(ctx, "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", ticketID) //nolint:errcheck
 		}
 
-		// Send externally unless internal note
-		if !b.IsInternalNote {
-			customerEmail := str(ticket["customer_email"])
-			customerPhone := str(ticket["customer_phone"])
-			ticketChannel := str(ticket["channel"])
-
-			if ticketChannel == "email" && customerEmail != "" {
-				agentName := user.FullName
-				go hdSendTicketEmail(context.Background(), db, ticket, b.BodyText, ptrStr(b.BodyHTML), emailMsgID, inReplyTo, agentName, b.Attachments)
-			}
-			if ticketChannel == "sms" && customerPhone != "" {
-				go sendSMS(context.Background(), db, customerPhone, b.BodyText)
-			}
-			// New: deliver reply to customer via WhatsApp when channel is whatsapp
-			if ticketChannel == "whatsapp" && customerPhone != "" {
-				go sendWhatsApp(context.Background(), db, customerPhone, b.BodyText)
-			}
-		}
+		// Outbound delivery is deferred: the message sits in state 'pending' until
+		// its hold window elapses, then StartCareWorkers' dispatcher sends it via
+		// the right channel. This is what makes a reply recallable. Internal notes
+		// are stored as 'sent' and never dispatched.
 		// Notify the assigned agent when a new message arrives (if sender is not the assignee)
 		if assignedID := toInt64(ticket["assigned_to"]); assignedID != 0 && assignedID != user.ID {
 			ref := str(ticket["ticket_ref"])
@@ -2652,6 +2830,7 @@ func hdListCanned(db *core.DB) http.HandlerFunc {
 		_ = n
 		rows, err := db.PGQuery(r.Context(),
 			fmt.Sprintf(`SELECT c.id, c.name AS title, c.category, c.body_text AS body,
+			             c.body_html, c.subject, c.channel,
 			             c.last_used_at, c.created_at,
 			             COALESCE(u.full_name, c.created_by::text, '') AS created_by
 			             FROM helpdesk_canned_responses c
@@ -3412,10 +3591,10 @@ func hdCustomerContext(ctx context.Context, db *core.DB, cif string) map[string]
 	return result
 }
 
-func hdSendTicketEmail(ctx context.Context, db *core.DB, ticket map[string]any, bodyText, bodyHTML, msgID, inReplyTo, agentName string, attachments []MailAttachment) {
+func hdSendTicketEmail(ctx context.Context, db *core.DB, ticket map[string]any, bodyText, bodyHTML, msgID, inReplyTo, agentName string, attachments []MailAttachment, cc, bcc []MailAddress) SendMailResult {
 	toEmail := str(ticket["customer_email"])
 	if toEmail == "" {
-		return
+		return SendMailResult{OK: false, Error: "no customer email"}
 	}
 	toName := str(ticket["customer_name"])
 	subject := fmt.Sprintf("Re: %s [%s]", str(ticket["subject"]), str(ticket["ticket_ref"]))
@@ -3427,26 +3606,35 @@ func hdSendTicketEmail(ctx context.Context, db *core.DB, ticket map[string]any, 
 		fromName = agentName + " (O3 Capital)"
 	}
 
+	// Wrap the reply in the O3 letterhead so support mail matches the brand.
+	inner := bodyHTML
+	if strings.TrimSpace(inner) == "" {
+		inner = "<p>" + escapeMailHTML(bodyText) + "</p>"
+	}
+	preheader := truncateStr(strings.TrimSpace(bodyText), 140)
+	brandedHTML := wrapBrandedEmail(preheader, inner)
+	fullAttachments := append([]MailAttachment{brandedLogoAttachment()}, attachments...)
+
 	opts := SendMailOptions{
-		To:          []MailAddress{{Email: toEmail, Name: toName}},
-		FromName:    fromName,
-		Subject:     subject,
-		HTMLBody:    bodyHTML,
-		TextBody:    bodyText,
-		Category:    "helpdesk",
-		Kind:        "helpdesk",
-		RelatedType: "helpdesk_tickets",
-		RelatedID:   toInt64(ticket["id"]),
-		Attachments: attachments,
+		To:                 []MailAddress{{Email: toEmail, Name: toName}},
+		CC:                 cc,
+		BCC:                bcc,
+		FromName:           fromName,
+		Subject:            subject,
+		HTMLBody:           brandedHTML,
+		TextBody:           bodyText,
+		InReplyToMessageID: inReplyTo,
+		Category:           "helpdesk",
+		Kind:               "helpdesk",
+		RelatedType:        "helpdesk_tickets",
+		RelatedID:          toInt64(ticket["id"]),
+		Attachments:        fullAttachments,
 		CustomArgs: map[string]string{
 			"ticket_ref": str(ticket["ticket_ref"]),
 			"msg_id":     msgID,
 		},
 	}
-	if bodyHTML == "" {
-		opts.HTMLBody = "<p>" + escapeMailHTML(bodyText) + "</p>"
-	}
-	SendMail(ctx, db, opts)
+	return SendMail(ctx, db, opts)
 }
 
 func hdSendCSATEmail(ctx context.Context, db *core.DB, ticket map[string]any) {
@@ -3674,6 +3862,13 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		// different endpoint — so a lead call never carried a CIF, a disposition or
 		// a ticket, and the two pages could drift apart indefinitely.
 		LeadID     *int64 `json:"lead_id"`
+		// ContactID links the call to an outbound-queue contact (call_center_contacts).
+		// Set when the call is logged from the Outbound Queue, which now uses the SAME
+		// shared call form as the Leads page instead of its own. With it, logging a call
+		// applies the disposition's queue consequences (status → closed/invalid, callback
+		// time, DNC) to the contact, exactly as the queue's own endpoint used to — so the
+		// two pages share one form without the queue losing its dialer mechanics.
+		ContactID  *int64 `json:"contact_id"`
 		CallbackAt string `json:"callback_at"`
 		// MergeCallID attaches these notes to a call that already exists — the real
 		// Voice record the agent is writing up. Without it, logging a call the agent
@@ -3758,6 +3953,27 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		// stored lower-case to match the queue + Zoho-import convention so a manually
 		// logged call sorts alongside the ones the dialer recorded.
 		purpose := strings.ToLower(strings.TrimSpace(b.Purpose))
+		// Apply the outbound-queue consequences of this call's disposition to the linked
+		// contact — the same side-effects the queue's old dedicated endpoint ran, so the
+		// Queue can now share the Leads call form without losing its dialer mechanics
+		// (contact status transitions, the agreed call-back time, DNC suppression). The
+		// last-called stamp + cool-down are already handled by ccStampQueueForPhone below,
+		// on every call; this adds only what a disposition means for the contact. The
+		// agent's label is normalised to the canonical code before it's applied.
+		applyQueueContact := func() {
+			if b.ContactID == nil {
+				return
+			}
+			disp, ok := ccDispositionByCode(ccDispositionCode(b.Disposition))
+			if !ok {
+				return
+			}
+			var cb *string
+			if strings.TrimSpace(b.CallbackAt) != "" {
+				cb = &b.CallbackAt
+			}
+			ccApplyDisposition(r.Context(), db, strconv.FormatInt(*b.ContactID, 10), disp, b.CustomerPhone, cb, agentID)
+		}
 		// Attach to an existing call rather than creating a duplicate.
 		//
 		// The agent has just finished a call that Zoho Voice already recorded; this
@@ -3792,6 +4008,7 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 				       lead_id       = COALESCE($11, lead_id)
 				 WHERE id = $1
 				   AND merged_into_call_id IS NULL
+				   AND voided_at IS NULL
 				 RETURNING id`,
 				*b.MergeCallID, b.Notes, b.Resolution, ptrOrNilStr(b.Disposition),
 				ptrOrNilStr(purpose), b.CustomerName, b.CustomerCIF,
@@ -3802,8 +4019,10 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 			}
 			if len(upd) > 0 {
 				if b.LeadID != nil {
-					syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID)
+					syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID, durationSec)
 				}
+				ccStampQueueForPhone(r.Context(), db, b.CustomerPhone) // clear a fulfilled queue call-back
+				applyQueueContact()
 				if ticketID != nil {
 					db.PGExec(r.Context(), "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", *ticketID) //nolint:errcheck
 				}
@@ -3837,14 +4056,46 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Could not save the call", err)
 			return
 		}
+		// A write-up logged with no merge target lands as its OWN row. If it describes a
+		// conversation (disposition) but this row didn't connect — no duration, no
+		// recording — while Zoho recorded the same conversation on a sibling leg, fold it
+		// onto that recorded call so it doesn't sit as a phantom "conversation on a
+		// 0-second call". hdBetterAttachTarget self-gates to conversation dispositions and
+		// only picks an un-written-up connected sibling; non-fatal — the call is saved.
+		if len(rows) > 0 {
+			newID := toInt64(rows[0]["id"])
+			if target := hdBetterAttachTarget(r.Context(), db, newID, b.Disposition); target != 0 {
+				if _, mErr := db.PGExec(r.Context(), `
+					UPDATE helpdesk_calls t
+					   SET notes       = $2,
+					       resolution  = $3,
+					       disposition = COALESCE(NULLIF($4,''), t.disposition),
+					       purpose     = COALESCE(NULLIF($5,''), t.purpose)
+					  FROM helpdesk_calls d WHERE t.id = $1 AND d.id = $6`,
+					target, b.Notes, b.Resolution, ptrOrNilStr(b.Disposition), ptrOrNilStr(purpose), newID); mErr == nil {
+					db.PGExec(r.Context(), `UPDATE helpdesk_calls SET merged_into_call_id=$1 WHERE id=$2`, target, newID) //nolint:errcheck
+					slog.Info("hdLogCall: folded standalone write-up onto recorded call", "from", newID, "to", target)
+					// Return the VISIBLE target id, not the row we just hid — a client that
+					// navigates to the response id must land on the recorded call, not a
+					// merged-away phantom.
+					rows[0]["id"] = target
+				}
+			}
+		}
 		// When the call came from the Leads page, advance the lead in the same
 		// request. Previously the Leads page posted to its own endpoint, which meant
 		// a lead call and a normal call were two different records written two
 		// different ways; now there is one write path and the lead is a side-effect
 		// of it. Failures here are logged, never fatal: the call itself is recorded.
 		if b.LeadID != nil {
-			syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID)
+			syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID, durationSec)
 		}
+		// Any call to a number in the outbound queue updates that contact's last-called
+		// stamp and clears a fulfilled call-back — no matter which screen logged it. This
+		// is what makes the call-back reminder drop the moment the customer is actually
+		// called (e.g. logged straight from the reminder popup), instead of nagging on.
+		ccStampQueueForPhone(r.Context(), db, b.CustomerPhone)
+		applyQueueContact()
 
 		if ticketID != nil {
 			db.PGExec(r.Context(), "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", *ticketID) //nolint:errcheck
@@ -3901,11 +4152,472 @@ func hdTicketPromise(db *core.DB) http.HandlerFunc {
 
 // hdCallRecording streams a call's Zoho Voice recording on demand.
 //
-// We store only the recording_filename (migration 157), never the audio. The Voice
-// recording endpoint 302-redirects (within voice.zoho.com) to the file, so we let a
-// dedicated client follow the redirect while re-carrying the Voice token on
-// voice.zoho.com hops (Go strips Authorization across hosts by default; a signed
-// final URL on another host doesn't need it, and we deliberately don't leak it there).
+// Hardened HTTP transport for pulling recordings from voice.zoho.com, which has been
+// slow to complete TLS from this server (logged TLS-handshake timeouts). Cloned from
+// the default so it keeps sane dial/idle/keep-alive behaviour, with a longer TLS-
+// handshake and response-header budget so a slow-but-working Zoho edge isn't cut off
+// at the default 10s.
+var zohoRecTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.TLSHandshakeTimeout = 30 * time.Second
+	t.ResponseHeaderTimeout = 45 * time.Second
+	return t
+}()
+
+// cachedRecordingComplete reports whether a cached WAV looks whole: its RIFF header
+// declares a payload no larger than what's actually on disk. A truncated file (from
+// the old rename-on-any-exit cache bug) declares far more audio than it holds, so a
+// player reads the header and then breaks part-way through. A non-WAV or unreadable
+// header can't be validated this way, so it's treated as complete.
+func cachedRecordingComplete(f *os.File, size int64) bool {
+	// A genuine recording is never a few hundred bytes. An MP3 carries no RIFF header
+	// to validate, so this size floor is the only serve-time guard that catches a
+	// truncated/empty non-WAV stub left in cache by an older build.
+	if size < 512 {
+		return false
+	}
+	var hdr [8]byte
+	if _, err := f.ReadAt(hdr[:], 0); err != nil { // ReadAt leaves the offset untouched
+		return true
+	}
+	if string(hdr[0:4]) != "RIFF" {
+		return true
+	}
+	// Bytes 4..7 = size of everything after byte 8, little-endian. Well-formed files
+	// have declared == size-8; a small slack absorbs odd-byte padding quirks.
+	declared := int64(hdr[4]) | int64(hdr[5])<<8 | int64(hdr[6])<<16 | int64(hdr[7])<<24
+	return declared <= size-8+4
+}
+
+// Sentinel errors from downloadRecordingToCache so callers can tell a genuinely
+// missing recording (Zoho 404) or a rejected token from a plain transient network
+// failure, and map each to the right response / retry behaviour.
+var (
+	errRecordingAuth     = fmt.Errorf("zoho voice recording requires web session (login redirect)")
+	errRecordingNotFound = fmt.Errorf("recording not found on zoho")
+)
+
+// downloadBodyWithStall copies src→dst and calls cancel() if no bytes arrive for
+// `stall`, so a transfer that connects then delivers ~0 B/s (the degraded-link failure
+// mode) is dropped in seconds rather than holding the slot for the whole fetch budget.
+// A transfer that keeps delivering bytes gets the full budget. Returns bytes written.
+func downloadBodyWithStall(dst io.Writer, src io.Reader, cancel context.CancelFunc, stall time.Duration) (int64, error) {
+	var written int64
+	progress := make(chan struct{}, 1)
+	done := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 64*1024)
+		for {
+			n, rerr := src.Read(buf)
+			if n > 0 {
+				if _, werr := dst.Write(buf[:n]); werr != nil {
+					done <- werr
+					return
+				}
+				written += int64(n)
+				select {
+				case progress <- struct{}{}:
+				default:
+				}
+			}
+			if rerr == io.EOF {
+				done <- nil
+				return
+			}
+			if rerr != nil {
+				done <- rerr
+				return
+			}
+		}
+	}()
+	t := time.NewTimer(stall)
+	defer t.Stop()
+	for {
+		select {
+		case <-progress:
+			if !t.Stop() {
+				select {
+				case <-t.C:
+				default:
+				}
+			}
+			t.Reset(stall)
+		case err := <-done: // reader finished (EOF or error); goroutine has returned
+			return written, err
+		case <-t.C:
+			cancel()      // no data for `stall` — abort the request
+			err := <-done // wait for the reader to unwind before reading `written`
+			if err == nil {
+				return written, nil
+			}
+			return written, fmt.Errorf("stalled: no data for %s", stall)
+		}
+	}
+}
+
+// downloadRecordingToCache fetches a call's Zoho Voice recording and writes a
+// VERIFIED-COMPLETE copy to the local cache, returning the cache path. If a whole copy
+// is already cached it returns immediately without touching the network. This is the
+// one download path shared by on-play playback and the background prefetch worker, so
+// both pre-warming and live plays get the same completion-checked, retried fetch and
+// can never leave a truncated file behind.
+//
+// We store only the recording_filename (migration 157), never the audio in the DB. The
+// Voice endpoint 302-redirects (within voice.zoho.com) to the file, so a dedicated
+// client follows the redirect while re-carrying the Voice token on voice.zoho.com hops
+// (Go strips Authorization across hosts; a signed final URL elsewhere doesn't need it).
+func downloadRecordingToCache(ctx context.Context, db *core.DB, callID, fname string) (string, error) {
+	cachePath := callRecordingCachePath(callID, fname)
+
+	// Already cached and whole? Serve straight from disk. A truncated leftover (from the
+	// old rename-on-any-exit bug) is dropped here and re-fetched.
+	if cachePath != "" {
+		if f, err := os.Open(cachePath); err == nil {
+			st, serr := f.Stat()
+			whole := serr == nil && st.Size() > 0 && cachedRecordingComplete(f, st.Size())
+			f.Close()
+			if whole {
+				return cachePath, nil
+			}
+			if serr == nil && st.Size() > 0 {
+				os.Remove(cachePath)
+			}
+		}
+	}
+
+	token, err := zohoVoiceAccessToken(ctx, db)
+	if err != nil {
+		return "", err
+	}
+
+	recURL := "https://voice.zoho.com/rest/json/zv/logs/voicerecording?recording_filename=" + url.QueryEscape(fname)
+	client := &http.Client{
+		// voice.zoho.com is slow/degraded from this box; the hardened transport (30s TLS
+		// handshake, 45s response-header) fails a truly dead connection fast, while the
+		// long fetch context (below) lets a slow-but-progressing transfer run to the end
+		// instead of being cut off mid-file. No client-level Timeout — the context is the
+		// single deadline. The fetch runs on a detached context so a stalled/closed
+		// browser can't cancel it; it still lands in the cache for next time.
+		Transport: zohoRecTransport,
+		CheckRedirect: func(rq *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			if strings.Contains(rq.URL.Path, "login") || rq.URL.Host == "accounts.zoho.com" {
+				return errRecordingAuth
+			}
+			if rq.URL.Hostname() == "voice.zoho.com" {
+				rq.Header.Set("Authorization", "Zoho-oauthtoken "+token)
+			}
+			return nil
+		},
+	}
+
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordingFetchTimeout())
+	defer cancel()
+	var resp *http.Response
+	var ferr error
+	for attempt := 0; attempt < 2; attempt++ {
+		req, _ := http.NewRequestWithContext(fetchCtx, http.MethodGet, recURL, nil)
+		req.Header.Set("Authorization", "Zoho-oauthtoken "+token)
+		resp, ferr = client.Do(req)
+		if ferr == nil || strings.Contains(ferr.Error(), "login redirect") {
+			break
+		}
+		select {
+		case <-time.After(1500 * time.Millisecond):
+		case <-fetchCtx.Done():
+		}
+	}
+	if ferr != nil {
+		if strings.Contains(ferr.Error(), "login redirect") {
+			return "", errRecordingAuth
+		}
+		return "", ferr
+	}
+	defer resp.Body.Close()
+
+	upCT := resp.Header.Get("Content-Type")
+	// Guard against Zoho answering with an HTML/JSON error body: only real audio is
+	// cached. A 404 (status or in the JSON body) means the recording genuinely isn't on
+	// Zoho — a distinct, non-retryable outcome.
+	if resp.StatusCode != http.StatusOK || strings.Contains(upCT, "html") || strings.Contains(upCT, "json") {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if resp.StatusCode == http.StatusNotFound || strings.Contains(string(raw), `"404"`) {
+			return "", errRecordingNotFound
+		}
+		return "", fmt.Errorf("upstream not audio: status=%d ct=%s", resp.StatusCode, upCT)
+	}
+	if cachePath == "" {
+		return "", fmt.Errorf("recording cache unavailable")
+	}
+
+	// Write to a .part twin, then publish (rename) ONLY when the whole body copied
+	// cleanly — verified against Content-Length. A short/aborted download is discarded,
+	// never renamed into the permanent cache (the bug that made recordings "not play").
+	expected := int64(-1)
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		if n, e := strconv.ParseInt(cl, 10, 64); e == nil {
+			expected = n
+		}
+	}
+	cf, err := os.Create(cachePath + ".part")
+	if err != nil {
+		return "", err
+	}
+	written, cerr := downloadBodyWithStall(cf, resp.Body, cancel, 45*time.Second)
+	cf.Close()
+	if cerr != nil || (expected >= 0 && written != expected) {
+		os.Remove(cachePath + ".part")
+		if cerr != nil {
+			return "", cerr
+		}
+		return "", fmt.Errorf("incomplete download: got %d of %d bytes", written, expected)
+	}
+	if err := os.Rename(cachePath+".part", cachePath); err != nil {
+		os.Remove(cachePath + ".part")
+		return "", err
+	}
+	return cachePath, nil
+}
+
+// recordingFetchTimeout bounds a single recording download. Long by design: the link
+// to Zoho's audio host can be slow, and we'd rather let a progressing transfer finish
+// than cut a multi-MB file off mid-download. The hardened transport still fails a truly
+// dead connection fast (30s TLS / 45s header), so this ceiling only ever applies to a
+// connection that is actually delivering bytes. Tunable via RECORDING_FETCH_TIMEOUT_SEC.
+func recordingFetchTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("RECORDING_FETCH_TIMEOUT_SEC")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 30 && n <= 3600 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 15 * time.Minute
+}
+
+// In-flight recording downloads, so a play, a status poll and the prefetch worker never
+// fetch the same file three times over an already-strained link. Keyed by call id.
+var recInflight = struct {
+	sync.Mutex
+	m map[string]bool
+}{m: map[string]bool{}}
+
+// beginRecordingDownload reports whether the caller may start a download for callID —
+// true (and marks it in-flight) if none is running, false if one already is.
+func beginRecordingDownload(callID string) bool {
+	recInflight.Lock()
+	defer recInflight.Unlock()
+	if recInflight.m[callID] {
+		return false
+	}
+	recInflight.m[callID] = true
+	return true
+}
+func endRecordingDownload(callID string) {
+	recInflight.Lock()
+	delete(recInflight.m, callID)
+	recInflight.Unlock()
+}
+
+// recGone records calls whose live pull came back terminal — the recording is purged at
+// Zoho (404) or blocked behind a web session (auth) — so the status endpoint can surface
+// a clear "no longer available" instead of an endless "downloading" the player never
+// resolves. The mark expires after 30 min so a later attempt can re-check (Zoho behaviour
+// or retention can change), and is cleared the moment a pull succeeds.
+var recGone = struct {
+	sync.Mutex
+	m map[string]recGoneInfo
+}{m: map[string]recGoneInfo{}}
+
+type recGoneInfo struct {
+	reason string // "purged" | "auth"
+	at     time.Time
+}
+
+func markRecordingGone(callID, reason string) {
+	recGone.Lock()
+	recGone.m[callID] = recGoneInfo{reason: reason, at: time.Now()}
+	recGone.Unlock()
+}
+func clearRecordingGone(callID string) {
+	recGone.Lock()
+	delete(recGone.m, callID)
+	recGone.Unlock()
+}
+
+// recordingGone reports a still-fresh terminal failure for a call, if any.
+func recordingGone(callID string) (recGoneInfo, bool) {
+	recGone.Lock()
+	defer recGone.Unlock()
+	info, ok := recGone.m[callID]
+	if ok && time.Since(info.at) >= 30*time.Minute {
+		delete(recGone.m, callID) // stale — let the next request re-attempt
+		return recGoneInfo{}, false
+	}
+	return info, ok
+}
+
+// ensureRecordingDownloading kicks off a single background download for a call (up to
+// the 15-min budget) if one isn't already running. It returns immediately — the pull
+// continues on its own goroutine and lands in the cache, so a later play serves it.
+func ensureRecordingDownloading(db *core.DB, callID, fname string) {
+	if !beginRecordingDownload(callID) {
+		return // already downloading (a play, poll or the prefetch worker has it)
+	}
+	go func() {
+		defer endRecordingDownload(callID)
+		switch _, err := downloadRecordingToCache(context.Background(), db, callID, fname); {
+		case err == nil:
+			clearRecordingGone(callID)
+		case err == errRecordingNotFound:
+			markRecordingGone(callID, "purged") // Zoho no longer has this recording
+		case err == errRecordingAuth:
+			markRecordingGone(callID, "auth")
+		default:
+			// Transient (slow/stalled link) — leave it retryable, don't mark gone.
+			slog.Warn("recording live pull failed", "call", callID, "err", err)
+		}
+	}()
+}
+
+// serveCachedRecording serves the cached audio if a whole copy is on disk, returning
+// true when it did. A truncated leftover is dropped so the caller re-fetches.
+func serveCachedRecording(w http.ResponseWriter, r *http.Request, cachePath, fname, ct string) bool {
+	if cachePath == "" {
+		return false
+	}
+	f, err := os.Open(cachePath)
+	if err != nil {
+		return false
+	}
+	st, serr := f.Stat()
+	if serr != nil || st.Size() == 0 || !cachedRecordingComplete(f, st.Size()) {
+		f.Close()
+		if serr == nil && st.Size() > 0 {
+			os.Remove(cachePath) // truncated leftover — drop it
+		}
+		return false
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Disposition", "inline")
+	// Must NOT be immutable: a recording can be served truncated while the link is flaky,
+	// then self-healed to a complete file on disk under the SAME URL. An immutable copy
+	// (in the browser or the Cloudflare tunnel) would replay the broken bytes for days.
+	// no-cache lets the client keep a copy but forces revalidation — ServeContent answers
+	// If-Modified-Since with a fast 304 when unchanged, and fresh bytes when the file changed.
+	w.Header().Set("Cache-Control", "no-cache, private")
+	http.ServeContent(w, r, fname, st.ModTime(), f)
+	return true
+}
+
+// recordingContentType maps a Zoho filename to an audio MIME.
+func recordingContentType(fname string) string {
+	if strings.HasSuffix(strings.ToLower(fname), ".mp3") {
+		return "audio/mpeg"
+	}
+	return "audio/wav"
+}
+
+// hdCallFetchRecording is the manual "pull it live from Zoho now" action. Normally the
+// 60-second call sync attaches a recording's filename and the prefetch caches it, but a
+// provider publishing lag or a missed auto-match can leave a real conversation with no
+// playable recording. This lets a user force the issue for ONE call:
+//   - filename already known → (re)warm the local cache from Zoho.
+//   - filename missing → run a targeted Zoho voice import for that call's day (idempotent,
+//     only fills NULL filenames), then re-check and warm.
+// Returns {status, attached} so the player can react. No-answer/too-short calls (never
+// recorded by the provider) come back attached:false — nothing to fetch.
+func hdCallFetchRecording(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		ctx := r.Context()
+		var fname, day string
+		if err := db.PG.QueryRowContext(ctx,
+			`SELECT COALESCE(recording_filename,''), to_char(started_at,'YYYY-MM-DD') FROM helpdesk_calls WHERE id=$1`, id,
+		).Scan(&fname, &day); err != nil {
+			respondErr(w, 404, "Call not found")
+			return
+		}
+		if !zohoVoiceConfigured(ctx, db) {
+			respond(w, map[string]any{"status": "unavailable", "attached": fname != "", "message": "Zoho Voice is not configured."}, "")
+			return
+		}
+		// No filename yet → kick a day-import in the BACKGROUND and tell the player to
+		// poll. A full Voice page-through can take many seconds; running it inside this
+		// request held the client (and a client disconnect cancelled it mid-attach).
+		if fname == "" {
+			if day != "" {
+				go runZohoVoiceImport(context.WithoutCancel(ctx), db, day, day) //nolint:errcheck
+				respond(w, map[string]any{"status": "downloading", "attached": false,
+					"message": "Fetching the recording from the provider — this can take a few seconds. It'll play automatically once it lands."}, "")
+				return
+			}
+			respond(w, map[string]any{"status": "missing", "attached": false,
+				"message": "No recording is available for this call from the provider — it was a no-answer/too-short call, or the provider hasn't published it yet. Try again shortly."}, "")
+			return
+		}
+		// Have a filename — warm the cache (or confirm it's already there) and tell the
+		// player to start polling; it'll play the moment the audio lands.
+		ensureRecordingDownloading(db, id, fname)
+		respond(w, map[string]any{"status": "downloading", "attached": true,
+			"message": "Fetching the recording from the provider — it'll play as soon as it lands."}, "")
+	}
+}
+
+// hdCallRecordingStatus is the player's cheap pre-check: it says whether a recording is
+// ready to play now, still downloading, genuinely missing, or unavailable — WITHOUT
+// making the browser wait on a slow live fetch. When not yet cached it kicks off the
+// background pull so it's warming while the player polls. The player only requests the
+// audio itself once this says "ready", so a slow link never hangs the <audio> element.
+func hdCallRecordingStatus(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var fname string
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT COALESCE(recording_filename,'') FROM helpdesk_calls WHERE id=$1`, id).Scan(&fname); err != nil || fname == "" {
+			respond(w, map[string]any{"status": "missing"}, "")
+			return
+		}
+		// Already cached whole?
+		if cp := callRecordingCachePath(id, fname); cp != "" {
+			if f, err := os.Open(cp); err == nil {
+				st, serr := f.Stat()
+				whole := serr == nil && st.Size() > 0 && cachedRecordingComplete(f, st.Size())
+				f.Close()
+				if whole {
+					respond(w, map[string]any{"status": "ready"}, "")
+					return
+				}
+			}
+		}
+		if !zohoVoiceConfigured(r.Context(), db) {
+			respond(w, map[string]any{"status": "unavailable", "message": "Zoho Voice is not configured."}, "")
+			return
+		}
+		// A recent live pull already found this recording gone at the provider — surface a
+		// terminal state instead of looping "downloading" forever (the player's Retry then
+		// just re-confirms it rather than spinning).
+		if info, gone := recordingGone(id); gone {
+			msg := "This recording is older than the provider keeps and is no longer available."
+			if info.reason == "auth" {
+				msg = "This recording can't be retrieved from the provider right now."
+			}
+			respond(w, map[string]any{"status": "unavailable", "message": msg}, "")
+			return
+		}
+		// Not cached — warm it in the background and tell the player to keep checking.
+		ensureRecordingDownloading(db, id, fname)
+		respond(w, map[string]any{"status": "downloading",
+			"message": "Downloading the recording from the provider — this can be slow on the current connection. It'll play as soon as it's ready."}, "")
+	}
+}
+
+// hdCallRecording serves a call's Zoho Voice recording. If a whole copy is cached it's
+// streamed straight from disk (byte-range/seek, always complete). If not, it starts a
+// background live pull and gives it a short grace to finish — so a healthy link still
+// plays on the first click — then returns 202 "downloading" while the pull continues,
+// rather than holding the request for the full multi-minute fetch.
 func hdCallRecording(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -3919,116 +4631,225 @@ func hdCallRecording(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "No recording for this call")
 			return
 		}
+		ct := recordingContentType(fname)
 
-		token, err := zohoVoiceAccessToken(r.Context(), db)
-		if err != nil {
+		cachePath := callRecordingCachePath(id, fname)
+		if serveCachedRecording(w, r, cachePath, fname, ct) {
+			return
+		}
+		if !zohoVoiceConfigured(r.Context(), db) {
 			respondErr(w, 503, "Zoho Voice is not configured")
 			return
 		}
 
-		// Zoho Voice recording-download API (per Zoho docs): the /voicerecording
-		// endpoint streams the raw audio for a filename obtained from /zv/logs. The
-		// similarly-named /recording endpoint is a web route that bounces to login.
-		recURL := "https://voice.zoho.com/rest/json/zv/logs/voicerecording?recording_filename=" + url.QueryEscape(fname)
-		req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, recURL, nil)
-		req.Header.Set("Authorization", "Zoho-oauthtoken "+token)
-
-		// errLoginRedirect signals that Zoho bounced the download to a web login —
-		// i.e. the OAuth token is not accepted on the recording route. We stop the
-		// redirect chain there rather than stream back an HTML login page as "audio".
-		errLoginRedirect := fmt.Errorf("zoho voice recording requires web session (login redirect)")
-		client := &http.Client{
-			Timeout: 60 * time.Second,
-			CheckRedirect: func(rq *http.Request, via []*http.Request) error {
-				if len(via) >= 10 {
-					return fmt.Errorf("too many redirects")
-				}
-				if strings.Contains(rq.URL.Path, "login") || rq.URL.Host == "accounts.zoho.com" {
-					return errLoginRedirect
-				}
-				if rq.URL.Hostname() == "voice.zoho.com" {
-					rq.Header.Set("Authorization", "Zoho-oauthtoken "+token)
-				}
-				return nil
-			},
-		}
-
-		// Cache the audio on first fetch and serve it locally afterwards.
-		//
-		// Every play used to cost a Voice token check plus two round trips to Zoho
-		// (the endpoint 302-redirects to the file), and re-listening repeated the
-		// lot — which is why scrubbing back in a QA review felt so slow. A recording
-		// never changes once written, so the only correct cache lifetime is forever.
-		ct := "audio/wav"
-		if strings.HasSuffix(strings.ToLower(fname), ".mp3") {
-			ct = "audio/mpeg"
-		}
-		cachePath := callRecordingCachePath(id, fname)
-		if cachePath != "" {
-			if f, err := os.Open(cachePath); err == nil {
-				defer f.Close()
-				if st, err := f.Stat(); err == nil && st.Size() > 0 {
-					w.Header().Set("Content-Type", ct)
-					w.Header().Set("Content-Disposition", "inline")
-					w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
-					w.Header().Set("X-Recording-Cache", "hit")
-					// ServeContent gives us range requests for free, so the player can
-					// seek without refetching the whole file.
-					http.ServeContent(w, r, fname, st.ModTime(), f)
+		// Not cached: start (or join) a single background live pull, then give it a short
+		// grace to complete so a healthy link plays on the first click. On a slow link we
+		// return 202 and the pull keeps going in the background; the player polls status
+		// and plays as soon as it lands.
+		ensureRecordingDownloading(db, id, fname)
+		grace := time.NewTicker(1 * time.Second)
+		defer grace.Stop()
+		deadline := time.After(15 * time.Second)
+		for {
+			select {
+			case <-r.Context().Done():
+				return // client went away; the background pull continues
+			case <-deadline:
+				w.Header().Set("Cache-Control", "no-store")
+				w.WriteHeader(http.StatusAccepted)
+				w.Write([]byte(`{"status":"downloading","message":"The recording is downloading from the provider — this can take a moment on a slow connection. It'll be ready shortly."}`)) //nolint:errcheck
+				return
+			case <-grace.C:
+				if serveCachedRecording(w, r, cachePath, fname, ct) {
 					return
 				}
 			}
 		}
+	}
+}
 
-		resp, err := client.Do(req)
+// recordingCacheDays is the rolling retention window (days). Recent calls' recordings
+// are pre-warmed into the local cache and kept this long; older cached audio is purged.
+// Anything purged or outside the window still plays — it's fetched from Zoho on demand
+// and re-cached. Tunable via RECORDING_CACHE_DAYS (default 14).
+func recordingCacheDays() int {
+	if v := strings.TrimSpace(os.Getenv("RECORDING_CACHE_DAYS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 400 {
+			return n
+		}
+	}
+	return 90
+}
+
+// StartRecordingPrefetch pre-downloads recent calls' recordings into local storage in
+// the background, so playback is instant and doesn't hinge on a live (and lately slow)
+// fetch from Zoho, and purges audio past the retention window to keep disk bounded.
+// Best-effort and gentle: it throttles, backs off on trouble, and never blocks anything.
+func StartRecordingPrefetch(db *core.DB) {
+	go func() {
+		time.Sleep(90 * time.Second) // let startup + the first call sync settle
+		for {
+			days := recordingCacheDays()
+			pruneRecordingCache(days)
+			// Cover the WHOLE window each sweep (already-cached files are cheap stat-skips,
+			// so once caught up a sweep is fast). The first sweep back-fills the window.
+			prefetchRecentRecordings(db, days, 12000)
+			time.Sleep(15 * time.Minute) // sweep for newly-arrived recordings every 15 min
+		}
+	}()
+}
+
+// prefetchMu ensures only one sweep runs at a time — the 15-min ticker and the manual
+// "download now" trigger share it, so they never double-scan or overlap.
+var prefetchMu sync.Mutex
+
+// prefetchRecentRecordings downloads up to `limit` not-yet-cached recordings for calls
+// in the last `days`, newest first, throttled so it never floods the link Zoho serves
+// audio over. A per-call failure is logged and the sweep moves on. Bounded by a wall-
+// clock cap so a slow link can't make one sweep run indefinitely — the next tick resumes.
+func prefetchRecentRecordings(db *core.DB, days, limit int) {
+	if !prefetchMu.TryLock() {
+		return // a sweep is already in progress (ticker or manual trigger)
+	}
+	defer prefetchMu.Unlock()
+
+	ctx := context.Background()
+	if !zohoVoiceConfigured(ctx, db) {
+		return
+	}
+	WorkerBeat(ctx, db, "recording_prefetch", "running", "", "")
+	cycleDeadline := time.Now().Add(30 * time.Minute)
+	rows, err := db.PGQuery(ctx, `
+		SELECT id::text AS id, recording_filename
+		FROM helpdesk_calls
+		WHERE recording_filename IS NOT NULL
+		  AND started_at >= NOW() - make_interval(days => $1)
+		  AND merged_into_call_id IS NULL AND voided_at IS NULL
+		ORDER BY started_at DESC
+		LIMIT 12000`, days)
+	if err != nil {
+		slog.Warn("recording prefetch: query", "err", err)
+		WorkerBeat(ctx, db, "recording_prefetch", "error", "", err.Error())
+		return
+	}
+	var fetched, failed, already, consecFail int
+	aborted := ""
+	for _, row := range rows {
+		if fetched >= limit {
+			break
+		}
+		// Circuit-breaker: when the link to Zoho's audio host is down, every pull stalls
+		// (now aborted in ~45s by the stall-guard). Rather than grind through the whole
+		// window, bail after a run of consecutive failures and let the next tick retry.
+		if consecFail >= 8 {
+			aborted = "link degraded"
+			break
+		}
+		// Wall-clock cap: never let one sweep run away on a slow link — stop and let the
+		// next 15-min tick pick up where this left off.
+		if time.Now().After(cycleDeadline) {
+			aborted = "time cap"
+			break
+		}
+		id, fname := str(row["id"]), str(row["recording_filename"])
+		if id == "" || fname == "" {
+			continue
+		}
+		// Cheap stat first — skip anything already whole in cache, no network.
+		if cp := callRecordingCachePath(id, fname); cp != "" {
+			if f, e := os.Open(cp); e == nil {
+				st, se := f.Stat()
+				whole := se == nil && st.Size() > 0 && cachedRecordingComplete(f, st.Size())
+				f.Close()
+				if whole {
+					already++
+					continue
+				}
+			}
+		}
+		// Skip if a play/poll is already pulling this one; otherwise claim it so those
+		// paths don't also fetch it. Released as soon as this download returns.
+		if !beginRecordingDownload(id) {
+			continue
+		}
+		_, e := downloadRecordingToCache(ctx, db, id, fname)
+		endRecordingDownload(id)
+		if e != nil {
+			if e == errRecordingNotFound {
+				markRecordingGone(id, "purged") // Zoho has no file — let status say so
+				continue
+			}
+			failed++
+			consecFail++
+			time.Sleep(3 * time.Second) // back off harder on network trouble
+			continue
+		}
+		fetched++
+		consecFail = 0
+		time.Sleep(750 * time.Millisecond) // throttle successful pulls
+	}
+	if fetched > 0 || failed > 0 || already > 0 {
+		slog.Info("recording prefetch: cycle", "fetched", fetched, "failed", failed, "already", already, "aborted", aborted, "window_days", days)
+	}
+	detail := fmt.Sprintf("%d fetched, %d cached, %d failed", fetched, already, failed)
+	if aborted != "" {
+		detail += " — paused (" + aborted + "), resumes next sweep"
+	}
+	status := "ok"
+	if failed > 0 && fetched == 0 {
+		status = "error"
+	}
+	WorkerBeat(ctx, db, "recording_prefetch", status, detail, detail)
+}
+
+// hdRecordingsPrefetchTrigger kicks off an immediate back-fill of the retention window
+// (e.g. "download the last 14 days now") in the background. Call-centre head / admin
+// only. If a sweep is already running, the TryLock in prefetchRecentRecordings makes
+// this a no-op — the running sweep already covers the window.
+func hdRecordingsPrefetchTrigger(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if u := core.UserFromCtx(r.Context()); u != nil && !u.HasPage("call_center_stats") && !u.CanSeeAllRows() {
+			respondErr(w, 403, "Supervisor access required")
+			return
+		}
+		days := recordingCacheDays()
+		go prefetchRecentRecordings(db, days, 5000)
+		respond(w, map[string]any{"status": "started", "window_days": days,
+			"message": fmt.Sprintf("Downloading the last %d days of recordings in the background.", days)}, "")
+	}
+}
+
+// pruneRecordingCache removes cached recordings older than the retention window (by
+// file modification time) to keep disk bounded, plus any stale .part leftovers. A
+// purged recording still plays — it's re-fetched from Zoho on demand and re-cached.
+func pruneRecordingCache(days int) {
+	dir := filepath.Join(UploadRoot(), "call-recordings")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	fileCutoff := time.Now().AddDate(0, 0, -days)
+	partCutoff := time.Now().Add(-1 * time.Hour) // an in-progress .part is minutes old at most
+	var removed int
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
 		if err != nil {
-			if strings.Contains(err.Error(), "login redirect") {
-				slog.Warn("hdCallRecording: login redirect — Voice token lacks recording access", "call", id)
-				respondErr(w, 502, "Recording is not downloadable with the current Zoho Voice authorization")
-				return
-			}
-			slog.Warn("hdCallRecording: fetch", "call", id, "err", err)
-			respondErr(w, 502, "Could not fetch the recording")
-			return
+			continue
 		}
-		defer resp.Body.Close()
-
-		upCT := resp.Header.Get("Content-Type")
-		// Guard against Zoho returning an HTML/JSON error body with a 200: only real
-		// audio is streamed through; anything else is surfaced as unavailable.
-		if resp.StatusCode != http.StatusOK || strings.Contains(upCT, "html") || strings.Contains(upCT, "json") {
-			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-			slog.Warn("hdCallRecording: upstream not audio", "call", id, "status", resp.StatusCode, "ct", upCT, "body", string(raw))
-			respondErr(w, 502, "Recording unavailable")
-			return
-		}
-		// Zoho serves the audio as octet-stream; give the browser a concrete audio
-		// MIME (from the filename) so an <audio> element plays it without a download.
-		w.Header().Set("Content-Type", ct)
-		w.Header().Set("Content-Disposition", "inline")
-		w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
-		w.Header().Set("X-Recording-Cache", "miss")
-		if cl := resp.Header.Get("Content-Length"); cl != "" {
-			w.Header().Set("Content-Length", cl)
-		}
-		// Tee to the cache while streaming, so the listener waits for one fetch and
-		// every later play is local. A cache write that fails is not the listener's
-		// problem — the audio still reaches them.
-		var sink io.Writer = w
-		if cachePath != "" {
-			if cf, err := os.Create(cachePath + ".part"); err == nil {
-				defer func() {
-					cf.Close()
-					// Rename only on a clean finish, so a dropped connection can't
-					// leave a truncated file to be served as if it were whole.
-					if os.Rename(cachePath+".part", cachePath) != nil {
-						os.Remove(cachePath + ".part")
-					}
-				}()
-				sink = io.MultiWriter(w, cf)
+		name := e.Name()
+		stale := strings.HasSuffix(name, ".part") && info.ModTime().Before(partCutoff)
+		old := !strings.HasSuffix(name, ".part") && info.ModTime().Before(fileCutoff)
+		if stale || old {
+			if os.Remove(filepath.Join(dir, name)) == nil {
+				removed++
 			}
 		}
-		io.Copy(sink, resp.Body) //nolint:errcheck
+	}
+	if removed > 0 {
+		slog.Info("recording prefetch: pruned old cache", "removed", removed, "older_than_days", days)
 	}
 }
 
@@ -4043,69 +4864,105 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 		customerCIF := r.URL.Query().Get("customer_cif")
 		agentFilter := r.URL.Query().Get("agent")
 		outcomeFilter := r.URL.Query().Get("outcome")
+		// result = the displayed pill category (missed/no_answer/connected/…), which
+		// folds direction in; preferred over the raw `outcome` param by the UI.
+		resultFilter := r.URL.Query().Get("result")
 		directionFilter := r.URL.Query().Get("direction")
+		// One search box over the log: caller name, caller number (digits, partial ok),
+		// or agent name. Previously the box only matched agent_name, so searching a
+		// customer or a phone number found nothing.
+		searchFilter := strings.TrimSpace(r.URL.Query().Get("search"))
 		limit := qint(r, "limit", 200, 1, 500)
+		offset := qint(r, "offset", 0, 0, 100_000_000)
 
 		// Row-level scope: an agent sees ONLY her own call log; call-centre heads (they
 		// hold call_center_stats) and admins see everyone's. Match on agent_id or name
 		// so calls the import linked either way are all captured.
-		args := []any{dateFrom, dateTo, customerCIF, agentFilter}
+		args := []any{dateFrom, dateTo, customerCIF, agentFilter, searchFilter}
+		// $5 = free-text search. Guarded by ($5 = '') so it's a no-op when blank; a
+		// number is compared digits-to-digits so "0803" or "8031234" both hit.
+		searchClause := ` AND ($5 = ''
+			OR hc.customer_name ILIKE '%' || $5 || '%'
+			OR hc.agent_name ILIKE '%' || $5 || '%'
+			OR (regexp_replace($5,'\D','','g') <> ''
+			    AND regexp_replace(COALESCE(hc.customer_phone,''),'\D','','g') LIKE '%' || regexp_replace($5,'\D','','g') || '%'))`
 		scope := ""
 		if user := core.UserFromCtx(r.Context()); user != nil && !user.HasPage("call_center_stats") {
-			scope = fmt.Sprintf(" AND (hc.agent_id = $%d OR hc.agent_name = $%d)", len(args)+1, len(args)+2)
+			// Match on agent_id (reliable) OR a CASE/WHITESPACE-INSENSITIVE name — an
+			// imported call carrying the agent's name but no id, with different casing or
+			// spacing, must still count as the agent's own or it vanishes from their log.
+			scope = fmt.Sprintf(" AND (hc.agent_id = $%d OR lower(btrim(hc.agent_name)) = lower(btrim($%d)))", len(args)+1, len(args)+2)
 			args = append(args, user.ID, user.FullName)
 		}
 		limitIdx := len(args) + 1
 		args = append(args, limit)
+		offsetIdx := len(args) + 1
+		args = append(args, offset)
 
 		// direction + outcome accept comma-separated multi-select (e.g. "Inbound,Outbound").
-		extra := sqlInLower("direction", directionFilter) + sqlInLower("outcome", outcomeFilter)
+		// result maps to the displayed pill categories (direction folded in).
+		extra := sqlInLower("direction", directionFilter) + sqlInLower("outcome", outcomeFilter) + sqlResultFilter(resultFilter, "hc.")
+
+		// Collapse duplicate legs (default on). Zoho writes a record per dialing
+		// ACTIVITY, not per conversation, so one attempt lands as several rows and an
+		// unanswered redial can be a dozen — which read as duplicate customers in the
+		// log. We group rows for the same agent + number inside a 15-minute window into
+		// one "episode" and return a single representative: the leg that actually
+		// connected (longest, or the recorded one), else the latest. episode_calls
+		// still carries the full leg count for the "N attempts" note. ?collapse=0
+		// restores the full per-leg audit view. Rows with no number are never grouped.
+		collapse := true
+		if v := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("collapse"))); v == "0" || v == "false" || v == "all" || v == "no" {
+			collapse = false
+		}
+		collapseClause := ""
+		if collapse {
+			collapseClause = "WHERE b.leg_rn = 1"
+		}
+		np := normalizedPhoneExpr("hc.customer_phone")
+		epKey := fmt.Sprintf(`CASE WHEN %[1]s <> '' THEN COALESCE(hc.agent_id,0)::text||'|'||%[1]s||'|'||floor(extract(epoch FROM hc.started_at)/900)::text ELSE 'row:'||hc.id::text END`, np)
+
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT hc.id, hc.agent_id, hc.agent_name, hc.customer_name,
-			       hc.customer_phone AS phone,
-			       hc.customer_cif, hc.customer_email,
-			       INITCAP(hc.direction) AS direction,
-			       hc.duration_sec AS duration_seconds,
-			       hc.outcome, hc.notes, hc.resolution, hc.disposition,
-			       LOWER(COALESCE(NULLIF(hc.purpose,''),'')) AS purpose,
-			       hc.ticket_id, hc.ticket_ref, hc.recording_url, hc.ticket_type,
-			       hc.recording_filename,
-			       (hc.recording_filename IS NOT NULL) AS has_recording,
-			       hc.started_at AS called_at,
-			       -- How many times this agent rang this number around this moment.
-			       --
-			       -- Zoho writes a record per activity, not per conversation, so one
-			       -- attempt routinely lands as three or four rows and the log reads
-			       -- as though a customer were being harassed. The leads panel groups
-			       -- them; this table deliberately does NOT, because it is the audit
-			       -- view and collapsing rows here would hide records a supervisor is
-			       -- here to see — and an episode can straddle a page boundary, where
-			       -- client-side grouping would silently group the wrong things.
-			       -- Counting server-side is correct at any page size.
-			       (SELECT COUNT(*) FROM helpdesk_calls s
-			         WHERE `+normalizedPhoneExpr("s.customer_phone")+` = `+normalizedPhoneExpr("hc.customer_phone")+`
-			           AND COALESCE(hc.customer_phone,'') <> ''
-			           AND s.agent_id IS NOT DISTINCT FROM hc.agent_id
-			           AND s.merged_into_call_id IS NULL AND s.voided_at IS NULL
-			           AND s.started_at BETWEEN hc.started_at - interval '15 min'
-			                                AND hc.started_at + interval '15 min'
-			       ) AS episode_calls,
-			       qa.id AS qa_evaluation_id, qa.total_score AS qa_score, qa.rating_band AS qa_band, qa.passed AS qa_passed
-			FROM helpdesk_calls hc
+			WITH base AS (
+			  SELECT hc.*,
+			         ROW_NUMBER() OVER (PARTITION BY %s
+			           ORDER BY COALESCE(hc.duration_sec,0) DESC,
+			                    (hc.recording_filename IS NOT NULL) DESC,
+			                    hc.started_at DESC, hc.id DESC) AS leg_rn,
+			         COUNT(*)     OVER (PARTITION BY %s) AS episode_calls
+			  FROM helpdesk_calls hc
+			  -- A manually logged call whose notes were merged onto the real Voice call
+			  -- is hidden (same conversation listed twice); voided calls are withdrawn.
+			  WHERE hc.merged_into_call_id IS NULL AND hc.voided_at IS NULL
+			    AND ($1 = '' OR hc.started_at::date >= $1::date)
+			    AND ($2 = '' OR hc.started_at::date <= $2::date)
+			    AND ($3 = '' OR hc.customer_cif = $3)
+			    AND ($4 = '' OR hc.agent_name ILIKE '%%' || $4 || '%%')%s%s%s
+			)
+			SELECT b.id, b.agent_id, b.agent_name, b.customer_name,
+			       b.customer_phone AS phone,
+			       b.customer_cif, b.customer_email,
+			       INITCAP(b.direction) AS direction,
+			       b.duration_sec AS duration_seconds,
+			       b.outcome, b.notes, b.resolution, b.disposition,
+			       LOWER(COALESCE(NULLIF(b.purpose,''),'')) AS purpose,
+			       b.ticket_id, b.ticket_ref, b.recording_url, b.ticket_type,
+			       b.recording_filename,
+			       (b.recording_filename IS NOT NULL) AS has_recording,
+			       b.source_system,
+			       b.started_at AS called_at,
+			       b.episode_calls,
+			       qa.id AS qa_evaluation_id, qa.total_score AS qa_score, qa.rating_band AS qa_band, qa.passed AS qa_passed,
+			       -- Full count of the (collapsed) filtered set for server-side paging.
+			       COUNT(*) OVER() AS total_count
+			FROM base b
 			LEFT JOIN LATERAL (
 			  SELECT id, total_score, rating_band, passed FROM qa_evaluations q
-			  WHERE q.call_id = hc.id ORDER BY q.created_at DESC LIMIT 1
+			  WHERE q.call_id = b.id ORDER BY q.created_at DESC LIMIT 1
 			) qa ON true
-			-- A manually logged call whose notes have been merged onto the real Voice
-			-- call is hidden: showing both listed the same conversation twice, once
-			-- with the recording and once with the notes.
-			WHERE hc.merged_into_call_id IS NULL AND hc.voided_at IS NULL
-			  AND ($1 = '' OR hc.started_at::date >= $1::date)
-			  AND ($2 = '' OR started_at::date <= $2::date)
-			  AND ($3 = '' OR customer_cif = $3)
-			  AND ($4 = '' OR agent_name ILIKE '%%' || $4 || '%%')%s%s
-			ORDER BY started_at DESC
-			LIMIT $%d`, extra, scope, limitIdx), args...)
+			%s
+			ORDER BY b.started_at DESC
+			LIMIT $%d OFFSET $%d`, epKey, epKey, extra, scope, searchClause, collapseClause, limitIdx, offsetIdx), args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
@@ -4135,7 +4992,11 @@ func hdAgentDetail(db *core.DB) http.HandlerFunc {
 
 		agentRows, _ := db.PGQuery(ctx, `
 			SELECT id, full_name,
-			       COALESCE(helpdesk_status,'available') AS status,
+			       CASE WHEN helpdesk_last_seen IS NOT NULL
+			                 AND helpdesk_last_seen > NOW() - INTERVAL '5 minutes'
+			            THEN COALESCE(helpdesk_status,'offline')
+			            ELSE 'offline' END AS status,
+			       helpdesk_last_seen AS last_seen,
 			       COALESCE(role,'') AS role, COALESCE(department,'') AS department,
 			       COALESCE(email,'') AS email, COALESCE(phone,'') AS phone
 			FROM o3c_users WHERE id=$1`, id)
@@ -4153,10 +5014,10 @@ func hdAgentDetail(db *core.DB) http.HandlerFunc {
 			  COUNT(*)                                                                                                  AS total,
 			  COUNT(*) FILTER (WHERE lower(direction)='outbound')                                                       AS outbound,
 			  COUNT(*) FILTER (WHERE lower(direction)='inbound')                                                        AS inbound,
-			  COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail',''))                 AS connected,
-			  COUNT(*) FILTER (WHERE lower(direction)='inbound'  AND outcome IN ('missed','no_answer','voicemail'))     AS missed,
-			  COUNT(*) FILTER (WHERE lower(direction)='outbound' AND outcome IN ('missed','no_answer','voicemail'))     AS no_answer,
-			  COALESCE(ROUND(AVG(duration_sec) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail',''))),0)::int AS avg_talk_sec,
+			  COUNT(*) FILTER (WHERE `+callConnectedSQL+`)                 AS connected,
+			  COUNT(*) FILTER (WHERE lower(direction)='inbound'  AND `+callUnansweredSQL+`)     AS missed,
+			  COUNT(*) FILTER (WHERE lower(direction)='outbound' AND `+callUnansweredSQL+`)     AS no_answer,
+			  COALESCE(ROUND(AVG(duration_sec) FILTER (WHERE `+callConnectedSQL+`)),0)::int AS avg_talk_sec,
 			  COALESCE(SUM(duration_sec),0)::int                                                                        AS talk_time_sec
 			FROM helpdesk_calls
 			WHERE (agent_id=$1 OR agent_name=$2)
@@ -4189,7 +5050,8 @@ func hdAgentDetail(db *core.DB) http.HandlerFunc {
 		recent, _ := db.PGQuery(ctx, `
 			SELECT id, INITCAP(direction) AS direction,
 			       COALESCE(NULLIF(customer_name,''), NULLIF(customer_phone,''), 'Unknown') AS customer,
-			       COALESCE(customer_phone,'') AS phone, outcome, duration_sec, started_at, ticket_id
+			       COALESCE(customer_phone,'') AS phone, outcome, duration_sec, started_at, ticket_id,
+			       (recording_filename IS NOT NULL) AS has_recording
 			FROM helpdesk_calls WHERE (agent_id=$1 OR agent_name=$2)
 			ORDER BY started_at DESC LIMIT 12`, id, fullName)
 		if recent == nil {
@@ -4230,7 +5092,15 @@ func hdSupervisor(db *core.DB) http.HandlerFunc {
 			SELECT
 			  u.id,
 			  u.full_name,
-			  COALESCE(u.helpdesk_status, 'available')                                   AS helpdesk_status,
+			  -- Effective presence: a status is only live while the heartbeat is fresh
+			  -- (same 5-min window distribution uses). An agent who never logged in — or
+			  -- closed the tab without the offline beacon landing — reads 'offline' here,
+			  -- so the wallboard can't show someone "available" that distribution skips.
+			  CASE WHEN u.helpdesk_last_seen IS NOT NULL
+			            AND u.helpdesk_last_seen > NOW() - INTERVAL '5 minutes'
+			       THEN COALESCE(u.helpdesk_status, 'offline')
+			       ELSE 'offline' END                                                     AS helpdesk_status,
+			  u.helpdesk_last_seen                                                        AS last_seen,
 			  COUNT(t.id) FILTER (WHERE t.status NOT IN ('closed','resolved')
 			    AND (t.channel IS NULL OR t.channel NOT IN ('email','call')))            AS open_tickets,
 			  COUNT(t.id) FILTER (WHERE t.status NOT IN ('closed','resolved')
@@ -4248,9 +5118,14 @@ func hdSupervisor(db *core.DB) http.HandlerFunc {
 			LEFT JOIN (
 			  SELECT agent_name,
 			         COUNT(*)                                                                                  AS calls_today,
-			         COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected_today,
-			         ROUND(AVG(duration_sec))::int                                                             AS avg_talk_sec
-			  FROM helpdesk_calls WHERE started_at::date = CURRENT_DATE GROUP BY agent_name
+			         COUNT(*) FILTER (WHERE `+callConnectedSQL+`) AS connected_today,
+			         -- Avg talk over CONNECTED calls only, capped 0–4h — a missed call has no
+			         -- talk time (dragged the average down) and one corrupt duration blew it up.
+			         ROUND(AVG(duration_sec) FILTER (WHERE `+callConnectedSQL+` AND duration_sec BETWEEN 0 AND 14400))::int AS avg_talk_sec
+			  FROM helpdesk_calls
+			  WHERE started_at::date = CURRENT_DATE
+			    AND merged_into_call_id IS NULL AND voided_at IS NULL
+			  GROUP BY agent_name
 			) cc ON cc.agent_name = u.full_name
 			LEFT JOIN (
 			  SELECT agent_id, ROUND(AVG(total_score),1) AS avg_score, COUNT(*)::int AS evals
@@ -4258,7 +5133,7 @@ func hdSupervisor(db *core.DB) http.HandlerFunc {
 			) qa ON qa.agent_id = u.id
 			WHERE u.deleted_at IS NULL AND u.is_active = TRUE
 			  AND u.role IN ('call_center_agent','call_center_head')
-			GROUP BY u.id, u.full_name, u.helpdesk_status
+			GROUP BY u.id, u.full_name, u.helpdesk_status, u.helpdesk_last_seen
 			ORDER BY calls_today DESC, open_tickets DESC, u.full_name`)
 
 		queues, _ := db.PGQuery(ctx, `
@@ -4343,42 +5218,59 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 		agentFilter := r.URL.Query().Get("agent")
 		directionFilter := r.URL.Query().Get("direction")
 		outcomeFilter := r.URL.Query().Get("outcome")
+		purposeFilter := r.URL.Query().Get("purpose")
+		resultFilter := r.URL.Query().Get("result")
+		searchFilter := strings.TrimSpace(r.URL.Query().Get("search"))
 
 		// Shared filter so the KPI strip, charts and the log table all move together.
 		// direction/outcome accept comma-separated multi-select; %-values in the
 		// ILIKE are literal (fmt.Sprintf only reads verbs in the template, not args).
+		// $4 = the same caller/number/agent search the table uses, so KPIs and charts
+		// reflect exactly what's listed.
 		filter := `($1 = '' OR started_at::date >= $1::date)
 			  AND ($2 = '' OR started_at::date <= $2::date)
-			  AND ($3 = '' OR agent_name ILIKE '%' || $3 || '%')` +
-			sqlInLower("direction", directionFilter) + sqlInLower("outcome", outcomeFilter)
-		fargs := []any{dateFrom, dateTo, agentFilter}
+			  AND ($3 = '' OR agent_name ILIKE '%' || $3 || '%')
+			  AND ($4 = ''
+			       OR customer_name ILIKE '%' || $4 || '%'
+			       OR agent_name ILIKE '%' || $4 || '%'
+			       OR (regexp_replace($4,'\D','','g') <> ''
+			           AND regexp_replace(COALESCE(customer_phone,''),'\D','','g') LIKE '%' || regexp_replace($4,'\D','','g') || '%'))
+			  AND merged_into_call_id IS NULL AND voided_at IS NULL` +
+			sqlInLower("direction", directionFilter) + sqlInLower("outcome", outcomeFilter) +
+			sqlInLower("purpose", purposeFilter) + sqlResultFilter(resultFilter, "")
+		fargs := []any{dateFrom, dateTo, agentFilter, searchFilter}
 		// Agents see only their own KPIs/charts; heads (call_center_stats) see the team's.
 		if user := core.UserFromCtx(ctx); user != nil && !user.HasPage("call_center_stats") && !user.CanSeeAllRows() {
-			filter += ` AND (agent_id = $4 OR agent_name = $5)`
+			filter += ` AND (agent_id = $5 OR agent_name = $6)`
 			fargs = append(fargs, user.ID, user.FullName)
 		}
 
-		// Outcome vocabulary varies by source (Zoho uses missed/completed; the live
-		// AT flow used no_answer/voicemail/resolved). Treat any of the "no contact"
-		// outcomes as missed and everything else as connected.
+		// Connected/missed use the shared callConnectedExpr / callUnansweredExpr — the
+		// SAME definition as every other surface — so the KPI strip here equals the
+		// figure on the Call Log, Overview, Supervisor and the agent dashboards. A
+		// sub-5s 'completed' dial with no recording is NOT a connect. Direction is
+		// folded: an unanswered inbound is a missed customer call, an unanswered
+		// outbound a no-answer dial.
 		summary, _ := db.PGQuery(ctx, fmt.Sprintf(`
 			SELECT
-			  COUNT(*)                                                       AS total,
+			  COUNT(*)                                                      AS total,
 			  COUNT(*) FILTER (WHERE direction='inbound')                   AS inbound,
 			  COUNT(*) FILTER (WHERE direction='outbound')                  AS outbound,
-			  COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail')) AS missed,
-			  COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected,
-			  COUNT(*) FILTER (WHERE direction='inbound'  AND COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS inbound_connected,
-			  COUNT(*) FILTER (WHERE direction='outbound' AND COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS outbound_connected,
-			  COUNT(*) FILTER (WHERE outcome IN ('resolved','completed'))   AS resolved,
+			  COUNT(*) FILTER (WHERE `+callUnansweredSQL+`)                 AS missed,
+			  COUNT(*) FILTER (WHERE direction='inbound'  AND `+callUnansweredSQL+`) AS inbound_missed,
+			  COUNT(*) FILTER (WHERE direction='outbound' AND `+callUnansweredSQL+`) AS outbound_noanswer,
+			  COUNT(*) FILTER (WHERE `+callConnectedSQL+`)                  AS connected,
+			  COUNT(*) FILTER (WHERE direction='inbound'  AND `+callConnectedSQL+`) AS inbound_connected,
+			  COUNT(*) FILTER (WHERE direction='outbound' AND `+callConnectedSQL+`) AS outbound_connected,
+			  COUNT(*) FILTER (WHERE outcome='resolved')                    AS resolved,
 			  -- Talk time & averages over CONNECTED calls only, with a 4h sanity cap:
 			  -- a handful of imported calls carry corrupt durations (up to ~204 days)
 			  -- that otherwise blow up the average. connected+bounded keeps it real.
-			  COALESCE(SUM(duration_sec) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400),0)::bigint AS total_talk_sec,
+			  COALESCE(SUM(duration_sec) FILTER (WHERE `+callConnectedSQL+` AND duration_sec BETWEEN 0 AND 14400),0)::bigint AS total_talk_sec,
 			  COUNT(DISTINCT NULLIF(agent_name,''))                         AS agents,
-			  ROUND(AVG(duration_sec) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400))::int AS avg_duration_sec,
-			  ROUND(AVG(duration_sec) FILTER (WHERE direction='inbound'  AND COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400))::int  AS avg_inbound_sec,
-			  ROUND(AVG(duration_sec) FILTER (WHERE direction='outbound' AND COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400))::int AS avg_outbound_sec,
+			  ROUND(AVG(duration_sec) FILTER (WHERE `+callConnectedSQL+` AND duration_sec BETWEEN 0 AND 14400))::int AS avg_duration_sec,
+			  ROUND(AVG(duration_sec) FILTER (WHERE direction='inbound'  AND `+callConnectedSQL+` AND duration_sec BETWEEN 0 AND 14400))::int  AS avg_inbound_sec,
+			  ROUND(AVG(duration_sec) FILTER (WHERE direction='outbound' AND `+callConnectedSQL+` AND duration_sec BETWEEN 0 AND 14400))::int AS avg_outbound_sec,
 			  COUNT(DISTINCT NULLIF(customer_phone,''))::int AS unique_customers
 			FROM helpdesk_calls
 			WHERE %s`, filter), fargs...)
@@ -4389,28 +5281,45 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 			WHERE %s
 			GROUP BY outcome ORDER BY count DESC`, filter), fargs...)
 
+		// Same rows, grouped by the DISPLAYED pill category (direction folded in), so
+		// the Outcome filter offers "Missed" / "No Answer" / "Connected" — the exact
+		// labels in the table — and the donut matches. Kept in lock-step with
+		// sqlResultFilter via resultCategoryCaseExpr.
+		byResult, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT cat, COUNT(*) AS count FROM (
+			  SELECT %s AS cat FROM helpdesk_calls WHERE %s
+			) t GROUP BY cat ORDER BY count DESC`, resultCategoryCaseExpr(""), filter), fargs...)
+
 		byDay, _ := db.PGQuery(ctx, fmt.Sprintf(`
 			SELECT started_at::date AS day,
 			       COUNT(*) AS total,
 			       COUNT(*) FILTER (WHERE direction='inbound')  AS inbound,
 			       COUNT(*) FILTER (WHERE direction='outbound') AS outbound,
-			       COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected
+			       COUNT(*) FILTER (WHERE `+callConnectedSQL+`) AS connected
 			FROM helpdesk_calls
 			WHERE %s
 			GROUP BY day ORDER BY day`, filter), fargs...)
 
+		// The per-agent leaderboard is a roster of PEOPLE, so it lists only current
+		// call-centre agents — supervisors/heads, care agents, admins and raw Zoho
+		// import names who happen to sit on a helpdesk_calls row are not "agents making
+		// calls" and padded the board with names nobody recognised. Matched by agent_id
+		// (reliable) OR agent_name (Zoho imports often carry only the name). The KPI
+		// strip and charts above are unscoped on purpose — total call volume is volume.
 		byAgent, _ := db.PGQuery(ctx, fmt.Sprintf(`
 			SELECT agent_name,
 			       COUNT(*) AS total,
 			       COUNT(*) FILTER (WHERE direction='inbound')  AS inbound,
 			       COUNT(*) FILTER (WHERE direction='outbound') AS outbound,
-			       COUNT(*) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','')) AS connected,
-			       COUNT(*) FILTER (WHERE outcome IN ('missed','no_answer','voicemail')) AS missed,
-			       ROUND(AVG(duration_sec) FILTER (WHERE COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400))::int AS avg_duration_sec,
+			       COUNT(*) FILTER (WHERE `+callConnectedSQL+`) AS connected,
+			       COUNT(*) FILTER (WHERE `+callUnansweredSQL+`) AS missed,
+			       ROUND(AVG(duration_sec) FILTER (WHERE `+callConnectedSQL+` AND duration_sec BETWEEN 0 AND 14400))::int AS avg_duration_sec,
 			       (SELECT ROUND(AVG(q.total_score),1) FROM qa_evaluations q WHERE q.agent_name = helpdesk_calls.agent_name) AS qa_avg,
 			       (SELECT COUNT(*) FROM qa_evaluations q WHERE q.agent_name = helpdesk_calls.agent_name)::int AS qa_evals
 			FROM helpdesk_calls
 			WHERE %s
+			  AND (agent_id IN (SELECT id FROM o3c_users WHERE role='call_center_agent' AND deleted_at IS NULL)
+			       OR NULLIF(agent_name,'') IN (SELECT full_name FROM o3c_users WHERE role='call_center_agent' AND deleted_at IS NULL))
 			GROUP BY agent_name ORDER BY total DESC`, filter), fargs...)
 
 		byHour, _ := db.PGQuery(ctx, fmt.Sprintf(`
@@ -4421,6 +5330,22 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 			FROM helpdesk_calls
 			WHERE %s
 			GROUP BY hour ORDER BY hour`, filter), fargs...)
+
+		// By call TYPE / PURPOSE (marketing, support, sales, collections, retention,
+		// other) — the outcome mix per purpose, so the Overview / Supervisor / Call Log
+		// can break the book down by what the calls were FOR, not just direction.
+		byPurpose, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT COALESCE(NULLIF(purpose,''),'unspecified') AS purpose,
+			       COUNT(*)                                                     AS total,
+			       COUNT(*) FILTER (WHERE direction='inbound')                  AS inbound,
+			       COUNT(*) FILTER (WHERE direction='outbound')                 AS outbound,
+			       COUNT(*) FILTER (WHERE `+callConnectedSQL+`) AS connected,
+			       COUNT(*) FILTER (WHERE direction='inbound'  AND `+callUnansweredSQL+`) AS inbound_missed,
+			       COUNT(*) FILTER (WHERE direction='outbound' AND `+callUnansweredSQL+`) AS outbound_noanswer,
+			       ROUND(AVG(duration_sec) FILTER (WHERE `+callConnectedSQL+` AND duration_sec BETWEEN 0 AND 14400))::int AS avg_duration_sec
+			FROM helpdesk_calls
+			WHERE %s
+			GROUP BY 1 ORDER BY total DESC`, filter), fargs...)
 
 		// Talk-time distribution over connected calls — a call-length profile the
 		// Overview doesn't surface.
@@ -4433,10 +5358,10 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 			    ELSE '5m+' END AS bucket,
 			    CASE WHEN duration_sec < 30 THEN 1 WHEN duration_sec < 120 THEN 2 WHEN duration_sec < 300 THEN 3 ELSE 4 END AS ord
 			  FROM helpdesk_calls
-			  WHERE %s AND COALESCE(outcome,'') NOT IN ('missed','no_answer','voicemail','') AND duration_sec BETWEEN 0 AND 14400
+			  WHERE %s AND `+callConnectedSQL+` AND duration_sec BETWEEN 0 AND 14400
 			) t GROUP BY bucket, ord ORDER BY ord`, filter), fargs...)
 
-		summaryRow := map[string]any{"total": 0, "inbound": 0, "outbound": 0, "missed": 0, "connected": 0, "inbound_connected": 0, "outbound_connected": 0, "resolved": 0, "total_talk_sec": 0, "agents": 0, "avg_duration_sec": nil, "avg_inbound_sec": nil, "avg_outbound_sec": nil, "unique_customers": 0}
+		summaryRow := map[string]any{"total": 0, "inbound": 0, "outbound": 0, "missed": 0, "inbound_missed": 0, "outbound_noanswer": 0, "connected": 0, "inbound_connected": 0, "outbound_connected": 0, "resolved": 0, "total_talk_sec": 0, "agents": 0, "avg_duration_sec": nil, "avg_inbound_sec": nil, "avg_outbound_sec": nil, "unique_customers": 0}
 		if len(summary) > 0 {
 			summaryRow = summary[0]
 		}
@@ -4445,9 +5370,11 @@ func hdCallStats(db *core.DB) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"summary":           summaryRow,
 			"by_outcome":        byOutcome,
+			"by_result":         byResult,
 			"by_day":            byDay,
 			"by_agent":          byAgent,
 			"by_hour":           byHour,
+			"by_purpose":        byPurpose,
 			"talk_distribution": talkDist,
 		})
 	}

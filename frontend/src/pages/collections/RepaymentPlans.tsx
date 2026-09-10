@@ -8,7 +8,7 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtNum, n, today, monthStart } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, n, today, monthStart } from '../../lib/fmt'
 import { BLUE, GREEN, RED, NAVY, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
   border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
   fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
 }
 
 // ── New Plan Modal ────────────────────────────────────────────────────────────
@@ -297,9 +297,9 @@ function PlanDetailModal({ plan, open, onClose, onUpdated }: {
       {/* Financial summary row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
         {[
-          { label: 'Total Agreed', value: fmtKobo(plan.total_kobo) },
-          { label: 'Paid So Far', value: fmtKobo(plan.paid_kobo) },
-          { label: 'Remaining', value: fmtKobo(remaining) },
+          { label: 'Total Agreed', value: fmtKoboExact(plan.total_kobo) },
+          { label: 'Paid So Far', value: fmtKoboExact(plan.paid_kobo) },
+          { label: 'Remaining', value: fmtKoboExact(remaining) },
         ].map(({ label, value }) => (
           <div key={label} style={{ padding: '10px 12px', background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 8 }}>
             <div style={{ fontSize: 11, color: 'var(--txt2)', marginBottom: 4 }}>{label}</div>
@@ -344,7 +344,7 @@ function PlanDetailModal({ plan, open, onClose, onUpdated }: {
                     {fmtDate(inst.due_date)}
                   </td>
                   <td style={{ ...NUM, padding: '9px 12px', fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>
-                    {fmtKobo(inst.amount_kobo)}
+                    {fmtKoboExact(inst.amount_kobo)}
                   </td>
                   <td style={{ padding: '9px 12px' }}>
                     <InstPill status={inst.status} />
@@ -469,13 +469,13 @@ export default function RepaymentPlans() {
       key: 'total_kobo',
       label: 'Total Agreed ₦',
       align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600, color: 'var(--txt)' }}>{fmtKobo(r.total_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: 600, color: 'var(--txt)' }}>{fmtKoboExact(r.total_kobo)}</span>,
     },
     {
       key: 'paid_kobo',
       label: 'Paid So Far ₦',
       align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600, color: GREEN }}>{fmtKobo(r.paid_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: 600, color: GREEN }}>{fmtKoboExact(r.paid_kobo)}</span>,
     },
     {
       key: '_remaining',
@@ -484,7 +484,7 @@ export default function RepaymentPlans() {
       align: 'right',
       render: r => {
         const rem = n(r.total_kobo) - n(r.paid_kobo)
-        return <span style={{ ...NUM, fontWeight: 600, color: rem > 0 ? RED : GREEN }}>{fmtKobo(rem)}</span>
+        return <span style={{ ...NUM, fontWeight: 600, color: rem > 0 ? RED : GREEN }}>{fmtKoboExact(rem)}</span>
       },
     },
     {
@@ -530,6 +530,8 @@ export default function RepaymentPlans() {
     <Page
       title="Repayment Plans"
       subtitle="Structured repayment arrangements for delinquent accounts"
+      loading={loading && !kpis}
+      skeletonKpis={4}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -547,7 +549,7 @@ export default function RepaymentPlans() {
         <KpiCard label="Active Plans" value={kpis ? fmtNum(kpis.active) : '—'} icon="schedule" accent={BLUE} loading={kpiLoading} />
         <KpiCard label="On Track" value={kpis ? fmtNum(kpis.on_track) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Behind" value={kpis ? fmtNum(kpis.behind) : '—'} icon="warning" accent={AMBER} loading={kpiLoading} />
-        <KpiCard label="Monthly Due ₦" value={kpis ? fmtKobo(kpis.monthly_due_kobo) : '—'} icon="payments" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Monthly Due ₦" value={kpis ? fmtKoboExact(kpis.monthly_due_kobo) : '—'} icon="payments" accent={NAVY} loading={kpiLoading} />
       </div>
 
       <SectionCard title="Plans" badge={rows.length} padding={false}>

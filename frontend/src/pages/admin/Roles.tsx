@@ -322,6 +322,7 @@ export default function AdminRoles() {
       back={{ label: 'Admin', to: '/admin' }}
       title="Roles"
       subtitle="Role-based access control: page permissions per role"
+      loading={loading && roles.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

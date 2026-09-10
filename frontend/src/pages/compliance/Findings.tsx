@@ -234,6 +234,7 @@ export default function Findings() {
     <Page
       title="Audit Findings"
       subtitle="Internal and external audit findings tracking"
+      loading={loading && findings.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

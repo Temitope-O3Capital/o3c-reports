@@ -73,6 +73,8 @@ export default function Escalations() {
     <Page
       title="Escalations"
       subtitle="Tickets an agent could not resolve alone"
+      loading={loading && rows.length === 0}
+      skeletonKpis={3}
       actions={
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: TEXT.sm, color: 'var(--txt2)', cursor: 'pointer' }}>
           <input type="checkbox" checked={includeResolved} onChange={e => setIncludeResolved(e.target.checked)} />

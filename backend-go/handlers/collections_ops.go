@@ -18,8 +18,10 @@ import (
 func RegisterCollectionsOps(r chi.Router, db *core.DB) {
 	base := core.RequirePages("collections")
 	head := core.RequirePages("collections_assign")
+	payApprove := core.RequirePages("collections_payment_approve") // HOP/COO/CFO all hold this
 
 	r.With(base).Get("/queue", collectionsOpsQueue(db))
+	r.With(base).Get("/repayment-pattern", repaymentPatternHandler(db))
 	r.With(head).Put("/{id}/assign", collectionsOpsAssign(db))
 	r.With(base).Post("/{id}/contact", collectionsOpsContact(db))
 	r.With(base).Post("/{id}/promise", collectionsOpsPromise(db))
@@ -41,7 +43,14 @@ func RegisterCollectionsOps(r chi.Router, db *core.DB) {
 	r.With(base).Post("/{id}/payment", collectionsOpsLogPayment(db))
 	r.With(base).Get("/{id}/contacts", collectionsOpsGetContacts(db))
 	r.With(base).Get("/{id}/payments", collectionsOpsGetPayments(db))
+	// Same ledger keyed by CIF — the key collection_payments is actually stored
+	// under. Most rows carry no assignment_id, so the {id} form cannot see them.
+	r.With(base).Get("/payments/by-cif", collectionsOpsPaymentsByCIF(db))
 	r.With(head).Post("/payments/reconcile", collectionsOpsReconcilePayments(db))
+	// Collection-payment approval chain (HOP → COO → CFO); GL posts at final stage.
+	r.With(base).Get("/payments/pending", collectionsOpsPendingPayments(db))
+	r.With(payApprove).Put("/payments/{pid}/approve", collectionsOpsApprovePayment(db))
+	r.With(payApprove).Put("/payments/{pid}/reject", collectionsOpsRejectPayment(db))
 
 	r.With(base).Get("/writeoffs", collectionsOpsListWriteoffs(db))
 	r.With(head).Post("/writeoffs/{id}/approve", collectionsOpsApproveWriteoff(db))
@@ -68,6 +77,7 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 		bucket := qstr(r, "dpd_bucket")
 		agentID := qstr(r, "agent_id")
 		stage := qstr(r, "stage")
+		productType := qstr(r, "product_type") // 'card' | 'loan'
 		q := qstr(r, "q")
 		accountCIF := qstr(r, "account_cif")
 		from := r.URL.Query().Get("from")
@@ -75,14 +85,52 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
+		// Per-row enrichment (customer name, clean address, card billing, last
+		// payment, recovery agent) so the queue row and its detail panel carry the
+		// same picture Customer 360 does — no click-through needed to triage.
+		// NB: app.accounts money columns (bill / balance / min / last payment) are
+		// NAIRA, not kobo — the frontend formats them with fmtExact accordingly.
 		query := `
 			SELECT ca.id, ca.account_cif, ca.agent_user_id, u.full_name AS agent_name,
 			       ca.assigned_by, ca.assignment_date, ca.dpd_bucket, ca.outstanding_kobo,
 			       ca.current_stage, ca.notes, ca.created_at, ca.updated_at,
+			       ca.product_type, ca.data_source,
+			       ca.loan_ref, ca.officer_name, ca.loan_tenor, ca.repayment_kobo,
+			       ca.loan_rate, ca.debit_day, ca.disbursement_date, ca.maturity_date,
 			       (SELECT MAX(cc.created_at) FROM collection_contacts cc
-			        WHERE cc.cif_number = ca.account_cif) AS last_contact_at
+			        WHERE cc.cif_number = ca.account_cif) AS last_contact_at,
+			       COALESCE(NULLIF(TRIM(CONCAT(cust.first_name,' ',cust.last_name)),''),
+			                NULLIF(TRIM(ca.customer_name),''), ca.account_cif) AS customer_name,
+			       cust.contact_id AS customer_id, cust.cif AS real_cif,
+			       COALESCE(NULLIF(TRIM(cust.full_address),''),
+			                NULLIF(TRIM(CONCAT_WS(', ', NULLIF(cust.address_1,''), NULLIF(cust.address_2,''), NULLIF(cust.city,''), NULLIF(cust.state,''))),'')) AS full_address,
+			       cust.city, cust.state, cust.phone,
+			       bill.current_dr_balance AS current_bill,
+			       bill.cycle_balance      AS bill_balance,
+			       bill.min_payment_due    AS min_payment,
+			       bill.card_limit         AS credit_limit,
+			       bill.last_amount_paid   AS last_payment_amount,
+			       bill.last_payment_date,
+			       bill.payment_due_date,
+			       rec.recovery_agent_name, rec.recovery_status
 			FROM collection_assignments ca
 			LEFT JOIN o3c_users u ON ca.agent_user_id = u.id
+			LEFT JOIN app.customers cust ON COALESCE(NULLIF(cust.cif,''), cust.contact_id) = ca.account_cif
+			LEFT JOIN LATERAL (
+			    SELECT a2.current_dr_balance, a2.cycle_balance, a2.min_payment_due,
+			           a2.card_limit, a2.last_amount_paid,
+			           a2.last_payment_date::text AS last_payment_date,
+			           a2.payment_due_date::text  AS payment_due_date
+			    FROM app.accounts a2 WHERE a2.cif = ca.account_cif
+			    ORDER BY (LOWER(a2.status) IN ('active','open')) DESC LIMIT 1
+			) bill ON TRUE
+			LEFT JOIN LATERAL (
+			    SELECT ru.full_name AS recovery_agent_name, rc.status AS recovery_status
+			    FROM recovery_cases rc
+			    LEFT JOIN o3c_users ru ON ru.id = rc.assigned_agent_id
+			    WHERE rc.account_cif = ca.account_cif
+			    ORDER BY rc.updated_at DESC LIMIT 1
+			) rec ON TRUE
 			WHERE ca.status = 'active'`
 		args := []any{}
 		n := 1
@@ -119,9 +167,14 @@ func collectionsOpsQueue(db *core.DB) http.HandlerFunc {
 			args = append(args, stage)
 			n++
 		}
+		if productType != "" {
+			query += fmt.Sprintf(" AND COALESCE(ca.product_type,'card') = $%d", n)
+			args = append(args, productType)
+			n++
+		}
 		if q != "" {
 			if clause, sargs, nn := buildCustomerSearch(q,
-				[]string{"ca.account_cif", "u.full_name"}, "", n); clause != "" {
+				[]string{"ca.account_cif", "u.full_name", "CONCAT(cust.first_name,' ',cust.last_name)"}, "cust.phone", n); clause != "" {
 				query += " AND " + clause
 				args = append(args, sargs...)
 				n = nn
@@ -310,6 +363,42 @@ func collectionsOpsGetPayments(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// collectionsOpsPaymentsByCIF lists the same ledger for a CIF directly, without
+// needing an assignment to hang it off. collection_payments is CIF-keyed and only a
+// small minority of rows carry an assignment_id, so this is the complete view.
+func collectionsOpsPaymentsByCIF(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cif := strings.TrimSpace(qstr(r, "cif"))
+		if cif == "" {
+			respondErr(w, 400, "cif is required")
+			return
+		}
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT cp.id, cp.amount_kobo, cp.payment_date, cp.channel AS payment_method,
+			       cp.channel, cp.reference, cp.created_at, cp.reconciled, cp.status,
+			       cp.paystack_reference, u.full_name AS received_by_name
+			FROM collection_payments cp
+			LEFT JOIN o3c_users u ON u.id = cp.received_by
+			WHERE cp.account_cif = $1
+			ORDER BY cp.payment_date DESC, cp.id DESC
+			LIMIT 200`, cif)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+// collectionsPaymentChannels is the whitelist of banks/routes O3 receives collections
+// repayments through. Mirrors COLLECTIONS_PAYMENT_CHANNELS on the frontend.
+var collectionsPaymentChannels = map[string]bool{
+	"GTB": true, "POLARIS": true, "FIDELITY": true, "APP": true, "ZENITH": true, "FCMB": true,
+}
+
 func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
 	type body struct {
 		AmountKobo  int64  `json:"amount_kobo"`
@@ -332,6 +421,10 @@ func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "amount_kobo, payment_date and channel are required")
 			return
 		}
+		if !collectionsPaymentChannels[b.Channel] {
+			respondErr(w, 422, "channel must be one of: GTB, POLARIS, FIDELITY, APP, ZENITH, FCMB")
+			return
+		}
 
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
@@ -352,50 +445,19 @@ func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
 		defer tx.Rollback() //nolint:errcheck
 
 		// CIF-keyed collections payments ledger — works across the whole delinquency
-		// book (card arrears + loans), not just the near-empty native loan table.
+		// book (card arrears + loans), not just the near-empty native loan table. The row
+		// enters the HOP → COO → CFO chain as 'pending_hop' (column default). The GL post
+		// and loan-book parity happen ONLY at final approval — see postCollectionPaymentGL.
 		var payID int64
 		err = tx.QueryRowContext(ctx,
 			`INSERT INTO collection_payments
-			 (assignment_id, account_cif, amount_kobo, payment_date, channel, reference, received_by)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-			id, cif, b.AmountKobo, b.PaymentDate, b.Channel, b.Reference, user.ID,
+			 (assignment_id, account_cif, amount_kobo, payment_date, channel, reference, received_by, status)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+			id, cif, b.AmountKobo, b.PaymentDate, b.Channel, b.Reference, user.ID, writeOffChainStart,
 		).Scan(&payID)
 		if err != nil {
 			respondErr(w, 500, "Payment log failed")
 			return
-		}
-
-		glRef := fmt.Sprintf("COL-PAY-%d", payID)
-		if glErr := postJournalTx(ctx, tx, glEntry{
-			Date:          time.Now(),
-			Description:   fmt.Sprintf("Collections payment received — CIF %s", cif),
-			Reference:     glRef,
-			DebitAccount:  "1001",
-			CreditAccount: "1100",
-			AmountKobo:    b.AmountKobo,
-			SourceType:    "collections_payment",
-			SourceID:      payID,
-			PostedBy:      user.ID,
-		}); glErr != nil {
-			respondErr(w, 500, "GL journal failed")
-			return
-		}
-		if _, e := tx.ExecContext(ctx, `UPDATE collection_payments SET gl_reference=$1 WHERE id=$2`, glRef, payID); e != nil {
-			respondErr(w, 500, "GL link failed")
-			return
-		}
-
-		// Legacy parity: also record loan_repayments when the CIF maps to a booked
-		// loan, so downstream loan-book views stay consistent.
-		if lr, lErr := db.PGQuery(ctx,
-			`SELECT id FROM loan_applications WHERE applicant_cif=$1 AND status IN ('active','booked') ORDER BY created_at DESC LIMIT 1`, cif); lErr == nil && len(lr) > 0 {
-			if _, e := tx.ExecContext(ctx,
-				`INSERT INTO loan_repayments (application_id, amount_kobo, payment_date, payment_method, reference, received_by)
-				 VALUES ($1,$2,$3,$4,$5,$6)`,
-				toInt64(lr[0]["id"]), b.AmountKobo, b.PaymentDate, b.Channel, b.Reference, user.ID); e != nil {
-				respondErr(w, 500, "Repayment record failed")
-				return
-			}
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -403,13 +465,237 @@ func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Best-effort auto-reconcile against a settled Paystack transaction by reference.
+		// Best-effort auto-reconcile against a settled Paystack transaction by reference —
+		// harmless before approval and gives the approver a hint when it does match.
 		reconciled := reconcileCollectionPayment(ctx, db, payID, b.Reference)
 
 		logCreditEvent(ctx, db, r, "collections", "payment", fmt.Sprint(payID), cif, "payment_logged",
-			fmt.Sprintf("Collection payment of ₦%s logged via %s", fmtKoboStr(b.AmountKobo), b.Channel), nil, map[string]any{"amount_kobo": b.AmountKobo, "channel": b.Channel, "reconciled": reconciled})
+			fmt.Sprintf("Collection payment of ₦%s logged via %s — pending approval", fmtKoboStr(b.AmountKobo), b.Channel), nil, map[string]any{"amount_kobo": b.AmountKobo, "channel": b.Channel, "reconciled": reconciled})
 		slog.Info("collections payment logged", "pay_id", payID, "cif", cif, "amount_kobo", b.AmountKobo, "by", user.ID, "reconciled", reconciled)
-		respond(w, map[string]any{"id": payID, "amount_kobo": b.AmountKobo, "reconciled": reconciled}, "json")
+		if firstStage, ok := stageProgressions[writeOffChainStart]; ok {
+			NotifyRole(ctx, db, firstStage.required, NotifPayload{
+				EventType: "payment_approval_pending",
+				Title:     "Collection payment awaiting approval",
+				Body:      fmt.Sprintf("A ₦%s collection payment needs %s sign-off.", fmtKoboStr(b.AmountKobo), firstStage.label),
+				ActionURL: "/collections/payment-approvals",
+				EntityRef: fmt.Sprint(payID),
+				Priority:  "high",
+			})
+		}
+		respond(w, map[string]any{"id": payID, "amount_kobo": b.AmountKobo, "status": writeOffChainStart, "reconciled": reconciled}, "json")
+	}
+}
+
+// postCollectionPaymentGL posts the collections-payment GL (Dr Cash / Cr Loan Receivable),
+// links the gl_reference, and records loan-book parity. Called ONLY at final (CFO) approval
+// so money never posts before the chain completes.
+func postCollectionPaymentGL(ctx context.Context, tx *sql.Tx, payID int64, cif, channel, reference string, amountKobo, userID int64) error {
+	glRef := fmt.Sprintf("COL-PAY-%d", payID)
+	if err := postJournalTx(ctx, tx, glEntry{
+		Date:          time.Now(),
+		Description:   fmt.Sprintf("Collections payment received — CIF %s", cif),
+		Reference:     glRef,
+		DebitAccount:  "1001",
+		CreditAccount: "1100",
+		AmountKobo:    amountKobo,
+		SourceType:    "collections_payment",
+		SourceID:      payID,
+		PostedBy:      userID,
+	}); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE collection_payments SET gl_reference=$1 WHERE id=$2`, glRef, payID); err != nil {
+		return err
+	}
+	// Legacy parity: mirror into loan_repayments when the CIF maps to a booked loan.
+	if lr, lErr := tx.QueryContext(ctx,
+		`SELECT id FROM loan_applications WHERE applicant_cif=$1 AND status IN ('active','booked') ORDER BY created_at DESC LIMIT 1`, cif); lErr == nil {
+		defer lr.Close()
+		if lr.Next() {
+			var appID int64
+			if lr.Scan(&appID) == nil {
+				if _, err := tx.ExecContext(ctx,
+					`INSERT INTO loan_repayments (application_id, amount_kobo, payment_date, payment_method, reference, received_by)
+					 VALUES ($1,$2,CURRENT_DATE,$3,$4,$5)`,
+					appID, amountKobo, channel, reference, userID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// collectionsOpsPendingPayments lists collection payments still moving through the chain,
+// annotated with the stage + role due to sign next (for the approvals UI).
+func collectionsOpsPendingPayments(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT cp.id, cp.account_cif, cp.amount_kobo, cp.payment_date, cp.channel,
+			       cp.reference, cp.status, cp.created_at, cp.reconciled,
+			       COALESCE(NULLIF(TRIM(CONCAT(c.first_name,' ',c.last_name)),''), cp.account_cif) AS customer_name,
+			       u.full_name AS logged_by_name
+			FROM app.collection_payments cp
+			LEFT JOIN app.customers c ON c.cif = cp.account_cif
+			LEFT JOIN o3c_users u ON u.id = cp.received_by
+			WHERE `+chainStatusClause(qstr(r, "status"), "cp")+`
+			ORDER BY cp.created_at DESC
+			LIMIT 300`)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		for _, row := range rows {
+			st := str(row["status"])
+			row["stage_label"] = writeOffStageLabel(st)
+			if prog, ok := stageProgressions[st]; ok {
+				row["required_role"] = prog.required
+			} else {
+				row["required_role"] = ""
+			}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
+// collectionsOpsApprovePayment advances a collection payment along HOP → COO; the GL
+// posts only at the final (COO) stage. Mirrors the recovery-payment chain. (CFO was
+// removed from payment approvals — see paymentStageProgressions.)
+func collectionsOpsApprovePayment(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pid, err := strconv.ParseInt(chi.URLParam(r, "pid"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid payment ID")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+
+		prows, perr := db.PGQuery(ctx, `SELECT status, amount_kobo, account_cif, channel, reference, received_by FROM app.collection_payments WHERE id = $1`, pid)
+		if perr != nil || len(prows) == 0 {
+			respondErr(w, 404, "Payment not found")
+			return
+		}
+		cur := str(prows[0]["status"])
+		prog, ok := paymentStageProgressions[cur] // payments: HOP → COO (final, posts GL)
+		if !ok {
+			respondErr(w, 422, fmt.Sprintf("Payment is already '%s' and cannot be advanced", cur))
+			return
+		}
+		if user.Role != prog.required && user.Role != "admin" {
+			respondErr(w, 403, fmt.Sprintf("This approval stage requires the '%s' (%s) role", prog.required, prog.label))
+			return
+		}
+		if toInt64(prows[0]["received_by"]) == user.ID {
+			respondErr(w, 403, "Cannot approve a payment you logged")
+			return
+		}
+		amt := toInt64(prows[0]["amount_kobo"])
+		cif := str(prows[0]["account_cif"])
+		isFinal := prog.next == "approved"
+
+		tx, err := db.PG.BeginTx(ctx, nil)
+		if err != nil {
+			respondErr(w, 500, "Transaction start failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		var updatedID int64
+		var scanErr error
+		if isFinal {
+			scanErr = tx.QueryRowContext(ctx, `UPDATE app.collection_payments SET status=$1, approved_by=$2, approved_at=NOW() WHERE id=$3 AND status=$4 RETURNING id`,
+				prog.next, user.ID, pid, cur).Scan(&updatedID)
+		} else {
+			scanErr = tx.QueryRowContext(ctx, `UPDATE app.collection_payments SET status=$1 WHERE id=$2 AND status=$3 RETURNING id`,
+				prog.next, pid, cur).Scan(&updatedID)
+		}
+		if scanErr == sql.ErrNoRows {
+			respondErr(w, 409, "Payment status changed concurrently — please refresh")
+			return
+		}
+		if scanErr != nil {
+			respondErr(w, 500, "Update failed")
+			return
+		}
+		if isFinal {
+			if glErr := postCollectionPaymentGL(ctx, tx, pid, cif, str(prows[0]["channel"]), str(prows[0]["reference"]), amt, user.ID); glErr != nil {
+				respondErr(w, 500, "GL post failed")
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+		logCreditEvent(ctx, db, r, "collections", "payment", fmt.Sprint(pid), cif, "payment_approved",
+			fmt.Sprintf("Collection payment of ₦%s — %s", fmtKoboStr(amt), writeOffStageLabel(prog.next)), nil, map[string]any{"stage": prog.next})
+		if nextStage, ok := stageProgressions[prog.next]; ok {
+			NotifyRole(ctx, db, nextStage.required, NotifPayload{
+				EventType: "payment_approval_pending", Title: "Collection payment awaiting approval",
+				Body:      fmt.Sprintf("A ₦%s collection payment now needs %s sign-off.", fmtKoboStr(amt), nextStage.label),
+				ActionURL: "/collections/payment-approvals", EntityRef: fmt.Sprint(pid), Priority: "high",
+			})
+		} else if isFinal {
+			if rb := toInt64(prows[0]["received_by"]); rb > 0 {
+				NotifyUsers(ctx, db, []int64{rb}, NotifPayload{
+					EventType: "payment_approved", Title: "Collection payment approved",
+					Body:      fmt.Sprintf("The ₦%s collection payment you logged was fully approved and posted.", fmtKoboStr(amt)),
+					ActionURL: "/collections/payment-approvals", EntityRef: fmt.Sprint(pid), Priority: "normal",
+				})
+			}
+		}
+		respond(w, map[string]any{"id": pid, "status": prog.next}, "json")
+	}
+}
+
+// collectionsOpsRejectPayment rejects a collection payment at its current stage.
+func collectionsOpsRejectPayment(db *core.DB) http.HandlerFunc {
+	type body struct {
+		RejectionReason string `json:"rejection_reason"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		pid, err := strconv.ParseInt(chi.URLParam(r, "pid"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid payment ID")
+			return
+		}
+		var b body
+		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
+		user := core.UserFromCtx(r.Context())
+		ctx := r.Context()
+		prows, perr := db.PGQuery(ctx, `SELECT status, amount_kobo, received_by FROM app.collection_payments WHERE id = $1`, pid)
+		if perr != nil || len(prows) == 0 {
+			respondErr(w, 404, "Payment not found")
+			return
+		}
+		cur := str(prows[0]["status"])
+		prog, ok := stageProgressions[cur]
+		if !ok {
+			respondErr(w, 422, "Payment is already finalised")
+			return
+		}
+		if user.Role != prog.required && user.Role != "admin" {
+			respondErr(w, 403, fmt.Sprintf("This stage requires the '%s' (%s) role", prog.required, prog.label))
+			return
+		}
+		rows, err := db.PGQuery(ctx, `UPDATE app.collection_payments SET status='rejected', approved_by=$1, approved_at=NOW(), rejection_reason=$2 WHERE id=$3 AND status=$4 RETURNING id, status`,
+			user.ID, b.RejectionReason, pid, cur)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 409, "Payment status changed — please refresh")
+			return
+		}
+		if rb := toInt64(prows[0]["received_by"]); rb > 0 {
+			NotifyUsers(ctx, db, []int64{rb}, NotifPayload{
+				EventType: "payment_rejected", Title: "Collection payment rejected",
+				Body:      fmt.Sprintf("The ₦%s collection payment you logged was rejected.", fmtKoboStr(toInt64(prows[0]["amount_kobo"]))),
+				ActionURL: "/collections/payment-approvals", EntityRef: fmt.Sprint(pid), Priority: "normal",
+			})
+		}
+		respond(w, rows[0], "pg")
 	}
 }
 
@@ -887,12 +1173,17 @@ func collectionsOpsAgentDashboard(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
-		// Individual contributors only see themselves; heads see all agents
+		// Individual contributors only see themselves; heads see the collections/
+		// recovery team — NOT all 40+ workspace users. A user qualifies as collections
+		// staff by role (collections/recovery/call-centre) or by holding any assignment.
 		agentFilter := ""
 		args := []any{}
 		if !user.HasPage("collections_assign") {
 			agentFilter = "WHERE ca.agent_user_id = $1"
 			args = append(args, user.ID)
+		} else {
+			agentFilter = `WHERE (u.role ILIKE '%collect%' OR u.role ILIKE '%recover%' OR u.role ILIKE '%call_center%'
+				OR EXISTS (SELECT 1 FROM collection_assignments x WHERE x.agent_user_id = u.id))`
 		}
 
 		agents, err := db.PGQuery(ctx, fmt.Sprintf(`
@@ -904,10 +1195,19 @@ func collectionsOpsAgentDashboard(db *core.DB) http.HandlerFunc {
 			),
 			ptps_today AS (
 				SELECT agent_user_id,
-				       COUNT(*) FILTER (WHERE promised_date = CURRENT_DATE)                  AS cnt,
-				       COUNT(*) FILTER (WHERE is_kept = TRUE AND actual_date = CURRENT_DATE) AS honoured
+				       COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE)                AS secured,
+				       COUNT(*) FILTER (WHERE promised_date = CURRENT_DATE)                   AS cnt,
+				       COUNT(*) FILTER (WHERE is_kept = TRUE AND actual_date = CURRENT_DATE)  AS honoured
 				FROM collection_promises
 				GROUP BY agent_user_id
+			),
+			pay_today AS (
+				SELECT received_by AS agent_user_id,
+				       COUNT(*)             AS cnt,
+				       SUM(amount_kobo)     AS kobo
+				FROM collection_payments
+				WHERE payment_date = CURRENT_DATE
+				GROUP BY received_by
 			)
 			SELECT
 				u.id,
@@ -915,14 +1215,18 @@ func collectionsOpsAgentDashboard(db *core.DB) http.HandlerFunc {
 				COUNT(ca.id)                          AS assigned,
 				COALESCE(ct.cnt, 0)                   AS contacts_today,
 				COALESCE(pt.cnt, 0)                   AS ptps_today,
+				COALESCE(pt.secured, 0)               AS ptps_secured_today,
 				COALESCE(pt.honoured, 0)              AS ptps_honoured_today,
+				COALESCE(pay.cnt, 0)                  AS payments_today,
+				COALESCE(pay.kobo, 0)                 AS collected_today_kobo,
 				COALESCE(SUM(ca.outstanding_kobo), 0) AS portfolio_kobo
 			FROM o3c_users u
 			LEFT JOIN collection_assignments ca ON ca.agent_user_id = u.id AND ca.status = 'active'
 			LEFT JOIN contacts_today ct ON ct.agent_user_id = u.id
 			LEFT JOIN ptps_today     pt ON pt.agent_user_id = u.id
+			LEFT JOIN pay_today      pay ON pay.agent_user_id = u.id
 			%s
-			GROUP BY u.id, u.full_name, ct.cnt, pt.cnt, pt.honoured
+			GROUP BY u.id, u.full_name, ct.cnt, pt.cnt, pt.secured, pt.honoured, pay.cnt, pay.kobo
 			ORDER BY contacts_today DESC, assigned DESC`, agentFilter), args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
@@ -1348,16 +1652,36 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 		dateFrom, _ := validDate(r, "date_from")
 		dateTo, _ := validDate(r, "date_to")
 		dpdRange := qstr(r, "dpd_range")
+		// status filter: pending (default) | approved | rejected | all — so the pane can
+		// show history, not just the live queue.
+		statusClause := "wo.status NOT IN ('approved','rejected')"
+		switch strings.ToLower(qstr(r, "status")) {
+		case "approved":
+			statusClause = "wo.status = 'approved'"
+		case "rejected":
+			statusClause = "wo.status = 'rejected'"
+		case "all":
+			statusClause = "TRUE"
+		}
 		limit := qint(r, "limit", 100, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		query := `
 			SELECT
 				wo.id,
+				wo.status,
+				wo.amount_kobo,
+				wo.reason,
+				wo.created_at,
 				rc.account_cif,
-				(SELECT ca.customer_name FROM collection_assignments ca
-				 WHERE ca.account_cif = rc.account_cif
-				 ORDER BY ca.updated_at DESC LIMIT 1)         AS customer_name,
+				-- Prefer the CIF-joined customer name (the reliable source); fall back to
+				-- the assignment name only when app.customers has none.
+				COALESCE(
+					NULLIF(TRIM(CONCAT(cust.first_name,' ',cust.last_name)),''),
+					(SELECT ca.customer_name FROM collection_assignments ca
+					 WHERE ca.account_cif = rc.account_cif
+					 ORDER BY ca.updated_at DESC LIMIT 1)
+				)                                             AS customer_name,
 				rc.outstanding_kobo,
 				CAST(REGEXP_REPLACE(COALESCE(rc.dpd_at_handoff,'0'),'\D','','g') AS INT)
 				                                              AS dpd,
@@ -1368,8 +1692,9 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 				req.full_name                                 AS recommended_by
 			FROM recovery_write_off_approvals wo
 			JOIN recovery_cases rc ON wo.case_id = rc.id
+			LEFT JOIN app.customers cust ON cust.cif = rc.account_cif
 			LEFT JOIN o3c_users req ON wo.requested_by = req.id
-			WHERE wo.status = 'pending'`
+			WHERE ` + statusClause
 		args := []any{}
 		n := 1
 
@@ -1412,6 +1737,18 @@ func collectionsOpsListWriteoffs(db *core.DB) http.HandlerFunc {
 		}
 		if rows == nil {
 			rows = []core.Row{}
+		}
+		// Annotate each row with its human stage label and the role that must sign next,
+		// so the approvals UI can show "Awaiting COO" and enable Approve only for the
+		// right person. Chain lives in recovery_ops.go (same package).
+		for _, row := range rows {
+			st := str(row["status"])
+			row["stage_label"] = writeOffStageLabel(st)
+			if prog, ok := stageProgressions[st]; ok {
+				row["required_role"] = prog.required
+			} else {
+				row["required_role"] = ""
+			}
 		}
 		respond(w, rows, "pg")
 	}

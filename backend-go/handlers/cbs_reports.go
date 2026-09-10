@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/cbssync"
@@ -29,16 +30,19 @@ func RegisterCBSReports(r chi.Router, db *core.DB) {
 	r.With(read).Get("/reports/loan-book", cbsLoanBook(db))
 	r.With(read).Get("/reports/fd-book", cbsFDBook(db))
 	r.With(read).Get("/reports/reconciliation", cbsReconciliation(db))
+	r.With(read).Get("/reports/customers", cbsCustomers(db))
+	r.With(read).Get("/reports/customer/{cif}", cbsCustomerDetail(db))
 }
 
-// custName returns a SELECT expression for the customer name: from the Sage master
-// by CIF when available, otherwise the name embedded in the CBS record.
+// custName returns a SELECT expression for the customer name — Udara's OWN name
+// (raw->>'name'). It must NOT be resolved via app.customers by cbs_customer_id: Udara's
+// cbs_customer_id and the Sage/feed app.customers.cif are DIFFERENT id namespaces, so the
+// old master-join showed the wrong customer on every colliding CIF (verified 2026-09-08:
+// 42 of 42 CIF "matches" were the wrong person — e.g. Udara CIF 00000424 = FINTRAK but
+// Sage CIF 00000424 = an unrelated individual). Udara is the system of record for the
+// booked loan/FD, so its embedded name is authoritative.
 func custName(master bool, alias string) string {
-	if master {
-		return `COALESCE((SELECT NULLIF(trim(a.first_name||' '||COALESCE(a.last_name,'')),'')
-		         FROM app.customers a WHERE a.cif =` + alias + `.cbs_customer_id LIMIT 1),
-		         ` + alias + `.raw->>'name') AS customer_name`
-	}
+	_ = master // signature kept for callers; the master (CIF) join is invalid here.
 	return alias + `.raw->>'name' AS customer_name`
 }
 
@@ -127,13 +131,12 @@ func cbsReconciliation(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		master := cbssync.CustomerMasterExists(ctx, db)
 
-		// matched predicate differs by whether the customer master is available.
-		matchedLoan := "false"
-		matchedFD := "false"
-		if master {
-			matchedLoan = `cbs_customer_id <> '' AND EXISTS (SELECT 1 FROM app.customers a WHERE a.cif =cbs_loans.cbs_customer_id)`
-			matchedFD = `cbs_customer_id <> '' AND EXISTS (SELECT 1 FROM app.customers a WHERE a.cif =cbs_fixed_deposits.cbs_customer_id)`
-		}
+		// "matched" = the CBS customer has been folded into the canonical party layer via
+		// the curated cbs_links crosswalk (migration 210). This replaces the old
+		// cbs_customer_id == app.customers.cif test, which was an invalid cross-namespace
+		// join (Udara ids and Sage CIFs collide) and produced meaningless match counts.
+		matchedLoan := `EXISTS (SELECT 1 FROM app.cbs_links l WHERE l.cbs_customer_id = cbs_loans.cbs_customer_id)`
+		matchedFD := `EXISTS (SELECT 1 FROM app.cbs_links l WHERE l.cbs_customer_id = cbs_fixed_deposits.cbs_customer_id)`
 
 		loanStats := queryRows(ctx, db, `
 			SELECT count(*)::bigint AS cbs_total,
@@ -144,12 +147,8 @@ func cbsReconciliation(db *core.DB) http.HandlerFunc {
 			       (count(*) FILTER (WHERE `+matchedFD+`))::bigint AS matched
 			FROM cbs_fixed_deposits`)
 
-		unmatchedLoanWhere := "true"
-		unmatchedFDWhere := "true"
-		if master {
-			unmatchedLoanWhere = `cl.cbs_customer_id = '' OR NOT EXISTS (SELECT 1 FROM app.customers a WHERE a.cif =cl.cbs_customer_id)`
-			unmatchedFDWhere = `cf.cbs_customer_id = '' OR NOT EXISTS (SELECT 1 FROM app.customers a WHERE a.cif =cf.cbs_customer_id)`
-		}
+		unmatchedLoanWhere := `cl.cbs_customer_id = '' OR NOT EXISTS (SELECT 1 FROM app.cbs_links l WHERE l.cbs_customer_id = cl.cbs_customer_id)`
+		unmatchedFDWhere := `cf.cbs_customer_id = '' OR NOT EXISTS (SELECT 1 FROM app.cbs_links l WHERE l.cbs_customer_id = cf.cbs_customer_id)`
 		unmatchedLoans := queryRows(ctx, db, `
 			SELECT cl.cbs_account_number, cl.cbs_customer_id, cl.raw->>'name' AS customer_name,
 			       cl.product_name, cl.status, cl.outstanding_principal_kobo
@@ -171,11 +170,86 @@ func cbsReconciliation(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// cbsCustomers lists the Udara customer master (cbs_customers) with each customer's
+// workspace-linkage status: whether they resolve to a workspace party (via cbs_links),
+// their CUST id, card count, and how many loans/FDs they hold. This is the audit view
+// for "does every Udara customer have a workspace profile, and are cards matched?".
+func cbsCustomers(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		rows := queryRows(ctx, db, `
+			SELECT cc.cbs_customer_id, cc.customer_type, cc.name, cc.phone, cc.email,
+			       cc.state, cc.bvn, cc.date_of_birth,
+			       (l.entity_id IS NOT NULL)                                          AS in_workspace,
+			       CASE WHEN l.entity_id IS NOT NULL
+			            THEN 'CUST-' || LPAD(l.entity_id::text, 6, '0') END           AS cust_id,
+			       COALESCE(p.card_count, 0)::bigint                                  AS card_count,
+			       (SELECT count(*) FROM cbs_loans x          WHERE x.cbs_customer_id = cc.cbs_customer_id)::bigint AS loan_count,
+			       (SELECT count(*) FROM cbs_fixed_deposits x WHERE x.cbs_customer_id = cc.cbs_customer_id)::bigint AS fd_count
+			FROM cbs_customers cc
+			LEFT JOIN app.cbs_links l ON l.cbs_customer_id = cc.cbs_customer_id AND l.entity_type = 'party'
+			LEFT JOIN app.parties  p ON p.party_id = l.entity_id
+			ORDER BY cc.name`)
+		summary := firstRow(queryRows(ctx, db, `
+			SELECT count(*)::bigint AS total,
+			       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM app.cbs_links l WHERE l.cbs_customer_id = cc.cbs_customer_id))::bigint AS linked,
+			       count(*) FILTER (WHERE COALESCE(btrim(cc.phone),'') <> '')::bigint AS with_phone,
+			       count(*) FILTER (WHERE COALESCE(btrim(cc.email),'') <> '')::bigint AS with_email
+			FROM cbs_customers cc`))
+		cbsWriteJSON(w, http.StatusOK, map[string]any{"summary": summary, "customers": rows})
+	}
+}
+
+// cbsCustomerDetail returns one Udara customer: the full Udara-side profile (cbs_customers)
+// plus the matched workspace side (party CUST id, contact, card count) and the customer's
+// loans and fixed deposits. Powers the row-click detail modal.
+func cbsCustomerDetail(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		cif := strings.TrimSpace(chi.URLParam(r, "cif"))
+		if cif == "" {
+			cbsWriteJSON(w, http.StatusBadRequest, map[string]any{"error": "cif required"})
+			return
+		}
+		cbs := firstRow(queryRows(ctx, db, `SELECT * FROM cbs_customers WHERE cbs_customer_id = $1`, cif))
+		ws := firstRow(queryRows(ctx, db, `
+			SELECT 'CUST-' || LPAD(p.party_id::text, 6, '0') AS cust_id, p.party_id,
+			       p.full_name AS party_name, p.party_type,
+			       p.primary_phone, p.primary_email, p.bvn AS party_bvn,
+			       COALESCE(p.card_count, 0)::bigint AS card_count
+			FROM app.cbs_links l
+			JOIN app.parties p ON p.party_id = l.entity_id AND l.entity_type = 'party'
+			WHERE l.cbs_customer_id = $1
+			LIMIT 1`, cif))
+		loans := queryRows(ctx, db, `
+			SELECT cbs_account_number, product_name, status, outstanding_principal_kobo,
+			       loan_amount_kobo, maturity_date, officer_name
+			FROM cbs_loans WHERE cbs_customer_id = $1 ORDER BY outstanding_principal_kobo DESC`, cif)
+		fds := queryRows(ctx, db, `
+			SELECT cbs_account_number, product_name, status, principal_kobo,
+			       accrued_interest_kobo, maturity_date
+			FROM cbs_fixed_deposits WHERE cbs_customer_id = $1 ORDER BY principal_kobo DESC`, cif)
+		cbsWriteJSON(w, http.StatusOK, map[string]any{
+			"cbs":            cbs,
+			"workspace":      ws,
+			"in_workspace":   len(ws) > 0,
+			"loans":          loans,
+			"fixed_deposits": fds,
+		})
+	}
+}
+
 // queryRows runs a read query and returns the rows (empty slice on error).
 func queryRows(ctx context.Context, db *core.DB, q string, args ...any) []core.Row {
 	rows, err := db.PGQuery(ctx, q, args...)
 	if err != nil {
 		slog.Error("cbs report query failed", "err", err)
+		return []core.Row{}
+	}
+	// Never return a nil slice: pgx yields nil for a zero-row result, which marshals
+	// to JSON `null` and makes callers doing `.length` on the array throw. An empty
+	// result must serialise as `[]`.
+	if rows == nil {
 		return []core.Row{}
 	}
 	return rows

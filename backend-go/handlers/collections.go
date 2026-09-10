@@ -44,8 +44,22 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Get("/activity", creditActivityFeed(db))
 	r.Get("/activity/cif/{cif}", creditActivityByCIF(db))
 
+	// Call-centre calls for a customer (crosswalk), and a typed step-log both the
+	// collections and recovery detail views write through.
+	r.Get("/calls/cif/{cif}", collectionsCallsByCIF(db))
+	r.Post("/step", collectionsLogStep(db))
+
+	// Payment tiering (5 bands by principal paid) feeding the restructuring pipeline.
+	r.Get("/payment-tiers", collectionsPaymentTiers(db))
+
+	// Repayment schedule — facilities due this week (Sun–Sat) or already overdue.
+	r.Get("/due-schedule", collectionsDueSchedule(db))
+
 	// Account detail snapshot by CIF
 	r.Get("/accounts/{cif}", collectionsAccountDetail(db))
+	// Full credit dossier: every facility this person holds, each with its
+	// repayment schedule, what has been paid against it, and the merged ledger.
+	r.Get("/accounts/{cif}/credit", collectionsCreditDossier(db))
 }
 
 // collectionsGenerateAssignments seeds/refreshes the collection_assignments work
@@ -131,10 +145,11 @@ func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
 			SELECT
 			    NULL::bigint                                        AS loan_id,
 			    base.cif                                            AS applicant_cif,
-			    COALESCE(d.customer_name, (SELECT full_name FROM app.customers WHERE cif = base.cif), base.cif) AS applicant_name,
+			    COALESCE(d.customer_name, ca.customer_name,
+			             (SELECT full_name FROM app.customers WHERE COALESCE(NULLIF(cif,''), contact_id) = base.cif LIMIT 1),
+			             base.cif)                                      AS applicant_name,
 			    COALESCE(d.product_name, '—')                       AS product_type,
-			    COALESCE((SELECT SUM(loan_amount_kobo) FROM cbs_loans WHERE cbs_customer_id = base.cif),
-			             d.outstanding_kobo, ca.outstanding_kobo, 0) AS principal_kobo,
+			    COALESCE(d.outstanding_kobo, ca.outstanding_kobo, 0) AS principal_kobo, -- CBS SUM removed: cbs_customer_id != cif
 			    COALESCE(d.source, '')                              AS loan_status,
 			    NULL::timestamptz                                   AS loan_created_at,
 			    ca.id                                               AS assignment_id,
@@ -182,6 +197,80 @@ func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// collectionsDueSchedule lists facilities (cards + loans, all sources) by their next
+// due date — either falling in the current Sun–Sat week (window=week) or already
+// overdue (window=overdue). Card due = statement payment_due_date; loan due = maturity.
+// days_until is (due − today): 0 = due today, negative = days overdue.
+func collectionsDueSchedule(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		window := qstr(r, "window") // "week" | "overdue"
+		var whereWin string
+		var args []any
+		switch window {
+		case "overdue":
+			whereWin = "due_date < CURRENT_DATE"
+		default: // week window — an explicit [from,to] (the calendar navigates weeks) or the current Sun–Sat.
+			from, _ := validDate(r, "from")
+			to, _ := validDate(r, "to")
+			if from != "" && to != "" {
+				whereWin = "due_date BETWEEN $1::date AND $2::date"
+				args = append(args, from, to)
+			} else {
+				whereWin = `due_date BETWEEN (CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE)::int)
+				                        AND (CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE)::int + 6)`
+			}
+		}
+		order := "due_date ASC"
+		rows, err := db.PGQuery(r.Context(), `
+			WITH facilities AS (
+			    SELECT a.cif AS cif,
+			           COALESCE(NULLIF(TRIM(c.first_name||' '||COALESCE(c.last_name,'')),''), a.name_on_card, a.cif) AS customer_name,
+			           a.account_no AS reference, 'card' AS source, 'CCS' AS origin,
+			           COALESCE(NULLIF(a.product_name,''), 'Card') AS product_name,
+			           GREATEST(ROUND(COALESCE(a.current_dr_balance,0)*100),0)::bigint AS outstanding_kobo,
+			           a.payment_due_date::date AS due_date
+			    FROM app.accounts a LEFT JOIN app.customers c ON c.cif = a.cif
+			    WHERE a.payment_due_date IS NOT NULL
+			      AND COALESCE(a.current_dr_balance,0) > 0   -- only cards that actually owe
+			    UNION ALL
+			    SELECT cl.cbs_customer_id,
+			           COALESCE(NULLIF(TRIM(cl.raw->>'name'),''), cl.cbs_customer_id), -- Udara's own name
+			           cl.cbs_account_number, 'loan', 'Udara',
+			           COALESCE(NULLIF(cl.product_name,''), 'Loan'),
+			           (COALESCE(cl.outstanding_principal_kobo,0)+COALESCE(cl.outstanding_interest_kobo,0)+COALESCE(cl.outstanding_fee_kobo,0))::bigint,
+			           cl.maturity_date::date
+			    FROM cbs_loans cl
+			    WHERE cl.status NOT IN ('Closed','Revoked') AND cl.maturity_date IS NOT NULL
+			    UNION ALL
+			    SELECT ca.account_cif,
+			           COALESCE(NULLIF(TRIM(ca.customer_name),''), ca.account_cif),
+			           COALESCE(NULLIF(ca.loan_ref,''),'Uploaded loan'), 'loan', 'Uploaded',
+			           'Loan (uploaded)',
+			           COALESCE(ca.outstanding_kobo,0)::bigint,
+			           ca.maturity_date
+			    FROM collection_assignments ca
+			    WHERE ca.product_type='loan' AND ca.data_source='manual' AND ca.status='active'
+			      AND ca.maturity_date IS NOT NULL
+			)
+			SELECT cif, customer_name, reference, source, origin, product_name, outstanding_kobo,
+			       due_date::text AS due_date,
+			       (due_date - CURRENT_DATE) AS days_until,
+			       TRIM(TO_CHAR(due_date,'Dy')) AS weekday
+			FROM facilities
+			WHERE `+whereWin+`
+			ORDER BY `+order+`, outstanding_kobo DESC
+			LIMIT 4000`, args...)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
+}
+
 // collectionsPortfolioKPIs returns PAR-based KPIs from collection_assignments.
 func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -203,15 +292,45 @@ func collectionsPortfolioKPIs(db *core.DB) http.HandlerFunc {
 				FROM app.collections_delinquent_unified
 				GROUP BY cif
 			) ca`)
+		var result core.Row
 		if err != nil || len(rows) == 0 {
-			respond(w, map[string]any{
+			result = core.Row{
 				"par30_kobo": int64(0), "par60_kobo": int64(0), "par90_kobo": int64(0),
 				"total_outstanding_kobo": int64(0), "total_accounts": int64(0),
 				"delinquent_accounts": int64(0), "current_rate_pct": 0.0,
-			}, "pg")
-			return
+			}
+		} else {
+			result = rows[0]
 		}
-		respond(w, rows[0], "pg")
+
+		// Collected in the selected period — from the real payments ledger (kobo), not
+		// the retired "Collections Log". Defaults to month-to-date when no range given.
+		from := r.URL.Query().Get("from")
+		to := r.URL.Query().Get("to")
+		where := "status = 'approved'"
+		cargs := []any{}
+		if from != "" {
+			cargs = append(cargs, from)
+			where += fmt.Sprintf(" AND payment_date >= $%d::date", len(cargs))
+		}
+		if to != "" {
+			cargs = append(cargs, to)
+			where += fmt.Sprintf(" AND payment_date <= $%d::date", len(cargs))
+		}
+		if from == "" && to == "" {
+			where += " AND date_trunc('month',payment_date) = date_trunc('month',CURRENT_DATE)"
+		}
+		crow, _ := db.PGQuery(r.Context(),
+			`SELECT COALESCE(SUM(amount_kobo),0) AS collected_kobo, COUNT(*) AS collected_count
+			 FROM app.collection_payments WHERE `+where, cargs...)
+		if len(crow) > 0 {
+			result["collected_kobo"] = crow[0]["collected_kobo"]
+			result["collected_count"] = crow[0]["collected_count"]
+		} else {
+			result["collected_kobo"] = int64(0)
+			result["collected_count"] = int64(0)
+		}
+		respond(w, result, "pg")
 	}
 }
 
@@ -384,18 +503,37 @@ func collectionsByAgent(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, err.Error())
 			return
 		}
-		var f Filter
-		f.Date("Repayment_Date", `"Date"`, dateFrom, dateTo)
-		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT "Agent", COALESCE(SUM("Amount"),0) AS total, COUNT(*) AS count
-			  FROM "Collections Log" WHERE "Agent" IS NOT NULL AND "Agent"!=''%s
-			  GROUP BY "Agent" ORDER BY total DESC LIMIT 15`, f.PG()),
-			f.Args()...)
+		// Real per-agent collections from the payments ledger (kobo). A payment is
+		// attributed to the agent who recorded it, else the agent assigned to that
+		// account. Imported payments with neither are grouped as "Unattributed" so the
+		// figures still reconcile with the portfolio total.
+		where := "cp.status = 'approved'"
+		args := []any{}
+		if dateFrom != "" {
+			args = append(args, dateFrom)
+			where += fmt.Sprintf(" AND cp.payment_date >= $%d::date", len(args))
+		}
+		if dateTo != "" {
+			args = append(args, dateTo)
+			where += fmt.Sprintf(" AND cp.payment_date <= $%d::date", len(args))
+		}
+		data, err := db.PGQuery(r.Context(),
+			`SELECT COALESCE(u.full_name, 'Unattributed') AS "Agent",
+			        COALESCE(SUM(cp.amount_kobo),0)       AS total,
+			        COUNT(*)                              AS count
+			 FROM app.collection_payments cp
+			 LEFT JOIN app.collection_assignments ca ON ca.id = cp.assignment_id
+			 LEFT JOIN app.o3c_users u ON u.id = COALESCE(cp.received_by, ca.agent_user_id)
+			 WHERE `+where+`
+			 GROUP BY 1 ORDER BY total DESC LIMIT 15`, args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
-		respond(w, data, src)
+		if data == nil {
+			data = []core.Row{}
+		}
+		respond(w, data, "pg")
 	}
 }
 
@@ -543,7 +681,7 @@ func collectionsWriteoffKPIs(db *core.DB) http.HandlerFunc {
 				                )) / NULLIF(SUM(wo.amount_kobo), 0), 1
 				     )
 				END                                                               AS recovery_rate_pct,
-				COUNT(*) FILTER (WHERE wo.status = 'pending')                    AS pending
+				COUNT(*) FILTER (WHERE wo.status NOT IN ('approved','rejected')) AS pending
 			FROM recovery_write_off_approvals wo
 			JOIN recovery_cases rc ON wo.case_id = rc.id
 			WHERE ($1 = '' OR wo.created_at::date >= $1::date)
@@ -559,91 +697,6 @@ func collectionsWriteoffKPIs(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// ── Portfolio: all active loan accounts, DPD-sorted ─────────────────────────
-
-func collectionsPortfolioAccounts(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		search := strings.TrimSpace(qstr(r, "q"))
-		territory := qstr(r, "territory")   // "collections" | "recovery" | ""
-		onWatchlist := qstr(r, "watchlist") // "true" | ""
-
-		// Unified delinquency book (card arrears + Udara loans) aggregated per CIF,
-		// with the workspace collection overlay (assignment, agent, stage, watchlist)
-		// LEFT-JOINed by CIF.
-		query := `
-			SELECT
-			    d.cif                                      AS loan_id,
-			    d.cif                                      AS applicant_cif,
-			    d.customer_name,
-			    d.source                                   AS loan_status,
-			    CASE
-			        WHEN d.dpd <= 0   THEN '0'
-			        WHEN d.dpd <= 30  THEN '1-30'
-			        WHEN d.dpd <= 60  THEN '31-60'
-			        WHEN d.dpd <= 90  THEN '61-90'
-			        WHEN d.dpd <= 180 THEN '91-180'
-			        WHEN d.dpd <= 360 THEN '181-360'
-			        ELSE '360+' END                        AS dpd_bucket,
-			    d.dpd                                      AS dpd_lower,
-			    d.outstanding_kobo,
-			    d.product_name,
-			    ca.id                                      AS assignment_id,
-			    ca.current_stage,
-			    u.full_name                                AS agent_name,
-			    cw.id                                      AS watchlist_id,
-			    cw.scenario                                AS watchlist_scenario
-			FROM (
-			    SELECT cif,
-			           MAX(customer_name)                       AS customer_name,
-			           STRING_AGG(DISTINCT product_name, ', ')  AS product_name,
-			           STRING_AGG(DISTINCT source, ',')         AS source,
-			           MAX(dpd)                                 AS dpd,
-			           SUM(outstanding_kobo)                    AS outstanding_kobo
-			    FROM app.collections_delinquent_unified
-			    GROUP BY cif
-			) d
-			LEFT JOIN collection_assignments ca ON ca.account_cif = d.cif AND ca.status IN ('active','sent_to_recovery')
-			LEFT JOIN o3c_users u ON u.id = ca.agent_user_id
-			LEFT JOIN LATERAL (
-			    SELECT id, scenario FROM collections_watchlist
-			    WHERE account_cif = d.cif AND status = 'active' LIMIT 1
-			) cw ON TRUE
-			WHERE 1=1`
-		args := []any{}
-		n := 1
-
-		if search != "" {
-			if clause, sargs, nn := buildCustomerSearch(search,
-				[]string{"d.cif", "d.customer_name"}, "", n); clause != "" {
-				query += " AND " + clause
-				args = append(args, sargs...)
-				n = nn
-			}
-		}
-		if territory == "collections" {
-			query += ` AND d.dpd <= 90`
-		} else if territory == "recovery" {
-			query += ` AND d.dpd > 90`
-		}
-		if onWatchlist == "true" {
-			query += " AND cw.id IS NOT NULL"
-		}
-		_ = n
-
-		query += " ORDER BY d.dpd DESC, d.outstanding_kobo DESC LIMIT 500"
-
-		rows, err := db.PGQuery(ctx, query, args...)
-		if err != nil {
-			respondErrLog(w, 500, "Query failed", err)
-			return
-		}
-		if rows == nil {
-			rows = []core.Row{}
-		}
-		respond(w, rows, "pg")
-	}
-}
 
 // ── Watchlist CRUD ────────────────────────────────────────────────────────────
 
@@ -875,6 +928,108 @@ func creditActivityByCIF(db *core.DB) http.HandlerFunc {
 		// r.data). Wrapping again here double-nests and crashes the timeline
 		// with "x.map is not a function".
 		respond(w, rows, "credit_activity_cif")
+	}
+}
+
+// collectionsCallsByCIF surfaces the call-centre's calls for a customer inside the
+// collections / recovery detail views, so the officer working a case can see what has
+// already been dialled without leaving for Customer 360. It reuses the same crosswalk
+// c360Activity does: a call matches the customer either by its own recorded CIF or by
+// last-10-digit phone against the customer master, excluding merged/voided legs.
+func collectionsCallsByCIF(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		cif := chi.URLParam(r, "cif")
+		if cif == "" {
+			respondErr(w, 400, "cif required")
+			return
+		}
+		rows, err := db.PGQuery(ctx, `
+			SELECT h.id, h.started_at, h.direction, h.duration_sec,
+			       COALESCE(h.outcome,'')     AS outcome,
+			       COALESCE(h.disposition,'') AS disposition,
+			       COALESCE(h.purpose,'')     AS purpose,
+			       COALESCE(h.agent_name,'')  AS agent_name,
+			       COALESCE(h.notes,'')       AS notes
+			FROM app.helpdesk_calls h
+			WHERE (h.customer_cif = $1
+			    OR app.norm_phone(h.customer_phone) = (
+			        SELECT app.norm_phone(c.phone) FROM app.customers c
+			        WHERE c.cif = $1 AND COALESCE(c.phone,'') <> '' LIMIT 1))
+			  AND h.merged_into_call_id IS NULL AND h.voided_at IS NULL
+			ORDER BY h.started_at DESC
+			LIMIT 100`, cif)
+		if err != nil {
+			respondErr(w, 500, err.Error())
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "collections_calls_cif")
+	}
+}
+
+// stepTypes is the controlled vocabulary for a logged collections/recovery step, so
+// the timeline can render a consistent icon/label per channel.
+var stepTypes = map[string]bool{
+	"call": true, "email": true, "sms": true, "whatsapp": true,
+	"letter": true, "field_visit": true, "file": true, "note": true,
+}
+
+// collectionsLogStep records a typed step (call/email/SMS/letter/field-visit/file/note)
+// the officer took on a case or assignment, via the shared credit_activity_log. This is
+// the "standard approach" so every step — whoever logs it — shows up on the case
+// timeline and Customer 360, letting a recovery officer see exactly what has been done.
+func collectionsLogStep(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		var body struct {
+			Module   string `json:"module"`
+			CIF      string `json:"cif"`
+			EntityID string `json:"entity_id"`
+			StepType string `json:"step_type"`
+			Outcome  string `json:"outcome"`
+			Notes    string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			respondErr(w, 400, "invalid body")
+			return
+		}
+		body.CIF = strings.TrimSpace(body.CIF)
+		body.StepType = strings.ToLower(strings.TrimSpace(body.StepType))
+		if body.CIF == "" {
+			respondErr(w, 400, "cif required")
+			return
+		}
+		if !stepTypes[body.StepType] {
+			respondErr(w, 400, "invalid step_type")
+			return
+		}
+		module := body.Module
+		if module != "recovery" {
+			module = "collections" // the log's CHECK allows only collections/recovery/risk
+		}
+		entityID := strings.TrimSpace(body.EntityID)
+		if entityID == "" {
+			entityID = body.CIF
+		}
+		// Human-readable description: "<Channel> — <outcome>: <notes>".
+		label := map[string]string{
+			"call": "Call", "email": "Email", "sms": "SMS", "whatsapp": "WhatsApp",
+			"letter": "Letter", "field_visit": "Field visit", "file": "File", "note": "Note",
+		}[body.StepType]
+		desc := label
+		if o := strings.TrimSpace(body.Outcome); o != "" {
+			desc += " — " + o
+		}
+		if nt := strings.TrimSpace(body.Notes); nt != "" {
+			desc += ": " + nt
+		}
+		logCreditEvent(ctx, db, r, module, "step", entityID, body.CIF,
+			"step_"+body.StepType, desc,
+			nil, map[string]any{"step_type": body.StepType, "outcome": body.Outcome, "notes": body.Notes})
+		respond(w, map[string]any{"ok": true}, "collections_step")
 	}
 }
 

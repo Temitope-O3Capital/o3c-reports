@@ -34,13 +34,26 @@ Safety properties, all enforced here rather than trusted to callers:
 
 // exportRequest is the body of a run or download call.
 type exportRequest struct {
-	Dataset  string            `json:"dataset"`
-	Format   string            `json:"format"`
-	DateFrom string            `json:"date_from"`
-	DateTo   string            `json:"date_to"`
-	Columns  []string          `json:"columns"` // empty = all declared columns, in registry order
-	Filters  map[string]string `json:"filters"`
-	Limit    int               `json:"limit"` // preview only
+	Dataset    string            `json:"dataset"`
+	Format     string            `json:"format"`
+	DateFrom   string            `json:"date_from"`
+	DateTo     string            `json:"date_to"`
+	Columns    []string          `json:"columns"` // empty = all declared columns, in registry order
+	Filters    map[string]string `json:"filters"` // declared, dataset-specific filters (legacy)
+	ColFilters []colFilter       `json:"col_filters"`
+	Limit      int               `json:"limit"` // preview only
+}
+
+// colFilter is a filter on ANY column, chosen at build time (drag a column into the
+// Filters shelf) rather than declared on the dataset. The column is resolved BY KEY
+// from the registry, the operator from a whitelist, and the value(s) are bound — so a
+// filter on any of a dataset's columns stays as safe as the declared filters.
+type colFilter struct {
+	Column string   `json:"column"`
+	Op     string   `json:"op"` // eq|ne|contains|starts|gt|gte|lt|lte|between|in|blank|present
+	Value  string   `json:"value"`
+	Value2 string   `json:"value2"` // upper bound for "between"
+	Values []string `json:"values"` // for "in"
 }
 
 // RegisterExports mounts the export engine under /api/reports.
@@ -53,6 +66,7 @@ func RegisterExports(r chi.Router, db *core.DB) {
 
 	r.With(rd).Get("/datasets", exportListDatasets(db))
 	r.With(rd).Post("/datasets/{key}/preview", exportPreview(db))
+	r.With(rd).Post("/datasets/{key}/pivot", exportPivot(db))
 	r.With(rd).Post("/datasets/{key}/download", exportDownload(db))
 	r.With(rd).Get("/exports/log", exportLog(db))
 }
@@ -104,43 +118,9 @@ func buildExportQuery(d exportDataset, req exportRequest, limit int) (string, []
 		sel[i] = c.sql()
 	}
 
-	var (
-		where []string
-		args  []any
-	)
-	if d.Where != "" {
-		where = append(where, "("+d.Where+")")
-	}
-
-	// Date range.
-	if d.DateCol != "" {
-		if req.DateFrom != "" {
-			args = append(args, req.DateFrom)
-			where = append(where, fmt.Sprintf("%s >= $%d::date", d.DateCol, len(args)))
-		}
-		if req.DateTo != "" {
-			args = append(args, req.DateTo)
-			where = append(where, fmt.Sprintf("%s <= $%d::date", d.DateCol, len(args)))
-		}
-	}
-
-	// Declared filters only. An undeclared key is rejected rather than ignored:
-	// silently dropping a filter would hand someone a much larger file than the
-	// one they believe they asked for.
-	for k, v := range req.Filters {
-		if strings.TrimSpace(v) == "" {
-			continue
-		}
-		f, ok := d.filterByKey(k)
-		if !ok {
-			return "", nil, nil, fmt.Errorf("unknown filter %q for dataset %q", k, d.Key)
-		}
-		if strings.Count(f.Expr, "?") != 1 {
-			// A registry authoring error, not a caller error.
-			return "", nil, nil, fmt.Errorf("filter %q is malformed", k)
-		}
-		args = append(args, v)
-		where = append(where, strings.Replace(f.Expr, "?", fmt.Sprintf("$%d", len(args)), 1))
+	where, args, err := buildExportWhere(d, req)
+	if err != nil {
+		return "", nil, nil, err
 	}
 
 	q := "SELECT " + strings.Join(sel, ",\n       ") + "\nFROM " + d.From
@@ -152,6 +132,127 @@ func buildExportQuery(d exportDataset, req exportRequest, limit int) (string, []
 	}
 	q += fmt.Sprintf("\nLIMIT %d", limit)
 	return q, args, cols, nil
+}
+
+// buildExportWhere assembles the shared WHERE (static predicate + date range +
+// declared filters) used by both the flat export and the pivot builder. Every
+// value is bound; an undeclared filter key is rejected rather than ignored (a
+// dropped filter would hand someone a far larger result than they asked for).
+func buildExportWhere(d exportDataset, req exportRequest) ([]string, []any, error) {
+	var (
+		where []string
+		args  []any
+	)
+	if d.Where != "" {
+		where = append(where, "("+d.Where+")")
+	}
+	if d.DateCol != "" {
+		if req.DateFrom != "" {
+			args = append(args, req.DateFrom)
+			where = append(where, fmt.Sprintf("%s >= $%d::date", d.DateCol, len(args)))
+		}
+		if req.DateTo != "" {
+			args = append(args, req.DateTo)
+			where = append(where, fmt.Sprintf("%s <= $%d::date", d.DateCol, len(args)))
+		}
+	}
+	for k, v := range req.Filters {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		f, ok := d.filterByKey(k)
+		if !ok {
+			return nil, nil, fmt.Errorf("unknown filter %q for dataset %q", k, d.Key)
+		}
+		if strings.Count(f.Expr, "?") != 1 {
+			return nil, nil, fmt.Errorf("filter %q is malformed", k)
+		}
+		args = append(args, v)
+		where = append(where, strings.Replace(f.Expr, "?", fmt.Sprintf("$%d", len(args)), 1))
+	}
+
+	// Dynamic per-column filters (the Filters shelf). The column resolves BY KEY, the
+	// operator from the switch whitelist, and every value is a bound parameter — a filter
+	// on an arbitrary column is exactly as safe as a declared one. The comparison cast is
+	// driven by the column's registry type, so a numeric column compares numerically and a
+	// date column as a date; everything else compares as text.
+	for _, cf := range req.ColFilters {
+		c, ok := d.colByKey(cf.Column)
+		if !ok {
+			return nil, nil, fmt.Errorf("unknown filter column %q for dataset %q", cf.Column, d.Key)
+		}
+		expr := "(" + c.Expr + ")"
+		cast := "text"
+		if exportNumeric(c.Type) {
+			cast = "numeric"
+		} else if c.Type == colDate {
+			cast = "date"
+		}
+		v := strings.TrimSpace(cf.Value)
+		switch cf.Op {
+		case "blank":
+			where = append(where, fmt.Sprintf("(%s IS NULL OR %s::text = '')", expr, expr))
+		case "present":
+			where = append(where, fmt.Sprintf("(%s IS NOT NULL AND %s::text <> '')", expr, expr))
+		case "eq", "ne":
+			if v == "" {
+				continue
+			}
+			op := "="
+			if cf.Op == "ne" {
+				op = "<>"
+			}
+			args = append(args, v)
+			where = append(where, fmt.Sprintf("%s::%s %s $%d::%s", expr, cast, op, len(args), cast))
+		case "contains":
+			if v == "" {
+				continue
+			}
+			args = append(args, v)
+			where = append(where, fmt.Sprintf("%s::text ILIKE '%%' || $%d || '%%'", expr, len(args)))
+		case "starts":
+			if v == "" {
+				continue
+			}
+			args = append(args, v)
+			where = append(where, fmt.Sprintf("%s::text ILIKE $%d || '%%'", expr, len(args)))
+		case "gt", "gte", "lt", "lte":
+			if v == "" {
+				continue
+			}
+			op := map[string]string{"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[cf.Op]
+			args = append(args, v)
+			where = append(where, fmt.Sprintf("%s::%s %s $%d::%s", expr, cast, op, len(args), cast))
+		case "between":
+			v2 := strings.TrimSpace(cf.Value2)
+			if v == "" || v2 == "" {
+				continue
+			}
+			args = append(args, v, v2)
+			where = append(where, fmt.Sprintf("%s::%s BETWEEN $%d::%s AND $%d::%s", expr, cast, len(args)-1, cast, len(args), cast))
+		case "in":
+			vals := cf.Values
+			if len(vals) == 0 && v != "" {
+				vals = strings.Split(v, ",")
+			}
+			ph := make([]string, 0, len(vals))
+			for _, x := range vals {
+				s := strings.TrimSpace(x)
+				if s == "" {
+					continue
+				}
+				args = append(args, s)
+				ph = append(ph, fmt.Sprintf("$%d::%s", len(args), cast))
+			}
+			if len(ph) == 0 {
+				continue
+			}
+			where = append(where, fmt.Sprintf("%s::%s IN (%s)", expr, cast, strings.Join(ph, ", ")))
+		default:
+			return nil, nil, fmt.Errorf("unknown filter operator %q", cf.Op)
+		}
+	}
+	return where, args, nil
 }
 
 // validateExportRequest applies the dataset's own preconditions.

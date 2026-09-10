@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -231,6 +232,11 @@ func toFloat64(v any) float64 {
 		return float64(t)
 	case int32:
 		return float64(t)
+	case string:
+		// pgx returns SUM(numeric)/numeric columns as string; parse so callers doing
+		// float math (ratios, PAR%) don't silently get 0.
+		f, _ := strconv.ParseFloat(t, 64)
+		return f
 	}
 	return 0
 }
@@ -436,9 +442,7 @@ func psTransfers(db *core.DB) http.HandlerFunc {
 				// Match against the live Udara/CBS book by its loan referenceNumber.
 				rows, _ := db.PGQuery(ctx,
 					`SELECT reference_number AS reference,
-					        COALESCE((SELECT NULLIF(trim(a.first_name||' '||COALESCE(a.last_name,'')),'')
-					                  FROM app.customers a WHERE a.cif = cbs_loans.cbs_customer_id LIMIT 1),
-					                 cbs_loans.raw->>'name') AS applicant_name,
+					        cbs_loans.raw->>'name' AS applicant_name, -- Udara's own name (cbs_customer_id != app.customers.cif)
 					        cbs_customer_id AS applicant_cif
 					 FROM cbs_loans WHERE reference_number IN (`+placeholders+`)`,
 					args...)

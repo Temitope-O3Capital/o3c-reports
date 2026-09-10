@@ -6,13 +6,39 @@
 // Read-only: authoring/editing lives on the dedicated Call Scripts page. This is the
 // consumption surface. Reuses scriptKit so the markup and reader render identically.
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useLocation } from 'react-router-dom'
 import { apiFetch, apiPost } from '../lib/api'
 import { allRoles, currentUser } from '../hooks/useAuth'
 import { NAVY, GREEN, FW, RADIUS, TEXT } from '../lib/design'
 import { type CallScript, CAT_ICON, CATEGORY_NAMES, parseScript, toPlainText, previewLine, ScriptReader } from './scriptKit'
 import { toast } from 'sonner'
+
+// Per-browser prefs for the floating launcher: whether the agent hid it, and where they
+// dragged it to. localStorage so it survives reloads; wrapped in try/catch because it can
+// throw in private windows. The hidden flag is re-read live when Settings toggles it (via
+// the 'o3c:scripts-visibility' event) so an agent can turn the button back on without a
+// reload. Kept module-level so the Settings toggle can import and reuse them.
+export const SCRIPTS_HIDDEN_KEY = 'o3c.scripts.hidden'
+const SCRIPTS_POS_KEY = 'o3c.scripts.pos'
+
+export function scriptsButtonHidden(): boolean {
+  try { return localStorage.getItem(SCRIPTS_HIDDEN_KEY) === '1' } catch { return false }
+}
+// setScriptsButtonHidden is called by the Settings toggle; it persists and broadcasts so a
+// mounted ScriptsDrawer updates immediately.
+export function setScriptsButtonHidden(hidden: boolean) {
+  try { localStorage.setItem(SCRIPTS_HIDDEN_KEY, hidden ? '1' : '0') } catch { /* private window */ }
+  window.dispatchEvent(new Event('o3c:scripts-visibility'))
+}
+function readScriptsPos(): { left: number; top: number } | null {
+  try {
+    const raw = localStorage.getItem(SCRIPTS_POS_KEY)
+    if (raw) { const p = JSON.parse(raw); if (typeof p?.left === 'number' && typeof p?.top === 'number') return p }
+  } catch { /* ignore */ }
+  return null
+}
 
 export default function ScriptsDrawer() {
   // Only front-line Call Centre staff (agents and their heads) get the launcher —
@@ -23,6 +49,12 @@ export default function ScriptsDrawer() {
     return !!u && allRoles(u).some(r => r === 'call_center_agent' || r === 'call_center_head')
   }, [])
 
+  // Scope to the Call Centre section only — an agent pulls a talk-track while working a
+  // call there, not from the dashboard, mail or settings. This is what stopped the pill
+  // floating over every page.
+  const { pathname } = useLocation()
+  const onCallCenter = pathname.startsWith('/call-center')
+
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [rows, setRows] = useState<CallScript[]>([])
@@ -31,6 +63,66 @@ export default function ScriptsDrawer() {
   const [activeCat, setActiveCat] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // Draggable + hideable launcher.
+  const [hidden, setHidden] = useState(scriptsButtonHidden)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(readScriptsPos)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const draggingRef = useRef(false)
+  const movedRef = useRef(false)
+
+  // Re-read the hidden flag when Settings toggles it, so the button reappears without a reload.
+  useEffect(() => {
+    const onVis = () => setHidden(scriptsButtonHidden())
+    window.addEventListener('o3c:scripts-visibility', onVis)
+    return () => window.removeEventListener('o3c:scripts-visibility', onVis)
+  }, [])
+
+  // If a saved position ends up off-screen (smaller viewport since it was dragged), pull it
+  // back into view on mount.
+  useEffect(() => {
+    if (!pos) return
+    const w = window.innerWidth, h = window.innerHeight
+    const left = Math.max(6, Math.min(w - 60, pos.left))
+    const top = Math.max(6, Math.min(h - 60, pos.top))
+    if (left !== pos.left || top !== pos.top) setPos({ left, top })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Drag the launcher from the pill; suppress the open-click when it was actually a drag.
+  const startDrag = useCallback((e: React.PointerEvent) => {
+    const el = wrapRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const offX = e.clientX - rect.left
+    const offY = e.clientY - rect.top
+    draggingRef.current = true
+    movedRef.current = false
+    let last = { left: rect.left, top: rect.top }
+    const move = (ev: PointerEvent) => {
+      if (!draggingRef.current) return
+      if (Math.abs(ev.clientX - rect.left - offX) > 3 || Math.abs(ev.clientY - rect.top - offY) > 3) movedRef.current = true
+      const w = el.offsetWidth, h = el.offsetHeight
+      const left = Math.max(6, Math.min(window.innerWidth - w - 6, ev.clientX - offX))
+      const top = Math.max(6, Math.min(window.innerHeight - h - 6, ev.clientY - offY))
+      last = { left, top }
+      setPos(last)
+    }
+    const up = () => {
+      draggingRef.current = false
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      if (movedRef.current) { try { localStorage.setItem(SCRIPTS_POS_KEY, JSON.stringify(last)) } catch { /* ignore */ } }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }, [])
+
+  const hideLauncher = useCallback(() => {
+    setScriptsButtonHidden(true)
+    setHidden(true)
+    toast('Scripts button hidden', { description: 'Turn it back on in Settings → Voice & Calling.' })
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -100,23 +192,47 @@ export default function ScriptsDrawer() {
 
   return (
     <>
-      {/* Floating launcher */}
-      <button
-        onClick={() => setOpen(true)}
-        title="Call scripts"
-        aria-label="Open call scripts"
-        style={{
-          position: 'fixed', right: 22, bottom: 22, zIndex: 1400,
-          display: open ? 'none' : 'inline-flex', alignItems: 'center', gap: 8,
-          padding: '11px 16px', borderRadius: RADIUS.full, border: 'none',
-          background: NAVY, color: '#fff', cursor: 'pointer',
-          fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: 'inherit',
-          boxShadow: '0 6px 20px rgba(14,40,65,0.35)',
-        }}
-      >
-        <span className="material-symbols-rounded" style={{ fontSize: 20 }}>menu_book</span>
-        Scripts
-      </button>
+      {/* Floating launcher — call-centre pages only, hideable, and draggable to any corner.
+          Position is where the agent last dragged it, else the bottom-right default. */}
+      {onCallCenter && !hidden && !open && (
+        <div
+          ref={wrapRef}
+          style={{
+            position: 'fixed', zIndex: 1400, display: 'inline-flex', alignItems: 'center', gap: 4,
+            ...(pos ? { left: pos.left, top: pos.top } : { right: 22, bottom: 22 }),
+          }}
+        >
+          <button
+            onPointerDown={startDrag}
+            onClick={() => { if (movedRef.current) { movedRef.current = false; return } setOpen(true) }}
+            title="Call scripts — drag to move"
+            aria-label="Open call scripts"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8, touchAction: 'none',
+              padding: '11px 16px', borderRadius: RADIUS.full, border: 'none',
+              background: NAVY, color: '#fff', cursor: 'grab',
+              fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: 'inherit',
+              boxShadow: '0 6px 20px rgba(14,40,65,0.35)',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 20 }}>menu_book</span>
+            Scripts
+          </button>
+          <button
+            onClick={hideLauncher}
+            title="Hide this button (re-enable in Settings)"
+            aria-label="Hide call scripts button"
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 24, height: 24, borderRadius: RADIUS.full, border: 'none',
+              background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>close</span>
+          </button>
+        </div>
+      )}
 
       {open && createPortal(
         <div

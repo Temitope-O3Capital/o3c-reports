@@ -53,6 +53,8 @@ const (
 	EvtTicketSLAWarning       = "ticket_sla_warning"
 	EvtTicketUnassignedAlert  = "ticket_unassigned_alert"
 	EvtCSATLowScore           = "csat_low_score"
+	EvtSurveyLowScore         = "survey_low_score"
+	EvtSurveyResponse         = "survey_response"
 	EvtAMLWatchlistHit        = "aml_watchlist_hit"
 	EvtSARFiled               = "sar_filed"
 	EvtPTPDueToday            = "ptp_due_today"

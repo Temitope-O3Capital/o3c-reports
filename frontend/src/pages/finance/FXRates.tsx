@@ -1,11 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer,
-} from 'recharts'
 import { apiFetch, apiPost } from '../../lib/api'
 import { NAVY, GREEN, AMBER, BLUE, PURPLE, TEXT, FW, SP, RADIUS, NUM } from '../../lib/design'
 import { Page, SectionCard, Spinner, DateFilter } from '../../components/UI'
+import { EArea } from '../../components/echarts'
 import { toast } from 'sonner'
 
 const CURRENCIES = ['USD', 'EUR', 'GBP']
@@ -122,6 +119,8 @@ export default function FXRates() {
   return (
     <Page
       title="FX Parallel Rates"
+      loading={loadingLatest && latest.length === 0}
+      skeletonKpis={3}
       subtitle="Indicative Naira parallel-market rates. Scraped hourly, display refreshes every 5 minutes."
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[3] }}>
@@ -196,42 +195,19 @@ export default function FXRates() {
             <EmptyHistory onRefresh={handleRefresh} refreshing={refreshing} />
           ) : (
             <>
-              <ResponsiveContainer width="100%" height={260}>
-                <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="fxGradSell" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor={NAVY}        stopOpacity={0.14} />
-                      <stop offset="95%" stopColor={NAVY}        stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="fxGradBuy" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor={accentColor} stopOpacity={0.12} />
-                      <stop offset="95%" stopColor={accentColor} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 11, fill: 'var(--txt3)' }}
-                    axisLine={false} tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: 'var(--txt3)' }}
-                    width={86} tickFormatter={v => `₦${fmt(v)}`}
-                    domain={['auto', 'auto']} axisLine={false} tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--card)', border: '1px solid var(--bdr)',
-                      borderRadius: RADIUS.md, fontSize: 12,
-                    }}
-                    formatter={(v: number, name: string) => [
-                      `₦${fmt(v)}`, name === 'buy' ? 'Buy (you receive)' : 'Sell (you pay)',
-                    ]}
-                  />
-                  <Area type="monotone" dataKey="sell" stroke={NAVY}        strokeWidth={2} fill="url(#fxGradSell)" dot={false} />
-                  <Area type="monotone" dataKey="buy"  stroke={accentColor} strokeWidth={2} fill="url(#fxGradBuy)"  dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
+              <EArea
+                data={chartData}
+                xKey="date"
+                height={260}
+                endLabel
+                valueFmt={(v) => `₦${fmt(v)}`}
+                endFmt={(v) => `₦${fmt(v)}`}
+                axisFmt={(v) => `₦${fmt(v)}`}
+                series={[
+                  { key: 'sell', name: 'Sell: you pay', color: NAVY },
+                  { key: 'buy', name: 'Buy: you receive', color: accentColor },
+                ]}
+              />
 
               {/* Inline legend */}
               <div style={{ display: 'flex', gap: SP[5], marginTop: SP[3] }}>

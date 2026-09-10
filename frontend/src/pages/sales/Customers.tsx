@@ -257,6 +257,8 @@ export default function CRMContacts() {
 
   return (
     <Page title="Contacts" subtitle={`${fmtNum(total)} contacts & prospects`}
+      loading={loading && contacts.length === 0}
+      skeletonKpis={4}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={err} onRetry={load} />

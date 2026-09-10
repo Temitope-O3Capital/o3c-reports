@@ -6,9 +6,9 @@
     <title>O3 Capital Workspace</title>
     <link rel="icon" type="image/svg+xml" href="/o3-logo.svg" />
     <link rel="shortcut icon" href="/o3-logo.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <!-- No external font CDN. Segoe UI (the single UI typeface) is self-hosted in /fonts
+         and declared via @font-face in index.css: Windows users hit their installed copy
+         via local(); other devices lazily fetch the ~40KB Latin subset. -->
     <!-- Material Symbols self-hosted: eliminates Google CDN round-trip and FOUT -->
     <link rel="preload" href="/fonts/material-symbols-rounded.woff2" as="font" type="font/woff2" crossorigin />
     <style>

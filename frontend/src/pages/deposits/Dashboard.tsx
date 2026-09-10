@@ -1,13 +1,10 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, Cell,
-} from 'recharts'
 import { KpiCard, SectionCard, ErrBanner, Spinner } from '../../components/UI'
+import { EBar, EBarH, EArea } from '../../components/echarts'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
-import { NAVY, BLUE, AMBER, GREEN, RED, PURPLE, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { NAVY, BLUE, AMBER, GREEN, RED, PURPLE, INTER, SORA, NUM, TEXT, FW, SP } from '../../lib/design'
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -34,21 +31,9 @@ const LADDER_COLORS: Record<string, string> = {
   '91–180d': NAVY, '181–365d': PURPLE, '365d+': GREEN,
 }
 
-function Tip({ active, payload, label, money }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: NAVY, borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,.4)' }}>
-      {label && <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.5)', fontFamily: INTER, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>}
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: i > 0 ? 4 : 0 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff' }} />
-          <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>{money ? fmtKobo(p.value) : fmtNum(p.value)}</span>
-          {p.name && payload.length > 1 && <span style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.5)', fontFamily: INTER }}>{p.name}</span>}
-        </div>
-      ))}
-    </div>
-  )
-}
+// Kobo axis ticks: ₦m / ₦k (matches the prior Recharts tickFormatter exactly).
+const koboAxis = (v: number) => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : ''
+const koboEnd  = (v: number) => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : `₦${v / 100}`
 
 export default function DepositsDashboard() {
   const [kpis, setKpis] = useState<FDKpis | null>(null)
@@ -83,6 +68,11 @@ export default function DepositsDashboard() {
 
   const totalProdPrincipal = products.reduce((s, p) => s + p.principal_kobo, 0) || 1
 
+  // Coerce kobo values to numbers so the canvas plots them (API may send strings).
+  const ladderData = ladder.map(r => ({ bucket: r.bucket, principal_kobo: Number(r.principal_kobo) }))
+  const trendData  = trend.map(r => ({ date: r.date, ledger_kobo: Number(r.ledger_kobo) }))
+  const tenorData  = tenor.map(r => ({ bucket: r.bucket, principal_kobo: Number(r.principal_kobo) }))
+
   return (
     <>
       <ErrBanner error={error} onRetry={load} />
@@ -108,38 +98,31 @@ export default function DepositsDashboard() {
           {/* Maturity ladder */}
           <SectionCard title="Maturity Ladder" subtitle="Active principal by time-to-maturity" style={{ marginBottom: 14 }}>
             {ladder.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={ladder} margin={{ top: 4, right: 8, bottom: 10, left: 8 }} barCategoryGap="30%">
-                  <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} />
-                  <XAxis dataKey="bucket" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
-                  <YAxis width={72} tickFormatter={v => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : ''} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<Tip money />} cursor={{ fill: 'var(--row-hvr)' }} />
-                  <Bar dataKey="principal_kobo" name="Principal" radius={[5, 5, 0, 0]}>
-                    {ladder.map((e, i) => <Cell key={i} fill={LADDER_COLORS[e.bucket] ?? NAVY} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <EBar
+                data={ladderData}
+                xKey="bucket"
+                height={220}
+                legend={false}
+                valueFmt={fmtKobo}
+                axisFmt={koboAxis}
+                series={[{ key: 'principal_kobo', name: 'Principal', colorFn: r => LADDER_COLORS[r.bucket] ?? NAVY }]}
+              />
             ) : <Empty />}
           </SectionCard>
 
           {/* Book trend */}
           <SectionCard title="Deposit Book Trend" subtitle="Book size over time (daily snapshot)" style={{ marginBottom: 14 }}>
             {trend.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={trend} margin={{ top: 4, right: 8, bottom: 10, left: 8 }}>
-                  <defs>
-                    <linearGradient id="fdBook" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={NAVY} stopOpacity={0.25} />
-                      <stop offset="100%" stopColor={NAVY} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
-                  <YAxis width={72} tickFormatter={v => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : ''} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<Tip money />} />
-                  <Area type="monotone" dataKey="ledger_kobo" name="Book" stroke={NAVY} strokeWidth={2} fill="url(#fdBook)" dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
+              <EArea
+                data={trendData}
+                xKey="date"
+                height={220}
+                hideYAxis
+                endLabel
+                valueFmt={fmtKobo}
+                endFmt={koboEnd}
+                series={[{ key: 'ledger_kobo', name: 'Book', color: NAVY }]}
+              />
             ) : <Empty text="No snapshot history yet. The book trend fills in one point per day." />}
           </SectionCard>
 
@@ -182,15 +165,15 @@ export default function DepositsDashboard() {
 
             <SectionCard title="Tenor Distribution" subtitle="Active principal by original tenor">
               {tenor.length > 0 ? (
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={tenor} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
-                    <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" horizontal={false} />
-                    <XAxis type="number" tickFormatter={v => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : ''} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis dataKey="bucket" type="category" width={72} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<Tip money />} cursor={{ fill: 'var(--row-hvr)' }} />
-                    <Bar dataKey="principal_kobo" name="Principal" fill={BLUE} radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <EBarH
+                  data={tenorData}
+                  catKey="bucket"
+                  height={220}
+                  legend={false}
+                  valueFmt={fmtKobo}
+                  axisFmt={koboAxis}
+                  series={[{ key: 'principal_kobo', name: 'Principal', color: BLUE }]}
+                />
               ) : <Empty />}
             </SectionCard>
           </div>

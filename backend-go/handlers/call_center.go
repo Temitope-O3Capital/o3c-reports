@@ -541,7 +541,11 @@ func ccSummary(db *core.DB) http.HandlerFunc {
 			"totals": map[string]any{
 				"tickets": len(tr.data),
 				"overdue": overdue,
-				"note":    "Based on up to 500 most recent tickets in period",
+				// The Zoho fetch is capped at the 500 most-recent tickets, so on a busy
+				// period these figures are a recency-biased SAMPLE, not the true total —
+				// expose that so the UI can label it rather than presenting it as complete.
+				"capped": len(tr.data) >= 500,
+				"note":   "Computed over up to the 500 most recent tickets in the period; when capped, older tickets are not included.",
 			},
 			"by_status":  byStatus,
 			"by_channel": byChannel,

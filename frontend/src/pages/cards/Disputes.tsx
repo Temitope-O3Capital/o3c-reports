@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, DateFilter, NameCell, StatusBadge } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -199,7 +199,7 @@ export default function CardsDisputes() {
     { key: 'customer_name', label: 'Customer',
       render: r => <NameCell name={r.customer_name} sub={r.ref} /> },
     { key: 'amount_kobo', label: 'Amount', align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.amount_kobo)}</span> },
+      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKoboExact(r.amount_kobo)}</span> },
     { key: 'dispute_type', label: 'Type',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.dispute_type}</span> },
     { key: 'status', label: 'Status', render: r => <StatusBadge status={STATUS_LABELS[r.status] ?? r.status} /> },
@@ -235,6 +235,8 @@ export default function CardsDisputes() {
     <Page
       title="Disputes"
       subtitle="Card dispute tracking and resolution workflow"
+      loading={loading && rows.length === 0}
+      skeletonKpis={4}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -253,7 +255,7 @@ export default function CardsDisputes() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[5] }}>
         {[
           { label: 'Open Disputes',  value: openCount, color: AMBER },
-          { label: 'Total Amount',   value: fmtKobo(totalAmount), color: 'var(--txt)' },
+          { label: 'Total Amount',   value: fmtKoboExact(totalAmount), color: 'var(--txt)' },
           { label: 'Avg Days Open',  value: `${avgDays}d`, color: avgDays > 15 ? RED : 'var(--txt)' },
           { label: 'Resolved',       value: resolvedCount, color: GREEN },
         ].map(({ label, value, color }) => (

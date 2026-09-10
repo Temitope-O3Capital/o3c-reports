@@ -577,6 +577,8 @@ export default function BDPipeline() {
     <Page
       title={mineOnly ? 'My Pipeline' : 'All Leads'}
       subtitle={`${fmtNum(filtered.length)} ${mineOnly ? 'assigned to you' : 'leads'} · ${fmtKobo(totalValue)} total value`}
+      loading={loading && !kpis}
+      skeletonKpis={4}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button

@@ -29,6 +29,7 @@ interface Member {
   last_name?: string
   phone?: string
   email?: string
+  state?: string
   added_at?: string
   created_at?: string
 }
@@ -68,7 +69,7 @@ const fieldTextarea: React.CSSProperties = {
 
 // ── Empty contact form ────────────────────────────────────────────────────────
 
-const emptyForm = () => ({ firstName: '', lastName: '', phone: '', email: '', cifNumber: '' })
+const emptyForm = () => ({ firstName: '', lastName: '', phone: '', email: '', state: '', cifNumber: '' })
 
 // ── Member Drawer ──────────────────────────────────────────────────────────────
 
@@ -114,6 +115,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
     if (form.lastName.trim())  payload.last_name  = form.lastName.trim()
     if (form.phone.trim())     payload.phone      = form.phone.trim()
     if (form.email.trim())     payload.email      = form.email.trim()
+    if (form.state.trim())     payload.state      = form.state.trim()
     if (form.cifNumber.trim()) payload.cif_number = form.cifNumber.trim()
     if (Object.keys(payload).length === 0) {
       setAddErr('Please fill in at least one field.')
@@ -138,6 +140,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
       lastName:  m.last_name  ?? '',
       phone:     m.phone      ?? '',
       email:     m.email      ?? '',
+      state:     m.state      ?? '',
       cifNumber: m.cif_number ?? '',
     })
     setEditErr(null)
@@ -150,6 +153,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
       last_name:  editForm.lastName.trim()  || null,
       phone:      editForm.phone.trim()     || null,
       email:      editForm.email.trim()     || null,
+      state:      editForm.state.trim()     || null,
       cif_number: editForm.cifNumber.trim() || null,
     }
     setEditSaving(true); setEditErr(null)
@@ -227,6 +231,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
     },
     { key: 'phone', label: 'Phone', render: m => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{m.phone ?? '—'}</span> },
     { key: 'email', label: 'Email', render: m => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{m.email ?? '—'}</span> },
+    { key: 'state', label: 'State', render: m => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{m.state || '—'}</span> },
     {
       key: 'created_at', label: 'Added',
       render: m => <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDatetime(m.added_at ?? m.created_at ?? '')}</span>,
@@ -310,10 +315,17 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                     placeholder="prospect@email.com" type="email" style={inp()} />
                 </div>
               </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional, for existing customers)</span></label>
-                <input value={form.cifNumber} onChange={e => setForm(f => ({ ...f, cifNumber: e.target.value }))}
-                  placeholder="Leave blank for prospects" style={inp()} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label style={lbl}>State</label>
+                  <input value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))}
+                    placeholder="e.g. Lagos" style={inp()} />
+                </div>
+                <div>
+                  <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+                  <input value={form.cifNumber} onChange={e => setForm(f => ({ ...f, cifNumber: e.target.value }))}
+                    placeholder="Existing customers" style={inp()} />
+                </div>
               </div>
               {addErr && <div style={{ fontSize: TEXT.sm, color: RED, marginBottom: 8 }}>{addErr}</div>}
               <button onClick={addContact} disabled={adding} style={{ ...btnPrimary, width: '100%', justifyContent: 'center' }}>
@@ -338,7 +350,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                 </button>
                 <button
                   onClick={() => {
-                    const csv = 'first_name,last_name,phone,email,cif_number\nJohn,Smith,+2348001234567,john@example.com,CIF001\nAisha,Bello,+2348091234567,aisha@example.com,\n'
+                    const csv = 'first_name,last_name,phone,email,state,cif_number\nJohn,Smith,+2348001234567,john@example.com,Lagos,CIF001\nAisha,Bello,+2348091234567,aisha@example.com,FCT,\n'
                     const blob = new Blob([csv], { type: 'text/csv' })
                     const url = URL.createObjectURL(blob)
                     const a = document.createElement('a'); a.href = url
@@ -354,7 +366,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                 </button>
               </div>
               <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 5, textAlign: 'center' }}>
-                Columns: <code>first_name, last_name, phone, email, cif_number</code>. At least one required per row.
+                Columns: <code>first_name, last_name, phone, email, state, cif_number</code>. At least one required per row.
               </p>
             </div>
           )}
@@ -372,7 +384,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                 rows={members}
                 keyFn={m => m.id}
                 emptyText="No contacts yet. Add someone above."
-                searchKeys={['first_name', 'last_name', 'phone', 'email', 'cif_number']}
+                searchKeys={['first_name', 'last_name', 'phone', 'email', 'state', 'cif_number']}
                 searchPlaceholder="Filter contacts…"
                 pageSize={25}
               />
@@ -473,10 +485,17 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
             <input value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
               placeholder="contact@email.com" type="email" style={inp()} />
           </div>
-          <div>
-            <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
-            <input value={editForm.cifNumber} onChange={e => setEditForm(f => ({ ...f, cifNumber: e.target.value }))}
-              placeholder="Leave blank for prospects" style={inp()} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={lbl}>State</label>
+              <input value={editForm.state} onChange={e => setEditForm(f => ({ ...f, state: e.target.value }))}
+                placeholder="e.g. Lagos" style={inp()} />
+            </div>
+            <div>
+              <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+              <input value={editForm.cifNumber} onChange={e => setEditForm(f => ({ ...f, cifNumber: e.target.value }))}
+                placeholder="Existing customers" style={inp()} />
+            </div>
           </div>
         </div>
       </Modal>
@@ -617,6 +636,8 @@ export default function ContactLists() {
     <Page
       title="Contact Lists"
       subtitle={`${lists.length} list${lists.length !== 1 ? 's' : ''} · ${fmtNum(totalMembers)} total contacts`}
+      loading={loading && lists.length === 0}
+      skeletonKpis={3}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

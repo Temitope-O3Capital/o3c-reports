@@ -102,6 +102,7 @@ export default function AdminAuditLog() {
       back={{ label: 'Admin', to: '/admin' }}
       title="Audit Log"
       subtitle="All platform activity: user actions, logins, data changes"
+      loading={loading && rows.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

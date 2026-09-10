@@ -2,6 +2,8 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import type { ReactNode, CSSProperties, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { NAVY, RED, GREEN, INTER, SORA, NUM, TEXT, FW, SP, RADIUS, SHADOW, TRANSITION } from '../lib/design'
 import { today, monthStart, yearStart, fmtDate } from '../lib/fmt'
+import { useIsMobile } from '../hooks/useMediaQuery'
+import { PageSkeleton } from './Skeleton'
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
@@ -55,16 +57,28 @@ interface PageProps {
   children: ReactNode
   noPad?: boolean
   back?: { label: string; to: string }
+  // When true, the content area renders a layout-reserving skeleton instead of
+  // children — so a data page fills in place rather than popping in section by
+  // section. Pass `loading={loading && !data}` (only on the FIRST load, not refetches).
+  loading?: boolean
+  // Optional custom skeleton; defaults to the generic analytics PageSkeleton.
+  skeleton?: ReactNode
+  // KPI-column count for the default skeleton, to better match the page.
+  skeletonKpis?: number
 }
 
-export function Page({ title, subtitle, actions, children, noPad, back }: PageProps) {
+export function Page({ title, subtitle, actions, children, noPad, back, loading, skeleton, skeletonKpis }: PageProps) {
   const hasHeader = !!title || !!actions
+  const isMobile = useIsMobile()
+  // Tighter gutters on small screens buy back horizontal room where it is scarcest, and
+  // the header wraps so a title + its action buttons stack instead of colliding.
+  const gutterX = isMobile ? 14 : 24
   return (
     <div className="page-fade" style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg)',
     }}>
       {back && (
-        <div style={{ padding: '14px 24px 0', flexShrink: 0 }}>
+        <div style={{ padding: `14px ${gutterX}px 0`, flexShrink: 0 }}>
           <a href={back.to} onClick={e => { e.preventDefault(); window.history.back() }}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--txt2)', textDecoration: 'none', fontWeight: 500 }}
             onMouseEnter={e => (e.currentTarget.style.color = NAVY)}
@@ -78,12 +92,13 @@ export function Page({ title, subtitle, actions, children, noPad, back }: PagePr
       {hasHeader && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
-          padding: back ? '8px 24px 0' : '20px 24px 0', flexShrink: 0,
+          flexWrap: 'wrap',
+          padding: back ? `8px ${gutterX}px 0` : `20px ${gutterX}px 0`, flexShrink: 0,
         }}>
           {title && (
             <div>
               <h1 style={{
-                margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--txt)',
+                margin: 0, fontSize: isMobile ? 19 : 22, fontWeight: 700, color: 'var(--txt)',
                 letterSpacing: '-0.5px', lineHeight: 1.2,
               }}>{title}</h1>
               {subtitle && (
@@ -100,8 +115,8 @@ export function Page({ title, subtitle, actions, children, noPad, back }: PagePr
           )}
         </div>
       )}
-      <div style={{ flex: 1, overflow: 'auto', padding: noPad ? 0 : '16px 24px 24px' }}>
-        {children}
+      <div style={{ flex: 1, overflow: 'auto', padding: noPad && !loading ? 0 : `16px ${gutterX}px ${isMobile ? 16 : 24}px` }}>
+        {loading ? (skeleton ?? <PageSkeleton kpis={skeletonKpis} />) : children}
       </div>
     </div>
   )
@@ -444,7 +459,10 @@ interface TabItem { key: string; label: string; badge?: number }
 
 export function Tabs({ tabs, active, onChange }: { tabs: TabItem[]; active: string; onChange: (key: string) => void }) {
   return (
-    <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', marginBottom: 16 }}>
+    // Scrolls horizontally instead of clipping: a page with many tabs (Customer 360 has
+    // a dozen) used to lose the ones past the viewport edge on a small laptop. The row now
+    // stays on one line and scrolls, with the scrollbar hidden (o3c-scroll-x).
+    <div className="o3c-scroll-x" style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', marginBottom: 16, overflowX: 'auto', overflowY: 'hidden' }}>
       {tabs.map(t => {
         const isActive = t.key === active
         return (
@@ -452,7 +470,7 @@ export function Tabs({ tabs, active, onChange }: { tabs: TabItem[]; active: stri
             key={t.key}
             onClick={() => onChange(t.key)}
             style={{
-              display: 'flex', alignItems: 'center', gap: 6,
+              display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
               padding: '8px 14px',
               fontSize: 13, fontWeight: isActive ? 600 : 500,
               color: isActive ? 'var(--txt)' : 'var(--txt2)',
@@ -466,7 +484,7 @@ export function Tabs({ tabs, active, onChange }: { tabs: TabItem[]; active: stri
             {t.label}
             {t.badge !== undefined && (
               <span style={{
-                ...NUM, fontSize: 10.5, fontWeight: 600, padding: '0 5px', borderRadius: 20,
+                ...NUM, fontSize: 11.5, fontWeight: 600, padding: '0 5px', borderRadius: 20,
                 background: isActive ? `${RED}18` : 'var(--chip-bg)',
                 color: isActive ? RED : 'var(--chip-txt)',
               }}>{t.badge}</span>
@@ -508,7 +526,7 @@ export function FilterBar({ children, onReset }: { children: ReactNode; onReset?
 export const filterInputStyle: CSSProperties = {
   height: 36, padding: '0 10px', border: '1px solid var(--bdr)',
   borderRadius: 8, fontSize: 12.5, background: 'var(--card)',
-  color: 'var(--txt)', fontFamily: "'Sora', sans-serif", outline: 'none', minWidth: 130,
+  color: 'var(--txt)', fontFamily: "var(--font-sans)", outline: 'none', minWidth: 130,
 }
 
 // ── Search icon SVG (shared by SearchInput and TblSearch) ─────────────────────
@@ -560,7 +578,7 @@ export function SearchInput({
         style={{
           border: 'none', background: 'transparent', outline: 'none', boxShadow: 'none',
           flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--txt)',
-          fontFamily: "'Sora', ui-sans-serif, sans-serif",
+          fontFamily: "var(--font-sans)",
         }}
       />
       {value && (
@@ -638,7 +656,7 @@ export function ExpandableFilterBar({
               fontSize: TEXT.sm, fontWeight: FW.semibold,
               border: `1.5px solid ${activeCount > 0 ? RED : 'var(--input-bdr)'}`,
               background: 'transparent', color: activeCount > 0 ? RED : 'var(--txt2)',
-              cursor: 'pointer', fontFamily: "'Sora', sans-serif",
+              cursor: 'pointer', fontFamily: "var(--font-sans)",
             }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
@@ -647,14 +665,14 @@ export function ExpandableFilterBar({
               <span style={{
                 minWidth: 17, height: 17, borderRadius: '999px',
                 background: RED, color: '#fff',
-                fontSize: 10, fontWeight: 700, fontFamily: "'Inter', sans-serif",
+                fontSize: 11, fontWeight: 700, fontFamily: "var(--font-sans)",
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               }}>{activeCount}</span>
             )}
           </button>
         )}
 
-        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: "'Inter', sans-serif" }}>
+        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: "var(--font-sans)" }}>
           {resultCount === totalCount ? `${totalCount} results` : `${resultCount} of ${totalCount}`}
         </span>
       </div>
@@ -670,9 +688,9 @@ export function ExpandableFilterBar({
                 borderRight: gi < groups.length - 1 ? '1px solid var(--bdr)' : 'none',
               }}>
                 <div style={{
-                  fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const,
+                  fontSize: 11, fontWeight: 700, textTransform: 'uppercase' as const,
                   letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12,
-                  fontFamily: "'Inter', sans-serif",
+                  fontFamily: "var(--font-sans)",
                 }}>{group.label}</div>
 
                 {(() => {
@@ -691,7 +709,7 @@ export function ExpandableFilterBar({
                           spellCheck={false}
                           style={{
                             width: '100%', boxSizing: 'border-box', marginBottom: 10,
-                            padding: '5px 9px', fontSize: TEXT.xs, fontFamily: "'Inter', sans-serif",
+                            padding: '5px 9px', fontSize: TEXT.xs, fontFamily: "var(--font-sans)",
                             border: '1px solid var(--input-bdr)', borderRadius: RADIUS.sm,
                             background: 'var(--input-bg)', color: 'var(--txt)',
                           }}
@@ -723,9 +741,9 @@ export function ExpandableFilterBar({
                             width: 22, height: 22, borderRadius: '999px',
                             background: avatarColor(opt.avatarName), flexShrink: 0,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: "'Inter', sans-serif",
+                            fontSize: 11, fontWeight: 700, color: '#fff', fontFamily: "var(--font-sans)",
                           }}>{nameInitials(opt.avatarName)}</div>
-                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: "'Sora', sans-serif", flex: 1 }}>{label}</span>
+                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: "var(--font-sans)", flex: 1 }}>{label}</span>
                         </>
                       ) : opt.color ? (
                         <span style={{
@@ -734,10 +752,10 @@ export function ExpandableFilterBar({
                           textTransform: 'capitalize' as const, whiteSpace: 'nowrap' as const, flex: 1,
                         }}>{label}</span>
                       ) : (
-                        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: "'Sora', sans-serif", flex: 1 }}>{label}</span>
+                        <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: "var(--font-sans)", flex: 1 }}>{label}</span>
                       )}
                       {opt.count !== undefined && (
-                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: "'Inter', sans-serif", flexShrink: 0 }}>
+                        <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: "var(--font-sans)", flexShrink: 0 }}>
                           {opt.count}
                         </span>
                       )}
@@ -757,7 +775,7 @@ export function ExpandableFilterBar({
             padding: '14px 20px', borderTop: '1px solid var(--bdr)', marginTop: 16,
             display: 'flex', alignItems: 'center', gap: 12,
           }}>
-            <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: "'Sora', sans-serif" }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: "var(--font-sans)" }}>
               {activeCount === 0
                 ? `No filters applied, showing all ${totalCount}`
                 : `${activeCount} filter${activeCount !== 1 ? 's' : ''} active`}
@@ -767,7 +785,7 @@ export function ExpandableFilterBar({
               style={{
                 padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: '1.5px solid var(--input-bdr)', background: 'transparent',
-                color: 'var(--txt2)', cursor: 'pointer', fontFamily: "'Sora', sans-serif",
+                color: 'var(--txt2)', cursor: 'pointer', fontFamily: "var(--font-sans)",
               }}
             >Reset</button>
             <button
@@ -776,7 +794,7 @@ export function ExpandableFilterBar({
                 marginLeft: 'auto', padding: '5px 16px', borderRadius: RADIUS.md,
                 fontSize: TEXT.sm, fontWeight: FW.semibold,
                 border: 'none', background: RED, color: '#fff',
-                cursor: 'pointer', fontFamily: "'Sora', sans-serif",
+                cursor: 'pointer', fontFamily: "var(--font-sans)",
               }}
             >{onApply ? `Apply · ${resultCount} results` : `Done · ${resultCount}`}</button>
           </div>
@@ -822,7 +840,7 @@ export function ExpandableFilterBar({
             style={{
               marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer',
               fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0,
-              fontFamily: "'Sora', sans-serif",
+              fontFamily: "var(--font-sans)",
             }}
           >Clear all</button>
         </div>
@@ -862,7 +880,7 @@ export function TblSearch({
         placeholder={placeholder}
         style={{
           border: 'none', outline: 'none', background: 'none',
-          fontFamily: "'Sora', ui-sans-serif, sans-serif",
+          fontFamily: "var(--font-sans)",
           fontSize: 12.5, color: 'var(--txt)',
           ...(width ? { width } : { flex: 1, minWidth: 0 }),
         }}
@@ -907,6 +925,9 @@ interface DataTableProps<T> {
   searchPlaceholder?: string
   pageSize?: number
   filters?: FilterDef<T>[]
+  // Deep-link target: when set, the row whose key matches is briefly highlighted and
+  // scrolled into view on mount (used by the notification ?focus= deep-link).
+  focusId?: string | number | null
 }
 
 function _PgBtn({ children, active, disabled, onClick, icon }: {
@@ -973,8 +994,20 @@ export function DataTable<T extends Record<string, any>>({
   cols, rows, keyFn, onRowClick,
   selectable, selectedIds: extSel, onSelect,
   bulkBar, emptyText = 'No records found', loading, skeletonRows = 8, rowStyle,
-  searchKeys, searchPlaceholder = 'Search…', pageSize, filters,
+  searchKeys, searchPlaceholder = 'Search…', pageSize, filters, focusId,
 }: DataTableProps<T>) {
+  const focusRef = useRef<HTMLTableRowElement | null>(null)
+  useEffect(() => {
+    if (focusId == null) return
+    const el = focusRef.current
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.style.transition = 'background 0.4s'
+    const prev = el.style.background
+    el.style.background = 'var(--row-sel)'
+    const t = setTimeout(() => { el.style.background = prev }, 2200)
+    return () => clearTimeout(t)
+  }, [focusId, rows])
   const [sortKey,       setSortKey]       = useState<string | null>(null)
   const [sortDir,       setSortDir]       = useState<'asc' | 'desc'>('asc')
   const [internalSel,   setInternalSel]   = useState<Set<string | number>>(new Set())
@@ -1046,13 +1079,13 @@ export function DataTable<T extends Record<string, any>>({
   const showBar = !!(searchKeys?.length || filters?.length)
 
   const thBase: CSSProperties = {
-    padding: '11px 14px', fontSize: 10, fontWeight: 700,
+    padding: '11px 14px', fontSize: 11, fontWeight: 700,
     color: 'var(--txt2)', textTransform: 'uppercase', fontFamily: INTER,
     letterSpacing: '0.6px', whiteSpace: 'nowrap', userSelect: 'none',
     borderBottom: '1px solid var(--bdr)',
   }
   const tdBase: CSSProperties = {
-    padding: '12px 14px', fontSize: 13, color: 'var(--txt)',
+    padding: '12px 14px', fontSize: 13.5, color: 'var(--txt)',
     borderBottom: '1px solid var(--bdr)', verticalAlign: 'middle',
   }
 
@@ -1093,7 +1126,7 @@ export function DataTable<T extends Record<string, any>>({
                   position: 'absolute', top: -6, right: -6,
                   width: 16, height: 16, borderRadius: '50%',
                   background: RED, color: '#fff',
-                  fontSize: 9, fontWeight: 700, fontFamily: INTER,
+                  fontSize: 11, fontWeight: 700, fontFamily: INTER,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>{activeFilterCount}</span>
               )}
@@ -1126,7 +1159,7 @@ export function DataTable<T extends Record<string, any>>({
                   ...(!isLast ? { paddingRight: 20, borderRight: '1px solid var(--bdr)' } : {}),
                 }}>
                   <div style={{
-                    fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                    fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
                     letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER,
                   }}>{f.label}</div>
                   {opts.length === 0
@@ -1302,6 +1335,7 @@ export function DataTable<T extends Record<string, any>>({
                 return (
                   <tr
                     key={id}
+                    ref={focusId != null && String(id) === String(focusId) ? focusRef : undefined}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
                     style={{ ...rs, background: rowBg, cursor: onRowClick ? 'pointer' : undefined }}
                     onMouseEnter={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
@@ -1589,7 +1623,7 @@ function DFMonthGrid({ ym, lo, hi, pendingStart, onDay, onHover }: {
       {/* Weekday headers */}
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(7, ${CELL}px)`, marginBottom: 2 }}>
         {DF_WEEKDAYS.map(d => (
-          <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: 'var(--txt3)', height: 22, lineHeight: '22px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{d}</div>
+          <div key={d} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--txt3)', height: 22, lineHeight: '22px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{d}</div>
         ))}
       </div>
       {/* Day rows */}
@@ -1652,7 +1686,11 @@ export function DateFilter({ from, to, onChange, align = 'left' }: {
   from: string; to: string; onChange: (f: string, t: string) => void; align?: 'left' | 'right'
 }) {
   const now     = new Date()
-  const initYM  = from ? from.slice(0, 7) : `${now.getFullYear()}-${_dfPad(now.getMonth() + 1)}`
+  // Anchor the calendar on the END of the range (the recent side). A page with a
+  // wide default range (e.g. the Call Log's last 12 months) has `from` a year ago —
+  // opening there landed the picker on empty months, so clicking a day selected a
+  // date with no data. The `to` end is "now", which is what people reach for.
+  const initYM  = to ? to.slice(0, 7) : from ? from.slice(0, 7) : `${now.getFullYear()}-${_dfPad(now.getMonth() + 1)}`
 
   const [open,         setOpen]         = useState(false)
   const [viewYM,       setViewYM]       = useState(initYM)
@@ -1671,8 +1709,12 @@ export function DateFilter({ from, to, onChange, align = 'left' }: {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // Reset view to 'from' month whenever it changes
-  useEffect(() => { if (from && open) setViewYM(from.slice(0, 7)) }, [from])
+  // Re-anchor to the range end (recent side) each time the picker opens.
+  useEffect(() => {
+    if (!open) return
+    const anchor = to || from
+    if (anchor) setViewYM(anchor.slice(0, 7))
+  }, [open, to, from])
 
   // Effective lo/hi: during range selection show hover preview
   const effFrom = pendingStart ?? from

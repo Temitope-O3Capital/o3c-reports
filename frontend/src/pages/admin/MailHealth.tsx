@@ -118,6 +118,142 @@ function TestEmailPanel() {
   )
 }
 
+// ── SendGrid suppressions (live, provider-side) ────────────────────────────────
+
+interface SGItem { email: string; type: string; reason?: string; status?: string; created?: number }
+
+const SG_TABS = [
+  { key: 'unsubscribes', label: 'Unsubscribes' },
+  { key: 'bounces',      label: 'Bounces' },
+  { key: 'blocks',       label: 'Blocks' },
+  { key: 'spam',         label: 'Spam reports' },
+  { key: 'invalid',      label: 'Invalid' },
+]
+
+function sgCreated(v?: number) {
+  if (!v) return '—'
+  try { return fmtDatetime(new Date(v * 1000).toISOString()) } catch { return '—' }
+}
+
+function SendGridSuppressions() {
+  const [type, setType]   = useState('unsubscribes')
+  const [items, setItems] = useState<SGItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr]     = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [removing, setRemoving] = useState<string | null>(null)
+  const [lookup, setLookup] = useState('')
+  const [lookupRes, setLookupRes] = useState<{ email: string; suppressed: boolean; on: Record<string, boolean> } | null>(null)
+  const [lookingUp, setLookingUp] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null)
+    try {
+      const r = await apiFetch<any>(`/api/mail/sendgrid/suppressions?type=${type}&limit=500`)
+      setItems((r?.data?.items ?? r?.items ?? []) as SGItem[])
+    } catch (e: any) { setErr(e.message); setItems([]) }
+    finally { setLoading(false) }
+  }, [type])
+
+  useEffect(() => { load() }, [load])
+
+  async function remove(email: string) {
+    if (!confirm(`Remove ${email} from SendGrid ${type}? They will be eligible to receive mail again.`)) return
+    setRemoving(email)
+    try {
+      await apiFetch(`/api/mail/sendgrid/suppressions/${type}/${encodeURIComponent(email)}`, { method: 'DELETE' })
+      toast.success(`Removed ${email}`)
+      setItems(prev => prev.filter(i => i.email !== email))
+      if (lookupRes?.email?.toLowerCase() === email.toLowerCase()) setLookupRes(null)
+    } catch (e: any) { toast.error(e.message) }
+    finally { setRemoving(null) }
+  }
+
+  async function runLookup() {
+    const email = lookup.trim()
+    if (!email.includes('@')) { toast.error('Enter a valid email'); return }
+    setLookingUp(true); setLookupRes(null)
+    try {
+      const r = await apiFetch<any>(`/api/mail/sendgrid/suppressions/lookup?email=${encodeURIComponent(email)}`)
+      setLookupRes((r?.data ?? r))
+    } catch (e: any) { toast.error(e.message) }
+    finally { setLookingUp(false) }
+  }
+
+  const shown = useMemo(() =>
+    search ? items.filter(i => i.email.toLowerCase().includes(search.toLowerCase())) : items
+  , [items, search])
+
+  const cols: TableCol<SGItem>[] = [
+    { key: 'email', label: 'Email',
+      render: r => <span style={{ fontSize: TEXT.sm, fontFamily: 'monospace', color: 'var(--txt)' }}>{r.email}</span> },
+    { key: 'reason', label: 'Reason / status',
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.reason || r.status || '—'}</span> },
+    { key: 'created', label: 'Since', width: 150,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{sgCreated(r.created)}</span> },
+    { key: 'actions', label: '', width: 96,
+      render: r => (
+        <button onClick={() => remove(r.email)} disabled={removing === r.email}
+          style={{ padding: '4px 12px', borderRadius: RADIUS.md, border: '1px solid var(--card-bdr)', background: 'var(--card)', color: RED, fontSize: TEXT.xs, fontWeight: FW.bold, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          {removing === r.email ? '…' : 'Remove'}
+        </button>
+      ) },
+  ]
+
+  return (
+    <SectionCard title="SendGrid suppressions" subtitle="Live from SendGrid — addresses it will not deliver to until removed" badge={shown.length} padding={false}>
+      {/* Lookup */}
+      <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', padding: `${SP[3]} ${SP[4]}`, borderBottom: '1px solid var(--card-bdr)', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Check an address:</span>
+        <input value={lookup} onChange={e => setLookup(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') runLookup() }}
+          placeholder="customer@example.com"
+          style={{ flex: '1 1 220px', minWidth: 180, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }} />
+        <button onClick={runLookup} disabled={lookingUp}
+          style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          {lookingUp ? 'Checking…' : 'Check'}
+        </button>
+        {lookupRes && (
+          <div style={{ flexBasis: '100%', display: 'flex', gap: SP[2], flexWrap: 'wrap', alignItems: 'center', paddingTop: SP[1] }}>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'monospace' }}>{lookupRes.email}:</span>
+            {!lookupRes.suppressed
+              ? <span style={{ fontSize: TEXT.sm, color: GREEN, fontWeight: FW.bold }}>Clear — not suppressed</span>
+              : SG_TABS.filter(t => lookupRes.on[t.key]).map(t => (
+                  <span key={t.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, background: 'var(--chip-bg)', color: RED, borderRadius: RADIUS.sm, padding: '3px 10px', fontWeight: FW.bold }}>
+                    {t.label}
+                    <button onClick={() => { setType(t.key); remove(lookupRes.email) }} title="Remove"
+                      style={{ border: 'none', background: 'transparent', color: RED, cursor: 'pointer', fontWeight: FW.bold, padding: 0, lineHeight: 1 }}>×</button>
+                  </span>
+                )) }
+          </div>
+        )}
+      </div>
+
+      {/* Type tabs */}
+      <div style={{ display: 'flex', gap: SP[1], padding: `${SP[3]} ${SP[4]} 0`, flexWrap: 'wrap' }}>
+        {SG_TABS.map(t => {
+          const on = t.key === type
+          return (
+            <button key={t.key} onClick={() => { setType(t.key); setSearch('') }}
+              style={{ padding: '6px 14px', borderRadius: RADIUS.md, border: on ? `1.5px solid ${NAVY}` : '1px solid var(--card-bdr)', background: on ? NAVY : 'var(--card)', color: on ? '#fff' : 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer' }}>
+              {t.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {err && <div style={{ padding: `${SP[2]} ${SP[4]}`, color: RED, fontSize: TEXT.sm }}>{err}</div>}
+
+      <ExpandableFilterBar
+        search={search} onSearch={setSearch} groups={[]} onReset={() => setSearch('')}
+        resultCount={shown.length} totalCount={items.length}
+        placeholder="Search email…"
+      />
+      <DataTable cols={cols} rows={shown} keyFn={r => r.email} loading={loading}
+        emptyText={loading ? 'Loading…' : `No ${SG_TABS.find(t => t.key === type)?.label.toLowerCase()} on SendGrid`} />
+    </SectionCard>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminMailHealth() {
@@ -161,6 +297,8 @@ export default function AdminMailHealth() {
 
   return (
     <Page back={{ label: 'Admin', to: '/admin' }} title="Mail Health" subtitle="SendGrid delivery metrics, deliverability, and suppressions"
+      loading={loading && !metrics}
+      skeletonKpis={6}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />
@@ -224,6 +362,11 @@ export default function AdminMailHealth() {
           emptyText="No suppressions found"
         />
       </SectionCard>
+
+      {/* SendGrid-side suppressions (unsubscribes / bounces / blocks / spam / invalid) */}
+      <div style={{ marginTop: 16 }}>
+        <SendGridSuppressions />
+      </div>
     </Page>
   )
 }

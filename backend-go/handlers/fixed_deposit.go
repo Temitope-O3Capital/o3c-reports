@@ -409,10 +409,9 @@ func fdEarlyWithdrawalRequest(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		principal := int64(0)
-		if v, ok := fd["principal"].(float64); ok {
-			principal = int64(v * 100)
-		}
+		// principal is stored in kobo (the create path inserts the client's
+		// already-×100 minor-unit value). Do NOT scale again.
+		principal := toInt64(fd["principal"])
 		// Flat 10% penalty for early withdrawal
 		penalty := principal / 10
 		netPayout := principal - penalty
@@ -572,22 +571,19 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 			tenor = *b.TenorDays
 		}
 
-		var principalVal float64
-		if v, ok := fd["principal"].(float64); ok {
-			principalVal = v
-		}
+		// principal is stored in kobo; keep everything in kobo (no ×100 rescale).
+		principalVal := float64(toInt64(fd["principal"]))
 
 		// H1: carry forward accrued interest into the rolled-over principal.
-		// Compute in kobo then convert back to Naira to avoid float64 precision loss (M40).
 		// rate is a percentage (e.g. 12.5 for 12.5%); convert to basis-points for integer math.
 		if principalVal > 0 && rate > 0 {
 			if txnDate, ok := fd["transaction_date"].(time.Time); ok && !txnDate.IsZero() {
 				daysElapsed := int64(time.Since(txnDate).Hours() / 24)
 				if daysElapsed > 0 {
-					principalKobo := int64(principalVal * 100)
-					rateBP := int64(rate * 100) // basis points (e.g. 1250 for 12.5%)
+					principalKobo := int64(principalVal) // already kobo
+					rateBP := int64(rate * 100)          // basis points (e.g. 1250 for 12.5%)
 					accruedKobo := principalKobo * rateBP * daysElapsed / (10000 * 365)
-					principalVal = float64(principalKobo+accruedKobo) / 100.0
+					principalVal = float64(principalKobo + accruedKobo) // stays in kobo
 				}
 			}
 		}

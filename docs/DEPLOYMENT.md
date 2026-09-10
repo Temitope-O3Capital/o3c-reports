@@ -147,7 +147,7 @@ docker compose ps        # both api and nginx should be Up
 curl -X POST https://workspace.o3ccards.com/api/auth/bootstrap \
   -H "Content-Type: application/json" \
   -H "X-Bootstrap-Secret: $BOOTSTRAP_SECRET" \
-  -d '{"email":"admin@o3ccards.com","password":"<strong-password>","full_name":"Admin"}'
+  -d '{"email":"admin@o3cards.com","password":"<strong-password>","full_name":"Admin"}'
 ```
 
 **Change the password immediately after first login.**

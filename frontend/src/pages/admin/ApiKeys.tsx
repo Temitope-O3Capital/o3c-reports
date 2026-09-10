@@ -216,7 +216,7 @@ export default function AdminApiKeys() {
   ]
 
   return (
-    <Page back={{ label: 'Admin', to: '/admin' }} title="API Keys" subtitle="Encrypted external service credentials">
+    <Page back={{ label: 'Admin', to: '/admin' }} title="API Keys" subtitle="Encrypted external service credentials" loading={loading && rows.length === 0} skeletonKpis={3}>
       <ErrBanner error={error} onRetry={load} />
 
       {(missingCount > 0 || failedCount > 0) && (

@@ -1,11 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Page, SectionCard, KpiCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtPct } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtPct } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, INTER, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts'
+import { EBar } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,22 +40,6 @@ const CH = [
   { key: 'web',      label: 'WEB',      color: AMBER  },
   { key: 'transfer', label: 'Transfer', color: GREEN  },
 ] as const
-
-function Tip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: NAVY, borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
-      {label && <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER, marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</div>}
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 4 : 0 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
-          <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>{fmtKobo(p.value)}</span>
-          <span style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 export default function InterswitchReport() {
   const [year, setYear]   = useState('2026')
@@ -125,6 +107,8 @@ export default function InterswitchReport() {
       subtitle="Interswitch CCS: channel volume by period"
       back={{ label: 'Interswitch', to: '/settlements/interswitch' }}
       actions={filterBar}
+      loading={loading && !data}
+      skeletonKpis={4}
     >
       <ErrBanner error={error} onRetry={() => load(year, period)} />
 
@@ -134,10 +118,10 @@ export default function InterswitchReport() {
         <>
           {/* KPIs */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[5] }}>
-            <KpiCard label="Total Volume"      value={fmtKobo(data.totals.total)}                                      accent={NAVY}  />
+            <KpiCard label="Total Volume"      value={fmtKoboExact(data.totals.total)}                                      accent={NAVY}  />
             <KpiCard label="Transfer Share"    value={fmtPct(data.totals.transfer_pct / 100)}                          accent={GREEN} sub="of total volume" />
-            <KpiCard label="Monthly Average"   value={fmtKobo(Math.round(data.totals.total / data.months.length))}     accent={BLUE}  />
-            <KpiCard label="Peak Month"        value={peakMonth?.month ?? '—'}                                         accent={RED}   sub={peakMonth ? fmtKobo(peakMonth.total) : undefined} />
+            <KpiCard label="Monthly Average"   value={fmtKoboExact(Math.round(data.totals.total / data.months.length))}     accent={BLUE}  />
+            <KpiCard label="Peak Month"        value={peakMonth?.month ?? '—'}                                         accent={RED}   sub={peakMonth ? fmtKoboExact(peakMonth.total) : undefined} />
           </div>
 
           {/* Stacked bar */}
@@ -146,19 +130,15 @@ export default function InterswitchReport() {
             subtitle={`${year} · ${PERIODS.find(p => p.id === period)?.label} · stacked by channel`}
             style={{ marginBottom: SP[4] }}
           >
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={data.months} margin={{ top: 4, right: 8, bottom: 0, left: 12 }} barCategoryGap="28%">
-                <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
-                <XAxis dataKey="month" tickFormatter={v => v.slice(0, 3)} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={fmtAxis} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} width={60} />
-                <Tooltip content={<Tip />} />
-                <Legend iconType="square" iconSize={10} wrapperStyle={{ fontSize: TEXT.xs, fontFamily: INTER, paddingTop: 12 }} />
-                {CH.map(c => (
-                  <Bar key={c.key} dataKey={c.key} name={c.label} stackId="a" fill={c.color}
-                    radius={c.key === 'transfer' ? [5, 5, 0, 0] : [0, 0, 0, 0]} />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
+            <EBar<MonthRow>
+              data={data.months.map(m => ({ ...m, month: m.month.slice(0, 3) }))}
+              xKey="month"
+              series={CH.map(c => ({ key: c.key, name: c.label, color: c.color }))}
+              stack
+              height={280}
+              valueFmt={(v) => fmtKoboExact(v)}
+              axisFmt={fmtAxis}
+            />
           </SectionCard>
 
           {/* Monthly table */}
@@ -183,11 +163,11 @@ export default function InterswitchReport() {
                         </td>
                         {(['atm','pos','web','transfer'] as const).map(ch => (
                           <td key={ch} style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt)' }}>
-                            {fmtKobo(row[ch])}
+                            {fmtKoboExact(row[ch])}
                           </td>
                         ))}
                         <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: isPeak ? RED : 'var(--txt)' }}>
-                          {fmtKobo(row.total)}
+                          {fmtKoboExact(row.total)}
                           {isPeak && <span style={{ fontSize: TEXT.xs, color: RED, marginLeft: 6 }}>peak</span>}
                         </td>
                       </tr>
@@ -197,11 +177,11 @@ export default function InterswitchReport() {
                     <td style={{ padding: '11px 14px', fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>Total</td>
                     {(['atm','pos','web','transfer'] as const).map(ch => (
                       <td key={ch} style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>
-                        {fmtKobo(data.totals[ch])}
+                        {fmtKoboExact(data.totals[ch])}
                       </td>
                     ))}
                     <td style={{ padding: '11px 14px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.extrabold, color: NAVY }}>
-                      {fmtKobo(data.totals.total)}
+                      {fmtKoboExact(data.totals.total)}
                     </td>
                   </tr>
                 </tbody>
@@ -222,12 +202,12 @@ export default function InterswitchReport() {
                       <div style={{ width: 10, height: 10, borderRadius: 2, background: c.color }} />
                       <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: INTER }}>{c.label}</span>
                     </div>
-                    <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, lineHeight: 1.1, marginBottom: SP[1] }}>{fmtKobo(vol)}</div>
+                    <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, lineHeight: 1.1, marginBottom: SP[1] }}>{fmtKoboExact(vol)}</div>
                     <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
                       <span style={{ fontWeight: FW.bold, color: c.color }}>{pct.toFixed(2)}%</span> of period total
                     </div>
                     <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, marginTop: 2 }}>
-                      Avg/month: {fmtKobo(avg)}
+                      Avg/month: {fmtKoboExact(avg)}
                     </div>
                   </div>
                 )

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
 import { GREEN, AMBER, RED, BLUE, NAVY, INTER, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ function ResultPanel({ result }: { result: ImportResult }) {
         {[
           { label: 'Files Processed',         value: fmtNum(result.files_processed),         color: NAVY   },
           { label: 'Transactions Imported',   value: fmtNum(result.transactions_imported),   color: BLUE   },
-          { label: 'Total Volume',            value: fmtKobo(result.total_volume_kobo),      color: GREEN  },
+          { label: 'Total Volume',            value: fmtKoboExact(result.total_volume_kobo),      color: GREEN  },
         ].map(k => (
           <div key={k.label} style={{ padding: SP[4], background: `${k.color}08`, borderRadius: RADIUS.lg, border: `1px solid ${k.color}20` }}>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, marginBottom: SP[1] }}>{k.label}</div>
@@ -124,7 +124,7 @@ function ResultPanel({ result }: { result: ImportResult }) {
           <div key={b.branch} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 120px', gap: SP[2], padding: '8px 12px', borderBottom: i < result.branches.length - 1 ? '1px solid var(--bdr)' : 'none' }}>
             <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{b.branch}</span>
             <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm }}>{fmtNum(b.txn_count)}</span>
-            <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKobo(b.volume_kobo)}</span>
+            <span style={{ ...NUM, textAlign: 'right', fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKoboExact(b.volume_kobo)}</span>
           </div>
         ))}
       </div>
@@ -202,7 +202,7 @@ export default function InterswitchImport() {
     <Page
       title="Import Interswitch EODTXN"
       subtitle="Upload daily CCS Report 620 files to ingest card transactions"
-      back={{ label: 'Interswitch', to: '/settlements/interswitch' }}
+      back={{ label: 'Data Management', to: '/reports/uploads' }}
     >
       <ErrBanner error={error} onRetry={reset} />
 

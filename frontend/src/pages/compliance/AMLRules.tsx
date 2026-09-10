@@ -288,6 +288,7 @@ export default function AMLRules() {
     <Page
       title="AML Rules"
       subtitle="Configure automated flagging rules for suspicious transaction patterns"
+      loading={loading && rules.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

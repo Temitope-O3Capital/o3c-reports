@@ -2,6 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Segoe UI (self-hosted) ───────────────────────────────────────────────────
+   Segoe UI is the single UI typeface. It is the native Windows system font, but so
+   that EVERY user sees it regardless of OS or browser, the Latin subset is self-hosted
+   as woff2. Each weight tries the locally-installed face first (`local(...)`), so
+   Windows users use their system copy with no download; every other device (mac, Linux,
+   iOS, Android, any browser) downloads the matching ~40KB subset. */
+@font-face { font-family: 'Segoe UI'; font-style: normal; font-weight: 300; font-display: swap;
+  src: local('Segoe UI Light'), url('/fonts/segoe-ui-300.woff2') format('woff2'); }
+@font-face { font-family: 'Segoe UI'; font-style: normal; font-weight: 400; font-display: swap;
+  src: local('Segoe UI'), url('/fonts/segoe-ui-400.woff2') format('woff2'); }
+@font-face { font-family: 'Segoe UI'; font-style: normal; font-weight: 600; font-display: swap;
+  src: local('Segoe UI Semibold'), url('/fonts/segoe-ui-600.woff2') format('woff2'); }
+@font-face { font-family: 'Segoe UI'; font-style: normal; font-weight: 700; font-display: swap;
+  src: local('Segoe UI Bold'), url('/fonts/segoe-ui-700.woff2') format('woff2'); }
+/* No 500/800 faces — Segoe UI has no true medium/extrabold; the browser picks the
+   nearest declared weight (500→400, 800→900), matching native Windows behaviour. */
+@font-face { font-family: 'Segoe UI'; font-style: normal; font-weight: 900; font-display: swap;
+  src: local('Segoe UI Black'), url('/fonts/segoe-ui-900.woff2') format('woff2'); }
+@font-face { font-family: 'Segoe UI'; font-style: italic; font-weight: 400; font-display: swap;
+  src: local('Segoe UI Italic'), url('/fonts/segoe-ui-400i.woff2') format('woff2'); }
+
 /* ═══════════════════════════════════════════════════════════════════════════
    O3 CAPITAL WORKSPACE — DESIGN SYSTEM FOUNDATION
    4px grid · Inter · 100–150ms transitions · CSS custom properties
@@ -27,15 +48,19 @@
 
 /* ── Typography scale ─────────────────────────────────────────────────────── */
 :root {
-  --text-2xs:  10px;
-  --text-xs:   11px;
-  --text-sm:   12px;
-  --text-base: 13px;
-  --text-md:   14px;
-  --text-lg:   16px;
-  --text-xl:   18px;
-  --text-2xl:  22px;
-  --text-3xl:  28px;
+  /* Type scale — lifted 2026-08-27 for legibility. The old scale bottomed out at
+     10px (micro-labels) with a 13px body, which read as tiny on high-DPI screens.
+     Every step now sits one notch larger; nothing renders below 11px. Values stay in
+     px (no rem cascade), so the bump is predictable and layouts absorb it. */
+  --text-2xs:  11px;
+  --text-xs:   12px;
+  --text-sm:   13px;
+  --text-base: 14px;
+  --text-md:   15px;
+  --text-lg:   17px;
+  --text-xl:   19px;
+  --text-2xl:  23px;
+  --text-3xl:  29px;
 
   --lh-tight:   1.2;
   --lh-snug:    1.35;
@@ -48,7 +73,11 @@
   --fw-bold:      700;
   --fw-extrabold: 800;
 
-  --font-sans: 'Inter', system-ui, sans-serif;
+  /* Single UI family — Segoe UI, self-hosted (see @font-face above) so every user sees
+     it on any OS/browser; Windows users use their installed copy. Hierarchy comes from
+     size + weight tokens, not multiple families. system-ui is only a last-resort fallback
+     if the webfont fails to load. */
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, 'Courier New', monospace;
 }
 
@@ -131,6 +160,20 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* ── Responsive safety net ────────────────────────────────────────────────────
+   The app is inline-styled, so most responsiveness is done per-component via the
+   useMediaQuery hook. These global rules catch the things that would otherwise force a
+   horizontal scrollbar on the whole page regardless of any component's own styles:
+   media never overflows its column, and long unbroken strings (refs, emails, PANs) wrap
+   instead of pushing the layout wider than the viewport. */
+img, video, canvas, svg { max-width: 100%; }
+table { max-width: 100%; }
+
+/* Horizontal-scroll strips (tab bars, chip rows) that hide their scrollbar. The strip
+   still scrolls by wheel/trackpad/touch; we just don't want a 4px bar cluttering it. */
+.o3c-scroll-x { scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; }
+.o3c-scroll-x::-webkit-scrollbar { display: none; }
 
 /* ── Material Symbols ─────────────────────────────────────────────────────── */
 .material-symbols-rounded {

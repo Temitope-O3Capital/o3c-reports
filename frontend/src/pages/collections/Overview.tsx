@@ -1,14 +1,11 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-} from 'recharts'
 import { Page, KpiCard, SectionCard, DataTable, ErrBanner, DateFilter } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
-import { RED, DARKRED, AMBER, GREEN, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { fmtKoboExact, fmtKobo, fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
+import { NAVY, RED, DARKRED, AMBER, GREEN, BLUE, NUM, TEXT, FW, SP } from '../../lib/design'
+import { EArea, EBar } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,6 +17,8 @@ interface PortfolioKPIs {
   total_accounts: number
   delinquent_accounts: number
   current_rate_pct: number
+  collected_kobo: number
+  collected_count: number
 }
 
 interface DPDTrendPoint {
@@ -53,34 +52,13 @@ function dpdColor(bucket: string): string {
   }
 }
 
-// ── Custom tooltip ────────────────────────────────────────────────────────────
-
-function KoboTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{
-      background: 'var(--card)', border: '1px solid var(--card-bdr)',
-      borderRadius: RADIUS.md, padding: '10px 14px', fontSize: TEXT.sm,
-    }}>
-      <div style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 6 }}>{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.name} style={{ display: 'flex', gap: SP[2], alignItems: 'center', marginBottom: 2 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
-          <span style={{ color: 'var(--txt2)' }}>{p.name}:</span>
-          <span style={{ ...NUM, color: 'var(--txt)', fontWeight: FW.semibold }}>{fmtKobo(p.value)}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 // ── Agent table columns ───────────────────────────────────────────────────────
 
 const AGENT_COLS: TableCol<AgentRow>[] = [
   { key: 'Agent', label: 'Agent', sortable: true },
   {
     key: 'total', label: 'Collected', sortable: true, align: 'right',
-    render: r => <span style={NUM}>{fmtKobo(r.total)}</span>,
+    render: r => <span style={NUM}>{fmtKoboExact(r.total)}</span>,
   },
   {
     key: 'count', label: 'Transactions', sortable: true, align: 'right',
@@ -107,7 +85,7 @@ function RollBars({ data }: { data: RollBucket[] }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
               <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color }}>DPD {d.dpd_bucket}</span>
               <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt)' }}>
-                {fmtKobo(d.outstanding_kobo)}
+                {fmtKoboExact(d.outstanding_kobo)}
                 <span style={{ color: 'var(--txt2)', marginLeft: 6 }}>({fmtNum(d.account_count)} accts)</span>
               </span>
             </div>
@@ -166,7 +144,9 @@ export default function CollectionsOverview() {
   useLiveData(() => load(true), { topics: ['collections','loans'] })
 
   const kpiLoading = loading && !kpis
-  const collectedMTD = agents.reduce((s, a) => s + Number(a.total ?? 0), 0)
+  // Collected in the selected period from the real payments ledger (not summed off the
+  // agent table, which is sparse until agents are attributed to payments).
+  const collectedMTD = Number(kpis?.collected_kobo ?? 0)
   const avgRecoveryPct = kpis?.total_outstanding_kobo
     ? (collectedMTD / kpis.total_outstanding_kobo) * 100
     : null
@@ -175,6 +155,8 @@ export default function CollectionsOverview() {
     <Page
       title="Collections Overview"
       subtitle="Portfolio at risk, recovery performance, and agent activity"
+      loading={loading && !kpis}
+      skeletonKpis={4}
       actions={
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
@@ -185,7 +167,7 @@ export default function CollectionsOverview() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard
           label="PAR30 Total"
-          value={fmtKobo(kpis?.par30_kobo)}
+          value={fmtKoboExact(kpis?.par30_kobo)}
           sub="31+ days past due"
           icon="warning_amber"
           accent={AMBER}
@@ -193,16 +175,16 @@ export default function CollectionsOverview() {
         />
         <KpiCard
           label="PAR90 Total"
-          value={fmtKobo(kpis?.par90_kobo)}
+          value={fmtKoboExact(kpis?.par90_kobo)}
           sub="90+ days past due"
           icon="error_outline"
           accent={RED}
           loading={kpiLoading}
         />
         <KpiCard
-          label="Collected MTD"
-          value={fmtKobo(collectedMTD)}
-          sub={`${fmtNum(agents.length)} agents`}
+          label="Collected (period)"
+          value={fmtKoboExact(collectedMTD)}
+          sub={`${fmtNum(kpis?.collected_count ?? 0)} payments`}
           icon="payments"
           accent={BLUE}
           loading={kpiLoading}
@@ -219,51 +201,36 @@ export default function CollectionsOverview() {
 
       {/* Chart row: stacked DPD trend + DPD bucket distribution */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
-        {/* Left: stacked area — 6-month PAR trend */}
-        <SectionCard title="6-Month DPD Trend (PAR30 / PAR60 / PAR90)" padding={false}>
-          <div style={{ padding: '16px 18px' }}>
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={dpdTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="par30Grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={AMBER}   stopOpacity={0.22} />
-                    <stop offset="95%" stopColor={AMBER}   stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="par60Grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={RED}     stopOpacity={0.18} />
-                    <stop offset="95%" stopColor={RED}     stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="par90Grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={DARKRED} stopOpacity={0.22} />
-                    <stop offset="95%" stopColor={DARKRED} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }}
-                  axisLine={false} tickLine={false}
-                />
-                <YAxis
-                  tickFormatter={v => fmtKobo(v)}
-                  tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }}
-                  axisLine={false} tickLine={false} width={74}
-                />
-                <Tooltip content={<KoboTooltip />} />
-                <Area
-                  type="monotone" dataKey="par30_kobo" name="PAR30"
-                  stroke={AMBER} strokeWidth={2} fill="url(#par30Grad)"
-                />
-                <Area
-                  type="monotone" dataKey="par60_kobo" name="PAR60"
-                  stroke={RED} strokeWidth={2} fill="url(#par60Grad)"
-                />
-                <Area
-                  type="monotone" dataKey="par90_kobo" name="PAR90"
-                  stroke={DARKRED} strokeWidth={2} fill="url(#par90Grad)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+        {/* Left: current PAR bands. (A real 6-month PAR trend needs point-in-time
+            balance snapshots the book doesn't retain — the old time-series was an
+            artefact of assignment updated_at months, showing 5 empty months + a spike.
+            This shows the true current cumulative PAR exposure instead.) */}
+        <SectionCard title="PAR Exposure (current)" subtitle="Cumulative outstanding past each DPD threshold" padding={false}>
+          <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {(() => {
+              const bands = [
+                { label: 'PAR30', hint: '31+ days', kobo: Number(kpis?.par30_kobo ?? 0), color: AMBER },
+                { label: 'PAR60', hint: '61+ days', kobo: Number(kpis?.par60_kobo ?? 0), color: RED },
+                { label: 'PAR90', hint: '91+ days', kobo: Number(kpis?.par90_kobo ?? 0), color: DARKRED },
+              ]
+              const max = Math.max(1, ...bands.map(b => b.kobo))
+              return bands.map(b => (
+                <div key={b.label} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                      {b.label} <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.normal }}>{b.hint}</span>
+                    </span>
+                    <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: b.color }}>{fmtKoboExact(b.kobo)}</span>
+                  </div>
+                  <div style={{ height: 10, borderRadius: 5, background: 'var(--bg2)', overflow: 'hidden' }}>
+                    <div style={{ width: `${(b.kobo / max) * 100}%`, height: '100%', background: b.color, borderRadius: 5, transition: 'width .3s' }} />
+                  </div>
+                </div>
+              ))
+            })()}
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
+              PAR bands are cumulative — every PAR90 balance is also inside PAR60 and PAR30.
+            </div>
           </div>
         </SectionCard>
 
@@ -296,27 +263,16 @@ export default function CollectionsOverview() {
       {agents.length > 0 && (
         <SectionCard title="Top 10 Agents: Collections Bar" padding={false} style={{ marginTop: SP[4] }}>
           <div style={{ padding: '16px 18px' }}>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart
-                data={agents.slice(0, 10)}
-                margin={{ top: 4, right: 8, left: 0, bottom: 20 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                <XAxis
-                  dataKey="Agent"
-                  tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }}
-                  axisLine={false} tickLine={false}
-                  interval={0} textAnchor="middle"
-                />
-                <YAxis
-                  tickFormatter={v => fmtKobo(v)}
-                  tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }}
-                  axisLine={false} tickLine={false} width={74}
-                />
-                <Tooltip content={<KoboTooltip />} />
-                <Bar dataKey="total" name="Collected" fill={BLUE} radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <EBar
+              data={agents.slice(0, 10).map(a => ({ Agent: a.Agent, total: Number(a.total) }))}
+              xKey="Agent"
+              height={200}
+              legend={false}
+              xTickSize={10}
+              valueFmt={fmtKobo}
+              axisFmt={fmtKobo}
+              series={[{ key: 'total', name: 'Collected', color: NAVY }]}
+            />
           </div>
         </SectionCard>
       )}

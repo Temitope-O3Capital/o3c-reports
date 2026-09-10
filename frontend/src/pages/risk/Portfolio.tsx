@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, Spinner, Modal } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtNum } from '../../lib/fmt'
-import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
-import { bandColor, bandLabel, bandShort, scoreColor, fmtScore, RISK_BANDS, BAND_COLOR, BAND_LABEL } from '../../lib/riskScale'
+import { fmtKoboExact, fmtKobo, fmtDate, fmtNum } from '../../lib/fmt'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, NUM } from '../../lib/design'
+import { bandColor, bandLabel, bandShort, scoreColor, fmtScore, RISK_BANDS, BAND_COLOR, BAND_LABEL, dpdColor, dpdLabel, DPD_BUCKETS } from '../../lib/riskScale'
+import { subsForLine } from '../../lib/products'
+import { TierBadge, PctBar, tierFromPct } from '../../components/TierBadge'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,6 +31,8 @@ interface LoanRow {
   product_type: string
   amount_kobo: number
   outstanding_kobo: number
+  principal_paid_kobo: number
+  min_repayment_kobo: number | null
   dpd: number
   arrears_kobo: number
   risk_band: string | null
@@ -59,20 +63,9 @@ interface CreditFileData {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function dpdColor(dpd: number): string {
-  if (dpd < 30)  return GREEN
-  if (dpd < 60)  return AMBER
-  if (dpd < 90)  return '#D97706'
-  return RED
-}
-
-function dpdLabel(dpd: number): string {
-  if (dpd < 30)  return 'Current'
-  if (dpd < 60)  return 'PAR30'
-  if (dpd < 90)  return 'PAR60'
-  if (dpd < 180) return 'PAR90'
-  return 'NPL'
-}
+// dpdColor / dpdLabel now come from lib/riskScale (shared with the Overview, the
+// dashboards and Vintage). They used to be declared here with current = DPD < 30 and
+// NPL = DPD < 180, which disagreed with the KPI cards and the filter chips.
 
 // Bands come from lib/riskScale. This page used to declare a Prime/Near-Prime map
 // against an API that emits A-E, so every pill fell through to the grey default.
@@ -141,8 +134,8 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
           {/* Exposure summary — every field below is one the API actually returns */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: SP[3] }}>
             {[
-              { label: 'Total Outstanding', value: fmtKobo(data.total_outstanding_kobo) },
-              { label: 'Arrears',           value: fmtKobo(data.total_arrears_kobo), warn: data.total_arrears_kobo > 0 },
+              { label: 'Total Outstanding', value: fmtKoboExact(data.total_outstanding_kobo) },
+              { label: 'Arrears',           value: fmtKoboExact(data.total_arrears_kobo), warn: data.total_arrears_kobo > 0 },
               { label: 'Worst DPD',         value: `${data.worst_dpd ?? 0} days`, warn: (data.worst_dpd ?? 0) > 30 },
               { label: 'Loans',             value: `${data.active_loan_count} open / ${data.total_loan_count} total` },
               { label: 'DTI Ratio',         value: data.dti_pct !== null && data.dti_pct !== undefined ? `${Number(data.dti_pct).toFixed(1)}%` : '—' },
@@ -170,7 +163,7 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
                     </div>
                     <BandPill band={l.risk_band} />
                     <div style={{ textAlign: 'right', minWidth: 96 }}>
-                      <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKobo(l.outstanding_kobo)}</div>
+                      <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKoboExact(l.outstanding_kobo)}</div>
                       <div style={{ ...NUM, fontSize: TEXT.xs, color: dpdColor(l.dpd) }}>{l.dpd} dpd</div>
                     </div>
                   </div>
@@ -190,14 +183,18 @@ const PAGE_SIZE = 100
 
 export default function RiskPortfolio() {
   const navigate = useNavigate()
+  // Deep-linkable filters: My Dashboard / Overview link in with ?dpd=npl etc, so the
+  // page opens already filtered to the bucket the user clicked.
+  const [searchParams] = useSearchParams()
   const [rows,    setRows]    = useState<LoanRow[]>([])
   const [total,   setTotal]   = useState(0)
   const [offset,  setOffset]  = useState(0)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
   const [search,  setSearch]  = useState('')
-  const [fDpd,    setFDpd]    = useState(new Set<string>())
-  const [fBand,   setFBand]   = useState(new Set<string>())
+  const [fDpd,    setFDpd]    = useState<Set<string>>(() => { const v = searchParams.get('dpd'); return new Set(v ? v.split(',') : []) })
+  const [fBand,   setFBand]   = useState<Set<string>>(() => { const v = searchParams.get('band'); return new Set(v ? v.split(',') : []) })
+  const [fProduct, setFProduct] = useState<Set<string>>(() => { const v = searchParams.get('product'); return new Set(v ? v.split(',') : []) })
   const [cifFile, setCifFile] = useState<string | null>(null)
   const [summary, setSummary] = useState<LoanSummary | null>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -210,11 +207,15 @@ export default function RiskPortfolio() {
 
   const buildQS = useCallback((off = 0) => {
     const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(off) })
-    if (fDpd.size === 1) p.set('dpd', [...fDpd][0])
-    if (fBand.size === 1) p.set('band', [...fBand][0])
+    // Send every ticked bucket/band, comma-separated — the backend ORs them. This
+    // used to fire only when exactly one chip was selected, so ticking two silently
+    // returned the whole book.
+    if (fDpd.size) p.set('dpd', [...fDpd].join(','))
+    if (fBand.size) p.set('band', [...fBand].join(','))
+    if (fProduct.size) p.set('product', [...fProduct].join(','))
     if (search) p.set('q', search)
     return p.toString()
-  }, [fDpd, fBand, search])
+  }, [fDpd, fBand, fProduct, search])
 
   const load = useCallback(async (off = 0) => {
     abortRef.current?.abort(); abortRef.current = new AbortController()
@@ -243,13 +244,9 @@ export default function RiskPortfolio() {
   const groups: FilterGroupDef[] = [
     {
       key: 'dpd', label: 'DPD BUCKET',
-      options: [
-        { value: 'current', label: 'Current',  color: GREEN },
-        { value: 'par30',   label: 'PAR30',    color: AMBER },
-        { value: 'par60',   label: 'PAR60',    color: '#D97706' },
-        { value: 'par90',   label: 'PAR90',    color: RED },
-        { value: 'npl',     label: 'NPL',      color: '#9B1C1C' },
-      ],
+      // Buckets + colours from the shared scale, so the chips match the KPI cards,
+      // the DPD column and the Overview distribution bar exactly.
+      options: DPD_BUCKETS.map(b => ({ value: b.key, label: b.short, color: b.color })),
       selected: fDpd,
       onChange: setFDpd,
     },
@@ -260,6 +257,15 @@ export default function RiskPortfolio() {
       options: RISK_BANDS.map(b => ({ value: b, label: `${b} — ${BAND_LABEL[b]}`, color: BAND_COLOR[b] })),
       selected: fBand,
       onChange: setFBand,
+    },
+    {
+      // The loan book is loans-only, so the product cut is over the loan sub-products
+      // (Salary / Business). Values are the canonical sub-codes; the backend maps them
+      // to ILIKE patterns against the CBS free-text product name.
+      key: 'product', label: 'PRODUCT',
+      options: subsForLine('loans').map(s => ({ value: s.code, label: s.label })),
+      selected: fProduct,
+      onChange: setFProduct,
     },
   ]
 
@@ -278,12 +284,37 @@ export default function RiskPortfolio() {
     { key: 'sector', label: 'Sector', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.sector || '—'}</span> },
     { key: 'product_type', label: 'Product', render: r => <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.full, background: 'var(--chip-bg)', color: 'var(--chip-txt)' }}>{r.product_type || '—'}</span> },
     {
+      key: 'amount_kobo', label: 'Principal', align: 'right', sortable: true,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{fmtKoboExact(r.amount_kobo)}</span>,
+    },
+    {
+      // Next scheduled installment (principal+interest+fee of the earliest unpaid row),
+      // derived server-side; the CBS book has no explicit minimum-repayment field.
+      key: 'min_repayment_kobo', label: 'Min Repayment', align: 'right',
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.min_repayment_kobo != null ? fmtKoboExact(r.min_repayment_kobo) : '—'}</span>,
+    },
+    {
+      key: 'principal_paid_kobo', label: 'Amount Paid', align: 'right', sortable: true,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: r.principal_paid_kobo > 0 ? GREEN : 'var(--txt3)' }}>{fmtKoboExact(r.principal_paid_kobo)}</span>,
+    },
+    {
+      key: '_pct', label: '% Paid', align: 'right',
+      render: r => {
+        const pct = r.amount_kobo > 0 ? Math.round((r.principal_paid_kobo / r.amount_kobo) * 100) : 0
+        return <PctBar pct={pct} tier={tierFromPct(pct)} />
+      },
+    },
+    {
+      key: '_tier', label: 'Tier',
+      render: r => <TierBadge tier={tierFromPct(r.amount_kobo > 0 ? (r.principal_paid_kobo / r.amount_kobo) * 100 : 0)} />,
+    },
+    {
       key: 'outstanding_kobo', label: 'Outstanding', align: 'right', sortable: true,
       render: r => (
         <div style={{ textAlign: 'right' }}>
-          <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKobo(r.outstanding_kobo)}</span>
+          <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKoboExact(r.outstanding_kobo)}</span>
           {r.arrears_kobo > 0 && (
-            <div style={{ ...NUM, fontSize: TEXT.xs, color: AMBER }}>{fmtKobo(r.arrears_kobo)} behind</div>
+            <div style={{ ...NUM, fontSize: TEXT.xs, color: AMBER }}>{fmtKoboExact(r.arrears_kobo)} behind</div>
           )}
         </div>
       ),
@@ -319,32 +350,32 @@ export default function RiskPortfolio() {
   ]
 
   return (
-    <Page title="Loan Portfolio" subtitle={`Active loan book: ${fmtNum(total)} accounts`}>
+    <Page title="Loan/Credit Card Portfolio" subtitle={`Active loan book: ${fmtNum(total)} accounts`} loading={loading && rows.length === 0} skeletonKpis={5}>
       <ErrBanner error={error} onRetry={() => load(0)} />
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="Total Loans"       value={fmtNum(summary?.total_loans ?? 0)}           loading={!summary} />
-        <KpiCard label="Outstanding"       value={fmtKobo(summary?.total_outstanding_kobo ?? 0)} loading={!summary} />
+        <KpiCard label="Outstanding"       value={fmtKoboExact(summary?.total_outstanding_kobo ?? 0)} loading={!summary} />
         <KpiCard label="Current"           value={fmtNum(summary?.current_count ?? 0)}          loading={!summary} sub="no overdue" />
         <KpiCard label="PAR 1–90"          value={fmtNum((summary?.dpd_1_30 ?? 0) + (summary?.dpd_31_60 ?? 0) + (summary?.dpd_61_90 ?? 0))} loading={!summary} sub="DPD 1–90 accounts" />
-        <KpiCard label="NPL (90+)"         value={fmtNum(summary?.dpd_90plus ?? 0)}             loading={!summary} sub={summary ? fmtKobo(summary.npl_outstanding_kobo) : undefined} accent={RED} />
+        <KpiCard label="NPL (90+)"         value={fmtNum(summary?.dpd_90plus ?? 0)}             loading={!summary} sub={summary ? fmtKoboExact(summary.npl_outstanding_kobo) : undefined} accent={RED} />
       </div>
 
       <SectionCard title="Active Loan Book" badge={total} padding={false}>
         <ExpandableFilterBar
           search={search} onSearch={setSearch}
           groups={groups}
-          onReset={() => { setFDpd(new Set()); setFBand(new Set()); setSearch('') }}
+          onReset={() => { setFDpd(new Set()); setFBand(new Set()); setFProduct(new Set()); setSearch('') }}
           onApply={() => load(0)}
           resultCount={rows.length} totalCount={total}
-          placeholder="Search name, CIF, employer…"
+          placeholder="Search name or CIF…"
         />
         <DataTable
           cols={cols} rows={rows}
           keyFn={r => r.id}
           loading={loading} skeletonRows={12}
-          onRowClick={r => navigate(`/operations/risk/applications/${r.id}`)}
+          onRowClick={r => navigate(`/operations/risk/applications/cif/${encodeURIComponent(r.applicant_cif)}`)}
           emptyText="No active loans found"
           pageSize={PAGE_SIZE}
         />

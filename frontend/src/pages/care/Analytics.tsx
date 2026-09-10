@@ -1,6 +1,6 @@
 import { useLiveData } from '../../hooks/useRealtime'
 import { useEffect, useState, useCallback } from 'react'
-import { ResponsiveContainer, AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
+import { EArea, ELine, EBar } from '../../components/echarts'
 import { SectionCard, KpiCard, Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum } from '../../lib/fmt'
@@ -66,24 +66,6 @@ const STATUS_COLOR: Record<string, string> = {
   open: NAVY, pending: AMBER, resolved: GREEN, closed: PURPLE,
 }
 
-const AXIS = { fontSize: 11, fill: 'var(--txt3)' }
-
-function ChartTip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '8px 10px', fontSize: TEXT.xs, boxShadow: '0 6px 20px rgba(0,0,0,0.12)' }}>
-      <div style={{ fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>{label}</div>
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--txt2)' }}>
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block' }} />
-          <span style={{ textTransform: 'capitalize' }}>{p.name}:</span>
-          <span style={{ ...NUM, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtNum(p.value)}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export default function CareAnalytics() {
   const [days, setDays] = useState<number>(30)
   const [d, setD] = useState<CareAnalyticsResp | null>(null)
@@ -103,6 +85,12 @@ export default function CareAnalytics() {
   useLiveData(() => load(true), { topics: ['tickets'] })
 
   const s = d?.summary
+
+  // Pre-format x-axis categories (the canvas axis shows the raw key) and coerce
+  // series values to numbers.
+  const volumeData = (d?.volume ?? []).map(v => ({ label: shortDate(v.date), received: Number(v.received), resolved: Number(v.resolved) }))
+  const responseData = (d?.response_trend ?? []).map(r => ({ label: shortDate(r.date), avg_first_mins: Number(r.avg_first_mins) }))
+  const hourData = (d?.by_hour ?? []).map(h => ({ label: fmtHour(h.hour), n: Number(h.n) }))
 
   return (
     <>
@@ -139,40 +127,34 @@ export default function CareAnalytics() {
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, marginBottom: SP[4], alignItems: 'start' }}>
             <SectionCard title="Mail Volume" subtitle="Received vs resolved per day">
               {d.volume.length === 0 ? <Empty /> : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <AreaChart data={d.volume} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="gRecv" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={NAVY} stopOpacity={0.28} />
-                        <stop offset="100%" stopColor={NAVY} stopOpacity={0.02} />
-                      </linearGradient>
-                      <linearGradient id="gResv" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={GREEN} stopOpacity={0.24} />
-                        <stop offset="100%" stopColor={GREEN} stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                    <XAxis dataKey="date" tick={AXIS} tickFormatter={shortDate} minTickGap={24} axisLine={false} tickLine={false} />
-                    <YAxis tick={AXIS} allowDecimals={false} axisLine={false} tickLine={false} width={34} />
-                    <Tooltip content={<ChartTip />} labelFormatter={shortDate} />
-                    <Area type="monotone" dataKey="received" name="Received" stroke={NAVY} strokeWidth={2} fill="url(#gRecv)" />
-                    <Area type="monotone" dataKey="resolved" name="Resolved" stroke={GREEN} strokeWidth={2} fill="url(#gResv)" />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <EArea
+                  data={volumeData}
+                  xKey="label"
+                  height={240}
+                  hideYAxis
+                  endLabel
+                  valueFmt={fmtNum}
+                  endFmt={fmtNum}
+                  series={[
+                    { key: 'received', name: 'Received', color: NAVY },
+                    { key: 'resolved', name: 'Resolved', color: GREEN },
+                  ]}
+                />
               )}
             </SectionCard>
 
             <SectionCard title="First-Response Time" subtitle="Avg minutes to first reply, by day">
               {d.response_trend.length === 0 ? <Empty /> : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={d.response_trend} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                    <XAxis dataKey="date" tick={AXIS} tickFormatter={shortDate} minTickGap={24} axisLine={false} tickLine={false} />
-                    <YAxis tick={AXIS} allowDecimals={false} axisLine={false} tickLine={false} width={34} />
-                    <Tooltip content={<ChartTip />} labelFormatter={shortDate} />
-                    <Line type="monotone" dataKey="avg_first_mins" name="Avg mins" stroke={BLUE} strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <ELine
+                  data={responseData}
+                  xKey="label"
+                  height={240}
+                  hideYAxis
+                  endLabel
+                  valueFmt={fmtNum}
+                  endFmt={fmtNum}
+                  series={[{ key: 'avg_first_mins', name: 'Avg mins', color: BLUE }]}
+                />
               )}
             </SectionCard>
           </div>
@@ -181,15 +163,14 @@ export default function CareAnalytics() {
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, marginBottom: SP[4], alignItems: 'start' }}>
             <SectionCard title="Peak Inbound Hours" subtitle="When customers email (by hour of day)">
               {d.by_hour.length === 0 ? <Empty /> : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={d.by_hour} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                    <XAxis dataKey="hour" tick={AXIS} tickFormatter={fmtHour} axisLine={false} tickLine={false} interval={1} />
-                    <YAxis tick={AXIS} allowDecimals={false} axisLine={false} tickLine={false} width={34} />
-                    <Tooltip content={<ChartTip />} labelFormatter={(h: number) => fmtHour(h)} />
-                    <Bar dataKey="n" name="Mails" fill={NAVY} radius={[3, 3, 0, 0]} maxBarSize={22} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <EBar
+                  data={hourData}
+                  xKey="label"
+                  height={220}
+                  legend={false}
+                  valueFmt={fmtNum}
+                  series={[{ key: 'n', name: 'Mails', color: NAVY }]}
+                />
               )}
             </SectionCard>
 

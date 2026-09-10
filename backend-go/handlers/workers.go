@@ -54,10 +54,20 @@ var workerRegistry = []workerDef{
 		"Spools the Udara360 loan, fixed-deposit and product books into the snapshot tables.", "cbs", "/api/cbs/sync"},
 	{"customer_feed", "Customer Feed · cust_file", "Data Sync", "Every 15 min",
 		"Ingests the cust_file drops into the customer master — where new customers come from.", "customer_feed", "/api/customer-feed/ingest"},
+	{"feed_accounts", "Account Feed · acct_file", "Data Sync", "Every 15 min",
+		"Ingests the acct_file drops into app.accounts — refreshes card balances, limits and status past the baseline.", "feed", "/api/feed/accounts/ingest"},
+	{"feed_transactions", "Transaction Feed · txn_file", "Data Sync", "Every 15 min",
+		"Ingests the txn_file drops into app.transactions, deduped against the ledger by natural key so nothing is duplicated.", "feed", "/api/feed/transactions/ingest"},
+	{"feed_cardfam", "Card-Family Feed · cardfam_file", "Data Sync", "Every 15 min",
+		"Tracks the cardfam_file drops (reference stream; its layout is decoded when it first carries data).", "feed", "/api/feed/cardfam/ingest"},
 	{"paystack", "Paystack · Settlements", "Data Sync", "Every 30 min",
 		"Mirrors funding, transfers, settlements and disputes into the local reconciliation tables.", "paystack", "/api/paystack/sync"},
+	{"appsflyer", "AppsFlyer · Acquisition", "Data Sync", "Hourly",
+		"Mirrors the Blink mobile-app acquisition feed — installs, media source, campaigns, spend and the signup→onboarding funnel — from the AppsFlyer Aggregate Pull API.", "appsflyer", "/api/appsflyer/sync"},
 	{"zoho_voice", "Zoho Voice · Call Logs", "Data Sync", "Hourly",
 		"Imports call-centre call logs from Zoho into the activity timeline.", "zoho", "/api/zoho/import-calls"},
+	{"recording_prefetch", "Call Recordings · Prefetch", "Data Sync", "Every 15 min",
+		"Pre-downloads recent calls' voice recordings into local storage so playback is instant and doesn't depend on a live Zoho fetch; purges audio past the retention window (older recordings still play on demand).", "heartbeat", "/api/helpdesk/recordings/prefetch"},
 	{"zoho_desk", "Zoho Desk · Tickets", "Data Sync", "Hourly",
 		"Imports the newest helpdesk tickets from Zoho Desk.", "heartbeat", ""},
 	{"callcenter_crm", "Call-Center Queue · from CRM", "Data Sync", "On demand",
@@ -95,6 +105,8 @@ var workerRegistry = []workerDef{
 		"Alerts account officers to due repayments, past-due loans and FD maturities.", "heartbeat", ""},
 	{"ndpr_erasure", "NDPR Erasure", "Scheduled Job", "Daily · 00:00",
 		"Processes approved data-erasure requests.", "heartbeat", ""},
+	{"report_schedules", "Scheduled Reports", "Scheduled Job", "Every 1 min",
+		"Delivers Report Builder reports on their schedule: runs the pivot live, renders CSV/XLSX and emails it to the recipients.", "heartbeat", ""},
 	{"ttl_cleanup", "TTL Cleanup", "Scheduled Job", "Daily",
 		"Purges expired tokens, sessions and idempotency keys.", "heartbeat", ""},
 
@@ -142,6 +154,8 @@ func cadenceSecs(cadence string) int {
 		return 1800
 	case "Hourly":
 		return 3600
+	case "Every 6h":
+		return 21600
 	case "Continuous":
 		return 90
 	default:
@@ -189,12 +203,29 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 			d := str(x["files_seen"]) + " files · +" + str(x["customers_inserted"]) + " / ~" + str(x["customers_updated"]) + " customers"
 			feed["customer_feed"] = st{norm(str(x["status"])), tsPtr(x["last_run"]), tsPtr(x["last_run"]), strPtr(x["error"]), &d}
 		}
+		// Generic feed streams (accounts, cardfam, …) recorded in feed_runs by stream.
+		feedGen := map[string]st{}
+		if rows, _ := db.PGQuery(ctx, `SELECT DISTINCT ON (stream) stream, status,
+			COALESCE(finished_at, started_at) AS last_run, error, files_seen, rows_inserted, rows_updated
+			FROM feed_runs ORDER BY stream, id DESC`); len(rows) > 0 {
+			for _, x := range rows {
+				d := str(x["files_seen"]) + " files · +" + str(x["rows_inserted"]) + " / ~" + str(x["rows_updated"]) + " rows"
+				feedGen[str(x["stream"])] = st{norm(str(x["status"])), tsPtr(x["last_run"]), tsPtr(x["last_run"]), strPtr(x["error"]), &d}
+			}
+		}
 		pay := map[string]st{}
 		if rows, _ := db.PGQuery(ctx, `SELECT status, COALESCE(finished_at, started_at) AS last_run, error, transactions_n, transfers_n, settlements_n
 			FROM paystack_sync_runs ORDER BY id DESC LIMIT 1`); len(rows) > 0 {
 			x := rows[0]
 			d := str(x["transactions_n"]) + " txns · " + str(x["transfers_n"]) + " transfers · " + str(x["settlements_n"]) + " settlements"
 			pay["paystack"] = st{norm(str(x["status"])), tsPtr(x["last_run"]), tsPtr(x["last_run"]), strPtr(x["error"]), &d}
+		}
+		af := map[string]st{}
+		if rows, _ := db.PGQuery(ctx, `SELECT status, COALESCE(finished_at, started_at) AS last_run, error, daily_rows, event_rows, apps_n
+			FROM appsflyer_sync_runs ORDER BY id DESC LIMIT 1`); len(rows) > 0 {
+			x := rows[0]
+			d := str(x["daily_rows"]) + " daily rows · " + str(x["event_rows"]) + " events · " + str(x["apps_n"]) + " apps"
+			af["appsflyer"] = st{norm(str(x["status"])), tsPtr(x["last_run"]), tsPtr(x["last_run"]), strPtr(x["error"]), &d}
 		}
 		// Zoho is keyed by job name; map both voice + desk jobs.
 		zoho := map[string]st{}
@@ -227,8 +258,12 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 				s, ok = cbs[d.Key]
 			case "customer_feed":
 				s, ok = feed[d.Key]
+			case "feed":
+				s, ok = feedGen[map[string]string{"feed_accounts": "accounts", "feed_transactions": "transactions", "feed_cardfam": "cardfam"}[d.Key]]
 			case "paystack":
 				s, ok = pay[d.Key]
+			case "appsflyer":
+				s, ok = af[d.Key]
 			case "zoho":
 				// registry key → zoho_sync_state job name
 				job := map[string]string{"zoho_voice": "calls", "zoho_desk": "desk"}[d.Key]

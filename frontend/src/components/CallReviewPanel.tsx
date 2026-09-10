@@ -5,15 +5,10 @@ import { fmtDatetime } from '../lib/fmt'
 import { GREEN, RED, AMBER, NAVY, NUM, FW, RADIUS, SP, TEXT } from '../lib/design'
 import { toast } from 'sonner'
 
-// The supervisor's side of call-log corrections.
-//
-// Two things a supervisor could not see before. First, logs the workspace could
+// The supervisor's side of call-log corrections: surfaces logs the workspace could
 // not make sense of — a write-up saying the call was never answered sitting on a
 // two-minute recorded conversation. Those used to sit in the data contradicting
-// themselves with nobody told; flagging them without giving anyone a screen to
-// act on would have been no better. Second, every correction and withdrawal, with
-// what it replaced — because a log agents can rewrite needs to be a log someone
-// can audit.
+// themselves with nobody told. The supervisor corrects the log, or marks it fine.
 
 interface ReviewCall {
   id: number
@@ -29,45 +24,18 @@ interface ReviewCall {
   has_recording: boolean
 }
 
-interface EditRow {
-  id: number
-  call_id: number
-  action: string
-  edited_name: string
-  changes: Record<string, { from: any; to: any }> | null
-  reason: string
-  created_at: string
-  customer_name: string | null
-  agent_name: string
-  started_at: string
-  is_voided: boolean
-}
-
-const ACTION_META: Record<string, { label: string; color: string }> = {
-  edit:           { label: 'Corrected', color: NAVY },
-  void:           { label: 'Withdrawn', color: RED },
-  restore:        { label: 'Restored',  color: GREEN },
-  review_cleared: { label: 'Marked fine', color: 'var(--txt3)' },
-}
-
 export default function CallReviewPanel({ onEdit, reloadKey }: {
   onEdit?: (callId: number) => void
   reloadKey?: number
 }) {
   const [review, setReview] = useState<ReviewCall[]>([])
-  const [edits,  setEdits]  = useState<EditRow[]>([])
   const [busy,   setBusy]   = useState<number | null>(null)
 
-  const load = useCallback(async (silent = false) => {
+  const load = useCallback(async () => {
     try {
-      const [rv, ed] = await Promise.allSettled([
-        apiFetch<any>('/api/helpdesk/calls/needs-review'),
-        apiFetch<any>('/api/helpdesk/calls/edits?limit=40'),
-      ])
-      const val = (r: PromiseSettledResult<any>) =>
-        r.status === 'fulfilled' ? (Array.isArray(r.value) ? r.value : r.value?.data ?? []) : []
-      setReview(val(rv)); setEdits(val(ed))
-    } catch { if (!silent) { /* the panel is supplementary — never block the page */ } }
+      const r = await apiFetch<any>('/api/helpdesk/calls/needs-review')
+      setReview(Array.isArray(r) ? r : r?.data ?? [])
+    } catch { /* the panel is supplementary — never block the page */ }
   }, [])
 
   useEffect(() => { load() }, [load, reloadKey])
@@ -78,7 +46,7 @@ export default function CallReviewPanel({ onEdit, reloadKey }: {
       await apiFetch(`/api/helpdesk/calls/${id}/clear-review`, { method: 'POST', body: '{}' })
       toast.success('Marked as fine')
       setReview(rs => rs.filter(r => r.id !== id))
-      load(true)
+      load()
     } catch (e: any) { toast.error(e.message) }
     finally { setBusy(null) }
   }
@@ -136,57 +104,6 @@ export default function CallReviewPanel({ onEdit, reloadKey }: {
                 </div>
               </div>
             ))}
-          </div>
-        </SectionCard>
-      )}
-
-      {edits.length > 0 && (
-        <SectionCard title="Corrections and withdrawals" badge={edits.length}>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {edits.map(e => {
-              const meta = ACTION_META[e.action] ?? { label: e.action, color: 'var(--txt2)' }
-              const fields = Object.entries(e.changes ?? {})
-              return (
-                <div key={e.id} style={{ padding: '9px 0', borderBottom: '1px solid var(--bdr)' }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                    <span style={{
-                      fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '2px 8px',
-                      borderRadius: RADIUS['2xl'], background: `${meta.color}15`, color: meta.color,
-                    }}>{meta.label}</span>
-                    <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold }}>
-                      {e.customer_name || 'Unknown'}
-                    </span>
-                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-                      by {e.edited_name || 'someone'} · {e.agent_name}&rsquo;s call
-                    </span>
-                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>
-                      {fmtDatetime(e.created_at)}
-                    </span>
-                  </div>
-                  {/* Both sides of every change, so a correction can be read against
-                      what it replaced rather than taken on trust. */}
-                  {fields.length > 0 && (
-                    <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {fields.map(([field, v]) => (
-                        <div key={field} style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
-                          <span style={{ color: 'var(--txt3)' }}>{field.replace(/_/g, ' ')}: </span>
-                          <span style={{ textDecoration: 'line-through', color: 'var(--txt3)' }}>
-                            {String(v?.from ?? '—').slice(0, 70) || '—'}
-                          </span>
-                          {' → '}
-                          <span style={{ color: 'var(--txt)' }}>{String(v?.to ?? '—').slice(0, 70) || '—'}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {e.reason && (
-                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3 }}>
-                      Reason: {e.reason}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
           </div>
         </SectionCard>
       )}

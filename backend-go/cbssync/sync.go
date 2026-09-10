@@ -32,11 +32,16 @@ const (
 
 // Result summarises one sync run.
 type Result struct {
-	Products  int
-	Loans     int
-	FDs       int
-	Matched   int
-	Unmatched int
+	Products         int
+	Loans            int
+	FDs              int
+	Matched          int
+	Unmatched        int
+	CustomersCreated int
+	OfficersAssigned int
+	CustomerMaster   int // Udara customer-master records mirrored into cbs_customers
+	ProfilesEnriched int // workspace profiles that gained contact detail from the master
+	CustomersLinked  int // Udara customers given a workspace party + crosswalk link this run
 }
 
 // envelope is the standard Udara360 response wrapper: {"data":[...], "message":..., "status":...}.
@@ -119,6 +124,76 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 
 	res.Products, res.Loans, res.FDs = len(products), len(loans), len(fds)
 
+	// Spool the Udara customer MASTER (individual + corporate). The loan/FD feeds carry
+	// only a name; these customer endpoints carry the full contact profile Udara holds —
+	// phone, email, address, state/LGA, BVN/NIN, date of birth, gender, next-of-kin, and
+	// (for corporates) contact-person + registration detail. Best-effort and outside the
+	// atomic loan/FD refresh, so a customer-endpoint hiccup never breaks the money sync.
+	if custRows, err := fetchCustomers(ctx, c); err != nil {
+		slog.Warn("cbs customer master fetch failed", "err", err)
+	} else if len(custRows) > 0 {
+		if n, err := refreshCBSCustomers(ctx, db, custRows); err != nil {
+			slog.Warn("cbs customer master upsert failed", "err", err)
+		} else {
+			res.CustomerMaster = n
+			// Give every Udara customer a workspace party (CUST) + crosswalk link, so a
+			// customer created directly in Udara is onboarded automatically rather than
+			// waiting for a one-off migration. Merges into an existing party only on BVN
+			// (see app.link_cbs_customers, migration 227).
+			if linked, err := linkCBSCustomers(ctx, db); err != nil {
+				slog.Warn("cbs customer linking failed", "err", err)
+			} else if linked > 0 {
+				res.CustomersLinked = linked
+				slog.Info("cbs sync linked customers to parties", "count", linked)
+			}
+			// Backfill blank contact fields on the linked workspace profiles from the
+			// master — routed through the cbs_links → party bridge, NEVER the colliding
+			// cif join (Udara customerID and the card-feed cif are different namespaces).
+			if enr, err := enrichCustomersFromCBS(ctx, db); err != nil {
+				slog.Warn("cbs profile enrichment failed", "err", err)
+			} else {
+				res.ProfilesEnriched = enr
+			}
+		}
+	}
+
+	// Ensure every Udara customer has an identity profile. Udara-only borrowers and
+	// depositors who hold no card never arrive via the card cust_file feed, so without
+	// this they surface across collections/recovery/Customer-360 as a bare CIF. This is
+	// insert-only (it never overwrites richer card-fed identity), so it is cheap to run
+	// every sync; the party graph is only recomputed when the book actually gains a
+	// customer.
+	if created, err := upsertUdaraCustomers(ctx, db); err != nil {
+		slog.Warn("cbs customer upsert failed", "err", err)
+	} else if created > 0 {
+		res.CustomersCreated = created
+		if _, err := db.PG.ExecContext(ctx, `SELECT app.assign_parties()`); err != nil {
+			slog.Warn("assign_parties after cbs customer upsert failed", "err", err)
+		}
+		slog.Info("cbs sync created customer profiles", "count", created)
+	}
+
+	// Assign each Udara customer their account officer (minting a no-login user for any
+	// officer not already on the roster). Non-destructive and idempotent — an existing or
+	// manual assignment is never overwritten — so this is safe to run every sync.
+	if assigned, err := assignCBSOfficers(ctx, db); err != nil {
+		slog.Warn("cbs officer assignment failed", "err", err)
+	} else if assigned > 0 {
+		res.OfficersAssigned = assigned
+		slog.Info("cbs sync assigned account officers", "count", assigned)
+	}
+
+	// Loan repayment schedules — per-loan interest income (earned once the installment is
+	// processed, expected/scheduled by payment_date). The loan Search feed returns
+	// paymentSchedules null, so this pulls each non-closed loan's schedule separately.
+	// Best-effort and self-contained: isolated from the atomic refresh above, so a
+	// schedule-fetch failure never breaks the loan/FD sync.
+	if n, err := syncLoanSchedules(ctx, c, db, loans); err != nil {
+		slog.Warn("cbs loan schedule sync failed", "err", err)
+	} else {
+		slog.Info("cbs loan schedules synced", "installments", n)
+	}
+
 	// Reconcile against workspace records (best-effort; unmatched are surfaced, not forced).
 	matched, unmatched, err := Reconcile(ctx, db)
 	if err != nil {
@@ -126,6 +201,188 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 	}
 	res.Matched, res.Unmatched = matched, unmatched
 	return res, nil
+}
+
+// upsertUdaraCustomers creates a minimal identity profile in app.customers for every
+// Udara customer (keyed by CIF) not already known to the workspace. Only the CIF and
+// name (from the Udara payload) are set — Udara exposes no contact phone/email — and
+// the row is tagged source='udara_cbs'. contact_id is minted with the same
+// 'Z'||LPAD(cif,15,'0') convention the card feed (custfeed) uses, so if that feed later
+// carries the same customer the two converge on CIF via ON CONFLICT rather than
+// duplicating. The write is strictly additive: existing profiles are left untouched.
+func upsertUdaraCustomers(ctx context.Context, db *core.DB) (int, error) {
+	res, err := db.PG.ExecContext(ctx, `
+WITH udara AS (
+    SELECT cbs_customer_id AS cif, NULLIF(btrim(raw->>'name'), '') AS nm
+      FROM cbs_loans          WHERE COALESCE(btrim(cbs_customer_id), '') <> ''
+    UNION ALL
+    SELECT cbs_customer_id,       NULLIF(btrim(raw->>'name'), '')
+      FROM cbs_fixed_deposits WHERE COALESCE(btrim(cbs_customer_id), '') <> ''
+),
+picked AS (
+    SELECT cif, (array_agg(nm ORDER BY (nm IS NULL), length(nm) DESC))[1] AS nm
+      FROM udara GROUP BY cif
+)
+INSERT INTO app.customers
+    (contact_id, cif, full_name, last_name, source, first_seen_at, created_at, last_seen)
+SELECT 'Z' || LPAD(p.cif, 15, '0'), p.cif, p.nm, p.nm, 'udara_cbs', NOW(), NOW(), NOW()
+  FROM picked p
+ON CONFLICT (cif) WHERE cif IS NOT NULL AND cif <> ''
+DO NOTHING`)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// fetchCustomers pulls the Udara customer master — individuals and corporates via the
+// two Search endpoints — tagging each record with its customer_type. Best-effort per
+// endpoint: if one fails the other still returns, so a corporate-endpoint hiccup never
+// loses the individuals. Records dedupe by the Udara record GUID; each carries the
+// customerID that keys the loan/FD books (the SAME id namespace as cbs_customer_id).
+func fetchCustomers(ctx context.Context, c *udara.Client) ([]map[string]any, error) {
+	var all []map[string]any
+	var firstErr error
+	for _, ep := range []struct{ path, typ string }{
+		{"/api/Account/v1/SearchIndividualCustomers", "Individual"},
+		{"/api/Account/v1/SearchGroupCustomers", "Corporate"},
+	} {
+		items, err := fetchFullBook(ctx, c, ep.path)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		for _, m := range items {
+			if gstr(m, "customerType") == "" {
+				m["customerType"] = ep.typ
+			}
+			all = append(all, m)
+		}
+	}
+	if len(all) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return all, nil
+}
+
+// refreshCBSCustomers upserts the customer master into cbs_customers, keyed by Udara's
+// customerID. Upsert (not delete+insert): the master only grows, and we never want a
+// transient partial fetch to drop a profile. Returns the number of rows written.
+func refreshCBSCustomers(ctx context.Context, db *core.DB, rows []map[string]any) (int, error) {
+	const q = `INSERT INTO cbs_customers (
+	    cbs_customer_id, cbs_id, customer_type, name, title, first_name, last_name, other_names,
+	    phone, email, address, city, state, lga, nationality, bvn, nin, tin, date_of_birth,
+	    gender, marital_status, occupation, employer_name, employer_address, office_phone,
+	    means_of_id, id_number, nok_name, nok_phone, nok_relationship,
+	    business_phone, nature_of_business, industrial_sector, registration_number,
+	    contact_person_name, contact_person_phone, state_of_operation, pep, raw, synced_at)
+	  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+	          $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39::jsonb, NOW())
+	  ON CONFLICT (cbs_customer_id) DO UPDATE SET
+	    cbs_id=EXCLUDED.cbs_id, customer_type=EXCLUDED.customer_type, name=EXCLUDED.name,
+	    title=EXCLUDED.title, first_name=EXCLUDED.first_name, last_name=EXCLUDED.last_name,
+	    other_names=EXCLUDED.other_names, phone=EXCLUDED.phone, email=EXCLUDED.email,
+	    address=EXCLUDED.address, city=EXCLUDED.city, state=EXCLUDED.state, lga=EXCLUDED.lga,
+	    nationality=EXCLUDED.nationality, bvn=EXCLUDED.bvn, nin=EXCLUDED.nin, tin=EXCLUDED.tin,
+	    date_of_birth=EXCLUDED.date_of_birth, gender=EXCLUDED.gender,
+	    marital_status=EXCLUDED.marital_status, occupation=EXCLUDED.occupation,
+	    employer_name=EXCLUDED.employer_name, employer_address=EXCLUDED.employer_address,
+	    office_phone=EXCLUDED.office_phone, means_of_id=EXCLUDED.means_of_id,
+	    id_number=EXCLUDED.id_number, nok_name=EXCLUDED.nok_name, nok_phone=EXCLUDED.nok_phone,
+	    nok_relationship=EXCLUDED.nok_relationship, business_phone=EXCLUDED.business_phone,
+	    nature_of_business=EXCLUDED.nature_of_business, industrial_sector=EXCLUDED.industrial_sector,
+	    registration_number=EXCLUDED.registration_number, contact_person_name=EXCLUDED.contact_person_name,
+	    contact_person_phone=EXCLUDED.contact_person_phone, state_of_operation=EXCLUDED.state_of_operation,
+	    pep=EXCLUDED.pep, raw=EXCLUDED.raw, synced_at=NOW()`
+	n := 0
+	for _, m := range rows {
+		cif := strings.TrimSpace(gstr(m, "customerID"))
+		if cif == "" {
+			continue
+		}
+		if _, err := db.PG.ExecContext(ctx, q,
+			cif, gstr(m, "id"), gstr(m, "customerType"), gstr(m, "name"), gstr(m, "title"),
+			gstr(m, "firstName"), gstr(m, "lastName"), gstr(m, "otherNames"),
+			gstr(m, "phoneNumber"), gstr(m, "email"), gstr(m, "address"), gstr(m, "hometown"),
+			gstr(m, "state"), gstr(m, "lga"), gstr(m, "nationality"), gstr(m, "bvn"), gstr(m, "nin"), gstr(m, "tin"),
+			gts(m, "dateOfBirth"), gstr(m, "gender"), gstr(m, "maritalStatus"), gstr(m, "occupation"),
+			gstr(m, "employerName"), gstr(m, "employerAddress"), gstr(m, "officePhoneNumber"),
+			gstr(m, "meansOfIdentification"), gstr(m, "idNumber"), gstr(m, "nokName"), gstr(m, "nokPhoneNumber"),
+			gstr(m, "nokRelationship"), gstr(m, "businessPhoneNumber"), gstr(m, "natureOfBusiness"),
+			gstr(m, "industrialSector"), gstr(m, "registrationNumber"), gstr(m, "contactPersonName"),
+			gstr(m, "contactPersonPhoneNumber"), gstr(m, "stateOfOperation"), gbool(m, "pep"), rawOf(m),
+		); err != nil {
+			return n, fmt.Errorf("cbs upsert customer %s: %w", cif, err)
+		}
+		n++
+	}
+	return n, nil
+}
+
+// enrichCustomersFromCBS fills BLANK contact fields on workspace profiles from the Udara
+// customer master. It only ever fills empties — a value already on the profile (from the
+// card feed) is never overwritten. Crucially it joins through the cbs_links → party
+// crosswalk, so a Udara customer's PII lands on the party that actually owns it, never on
+// a card customer whose cif merely collides with the Udara customerID. Returns rows changed.
+func enrichCustomersFromCBS(ctx context.Context, db *core.DB) (int, error) {
+	res, err := db.PG.ExecContext(ctx, `
+UPDATE app.customers cu SET
+    phone        = COALESCE(NULLIF(btrim(cu.phone),''),        NULLIF(btrim(cc.phone),'')),
+    email        = COALESCE(NULLIF(btrim(cu.email),''),        NULLIF(btrim(cc.email),'')),
+    address_1    = COALESCE(NULLIF(btrim(cu.address_1),''),    NULLIF(btrim(cc.address),'')),
+    full_address = COALESCE(NULLIF(btrim(cu.full_address),''), NULLIF(btrim(cc.address),'')),
+    city         = COALESCE(NULLIF(btrim(cu.city),''),         NULLIF(btrim(cc.city),'')),
+    state        = COALESCE(NULLIF(btrim(cu.state),''),        NULLIF(btrim(cc.state),'')),
+    bvn          = COALESCE(NULLIF(btrim(cu.bvn),''),          NULLIF(btrim(cc.bvn),'')),
+    birthday     = COALESCE(cu.birthday, cc.date_of_birth),
+    gender       = COALESCE(NULLIF(btrim(cu.gender),''),       NULLIF(btrim(cc.gender),'')),
+    last_seen    = NOW()
+  FROM app.cbs_links l
+  JOIN cbs_customers cc ON cc.cbs_customer_id = l.cbs_customer_id
+ WHERE l.entity_type = 'party' AND cu.party_id = l.entity_id
+   AND (
+        (COALESCE(btrim(cu.phone),'')     = '' AND COALESCE(btrim(cc.phone),'')   <> '') OR
+        (COALESCE(btrim(cu.email),'')     = '' AND COALESCE(btrim(cc.email),'')   <> '') OR
+        (COALESCE(btrim(cu.address_1),'') = '' AND COALESCE(btrim(cc.address),'') <> '') OR
+        (COALESCE(btrim(cu.state),'')     = '' AND COALESCE(btrim(cc.state),'')   <> '') OR
+        (COALESCE(btrim(cu.bvn),'')       = '' AND COALESCE(btrim(cc.bvn),'')     <> '') OR
+        (cu.birthday IS NULL AND cc.date_of_birth IS NOT NULL) OR
+        (COALESCE(btrim(cu.gender),'')    = '' AND COALESCE(btrim(cc.gender),'')  <> '')
+   )`)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// linkCBSCustomers ensures every Udara customer has a workspace party + crosswalk link.
+// The logic lives in the SQL function app.link_cbs_customers() (migration 227): it creates
+// a party for any master customer that lacks one and links it, merging into an existing
+// party only on a unique BVN. Non-destructive and idempotent — a customer already linked is
+// skipped — so it is safe to run every sync. Returns the number linked this run.
+func linkCBSCustomers(ctx context.Context, db *core.DB) (int, error) {
+	var n sql.NullInt64
+	if err := db.PG.QueryRowContext(ctx, `SELECT app.link_cbs_customers()`).Scan(&n); err != nil {
+		return 0, err
+	}
+	return int(n.Int64), nil
+}
+
+// assignCBSOfficers ensures every Udara customer has their account officer set as a
+// relationship manager. The heavy lifting lives in the SQL function app.sync_cbs_officers()
+// (migration 183): it mints a no-login user for any officer not already on the roster and
+// assigns one officer per CIF, non-destructively (an existing/manual assignment is never
+// overwritten). Returns the number of new assignments made this run.
+func assignCBSOfficers(ctx context.Context, db *core.DB) (int, error) {
+	var n sql.NullInt64
+	if err := db.PG.QueryRowContext(ctx, `SELECT app.sync_cbs_officers()`).Scan(&n); err != nil {
+		return 0, err
+	}
+	return int(n.Int64), nil
 }
 
 // ── fetching ─────────────────────────────────────────────────────────────────
@@ -589,6 +846,91 @@ func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
 	return nil
 }
 
+// syncLoanSchedules pulls each non-closed loan's repayment schedule from
+// GET /api/LoanAccount/v1/viewloanschedule (the loan Search feed returns
+// paymentSchedules null — only this per-loan endpoint fills it) and snapshots the
+// installments into app.cbs_loan_schedules. Per-installment `interest` is the loan-side
+// revenue: earned once has_processed, expected/scheduled by payment_date otherwise.
+// Amounts arrive already in kobo; payment_date is the installment value date.
+func syncLoanSchedules(ctx context.Context, c *udara.Client, db *core.DB, loans []map[string]any) (int, error) {
+	type inst struct {
+		acct, cif, status, intID string
+		payDate                  sql.NullTime
+		prin, intk, fee          sql.NullInt64
+		processed                bool
+	}
+	var rows []inst
+	for _, l := range loans {
+		acct := gstr(l, "accountNumber")
+		status := gstr(l, "accountStatus")
+		if acct == "" || status == "Closed" || status == "Revoked" {
+			continue
+		}
+		q := url.Values{}
+		q.Set("AccountNumber", acct)
+		raw, code, err := c.Do(ctx, "GET", "/api/LoanAccount/v1/viewloanschedule", nil, q)
+		if err != nil || code < 200 || code >= 300 {
+			continue
+		}
+		var env envelope
+		if json.Unmarshal(raw, &env) != nil {
+			continue
+		}
+		var obj map[string]any
+		if json.Unmarshal(env.Data, &obj) != nil {
+			continue
+		}
+		cif := gstr(obj, "customerID")
+		scheds, _ := obj["paymentSchedules"].([]any)
+		for _, s := range scheds {
+			sm, ok := s.(map[string]any)
+			if !ok {
+				continue
+			}
+			pd := gts(sm, "paymentDate_Date")
+			if !pd.Valid {
+				continue
+			}
+			processed, _ := sm["hasProcessed"].(bool)
+			rows = append(rows, inst{
+				acct: acct, cif: cif, status: gstr(sm, "paymentStatus"), intID: gstr(sm, "interestID"),
+				payDate: pd, prin: gkobo(sm, "principal"), intk: gkobo(sm, "interest"), fee: gkobo(sm, "fee"),
+				processed: processed,
+			})
+		}
+	}
+
+	// Atomic snapshot swap: clear + re-insert in one tx so readers never see a half-empty
+	// schedule table.
+	tx, err := db.PG.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.ExecContext(ctx, `DELETE FROM app.cbs_loan_schedules`); err != nil {
+		return 0, err
+	}
+	for _, r := range rows {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO app.cbs_loan_schedules
+			    (loan_account_number, cbs_customer_id, payment_date, principal_kobo, interest_kobo, fee_kobo,
+			     payment_status, has_processed, interest_id, synced_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
+			ON CONFLICT (loan_account_number, payment_date) DO UPDATE SET
+			    cbs_customer_id = EXCLUDED.cbs_customer_id, principal_kobo = EXCLUDED.principal_kobo,
+			    interest_kobo = EXCLUDED.interest_kobo, fee_kobo = EXCLUDED.fee_kobo,
+			    payment_status = EXCLUDED.payment_status, has_processed = EXCLUDED.has_processed,
+			    interest_id = EXCLUDED.interest_id, synced_at = NOW()`,
+			r.acct, r.cif, r.payDate, r.prin, r.intk, r.fee, r.status, r.processed, r.intID); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(rows), nil
+}
+
 // ── field extraction helpers (Udara returns numbers as JSON floats or strings) ─
 
 func gstr(m map[string]any, k string) string {
@@ -627,6 +969,23 @@ func gkobo(m map[string]any, k string) sql.NullInt64 {
 		}
 	}
 	return sql.NullInt64{}
+}
+
+// gbool returns a nullable boolean (e.g. the PEP flag).
+func gbool(m map[string]any, k string) sql.NullBool {
+	v, ok := m[k]
+	if !ok || v == nil {
+		return sql.NullBool{}
+	}
+	switch t := v.(type) {
+	case bool:
+		return sql.NullBool{Bool: t, Valid: true}
+	case string:
+		if b, err := strconv.ParseBool(strings.TrimSpace(t)); err == nil {
+			return sql.NullBool{Bool: b, Valid: true}
+		}
+	}
+	return sql.NullBool{}
 }
 
 // gnum returns a decimal (rates).

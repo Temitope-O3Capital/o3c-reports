@@ -304,7 +304,7 @@ export default function CardsManagement() {
   const showEnd    = Math.min(page * PAGE_SIZE, total)
 
   return (
-    <Page title="Cardholder Management" subtitle="View and manage all issued cards" actions={
+    <Page title="Cardholder Management" subtitle="View and manage all issued cards" loading={loading && rows.length === 0} actions={
       <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
     }>
 

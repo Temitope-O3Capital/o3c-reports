@@ -422,6 +422,7 @@ export default function CRMPipeline() {
 
   return (
     <Page
+      loading={loading && allDeals.length === 0}
       title="Sales Pipeline"
       subtitle="Deal management and sales pipeline"
       actions={

@@ -1,13 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts'
-import { Page, SectionCard, KpiCard, Spinner, ErrBanner } from '../../components/UI'
+import { useSearchParams } from 'react-router-dom'
+import { Page, SectionCard, KpiCard, Spinner, ErrBanner, DateFilter } from '../../components/UI'
+import { EArea, EBar } from '../../components/echarts'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
+import { fmtKobo, fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, INTER, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
-import { PeriodFilter, Tip, Stat, Note, ytick, share, type Period } from './shared'
+import { Stat, Note, ytick, share } from './shared'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,7 +44,7 @@ interface ExecSettlements {
 
 // Fixed hues — a reason keeps its colour whatever the mix looks like this period.
 const REASON_COLOR: Record<string, string> = {
-  no_candidate: RED, ambiguous: AMBER, amount_mismatch: BLUE, unclassified: '#94A3B8',
+  no_candidate: RED, ambiguous: AMBER, amount_mismatch: BLUE, unclassified: '#5B7A94',
 }
 const REASON_LABEL: Record<string, string> = {
   no_candidate: 'No candidate', ambiguous: 'Ambiguous', amount_mismatch: 'Amount mismatch',
@@ -61,22 +59,24 @@ export default function ExecSettlements() {
   const [data, setData] = useState<ExecSettlements | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [period, setPeriod] = useState<Period>('l30d')
+  const [sp] = useSearchParams()
+  const [from, setFrom] = useState(sp.get('from') || monthStart())
+  const [to,   setTo]   = useState(sp.get('to')   || today())
 
-  const load = useCallback(async (p: Period) => {
+  const load = useCallback(async (f: string, t: string) => {
     setLoading(true); setError(null)
     try {
-      const r = await apiFetch<{ data: ExecSettlements }>(`/api/executive/settlements?period=${p}`)
+      const r = await apiFetch<{ data: ExecSettlements }>(`/api/executive/settlements?period=custom&start=${f}&end=${t}`)
       setData(r.data)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load(period) }, [load, period])
+  useEffect(() => { load(from, to) }, [load, from, to])
 
   const title = 'Settlements: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
-  const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
+  const actions = <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
 
   if (loading) return (
     <Page title={title} back={back} actions={actions}>
@@ -85,7 +85,7 @@ export default function ExecSettlements() {
   )
   if (error) return (
     <Page title={title} back={back} actions={actions}>
-      <ErrBanner error={error} onRetry={() => load(period)} />
+      <ErrBanner error={error} onRetry={() => load(from, to)} />
     </Page>
   )
   if (!data) return null
@@ -99,12 +99,21 @@ export default function ExecSettlements() {
     <Page title={title} back={back} actions={actions}>
 
       {/* ── Money moved ───────────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
+      {(() => {
+        const totalFees = (data.payout_fees_kobo || 0) + (data.collection_fees_kobo || 0)
+        const moved = (data.payouts_kobo || 0) + (data.collections_kobo || 0)
+        const costPct = moved > 0 ? (totalFees / moved) * 100 : 0
+        return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: SP[3], marginBottom: 14 }}>
         <KpiCard label="Payouts Out" value={fmtKobo(data.payouts_kobo)} change={data.payouts_change_pct} icon="north_east" accent={NAVY} />
         <KpiCard label="Collections In" value={fmtKobo(data.collections_kobo)} icon="south_west" accent={GREEN} />
+        <KpiCard label="Net Flow" value={fmtKobo(Math.abs(data.net_flow_kobo))} sub={netOut ? 'net out' : 'net in'} icon="swap_vert" accent={netOut ? AMBER : GREEN} />
+        <KpiCard label="Cost to Move Money" value={fmtKobo(totalFees)} sub={`${fmtPct(costPct)} of value moved`} icon="toll" accent={AMBER} />
         <KpiCard label="Payout Success" value={fmtPct(data.nip_success_rate_pct)} icon="check_circle" accent={data.nip_success_rate_pct >= 99 ? GREEN : AMBER} />
         <KpiCard label="Open Exceptions" value={fmtNum(data.open_exceptions)} icon="report" accent={data.open_exceptions > 0 ? RED : GREEN} />
       </div>
+        )
+      })()}
 
       {/* ── Reconciliation: the number that matters most ──────────────────── */}
       <SectionCard
@@ -155,42 +164,42 @@ export default function ExecSettlements() {
 
           <div>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: SP[3] }}>How long they have been sitting</div>
-            <ResponsiveContainer width="100%" height={170}>
-              <BarChart data={data.exception_ageing} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
-                <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
-                <XAxis dataKey="bucket" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <YAxis width={62} tickFormatter={ytick} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <Tooltip content={<Tip fmt={fmtKobo} />} cursor={{ fill: 'var(--row-hvr)' }} />
-                <Bar dataKey="value_kobo" name="Value" radius={[4, 4, 0, 0]} barSize={44}>
-                  {data.exception_ageing.map(a => <Cell key={a.bucket} fill={AGE_COLOR[a.bucket] ?? BLUE} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <EBar
+              data={data.exception_ageing}
+              xKey="bucket"
+              height={170}
+              valueFmt={fmtKobo}
+              axisFmt={ytick}
+              series={[{ key: 'value_kobo', name: 'Value', colorFn: (a) => AGE_COLOR[a.bucket] ?? BLUE }]}
+            />
           </div>
         </div>
       </SectionCard>
 
       {/* ── Daily flow ────────────────────────────────────────────────────── */}
       <SectionCard title="Daily Flow" subtitle="Payouts against collections" style={{ marginBottom: 14 }}>
-        <ResponsiveContainer width="100%" height={230}>
-          <AreaChart data={data.daily_trend} margin={{ top: 4, right: 8, bottom: 14, left: 8 }}>
-            <defs>
-              {[['payouts', NAVY], ['collections', GREEN]].map(([k, c]) => (
-                <linearGradient key={k} id={`sgrad_${k}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={c} stopOpacity={0.2} />
-                  <stop offset="100%" stopColor={c} stopOpacity={0} />
-                </linearGradient>
-              ))}
-            </defs>
-            <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
-            <XAxis dataKey="day" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} minTickGap={24} />
-            <YAxis width={70} tickFormatter={ytick} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-            <Tooltip content={<Tip fmt={fmtKobo} />} />
-            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs, fontFamily: INTER, color: 'var(--txt2)' }} />
-            <Area type="monotone" dataKey="payouts_kobo" name="Payouts" stroke={NAVY} strokeWidth={2} fill="url(#sgrad_payouts)" dot={false} activeDot={{ r: 4, fill: NAVY, stroke: '#fff', strokeWidth: 2 }} />
-            <Area type="monotone" dataKey="collections_kobo" name="Collections" stroke={GREEN} strokeWidth={2} fill="url(#sgrad_collections)" dot={false} activeDot={{ r: 4, fill: GREEN, stroke: '#fff', strokeWidth: 2 }} />
-          </AreaChart>
-        </ResponsiveContainer>
+        <EArea
+          data={data.daily_trend}
+          xKey="day"
+          height={230}
+          endLabel
+          hideYAxis
+          valueFmt={fmtKobo}
+          endFmt={ytick}
+          axisFmt={ytick}
+          series={[
+            { key: 'payouts_kobo', name: 'Payouts', color: NAVY },
+            { key: 'collections_kobo', name: 'Collections', color: GREEN },
+          ]}
+        />
+        <div style={{ display: 'flex', gap: SP[5], marginTop: SP[3] }}>
+          {[{ color: NAVY, label: 'Payouts' }, { color: GREEN, label: 'Collections' }].map(({ color, label }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
+              <span style={{ width: 22, height: 3, borderRadius: 2, background: color }} />
+              {label}
+            </div>
+          ))}
+        </div>
       </SectionCard>
 
       {/* ── Channels + position ───────────────────────────────────────────── */}

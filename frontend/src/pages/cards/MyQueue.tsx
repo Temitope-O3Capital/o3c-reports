@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, DataTable, ErrBanner, Spinner, ExpandableFilterBar } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, BLUE, RED, PURPLE, NUM, TEXT, FW } from '../../lib/design'
 import { WorkspaceHero, MyDaySection, MyDayTile, StatusPill, HeroButton } from '../../components/MyWorkspace'
 
@@ -120,7 +120,7 @@ export default function CardsMyQueue() {
         <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>{r.cif_number}</div>
       </div>
     )},
-    { key: 'amount_kobo', label: 'Amount', render: r => <span style={NUM}>{fmtKobo(r.amount_kobo)}</span> },
+    { key: 'amount_kobo', label: 'Amount', render: r => <span style={NUM}>{fmtKoboExact(r.amount_kobo)}</span> },
     { key: 'dispute_type', label: 'Type', render: r => <StatusPill label={r.dispute_type} color={NAVY} /> },
     { key: 'filed_at', label: 'Raised', render: r => fmtDate(r.filed_at) },
     { key: 'status', label: 'Status', render: r => <StatusPill label={r.status} color={statusColor(r.status)} /> },

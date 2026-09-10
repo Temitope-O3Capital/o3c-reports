@@ -5,6 +5,7 @@ import { roleLabel, MGMT } from '../lib/roles'
 import { SORA, PLEX, MONO } from '../lib/design'
 import { NAV_ICONS, IcoSearch } from '../lib/icons'
 import { allRoles, ROLE_PAGES, type AuthUser } from '../hooks/useAuth'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 
@@ -19,6 +20,10 @@ interface NavItem {
   vis?:   string[] | 'all'
   badge?: number
   hot?:   boolean
+  // Optional module gate: when set, the item shows only while that module_config
+  // key is enabled — lets a sub-module (e.g. Feedback) live inside another
+  // section's header yet be toggled on/off independently, the way Care does.
+  mod?:   string
 }
 interface Section { key: string; header?: string; items: NavItem[] }
 
@@ -57,6 +62,7 @@ const SECTIONS: Section[] = [
           { label: 'Overview',  to: '/mail/overview' },
           { label: 'Inbox',     to: '/mail/inbox' },
           { label: 'Sent Mail', to: '/mail/sent' },
+          { label: 'Outbox',    to: '/mail/outbox' },
           { label: 'Drafts',    to: '/mail/drafts' },
           // Signature lives in Settings → Email Signature. It is a per-user preference
           // like the rest of that page, not a mail destination, and having it in both
@@ -65,7 +71,7 @@ const SECTIONS: Section[] = [
       },
       {
         icon: 'campaign', label: 'Campaigns & Marketing', to: '/marketing/overview',
-        vis: ['sales_head','bd_officer','bd_head','call_center_head'],
+        vis: ['sales_head','bd_head','call_center_head'],
         subs: [
           { label: 'Overview',           to: '/marketing/overview' },
           { label: 'All Campaigns',      to: '/campaigns' },
@@ -89,6 +95,7 @@ const SECTIONS: Section[] = [
           { label: 'My Dashboard',     to: '/sales/my-dashboard', vis: ['sales_officer'] },
           { label: 'My Book',          to: '/sales/book' },
           { label: 'Leads',            to: '/sales/leads' },
+          { label: 'Teams',            to: '/sales/teams', vis: ['sales_head', 'head_ops', 'admin', 'cmo', 'md', 'coo', 'cfo'] },
           { label: 'Contacts',         to: '/sales/customers' },
           { label: 'Tasks',            to: '/sales/tasks' },
           { label: 'Applications',     to: '/sales/applications' },
@@ -99,6 +106,11 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    // Contact Centre is the shared category for the two customer-contact departments:
+    // Call Center (phone/dialler) and Care (customer email). They remain SEPARATE
+    // modules — own roles, own vis gates, own pages — just grouped under one section
+    // header, so a call-centre agent sees only Call Center and a Care agent only Care,
+    // while a supervisor/admin sees both listed under Contact Centre.
     key: 'contact',
     header: 'Contact Centre',
     items: [
@@ -114,6 +126,7 @@ const SECTIONS: Section[] = [
           { label: 'Inbound Calls',    to: '/call-center/inbound' },
           { label: 'Outbound Queue',   to: '/call-center/queue' },
           { label: 'Leads',            to: '/call-center/leads' },
+          { label: 'Forwarded to Sales', to: '/call-center/forwards' },
           { label: 'DNC List',         to: '/call-center/dnc' },
           // leadership — Performance now lives inside the Supervisor view (not a standalone nav page).
           // Agent Matching is now a modal inside the Supervisor view (not a nav page).
@@ -123,16 +136,10 @@ const SECTIONS: Section[] = [
           { label: 'Call Scripts',     to: '/helpdesk/canned' },
         ],
       },
-    ],
-  },
-  {
-    // Care is its own module (own module_config toggle + 'care' permission key),
-    // separate from Contact Centre. Worked by dedicated care_agent/care_head roles —
-    // call-centre staff no longer see Care (and Care staff don't see Call Center).
-    key: 'care',
-    header: 'Care',
-    items: [
       {
+        // Care is a distinct module (own module_config toggle + 'care' permission key),
+        // worked by dedicated care_agent/care_head roles — call-centre staff don't see
+        // Care and Care staff don't see Call Center; both simply live under this header.
         icon: 'mark_email_unread', label: 'Care', to: '/care',
         vis: ['care_agent','care_head'],
         subs: [
@@ -140,12 +147,21 @@ const SECTIONS: Section[] = [
           // Dashboard + Supervisor + Analytics are now tabs in the /care hub.
           { label: 'Dashboard',          to: '/care' },
           { label: 'Care Inbox',         to: '/care/inbox' },
+          { label: 'Outbox',             to: '/care/outbox' },
+          { label: 'Deletion Approvals', to: '/care/approvals' },
           // shared history + resources (customer's cross-channel history via Customer 360).
           // Care-scoped paths (same pages) so the sidebar highlights Care, not Call Center.
           { label: 'Customer Directory', to: '/care/customers' },
           { label: 'Knowledge Base',     to: '/care/knowledge-base' },
           { label: 'Email Templates',    to: '/care/canned' },
         ],
+      },
+      {
+        // Customer Feedback — surveys & their results. Its own module (module_config
+        // key 'feedback'), so it can be toggled independently, but it lives under the
+        // Contact Centre header alongside Call Center and Care.
+        icon: 'reviews', label: 'Customer Feedback', to: '/feedback', mod: 'feedback',
+        vis: ['care_agent', 'care_head', 'cards_head', 'call_center_head', 'collections_head', 'cmo'],
       },
     ],
   },
@@ -155,24 +171,24 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'credit_card', label: 'Card Operations', to: '/cards',
-        vis: ['cards_agent','cards_head','risk_officer','risk_head'],
+        vis: ['cards_agent','cards_head'],
         subs: [
           { label: 'My Queue',            to: '/cards/my-queue', vis: ['cards_agent'] },
           { label: 'Credit Card Portfolio', to: '/cards/credit-portfolio' },
           { label: 'At-Risk Cards',       to: '/cards/at-risk' },
-          { label: 'Import Cycle Data',   to: '/cards/cycle-import', vis: ['cards_head','finance_head'] },
           { label: 'Card Trends',         to: '/cards/trends' },
           { label: 'Cardholder Mgmt',     to: '/cards/management' },
           { label: 'Issuance Queue',      to: '/cards/issuance' },
           { label: 'Disputes',            to: '/cards/disputes' },
           { label: 'Credit Limit Review', to: '/cards/credit-limit' },
+          { label: 'Loan Booking',        to: '/loans/approvals', vis: ['cards_agent','cards_head'] },
           { label: 'Billing Cycles',      to: '/cards/billing' },
           { label: 'Blink Card',          to: '/blink-card', vis: ['cards_agent','cards_head'] },
         ],
       },
       {
         icon: 'smartphone', label: 'Mobile App', to: '/mobile-app',
-        vis: ['cards_head','finance_head','coo'],
+        vis: ['cards_head','coo'],
       },
     ],
   },
@@ -188,13 +204,14 @@ const SECTIONS: Section[] = [
         vis: ['risk_officer','risk_head','finance_officer','finance_head',
               'collections_head','recovery_head','settlement_officer','settlement_head','coo'],
         subs: [
-          { label: 'My Dashboard',     to: '/operations/risk/my-dashboard', vis: ['risk_officer'] },
           { label: 'Overview',         to: '/operations/risk' },
-          { label: 'App Review',       to: '/operations/risk/applications', vis: ['risk_officer','risk_head','coo'] },
-          { label: 'Portfolio',        to: '/operations/risk/portfolio' },
+          { label: 'My Dashboard',     to: '/operations/risk/my-dashboard', vis: ['risk_officer'] },
+          { label: 'Supervisor',       to: '/operations/risk/supervisor', vis: ['risk_head','coo'] },
+          { label: 'Loan/Credit Card Review',    to: '/operations/risk/applications', vis: ['risk_officer','risk_head','coo'] },
+          { label: 'My Approvals',               to: '/loans/approvals', vis: ['risk_officer','risk_head','coo'] },
+          { label: 'Loan/Credit Card Portfolio', to: '/operations/risk/portfolio' },
           { label: 'Vintage Analysis', to: '/operations/risk/vintage' },
           { label: 'Eye Score',        to: '/operations/risk/eye-scores',   vis: ['risk_officer','risk_head','coo'] },
-          { label: 'Credit File',      to: '/operations/risk/credit-file' },
           { label: 'Sector Codes',     to: '/operations/risk/sector-codes',  vis: ['risk_officer','risk_head','coo'] },
         ],
       },
@@ -202,26 +219,29 @@ const SECTIONS: Section[] = [
         icon: 'collections_bookmark', label: 'Collections', to: '/collections',
         vis: ['collections_agent','collections_head','collections_head'],
         subs: [
+          { label: 'Supervisor',           to: '/collections/supervisor', vis: ['collections_head'] },
           { label: 'Credit Portfolio',     to: '/collections/portfolio' },
+          { label: 'Repayments Due',       to: '/collections/due-schedule' },
+          { label: 'Payment Tiers',        to: '/collections/payment-tiers' },
           { label: 'Watchlist',            to: '/collections/watchlist' },
           { label: 'Agent Queue',          to: '/collections/queue' },
           { label: 'Promises to Pay',      to: '/collections/promises' },
           { label: 'Repayment Plans',      to: '/collections/repayment-plans' },
-          { label: 'Write-off Approvals',  to: '/collections/writeoffs' },
-          { label: 'Write-off Requests',   to: '/collections/writeoff-requests' },
+          { label: 'Write-offs',           to: '/collections/writeoffs' },
+          { label: 'Payment Approvals',    to: '/collections/payment-approvals' },
           { label: 'Recovery Approvals',   to: '/collections/recovery-approvals' },
-          { label: 'Activity Log',         to: '/collections/activity-log', vis: ['collections_head','collections_head'] },
           { label: 'My Dashboard',         to: '/collections-ops/agent', vis: ['collections_agent'] },
         ],
       },
       {
         icon: 'gavel', label: 'Recovery', to: '/recovery',
-        vis: ['recovery_agent','recovery_head','recovery_head'],
+        vis: ['recovery_agent','recovery_head'],
         subs: [
+          { label: 'Overview',       to: '/recovery' },
+          { label: 'Supervisor',     to: '/recovery/supervisor', vis: ['recovery_head'] },
           { label: 'My Dashboard',   to: '/recovery-ops/agent', vis: ['recovery_agent'] },
           { label: 'Cases',          to: '/recovery/cases' },
           { label: 'Legal Tracker',  to: '/recovery/legal' },
-          { label: 'Activity Log',   to: '/recovery/activity-log', vis: ['recovery_head','recovery_head'] },
           { label: 'Debt Sales',     to: '/recovery/debt-sales' },
         ],
       },
@@ -246,7 +266,6 @@ const SECTIONS: Section[] = [
           { label: 'Manual Postings',          to: '/settlements/manual-postings' },
           { label: 'Interswitch',              to: '/settlements/interswitch' },
           { label: 'Transaction Report',       to: '/settlements/interswitch/half-year' },
-          { label: 'Import EODTXN',            to: '/settlements/interswitch/import', vis: ['cards_head'] },
         ],
       },
     ],
@@ -257,14 +276,17 @@ const SECTIONS: Section[] = [
     items: [
       {
         icon: 'account_balance', label: 'Finance', to: '/finance',
-        vis: ['finance_officer','finance_head','finance_head'],
+        vis: ['finance_officer','finance_head'],
         subs: [
-          { label: 'My Dashboard',      to: '/finance/my-dashboard', vis: ['finance_officer'] },
+          { label: 'Overview',          to: '/finance' },
+          { label: 'End of Day',        to: '/finance/eod' },
+          { label: 'Income Statement',  to: '/finance/income' },
+          { label: 'Treasury',          to: '/finance/treasury' },
           { label: 'Transactions',      to: '/finance/transactions' },
-          { label: 'Income',            to: '/finance/income' },
           { label: 'Fixed Deposits',    to: '/deposits' },
-          { label: 'EOD / EOB',         to: '/finance/eod' },
           { label: 'FX Parallel Rates', to: '/finance/fx-rates' },
+          { label: 'Sales Commissions', to: '/finance/commissions' },
+          { label: 'Loan Approvals',    to: '/loans/approvals' },
         ],
       },
     ],
@@ -287,16 +309,12 @@ const SECTIONS: Section[] = [
           { label: 'Findings',            to: '/compliance/findings' },
           { label: 'Checklists',          to: '/compliance/checklists' },
           { label: 'Audit Trail',         to: '/compliance/audit-trail' },
-          { label: 'KYC Expiry',          to: '/compliance/kyc-expiry' },
           { label: 'AML Rules',           to: '/compliance/aml-rules' },
           { label: 'Prudential Ratios',   to: '/compliance/prudential' },
           { label: 'Data Subject (DSAR)', to: '/compliance/dsar' },
           { label: 'Concentration Risk',  to: '/compliance/concentration' },
           { label: 'Data Processing Reg', to: '/compliance/dpa-register' },
-          { label: 'SOC 2 Controls',      to: '/compliance/soc2' },
-          { label: 'Pentest Tracker',     to: '/compliance/pentest' },
           { label: 'Policy Documents',    to: '/compliance/policies' },
-          { label: 'Credit Bureau',       to: '/compliance/credit-bureau' },
           { label: 'Data Breaches',       to: '/compliance/breach-incidents' },
           { label: 'Board Pack',          to: '/compliance/board-pack' },
         ],
@@ -307,41 +325,56 @@ const SECTIONS: Section[] = [
     key: 'analytics',
     header: 'Analytics',
     items: [
-      // Reports & BI owns every data extract in the workspace, so the module is
-      // limited to the BI team and admin. The KPI Tracker and the CBN Complaints
-      // Report used to live in here purely because of their /reports URLs; they
-      // are a dashboard and a statutory return, held by different page keys, and
-      // are listed under their own modules so narrowing this one does not take
-      // them away from the heads and from Compliance.
+      // Reports & BI. The data-extract surfaces (Report Builder, My Dashboard,
+      // Customer Behaviour) stay BI-only via per-sub vis. KPI Tracker lives here as
+      // a page too, but its audience is every operating head plus management, so the
+      // MODULE is visible to that wider set; the sensitive subs are gated below and
+      // each sub's canOpen still enforces the real page permission. The /reports
+      // landing routes each role to a page they can actually open (see ReportsHome).
       {
         icon: 'analytics', label: 'Reports & BI', to: '/reports',
-        vis: ['bi_analyst','bi_head'],
-        subs: [
-          { label: 'My Dashboard',      to: '/reports/my-dashboard', vis: ['bi_analyst'] },
-          { label: 'Reports Library',   to: '/reports' },
-          { label: 'Data Export',       to: '/reports/export' },
-          { label: 'Report Builder',    to: '/bi/builder' },
-          { label: 'Saved Reports',     to: '/bi' },
-          { label: 'Scheduled Reports', to: '/bi/scheduled' },
-        ],
-      },
-      {
-        icon: 'speed', label: 'KPI Tracker', to: '/reports/kpi',
         vis: ['bi_analyst','bi_head','sales_head','collections_head','recovery_head',
               'finance_head','compliance_head','cards_head','risk_head','call_center_head',
               'care_head','bd_head','coo','cfo','cmo','md'],
+        subs: [
+          { label: 'My Dashboard',       to: '/reports/my-dashboard', vis: ['bi_analyst'] },
+          { label: 'Report Builder',     to: '/reports/builder',      vis: ['bi_analyst','bi_head'] },
+          { label: 'Customer Behaviour', to: '/reports/behaviour',    vis: ['bi_analyst','bi_head'] },
+          { label: 'Data Management',    to: '/reports/uploads',      vis: ['bi_head','cards_head','finance_head','settlement_head','coo','cfo'] },
+          { label: 'KPI Tracker',        to: '/reports/kpi',
+            vis: ['bi_analyst','bi_head','sales_head','collections_head','recovery_head',
+                  'finance_head','compliance_head','cards_head','risk_head','call_center_head',
+                  'care_head','bd_head','coo','cfo','cmo','md'] },
+          // Growth & Activity now lives INSIDE Reports & BI (moved out of a standalone
+          // Analytics item). Surfaced to operating HEADS (not agents) + BI + management;
+          // route guard/PAGE_FOR gate on kpi_dashboard/reports/executive.
+          { label: 'Growth & Activity',  to: '/growth',
+            vis: ['bi_analyst','bi_head','sales_head','cards_head','collections_head','recovery_head',
+                  'coo','cfo','cmo','md'] },
+        ],
+      },
+      // Mobile Analytics — app install / media-source / funnel analytics from AppsFlyer,
+      // one sub per mobile app. Blink carries live data; the main Mobile App (o3cards)
+      // is built identically but isn't on AppsFlyer yet.
+      {
+        icon: 'smartphone', label: 'Mobile Analytics', to: '/mobile-analytics/blink',
+        vis: ['bi_analyst','bi_head','cmo','cards_head','coo','cfo','md'],
+        subs: [
+          { label: 'Blink',      to: '/mobile-analytics/blink' },
+          { label: 'Mobile App', to: '/mobile-analytics/app'   },
+        ],
       },
       {
         icon: 'receipt_long', label: 'Statements', to: '/statements',
-        vis: ['bi_head','compliance_head','finance_officer','finance_head'],
+        vis: ['bi_head','finance_head'],
         subs: [
           { label: 'Account Statements',     to: '/statements' },
           { label: 'Credit Card Statements', to: '/statements/credit-cards' },
         ],
       },
       {
-        icon: 'account_balance', label: 'Core Banking', to: '/core-banking',
-        vis: ['it_admin','finance_officer','finance_head'],
+        icon: 'account_balance', label: 'Udara', to: '/core-banking',
+        vis: ['finance_officer','finance_head'],
       },
     ],
   },
@@ -370,11 +403,11 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // Sales & BD
   '/bd': 'bd', '/bd/my-dashboard': 'bd', '/bd/pipeline': 'bd_pipeline',
   '/bd/leads': 'bd', '/bd/employers': 'bd_employers', '/bd/assignments': 'bd',
-  '/mail/overview': 'mail', '/mail/inbox': 'mail', '/mail/sent': 'mail', '/mail/drafts': 'mail',
+  '/mail/overview': 'mail', '/mail/inbox': 'mail', '/mail/sent': 'mail', '/mail/drafts': 'mail', '/mail/outbox': 'mail',
   '/marketing/overview': 'campaigns', '/campaigns': 'campaigns', '/campaigns/templates': 'campaigns',
   '/campaigns/lists': 'campaigns', '/contact-segments': 'campaigns', '/marketing/analytics': 'campaigns',
   '/sales/overview': 'sales', '/sales/my-dashboard': 'sales', '/sales/book': 'crm_contacts',
-  '/sales/leads': 'crm_contacts', '/sales/customers': 'crm_contacts',
+  '/sales/leads': 'crm_contacts', '/sales/teams': 'crm_contacts', '/sales/customers': 'crm_contacts',
   '/sales/crm': 'crm_pipeline', '/sales/tasks': 'crm_tasks', '/sales/applications': 'loans',
   '/sales/targets': 'sales', '/sales/reports': 'crm_reports', '/sales/cohort': 'cohort',
   // Contact Centre
@@ -383,11 +416,13 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/helpdesk/calls': 'helpdesk', '/helpdesk/supervisor': 'helpdesk',
   '/helpdesk/knowledge-base': 'helpdesk', '/helpdesk/canned': 'helpdesk_canned',
   '/customers': 'customer360',
-  '/call-center/queue': 'call_center', '/call-center/leads': 'call_center', '/call-center/dnc': 'call_center',
+  '/call-center/queue': 'call_center', '/call-center/leads': 'call_center', '/call-center/forwards': 'call_center', '/call-center/dnc': 'call_center',
   '/call-center/inbound': 'call_center',
   '/call-center/performance': 'call_center_stats',
-  '/care': 'care', '/care/inbox': 'care', '/care/customers': 'customer360',
+  '/care': 'care', '/care/inbox': 'care', '/care/outbox': 'care', '/care/approvals': 'care', '/care/customers': 'customer360',
   '/care/knowledge-base': 'helpdesk', '/care/canned': 'helpdesk_canned',
+  // Customer Feedback
+  '/feedback': 'surveys',
   // Cards
   '/cards': 'cards', '/cards/my-queue': 'cards', '/cards/credit-portfolio': 'cards',
   '/cards/at-risk': 'cards', '/cards/cycle-import': 'cards', '/cards/trends': 'card_trends',
@@ -397,15 +432,19 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // Operations
   '/operations/risk': 'credit_portfolio', '/operations/risk/my-dashboard': 'credit_portfolio', '/operations/risk/applications': 'credit_portfolio',
   '/operations/risk/portfolio': ['credit_portfolio', 'active_loan_book'], '/operations/risk/vintage': 'credit_portfolio',
-  '/operations/risk/eye-scores': 'credit_portfolio', '/operations/risk/credit-file': 'credit_portfolio',
+  '/operations/risk/eye-scores': 'credit_portfolio',
+  '/operations/risk/supervisor': ['risk_head', 'risk_all'],
   '/operations/risk/sector-codes': 'credit_portfolio',
-  '/collections': 'collections', '/collections/portfolio': 'collections', '/collections/watchlist': 'collections',
+  '/collections': 'collections', '/collections/supervisor': 'collections_assign',
+  '/collections/portfolio': 'collections', '/collections/payment-tiers': 'collections', '/collections/due-schedule': 'collections', '/collections/watchlist': 'collections',
   '/collections/queue': 'collections', '/collections/promises': 'collections',
   '/collections/repayment-plans': 'collections', '/collections/writeoffs': 'collections',
   '/collections/writeoff-requests': 'collections', '/collections/recovery-approvals': 'recovery',
+  '/collections/payment-approvals': 'collections_payment_approve',
   '/collections/activity-log': 'collections', '/collections-ops/agent': 'collections',
-  '/recovery': 'recovery', '/recovery-ops/agent': 'recovery', '/recovery/cases': 'recovery',
-  '/recovery/legal': 'recovery', '/recovery/activity-log': 'recovery', '/recovery/debt-sales': 'recovery',
+  '/recovery': 'recovery', '/recovery/supervisor': 'recovery_assign',
+  '/recovery-ops/agent': 'recovery', '/recovery/cases': 'recovery',
+  '/recovery/legal': 'recovery', '/recovery/debt-sales': 'recovery',
   '/settlements': 'settlement', '/settlements/my-dashboard': 'settlement',
   '/settlements/workbench': ['settlement', 'reconciliation'], '/settlements/exceptions': ['settlement', 'reconciliation'],
   '/settlements/position': ['settlement', 'reconciliation'], '/settlements/runs': ['settlement', 'reconciliation'],
@@ -413,23 +452,26 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/settlements/interswitch': ['settlement', 'cards'], '/settlements/interswitch/half-year': ['settlement', 'cards'],
   '/settlements/interswitch/import': ['settlement', 'cards'],
   // Finance
-  '/finance': 'income', '/finance/my-dashboard': ['income', 'finance'], '/finance/transactions': 'transactions', '/finance/income': 'income',
+  '/finance': 'income', '/finance/transactions': 'transactions', '/finance/income': 'income', '/finance/treasury': 'income', '/finance/commissions': 'income',
   '/deposits': 'fixed_deposit', '/finance/eod': 'eod', '/finance/fx-rates': 'fx_rates',
   // Compliance
   '/compliance': 'watch_list', '/compliance/my-dashboard': ['watch_list', 'audit_findings', 'compliance_checklists', 'compliance_all'],
   '/compliance/credit-audit-trail': 'audit_trail',
   '/compliance/watchlist': 'watch_list', '/compliance/regulatory': 'watch_list',
   '/compliance/findings': 'audit_findings', '/compliance/checklists': 'compliance_checklists',
-  '/compliance/audit-trail': 'audit_trail', '/compliance/kyc-expiry': 'watch_list',
+  '/compliance/audit-trail': 'audit_trail',
   '/compliance/aml-rules': 'watch_list', '/compliance/prudential': 'watch_list',
   '/compliance/dsar': 'watch_list', '/compliance/concentration': 'watch_list',
-  '/compliance/dpa-register': 'watch_list', '/compliance/soc2': 'audit_trail',
-  '/compliance/pentest': 'audit_trail', '/compliance/policies': 'compliance_checklists',
-  '/compliance/credit-bureau': 'watch_list', '/compliance/breach-incidents': 'compliance_all',
+  '/compliance/dpa-register': 'watch_list',
+  '/compliance/policies': 'compliance_checklists',
+  '/compliance/breach-incidents': 'compliance_all',
   '/compliance/board-pack': 'compliance_all',
   // Analytics
-  '/reports': 'reports', '/reports/my-dashboard': 'reports', '/reports/kpi': 'kpi_dashboard', '/compliance/cbn-complaints': 'cbn_reports',
-  '/reports/export': 'reports', '/bi': 'reports', '/bi/builder': 'reports', '/bi/scheduled': 'reports',
+  // '/reports' itself is intentionally left ungated so the KPI audience (heads +
+  // management, who lack the 'reports' page) can open the module; ReportsHome routes
+  // them to a page they can access. The individual subs below still enforce pages.
+  '/reports/my-dashboard': 'reports', '/reports/behaviour': 'reports', '/reports/builder': 'reports', '/reports/kpi': 'kpi_dashboard', '/reports/uploads': 'uploads', '/compliance/cbn-complaints': 'cbn_reports',
+  '/growth': ['kpi_dashboard', 'reports', 'executive'],
   '/statements': 'statements', '/statements/credit-cards': 'statements', '/core-banking': 'core-banking',
   // Admin
   '/admin': 'admin_users',
@@ -481,16 +523,16 @@ function SubLink({ sub, active }: { sub: SubItem; active: boolean }) {
       to={sub.to}
       style={{
         display: 'flex', alignItems: 'center',
-        padding: '6px 14px 6px 40px',
-        fontSize: 12, fontFamily: SORA,
-        color: active ? '#7DD3FC' : 'rgba(255,255,255,.5)',
+        padding: '7px 14px 7px 40px',
+        fontSize: 13, fontFamily: SORA,
+        color: active ? '#7DD3FC' : 'rgba(255,255,255,.66)',
         borderLeft: active ? '3px solid #0EA5E9' : '3px solid transparent',
         textDecoration: 'none',
         transition: 'color .12s',
         whiteSpace: 'nowrap',
       }}
       onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.color = '#fff' }}
-      onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.5)' }}
+      onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.66)' }}
     >
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub.label}</span>
       {sub.badge != null && sub.badge > 0 && (
@@ -538,8 +580,8 @@ function NavRow({
     padding: collapsed ? '10px 0' : '8px 12px 8px 11px',
     justifyContent: collapsed ? 'center' : undefined,
     borderLeft: collapsed ? 'none' : (highlighted ? '3px solid #0EA5E9' : '3px solid transparent'),
-    fontSize: 12.5, fontFamily: SORA, fontWeight: 500,
-    color: highlighted ? '#fff' : 'rgba(255,255,255,.66)',
+    fontSize: 13.5, fontFamily: SORA, fontWeight: 500,
+    color: highlighted ? '#fff' : 'rgba(255,255,255,.72)',
     background: highlighted ? 'rgba(14,165,233,.10)' : 'transparent',
     cursor: 'pointer',
     textDecoration: 'none',
@@ -635,9 +677,9 @@ function SectionHeader({ label, collapsed }: { label?: string; collapsed: boolea
   return (
     <div style={{
       padding: '14px 14px 4px',
-      fontSize: 10, fontWeight: 600,
+      fontSize: 11, fontWeight: 600,
       letterSpacing: '.12em', textTransform: 'uppercase',
-      color: 'rgba(255,255,255,.32)',
+      color: 'rgba(255,255,255,.44)',
       whiteSpace: 'nowrap', fontFamily: SORA,
     }}>
       {label}
@@ -657,8 +699,8 @@ function FlatModule({ item, roles, pathname, canOpen }: { item: NavItem; roles: 
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '14px 14px 6px',
-        fontSize: 10.5, fontWeight: 700, letterSpacing: '.11em', textTransform: 'uppercase',
-        color: 'rgba(255,255,255,.42)', fontFamily: SORA, whiteSpace: 'nowrap',
+        fontSize: 11.5, fontWeight: 700, letterSpacing: '.11em', textTransform: 'uppercase',
+        color: 'rgba(255,255,255,.52)', fontFamily: SORA, whiteSpace: 'nowrap',
       }}>
         {Ico
           ? <Ico size={13} style={{ opacity: 0.6, flexShrink: 0 }} />
@@ -672,6 +714,39 @@ function FlatModule({ item, roles, pathname, canOpen }: { item: NavItem; roles: 
   )
 }
 
+// Which top-level nav item "owns" the current path, for section highlight + auto-expand.
+// Uses a boundary-aware, LONGEST-prefix match so a broad prefix in one section can't
+// hijack a deeper route that belongs to another (fixes cross-section mis-highlighting).
+// Shared Customer-360 profile drill-ins (/customers/:id, /care/customers/:id) are opened
+// from every module, so they deliberately own NO section — otherwise opening a customer
+// from Collections/Recovery/Cards would light up Call Center (which hosts the directory).
+function isSharedProfilePath(p: string): boolean {
+  // Only the bare /customers/:cif is section-neutral (it's opened from every module via
+  // the Customer-360 button). /care/customers/:cif is explicitly under Care, so it stays
+  // owned by Care and keeps that context.
+  return /^\/customers\/[^/]+/.test(p)
+}
+function navOwns(pathname: string, to: string): boolean {
+  return pathname === to || pathname.startsWith(to + '/')
+}
+function activeItemTo(pathname: string): string | null {
+  if (isSharedProfilePath(pathname)) return null
+  let bestTo: string | null = null
+  let bestLen = -1
+  for (const s of SECTIONS) {
+    for (const item of s.items) {
+      const cands = [item.to, ...(item.subs?.map(x => x.to) ?? [])]
+      for (const c of cands) {
+        if (c && c !== '/' && navOwns(pathname, c) && c.length > bestLen) {
+          bestLen = c.length
+          bestTo = item.to
+        }
+      }
+    }
+  }
+  return bestTo
+}
+
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
 export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModules }: {
@@ -680,8 +755,14 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
 }) {
   const { pathname } = useLocation()
   const navigate = useNavigate()
+  const activeTo = activeItemTo(pathname)
 
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('o3c_sb') === '1')
+  // The user's stored preference, and the effective state. On a narrow viewport the rail
+  // is forced collapsed to give the content room, without clobbering what the user chose —
+  // expanding the window restores their preference.
+  const [userCollapsed, setUserCollapsed] = useState(() => localStorage.getItem('o3c_sb') === '1')
+  const isNarrow = useMediaQuery('(max-width: 1100px)')
+  const collapsed = userCollapsed || isNarrow
 
   // Poll /api/health every 60 s to reflect the datastore (PostgreSQL) status.
   const [dbStatus, setDbStatus] = useState<'online' | 'offline' | null>(null)
@@ -700,19 +781,11 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
     return () => { cancelled = true; clearInterval(id) }
   }, [])
 
-  const [openKey, setOpenKey] = useState<string | null>(() => {
-    for (const s of SECTIONS) {
-      for (const item of s.items) {
-        const subMatch = item.subs?.some(sub => sub.to !== '/' && pathname.startsWith(sub.to))
-        if (subMatch || (item.to !== '/' && pathname.startsWith(item.to))) return item.to
-      }
-    }
-    return null
-  })
+  const [openKey, setOpenKey] = useState<string | null>(() => activeItemTo(pathname))
 
   useEffect(() => {
-    localStorage.setItem('o3c_sb', collapsed ? '1' : '0')
-  }, [collapsed])
+    localStorage.setItem('o3c_sb', userCollapsed ? '1' : '0')
+  }, [userCollapsed])
 
   const roleSet = allRoles(user)
 
@@ -720,10 +793,12 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
   // shows only what actually opens (no items that would redirect). See makeCanOpen.
   const canOpen = makeCanOpen(user, roleSet)
 
-  // root and admin sections always show; all others require the module to be enabled
-  const sections = visibleSections(roleSet, canOpen).filter(s =>
-    s.key === 'root' || s.key === 'admin' || enabledModules.has(s.key)
-  )
+  // root and admin sections always show; all others require the module to be enabled.
+  // Items carrying their own `mod` (a sub-module hosted under another section, e.g.
+  // Feedback under Contact Centre) are additionally hidden when that module is off.
+  const sections = visibleSections(roleSet, canOpen)
+    .map(s => ({ ...s, items: s.items.filter(it => !it.mod || enabledModules.has(it.mod)) }))
+    .filter(s => (s.key === 'root' || s.key === 'admin' || enabledModules.has(s.key)) && s.items.length > 0)
 
   // Agents/officers get a flat, dropdown-free nav (module = header, pages listed
   // beneath). Heads, management and admins keep the collapsible accordion since
@@ -758,7 +833,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
       <div style={{
         display: 'flex', alignItems: 'center',
         padding: collapsed ? '14px 0' : '12px 12px 11px',
-        borderBottom: '1px solid rgba(255,255,255,.07)',
+        borderBottom: '1px solid rgba(255,255,255,.08)',
         justifyContent: collapsed ? 'center' : 'space-between',
         flexShrink: 0, overflow: 'hidden',
       }}>
@@ -766,7 +841,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
           {/* L4: branding reads from VITE_ORG_NAME env var */}
           <img
             src="/o3-logo-transparent.svg"
-            width={50} height={27}
+            width={46} height={25}
             alt={import.meta.env.VITE_ORG_NAME ?? 'O3 Capital'}
             style={{ display: 'block', flexShrink: 0 }}
           />
@@ -774,7 +849,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
           {!collapsed && (
             <div style={{ overflow: 'hidden', minWidth: 0 }}>
               <div style={{
-                fontWeight: 700, fontSize: 13.5, color: '#fff',
+                fontWeight: 700, fontSize: 13.5, color: 'var(--nav-act-txt)',
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 fontFamily: SORA, letterSpacing: '-0.2px', lineHeight: 1.15,
               }}>
@@ -782,7 +857,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
               </div>
               <div style={{
                 fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase',
-                letterSpacing: '1.4px', color: 'rgba(255,255,255,.28)',
+                letterSpacing: '1.4px', color: 'var(--grp)',
                 fontFamily: SORA, marginTop: 3, whiteSpace: 'nowrap',
               }}>
                 Workspace
@@ -795,7 +870,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
 
       {/* Floating collapse/expand tab */}
       <div
-        onClick={() => setCollapsed(c => !c)}
+        onClick={() => setUserCollapsed(c => !c)}
         title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         style={{
           position: 'absolute', right: -12, top: '50%', transform: 'translateY(-50%)',
@@ -806,12 +881,12 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
           borderRadius: '0 8px 8px 0',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer', zIndex: 20,
-          color: 'rgba(255,255,255,.4)',
+          color: 'var(--nav-txt)',
           transition: 'color 120ms',
-          boxShadow: '2px 0 6px rgba(0,0,0,.2)',
+          boxShadow: '2px 0 6px rgba(0,0,0,.12)',
         }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#fff' }}
-        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.4)' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--nav-hvr-txt)' }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--nav-txt)' }}
       >
         <span className="material-symbols-rounded" style={{
           fontSize: 13,
@@ -830,18 +905,18 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
             margin: '12px 12px 4px', flexShrink: 0,
             display: 'flex', alignItems: 'center', gap: 8,
             background: 'var(--sb2)', border: '1px solid rgba(255,255,255,.08)',
-            borderRadius: 4, padding: '7px 10px',
-            color: 'rgba(255,255,255,.45)', fontSize: 12,
+            borderRadius: 8, padding: '7px 10px',
+            color: 'var(--nav-txt)', fontSize: 12,
             fontFamily: SORA, cursor: 'pointer', whiteSpace: 'nowrap',
             transition: 'border-color .12s, color .12s',
           }}
           onMouseEnter={e => {
-            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(14,165,233,.5)'
-            ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.7)'
+            (e.currentTarget as HTMLElement).style.borderColor = 'var(--nav-dot)'
+            ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-hvr-txt)'
           }}
           onMouseLeave={e => {
             (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,.08)'
-            ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.45)'
+            ;(e.currentTarget as HTMLElement).style.color = 'var(--nav-txt)'
           }}
         >
           <IcoSearch size={14} style={{ opacity: 0.6, flexShrink: 0 }} />
@@ -850,7 +925,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
             fontFamily: MONO, fontSize: 10,
             border: '1px solid rgba(255,255,255,.08)',
             borderRadius: 3, padding: '1px 5px',
-            color: 'rgba(255,255,255,.4)',
+            color: 'var(--nav-txt)',
             background: 'transparent',
           }}>
             {IS_MAC ? '⌘K' : 'Ctrl K'}
@@ -880,8 +955,8 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
                     item={item}
                     roles={roleSet}
                     canOpen={canOpen}
-                    isActive={item.to === '/' ? pathname === '/' : item.subs?.length ? pathname === item.to : pathname.startsWith(item.to)}
-                    hasActiveSub={item.subs?.some(s => s.to !== '/' && pathname.startsWith(s.to)) ?? false}
+                    isActive={item.to === '/' ? pathname === '/' : item.to === activeTo}
+                    hasActiveSub={item.to === activeTo && pathname !== item.to}
                     collapsed={collapsed}
                     open={openKey === item.to}
                     onToggle={() => toggleItem(item.to)}
@@ -920,10 +995,10 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
           {!collapsed && (
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: SORA }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--nav-act-txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: SORA }}>
                   {user.name}
                 </div>
-                <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.45)', whiteSpace: 'nowrap', fontFamily: SORA }}>
+                <div style={{ fontSize: 10.5, color: 'var(--nav-txt)', whiteSpace: 'nowrap', fontFamily: SORA }}>
                   {roleLabel(user.role as string)}
                 </div>
               </div>
@@ -935,10 +1010,10 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
                   width: 24, height: 24, borderRadius: 4, border: 'none',
                   background: 'transparent', cursor: 'pointer', flexShrink: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: 'rgba(255,255,255,.35)', transition: 'color 120ms',
+                  color: 'var(--nav-txt)', transition: 'color 120ms',
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#fff' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.35)' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--nav-hvr-txt)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--nav-txt)' }}
               >
                 <span className="material-symbols-rounded" style={{ fontSize: 17 }}>settings</span>
               </button>
@@ -950,10 +1025,10 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
                   width: 24, height: 24, borderRadius: 4, border: 'none',
                   background: 'transparent', cursor: 'pointer', flexShrink: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: 'rgba(255,255,255,.35)', transition: 'color 120ms',
+                  color: 'var(--nav-txt)', transition: 'color 120ms',
                 }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#C00000' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.35)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--nav-txt)' }}
               >
                 <span className="material-symbols-rounded" style={{ fontSize: 17 }}>logout</span>
               </button>
@@ -978,6 +1053,7 @@ export default function Sidebar({ user, onLogout, utilities, onCmdK, enabledModu
             {dbStatus === 'online' ? 'Database · live' : dbStatus === 'offline' ? 'Database · offline' : 'Database · checking…'}
           </div>
         )}
+
       </div>
     </aside>
   )

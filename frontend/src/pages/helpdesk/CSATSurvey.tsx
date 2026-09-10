@@ -53,6 +53,10 @@ export default function CSATSurvey() {
   const [data, setData] = useState<SurveyData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Submit failures are kept SEPARATE from load failures: a transient 500 on submit must
+  // show inline (form intact, retryable), not replace the whole page with the top-level
+  // "this survey link is invalid or has expired" and discard the customer's rating.
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const [score, setScore] = useState(0)
   const [comment, setComment] = useState('')
@@ -81,6 +85,7 @@ export default function CSATSurvey() {
   async function submit() {
     if (!score) return
     setSubmitting(true)
+    setSubmitError(null)
     try {
       const res = await fetch(`/api/helpdesk/csat/${token}`, {
         method: 'POST',
@@ -90,7 +95,8 @@ export default function CSATSurvey() {
       if (!res.ok) throw new Error(await res.text())
       setDone(true)
     } catch (e: any) {
-      setError(e.message)
+      // Inline, not full-page: keep the rating on screen so the customer can retry.
+      setSubmitError(e.message || 'Could not submit your feedback. Please try again.')
     } finally {
       setSubmitting(false)
     }
@@ -103,7 +109,7 @@ export default function CSATSurvey() {
     alignItems: 'center',
     justifyContent: 'center',
     padding: `${SP[6]} ${SP[4]}`,
-    fontFamily: "'Sora', 'Inter', sans-serif",
+    fontFamily: "var(--font-sans)",
   }
 
   const boxStyle: React.CSSProperties = {
@@ -217,9 +223,9 @@ export default function CSATSurvey() {
           </div>
         </div>
 
-        {error && (
+        {submitError && (
           <div style={{ marginTop: SP[3], padding: '10px 14px', background: `${RED}10`, borderRadius: RADIUS.md, color: RED, fontSize: TEXT.base }}>
-            {error}
+            {submitError}
           </div>
         )}
 

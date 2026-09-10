@@ -31,6 +31,9 @@ interface Props {
   /** Pre-fill the applicant when launched from a customer/lead context. */
   presetCif?: string
   presetName?: string
+  /** Raise from a CRM lead: posts to the lead on-ramp and makes the CIF optional
+   *  (a prospect may not have one yet — it lands provisional and reconciles later). */
+  leadId?: number
 }
 
 // Amount label reads naturally per product.
@@ -43,7 +46,7 @@ function amountLabel(code: string): string {
   }
 }
 
-export default function NewApplicationModal({ open, onClose, onSaved, draft, presetCif, presetName }: Props) {
+export default function NewApplicationModal({ open, onClose, onSaved, draft, presetCif, presetName, leadId }: Props) {
   const [product, setProduct] = useState('')
   const [cif, setCif]         = useState('')
   const [name, setName]       = useState('')
@@ -90,10 +93,12 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
 
   async function saveDraft() {
     if (!product) { toast.error('Choose a product'); return }
-    if (!cif.trim()) { toast.error('Enter the customer CIF'); return }
+    if (!leadId && !cif.trim()) { toast.error('Enter the customer CIF'); return }
     setBusy(true)
     try {
-      if (draft) {
+      if (leadId) {
+        await apiFetch(`/api/sales/leads/${leadId}/application`, { method: 'POST', body: JSON.stringify({ ...payload(), draft: true }) })
+      } else if (draft) {
         await apiFetch(`/api/sales/applications/${draft.id}`, { method: 'PATCH', body: JSON.stringify(payload()) })
       } else {
         await apiFetch('/api/sales/applications', { method: 'POST', body: JSON.stringify({ ...payload(), draft: true }) })
@@ -106,11 +111,13 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
 
   async function submit() {
     if (!product) { toast.error('Choose a product'); return }
-    if (!cif.trim()) { toast.error('Enter the customer CIF'); return }
+    if (!leadId && !cif.trim()) { toast.error('Enter the customer CIF'); return }
     if (!amount || Number(amount) <= 0) { toast.error('Enter an amount before submitting'); return }
     setBusy(true)
     try {
-      if (draft) {
+      if (leadId) {
+        await apiFetch(`/api/sales/leads/${leadId}/application`, { method: 'POST', body: JSON.stringify({ ...payload(), draft: false }) })
+      } else if (draft) {
         // Persist any edits, then push.
         await apiFetch(`/api/sales/applications/${draft.id}`, { method: 'PATCH', body: JSON.stringify(payload()) })
         await apiFetch(`/api/sales/applications/${draft.id}/submit`, { method: 'POST', body: JSON.stringify({}) })
@@ -124,7 +131,7 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={draft ? 'Resume application' : 'New application'} width={560}
+    <Modal open={open} onClose={onClose} title={leadId ? 'Raise application from lead' : draft ? 'Resume application' : 'New application'} width={560}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -146,7 +153,7 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
             ))}
           </Select>
         </div>
-        <Input label="Customer CIF" value={cif} onChange={e => setCif(e.target.value)} placeholder="e.g. 21013" />
+        <Input label={leadId ? 'Customer CIF (optional)' : 'Customer CIF'} value={cif} onChange={e => setCif(e.target.value)} placeholder={leadId ? 'blank = prospect, links later' : 'e.g. 21013'} />
         <Input label="Customer name (optional)" value={name} onChange={e => setName(e.target.value)} />
         <Input label={amountLabel(product)} type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
         {showTenor && (
@@ -168,7 +175,10 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
             : line === 'fixed_deposit'
               ? 'Submitting sends this to Operations for booking.'
               : 'Save a draft now and submit once the details are complete.'}
-        {' '}The customer must be on your book. <strong style={{ color: 'var(--txt2)', fontWeight: FW.semibold }}>Save draft</strong> keeps it private until you submit.
+        {' '}{leadId
+          ? 'Raised from this lead — no CIF yet is fine, it lands provisional and links to the customer once they exist.'
+          : 'The customer must be on your book.'}
+        {' '}<strong style={{ color: 'var(--txt2)', fontWeight: FW.semibold }}>Save draft</strong> keeps it private until you submit.
       </div>
     </Modal>
   )

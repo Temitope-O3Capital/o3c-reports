@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -83,6 +85,128 @@ func RegisterCBSSync(r chi.Router, c *udara.Client, db *core.DB) {
 	r.With(core.RequirePages("admin")).Get("/probe", cbsProbe(c))
 	r.With(core.RequirePages("admin")).Get("/probe-all", cbsProbeAll(c))
 	r.With(core.RequirePages("admin")).Get("/probe-detail", cbsProbeDetail(c))
+	// Live core-banking account activity for Customer 360 — the real posting ledger
+	// (disbursements, repayments, interest, fees) that the card feed never carries.
+	r.Get("/customer/{cif}/statement", cbsCustomerStatement(c, db))
+}
+
+// cbsInnerRows unwraps a Udara envelope {"data": <inner>} where inner is either
+// {"data":[...]} / {"items":[...]} (search + report shapes) or a bare array.
+func cbsInnerRows(raw json.RawMessage) []map[string]any {
+	var env struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal(raw, &env) != nil {
+		return nil
+	}
+	var inner struct {
+		Data  []map[string]any `json:"data"`
+		Items []map[string]any `json:"items"`
+	}
+	if json.Unmarshal(env.Data, &inner) == nil {
+		if len(inner.Data) > 0 {
+			return inner.Data
+		}
+		if len(inner.Items) > 0 {
+			return inner.Items
+		}
+	}
+	var arr []map[string]any
+	if json.Unmarshal(env.Data, &arr) == nil {
+		return arr
+	}
+	return nil
+}
+
+// cbsCustomerStatement resolves a customer's Udara accounts (SearchAccount by CustomerId
+// + our synced loan/FD/linked accounts) and merges each account's RequestCustomerAccountStatement
+// into one date-sorted posting ledger for the selected window. Read-only; network calls are
+// bounded (≤6 accounts, 60s) so a customer with a fat book can't hang the request. Period is
+// keyed on financialDate (the value date), never the entry time.
+func cbsCustomerStatement(c *udara.Client, db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !c.IsConfigured() {
+			cbsWriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "CBS not configured"})
+			return
+		}
+		cif := chi.URLParam(r, "cif")
+		from, to := qstr(r, "from"), qstr(r, "to")
+		if !dateRE.MatchString(from) || !dateRE.MatchString(to) {
+			now := time.Now()
+			to = now.Format("2006-01-02")
+			from = now.AddDate(0, 0, -90).Format("2006-01-02")
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+		defer cancel()
+
+		// Resolve the customer's account numbers: Udara's live account list first, then
+		// any loan/FD/linked accounts we've already synced (belt and braces).
+		acctName := map[string]string{}
+		if raw, code, err := c.Do(ctx, "GET", "/api/account/v1/SearchAccount", nil, urlValues("CustomerId", cif)); err == nil && code == 200 {
+			for _, a := range cbsInnerRows(raw) {
+				if an := str(a["accountNumber"]); an != "" {
+					acctName[an] = str(a["accountName"])
+				}
+			}
+		}
+		for _, row := range queryRows(ctx, db, `
+			SELECT cbs_account_number AS an FROM app.cbs_loans WHERE cbs_customer_id=$1 AND cbs_account_number<>''
+			UNION SELECT linked_account FROM app.cbs_loans WHERE cbs_customer_id=$1 AND COALESCE(linked_account,'')<>''
+			UNION SELECT cbs_account_number FROM app.cbs_fixed_deposits WHERE cbs_customer_id=$1 AND cbs_account_number<>''`, cif) {
+			if an := str(row["an"]); an != "" {
+				if _, ok := acctName[an]; !ok {
+					acctName[an] = ""
+				}
+			}
+		}
+
+		accounts := make([]map[string]any, 0, len(acctName))
+		postings := make([]map[string]any, 0, 64)
+		n := 0
+		for an, nm := range acctName {
+			if n >= 6 {
+				break
+			}
+			n++
+			accounts = append(accounts, map[string]any{"account": an, "name": nm})
+			raw, code, err := c.Do(ctx, "GET", "/api/Report/v1/RequestCustomerAccountStatement", nil,
+				urlValues("AccountNumber", an, "FinancialDateFrom", from, "FinancialDateTo", to))
+			if err != nil || code != 200 {
+				continue
+			}
+			for _, p := range cbsInnerRows(raw) {
+				postings = append(postings, map[string]any{
+					"account":        an,
+					"financial_date": str(p["financialDate"]),
+					"posted_at":      str(p["transactionDate"]),
+					"reference":      str(p["postingReferenceNumber"]),
+					"debit_kobo":     int64(toFloat(p["debit"])),
+					"credit_kobo":    int64(toFloat(p["credit"])),
+					"balance_kobo":   int64(toFloat(p["balance"])),
+					"narration":      str(p["narration"]),
+				})
+			}
+		}
+		// Newest first, by value date. String compare is safe — dates are YYYY-MM-DD.
+		sort.Slice(postings, func(i, j int) bool {
+			return str(postings[i]["financial_date"]) > str(postings[j]["financial_date"])
+		})
+		if len(postings) > 300 {
+			postings = postings[:300]
+		}
+		cbsWriteJSON(w, http.StatusOK, map[string]any{
+			"accounts": accounts, "postings": postings, "from": from, "to": to, "count": len(postings),
+		})
+	}
+}
+
+// urlValues builds url.Values from alternating key,value pairs.
+func urlValues(kv ...string) url.Values {
+	v := url.Values{}
+	for i := 0; i+1 < len(kv); i += 2 {
+		v.Set(kv[i], kv[i+1])
+	}
+	return v
 }
 
 // cbsProbeDetail hunts for a per-account detail endpoint (the real repayment schedule).

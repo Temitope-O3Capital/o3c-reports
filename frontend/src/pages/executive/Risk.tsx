@@ -1,13 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
-import {
-  ResponsiveContainer, BarChart, Bar, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-} from 'recharts'
-import { Page, SectionCard, KpiCard, Spinner, ErrBanner } from '../../components/UI'
+import { useSearchParams } from 'react-router-dom'
+import { Page, SectionCard, KpiCard, Spinner, ErrBanner, DateFilter } from '../../components/UI'
+import { EBar, EBarH } from '../../components/echarts'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
-import { RED, AMBER, BLUE, GREEN, NAVY, INTER, NUM, TEXT, FW, SP } from '../../lib/design'
-import { PeriodFilter, Tip, Stat, Note, ytick, share, type Period } from './shared'
+import { fmtKobo, fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
+import { RED, DARKRED, AMBER, BLUE, GREEN, NAVY, PURPLE, INTER, NUM, TEXT, FW, SP } from '../../lib/design'
+import { Stat, Note, ytick, share } from './shared'
 
 interface ExecRisk {
   period: { type: string; start: string; end: string }
@@ -17,7 +15,13 @@ interface ExecRisk {
   npl_rate_pct: number
   concentration_top10_pct: number
   avg_loan_size_kobo: number
+  loan_par: { par30_kobo: number; par60_kobo: number; par90_kobo: number; par30_pct: number; par60_pct: number; par90_pct: number }
   product_concentration: { product: string; count: number; outstanding_kobo: number }[]
+
+  // Loan repayment schedule (Udara installment schedule).
+  loan_repayment_ladder: { month: string; principal_kobo: number; interest_kobo: number }[]
+  loan_interest_forward_kobo: number
+  loan_due_30d_kobo: number
 
   // Card book — the larger credit asset.
   card_exposure_kobo: number
@@ -41,22 +45,24 @@ export default function ExecRisk() {
   const [data, setData] = useState<ExecRisk | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [period, setPeriod] = useState<Period>('mtd')
+  const [sp] = useSearchParams()
+  const [from, setFrom] = useState(sp.get('from') || monthStart())
+  const [to,   setTo]   = useState(sp.get('to')   || today())
 
-  const load = useCallback(async (p: Period) => {
+  const load = useCallback(async (f: string, t: string) => {
     setLoading(true); setError(null)
     try {
-      const r = await apiFetch<{ data: ExecRisk }>(`/api/executive/risk?period=${p}`)
+      const r = await apiFetch<{ data: ExecRisk }>(`/api/executive/risk?period=custom&start=${f}&end=${t}`)
       setData(r.data)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load(period) }, [load, period])
+  useEffect(() => { load(from, to) }, [load, from, to])
 
   const title = 'Risk: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
-  const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
+  const actions = <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
 
   if (loading) return (
     <Page title={title} back={back} actions={actions}>
@@ -65,7 +71,7 @@ export default function ExecRisk() {
   )
   if (error) return (
     <Page title={title} back={back} actions={actions}>
-      <ErrBanner error={error} onRetry={() => load(period)} />
+      <ErrBanner error={error} onRetry={() => load(from, to)} />
     </Page>
   )
   if (!data) return null
@@ -76,8 +82,8 @@ export default function ExecRisk() {
 
   // Exposure by product line, as one comparable bar set.
   const exposure = [
-    { line: 'Cards', value_kobo: data.card_exposure_kobo, tone: NAVY },
-    { line: 'Loans', value_kobo: data.portfolio_outstanding_kobo, tone: BLUE },
+    { line: 'Cards', value_kobo: data.card_exposure_kobo, tone: PURPLE },
+    { line: 'Loans', value_kobo: data.portfolio_outstanding_kobo, tone: NAVY },
     { line: 'FD (liability)', value_kobo: data.fd_liability_kobo, tone: AMBER },
   ]
 
@@ -93,17 +99,15 @@ export default function ExecRisk() {
 
       {/* ── Balance sheet shape ───────────────────────────────────────────── */}
       <SectionCard title="Exposure by Product Line" subtitle="Credit assets against deposit funding" style={{ marginBottom: 14 }}>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={exposure} margin={{ top: 4, right: 8, bottom: 4, left: 8 }} layout="vertical">
-            <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" horizontal={false} strokeWidth={1} />
-            <XAxis type="number" tickFormatter={ytick} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-            <YAxis type="category" dataKey="line" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} width={104} />
-            <Tooltip content={<Tip fmt={fmtKobo} />} cursor={{ fill: 'var(--row-hvr)' }} />
-            <Bar dataKey="value_kobo" name="Value" radius={[0, 4, 4, 0]} barSize={30}>
-              {exposure.map(e => <Cell key={e.line} fill={e.tone} />)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        <EBarH
+          data={exposure}
+          catKey="line"
+          height={200}
+          barMax={30}
+          valueFmt={fmtKobo}
+          axisFmt={ytick}
+          series={[{ key: 'value_kobo', name: 'Value', colorFn: (e) => e.tone }]}
+        />
 
         {data.asset_coverage_pct < 50 && data.fd_liability_kobo > 0 && (
           <Note tone={AMBER}>
@@ -182,12 +186,26 @@ export default function ExecRisk() {
       </div>
 
       {/* ── Loan book ─────────────────────────────────────────────────────── */}
-      <SectionCard title="Loan Book" subtitle="CBS open book by product">
+      <SectionCard title="Loan Book" subtitle="CBS open book · portfolio-at-risk by value">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[5], marginBottom: SP[4] }}>
           <Stat label="Outstanding" value={fmtKobo(data.portfolio_outstanding_kobo)} />
           <Stat label="NPL Rate" value={fmtPct(data.npl_rate_pct)} tone={data.npl_rate_pct > 10 ? RED : 'var(--txt)'} />
           <Stat label="Average Loan" value={fmtKobo(data.avg_loan_size_kobo)} />
           <Stat label="FD Maturing 30d" value={fmtKobo(data.fd_maturing_30d_kobo)} sub="cash due to depositors" tone={AMBER} />
+        </div>
+        {/* Portfolio-at-risk ladder — value-weighted, CBN's PAR measure. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[3], marginBottom: SP[4] }}>
+          {([
+            { l: 'PAR30', pct: data.loan_par?.par30_pct ?? 0, kobo: data.loan_par?.par30_kobo ?? 0, c: AMBER },
+            { l: 'PAR60', pct: data.loan_par?.par60_pct ?? 0, kobo: data.loan_par?.par60_kobo ?? 0, c: RED },
+            { l: 'PAR90', pct: data.loan_par?.par90_pct ?? 0, kobo: data.loan_par?.par90_kobo ?? 0, c: DARKRED },
+          ]).map(x => (
+            <div key={x.l} style={{ padding: `${SP[3]} ${SP[4]}`, borderRadius: 10, border: '1px solid var(--bdr)', background: `${x.c}0A` }}>
+              <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5 }}>{x.l}</div>
+              <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: x.pct > 5 ? x.c : 'var(--txt)', fontFamily: INTER, lineHeight: 1.1 }}>{fmtPct(x.pct)}</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, ...NUM }}>{fmtKobo(x.kobo)} of book</div>
+            </div>
+          ))}
         </div>
         {data.product_concentration.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
@@ -205,6 +223,36 @@ export default function ExecRisk() {
           </div>
         )}
       </SectionCard>
+
+      {/* ── Loan repayment schedule (Udara) ───────────────────────────────── */}
+      {(data.loan_repayment_ladder?.length ?? 0) > 0 && (
+      <SectionCard title="Loan Repayment Schedule" subtitle="Principal & interest coming due per month · from the Udara installment schedule" style={{ marginTop: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: SP[5], marginBottom: SP[4] }}>
+          <Stat label="Forward Interest Income" value={fmtKobo(data.loan_interest_forward_kobo)} sub="scheduled, still to come due" tone={GREEN} />
+          <Stat label="Repayments Due Next 30 Days" value={fmtKobo(data.loan_due_30d_kobo)} sub="principal + interest" tone={AMBER} />
+        </div>
+        <EBar
+          data={data.loan_repayment_ladder}
+          xKey="month"
+          height={210}
+          stack
+          legend={false}
+          valueFmt={fmtKobo}
+          axisFmt={ytick}
+          series={[
+            { key: 'principal_kobo', name: 'Principal', color: NAVY },
+            { key: 'interest_kobo', name: 'Interest', color: GREEN },
+          ]}
+        />
+        <div style={{ display: 'flex', gap: SP[4], marginTop: SP[2], justifyContent: 'center' }}>
+          {[{ c: NAVY, l: 'Principal' }, { c: GREEN, l: 'Interest' }].map(x => (
+            <span key={x.l} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: x.c }} />{x.l}
+            </span>
+          ))}
+        </div>
+      </SectionCard>
+      )}
     </Page>
   )
 }

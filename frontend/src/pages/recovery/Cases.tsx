@@ -3,13 +3,37 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, ExpandableFilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
-  filterInputStyle, DateFilter, NameCell, ActionRow, StatusBadge,
+  filterInputStyle, NameCell, ActionRow, StatusBadge, Pagination,
 } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
+import { useDebouncedValue } from '../../hooks/useDebounce'
+import { hasPage } from '../../hooks/useAuth'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
-import { RED, NAVY, GREEN, AMBER, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { fmtKoboExact, fmtExact, fmtDate } from '../../lib/fmt'
+import { RED, DARKRED, NAVY, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
+import { RepaymentPatternMini } from '../../components/RepaymentPatternMini'
+import { TierBadge, tierFromPct } from '../../components/TierBadge'
+
+// Marks a case bulk-loaded from an uploaded spreadsheet (data_source='manual'),
+// so it reads as distinct from the Udara core-banking feed.
+function ManualBadge({ source }: { source: string | null }) {
+  if (source !== 'manual') return null
+  return (
+    <span
+      title="Uploaded from a spreadsheet — not synced from Udara core banking"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3,
+        fontSize: TEXT['2xs'], fontWeight: FW.bold, color: DARKRED,
+        background: `${AMBER}1A`, border: `1px solid ${AMBER}55`,
+        padding: '1px 6px', borderRadius: RADIUS.full, whiteSpace: 'nowrap',
+      }}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 11 }}>upload_file</span>
+      Manual
+    </span>
+  )
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,6 +41,13 @@ interface RecoveryCase {
   id: number
   case_ref: string | null
   account_cif: string
+  customer_name: string | null
+  product_type: string | null        // 'card' | 'loan'
+  data_source: string | null         // 'core' (Udara/feed) | 'manual' (uploaded spreadsheet)
+  officer_name: string | null        // loan account officer (loans only; not a system user)
+  loan_ref: string | null
+  loan_amount_kobo: number | null
+  maturity_date: string | null
   assigned_agent_id: number | null
   agent_name: string | null
   legal_stage: string | null
@@ -26,6 +57,20 @@ interface RecoveryCase {
   status: string
   opened_at: string | null
   updated_at: string
+  // Per-row enrichment (see recoveryOpsCases). Billing values are NAIRA.
+  full_address: string | null
+  city: string | null
+  state: string | null
+  phone: string | null
+  current_bill: number | null
+  bill_balance: number | null
+  min_payment: number | null
+  credit_limit: number | null
+  last_payment_amount: number | null
+  last_payment_date: string | null
+  collections_agent_name: string | null
+  last_call_agent: string | null
+  last_call_at: string | null
 }
 
 interface AgentUser {
@@ -70,7 +115,7 @@ const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
   border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
   fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
 }
 
 const labelStyle: React.CSSProperties = {
@@ -85,6 +130,15 @@ function LV({ label, value }: { label: string; value: React.ReactNode }) {
       <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', width: 130, flexShrink: 0 }}>{label}</span>
       <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium }}>{value ?? '—'}</span>
     </div>
+  )
+}
+
+// Compact inline "label value" used on the case list cards for credit terms.
+function Term({ label, value, valueColor }: { label: string; value: React.ReactNode; valueColor?: string }) {
+  return (
+    <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', whiteSpace: 'nowrap' }}>
+      {label} <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, color: valueColor ?? 'var(--txt2)' }}>{value}</span>
+    </span>
   )
 }
 
@@ -388,12 +442,12 @@ function WriteOffTab({ caseId, outstanding, onDone }: { caseId: number; outstand
         background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.18)',
         fontSize: TEXT.sm, color: RED, lineHeight: 1.5,
       }}>
-        Submit a write-off request for supervisor approval. Outstanding: {fmtKobo(outstanding)}.
+        Submit a write-off request for supervisor approval. Outstanding: {fmtKoboExact(outstanding)}.
       </div>
       <div>
         <label style={labelStyle}>Amount (NGN): blank to write off full outstanding</label>
         <input type="number" value={amountNaira} onChange={e => setAmountNaira(e.target.value)}
-          placeholder={fmtKobo(outstanding)} style={{ ...fieldStyle, height: 36 }} />
+          placeholder={fmtKoboExact(outstanding)} style={{ ...fieldStyle, height: 36 }} />
       </div>
       <div>
         <label style={labelStyle}>Reason <span style={{ color: RED }}>*</span></label>
@@ -441,7 +495,7 @@ function CaseTimeline({ caseId }: { caseId: number }) {
   const events: EvItem[] = [
     ...(detail.payments ?? []).map(p => ({
       date: p.payment_date,
-      label: `Payment: ${fmtKobo(p.amount_kobo)}`,
+      label: `Payment: ${fmtKoboExact(p.amount_kobo)}`,
       sub: `${p.channel}${p.reference ? ` · ${p.reference}` : ''}`,
       color: GREEN,
     })),
@@ -495,11 +549,13 @@ const ACTION_TABS = [
   { key: 'writeoff', label: 'Write-off' },
 ]
 
-function DetailPanel({ rc, agents, onAction }: {
-  rc: RecoveryCase; agents: AgentUser[]; onAction: () => void
+function DetailPanel({ rc, agents, onAction, canAssign }: {
+  rc: RecoveryCase; agents: AgentUser[]; onAction: () => void; canAssign: boolean
 }) {
   const navigate = useNavigate()
-  const [tab, setTab] = useState('assign')
+  // Agents can't assign, so drop the Assign Agent tab and default to Log Visit.
+  const tabs = canAssign ? ACTION_TABS : ACTION_TABS.filter(t => t.key !== 'assign')
+  const [tab, setTab] = useState(canAssign ? 'assign' : 'visit')
   const net = rc.outstanding_kobo - rc.recovered_kobo
 
   return (
@@ -508,10 +564,16 @@ function DetailPanel({ rc, agents, onAction }: {
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)', background: 'var(--th-bg)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>
-              {rc.case_ref ?? rc.account_cif}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>
+                {rc.customer_name ?? rc.case_ref ?? rc.account_cif}
+              </span>
+              {rc.product_type === 'loan' && (
+                <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: PURPLE, background: `${PURPLE}18`, padding: '1px 6px', borderRadius: RADIUS.full }}>LOAN</span>
+              )}
+              <ManualBadge source={rc.data_source} />
             </div>
-            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>CIF: {rc.account_cif}</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{rc.case_ref ? `${rc.case_ref} · ` : ''}{rc.product_type === 'loan' ? 'Mandate' : 'CIF'} {rc.account_cif}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <StatusPill status={rc.status} />
@@ -521,16 +583,19 @@ function DetailPanel({ rc, agents, onAction }: {
             >
               Full Detail
             </button>
-            <button
-              onClick={() => navigate(`/contacts/${rc.account_cif}`)}
-              style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
-            >
-              C360
-            </button>
+            {/* Customer-360 is CIF-keyed; loans have no CIF (account is a mandate). */}
+            {rc.product_type !== 'loan' && (
+              <button
+                onClick={() => navigate(`/customers/${encodeURIComponent(rc.account_cif)}`)}
+                style={{ padding: '3px 10px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}
+              >
+                C360
+              </button>
+            )}
           </div>
         </div>
         <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)', marginTop: 10, letterSpacing: '-0.6px' }}>
-          {fmtKobo(net)}
+          {fmtKoboExact(net)}
           <span style={{ fontSize: TEXT.sm, fontWeight: FW.normal, color: 'var(--txt2)', marginLeft: 8 }}>net outstanding</span>
         </div>
       </div>
@@ -540,15 +605,61 @@ function DetailPanel({ rc, agents, onAction }: {
         <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
           Case Summary
         </div>
-        <LV label="Outstanding"    value={<span style={NUM}>{fmtKobo(rc.outstanding_kobo)}</span>} />
-        <LV label="Recovered"      value={<span style={{ ...NUM, color: GREEN }}>{fmtKobo(rc.recovered_kobo)}</span>} />
+        <LV label="Outstanding"    value={<span style={NUM}>{fmtKoboExact(rc.outstanding_kobo)}</span>} />
+        <LV label="Recovered"      value={<span style={{ ...NUM, color: GREEN }}>{fmtKoboExact(rc.recovered_kobo)}</span>} />
         {rc.write_off_amount_kobo > 0 && (
-          <LV label="Written Off" value={<span style={{ ...NUM, color: '#6B7280' }}>{fmtKobo(rc.write_off_amount_kobo)}</span>} />
+          <LV label="Written Off" value={<span style={{ ...NUM, color: '#6B7280' }}>{fmtKoboExact(rc.write_off_amount_kobo)}</span>} />
         )}
-        <LV label="Assigned Agent" value={rc.agent_name ?? <span style={{ color: RED }}>Unassigned</span>} />
+        <LV label="Recovery Agent" value={rc.agent_name ?? <span style={{ color: RED }}>Unassigned</span>} />
+        {rc.product_type !== 'loan' && (
+          <LV label="Collections Agent" value={rc.collections_agent_name ?? <span style={{ color: 'var(--txt3)' }}>No collections agent</span>} />
+        )}
+        {rc.product_type === 'loan' && (
+          <>
+            {rc.officer_name && <LV label="Loan Officer" value={rc.officer_name} />}
+            {rc.loan_ref && <LV label="Loan Ref" value={rc.loan_ref} />}
+            {rc.loan_amount_kobo != null && <LV label="Approved Amount" value={<span style={NUM}>{fmtKoboExact(rc.loan_amount_kobo)}</span>} />}
+            {rc.maturity_date && <LV label="Maturity" value={fmtDate(rc.maturity_date)} />}
+          </>
+        )}
         {rc.legal_stage && <LV label="Legal Stage" value={rc.legal_stage} />}
         <LV label="Opened" value={rc.opened_at ? fmtDate(rc.opened_at) : '—'} />
       </div>
+
+      {/* Address & card billing */}
+      {(rc.full_address || rc.phone || rc.current_bill != null || rc.bill_balance != null ||
+        rc.min_payment != null || rc.last_payment_amount != null) && (
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+            Address & Billing
+          </div>
+          {rc.full_address && <LV label="Address" value={rc.full_address} />}
+          {(rc.city || rc.state) && (
+            <LV label="City / State" value={[rc.city, rc.state].filter(Boolean).join(', ') || '—'} />
+          )}
+          {rc.phone && <LV label="Phone" value={rc.phone} />}
+          {rc.current_bill != null && <LV label="Current Bill"  value={<span style={NUM}>{fmtExact(rc.current_bill)}</span>} />}
+          {rc.bill_balance != null && <LV label="Bill Balance"  value={<span style={NUM}>{fmtExact(rc.bill_balance)}</span>} />}
+          {rc.min_payment  != null && <LV label="Min Payment"   value={<span style={NUM}>{fmtExact(rc.min_payment)}</span>} />}
+          {rc.credit_limit != null && <LV label="Credit Limit"  value={<span style={NUM}>{fmtExact(rc.credit_limit)}</span>} />}
+          {rc.last_payment_amount != null && (
+            <LV label="Last Payment" value={
+              <span><span style={NUM}>{fmtExact(rc.last_payment_amount)}</span>{rc.last_payment_date ? <span style={{ color: 'var(--txt2)', fontWeight: FW.normal }}> · {fmtDate(rc.last_payment_date)}</span> : null}</span>
+            } />
+          )}
+        </div>
+      )}
+
+      {/* Repayment cadence (real money-in from the transaction feed, same as C360).
+          Cards only — a loan's account_cif is a mandate, not a customer CIF. */}
+      {rc.product_type !== 'loan' && (
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+            Repayment Pattern
+          </div>
+          <RepaymentPatternMini cif={rc.account_cif} endpointBase="/api/recovery-ops" />
+        </div>
+      )}
 
       {/* Activity timeline */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bdr)' }}>
@@ -563,8 +674,8 @@ function DetailPanel({ rc, agents, onAction }: {
         <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
           Actions
         </div>
-        <Tabs tabs={ACTION_TABS} active={tab} onChange={setTab} />
-        {tab === 'assign'   && <AssignAgentTab   caseId={rc.id} agents={agents} onDone={onAction} />}
+        <Tabs tabs={tabs} active={tab} onChange={setTab} />
+        {canAssign && tab === 'assign' && <AssignAgentTab caseId={rc.id} agents={agents} onDone={onAction} />}
         {tab === 'visit'    && <FieldVisitTab     caseId={rc.id} onDone={onAction} />}
         {tab === 'legal'    && <AddLegalTab       caseId={rc.id} onDone={onAction} />}
         {tab === 'payment'  && <RecordPaymentTab  caseId={rc.id} onDone={onAction} />}
@@ -647,6 +758,7 @@ const CASE_STATUS_OPTIONS = [
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RecoveryCases() {
+  const navigate = useNavigate()
   const [cases,    setCases]    = useState<RecoveryCase[]>([])
   const [agents,   setAgents]   = useState<AgentUser[]>([])
   const [loading,  setLoading]  = useState(true)
@@ -656,58 +768,114 @@ export default function RecoveryCases() {
   const [reassignOpen, setReassignOpen] = useState(false)
 
   const [fStatus,  setFStatus]  = useState(new Set<string>())
+  const [fProduct, setFProduct] = useState(new Set<string>())   // 'card' / 'loan'
   const [search,   setSearch]   = useState('')
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
+  const [page,     setPage]     = useState(1)
+  const [total,    setTotal]    = useState(0)
+  const PAGE_SIZE = 50
+  const dq = useDebouncedValue(search.trim(), 300)
 
   const fStatusKey = [...fStatus].sort().join(',')
+  // A single selection filters to that product; selecting both (or none) = all.
+  const fProductKey = fProduct.size === 1 ? [...fProduct][0] : ''
 
   const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true); setErr(null)
-    const params = new URLSearchParams({ limit: '100' })
-    if (fStatusKey) params.set('status', fStatusKey)
-    if (dateFrom)   params.set('from', dateFrom)
-    if (dateTo)     params.set('to',   dateTo)
+    if (!silent) setLoading(true)
+    setErr(null)
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) })
+    if (fStatusKey)  params.set('status', fStatusKey)
+    if (fProductKey) params.set('product_type', fProductKey)
+    if (dq)          params.set('q', dq)
+    // The agent list is only needed for the (head-only) assign action. Fetch it
+    // independently so a 403 for a recovery agent — who has no admin access — can
+    // never blank the whole case list, which is what the shared Promise.all did.
     try {
-      const [casesRes, usersRes] = await Promise.all([
-        apiFetch<{ data: RecoveryCase[] }>(`/api/recovery-ops/cases?${params}`),
-        apiFetch<{ data: AgentUser[] }>('/api/admin/users'),
-      ])
+      const casesRes = await apiFetch<{ data: RecoveryCase[]; total: number }>(`/api/recovery-ops/cases?${params}`)
       setCases(casesRes.data ?? [])
+      setTotal(casesRes.total ?? (casesRes.data ?? []).length)
       setSelected(prev => prev ? (casesRes.data ?? []).find(r => r.id === prev.id) ?? null : null)
-      setAgents(usersRes.data ?? [])
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load cases')
     } finally { setLoading(false) }
-  }, [fStatusKey, dateFrom, dateTo])
+    try {
+      const usersRes = await apiFetch<{ data: AgentUser[] }>('/api/recovery-ops/agents')
+      setAgents(usersRes.data ?? [])
+    } catch { /* non-fatal: assign dropdown just stays empty */ }
+  }, [fStatusKey, fProductKey, dq, page])
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['recovery'] })
 
-  const displayed = useMemo(() => {
-    if (!search.trim()) return cases
-    const q = search.toLowerCase()
-    return cases.filter(rc =>
-      [rc.case_ref, rc.account_cif, rc.agent_name].some(v =>
-        v != null && String(v).toLowerCase().includes(q)
-      )
-    )
-  }, [cases, search])
+  // Changing a filter or the search resets to the first page of the (new) queue.
+  useEffect(() => { setPage(1) }, [fStatusKey, fProductKey, dq])
+
+  // Head-only: seed recovery cases from the severe delinquency book. Recovery's
+  // analogue of Collections' "Generate Assignments" — without it the module stays
+  // empty because the collections->recovery hand-off is rarely run in bulk.
+  // Assigning/reassigning cases is a supervisor capability — gated on the recovery_assign
+  // page, exactly as the backend scopes the case list. A plain agent can view and work
+  // their own cases but cannot assign, so all assign UI is hidden for them.
+  const canAssign = useMemo(() => hasPage('recovery_assign'), [])
+  const [generating, setGenerating] = useState(false)
+  async function generateCases() {
+    if (generating) return
+    setGenerating(true)
+    try {
+      const res = await apiPost<{ data: { created: number } }>('/api/recovery-ops/generate-cases', {})
+      const n = res?.data?.created ?? 0
+      toast.success(n > 0 ? `${n} recovery case${n === 1 ? '' : 's'} opened from the delinquency book` : 'No new cases — every severe delinquency is already in recovery')
+      await load(true)
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to generate cases')
+    } finally { setGenerating(false) }
+  }
+
+  // Manual: move a specific customer into recovery by CIF (any DPD).
+  const [addOpen, setAddOpen] = useState(false)
+  const [addCif,  setAddCif]  = useState('')
+  const [adding,  setAdding]  = useState(false)
+  async function addCustomer() {
+    const cif = addCif.trim()
+    if (!cif || adding) return
+    setAdding(true)
+    try {
+      const res = await apiPost<{ data: { case_id: number; case_ref: string; existing: boolean } }>('/api/recovery-ops/cases', { cif })
+      const d = res?.data
+      toast.success(d?.existing ? `${cif} is already in recovery (${d.case_ref})` : `Recovery case ${d?.case_ref} opened for ${cif}`)
+      setAddOpen(false); setAddCif('')
+      if (d?.case_id) navigate(`/recovery/cases/${d.case_id}`)
+      else await load(true)
+    } catch (e: any) {
+      toast.error(e.message ?? 'Failed to open case')
+    } finally { setAdding(false) }
+  }
+
+  // Search + pagination are server-side now, so `cases` is already the current page of
+  // the filtered queue; render it directly. Chip counts are omitted because they would
+  // otherwise reflect only the current page, not the whole queue.
+  const displayed = cases
 
   const groups: FilterGroupDef[] = [
     {
       key: 'status',
       label: 'STATUS',
-      options: CASE_STATUS_OPTIONS.map(o => ({
-        ...o,
-        count: cases.filter(rc => rc.status === o.value).length,
-      })),
+      options: CASE_STATUS_OPTIONS.map(o => ({ ...o })),
       selected: fStatus,
       onChange: setFStatus,
     },
+    {
+      key: 'product',
+      label: 'PRODUCT',
+      options: [
+        { value: 'card', label: 'Cards' },
+        { value: 'loan', label: 'Loans', color: PURPLE },
+      ],
+      selected: fProduct,
+      onChange: setFProduct,
+    },
   ]
 
-  function resetFilters() { setFStatus(new Set()); setSearch('') }
+  function resetFilters() { setFStatus(new Set()); setFProduct(new Set()); setSearch('') }
 
   function toggleCheck(id: number, e: React.MouseEvent) {
     e.stopPropagation()
@@ -726,7 +894,28 @@ export default function RecoveryCases() {
       subtitle="Manage recovery cases and actions"
       noPad
       actions={
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {canAssign && (
+            <button onClick={() => setAddOpen(true)} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: RADIUS.md,
+              border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold,
+              cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>person_add</span>
+              Add Customer
+            </button>
+          )}
+          {canAssign && (
+            <button onClick={generateCases} disabled={generating} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: RADIUS.md,
+              border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold,
+              cursor: generating ? 'not-allowed' : 'pointer', opacity: generating ? 0.6 : 1, whiteSpace: 'nowrap',
+            }}>
+              {generating ? <Spinner size={13} color="#fff" /> : <span className="material-symbols-rounded" style={{ fontSize: 16 }}>playlist_add</span>}
+              Generate Cases
+            </button>
+          )}
+        </div>
       }
     >
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
@@ -745,8 +934,8 @@ export default function RecoveryCases() {
             groups={groups}
             onReset={resetFilters}
             onApply={load}
-            resultCount={displayed.length}
-            totalCount={cases.length}
+            resultCount={cases.length}
+            totalCount={total}
             placeholder="Search CIF, case ref, agent…"
           />
 
@@ -814,34 +1003,74 @@ export default function RecoveryCases() {
                     onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
                     onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '' }}
                   >
-                    <input
-                      type="checkbox" checked={isChecked}
-                      onClick={e => toggleCheck(rc.id, e)} onChange={() => {}}
-                      style={{ marginTop: 3, cursor: 'pointer', accentColor: RED, flexShrink: 0 }}
-                    />
+                    {canAssign && (
+                      <input
+                        type="checkbox" checked={isChecked}
+                        onClick={e => toggleCheck(rc.id, e)} onChange={() => {}}
+                        style={{ marginTop: 3, cursor: 'pointer', accentColor: RED, flexShrink: 0 }}
+                      />
+                    )}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
-                        <NameCell
-                          name={rc.case_ref ?? rc.account_cif}
-                          sub={rc.case_ref ? rc.account_cif : null}
-                          avatar={false}
-                        />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+                          <NameCell
+                            name={rc.customer_name ?? rc.case_ref ?? rc.account_cif}
+                            sub={rc.case_ref ? `${rc.case_ref} · ${rc.product_type === 'loan' ? 'Mandate' : 'CIF'} ${rc.account_cif}` : rc.account_cif}
+                            avatar={false}
+                          />
+                          {rc.product_type === 'loan' && (
+                            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: PURPLE, background: `${PURPLE}18`, padding: '1px 6px', borderRadius: RADIUS.full, flexShrink: 0 }}>LOAN</span>
+                          )}
+                          <ManualBadge source={rc.data_source} />
+                        </div>
                         <StatusBadge status={rc.status} />
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                         <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                          {fmtKobo(net)}
+                          {fmtKoboExact(net)}
                         </span>
                         {rc.legal_stage && (
                           <span style={{ ...NUM, fontSize: TEXT['2xs'], color: AMBER }}>⚖ {rc.legal_stage}</span>
                         )}
                       </div>
+                      {/* Credit terms — same set as the Credit Portfolio, adapted to a case:
+                          LOC/Principal, Min Repayment, % recovered and a payment-tier badge. */}
+                      {(() => {
+                        const isLoan = rc.product_type === 'loan'
+                        const loc = isLoan ? Number(rc.loan_amount_kobo ?? 0) : Math.round(Number(rc.credit_limit ?? 0) * 100)
+                        const minRep = isLoan ? rc.outstanding_kobo : Math.round(Number(rc.min_payment ?? 0) * 100)
+                        const pctRec = rc.outstanding_kobo > 0 ? Math.round((rc.recovered_kobo / rc.outstanding_kobo) * 100) : 0
+                        return (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 12px', marginBottom: 4 }}>
+                            <Term label={isLoan ? 'Principal' : 'LOC'} value={fmtKoboExact(loc)} />
+                            <Term label="Min Rep" value={fmtKoboExact(minRep)} />
+                            <Term label="Recovered" value={`${fmtKoboExact(rc.recovered_kobo)} · ${pctRec}%`} valueColor={rc.recovered_kobo > 0 ? GREEN : undefined} />
+                            <TierBadge tier={tierFromPct(pctRec)} />
+                          </div>
+                        )
+                      })()}
                       <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>
-                        {rc.agent_name ?? <span style={{ color: RED }}>Unassigned</span>}
+                        {rc.agent_name
+                          ? rc.agent_name
+                          : rc.product_type === 'loan' && rc.officer_name
+                            ? `Officer: ${rc.officer_name}`
+                            : <span style={{ color: RED }}>Unassigned</span>}
                       </div>
+                      {rc.last_call_agent && (
+                        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: 13, color: BLUE }}>call</span>
+                          Call centre: {rc.last_call_agent}{rc.last_call_at ? ` · ${fmtDate(rc.last_call_at)}` : ''}
+                        </div>
+                      )}
+                      {rc.last_payment_amount != null && (
+                        <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>
+                          Last paid <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtExact(rc.last_payment_amount)}</span>
+                          {rc.last_payment_date ? ` · ${fmtDate(rc.last_payment_date)}` : ''}
+                        </div>
+                      )}
                       <ActionRow actions={[
-                        { icon: 'visibility', label: 'View Case',    onClick: () => setSelected(rc) },
-                        { icon: 'person_add', label: 'Assign Agent', onClick: () => setSelected(rc) },
+                        { icon: 'open_in_full', label: 'Full Detail', onClick: () => navigate(`/recovery/cases/${rc.id}`) },
+                        ...(canAssign ? [{ icon: 'person_add', label: 'Assign Agent', onClick: () => setSelected(rc) }] : []),
                       ]} />
                     </div>
                   </div>
@@ -849,12 +1078,22 @@ export default function RecoveryCases() {
               })
             )}
           </div>
+
+          {/* Pagination — compact to fit the narrow master list (the whole-queue
+              total is already shown in the filter bar above as "N of TOTAL"). */}
+          <Pagination
+            page={page}
+            pages={Math.max(1, Math.ceil(total / PAGE_SIZE))}
+            onPage={setPage}
+            showRange={false}
+            maxButtons={3}
+          />
         </div>
 
         {/* ── Right panel ──────────────────────────────────────────────────── */}
         <div style={{ flex: 1, minWidth: 0, background: 'var(--bg)', overflow: 'auto' }}>
           {selected ? (
-            <DetailPanel key={selected.id} rc={selected} agents={agents} onAction={load} />
+            <DetailPanel key={selected.id} rc={selected} agents={agents} onAction={load} canAssign={canAssign} />
           ) : (
             <div style={{
               display: 'flex', flexDirection: 'column',
@@ -877,6 +1116,38 @@ export default function RecoveryCases() {
         agents={agents}
         onDone={() => { setReassignOpen(false); clearChecked(); load() }}
       />
+
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Move Customer to Recovery" width={440}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
+            Open a recovery case for a specific customer by CIF — regardless of DPD. Their
+            outstanding and days-past-due are pulled from the delinquency book, and the
+            account is taken out of the collections queue.
+          </div>
+          <input
+            value={addCif}
+            onChange={e => setAddCif(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') addCustomer() }}
+            placeholder="Customer CIF"
+            autoFocus
+            style={{ ...filterInputStyle, width: '100%' }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button onClick={() => setAddOpen(false)} style={{
+              padding: '8px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+              background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+            }}>Cancel</button>
+            <button onClick={addCustomer} disabled={!addCif.trim() || adding} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: RADIUS.md,
+              border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold,
+              cursor: (!addCif.trim() || adding) ? 'not-allowed' : 'pointer', opacity: (!addCif.trim() || adding) ? 0.6 : 1,
+            }}>
+              {adding && <Spinner size={13} color="#fff" />}
+              Open Case
+            </button>
+          </div>
+        </div>
+      </Modal>
     </Page>
   )
 }

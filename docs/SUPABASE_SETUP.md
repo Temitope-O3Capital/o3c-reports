@@ -29,7 +29,7 @@ Then paste the hash into this SQL:
 ```sql
 INSERT INTO o3c_users (email, password_hash, full_name, role, department)
 VALUES (
-  'admin@o3ccards.com',
+  'admin@o3cards.com',
   '$2b$12$PASTE_YOUR_HASH_HERE',
   'O3C Admin',
   'admin',

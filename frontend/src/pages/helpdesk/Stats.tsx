@@ -3,11 +3,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { Page, SectionCard, ErrBanner, Spinner, DateFilter } from '../../components/UI'
 import { apiFetch, unwrapList } from '../../lib/api'
 import { today, monthStart } from '../../lib/fmt'
-import { NAVY, GREEN, AMBER, RED, BLUE, PURPLE, INTER, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
-import {
-  ResponsiveContainer, LineChart, Line, BarChart, Bar,
-  PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
-} from 'recharts'
+import { NAVY, GREEN, AMBER, RED, BLUE, INTER, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import { ELine, EBar, EDonut } from '../../components/echarts'
+import { CHART_SERIES } from '../../components/charts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,46 +34,7 @@ interface SLAByAgentRow {
 interface BusyHourRow { hour: number; ticket_count: number }
 interface ChannelRow  { channel: string; count: number }
 
-// ── Custom tooltip ─────────────────────────────────────────────────────────────
-
-function Tip({ active, payload, label, fmt }: {
-  active?: boolean
-  payload?: { name: string; value: number; color: string }[]
-  label?: string
-  fmt?: (v: number) => string
-}) {
-  if (!active || !payload?.length) return null
-  const f = fmt ?? (v => String(v))
-  return (
-    <div style={{ background: '#0E2841', borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
-      {label && (
-        <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER, marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-          {label}
-        </div>
-      )}
-      {payload.map((p, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>{f(p.value)}</span>
-          {p.name && payload.length > 1 && (
-            <span style={{ fontSize: TEXT['2xs'], color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function DonutCenter({ total }: { total: number }) {
-  return (
-    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
-      <div style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, lineHeight: 1 }}>{total}</div>
-      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)', fontFamily: INTER, marginTop: 2 }}>tickets</div>
-    </div>
-  )
-}
-
-const DONUT_COLORS = [NAVY, BLUE, AMBER, GREEN, RED, PURPLE]
+const DONUT_COLORS = CHART_SERIES
 const HOURS_24 = Array.from({ length: 24 }, (_, i) => i)
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -159,18 +118,19 @@ export default function HelpdeskStats() {
   )
 
   return (
-    <Page title="Customer Support Stats" subtitle="CSAT, handle time and resolution metrics">
-      {/* Page-level filters */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], marginBottom: SP[5], flexWrap: 'wrap' }}>
-        <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
-        <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)}
-          title="Filter all charts to a single agent"
-          style={{ height: 32, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, padding: '0 10px', cursor: 'pointer' }}>
-          <option value="">All agents</option>
-          {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
-        </select>
-      </div>
-
+    <Page title="Customer Support Stats" subtitle="CSAT, handle time and resolution metrics"
+      actions={
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexWrap: 'wrap' }}>
+          <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)}
+            title="Filter all charts to a single agent"
+            style={{ height: 32, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, padding: '0 10px', cursor: 'pointer' }}>
+            <option value="">All agents</option>
+            {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
+          </select>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        </div>
+      }
+    >
       <ErrBanner error={error} onRetry={load} />
 
       {loading ? (
@@ -183,29 +143,26 @@ export default function HelpdeskStats() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
             <SectionCard title="CSAT Trend" subtitle="Daily satisfaction score (0–5)">
               {csatTrend.length === 0 ? <EmptyState msg="No CSAT data yet" /> : (
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={csatTrend} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
-                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="date" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 5]} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => v.toFixed(1)} />} />
-                    <Line type="monotone" dataKey="csat_score" stroke={GREEN} strokeWidth={2.2} name="CSAT" dot={{ r: 3, fill: GREEN, strokeWidth: 0 }} activeDot={{ r: 5, fill: GREEN, stroke: '#fff', strokeWidth: 2 }} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <ELine
+                  data={csatTrend.map(d => ({ ...d, csat_score: Number(d.csat_score) }))}
+                  xKey="date"
+                  height={200}
+                  endLabel
+                  valueFmt={(v) => v.toFixed(1)}
+                  series={[{ key: 'csat_score', name: 'CSAT', color: GREEN }]}
+                />
               )}
             </SectionCard>
 
             <SectionCard title="Avg Handle Time" subtitle="Minutes per ticket type">
               {handleTime.length === 0 ? <EmptyState msg="No handle time data yet" /> : (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={handleTime} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
-                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="ticket_type" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v.toFixed(0)} min`} />} />
-                    <Bar dataKey="avg_minutes" fill={NAVY} radius={[5, 5, 0, 0]} name="Avg minutes" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <EBar
+                  data={handleTime.map(d => ({ ...d, avg_minutes: Number(d.avg_minutes) }))}
+                  xKey="ticket_type"
+                  height={200}
+                  valueFmt={(v) => `${v.toFixed(0)} min`}
+                  series={[{ key: 'avg_minutes', name: 'Avg minutes', color: NAVY }]}
+                />
               )}
             </SectionCard>
           </div>
@@ -214,33 +171,33 @@ export default function HelpdeskStats() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
             <SectionCard title="Resolution Rate by Agent" subtitle="% of tickets resolved">
               {resolution.length === 0 ? <EmptyState msg="No resolution data yet" /> : (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={resolution} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
-                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="agent_name" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v.toFixed(0)}%`} />} />
-                    <Bar dataKey="resolution_pct" radius={[5, 5, 0, 0]} name="Resolution %">
-                      {resolution.map((e, i) => (
-                        <Cell key={i} fill={e.resolution_pct >= 80 ? GREEN : e.resolution_pct >= 60 ? AMBER : RED} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <EBar
+                  data={resolution.map(d => ({ ...d, resolution_pct: Number(d.resolution_pct) }))}
+                  xKey="agent_name"
+                  height={200}
+                  valueFmt={(v) => `${v.toFixed(0)}%`}
+                  series={[{ key: 'resolution_pct', name: 'Resolution %', colorFn: (r) => Number(r.resolution_pct) >= 80 ? GREEN : Number(r.resolution_pct) >= 60 ? AMBER : RED }]}
+                />
               )}
             </SectionCard>
 
             <SectionCard title="Ticket Type Distribution" subtitle="Count by category">
               {typeDist.length === 0 ? <EmptyState msg="No tickets yet" /> : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: SP[5] }}>
-                  <div style={{ position: 'relative', flexShrink: 0 }}>
-                    <PieChart width={148} height={148}>
-                      <Pie data={typeDist} cx={70} cy={70} innerRadius={42} outerRadius={66} dataKey="count" stroke="none" paddingAngle={3} startAngle={90} endAngle={-270}>
-                        {typeDist.map((_, i) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v} tickets`} />} />
-                    </PieChart>
-                    <DonutCenter total={donutTotal} />
+                  <div style={{ flexShrink: 0 }}>
+                    <EDonut
+                      data={typeDist.map(d => ({ ...d, count: Number(d.count) }))}
+                      valueKey="count"
+                      nameKey="ticket_type"
+                      colorFn={(_, i) => DONUT_COLORS[i % DONUT_COLORS.length]}
+                      size={148}
+                      inner={42}
+                      outer={66}
+                      centerValue={String(donutTotal)}
+                      centerLabel="tickets"
+                      showPercent={false}
+                      valueFmt={(v) => `${v} tickets`}
+                    />
                   </div>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                     {typeDist.map((d, i) => (
@@ -260,33 +217,25 @@ export default function HelpdeskStats() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
             <SectionCard title="Channel Breakdown" subtitle="Tickets by source channel">
               {channels.length === 0 ? <EmptyState msg="No channel data yet" /> : (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={channels} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
-                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="channel" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} allowDecimals={false} />
-                    <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v} tickets`} />} />
-                    <Bar dataKey="count" fill={BLUE} radius={[5, 5, 0, 0]} name="Tickets" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <EBar
+                  data={channels.map(d => ({ ...d, count: Number(d.count) }))}
+                  xKey="channel"
+                  height={200}
+                  valueFmt={(v) => `${v} tickets`}
+                  series={[{ key: 'count', name: 'Tickets', color: BLUE }]}
+                />
               )}
             </SectionCard>
 
             <SectionCard title="SLA Breach Rate by Agent" subtitle="% of tickets that breached SLA">
               {slaByAgent.length === 0 ? <EmptyState msg="No SLA data yet" /> : (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={slaByAgent} margin={{ top: 4, right: 8, bottom: 0, left: -18 }} barCategoryGap="30%">
-                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="0" vertical={false} strokeWidth={1} />
-                    <XAxis dataKey="agent_name" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                    <Tooltip content={(p: any) => <Tip {...p} fmt={(v: number) => `${v}%`} />} />
-                    <Bar dataKey="breach_pct" radius={[5, 5, 0, 0]} name="Breach %">
-                      {slaByAgent.map((e, i) => (
-                        <Cell key={i} fill={e.breach_pct > 20 ? RED : e.breach_pct > 10 ? AMBER : GREEN} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <EBar
+                  data={slaByAgent.map(d => ({ ...d, breach_pct: Number(d.breach_pct) }))}
+                  xKey="agent_name"
+                  height={200}
+                  valueFmt={(v) => `${v}%`}
+                  series={[{ key: 'breach_pct', name: 'Breach %', colorFn: (r) => Number(r.breach_pct) > 20 ? RED : Number(r.breach_pct) > 10 ? AMBER : GREEN }]}
+                />
               )}
             </SectionCard>
           </div>

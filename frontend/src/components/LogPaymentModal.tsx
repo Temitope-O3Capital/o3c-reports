@@ -3,14 +3,8 @@ import { Modal, Spinner } from './UI'
 import { apiPost } from '../lib/api'
 import { NAVY, GREEN, TEXT, FW, RADIUS, SP } from '../lib/design'
 import { toast } from 'sonner'
-
-const CHANNELS = [
-  { value: 'cash',          label: 'Cash' },
-  { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'pos',           label: 'POS' },
-  { value: 'mobile_money',  label: 'Mobile Money' },
-  { value: 'cheque',        label: 'Cheque' },
-]
+import { COLLECTIONS_PAYMENT_CHANNELS, type PaymentChannel } from '../lib/paymentChannels'
+import { BankLogo } from './BankLogo'
 
 interface Props {
   open:      boolean
@@ -18,19 +12,21 @@ interface Props {
   title:     string
   endpoint:  string
   onSuccess: () => void
+  channels?: PaymentChannel[]
 }
 
-export function LogPaymentModal({ open, onClose, title, endpoint, onSuccess }: Props) {
+export function LogPaymentModal({ open, onClose, title, endpoint, onSuccess, channels = COLLECTIONS_PAYMENT_CHANNELS }: Props) {
+  const CHANNELS = channels
   const [amountNaira, setAmountNaira] = useState('')
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10))
-  const [channel,     setChannel]     = useState('bank_transfer')
+  const [channel,     setChannel]     = useState(CHANNELS[0]?.value ?? '')
   const [reference,   setReference]   = useState('')
   const [saving,      setSaving]      = useState(false)
 
   function reset() {
     setAmountNaira('')
     setPaymentDate(new Date().toISOString().slice(0, 10))
-    setChannel('bank_transfer')
+    setChannel(CHANNELS[0]?.value ?? '')
     setReference('')
   }
 
@@ -142,21 +138,26 @@ export function LogPaymentModal({ open, onClose, title, endpoint, onSuccess }: P
         <div>
           <label style={labelStyle}>Payment Channel</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-            {CHANNELS.map(c => (
-              <button
-                key={c.value}
-                onClick={() => setChannel(c.value)}
-                style={{
-                  padding: '5px 13px', borderRadius: RADIUS.md,
-                  fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
-                  border: `1.5px solid ${channel === c.value ? NAVY : 'var(--bdr)'}`,
-                  background: channel === c.value ? NAVY : 'var(--card)',
-                  color: channel === c.value ? '#fff' : 'var(--txt)',
-                }}
-              >
-                {c.label}
-              </button>
-            ))}
+            {CHANNELS.map(c => {
+              const on = channel === c.value
+              return (
+                <button
+                  key={c.value}
+                  onClick={() => setChannel(c.value)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 7,
+                    padding: '6px 13px 6px 8px', borderRadius: RADIUS.md,
+                    fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+                    border: `1.5px solid ${on ? NAVY : 'var(--bdr)'}`,
+                    background: on ? `${NAVY}0E` : 'var(--card)',
+                    color: on ? NAVY : 'var(--txt)',
+                  }}
+                >
+                  <BankLogo code={c.value} size={22} />
+                  {c.label}
+                </button>
+              )
+            })}
           </div>
         </div>
 

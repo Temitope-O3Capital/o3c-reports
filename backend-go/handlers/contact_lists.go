@@ -228,6 +228,7 @@ func addListMember(db *core.DB) http.HandlerFunc {
 			Phone     *string        `json:"phone"`
 			Email     *string        `json:"email"`
 			CIFNumber *string        `json:"cif_number"`
+			State     *string        `json:"state"`
 			MergeData map[string]any `json:"merge_data"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
@@ -239,6 +240,7 @@ func addListMember(db *core.DB) http.HandlerFunc {
 		b.Phone = cleanStringPtr(b.Phone)
 		b.Email = cleanStringPtr(b.Email)
 		b.CIFNumber = cleanStringPtr(b.CIFNumber)
+		b.State = cleanStringPtr(b.State)
 		if b.FirstName == nil && b.LastName == nil && b.Phone == nil && b.Email == nil && b.CIFNumber == nil {
 			respondErr(w, 422, "at least one field is required (name, phone, email, or CIF number)")
 			return
@@ -253,11 +255,11 @@ func addListMember(db *core.DB) http.HandlerFunc {
 		}
 		rows, err := db.PGQuery(r.Context(), `
 			INSERT INTO contact_list_members
-			    (list_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) RETURNING *`,
+			    (list_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, state, merge_data)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) RETURNING *`,
 			id, b.FirstName, b.LastName, b.Phone, b.Email,
 			nullStr(blindContactHMAC(phoneVal)), nullStr(blindContactHMAC(emailVal)),
-			b.CIFNumber, string(mergeJSON))
+			b.CIFNumber, b.State, string(mergeJSON))
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return
@@ -279,6 +281,7 @@ func updateListMember(db *core.DB) http.HandlerFunc {
 			Phone     *string `json:"phone"`
 			Email     *string `json:"email"`
 			CIFNumber *string `json:"cif_number"`
+			State     *string `json:"state"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -289,6 +292,7 @@ func updateListMember(db *core.DB) http.HandlerFunc {
 		b.Phone = cleanStringPtr(b.Phone)
 		b.Email = cleanStringPtr(b.Email)
 		b.CIFNumber = cleanStringPtr(b.CIFNumber)
+		b.State = cleanStringPtr(b.State)
 		var phoneVal, emailVal string
 		if b.Phone != nil {
 			phoneVal = *b.Phone
@@ -299,11 +303,11 @@ func updateListMember(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), `
 			UPDATE contact_list_members
 			SET first_name=$1, last_name=$2, phone=$3, email=$4,
-			    phone_hmac=$5, email_hmac=$6, cif_number=$7, updated_at=NOW()
-			WHERE id=$8 AND list_id=$9 RETURNING *`,
+			    phone_hmac=$5, email_hmac=$6, cif_number=$7, state=$8, updated_at=NOW()
+			WHERE id=$9 AND list_id=$10 RETURNING *`,
 			b.FirstName, b.LastName, b.Phone, b.Email,
 			nullStr(blindContactHMAC(phoneVal)), nullStr(blindContactHMAC(emailVal)),
-			b.CIFNumber, mid, id)
+			b.CIFNumber, b.State, mid, id)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Member not found")
 			return
@@ -339,11 +343,12 @@ type csvContactRow struct {
 	phoneHMAC *string
 	emailHMAC *string
 	cifNumber interface{}
+	state     interface{}
 	mergeJSON string
 }
 
 var knownContactCols = map[string]bool{
-	"first_name": true, "last_name": true, "phone": true, "email": true, "cif_number": true,
+	"first_name": true, "last_name": true, "phone": true, "email": true, "cif_number": true, "state": true,
 }
 
 func parseContactCSV(records [][]string) ([]csvContactRow, []string) {
@@ -363,6 +368,7 @@ func parseContactCSV(records [][]string) ([]csvContactRow, []string) {
 		fn := strings.TrimSpace(row["first_name"])
 		ln := strings.TrimSpace(row["last_name"])
 		cif := strings.TrimSpace(row["cif_number"])
+		state := strings.TrimSpace(row["state"])
 		phone := emptyToNil(row["phone"])
 		email := emptyToNil(row["email"])
 		if fn == "" && ln == "" && cif == "" && phone == nil && email == nil {
@@ -394,6 +400,7 @@ func parseContactCSV(records [][]string) ([]csvContactRow, []string) {
 			phoneHMAC: nullStr(blindContactHMAC(row["phone"])),
 			emailHMAC: nullStr(blindContactHMAC(row["email"])),
 			cifNumber: emptyToNil(cif),
+			state:     emptyToNil(state),
 			mergeJSON: string(mergeJSON),
 		})
 	}
@@ -470,15 +477,15 @@ func uploadListCSV(db *core.DB) http.HandlerFunc {
 			}
 			batch := validRows[start:end]
 			var sb strings.Builder
-			sb.WriteString("INSERT INTO contact_list_members (list_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, merge_data) VALUES ")
-			args := make([]interface{}, 0, len(batch)*9)
+			sb.WriteString("INSERT INTO contact_list_members (list_id, first_name, last_name, phone, email, phone_hmac, email_hmac, cif_number, state, merge_data) VALUES ")
+			args := make([]interface{}, 0, len(batch)*10)
 			for i, row := range batch {
 				if i > 0 {
 					sb.WriteString(",")
 				}
-				n := i*9 + 1
-				fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d::jsonb)", n, n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8)
-				args = append(args, id, row.firstName, row.lastName, row.phone, row.email, row.phoneHMAC, row.emailHMAC, row.cifNumber, row.mergeJSON)
+				n := i*10 + 1
+				fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d::jsonb)", n, n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9)
+				args = append(args, id, row.firstName, row.lastName, row.phone, row.email, row.phoneHMAC, row.emailHMAC, row.cifNumber, row.state, row.mergeJSON)
 			}
 			if _, err := db.PGExec(r.Context(), sb.String(), args...); err != nil {
 				errMsg := err.Error()

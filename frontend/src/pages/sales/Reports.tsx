@@ -5,10 +5,7 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, monthStart, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar,
-  PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts'
+import { EArea, EBar, EDonut } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -59,7 +56,7 @@ interface TrendPoint {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const SOURCE_COLORS = [NAVY, BLUE, AMBER, GREEN, PURPLE, RED, '#6B7280']
+const SOURCE_COLORS = [NAVY, BLUE, AMBER, GREEN, PURPLE, RED, '#5B7A94']
 
 function toN(v: any): number { return Number(v) || 0 }
 
@@ -119,6 +116,8 @@ export default function SalesReports() {
 
   return (
     <Page title="Sales Reports" subtitle="Sales performance analytics"
+      loading={loading && !kpis}
+      skeletonKpis={6}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={err} onRetry={load} />
@@ -136,40 +135,32 @@ export default function SalesReports() {
       {/* Area + Source Pie */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
         <SectionCard title="New Contacts: 12 Month Trend">
-          <ResponsiveContainer width="100%" height={210}>
-            <AreaChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="repContactGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={NAVY}  stopOpacity={0.18} />
-                  <stop offset="95%" stopColor={NAVY}  stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="repConvGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={GREEN} stopOpacity={0.2} />
-                  <stop offset="95%" stopColor={GREEN} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} />
-              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
-              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-              <Legend iconSize={10} wrapperStyle={{ fontSize: TEXT.xs }} />
-              <Area type="monotone" dataKey="new_contacts" stroke={NAVY}  strokeWidth={2} fill="url(#repContactGrad)" name="New Contacts" />
-              <Area type="monotone" dataKey="converted"    stroke={GREEN} strokeWidth={2} fill="url(#repConvGrad)"    name="Converted" />
-            </AreaChart>
-          </ResponsiveContainer>
+          <EArea
+            data={trend.map(t => ({ month: t.month, new_contacts: Number(t.new_contacts), converted: Number(t.converted) }))}
+            xKey="month"
+            height={210}
+            hideYAxis
+            valueFmt={fmtNum}
+            series={[
+              { key: 'new_contacts', name: 'New Contacts', color: NAVY },
+              { key: 'converted', name: 'Converted', color: GREEN },
+            ]}
+          />
         </SectionCard>
 
         <SectionCard title="Contacts by Source">
           {sources.length > 0 ? (
-            <ResponsiveContainer width="100%" height={210}>
-              <PieChart>
-                <Pie data={sources} cx="50%" cy="44%" innerRadius={48} outerRadius={75} dataKey="total" nameKey="source">
-                  {sources.map((_, i) => <Cell key={i} fill={SOURCE_COLORS[i % SOURCE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-                <Legend iconSize={9} wrapperStyle={{ fontSize: TEXT.xs }} formatter={(v) => String(v).replace(/_/g, ' ')} />
-              </PieChart>
-            </ResponsiveContainer>
+            <EDonut
+              data={sources.map(s => ({ source: String(s.source).replace(/_/g, ' '), total: Number(s.total) }))}
+              valueKey="total"
+              nameKey="source"
+              colorFn={(_, i) => SOURCE_COLORS[i % SOURCE_COLORS.length]}
+              size={210}
+              inner={52}
+              outer={78}
+              legend
+              valueFmt={fmtNum}
+            />
           ) : (
             <div style={{ height: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
               No source data
@@ -181,19 +172,15 @@ export default function SalesReports() {
       {/* Pipeline bar */}
       {pipeline.length > 0 && (
         <SectionCard title="Pipeline by Stage" subtitle="Deal count per stage" style={{ marginBottom: 14 }}>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={pipeline} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: TEXT.xs, fill: 'var(--txt2)' }} />
-              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
-              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-              <Bar dataKey="deal_count" fill={NAVY} radius={[4, 4, 0, 0]} name="Deals">
-                {pipeline.map((entry, i) => (
-                  <Cell key={i} fill={entry.color || SOURCE_COLORS[i % SOURCE_COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <EBar
+            data={pipeline.map(p => ({ ...p, deal_count: Number(p.deal_count) }))}
+            xKey="name"
+            height={180}
+            legend={false}
+            valueFmt={fmtNum}
+            axisFmt={fmtNum}
+            series={[{ key: 'deal_count', name: 'Deals', colorFn: (row, i) => row.color || SOURCE_COLORS[i % SOURCE_COLORS.length] }]}
+          />
         </SectionCard>
       )}
 

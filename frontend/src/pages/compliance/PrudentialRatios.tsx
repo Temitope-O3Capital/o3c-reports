@@ -68,7 +68,7 @@ export default function PrudentialRatios() {
   useLiveData(() => load(true), { topics: ['compliance'] })
 
   return (
-    <Page title="Prudential Ratios" subtitle="CBN-required portfolio health indicators">
+    <Page title="Prudential Ratios" subtitle="CBN-required portfolio health indicators" loading={loading && !data} skeletonKpis={4}>
       <ErrBanner error={error} onRetry={load} />
 
       {loading ? (

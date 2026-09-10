@@ -1,12 +1,13 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, Spinner, filterInputStyle, DateFilter,
+  Page, SectionCard, DataTable, Modal, ConfirmModal, ErrBanner, Spinner, filterInputStyle,
   ExpandableFilterBar, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiPost, apiDelete } from '../../lib/api'
-import { fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
+import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
+import { useFocusParam } from '../../hooks/useFocusParam'
+import { fmtKoboExact, fmtKobo, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -22,6 +23,27 @@ interface DebtSale {
   recovery_post_sale_kobo: number
   notes: string
   created_at: string
+  status: string
+  stage_label: string
+  required_role: string
+}
+
+const FINAL_ROLE = 'cfo'
+function getUser(): { role?: string } {
+  try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}') } catch { return {} }
+}
+
+// The debt sale's position in the HOP → COO → CFO chain.
+function StageBadge({ sale, mine }: { sale: DebtSale; mine: boolean }) {
+  if (sale.status === 'approved') return <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${GREEN}1F`, color: GREEN }}>Approved</span>
+  if (sale.status === 'rejected') return <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${RED}1F`, color: RED }}>Rejected</span>
+  const color = mine ? GREEN : AMBER
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${color}1F`, color, whiteSpace: 'nowrap' }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{mine ? 'how_to_reg' : 'schedule'}</span>
+      {(sale.stage_label ?? '').replace('Awaiting ', '')}
+    </span>
+  )
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -49,7 +71,7 @@ const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
   border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
   fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
 }
 
 const labelStyle: React.CSSProperties = {
@@ -89,7 +111,7 @@ function CreateModal({ open, onClose, onDone }: {
         sale_price_kobo: salePrice ? Math.round(parseFloat(salePrice) * 100) : 0,
         notes: notes.trim(),
       })
-      toast.success('Debt sale recorded')
+      toast.success('Debt sale submitted — pending approval')
       reset(); onDone()
     } catch (e: any) {
       setErr(e.message ?? 'Failed to record sale')
@@ -168,35 +190,23 @@ function CreateModal({ open, onClose, onDone }: {
 
 // ── Table columns ─────────────────────────────────────────────────────────────
 
-function makeCols(onDelete: (id: number) => void): TableCol<DebtSale>[] {
+function makeCols(role: string, onApprove: (r: DebtSale) => void, onReject: (r: DebtSale) => void, onDelete: (id: number) => void): TableCol<DebtSale>[] {
+  const canApprove = (r: DebtSale) => (role === r.required_role || role === 'admin') && r.status !== 'approved' && r.status !== 'rejected'
   return [
     { key: 'buyer_name', label: 'Buyer', render: r => <NameCell name={r.buyer_name} /> },
     { key: 'sale_date',  label: 'Sale Date', render: r => fmtDate(r.sale_date) },
-    { key: 'account_count', label: 'Accounts',     render: r => <span style={NUM}>{r.account_count.toLocaleString()}</span> },
+    { key: 'sale_price_kobo', label: 'Sale Price', render: r => <span style={{ ...NUM, color: GREEN }}>{fmtKoboExact(r.sale_price_kobo)}</span> },
+    { key: 'face_value_kobo', label: 'Face Value', render: r => <span style={NUM}>{fmtKoboExact(r.face_value_kobo)}</span> },
+    { key: 'recovery_rate', label: 'Recovery Rate', render: r => <RateBadge pct={recoveryRate(r)} /> },
+    { key: 'status', label: 'Approval Stage', render: r => <StageBadge sale={r} mine={role === r.required_role || role === 'admin'} /> },
     {
-      key: 'face_value_kobo', label: 'Face Value',
-      render: r => <span style={NUM}>{fmtKobo(r.face_value_kobo)}</span>,
-    },
-    {
-      key: 'sale_price_kobo', label: 'Sale Price',
-      render: r => <span style={{ ...NUM, color: GREEN }}>{fmtKobo(r.sale_price_kobo)}</span>,
-    },
-    {
-      key: 'recovery_post_sale_kobo', label: 'Post-Sale Recovery',
-      render: r => <span style={NUM}>{fmtKobo(r.recovery_post_sale_kobo)}</span>,
-    },
-    {
-      key: 'recovery_rate', label: 'Recovery Rate',
-      render: r => <RateBadge pct={recoveryRate(r)} />,
-    },
-    {
-      key: 'notes', label: 'Notes',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', maxWidth: 180, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.notes || '—'}</span>,
-    },
-    {
-      key: 'actions', label: '', width: 80,
+      key: 'actions', label: '', width: 116,
       render: r => (
         <ActionRow actions={[
+          ...(canApprove(r) ? [
+            { icon: 'check_circle', label: r.required_role === FINAL_ROLE ? 'Approve & post debt sale' : 'Approve — send to next approver', onClick: () => onApprove(r), danger: true },
+            { icon: 'cancel',       label: 'Reject debt sale', onClick: () => onReject(r) },
+          ] : []),
           { icon: 'delete', label: 'Delete', onClick: () => onDelete(r.id), danger: true },
         ]} />
       ),
@@ -207,6 +217,8 @@ function makeCols(onDelete: (id: number) => void): TableCol<DebtSale>[] {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function DebtSales() {
+  const role = getUser().role ?? ''
+  const focus = useFocusParam()
   const [sales,       setSales]       = useState<DebtSale[]>([])
   const [loading,     setLoading]     = useState(true)
   const [err,         setErr]         = useState<string | null>(null)
@@ -214,22 +226,21 @@ export default function DebtSales() {
   const [deleteId,    setDeleteId]    = useState<number | null>(null)
   const [deleting,    setDeleting]    = useState(false)
   const [search,      setSearch]      = useState('')
-  const [dateFrom,    setDateFrom]    = useState(monthStart())
-  const [dateTo,      setDateTo]      = useState(today())
+  const [action,      setAction]      = useState<{ sale: DebtSale; type: 'approve' | 'reject' } | null>(null)
+  const [acting,      setActing]      = useState(false)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); setErr(null)
     try {
-      const qs = `from=${dateFrom}&to=${dateTo}`
-      const res = await apiFetch<DebtSale[] | { data: DebtSale[] }>(`/api/recovery/debt-sales?${qs}`)
+      const res = await apiFetch<DebtSale[] | { data: DebtSale[] }>(`/api/recovery/debt-sales`)
       setSales(Array.isArray(res) ? res : (res as any).data ?? [])
     } catch (e: any) {
       setErr(e.message ?? 'Failed to load debt sales')
     } finally { setLoading(false) }
-  }, [dateFrom, dateTo])
+  }, [])
 
   useEffect(() => { load() }, [load])
-  useLiveData(() => load(true), { topics: ['recovery'] })
+  useLiveData(() => load(true), { topics: ['debt_sales', 'recovery'] })
 
   const displayed = useMemo(() => {
     if (!search.trim()) return sales
@@ -251,19 +262,37 @@ export default function DebtSales() {
     } finally { setDeleting(false) }
   }
 
+  async function runAction() {
+    if (!action) return
+    setActing(true)
+    try {
+      if (action.type === 'approve') {
+        await apiPut(`/api/recovery/debt-sales/${action.sale.id}/approve`, {})
+        toast.success(action.sale.required_role === FINAL_ROLE ? 'Debt sale approved & posted' : 'Approved — sent to the next approver')
+      } else {
+        await apiPut(`/api/recovery/debt-sales/${action.sale.id}/reject`, { rejection_reason: 'Rejected on review' })
+        toast.success('Debt sale rejected')
+      }
+      setAction(null); load()
+    } catch (e: any) { toast.error(e.message ?? 'Action failed') }
+    finally { setActing(false) }
+  }
+
   // Summary totals
   const totalFaceValue  = sales.reduce((s, r) => s + r.face_value_kobo, 0)
   const totalSalePrice  = sales.reduce((s, r) => s + r.sale_price_kobo, 0)
 
-  const cols = makeCols((id) => setDeleteId(id))
+  const cols = makeCols(role, r => setAction({ sale: r, type: 'approve' }), r => setAction({ sale: r, type: 'reject' }), id => setDeleteId(id))
+  const isFinalAction = action?.type === 'approve' && action.sale.required_role === FINAL_ROLE
 
   return (
     <Page
       title="Debt Sales"
       subtitle="Portfolio of accounts sold to third-party buyers"
+      loading={loading && sales.length === 0}
+      skeletonKpis={3}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <button
             onClick={() => setCreateOpen(true)}
             style={{
@@ -282,8 +311,8 @@ export default function DebtSales() {
       <div style={{ display: 'flex', gap: SP[3], flexWrap: 'wrap', marginBottom: SP[5] }}>
         {[
           { label: 'Total Sales',       value: sales.length.toLocaleString(),  mono: false },
-          { label: 'Total Face Value',  value: fmtKobo(totalFaceValue),        mono: true },
-          { label: 'Total Sale Price',  value: fmtKobo(totalSalePrice),        mono: true },
+          { label: 'Total Face Value',  value: fmtKoboExact(totalFaceValue),        mono: true },
+          { label: 'Total Sale Price',  value: fmtKoboExact(totalSalePrice),        mono: true },
         ].map(tile => (
           <div key={tile.label} style={{
             flex: 1, minWidth: 160, padding: '14px 16px',
@@ -322,6 +351,7 @@ export default function DebtSales() {
             cols={cols}
             rows={displayed}
             keyFn={r => r.id}
+            focusId={focus}
             emptyText="No debt sales recorded yet."
           />
         )}
@@ -342,6 +372,21 @@ export default function DebtSales() {
         loading={deleting}
         onConfirm={confirmDelete}
         onClose={() => setDeleteId(null)}
+      />
+
+      <ConfirmModal
+        open={action != null}
+        title={action?.type === 'approve' ? (isFinalAction ? 'Approve & Post Debt Sale' : 'Approve Debt Sale') : 'Reject Debt Sale'}
+        body={action == null ? '' : action.type === 'approve'
+          ? (isFinalAction
+              ? `Final approval. This posts a GL entry of ${fmtKoboExact(action.sale.sale_price_kobo)} (Dr Cash / Cr Loan Receivable) for the sale to ${action.sale.buyer_name}. This cannot be undone.`
+              : `Approve the debt sale to ${action.sale.buyer_name} and send it to the next approver in the chain?`)
+          : `Reject the debt sale to ${action.sale.buyer_name}?`}
+        confirmLabel={action?.type === 'approve' ? (isFinalAction ? 'Approve & Post' : 'Approve') : 'Reject'}
+        danger={action?.type === 'approve' && isFinalAction}
+        loading={acting}
+        onConfirm={runAction}
+        onClose={() => setAction(null)}
       />
     </Page>
   )

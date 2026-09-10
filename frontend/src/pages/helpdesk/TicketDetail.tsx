@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Page, SectionCard, StatusBadge, Tabs, Modal, ConfirmModal, Spinner, ErrBanner, Avatar,
 } from '../../components/UI'
 import { Conversation } from './Conversation'
+import MailRichEditor from '../../components/MailRichEditor'
+import DOMPurify from 'dompurify'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDatetime, fmtKobo } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, PURPLE, NAVY, FW, RADIUS, SP, TEXT, MONO, SHADOW } from '../../lib/design'
@@ -34,6 +36,12 @@ const CHANNEL_ACCENT: Record<string, string> = {
 }
 const channelAccent = (c?: string) => CHANNEL_ACCENT[(c ?? '').toLowerCase()] ?? NAVY
 
+function htmlToText(html: string): string {
+  const d = document.createElement('div')
+  d.innerHTML = DOMPurify.sanitize(html)
+  return (d.textContent ?? '').trim()
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 const PRIORITY_COLOR: Record<string, string> = {
@@ -48,6 +56,7 @@ interface Message {
   author_user_name?: string
   sender_name?: string
   body_text: string
+  body_html?: string
   is_internal_note?: boolean
   created_at: string
   _opening?: boolean
@@ -214,7 +223,7 @@ function DetailRow({ label, value, mono }: { label: string; value?: string | num
   return (
     <div style={{ display: 'flex', gap: 10, fontSize: TEXT.base }}>
       <span style={{ color: 'var(--txt2)', minWidth: 110, flexShrink: 0 }}>{label}</span>
-      <span style={{ color: 'var(--txt)', fontWeight: mono ? 700 : 400, fontFamily: mono ? 'Inter, monospace' : 'inherit' }}>
+      <span style={{ color: 'var(--txt)', fontWeight: mono ? 700 : 400, fontFamily: mono ? 'var(--font-mono)' : 'inherit' }}>
         {String(value)}
       </span>
     </div>
@@ -253,6 +262,17 @@ function CallButton({ phone, ticketId }: { phone: string; ticketId?: number }) {
 export default function TicketDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  // Where "Back" returns to. When another page (e.g. the Care inbox) opens this
+  // ticket it passes {from,fromLabel} in navigation state; otherwise fall back to
+  // the browser's own history, and finally to the ticket queue.
+  const backFrom = (location.state as any)?.from as string | undefined
+  const backLabel = (location.state as any)?.fromLabel as string | undefined
+  function goBack() {
+    if (backFrom) { navigate(backFrom); return }
+    if (location.key && location.key !== 'default') { navigate(-1); return }
+    navigate('/helpdesk/tickets')
+  }
 
   const [data, setData] = useState<TicketDetailResp | null>(null)
   const [loading, setLoading] = useState(true)
@@ -265,6 +285,7 @@ export default function TicketDetail() {
 
   // Reply
   const [replyText, setReplyText] = useState('')
+  const [replyHtml, setReplyHtml] = useState('<p></p>')
   const [replyNote, setReplyNote] = useState(false)
   const [sending, setSending] = useState(false)
   const [replyErr, setReplyErr] = useState<string | null>(null)
@@ -405,13 +426,16 @@ export default function TicketDetail() {
   }, [id])
 
   async function sendReply() {
-    if (!replyText.trim()) return
+    // In reply mode the body is rich HTML; internal notes stay plain text.
+    const text = replyNote ? replyText.trim() : htmlToText(replyHtml)
+    if (!text) return
     setSending(true)
     setReplyErr(null)
     try {
       await apiPost(`/api/helpdesk/tickets/${id}/messages`, {
-        body_text: replyText,
+        body_text: text,
         is_internal_note: replyNote,
+        ...(replyNote ? {} : { body_html: DOMPurify.sanitize(replyHtml), channel: 'email' }),
       })
       // A customer-facing reply on a closed/resolved ticket reopens it.
       if (!replyNote && isTerminal(data?.ticket?.status)) {
@@ -424,6 +448,7 @@ export default function TicketDetail() {
         } catch { /* reply already saved; status change is best-effort */ }
       }
       setReplyText('')
+      setReplyHtml('<p></p>')
       setReplyNote(false)
       await load()
     } catch (e: any) {
@@ -720,10 +745,10 @@ export default function TicketDetail() {
       title={`Ticket #${ticket.ticket_ref || ticket.id}`}
       subtitle={`Customer Service to Ticket #${ticket.ticket_ref || ticket.id}`}
       actions={
-        <button onClick={() => navigate('/helpdesk/tickets')}
+        <button onClick={goBack}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>arrow_back</span>
-          Back to Queue
+          {backLabel ? `Back to ${backLabel}` : 'Back to Queue'}
         </button>
       }
     >
@@ -782,9 +807,12 @@ export default function TicketDetail() {
             {/* Ticket header — channel-accented hero */}
             <div style={{
               padding: '16px 18px', borderBottom: '1px solid var(--bdr)', flexShrink: 0,
-              borderTop: `3px solid ${accent}`,
-              background: `linear-gradient(180deg, ${accent}0C 0%, transparent 70%)`,
             }}>
+              {ticket.subject && (
+                <div style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 10, lineHeight: 1.3 }}>
+                  {ticket.subject}
+                </div>
+              )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.xs, fontWeight: FW.bold, color: accent, fontFamily: MONO, background: `${accent}16`, padding: '2px 9px', borderRadius: RADIUS.md }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{channelIcon(ticket.channel)}</span>
@@ -902,28 +930,33 @@ export default function TicketDetail() {
                 </div>
               )}
 
-              <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-                value={replyText}
-                onChange={e => setReplyText(e.target.value)}
-                placeholder={replyNote ? 'Write an internal note (only staff can see this)…' : 'Write a reply to the customer…'}
-                rows={3}
-                style={{
-                  width: '100%', resize: 'vertical', padding: '10px 12px',
-                  border: `1px solid ${replyNote ? `${AMBER}50` : 'var(--input-bdr)'}`,
-                  borderRadius: RADIUS.md, fontSize: TEXT.base, lineHeight: 1.5,
-                  background: replyNote ? `${AMBER}08` : 'var(--input-bg)',
-                  color: 'var(--txt)', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
-                }}
-                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendReply() }}
-              />
+              {replyNote ? (
+                <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
+                  value={replyText}
+                  onChange={e => setReplyText(e.target.value)}
+                  placeholder="Write an internal note (only staff can see this)…"
+                  rows={3}
+                  style={{
+                    width: '100%', resize: 'vertical', padding: '10px 12px',
+                    border: `1px solid ${AMBER}50`,
+                    borderRadius: RADIUS.md, fontSize: TEXT.base, lineHeight: 1.5,
+                    background: `${AMBER}08`,
+                    color: 'var(--txt)', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendReply() }}
+                />
+              ) : (
+                <MailRichEditor value={replyHtml} onChange={setReplyHtml} minHeight={130}
+                  placeholder={`Reply to ${ticket.customer_name || 'the customer'} by email…`} />
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: SP[2] }}>
-                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>⌘/Ctrl + ↵ to send</span>
-                <button className="hd-press" onClick={sendReply} disabled={!replyText.trim() || sending}
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{replyNote ? '⌘/Ctrl + ↵ to send' : `Replies hold 30s so you can undo`}</span>
+                <button className="hd-press" onClick={sendReply} disabled={sending || (replyNote ? !replyText.trim() : !htmlToText(replyHtml))}
                   style={{
                     padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none',
                     background: replyNote ? AMBER : NAVY, color: '#fff', boxShadow: SHADOW.sm,
-                    fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (!replyText.trim() || sending) ? 'not-allowed' : 'pointer',
-                    opacity: (!replyText.trim() || sending) ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: SP[2],
+                    fontSize: TEXT.base, fontWeight: FW.semibold, cursor: sending ? 'not-allowed' : 'pointer',
+                    opacity: sending ? 0.75 : 1, display: 'flex', alignItems: 'center', gap: SP[2],
                   }}>
                   {sending && <Spinner size={14} color="#fff" />}
                   <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{replyNote ? 'lock' : 'send'}</span>
@@ -1010,7 +1043,7 @@ export default function TicketDetail() {
                   ) : ctx.loans.map((l, i) => (
                     <div key={i} className="hd-lift" style={{ background: 'var(--th-bg)', border: '1px solid var(--bdr)', boxShadow: 'var(--shadow-xs)', borderRadius: RADIUS.md, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY, fontFamily: 'Inter, monospace' }}>{l.loan_ref ?? 'Loan'}</span>
+                        <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY, fontFamily: 'var(--font-mono)' }}>{l.loan_ref ?? 'Loan'}</span>
                         <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.lg, background: `${BLUE}15`, color: BLUE }}>{l.status}</span>
                       </div>
                       <div style={{ display: 'flex', gap: SP[4], fontSize: TEXT.sm }}>
@@ -1380,8 +1413,17 @@ export default function TicketDetail() {
             </button>
             <button
               onClick={async () => {
+                if (!escalateHeadReason.trim()) { toast.error('Add a reason for the escalation'); return }
                 setActionLoading(true)
                 try {
+                  // Actually escalate — record who/why on the escalation worklist and
+                  // notify the head. This button previously only posted an internal note
+                  // and set priority=urgent, so the toast said "Escalated to head" while
+                  // no escalation was ever created and nobody was notified.
+                  await apiPost(`/api/helpdesk/tickets/${id}/escalate`, {
+                    reason: escalateHeadReason,
+                    to_user_id: 0,
+                  })
                   await apiPost(`/api/helpdesk/tickets/${id}/messages`, {
                     body_text: `[ESCALATED TO HEAD] ${escalateHeadReason}`,
                     is_internal_note: true,
@@ -1392,7 +1434,7 @@ export default function TicketDetail() {
                   })
                   setEscalateHeadOpen(false)
                   setEscalateHeadReason('')
-                  toast.success('Escalated to head')
+                  toast.success('Escalated to head. The supervisor has been notified')
                   await load()
                 } catch (e: any) { toast.error(e.message) } finally { setActionLoading(false) }
               }}
@@ -1451,7 +1493,7 @@ export default function TicketDetail() {
                   borderLeft: mergeTarget?.id === t.id ? `3px solid ${NAVY}` : '3px solid transparent',
                 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY, fontFamily: 'Inter, monospace' }}>#{t.ticket_ref}</span>
+                  <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY, fontFamily: 'var(--font-mono)' }}>#{t.ticket_ref}</span>
                   <StatusBadge status={t.status} />
                 </div>
                 <div style={{ fontSize: TEXT.base, color: 'var(--txt)', marginTop: 2 }}>{t.subject}</div>

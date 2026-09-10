@@ -6,10 +6,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtPct, monthStart, today } from '../../lib/fmt'
 import { currentUser, isSalesHead } from '../../hooks/useAuth'
 import { NAVY, GREEN, AMBER, RED, BLUE, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar,
-  Cell, XAxis, YAxis, CartesianGrid, Tooltip,
-} from 'recharts'
+import { EArea, EFunnel } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,13 +31,6 @@ function retColor(val: number | null): { bg: string; color: string } {
   if (val >= 80)  return { bg: 'rgba(22,163,74,.12)',  color: GREEN }
   if (val >= 60)  return { bg: 'rgba(217,119,6,.12)',  color: AMBER }
   return               { bg: 'rgba(192,0,0,.12)',      color: RED }
-}
-
-function par30Color(val: number | null): { bg: string; color: string } {
-  if (val === null) return { bg: 'transparent', color: 'var(--txt3)' }
-  if (val < 5)   return { bg: 'rgba(22,163,74,.12)',  color: GREEN }
-  if (val <= 15) return { bg: 'rgba(217,119,6,.12)',  color: AMBER }
-  return              { bg: 'rgba(192,0,0,.12)',      color: RED }
 }
 
 function HeatCell({ value, colorFn, onClick }: {
@@ -85,7 +75,6 @@ export default function SalesCohort() {
   const [err,      setErr]      = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(today())
-  const [metric,   setMetric]   = useState<'retention' | 'par30'>('retention')
 
   const officerQ = officer ? `&officer_id=${officer}` : ''
   // Carry the officer filter into the drill-in so the detail matches the matrix.
@@ -144,9 +133,11 @@ export default function SalesCohort() {
 
   return (
     <Page
+      loading={loading && cohorts.length === 0}
+      skeletonKpis={4}
       title="Cohort Analysis"
       subtitle={isHead
-        ? (officer ? 'Retention & PAR30 for the selected officer' : 'Customer acquisition, lifecycle and retention across the team')
+        ? (officer ? 'Acquisition, lifecycle and retention for the selected officer' : 'Customer acquisition, lifecycle and retention across the team')
         : 'Your book: acquisition, lifecycle and retention'}
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -164,7 +155,7 @@ export default function SalesCohort() {
       <ErrBanner error={err} onRetry={load} />
 
       {/* KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[4] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Registered"      value={fmtNum(reg)}    />
         <KpiCard label="Card Issued"     value={fmtNum(issued)} accent={BLUE} />
         <KpiCard label="Card Active"     value={fmtNum(active)} accent={GREEN} />
@@ -172,37 +163,29 @@ export default function SalesCohort() {
       </div>
 
       {/* Trend + Funnel */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[3], marginBottom: SP[4] }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: SP[3], marginBottom: SP[4] }}>
         <SectionCard title="New Accounts: Monthly Trend">
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="cohortGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={NAVY} stopOpacity={0.18} />
-                  <stop offset="95%" stopColor={NAVY} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} />
-              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} allowDecimals={false} />
-              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-              <Area type="monotone" dataKey="new_accounts" stroke={NAVY} strokeWidth={2} fill="url(#cohortGrad)" name="New Accounts" />
-            </AreaChart>
-          </ResponsiveContainer>
+          <EArea
+            data={trend.map(t => ({ month: t.month, new_accounts: Number(t.new_accounts) }))}
+            xKey="month"
+            height={200}
+            hideYAxis
+            endLabel
+            endFmt={fmtNum}
+            valueFmt={fmtNum}
+            series={[{ key: 'new_accounts', name: 'New Accounts', color: NAVY }]}
+          />
         </SectionCard>
 
         <SectionCard title="Lifecycle Funnel">
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={funnelChart} layout="vertical" margin={{ top: 4, right: 8, bottom: 4, left: 72 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} />
-              <YAxis type="category" dataKey="stage" tick={{ fontSize: TEXT.xs, fill: 'var(--txt2)' }} width={72} />
-              <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-              <Bar dataKey="value" radius={[0, 4, 4, 0]} name="Count">
-                {funnelChart.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <EFunnel
+            data={funnelChart}
+            nameKey="stage"
+            valueKey="value"
+            height={160}
+            colorFn={(row) => row.fill}
+            valueFmt={fmtNum}
+          />
           {reg > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, fontSize: TEXT.sm }}>
               {[
@@ -222,7 +205,7 @@ export default function SalesCohort() {
 
       {/* Best / Worst cohort summary */}
       {(bestCohort || worstCohort) && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: SP[4] }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: SP[3], marginBottom: SP[4] }}>
           {bestCohort && (
             <div style={{
               background: 'var(--card)', borderRadius: RADIUS.xl, padding: '14px 18px',
@@ -233,7 +216,7 @@ export default function SalesCohort() {
               <div>
                 <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Best Performing Cohort (6m)</div>
                 <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: GREEN }}>{bestCohort.cohort_month}</div>
-                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtPct(bestCohort.ret_6m ?? 0)} retention · {fmtNum(bestCohort.cohort_size)} accounts</div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtPct(bestCohort.ret_6m ?? 0)} retention · {fmtNum(bestCohort.cohort_size)} customers</div>
               </div>
             </div>
           )}
@@ -247,39 +230,21 @@ export default function SalesCohort() {
               <div>
                 <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Needs Attention (6m)</div>
                 <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: RED }}>{worstCohort.cohort_month}</div>
-                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtPct(worstCohort.ret_6m ?? 0)} retention · {fmtNum(worstCohort.cohort_size)} accounts</div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{fmtPct(worstCohort.ret_6m ?? 0)} retention · {fmtNum(worstCohort.cohort_size)} customers</div>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Cohort Heatmap */}
+      {/* Cohort Heatmap — retention only. The old Retention/PAR30 toggle was removed:
+          PAR30 is a loan-book metric, not a customer one, and the endpoint returned null
+          for it, so the toggle showed an empty column. */}
       <SectionCard
         title="Cohort Retention Heatmap"
+        subtitle="Of each acquisition cohort, the % still transacting at each age — read across a row to see how a cohort ages"
         badge={cohorts.length}
         padding={false}
-        actions={
-          <div style={{ display: 'flex', gap: 4 }}>
-            {([
-              { key: 'retention', label: 'Retention' },
-              { key: 'par30',     label: 'PAR30' },
-            ] as const).map(m => (
-              <button
-                key={m.key}
-                onClick={() => setMetric(m.key)}
-                style={{
-                  padding: '4px 12px', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold,
-                  border: '1.5px solid var(--input-bdr)', cursor: 'pointer',
-                  background: metric === m.key ? NAVY : 'transparent',
-                  color: metric === m.key ? '#fff' : 'var(--txt2)',
-                }}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-        }
       >
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
@@ -287,18 +252,12 @@ export default function SalesCohort() {
               <tr style={{ background: 'var(--th-bg)' }}>
                 {[
                   { label: 'Cohort Month', align: 'left' },
-                  { label: 'Size', align: 'right' },
-                  ...(metric === 'retention'
-                    ? [
-                        { label: '1 Month',  align: 'right' },
-                        { label: '3 Months', align: 'right' },
-                        { label: '6 Months', align: 'right' },
-                        { label: '9 Months', align: 'right' },
-                        { label: '12 Months', align: 'right' },
-                      ]
-                    : [
-                        { label: 'PAR30 Now', align: 'right' },
-                      ]),
+                  { label: 'Customers', align: 'right' },
+                  { label: '1 Month',  align: 'right' },
+                  { label: '3 Months', align: 'right' },
+                  { label: '6 Months', align: 'right' },
+                  { label: '9 Months', align: 'right' },
+                  { label: '12 Months', align: 'right' },
                   { label: '', align: 'right' },
                 ].map((h, i) => (
                   <th key={i} style={{
@@ -313,7 +272,7 @@ export default function SalesCohort() {
               {loading ? (
                 Array.from({ length: 8 }, (_, i) => (
                   <tr key={i}>
-                    {Array.from({ length: metric === 'retention' ? 8 : 4 }, (_, j) => (
+                    {Array.from({ length: 8 }, (_, j) => (
                       <td key={j} style={{ padding: '10px 14px', borderBottom: '1px solid var(--bdr)' }}>
                         <div style={{ height: 14, width: j === 0 ? 80 : 48, background: 'var(--bdr)', borderRadius: 3, animation: 'pulse 1.5s ease-in-out infinite' }} />
                       </td>
@@ -322,7 +281,7 @@ export default function SalesCohort() {
                 ))
               ) : cohorts.length === 0 ? (
                 <tr>
-                  <td colSpan={metric === 'retention' ? 8 : 4} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
+                  <td colSpan={8} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
                     No cohort data available for this period
                   </td>
                 </tr>
@@ -339,17 +298,11 @@ export default function SalesCohort() {
                     <td style={{ padding: '10px 14px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>
                       <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtNum(row.cohort_size)}</span>
                     </td>
-                    {metric === 'retention' ? (
-                      <>
-                        <HeatCell value={row.ret_1m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '1m'))} />
-                        <HeatCell value={row.ret_3m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '3m'))} />
-                        <HeatCell value={row.ret_6m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '6m'))} />
-                        <HeatCell value={row.ret_9m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '9m'))} />
-                        <HeatCell value={row.ret_12m} colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '12m'))} />
-                      </>
-                    ) : (
-                      <HeatCell value={row.par30_current} colorFn={par30Color} onClick={() => navigate(drill(row.cohort_month))} />
-                    )}
+                    <HeatCell value={row.ret_1m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '1m'))} />
+                    <HeatCell value={row.ret_3m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '3m'))} />
+                    <HeatCell value={row.ret_6m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '6m'))} />
+                    <HeatCell value={row.ret_9m}  colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '9m'))} />
+                    <HeatCell value={row.ret_12m} colorFn={retColor} onClick={() => navigate(drill(row.cohort_month, '12m'))} />
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right' }}>
                       <button
                         onClick={() => navigate(drill(row.cohort_month))}
@@ -374,19 +327,14 @@ export default function SalesCohort() {
         {/* Legend */}
         <div style={{ padding: '12px 18px', borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>
-            {metric === 'retention' ? 'Retention rate:' : 'PAR30 rate:'}
+            Retention rate:
           </span>
-          {(metric === 'retention' ? [
+          {[
               { label: '≥ 80%', bg: 'rgba(22,163,74,.12)',  color: GREEN },
               { label: '60–80%', bg: 'rgba(217,119,6,.12)', color: AMBER },
               { label: '< 60%', bg: 'rgba(192,0,0,.12)',    color: RED },
               { label: 'N/A',       bg: 'transparent',           color: 'var(--txt3)' },
-            ] : [
-              { label: '< 5%',  bg: 'rgba(22,163,74,.12)',  color: GREEN },
-              { label: '5–15%', bg: 'rgba(217,119,6,.12)',  color: AMBER },
-              { label: '> 15%', bg: 'rgba(192,0,0,.12)',    color: RED },
-              { label: 'N/A',        bg: 'transparent',          color: 'var(--txt3)' },
-            ]).map(item => (
+            ].map(item => (
             <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 24, height: 14, borderRadius: RADIUS.xs, background: item.bg, border: '1px solid var(--bdr)' }} />
               <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, color: item.color }}>{item.label}</span>

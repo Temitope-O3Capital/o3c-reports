@@ -1,10 +1,10 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useEffect, useState, useCallback, useMemo, Fragment } from 'react'
-import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, NameCell, ActionRow } from '../../components/UI'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Page, SectionCard, ErrBanner, ExpandableFilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, NameCell, ActionRow, Modal } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
+import { apiFetch, apiPost, apiPut } from '../../lib/api'
+import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
 import { BLUE, AMBER, GREEN, RED, PURPLE, NAVY, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -67,7 +67,7 @@ const fieldStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px',
   border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
   fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)',
-  fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
 }
 
 // ── Ordered milestone list ────────────────────────────────────────────────────
@@ -228,14 +228,106 @@ function MilestoneTimeline({
 
 
 
+// ── Solicitor assign modal ────────────────────────────────────────────────────
+
+const labelStyle: React.CSSProperties = {
+  fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5,
+}
+
+function SolicitorModal({ legalCase, solicitors, onClose, onDone }: {
+  legalCase: LegalCase; solicitors: string[]; onClose: () => void; onDone: () => void
+}) {
+  const [value, setValue]   = useState(legalCase.solicitor ?? '')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr]       = useState<string | null>(null)
+
+  async function save() {
+    setSaving(true); setErr(null)
+    try {
+      await apiPut(`/api/recovery/cases/${legalCase.case_id}/solicitor`, { solicitor: value.trim() })
+      toast.success(value.trim() ? 'Solicitor assigned' : 'Solicitor cleared')
+      onDone()
+    } catch (e: any) {
+      setErr(e.message ?? 'Failed to assign solicitor')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Assign Solicitor" width={440}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <ErrBanner error={err} />
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+          {legalCase.customer_name ?? legalCase.account_cif} · {fmtKoboExact(legalCase.outstanding_kobo)} outstanding
+        </div>
+        <div>
+          <label style={labelStyle}>Solicitor / Law Firm</label>
+          <input
+            list="recovery-solicitors"
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            placeholder="Pick or type a firm…"
+            autoFocus
+            style={{ ...fieldStyle, height: 38 }}
+          />
+          <datalist id="recovery-solicitors">
+            {solicitors.map(s => <option key={s} value={s} />)}
+          </datalist>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={save} disabled={saving} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px',
+            borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff',
+            fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1,
+          }}>
+            {saving && <Spinner size={13} color="#fff" />} Save
+          </button>
+          <button onClick={onClose} style={{
+            padding: '8px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+            background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer',
+          }}>Cancel</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ── Legal milestone timeline modal ────────────────────────────────────────────
+
+function TimelineModal({ legalCase, onClose }: { legalCase: LegalCase; onClose: () => void }) {
+  const [ms, setMs] = useState<Milestone[] | 'loading'>('loading')
+
+  const reload = useCallback(async () => {
+    setMs('loading')
+    try {
+      const res = await apiFetch<{ data: Milestone[] }>(`/api/recovery/cases/${legalCase.case_id}/legal-milestones`)
+      setMs(res.data ?? [])
+    } catch { setMs([]) }
+  }, [legalCase.case_id])
+
+  useEffect(() => { reload() }, [reload])
+
+  return (
+    <Modal open onClose={onClose} title={`Legal Timeline · ${legalCase.customer_name ?? legalCase.account_cif}`} width={560}>
+      {ms === 'loading' ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '24px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>
+          <Spinner size={14} color={NAVY} /> Loading milestones…
+        </div>
+      ) : (
+        <MilestoneTimeline caseId={legalCase.case_id} milestones={ms} onAdd={reload} />
+      )}
+    </Modal>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RecoveryLegal() {
   const [rows, setRows]           = useState<LegalCase[]>([])
   const [loading, setLoading]     = useState(true)
   const [err, setErr]             = useState<string | null>(null)
-  const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [expandedData, setExpandedData] = useState<Record<number, Milestone[] | 'loading'>>({})
+  const [tlCase, setTlCase]       = useState<LegalCase | null>(null)   // timeline modal
+  const [solCase, setSolCase]     = useState<LegalCase | null>(null)   // assign-solicitor modal
+  const [solicitors, setSolicitors] = useState<string[]>([])
 
   const [fMilestones, setFMilestones] = useState(new Set<string>())
   const [search,      setSearch]      = useState('')
@@ -274,34 +366,12 @@ export default function RecoveryLegal() {
       .finally(() => setKpiLoading(false))
   }, [])
 
-  async function loadMilestones(caseId: number) {
-    if (expandedData[caseId] && expandedData[caseId] !== 'loading') return
-    setExpandedData(prev => ({ ...prev, [caseId]: 'loading' }))
-    try {
-      const res = await apiFetch<{ data: Milestone[] }>(`/api/recovery/cases/${caseId}/legal-milestones`)
-      setExpandedData(prev => ({ ...prev, [caseId]: res.data ?? [] }))
-    } catch {
-      setExpandedData(prev => ({ ...prev, [caseId]: [] }))
-    }
-  }
-
-  function toggleExpand(row: LegalCase) {
-    if (expandedId === row.id) {
-      setExpandedId(null)
-    } else {
-      setExpandedId(row.id)
-      loadMilestones(row.case_id)
-    }
-  }
-
-  function refreshMilestones(caseId: number) {
-    setExpandedData(prev => {
-      const next = { ...prev }
-      delete next[caseId]
-      return next
-    })
-    loadMilestones(caseId)
-  }
+  // Known solicitors for the assign modal's pick-or-type list.
+  useEffect(() => {
+    apiFetch<{ data: { solicitor: string }[] }>('/api/recovery/solicitors')
+      .then(r => setSolicitors((r.data ?? []).map(s => s.solicitor).filter(Boolean)))
+      .catch(() => {})
+  }, [])
 
   const todayStr = today()
 
@@ -348,7 +418,7 @@ export default function RecoveryLegal() {
       label: 'Outstanding ₦',
       sortable: true,
       align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKobo(r.outstanding_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: 600 }}>{fmtKoboExact(r.outstanding_kobo)}</span>,
     },
     {
       key: 'current_milestone',
@@ -360,7 +430,9 @@ export default function RecoveryLegal() {
       key: 'solicitor',
       label: 'Solicitor',
       sortable: true,
-      render: r => <span style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{r.solicitor ?? '—'}</span>,
+      render: r => r.solicitor
+        ? <span style={{ fontSize: TEXT.base, color: 'var(--txt)' }}>{r.solicitor}</span>
+        : <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', fontStyle: 'italic' }}>Unassigned</span>,
     },
     {
       key: 'next_court_date',
@@ -385,13 +457,12 @@ export default function RecoveryLegal() {
     },
   ]
 
-  // Custom render with inline expand — we build the table manually to inject expanded rows
-  // `filtered` is derived via useMemo above based on the `search` state
-
   return (
     <Page
       title="Legal Cases"
       subtitle="Manage accounts in legal proceedings"
+      loading={loading && rows.length === 0}
+      skeletonKpis={4}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -405,7 +476,7 @@ export default function RecoveryLegal() {
         <KpiCard label="Total Cases" value={kpis ? fmtNum(kpis.total_cases) : '—'} icon="gavel" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Active" value={kpis ? fmtNum(kpis.active) : '—'} icon="pending_actions" accent={AMBER} loading={kpiLoading} />
         <KpiCard label="Won" value={kpis ? fmtNum(kpis.won) : '—'} icon="verified" accent={GREEN} loading={kpiLoading} />
-        <KpiCard label="Debt Recovered" value={kpis ? fmtKobo(kpis.total_debt_recovered_kobo) : '—'} icon="savings" accent={BLUE} loading={kpiLoading} />
+        <KpiCard label="Debt Recovered" value={kpis ? fmtKoboExact(kpis.total_debt_recovered_kobo) : '—'} icon="savings" accent={BLUE} loading={kpiLoading} />
       </div>
 
       <SectionCard
@@ -423,7 +494,6 @@ export default function RecoveryLegal() {
           totalCount={rows.length}
           placeholder="Search name, solicitor, CIF…"
         />
-        {/* Table with inline expand */}
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
             <thead>
@@ -439,7 +509,7 @@ export default function RecoveryLegal() {
                     {col.label}
                   </th>
                 ))}
-                <th style={{ width: 60, borderBottom: '1px solid var(--bdr)' }} />
+                <th style={{ width: 84, borderBottom: '1px solid var(--bdr)' }} />
               </tr>
             </thead>
             <tbody>
@@ -462,52 +532,44 @@ export default function RecoveryLegal() {
                 </tr>
               ) : (
                 filtered.map(row => (
-                  <Fragment key={row.id}>
-                    <tr
-                      onClick={() => toggleExpand(row)}
-                      style={{ cursor: 'pointer', borderBottom: '1px solid var(--bdr)' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '' }}
-                    >
-                      {cols.map(col => (
-                        <td key={col.key} style={{
-                          padding: '12px 14px',
-                          textAlign: col.align === 'right' ? 'right' : 'left',
-                        }}>
-                          {col.render ? col.render(row, 0) : row[col.key as keyof LegalCase] as React.ReactNode}
-                        </td>
-                      ))}
-                      <td style={{ padding: '12px 14px' }}>
-                        <ActionRow actions={[
-                          { icon: 'add_circle', label: 'Add Milestone', onClick: () => toggleExpand(row) },
-                          { icon: expandedId === row.id ? 'expand_less' : 'expand_more', label: 'Timeline', onClick: () => toggleExpand(row) },
-                        ]} />
+                  <tr
+                    key={row.id}
+                    onClick={() => setTlCase(row)}
+                    style={{ cursor: 'pointer', borderBottom: '1px solid var(--bdr)' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '' }}
+                  >
+                    {cols.map(col => (
+                      <td key={col.key} style={{
+                        padding: '12px 14px',
+                        textAlign: col.align === 'right' ? 'right' : 'left',
+                      }}>
+                        {col.render ? col.render(row, 0) : row[col.key as keyof LegalCase] as React.ReactNode}
                       </td>
-                    </tr>
-                    {expandedId === row.id && (
-                      <tr key={`${row.id}-expand`} style={{ background: 'var(--bg)' }}>
-                        <td colSpan={cols.length + 1} style={{ padding: '0 16px 16px', borderBottom: '1px solid var(--bdr)' }}>
-                          {expandedData[row.case_id] === 'loading' ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '20px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>
-                              <Spinner size={14} color={NAVY} /> Loading milestones…
-                            </div>
-                          ) : (
-                            <MilestoneTimeline
-                              caseId={row.case_id}
-                              milestones={(expandedData[row.case_id] as Milestone[]) ?? []}
-                              onAdd={refreshMilestones}
-                            />
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                    ))}
+                    <td style={{ padding: '12px 14px' }}>
+                      <ActionRow actions={[
+                        { icon: 'account_balance', label: 'Assign Solicitor', onClick: () => setSolCase(row) },
+                        { icon: 'timeline',        label: 'View Timeline',    onClick: () => setTlCase(row) },
+                      ]} />
+                    </td>
+                  </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
       </SectionCard>
+
+      {tlCase && <TimelineModal legalCase={tlCase} onClose={() => setTlCase(null)} />}
+      {solCase && (
+        <SolicitorModal
+          legalCase={solCase}
+          solicitors={solicitors}
+          onClose={() => setSolCase(null)}
+          onDone={() => { setSolCase(null); load(true) }}
+        />
+      )}
     </Page>
   )
 }

@@ -172,6 +172,7 @@ export default function DataSubjectRequests() {
     <Page
       title="Data Subject Requests"
       subtitle="NDPR / GDPR data subject access, erasure and portability requests"
+      loading={loading && items.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

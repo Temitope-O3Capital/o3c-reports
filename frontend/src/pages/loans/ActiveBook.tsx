@@ -291,7 +291,7 @@ export default function ActiveLoanBook() {
     : 0
 
   return (
-    <Page title="Active Loan Book" subtitle="Live loan portfolio">
+    <Page title="Active Loan Book" subtitle="Live loan portfolio" loading={loading && !summary} skeletonKpis={4}>
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip */}

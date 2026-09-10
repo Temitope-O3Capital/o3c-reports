@@ -2,7 +2,7 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { Page, KpiCard, SectionCard, ErrBanner, Spinner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
 import { NAVY, BLUE, AMBER, GREEN, RED, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 interface Summary {
@@ -80,14 +80,14 @@ export default function AtRiskCards() {
   )
 
   return (
-    <Page title="At-Risk Credit Cards" subtitle="Over-limit and overdue accounts from the latest billing cycle" back={back} actions={actions}>
+    <Page title="At-Risk Credit Cards" subtitle="Over-limit and overdue accounts from the latest billing cycle" back={back} actions={actions} loading={loading && !summary} skeletonKpis={4}>
       <ErrBanner error={error} onRetry={load} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
         <KpiCard label="At-Risk Accounts" value={fmtNum(summary?.at_risk_accounts ?? 0)} icon="warning" accent={RED} />
-        <KpiCard label="Over Limit" value={fmtNum(summary?.over_limit_accounts ?? 0)} icon="trending_up" accent={AMBER} sub={summary ? `${fmtKobo(summary.over_limit_excess_kobo)} excess` : undefined} />
+        <KpiCard label="Over Limit" value={fmtNum(summary?.over_limit_accounts ?? 0)} icon="trending_up" accent={AMBER} sub={summary ? `${fmtKoboExact(summary.over_limit_excess_kobo)} excess` : undefined} />
         <KpiCard label="Overdue Accounts" value={fmtNum(summary?.overdue_accounts ?? 0)} icon="schedule" accent={RED} />
-        <KpiCard label="Overdue Exposure" value={fmtKobo(summary?.overdue_kobo ?? 0)} icon="account_balance_wallet" accent={NAVY} />
+        <KpiCard label="Overdue Exposure" value={fmtKoboExact(summary?.overdue_kobo ?? 0)} icon="account_balance_wallet" accent={NAVY} />
       </div>
 
       <SectionCard title="Accounts" badge={rows.length} padding={false}>
@@ -124,11 +124,11 @@ export default function AtRiskCards() {
                         </a>
                       </td>
                       <td style={{ ...TD, color: 'var(--txt2)' }}>{r.product}</td>
-                      <td style={{ ...TD, ...NUM, textAlign: 'right', fontWeight: FW.semibold }}>{fmtKobo(r.outstanding_balance_kobo)}</td>
-                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{fmtKobo(r.credit_limit_kobo)}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', fontWeight: FW.semibold }}>{fmtKoboExact(r.outstanding_balance_kobo)}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{fmtKoboExact(r.credit_limit_kobo)}</td>
                       <td style={{ ...TD, ...NUM, textAlign: 'right', fontWeight: FW.bold, color: util >= 100 ? RED : util >= 80 ? AMBER : 'var(--txt2)' }}>{util.toFixed(0)}%</td>
-                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: r.overdue_amount_kobo > 0 ? RED : 'var(--txt3)' }}>{fmtKobo(r.overdue_amount_kobo)}</td>
-                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{fmtKobo(r.minimum_payment_kobo)}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: r.overdue_amount_kobo > 0 ? RED : 'var(--txt3)' }}>{fmtKoboExact(r.overdue_amount_kobo)}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{fmtKoboExact(r.minimum_payment_kobo)}</td>
                       <td style={{ ...TD }}>
                         <div style={{ display: 'flex', gap: 5 }}>
                           {r.over_limit && <Chip label="Over limit" color={AMBER} />}

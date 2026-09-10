@@ -192,6 +192,7 @@ export default function CallScripts() {
     <Page
       title="Call Scripts"
       subtitle="Ready-to-use talk-tracks for the Call Centre: search, read, and copy live on a call"
+      loading={loading && rows.length === 0}
       actions={canManage ? (
         <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: 'inherit' }}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>

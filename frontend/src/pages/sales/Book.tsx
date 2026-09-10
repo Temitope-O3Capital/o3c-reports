@@ -337,6 +337,8 @@ export default function SalesBook() {
 
   return (
     <Page
+      loading={loading && rows.length === 0}
+      skeletonKpis={4}
       title={isHead ? 'Customer Book' : 'My Book'}
       subtitle={isHead ? 'Every customer and the officer who owns them' : 'The customers you own as account officer'}
       actions={

@@ -51,11 +51,13 @@ func SeesAllRows(role string) bool { return DataScopeForRole(role) == ScopeAll }
 // SeesAllRows: a sales_head sees all sales rows but is not management. Kept in
 // sync with the frontend MGMT set (lib/roles.ts).
 var managementRoles = map[string]bool{
-	"admin": true,
-	"md":    true,
-	"coo":   true,
-	"cfo":   true,
-	"cmo":   true,
+	"admin":         true,
+	"md":            true,
+	"coo":           true,
+	"cfo":           true,
+	"cmo":           true,
+	"head_ops":      true, // Head of Operations — cross-operations executive tier
+	"exec_overview": true, // scoped exec — sees the Overview cockpit, no module edit
 }
 
 // IsManagement reports whether a role belongs to the executive/management tier

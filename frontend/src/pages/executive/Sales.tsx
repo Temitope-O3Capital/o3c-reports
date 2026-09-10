@@ -1,13 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
-import {
-  ResponsiveContainer, BarChart, Bar, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts'
-import { Page, SectionCard, KpiCard, Spinner, ErrBanner } from '../../components/UI'
+import { useSearchParams } from 'react-router-dom'
+import { Page, SectionCard, KpiCard, Spinner, ErrBanner, DateFilter } from '../../components/UI'
+import { EBar, EBarH } from '../../components/echarts'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtNum } from '../../lib/fmt'
-import { RED, AMBER, BLUE, GREEN, NAVY, INTER, NUM, TEXT, FW, SP } from '../../lib/design'
-import { PeriodFilter, Tip, Stat, Note, ytick, share, type Period } from './shared'
+import { fmtKobo, fmtNum, monthStart, today } from '../../lib/fmt'
+import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, INTER, NUM, TEXT, FW, SP } from '../../lib/design'
+import { Stat, Note, ytick, share } from './shared'
 
 interface ExecSales {
   period: { type: string; start: string; end: string }
@@ -17,6 +15,9 @@ interface ExecSales {
   acquisition_change_pct: number
   new_deposits: number
   new_deposit_value_kobo: number
+  cards_opened: number
+  credit_cards_opened: number
+  credit_book_kobo: number
   acquisition_mix: { product_line: string; opened: number; total: number }[]
   acquisition_trend: { month: string; accounts: number; deposits: number; loans: number }[]
 
@@ -29,33 +30,53 @@ interface ExecSales {
 }
 
 const LINE_COLOR: Record<string, string> = {
-  prepaid: NAVY, credit_card: RED, deposit: GREEN, other: BLUE, unclassified: '#94A3B8',
+  prepaid: NAVY, credit_card: RED, deposit: GREEN, other: BLUE, unclassified: '#5B7A94',
 }
 const LINE_LABEL: Record<string, string> = {
   prepaid: 'Prepaid', credit_card: 'Credit Card', deposit: 'Deposit',
   other: 'Other', unclassified: 'Unclassified',
 }
 
+interface LeadPipeline {
+  funnel: { stage: string; count: number }[]
+  campaign_leads: number
+  interested: number
+  forwarded_total: number
+  forwards: Record<string, number>
+  crm_stages: Record<string, number>
+  by_source: { source: string; n: number }[]
+  forward_conv_rate: number
+}
+
 export default function ExecSales() {
   const [data, setData] = useState<ExecSales | null>(null)
+  const [pipeline, setPipeline] = useState<LeadPipeline | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [period, setPeriod] = useState<Period>('mtd')
+  const [sp] = useSearchParams()
+  const [from, setFrom] = useState(sp.get('from') || monthStart())
+  const [to,   setTo]   = useState(sp.get('to')   || today())
 
-  const load = useCallback(async (p: Period) => {
+  const load = useCallback(async (f: string, t: string) => {
     setLoading(true); setError(null)
     try {
-      const r = await apiFetch<{ data: ExecSales }>(`/api/executive/sales?period=${p}`)
+      const r = await apiFetch<{ data: ExecSales }>(`/api/executive/sales?period=custom&start=${f}&end=${t}`)
       setData(r.data)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load(period) }, [load, period])
+  useEffect(() => { load(from, to) }, [load, from, to])
+
+  // The campaign → call-centre → sales funnel is cumulative, not date-scoped.
+  useEffect(() => {
+    apiFetch<{ data: LeadPipeline }>('/api/executive/lead-pipeline')
+      .then(r => setPipeline(r.data)).catch(() => {})
+  }, [])
 
   const title = 'Sales: Executive View'
   const back = { label: 'Executive Overview', to: '/' }
-  const actions = <PeriodFilter period={period} onChange={p => { setPeriod(p); load(p) }} />
+  const actions = <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
 
   if (loading) return (
     <Page title={title} back={back} actions={actions}>
@@ -64,7 +85,7 @@ export default function ExecSales() {
   )
   if (error) return (
     <Page title={title} back={back} actions={actions}>
-      <ErrBanner error={error} onRetry={() => load(period)} />
+      <ErrBanner error={error} onRetry={() => load(from, to)} />
     </Page>
   )
   if (!data) return null
@@ -75,27 +96,63 @@ export default function ExecSales() {
   return (
     <Page title={title} back={back} actions={actions}>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: SP[3], marginBottom: 14 }}>
         <KpiCard label="Accounts Opened" value={fmtNum(data.new_accounts)} change={data.acquisition_change_pct} icon="person_add" accent={NAVY} />
-        <KpiCard label="Deposits Placed" value={fmtNum(data.new_deposits)} icon="savings" accent={GREEN} />
-        <KpiCard label="Deposit Value" value={fmtKobo(data.new_deposit_value_kobo)} icon="payments" accent={AMBER} />
+        <KpiCard label="Cards Issued" value={fmtNum(data.cards_opened)} sub={`${fmtNum(data.credit_cards_opened)} credit`} icon="credit_card" accent={PURPLE} />
+        <KpiCard label="Credit Card Book" value={fmtKobo(data.credit_book_kobo)} icon="account_balance_wallet" accent={RED} />
+        <KpiCard label="Deposits Placed" value={fmtNum(data.new_deposits)} sub={fmtKobo(data.new_deposit_value_kobo)} icon="savings" accent={GREEN} />
         <KpiCard label="Loans Booked" value={fmtNum(data.conversions_mtd)} icon="request_quote" accent={BLUE} />
       </div>
 
+      {/* ── Lead pipeline: campaign → call centre → sales ─────────────────── */}
+      {pipeline && (
+        <SectionCard title="Lead Pipeline" subtitle="Campaign → call centre → sales, tracked to conversion" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: SP[3], marginBottom: SP[4] }}>
+            <Stat label="Campaign leads" value={fmtNum(pipeline.campaign_leads)} />
+            <Stat label="Interested" value={fmtNum(pipeline.interested)} />
+            <Stat label="Forwarded" value={fmtNum(pipeline.forwarded_total)} />
+            <Stat label="Converted" value={fmtNum(pipeline.forwards?.converted ?? 0)} />
+            <Stat label="Forward → conv." value={`${pipeline.forward_conv_rate ?? 0}%`} />
+          </div>
+          {(() => {
+            const max = Math.max(1, ...pipeline.funnel.map(s => s.count))
+            const COLORS = [PURPLE, AMBER, BLUE, NAVY, GREEN]
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {pipeline.funnel.map((s, i) => (
+                  <div key={s.stage} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ width: 132, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, flexShrink: 0 }}>{s.stage}</span>
+                    <div style={{ flex: 1, height: 22, background: 'var(--th-bg)', borderRadius: 6, overflow: 'hidden', position: 'relative' }}>
+                      <div style={{ width: `${Math.max(2, (s.count / max) * 100)}%`, height: '100%', background: COLORS[i % COLORS.length], borderRadius: 6, opacity: 0.92 }} />
+                      <span style={{ position: 'absolute', left: 10, top: 0, height: '100%', display: 'flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,.35)', ...NUM }}>{fmtNum(s.count)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+          <div style={{ marginTop: SP[4] }}>
+            <Note>
+              The blast (campaign leads) narrows as agents qualify interest, supervisors forward the warm ones,
+              and Sales claims and converts. A wide gap between <b>Forwarded</b> and <b>Converted</b> is where Sales follow-up is leaking.
+            </Note>
+          </div>
+        </SectionCard>
+      )}
+
       {/* ── Acquisition over time ─────────────────────────────────────────── */}
       <SectionCard title="Acquisition" subtitle="New accounts, deposits and loans per month" style={{ marginBottom: 14 }}>
-        <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={data.acquisition_trend} margin={{ top: 4, right: 8, bottom: 14, left: 8 }}>
-            <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
-            <XAxis dataKey="month" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
-            <YAxis width={44} allowDecimals={false} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-            <Tooltip content={<Tip />} cursor={{ fill: 'var(--row-hvr)' }} />
-            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs, fontFamily: INTER, color: 'var(--txt2)' }} />
-            <Bar dataKey="accounts" name="Accounts" fill={NAVY} radius={[3, 3, 0, 0]} barSize={16} />
-            <Bar dataKey="deposits" name="Deposits" fill={GREEN} radius={[3, 3, 0, 0]} barSize={16} />
-            <Bar dataKey="loans" name="Loans" fill={BLUE} radius={[3, 3, 0, 0]} barSize={16} />
-          </BarChart>
-        </ResponsiveContainer>
+        <EBar
+          data={data.acquisition_trend}
+          xKey="month"
+          height={250}
+          valueFmt={(v) => Number(v).toLocaleString()}
+          series={[
+            { key: 'accounts', name: 'Accounts', color: NAVY },
+            { key: 'deposits', name: 'Deposits', color: GREEN },
+            { key: 'loans', name: 'Loans', color: BLUE },
+          ]}
+        />
       </SectionCard>
 
       {/* ── Mix + book ────────────────────────────────────────────────────── */}
@@ -137,19 +194,15 @@ export default function ExecSales() {
           {data.pipeline_stages.length === 0 ? (
             <Note>No open loans.</Note>
           ) : (
-            <ResponsiveContainer width="100%" height={170}>
-              <BarChart data={data.pipeline_stages} margin={{ top: 4, right: 8, bottom: 4, left: 8 }} layout="vertical">
-                <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" horizontal={false} strokeWidth={1} />
-                <XAxis type="number" tickFormatter={ytick} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="stage" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} width={84} />
-                <Tooltip content={<Tip fmt={fmtKobo} />} cursor={{ fill: 'var(--row-hvr)' }} />
-                <Bar dataKey="value_kobo" name="Outstanding" radius={[0, 4, 4, 0]} barSize={18}>
-                  {data.pipeline_stages.map(s => (
-                    <Cell key={s.stage} fill={/default|expir/i.test(s.stage) ? RED : NAVY} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <EBarH
+              data={data.pipeline_stages}
+              catKey="stage"
+              height={170}
+              barMax={18}
+              valueFmt={fmtKobo}
+              axisFmt={ytick}
+              series={[{ key: 'value_kobo', name: 'Outstanding', colorFn: (s) => (/default|expir/i.test(s.stage) ? RED : NAVY) }]}
+            />
           )}
         </SectionCard>
       </div>

@@ -1,19 +1,21 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
+import { EArea } from '../../components/echarts'
 import { Page, SectionCard, ErrBanner, Spinner, Modal } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
+import { hasPage } from '../../hooks/useAuth'
 import { fmtNum, fmtDate } from '../../lib/fmt'
 import { toast } from 'sonner'
-import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, INTER, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { BAND_COLOR, qaBand } from '../../lib/qa'
 import {
-  WorkspaceHero, MyDaySection, MyDayTile, PresenceControl, StatusPill, ChartTip,
+  WorkspaceHero, MyDaySection, MyDayTile, PresenceControl, StatusPill,
   HourlyActivity, HeroButton, LiveBadge, heroDelta, fmtDur, relTime, ordinal, myUserId,
 } from '../../components/MyWorkspace'
 import NewTicketForm from './NewTicket'
 import LogCallModal, { LogCallInitial } from '../../components/LogCallModal'
+import { RecordingModal } from '../../components/RecordingPlayer'
 
 // ── Config / types ──────────────────────────────────────────────────────────
 
@@ -28,6 +30,7 @@ interface MyTicket {
 interface MyCall {
   id: number; direction: string; customer: string; phone?: string; purpose?: string
   customer_cif?: string; outcome: string; duration_sec: number | null; started_at: string; ticket_id?: number | null
+  has_recording?: boolean
 }
 interface AgentDash {
   open_tickets: number; resolved_today: number
@@ -87,7 +90,11 @@ export default function CallCenterMyDashboard() {
   const [ticketInitial, setTicketInitial] = useState<{ cif?: string; name?: string; phone?: string } | undefined>(undefined)
   const [status, setStatus] = useState('available')
   const [qa, setQa] = useState<{ summary: any; recent: any[] } | null>(null)
-  useEffect(() => { apiFetch<any>('/api/qa/my').then(setQa).catch(() => {}) }, [])
+  // Call whose recording is open in the streaming player (null = closed).
+  const [playCall, setPlayCall] = useState<MyCall | null>(null)
+  // /api/qa is gated to `call_center`; only fetch for those users so a helpdesk-only
+  // agent doesn't fire a guaranteed 403 (the section already hides while qa is null).
+  useEffect(() => { if (hasPage('call_center')) apiFetch<any>('/api/qa/my').then(setQa).catch(() => {}) }, [])
 
   // Open the Log-a-Call modal, optionally pre-filled for a specific call/number.
   const openLog = useCallback((initial?: LogCallInitial) => {
@@ -171,7 +178,6 @@ export default function CallCenterMyDashboard() {
           { label: 'Avg Talk', value: fmtDur(c.avg_talk_sec) },
           { label: 'Resolved', value: fmtNum(d.resolved_today), color: '#4ADE80' },
           { label: 'Open Tickets', value: fmtNum(d.open_tickets) },
-          { label: 'Avg Handle', value: d.avg_handle_time_mins > 0 ? `${d.avg_handle_time_mins}m` : '—' },
         ]}
         aside={<HourlyActivity data={d.by_hour_today} />}
         actions={<>
@@ -208,22 +214,19 @@ export default function CallCenterMyDashboard() {
         {d.call_this_week.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls this week yet</div>
         ) : (
-          <ResponsiveContainer width="100%" height={210}>
-            <AreaChart data={d.call_this_week} margin={{ top: 6, right: 10, left: -18, bottom: 0 }}>
-              <defs>
-                <linearGradient id="volGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={NAVY} stopOpacity={0.25} />
-                  <stop offset="95%" stopColor={NAVY} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="dow" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip content={<ChartTip />} />
-              <Area type="monotone" dataKey="total"  name="Calls"        stroke={NAVY} strokeWidth={2.4} fill="url(#volGrad)" dot={{ r: 2.5, fill: NAVY }} />
-              <Area type="monotone" dataKey="missed" name="Missed (in)"  stroke={RED} strokeWidth={2} fill="transparent" dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <EArea
+            data={d.call_this_week.map(x => ({ dow: x.dow, total: Number(x.total), missed: Number(x.missed) }))}
+            xKey="dow"
+            height={210}
+            endLabel
+            dots
+            valueFmt={fmtNum}
+            endFmt={fmtNum}
+            series={[
+              { key: 'total', name: 'Calls', color: NAVY },
+              { key: 'missed', name: 'Missed (in)', color: RED },
+            ]}
+          />
         )}
       </SectionCard>
 
@@ -260,6 +263,16 @@ export default function CallCenterMyDashboard() {
                   {pm && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: `${pm.color}16`, color: pm.color, whiteSpace: 'nowrap', flexShrink: 0 }}>{pm.label}</span>}
                   <StatusPill label={disp.label} color={disp.color === 'var(--txt3)' ? 'var(--txt3)' : disp.color} />
                   <div style={{ width: 58, textAlign: 'right', flexShrink: 0, fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{relTime(r.started_at)}</div>
+                  {/* Play this call's recording in-app (streamed). Shown for a connected
+                      call even if the recording hasn't attached yet — opening the player
+                      offers a "Fetch from Zoho" pull for it. Missed/0-sec calls (never
+                      recorded) don't get the button. */}
+                  {(r.has_recording || (r.outcome === 'completed' && (r.duration_sec ?? 0) > 0)) && (
+                    <button title={r.has_recording ? 'Play recording' : 'Fetch & play recording'} onClick={() => setPlayCall(r)}
+                      style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: r.has_recording ? GREEN : NAVY, cursor: 'pointer' }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{r.has_recording ? 'play_circle' : 'cloud_sync'}</span>
+                    </button>
+                  )}
                   {/* Log a report for this number — opens the modal pre-filled. */}
                   <button title="Log a report for this call" onClick={() => openLog({ name: r.customer, phone: r.phone, cif: r.customer_cif })}
                     style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: NAVY, fontSize: TEXT['2xs'], fontWeight: FW.semibold, cursor: 'pointer' }}>
@@ -303,12 +316,20 @@ export default function CallCenterMyDashboard() {
       </SectionCard>
 
       {/* ── My QA scores ─────────────────────────────────────────────────── */}
+      {qa && Number(qa.summary?.evaluations ?? 0) === 0 && (
+        <SectionCard title="My Rated Calls" subtitle="Your supervisor's call reviews will appear here" style={{ marginTop: SP[4] }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '18px 4px', color: 'var(--txt2)', fontSize: TEXT.sm }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 20, color: 'var(--txt3)' }}>reviews</span>
+            No calls scored yet. When a supervisor evaluates one of your calls, the score, feedback and a link to play it back show up here.
+          </div>
+        </SectionCard>
+      )}
       {qa && Number(qa.summary?.evaluations ?? 0) > 0 && (() => {
         const avg = Number(qa.summary?.avg_score ?? 0)
         const col = BAND_COLOR[qaBand(avg)] ?? NAVY
         const latest = qa.recent?.[0]
         return (
-          <SectionCard title="My QA Scores" subtitle="How your calls have been rated by QA" style={{ marginTop: SP[4] }}
+          <SectionCard title="My Rated Calls" subtitle="Calls your supervisor scored — click a row to play the recording" style={{ marginTop: SP[4] }}
             badge={Number(qa.summary?.evaluations ?? 0)}>
             <div style={{ display: 'grid', gridTemplateColumns: '190px 1fr', gap: SP[4] }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0', background: `${col}0d`, border: `1px solid ${col}30`, borderRadius: RADIUS.lg }}>
@@ -328,13 +349,23 @@ export default function CallCenterMyDashboard() {
                     {latest.coaching_notes && <span><b style={{ color: NAVY }}>Coaching:</b> {latest.coaching_notes}</span>}
                   </div>
                 )}
-                {qa.recent.slice(0, 5).map((r: any) => {
+                {qa.recent.slice(0, 8).map((r: any) => {
                   const c = BAND_COLOR[r.rating_band] ?? NAVY
+                  const playable = r.call_id != null
                   return (
-                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 2px', borderBottom: '1px solid var(--bdr)' }}>
-                      <span style={{ ...NUM, width: 46, fontSize: TEXT.sm, fontWeight: FW.bold, color: c }}>{Number(r.total_score)}%</span>
+                    <div key={r.id}
+                      onClick={playable ? () => setPlayCall({ id: r.call_id, customer: r.customer_name, phone: '', direction: r.call_direction } as MyCall) : undefined}
+                      title={playable ? 'Play this recording' : undefined}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 4px', borderBottom: '1px solid var(--bdr)', cursor: playable ? 'pointer' : 'default', borderRadius: RADIUS.sm }}
+                      onMouseEnter={e => { if (playable) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '' }}>
+                      {playable && <span className="material-symbols-rounded" style={{ fontSize: 16, color: NAVY }}>play_circle</span>}
+                      <span style={{ ...NUM, width: 42, fontSize: TEXT.sm, fontWeight: FW.bold, color: c }}>{Number(r.total_score)}%</span>
                       <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '1px 8px', borderRadius: RADIUS['2xl'], background: `${c}18`, color: c }}>{r.rating_band}</span>
-                      <span style={{ flex: 1, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{r.customer_name || 'Unknown'} · {r.call_direction}</span>
+                      <span style={{ flex: 1, fontSize: TEXT.xs, color: 'var(--txt3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {r.customer_name || 'Unknown'} · {r.call_direction}
+                        {r.evaluator_name && <span style={{ color: 'var(--txt3)' }}> · rated by {r.evaluator_name}</span>}
+                      </span>
                       <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: r.passed ? GREEN : RED }}>{r.passed ? 'Pass' : 'Fail'}</span>
                       <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtDate(r.created_at)}</span>
                     </div>
@@ -346,7 +377,14 @@ export default function CallCenterMyDashboard() {
         )
       })()}
 
-      <LogCallModal open={logOpen} initial={logInitial} onClose={() => setLogOpen(false)} onSaved={load} />
+      <LogCallModal open={logOpen} initial={logInitial} onClose={() => setLogOpen(false)} onSaved={() => load()} />
+
+      <RecordingModal
+        callId={playCall?.id ?? null}
+        title={`Recording · ${playCall?.customer ?? playCall?.phone ?? 'Call'}`}
+        subtitle={playCall ? `${playCall.direction}${playCall.phone ? ` · ${playCall.phone}` : ''}` : undefined}
+        onClose={() => setPlayCall(null)}
+      />
 
       {/* New-ticket modal — raise a ticket without leaving the dashboard. */}
       <Modal open={ticketOpen} onClose={() => setTicketOpen(false)} title="New Ticket" width={620}>

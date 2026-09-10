@@ -98,7 +98,7 @@ function ArticleForm({ form, onChange }: {
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)',
     borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)',
-    color: 'var(--txt)', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+    color: 'var(--txt)', fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -360,6 +360,7 @@ export default function KnowledgeBase() {
     <Page
       title="Knowledge Base"
       subtitle="Help articles for agents and customers"
+      loading={loading && articles.length === 0}
       actions={
         <button onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>

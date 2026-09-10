@@ -9,9 +9,7 @@ import { apiFetch, apiPost, unwrap } from '../../lib/api'
 import { fmtNum, fmtPct, fmtKobo, fmtDatetime, fmtDate } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER, SORA, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts'
+import { EArea, EBar } from '../../components/echarts'
 import EmailBlockEditor, { exportToHtml, parseBlocks } from '../../components/EmailBlockEditor'
 import type { EmailBlock, EmailSettings } from '../../components/EmailBlockEditor'
 import PersonalizeMenu from '../../components/PersonalizeMenu'
@@ -132,7 +130,7 @@ interface EditorValue { blocks: EmailBlock[]; settings?: EmailSettings }
 interface PreflightResp { total: number; with_email: number; with_phone: number; suppressed: number; duplicates: number; invalid: number; usable: number; warnings: string[] }
 interface ContactListItem { id: number; name: string; total?: number }
 interface Template { id: number; name: string; channel: string; category: string; sms_body?: string; whatsapp_body?: string; email_subject?: string; email_blocks?: any[] }
-interface CampaignContact { id: number; first_name?: string; last_name?: string; email?: string; phone?: string; sms_status?: string; email_status?: string }
+interface CampaignContact { id: number; first_name?: string; last_name?: string; email?: string; phone?: string; state?: string; sms_status?: string; email_status?: string }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -842,7 +840,7 @@ function ContactsSection({ campaignId }: { campaignId: string }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
                 <thead>
                   <tr style={{ background: 'var(--th-bg)' }}>
-                    {['Name', 'Contact', 'SMS Status', 'Email Status'].map(h => (
+                    {['Name', 'Contact', 'State', 'SMS Status', 'Email Status'].map(h => (
                       <th key={h} style={{ padding: '7px 10px', textAlign: 'left', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', borderBottom: '1px solid var(--bdr)', letterSpacing: '.04em' }}>{h}</th>
                     ))}
                   </tr>
@@ -852,6 +850,7 @@ function ContactsSection({ campaignId }: { campaignId: string }) {
                     <tr key={c.id} style={{ borderBottom: '1px solid var(--bdr)', background: i % 2 === 0 ? 'transparent' : 'var(--th-bg)' }}>
                       <td style={{ padding: '7px 10px', fontWeight: FW.semibold }}>{[c.first_name, c.last_name].filter(Boolean).join(' ') || '—'}</td>
                       <td style={{ padding: '7px 10px', color: 'var(--txt2)', fontFamily: 'monospace', fontSize: TEXT.xs }}>{c.email || c.phone || '—'}</td>
+                      <td style={{ padding: '7px 10px', color: 'var(--txt2)' }}>{c.state || '—'}</td>
                       <td style={{ padding: '7px 10px' }}>
                         {c.sms_status && <span style={{ fontSize: TEXT.xs, padding: '2px 8px', borderRadius: RADIUS.xl, background: `${STATUS_COLORS[c.sms_status] ?? '#6B7280'}18`, color: STATUS_COLORS[c.sms_status] ?? '#6B7280', fontWeight: FW.semibold, textTransform: 'capitalize' }}>{c.sms_status}</span>}
                       </td>
@@ -1839,23 +1838,29 @@ export default function CampaignDetail() {
                 </SectionCard>
                 <SectionCard title="Engagement Timeline" subtitle="Hourly events">
                   {timeline.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={200}>
-                      <AreaChart data={timeline} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                        <defs>
-                          <linearGradient id="rg1" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={GREEN} stopOpacity={0.15}/><stop offset="95%" stopColor={GREEN} stopOpacity={0}/></linearGradient>
-                          <linearGradient id="rg2" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={BLUE}  stopOpacity={0.18}/><stop offset="95%" stopColor={BLUE}  stopOpacity={0}/></linearGradient>
-                          <linearGradient id="rg3" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={NAVY}  stopOpacity={0.15}/><stop offset="95%" stopColor={NAVY}  stopOpacity={0}/></linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                        <XAxis dataKey="hour" tick={{ fontSize: 9.5, fill: 'var(--txt2)' }} />
-                        <YAxis tick={{ fontSize: 9 as any, fill: 'var(--txt2)' }} allowDecimals={false} />
-                        <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} />
-                        <Legend iconSize={10} wrapperStyle={{ fontSize: TEXT.xs }} />
-                        <Area type="monotone" dataKey="delivered" stroke={GREEN} strokeWidth={2} fill="url(#rg1)" name="Delivered" />
-                        <Area type="monotone" dataKey="opened"    stroke={BLUE}  strokeWidth={2} fill="url(#rg2)" name="Opened" />
-                        <Area type="monotone" dataKey="clicked"   stroke={NAVY}  strokeWidth={2} fill="url(#rg3)" name="Clicked" />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <>
+                      <EArea
+                        data={timeline}
+                        xKey="hour"
+                        height={200}
+                        endLabel
+                        valueFmt={(v) => fmtNum(v)}
+                        endFmt={(v) => fmtNum(v)}
+                        series={[
+                          { key: 'delivered', name: 'Delivered', color: GREEN },
+                          { key: 'opened', name: 'Opened', color: BLUE },
+                          { key: 'clicked', name: 'Clicked', color: NAVY },
+                        ]}
+                      />
+                      <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+                        {[{ color: GREEN, label: 'Delivered' }, { color: BLUE, label: 'Opened' }, { color: NAVY, label: 'Clicked' }].map(({ color, label }) => (
+                          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                            <div style={{ width: 22, height: 3, borderRadius: 2, background: color }} />
+                            {label}
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   ) : (
                     <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>No timeline data yet.</div>
                   )}
@@ -1909,15 +1914,16 @@ export default function CampaignDetail() {
                 <InsightTile label="Device" value={deviceLabel(report.insights.device)} sub={`${fmtNum(report.insights.device.mobile)} mobile · ${fmtNum(report.insights.device.desktop)} desktop`} accent={PURPLE} />
               </div>
               {report.insights.opens_by_hour.length > 0 && (
-                <ResponsiveContainer width="100%" height={170}>
-                  <BarChart data={hourSeries(report.insights.opens_by_hour)} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 9.5, fill: 'var(--txt2)' }} interval={2} />
-                    <YAxis tick={{ fontSize: 9, fill: 'var(--txt2)' }} allowDecimals={false} />
-                    <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} cursor={{ fill: 'var(--row-hvr)' }} />
-                    <Bar dataKey="opens" fill={BLUE} radius={[3, 3, 0, 0]} name="Opens" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <EBar
+                  data={hourSeries(report.insights.opens_by_hour)}
+                  xKey="label"
+                  height={170}
+                  legend={false}
+                  xTickSize={9}
+                  valueFmt={(v) => fmtNum(v)}
+                  axisFmt={(v) => fmtNum(v)}
+                  series={[{ key: 'opens', name: 'Opens', color: BLUE }]}
+                />
               )}
             </SectionCard>
           )}

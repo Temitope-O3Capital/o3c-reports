@@ -15,6 +15,8 @@ interface Notification {
   body:        string
   link?:       string
   action_url?: string   // backend field name
+  entity_ref?: string   // id of the record this notification is about (e.g. "123" or "debt_sale:123")
+  entity_id?:  string
   read_at:     string | null
   created_at:  string
   // Set by the dispatcher. priority drives the accent; group_count is how many
@@ -28,6 +30,21 @@ interface Notification {
 
 const SEVERITY_COLOR: Record<string, string> = {
   red: RED, blue: BLUE, amber: AMBER, green: GREEN,
+}
+
+// Deep-link every notification to the specific record it's about. The notification
+// carries the record id in entity_ref; we append it as ?focus=<id> so a list page can
+// open/highlight exactly that row (pages opt in via the `focus` query param). Links that
+// already target the record (a detail route ending in the id, or an explicit focus=) are
+// left untouched. entity_ref may be "debt_sale:123" — we take the trailing number.
+function withFocus(url: string | undefined, entityRef: string | undefined): string | undefined {
+  if (!url || !entityRef) return url
+  if (/[?&]focus=/.test(url)) return url
+  const m = String(entityRef).match(/(\d+)\s*$/)
+  const id = m?.[1]
+  if (!id) return url
+  if (new RegExp('/' + id + '(?:[/?#]|$)').test(url)) return url // already a detail route for this id
+  return url + (url.includes('?') ? '&' : '?') + 'focus=' + encodeURIComponent(id)
 }
 
 // Priority is the dispatcher's own signal and takes precedence over the older
@@ -149,7 +166,7 @@ export default function NotificationBell() {
       setUnread(c => Math.max(0, c - 1))
     }
     setOpen(false)
-    const link = n.link ?? n.action_url
+    const link = withFocus(n.link ?? n.action_url, n.entity_ref ?? n.entity_id)
     if (link) navigate(link)
   }
 
@@ -204,7 +221,7 @@ export default function NotificationBell() {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '12px 16px', borderBottom: '1px solid var(--bdr)',
           }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: "'Sora', sans-serif" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: "var(--font-sans)" }}>
               Notifications
             </span>
             {unread > 0 && (
@@ -212,7 +229,7 @@ export default function NotificationBell() {
                 onClick={markAllRead}
                 style={{
                   fontSize: 12, color: BLUE, border: 'none', background: 'none',
-                  cursor: 'pointer', fontFamily: "'Sora', sans-serif", padding: 0, fontWeight: 500,
+                  cursor: 'pointer', fontFamily: "var(--font-sans)", padding: 0, fontWeight: 500,
                 }}
               >
                 Mark all read
@@ -250,7 +267,7 @@ export default function NotificationBell() {
                   <div style={{
                     display: 'flex', alignItems: 'baseline', gap: 6,
                     fontSize: 13, fontWeight: 600, color: 'var(--txt)',
-                    marginBottom: 3, fontFamily: "'Sora', sans-serif",
+                    marginBottom: 3, fontFamily: "var(--font-sans)",
                     lineHeight: 1.35,
                   }}>
                     <span style={{ flex: 1, minWidth: 0 }}>{n.title}</span>
@@ -291,7 +308,7 @@ export default function NotificationBell() {
           <div style={{ padding: '9px 16px', borderTop: '1px solid var(--bdr)', background: 'var(--row-hvr)' }}>
             <button
               onClick={() => { setOpen(false); navigate('/settings?tab=notifications') }}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 11.5, fontFamily: "'Sora', sans-serif", padding: 0 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 11.5, fontFamily: "var(--font-sans)", padding: 0 }}
             >
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
               Sound &amp; voice settings

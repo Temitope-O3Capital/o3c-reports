@@ -1,5 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, ConfirmModal, NameCell, ActionRow, StatusBadge, avatarColor, nameInitials } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -19,6 +19,7 @@ interface User {
   role: string
   extra_roles?: string[]
   department: string
+  office_location?: string
   is_active: boolean
   must_change_password: boolean
   last_login?: string
@@ -79,17 +80,75 @@ function useRoleGroups() {
   return useMemo(() => buildRoleGroups(roles ?? []), [roles])
 }
 
+// Role picker. The native <select> popup grew unwieldy at ~25 grouped roles — the OS
+// renders it as tall as it likes with no cap. This is a custom dropdown with a FIXED
+// height that scrolls, plus a type-to-filter box, so the list stays a compact, usable
+// size no matter how many roles exist.
 function RoleSelect({ value, onChange, style }: { value: string; onChange: (v: string) => void; style?: React.CSSProperties }) {
   const groups = useRoleGroups()
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
+  }, [open])
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (!needle) return groups
+    return groups
+      .map(g => ({ label: g.label, roles: g.roles.filter(r => r.label.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle)) }))
+      .filter(g => g.roles.length > 0)
+  }, [groups, q])
+
+  const current = groups.flatMap(g => g.roles).find(r => r.name === value)
+  const currentLabel = current?.label ?? (value ? roleLabel(value) : 'Select a role…')
+
   return (
-    <select value={value} onChange={e => onChange(e.target.value)} style={style}>
-      {value && !groups.some(g => g.roles.some(r => r.name === value)) && <option value={value}>{roleLabel(value)}</option>}
-      {groups.map(g => (
-        <optgroup key={g.label} label={g.label}>
-          {g.roles.map(r => <option key={r.name} value={r.name}>{r.label}</option>)}
-        </optgroup>
-      ))}
-    </select>
+    <div ref={ref} style={{ position: 'relative', width: '100%' }}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        style={{ ...style, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <span style={{ color: value ? 'var(--txt)' : 'var(--txt3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentLabel}</span>
+        <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt3)', flexShrink: 0 }}>{open ? 'expand_less' : 'expand_more'}</span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 60,
+          background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md,
+          boxShadow: '0 12px 32px rgba(0,0,0,.22)', overflow: 'hidden',
+          display: 'flex', flexDirection: 'column', maxHeight: 300,
+        }}>
+          <div style={{ padding: 8, borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search roles…"
+              style={{ width: '100%', padding: '6px 9px', borderRadius: RADIUS.sm, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.sm, boxSizing: 'border-box', outline: 'none' }} />
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: 12, fontSize: TEXT.sm, color: 'var(--txt3)' }}>No roles match “{q}”</div>
+            ) : filtered.map(g => (
+              <div key={g.label}>
+                <div style={{ padding: '7px 12px 3px', fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{g.label}</div>
+                {g.roles.map(r => (
+                  <div key={r.name} onClick={() => { onChange(r.name); setOpen(false); setQ('') }}
+                    style={{ padding: '7px 12px', fontSize: TEXT.sm, cursor: 'pointer', color: 'var(--txt)', background: r.name === value ? `${NAVY}10` : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = r.name === value ? `${NAVY}10` : 'transparent' }}>
+                    {r.label}
+                    {r.name === value && <span className="material-symbols-rounded" style={{ fontSize: 16, color: NAVY }}>check</span>}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -152,8 +211,8 @@ function RolePill({ role }: { role: string }) {
 function InviteModal({ onClose, onSaved }: {
   onClose: () => void; onSaved: (pw: string, name: string) => void
 }) {
-  const EMAIL_DOMAIN = '@o3ccards.com'
-  const [form, setForm] = useState({ first_name: '', last_name: '', email: '', role: 'call_center_agent', department: 'Operations' })
+  const EMAIL_DOMAIN = '@o3cards.com'
+  const [form, setForm] = useState({ first_name: '', last_name: '', email: '', role: 'call_center_agent', department: 'Operations', office_location: '' })
   const [extraRoles, setExtraRoles] = useState<string[]>([])
   const [emailEdited, setEmailEdited] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -244,6 +303,17 @@ function InviteModal({ onClose, onSaved }: {
           </div>
 
           <div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Office / Branch</div>
+            <select value={form.office_location} onChange={e => field('office_location', e.target.value)}
+              style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+            >
+              <option value="">— Select branch —</option>
+              <option value="Lagos (Head Quarter)">Lagos (Head Quarter)</option>
+              <option value="Abuja">Abuja</option>
+            </select>
+          </div>
+
+          <div>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Additional teams <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(optional, for staff on more than one team)</span></div>
             <MultiRoleSelect value={extraRoles} exclude={form.role} onChange={setExtraRoles}
               style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
@@ -272,9 +342,10 @@ function EditUserModal({ user, onClose, onSaved }: {
   user: User; onClose: () => void; onSaved: () => void
 }) {
   const [form, setForm] = useState({
-    role:       user.role,
-    department: user.department,
-    is_active:  user.is_active,
+    role:            user.role,
+    department:      user.department,
+    office_location: user.office_location ?? '',
+    is_active:       user.is_active,
   })
   const [extraRoles, setExtraRoles] = useState<string[]>(asRoleArray(user.extra_roles))
   const [saving,          setSaving]          = useState(false)
@@ -362,6 +433,17 @@ function EditUserModal({ user, onClose, onSaved }: {
                 {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
               </select>
             </div>
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Office / Branch</div>
+            <select value={form.office_location} onChange={e => field('office_location', e.target.value)}
+              style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+            >
+              <option value="">— Select branch —</option>
+              <option value="Lagos (Head Quarter)">Lagos (Head Quarter)</option>
+              <option value="Abuja">Abuja</option>
+            </select>
           </div>
 
           <div style={{ marginBottom: 16 }}>
@@ -642,6 +724,7 @@ export default function AdminUsers() {
       back={{ label: 'Admin', to: '/admin' }}
       title="User Management"
       subtitle={`${rows.filter(u => u.is_active).length} active · ${rows.filter(u => !u.is_active).length} inactive`}
+      loading={loading && rows.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button onClick={() => setInviting(true)} style={{

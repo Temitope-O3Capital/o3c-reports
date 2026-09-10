@@ -4,10 +4,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
 )
+
+// ymd validates and normalises a YYYY-MM-DD query param. Parsing then re-formatting
+// makes it safe to inline into SQL (no injection) — an invalid value yields ok=false.
+func ymd(s string) (string, bool) {
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t.Format("2006-01-02"), true
+	}
+	return "", false
+}
 
 // Inbound call handling.
 //
@@ -37,23 +47,52 @@ func ccInboundList(db *core.DB) http.HandlerFunc {
 		status := qstr(r, "status") // missed | answered | (all)
 		outstanding := qstr(r, "outstanding") == "1"
 
+		// Date window: an explicit from/to (YYYY-MM-DD) range wins; otherwise the
+		// last-N-days fallback. Prebuilt as a concrete SQL fragment (dates validated by
+		// ymd) so it can be concatenated into both the list and summary queries.
+		windowClause := fmt.Sprintf("hc.started_at > NOW() - INTERVAL '%d days'", days)
+		if f, ok := ymd(qstr(r, "from")); ok {
+			if t, ok2 := ymd(qstr(r, "to")); ok2 {
+				windowClause = fmt.Sprintf("hc.started_at >= '%s'::date AND hc.started_at < ('%s'::date + INTERVAL '1 day')", f, t)
+			}
+		}
+
+		// A 'completed' call under callConnectMinSec with no recording never reached a
+		// conversation (a 1-second dial blip, not a pickup). Fold that into the outcome
+		// the SAME way the rest of the app does (callConnectedExpr / callUnansweredExpr),
+		// so the Inbound page's "Answered" means an actual conversation — not a number
+		// that rang and dropped. Over half of raw inbound 'completed' rows are these.
+		connected := callConnectedExpr("hc.")
+		unans := callUnansweredExpr("hc.")
+
 		cond := ""
 		switch status {
 		case "missed":
-			cond = " AND hc.outcome = 'missed'"
+			cond = " AND " + unans
 		case "answered":
-			cond = " AND hc.outcome = 'completed'"
+			cond = " AND " + connected
 		}
-		// "Outstanding" is the actual worklist: missed, not returned, not already queued.
+		// "Outstanding" is the actual worklist: didn't connect, not returned, not queued.
 		if outstanding {
-			cond += " AND hc.outcome = 'missed' AND NOT returned.ok AND NOT queued.ok"
+			cond += " AND " + unans + " AND NOT returned.ok AND NOT queued.ok"
 		}
+
+		// Present a non-connect as 'missed' (the frontend keys "Answered" off
+		// outcome='completed'), so a 1-second blip reads as owed-a-call, not answered.
+		outcomeCol := "CASE WHEN " + connected + " THEN hc.outcome ELSE 'missed' END"
 
 		q := fmt.Sprintf(`
 			SELECT hc.id, hc.started_at, hc.customer_phone, hc.customer_name,
 			       NULLIF(hc.customer_cif,'')                       AS customer_cif,
-			       hc.outcome, COALESCE(hc.duration_sec,0)          AS duration_sec,
+			       `+outcomeCol+` AS outcome, COALESCE(hc.duration_sec,0) AS duration_sec,
 			       NULLIF(hc.agent_name,'')                         AS agent_name,
+			       -- Provider-neutral telephony facts (Zoho today, our own telephony later)
+			       hc.wait_sec                                      AS wait_sec,
+			       hc.answered_at                                   AS answered_at,
+			       hc.abandoned                                     AS abandoned,
+			       NULLIF(hc.disconnected_by,'')                    AS disconnected_by,
+			       NULLIF(hc.queue_name,'')                         AS queue_name,
+			       (SELECT COUNT(*) FROM call_ring_legs l WHERE l.call_id = hc.id) AS ring_legs,
 			       returned.ok                                      AS returned,
 			       queued.ok                                        AS queued,
 			       cust.full_name                                   AS matched_customer
@@ -64,6 +103,7 @@ func ccInboundList(db *core.DB) http.HandlerFunc {
 			       WHERE o.direction = 'outbound'
 			         AND norm_phone(o.customer_phone) = norm_phone(hc.customer_phone)
 			         AND norm_phone(hc.customer_phone) <> ''
+			         AND o.merged_into_call_id IS NULL AND o.voided_at IS NULL
 			         AND o.started_at BETWEEN hc.started_at AND hc.started_at + INTERVAL '%s'
 			    ) AS ok
 			  ) returned ON TRUE
@@ -82,9 +122,10 @@ func ccInboundList(db *core.DB) http.HandlerFunc {
 			     LIMIT 1
 			  ) cust ON TRUE
 			 WHERE hc.direction = 'inbound'
-			   AND hc.started_at > NOW() - INTERVAL '%d days'%s
+			   AND hc.merged_into_call_id IS NULL AND hc.voided_at IS NULL
+			   AND `+windowClause+`%s
 			 ORDER BY hc.started_at DESC
-			 LIMIT 300`, ccInboundReturnWindow, days, cond)
+			 LIMIT 2000`, ccInboundReturnWindow, cond)
 
 		rows, err := db.PGQuery(r.Context(), q)
 		if err != nil {
@@ -97,14 +138,19 @@ func ccInboundList(db *core.DB) http.HandlerFunc {
 
 		// Summary is computed over the same window but WITHOUT the status/outstanding
 		// filter, so the header keeps reporting the full picture while a filter is on.
-		summary := map[string]any{"total": 0, "missed": 0, "answered": 0, "outstanding": 0, "answer_rate_pct": 0}
+		summary := map[string]any{"total": 0, "missed": 0, "answered": 0, "outstanding": 0, "answer_rate_pct": 0, "abandoned": 0, "avg_wait_sec": 0}
 		if sr, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT COUNT(*)                                                  AS total,
-			       COUNT(*) FILTER (WHERE hc.outcome = 'missed')             AS missed,
-			       COUNT(*) FILTER (WHERE hc.outcome = 'completed')          AS answered,
-			       COUNT(*) FILTER (WHERE hc.outcome = 'missed'
+			       COUNT(*) FILTER (WHERE %[2]s)                             AS missed,
+			       COUNT(*) FILTER (WHERE %[3]s)                             AS answered,
+			       COUNT(*) FILTER (WHERE %[2]s
 			                          AND NOT returned.ok AND NOT queued.ok) AS outstanding,
-			       ROUND(100.0 * COUNT(*) FILTER (WHERE hc.outcome = 'completed')
+			       -- Caller hung up before anyone answered — the queue's true failure rate,
+			       -- distinct from "missed" (which folds in system/no-answer). Fed by the
+			       -- provider-neutral abandoned flag.
+			       COUNT(*) FILTER (WHERE hc.abandoned)                      AS abandoned,
+			       ROUND(AVG(hc.wait_sec) FILTER (WHERE hc.wait_sec IS NOT NULL))::int AS avg_wait_sec,
+			       ROUND(100.0 * COUNT(*) FILTER (WHERE %[3]s)
 			             / NULLIF(COUNT(*),0), 1)                            AS answer_rate_pct
 			  FROM helpdesk_calls hc
 			  LEFT JOIN LATERAL (
@@ -113,7 +159,8 @@ func ccInboundList(db *core.DB) http.HandlerFunc {
 			       WHERE o.direction = 'outbound'
 			         AND norm_phone(o.customer_phone) = norm_phone(hc.customer_phone)
 			         AND norm_phone(hc.customer_phone) <> ''
-			         AND o.started_at BETWEEN hc.started_at AND hc.started_at + INTERVAL '%s'
+			         AND o.merged_into_call_id IS NULL AND o.voided_at IS NULL
+			         AND o.started_at BETWEEN hc.started_at AND hc.started_at + INTERVAL '%[1]s'
 			    ) AS ok
 			  ) returned ON TRUE
 			  LEFT JOIN LATERAL (
@@ -124,8 +171,9 @@ func ccInboundList(db *core.DB) http.HandlerFunc {
 			    ) AS ok
 			  ) queued ON TRUE
 			 WHERE hc.direction = 'inbound'
-			   AND hc.started_at > NOW() - INTERVAL '%d days'`,
-			ccInboundReturnWindow, days)); len(sr) > 0 {
+			   AND hc.merged_into_call_id IS NULL AND hc.voided_at IS NULL
+			   AND `+windowClause+``,
+			ccInboundReturnWindow, unans, connected)); len(sr) > 0 {
 			summary = sr[0]
 		}
 
@@ -141,6 +189,14 @@ func ccInboundList(db *core.DB) http.HandlerFunc {
 func ccQueueMissedCallbacks(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		days := qint(r, "days", 7, 1, 90)
+		// Match the visible window: an explicit from/to range wins over the days fallback,
+		// so "Queue N call-backs" sweeps exactly what the page is showing.
+		windowClause := fmt.Sprintf("hc.started_at > NOW() - INTERVAL '%d days'", days)
+		if f, ok := ymd(qstr(r, "from")); ok {
+			if t, ok2 := ymd(qstr(r, "to")); ok2 {
+				windowClause = fmt.Sprintf("hc.started_at >= '%s'::date AND hc.started_at < ('%s'::date + INTERVAL '1 day')", f, t)
+			}
+		}
 
 		// One call-back per NUMBER, not per missed call — a customer who rang five times
 		// in an afternoon is owed one return call, not five queue entries. DISTINCT ON
@@ -151,14 +207,16 @@ func ccQueueMissedCallbacks(db *core.DB) http.HandlerFunc {
 			         hc.id, hc.customer_phone, hc.customer_name, hc.customer_cif, hc.started_at
 			    FROM helpdesk_calls hc
 			   WHERE hc.direction = 'inbound'
-			     AND hc.outcome = 'missed'
+			     AND `+callUnansweredExpr("hc.")+`
+			     AND hc.merged_into_call_id IS NULL AND hc.voided_at IS NULL
 			     AND COALESCE(hc.customer_phone,'') <> ''
-			     AND hc.started_at > NOW() - INTERVAL '%d days'
+			     AND `+windowClause+`
 			     -- not already returned
 			     AND NOT EXISTS (
 			       SELECT 1 FROM helpdesk_calls o
 			        WHERE o.direction = 'outbound'
 			          AND norm_phone(o.customer_phone) = norm_phone(hc.customer_phone)
+			          AND o.merged_into_call_id IS NULL AND o.voided_at IS NULL
 			          AND o.started_at BETWEEN hc.started_at AND hc.started_at + INTERVAL '%s')
 			     -- not suppressed
 			     AND NOT EXISTS (
@@ -182,7 +240,7 @@ func ccQueueMissedCallbacks(db *core.DB) http.HandlerFunc {
 			    WHERE norm_phone(cc.phone) = norm_phone(c.customer_phone)
 			      AND cc.purpose = 'support'
 			      AND cc.status = 'pending')
-			RETURNING id`, days, ccInboundReturnWindow))
+			RETURNING id`, ccInboundReturnWindow))
 		if err != nil {
 			respondErr(w, 500, "Could not queue call-backs: "+err.Error())
 			return
@@ -245,5 +303,42 @@ func ccInboundToTicket(db *core.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]any{"ticket_id": rows[0]["id"]}) //nolint:errcheck
+	}
+}
+
+// ccInboundRingLegs returns the per-agent ring sequence of one call: which agents it rang,
+// in what order, how long each rang, and who let it pass on to the next — the "who dropped
+// it before it moved on" view. Provider-neutral: reads call_ring_legs, which any telephony
+// producer fills, so this works identically once O3 moves off Zoho.
+func ccInboundRingLegs(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		callID := chi.URLParam(r, "id")
+		legs, err := db.PGQuery(r.Context(), `
+			SELECT l.position, l.agent_name, l.rang_at, l.ring_sec, l.outcome,
+			       u.full_name AS agent_full_name
+			  FROM call_ring_legs l
+			  LEFT JOIN o3c_users u ON u.id = l.agent_id
+			 WHERE l.call_id = $1
+			 ORDER BY l.position ASC`, callID)
+		if err != nil {
+			respondErrLog(w, 500, "Could not load ring legs", err)
+			return
+		}
+		if legs == nil {
+			legs = []core.Row{}
+		}
+		// Queue + strategy are the same across a call's legs; take them from the first.
+		queue, strategy := "", ""
+		if len(legs) > 0 {
+			if hdr, _ := db.PGQuery(r.Context(),
+				`SELECT queue_name, strategy FROM call_ring_legs WHERE call_id = $1 LIMIT 1`, callID); len(hdr) > 0 {
+				queue = str(hdr[0]["queue_name"])
+				strategy = str(hdr[0]["strategy"])
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"legs": legs, "queue_name": queue, "strategy": strategy,
+		})
 	}
 }

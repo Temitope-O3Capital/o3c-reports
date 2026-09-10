@@ -61,7 +61,9 @@ export default function ConcentrationRisk() {
   return (
     <Page
       title="Concentration Risk"
-      subtitle="CBN-required obligor, sector, and employer concentration metrics"
+      subtitle="CBN-required obligor, product, and sector concentration metrics"
+      loading={loading && !data}
+      skeletonKpis={3}
       actions={
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
@@ -147,12 +149,12 @@ export default function ConcentrationRisk() {
               </table>
             </SectionCard>
 
-            {/* By employer */}
-            <SectionCard title="Top 10 Employers">
+            {/* By sector (economic_sector from the loan book) */}
+            <SectionCard title="Top 10 Sectors">
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
                 <thead>
                   <tr>
-                    {['Employer', 'Borrowers', 'Exposure', '% of Book'].map(h => <th key={h} style={th}>{h}</th>)}
+                    {['Sector', 'Borrowers', 'Exposure', '% of Book'].map(h => <th key={h} style={th}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>

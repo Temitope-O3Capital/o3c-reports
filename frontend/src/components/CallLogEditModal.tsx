@@ -3,7 +3,7 @@ import { Modal } from './UI'
 import { apiFetch } from '../lib/api'
 import { RED, NAVY, FW, RADIUS, TEXT } from '../lib/design'
 import { toast } from 'sonner'
-import { dispositionsFor } from './LogCallModal'
+import { dispositionsFor, dispositionCopy } from './LogCallModal'
 
 // Correcting a call log after the fact.
 //
@@ -51,7 +51,11 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
     setDirection((call.direction || 'outbound').toLowerCase()); setReason(''); setMode('edit')
   }, [call])
 
-  const options = dispositionsFor((call.purpose ?? '').toLowerCase())
+  const purpose = (call.purpose ?? '').toLowerCase()
+  const options = dispositionsFor(purpose)
+  // Same field mapping the log form uses — driven by the disposition being edited —
+  // so correcting a call reads as the same form the agent filled, not a generic one.
+  const copy = dispositionCopy(disposition, purpose)
 
   async function save() {
     setSaving(true)
@@ -157,13 +161,15 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
                 inputMode="numeric" style={inp} />
             </div>
             <div>
-              <label style={lbl}>Notes</label>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4} style={{ ...inp, resize: 'vertical' }} />
+              <label style={lbl}>{copy.notesLabel}</label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4} placeholder={copy.notesPh} style={{ ...inp, resize: 'vertical' }} />
             </div>
-            <div>
-              <label style={lbl}>Resolution</label>
-              <input value={resolution} onChange={e => setResolution(e.target.value)} style={inp} />
-            </div>
+            {!copy.hideRes && (
+              <div>
+                <label style={lbl}>{copy.resLabel}</label>
+                <input value={resolution} onChange={e => setResolution(e.target.value)} placeholder={copy.resPh} style={inp} />
+              </div>
+            )}
             <div>
               <label style={lbl}>Reason for the correction (optional, shown to supervisors)</label>
               <input value={reason} onChange={e => setReason(e.target.value)}

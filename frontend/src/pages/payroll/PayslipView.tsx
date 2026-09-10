@@ -91,7 +91,7 @@ export default function PayslipView() {
   ]
 
   return (
-    <div style={{ minHeight: '100vh', background: '#F4F6F8', padding: '32px 16px', fontFamily: "'Sora', 'Inter', sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: '#F4F6F8', padding: '32px 16px', fontFamily: "var(--font-sans)" }}>
       {/* Print / Download actions */}
       <div style={{ maxWidth: 680, margin: '0 auto 16px', display: 'flex', gap: SP[2], justifyContent: 'flex-end' }} className="no-print">
         <button
@@ -180,7 +180,7 @@ export default function PayslipView() {
             <div style={{ fontSize: TEXT.sm, color: GREEN, fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Net Pay</div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>Amount to be credited to bank account</div>
           </div>
-          <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: GREEN, fontFamily: 'Inter, sans-serif' }}>{fmtKobo(item.net_kobo)}</div>
+          <div style={{ fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: GREEN, fontFamily: 'var(--font-sans)' }}>{fmtKobo(item.net_kobo)}</div>
         </div>
 
         {/* Employer contributions */}

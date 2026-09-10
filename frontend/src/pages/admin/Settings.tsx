@@ -158,7 +158,7 @@ export default function AdminSettings() {
   const missingCount   = rows.filter(r => isSensitive(r.key) && !r.has_value).length
 
   return (
-    <Page back={{ label: 'Admin', to: '/admin' }} title="Settings" subtitle="Platform configuration key-value store">
+    <Page back={{ label: 'Admin', to: '/admin' }} title="Settings" subtitle="Platform configuration key-value store" loading={loading && rows.length === 0} skeletonKpis={3}>
       <ErrBanner error={error} onRetry={load} />
 
       {missingCount > 0 && (

@@ -76,6 +76,7 @@ export default function AdminModules() {
     <Page
       title="Module Management"
       subtitle="Control which product modules are visible to all users across the workspace."
+      loading={loading && modules.length === 0}
     >
       <ErrBanner error={error} onRetry={load} />
 

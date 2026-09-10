@@ -1,14 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, LabelList,
-} from 'recharts'
-import {
   Page, KpiCard, SectionCard, ErrBanner, Spinner, EmptyState, DateFilter, Badge, Button,
 } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtDate, monthStart, today } from '../../lib/fmt'
-import { GREEN, RED, AMBER, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { GREEN, RED, AMBER, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { EChart, baseTooltip, tipCard, axisVal, CHART_FONT } from '../../components/echarts'
+import type { ChartTokens } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,19 +77,39 @@ function nairaAxis(v: number) {
   return v === 0 ? '0' : ''
 }
 
-function BarTip({ active, payload, valueKey }: any) {
-  if (!active || !payload?.length) return null
-  const d = payload[0].payload
-  return (
-    <div style={{
-      background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.md,
-      padding: '8px 10px', boxShadow: 'var(--card-shadow)', fontSize: TEXT.sm,
-    }}>
-      <div style={{ fontWeight: FW.semibold, marginBottom: 3 }}>{d.label ?? d.channel ?? d.route}</div>
-      <div style={{ color: 'var(--txt2)' }}>{fmtNum(d.txns ?? d.attempts)} transactions</div>
-      <div style={{ ...NUM, marginTop: 2 }}>{fmtKobo(d[valueKey])}</div>
-    </div>
-  )
+// Horizontal value bar (naira on the axis, transaction count stamped at the bar
+// end), for the CCS and Interswitch route/channel breakdowns.
+function valueBarOption(
+  bars: { label: string; value_kobo: number; txns: number }[],
+  color: string, barWidth: number,
+) {
+  return (t: ChartTokens) => ({
+    grid: { top: 4, right: 66, bottom: 4, left: 4, containLabel: true },
+    tooltip: {
+      trigger: 'item', ...baseTooltip(t),
+      formatter: (p: any) => tipCard(t, String(p.name), [
+        { color: p.color, name: 'Transactions', value: fmtNum(p.data.txns) },
+        { color: p.color, name: 'Value', value: fmtKobo(p.value) },
+      ]),
+    },
+    xAxis: axisVal(t, nairaAxis),
+    yAxis: {
+      type: 'category', inverse: true, data: bars.map(b => b.label),
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: t.lbl, fontSize: 11, fontFamily: CHART_FONT },
+    },
+    series: [{
+      type: 'bar', name: 'Value', barMaxWidth: barWidth,
+      itemStyle: { color, borderRadius: [0, 4, 4, 0] },
+      label: {
+        show: true, position: 'right',
+        formatter: (p: any) => fmtNum(p.data.txns),
+        color: t.txt3, fontSize: 11, fontFamily: CHART_FONT,
+      },
+      data: bars.map(b => ({ value: Number(b.value_kobo), txns: b.txns })),
+    }],
+    animationDuration: 700,
+  })
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -138,6 +157,8 @@ export default function SettlementsOverview() {
     <Page
       title="Settlement & Reconciliation"
       subtitle="CCS is the master ledger; Interswitch and Paystack are the payment providers"
+      loading={loading && !d}
+      skeletonKpis={4}
       actions={<DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />
@@ -169,18 +190,7 @@ export default function SettlementsOverview() {
         : ccsBars.length === 0 ? <EmptyState icon="inbox" title="No CCS data in this period" description="Upload the EODTXN files for these dates." />
         : (
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: SP[5], alignItems: 'center' }}>
-            <ResponsiveContainer width="100%" height={40 + ccsBars.length * 40}>
-              <BarChart data={ccsBars} layout="vertical" margin={{ top: 4, right: 70, bottom: 4, left: 4 }} barCategoryGap="28%">
-                <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" horizontal={false} strokeWidth={1} />
-                <XAxis type="number" tickFormatter={nairaAxis} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="label" width={170} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <Tooltip cursor={{ fill: 'var(--row-hvr)' }} content={<BarTip valueKey="value_kobo" />} />
-                <Bar dataKey="value_kobo" radius={[0, 4, 4, 0]} barSize={16} fill="var(--sc-1)">
-                  <LabelList dataKey="txns" position="right" formatter={(v: number) => `${fmtNum(v)}`}
-                    style={{ fontSize: 11, fill: 'var(--txt3)', fontFamily: INTER }} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <EChart height={40 + ccsBars.length * 40} option={valueBarOption(ccsBars, NAVY, 16)} />
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr style={{ background: 'var(--th-bg)' }}>
@@ -227,18 +237,7 @@ export default function SettlementsOverview() {
                 <div><div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Settlement legs</div>
                   <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold }}>{fmtNum(isw?.totals?.legs)}</div></div>
               </div>
-              <ResponsiveContainer width="100%" height={30 + iswBars.length * 32}>
-                <BarChart data={iswBars} layout="vertical" margin={{ top: 2, right: 60, bottom: 2, left: 4 }} barCategoryGap="26%">
-                  <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" horizontal={false} strokeWidth={1} />
-                  <XAxis type="number" tickFormatter={nairaAxis} tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="label" width={130} tick={{ fontSize: 10, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                  <Tooltip cursor={{ fill: 'var(--row-hvr)' }} content={<BarTip valueKey="value_kobo" />} />
-                  <Bar dataKey="value_kobo" radius={[0, 4, 4, 0]} barSize={13} fill="var(--sc-3)">
-                    <LabelList dataKey="txns" position="right" formatter={(v: number) => fmtNum(v)}
-                      style={{ fontSize: 10, fill: 'var(--txt3)', fontFamily: INTER }} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <EChart height={30 + iswBars.length * 32} option={valueBarOption(iswBars, PURPLE, 13)} />
             </>
           )}
         </SectionCard>

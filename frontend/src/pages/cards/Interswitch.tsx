@@ -1,12 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-} from 'recharts'
 import { Page, SectionCard, KpiCard, Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
+import { EArea, EBar } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,22 +39,6 @@ function PeriodFilter({ period, onChange }: { period: Period; onChange: (p: Peri
           boxShadow: period === opt.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
           transition: 'all 130ms',
         }}>{opt.label}</button>
-      ))}
-    </div>
-  )
-}
-
-function Tip({ active, payload, label, fmt }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: NAVY, borderRadius: RADIUS.lg, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
-      {label && <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER, marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</div>}
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>{fmt ? fmt(p.value) : p.value}</span>
-          {p.name && payload.length > 1 && <span style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.4)', fontFamily: INTER }}>{p.name}</span>}
-        </div>
       ))}
     </div>
   )
@@ -116,29 +97,24 @@ export default function Interswitch() {
     >
       {/* KPI row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="Total Volume"       value={fmtKobo(data.total_volume_kobo)} icon="swap_horiz"    accent={NAVY}  />
+        <KpiCard label="Total Volume"       value={fmtKoboExact(data.total_volume_kobo)} icon="swap_horiz"    accent={NAVY}  />
         <KpiCard label="Total Transactions" value={fmtNum(data.total_count)}         icon="receipt_long"  accent={BLUE}  />
-        <KpiCard label="Avg Transaction"    value={fmtKobo(avgTxn)}                  icon="bar_chart"     accent={AMBER} />
+        <KpiCard label="Avg Transaction"    value={fmtKoboExact(avgTxn)}                  icon="bar_chart"     accent={AMBER} />
         <KpiCard label="Products Active"    value={fmtNum(productsActive)}            icon="credit_card"   accent={GREEN} />
       </div>
 
       {/* Channel breakdown bar chart */}
       <SectionCard title="Channel Breakdown" subtitle="Transaction volume by channel (ATM / POS / WEB / Transfer)" style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[6], alignItems: 'center' }}>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={data.channel_breakdown} margin={{ top: 4, right: 8, bottom: 14, left: 8 }} barCategoryGap="35%">
-              <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
-              <XAxis dataKey="channel" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
-              <YAxis width={72} tickFormatter={v => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : ''}
-                tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-              <Tooltip content={<Tip fmt={fmtKobo} />} />
-              <Bar dataKey="volume_kobo" name="Volume" radius={[5, 5, 0, 0]}>
-                {data.channel_breakdown.map((entry, i) => (
-                  <rect key={i} fill={CH_COLOR[entry.channel.toUpperCase()] ?? NAVY} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <EBar
+            data={data.channel_breakdown}
+            xKey="channel"
+            series={[{ key: 'volume_kobo', name: 'Volume', color: NAVY, colorFn: (e) => CH_COLOR[e.channel.toUpperCase()] ?? NAVY }]}
+            height={200}
+            valueFmt={(v) => fmtKoboExact(v)}
+            axisFmt={(v) => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : ''}
+            legend={false}
+          />
           <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
             {data.channel_breakdown.map(ch => {
               const color = CH_COLOR[ch.channel.toUpperCase()] ?? NAVY
@@ -149,7 +125,7 @@ export default function Interswitch() {
                     <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: SORA }}>{ch.channel}</span>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(ch.volume_kobo)}</div>
+                    <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKoboExact(ch.volume_kobo)}</div>
                     <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{ch.pct.toFixed(1)}% · {fmtNum(ch.count)} txns</div>
                   </div>
                 </div>
@@ -169,27 +145,21 @@ export default function Interswitch() {
           ))}
         </div>
       }>
-        <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={data.daily_trend} margin={{ top: 4, right: 8, bottom: 14, left: 8 }}>
-            <defs>
-              {[['atm', NAVY], ['pos', BLUE], ['web', AMBER], ['transfer', GREEN]].map(([k, c]) => (
-                <linearGradient key={k} id={`isw_${k}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={c} stopOpacity={0.2} />
-                  <stop offset="100%" stopColor={c} stopOpacity={0} />
-                </linearGradient>
-              ))}
-            </defs>
-            <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} strokeWidth={1} />
-            <XAxis dataKey="date" tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} tickMargin={8} />
-            <YAxis width={72} tickFormatter={v => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : ''}
-              tick={{ fontSize: TEXT.xs, fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-            <Tooltip content={<Tip fmt={fmtKobo} />} />
-            {([['atm', 'ATM', NAVY], ['pos', 'POS', BLUE], ['web', 'WEB', AMBER], ['transfer', 'Transfer', GREEN]] as [string, string, string][]).map(([k, label, c]) => (
-              <Area key={k} type="monotone" dataKey={k} name={label} stroke={c} strokeWidth={1.8} fill={`url(#isw_${k})`}
-                dot={false} activeDot={{ r: 4, fill: c, stroke: '#fff', strokeWidth: 2 }} stackId="1" />
-            ))}
-          </AreaChart>
-        </ResponsiveContainer>
+        <EArea
+          data={data.daily_trend}
+          xKey="date"
+          series={[
+            { key: 'atm', name: 'ATM', color: NAVY },
+            { key: 'pos', name: 'POS', color: BLUE },
+            { key: 'web', name: 'WEB', color: AMBER },
+            { key: 'transfer', name: 'Transfer', color: GREEN },
+          ]}
+          height={220}
+          stack
+          endLabel
+          endFmt={(v) => fmtKobo(v)}
+          valueFmt={(v) => fmtKoboExact(v)}
+        />
       </SectionCard>
 
       {/* Product breakdown + Transaction type */}
@@ -218,7 +188,7 @@ export default function Interswitch() {
                         <span style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', fontFamily: SORA }}>{p.product}</span>
                       </div>
                     </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(p.volume_kobo)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKoboExact(p.volume_kobo)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(p.count)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{pct}%</td>
                   </tr>
@@ -244,7 +214,7 @@ export default function Interswitch() {
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}>
                   <td style={{ padding: '10px 12px', fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', fontFamily: SORA }}>{t.type}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(t.count)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(t.volume_kobo)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKoboExact(t.volume_kobo)}</td>
                 </tr>
               ))}
             </tbody>
@@ -269,7 +239,7 @@ export default function Interswitch() {
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}>
                 <td style={{ padding: '10px 12px', ...NUM, fontSize: TEXT.sm, color: 'var(--txt3)', fontFamily: INTER, width: 36 }}>{i + 1}</td>
                 <td style={{ padding: '10px 12px', fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)', fontFamily: SORA }}>{m.name}</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(m.volume_kobo)}</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKoboExact(m.volume_kobo)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(m.count)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{((m.volume_kobo / totalMerchantVol) * 100).toFixed(1)}%</td>
               </tr>

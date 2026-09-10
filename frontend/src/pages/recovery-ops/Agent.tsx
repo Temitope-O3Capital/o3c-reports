@@ -1,13 +1,14 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
-import { Page, SectionCard, DataTable, ErrBanner, Spinner, ExpandableFilterBar } from '../../components/UI'
+import { EArea } from '../../components/echarts'
+import { Page, SectionCard, DataTable, ErrBanner, Spinner, ExpandableFilterBar, Modal } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { LogPaymentModal } from '../../components/LogPaymentModal'
-import { apiFetch } from '../../lib/api'
+import { RECOVERY_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
+import { apiFetch, apiPost } from '../../lib/api'
 import { toast } from 'sonner'
-import { fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtNum, fmtDate } from '../../lib/fmt'
 import { RED, AMBER, NAVY, GREEN, BLUE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { WorkspaceHero, MyDaySection, MyDayTile, PresenceControl, StatusPill, HeroButton, myUserId } from '../../components/MyWorkspace'
 
@@ -46,16 +47,182 @@ function outcomeColor(o: string) {
   return AMBER
 }
 
-// Money tooltip on white cards.
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
+// ── Case-action modals ─────────────────────────────────────────────────────────
+
+const inputStyle: React.CSSProperties = {
+  padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
+  background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.sm, width: '100%',
+}
+const fieldLabel: React.CSSProperties = {
+  display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6,
+}
+
+const actionBtn = (color: string): React.CSSProperties => ({
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  padding: '4px 9px', borderRadius: '6px',
+  border: `1.5px solid ${color}40`, background: `${color}0A`,
+  color, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer',
+  whiteSpace: 'nowrap',
+})
+const actionIcon: React.CSSProperties = { fontSize: 14, lineHeight: 1 }
+
+function Chip({ active, color, onClick, children }: { active: boolean; color: string; onClick: () => void; children: React.ReactNode }) {
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, fontSize: TEXT.sm }}>
-      <p style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>{label}</p>
-      {payload.map((p: any, i: number) => (
-        <p key={i} style={{ color: p.color, marginBottom: 2 }}>{p.name}: {fmtKobo(p.value)}</p>
-      ))}
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: '6px 12px', borderRadius: RADIUS.md, cursor: 'pointer',
+        border: active ? `1.5px solid ${color}` : '1.5px solid var(--input-bdr)',
+        background: active ? `${color}12` : 'var(--input-bg)',
+        color: active ? color : 'var(--txt)',
+        fontSize: TEXT.xs, fontWeight: active ? FW.semibold : FW.normal,
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+const VISIT_TYPES: { value: string; label: string }[] = [
+  { value: 'field', label: 'Field Visit' },
+  { value: 'phone', label: 'Phone Call' },
+  { value: 'letter', label: 'Letter' },
+  { value: 'legal', label: 'Legal Notice' },
+]
+const VISIT_OUTCOMES: { value: string; label: string }[] = [
+  { value: 'paid', label: 'Paid' },
+  { value: 'promised', label: 'Promised to Pay' },
+  { value: 'refused', label: 'Refused' },
+  { value: 'absent', label: 'Not Available' },
+  { value: 'no_contact', label: 'No Contact' },
+]
+
+function LogVisitModal({ caseItem, onClose, onSuccess }: { caseItem: Case | null; onClose: () => void; onSuccess: () => void }) {
+  const [visitDate, setVisitDate] = useState('')
+  const [visitType, setVisitType] = useState('')
+  const [outcome, setOutcome] = useState('')
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (caseItem) {
+      setVisitDate(new Date().toISOString().slice(0, 10))
+      setVisitType(''); setOutcome(''); setNotes('')
+    }
+  }, [caseItem])
+
+  const save = useCallback(async () => {
+    if (!caseItem) return
+    if (!visitDate) { toast.error('Visit date is required'); return }
+    if (!visitType) { toast.error('Visit type is required'); return }
+    setSaving(true)
+    try {
+      await apiPost(`/api/recovery-ops/cases/${caseItem.id}/visit`, {
+        visit_date: visitDate, visit_type: visitType, outcome: outcome || null, notes: notes || null,
+      })
+      toast.success('Visit logged')
+      onSuccess()
+    } catch (e: any) { toast.error(e?.message || 'Could not log visit') }
+    finally { setSaving(false) }
+  }, [caseItem, visitDate, visitType, outcome, notes, onSuccess])
+
+  return (
+    <Modal
+      open={!!caseItem}
+      onClose={onClose}
+      title={`Log Visit: ${caseItem?.debtor_name ?? ''}`}
+      width={520}
+      footer={<>
+        <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--input-bdr)', background: 'transparent', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
+        <button onClick={save} disabled={saving} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Log Visit'}</button>
+      </>}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+        <div>
+          <label style={fieldLabel}>Visit Date</label>
+          <input type="date" value={visitDate} onChange={e => setVisitDate(e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label style={fieldLabel}>Visit Type</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[2] }}>
+            {VISIT_TYPES.map(t => (
+              <Chip key={t.value} active={visitType === t.value} color={NAVY} onClick={() => setVisitType(t.value)}>{t.label}</Chip>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label style={fieldLabel}>Outcome</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[2] }}>
+            {VISIT_OUTCOMES.map(o => (
+              <Chip key={o.value} active={outcome === o.value} color={NAVY} onClick={() => setOutcome(outcome === o.value ? '' : o.value)}>{o.label}</Chip>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label style={fieldLabel}>Notes <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="What happened on this visit?" style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function WriteoffModal({ caseItem, onClose, onSuccess }: { caseItem: Case | null; onClose: () => void; onSuccess: () => void }) {
+  const [amount, setAmount] = useState('')
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (caseItem) { setAmount(''); setReason('') }
+  }, [caseItem])
+
+  const save = useCallback(async () => {
+    if (!caseItem) return
+    const amt = parseFloat(amount)
+    if (!(amt > 0)) { toast.error('Enter a write-off amount greater than zero'); return }
+    if (!reason.trim()) { toast.error('A reason is required'); return }
+    setSaving(true)
+    try {
+      await apiPost(`/api/recovery-ops/cases/${caseItem.id}/write-off`, {
+        amount_kobo: Math.round(amt * 100), reason: reason.trim(),
+      })
+      toast.success('Write-off request submitted')
+      onSuccess()
+    } catch (e: any) { toast.error(e?.message || 'Could not submit write-off') }
+    finally { setSaving(false) }
+  }, [caseItem, amount, reason, onSuccess])
+
+  return (
+    <Modal
+      open={!!caseItem}
+      onClose={onClose}
+      title={`Request Write-off: ${caseItem?.debtor_name ?? ''}`}
+      width={480}
+      footer={<>
+        <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--input-bdr)', background: 'transparent', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
+        <button onClick={save} disabled={saving} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1 }}>{saving ? 'Submitting…' : 'Submit Request'}</button>
+      </>}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+        {caseItem && (
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+            Outstanding: <strong style={{ ...NUM, color: 'var(--txt)' }}>{fmtKoboExact(caseItem.outstanding_kobo)}</strong>
+          </div>
+        )}
+        <div>
+          <label style={fieldLabel}>Write-off Amount (₦)</label>
+          <input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={inputStyle} />
+        </div>
+        <div>
+          <label style={fieldLabel}>Reason</label>
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={4} placeholder="Justification for this write-off request" style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+        </div>
+        <div style={{ fontSize: TEXT['2xs'], color: AMBER, fontWeight: FW.medium }}>
+          Write-offs require approval before they take effect.
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -69,6 +236,8 @@ export default function RecoveryAgentDashboard() {
   const [searchCases, setSearchCases] = useState('')
   const [searchVisits, setSearchVisits] = useState('')
   const [payCase, setPayCase] = useState<Case | null>(null)
+  const [visitCase, setVisitCase] = useState<Case | null>(null)
+  const [writeoffCase, setWriteoffCase] = useState<Case | null>(null)
   const [status, setStatus] = useState('available')
 
   const load = useCallback(async (silent = false) => {
@@ -124,7 +293,7 @@ export default function RecoveryAgentDashboard() {
   const caseCols: TableCol<Case>[] = [
     { key: 'case_ref', label: 'Case Ref', render: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.xs }}>{r.case_ref}</span> },
     { key: 'debtor_name', label: 'Debtor' },
-    { key: 'outstanding_kobo', label: 'Outstanding', render: r => <span style={NUM}>{fmtKobo(r.outstanding_kobo)}</span> },
+    { key: 'outstanding_kobo', label: 'Outstanding', render: r => <span style={NUM}>{fmtKoboExact(r.outstanding_kobo)}</span> },
     { key: 'dpd', label: 'DPD', render: r => <DpdCell dpd={r.dpd} /> },
     { key: 'next_action', label: 'Next Action', render: r => (
       <div>
@@ -134,19 +303,31 @@ export default function RecoveryAgentDashboard() {
     )},
     { key: 'status', label: 'Status', render: r => <StatusPill label={r.status} color={NAVY} /> },
     {
-      key: 'id', label: '',
+      key: 'id', label: 'Actions',
       render: r => (
-        <button
-          onClick={e => { e.stopPropagation(); setPayCase(r) }}
-          style={{
-            padding: '4px 11px', borderRadius: '6px',
-            border: `1.5px solid ${GREEN}40`, background: `${GREEN}0A`,
-            color: GREEN, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Log Payment
-        </button>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          <button
+            onClick={e => { e.stopPropagation(); setPayCase(r) }}
+            style={actionBtn(GREEN)}
+          >
+            <span className="material-symbols-rounded" style={actionIcon}>payments</span>
+            Payment
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); setVisitCase(r) }}
+            style={actionBtn(NAVY)}
+          >
+            <span className="material-symbols-rounded" style={actionIcon}>directions_walk</span>
+            Visit
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); setWriteoffCase(r) }}
+            style={actionBtn(RED)}
+          >
+            <span className="material-symbols-rounded" style={actionIcon}>money_off</span>
+            Write-off
+          </button>
+        </div>
       ),
     },
   ]
@@ -160,7 +341,7 @@ export default function RecoveryAgentDashboard() {
     )},
     { key: 'outcome', label: 'Outcome', render: r => <StatusPill label={r.outcome} color={outcomeColor(r.outcome)} /> },
     { key: 'visited_at', label: 'Date', render: r => fmtDate(r.visited_at) },
-    { key: 'amount_promised_kobo', label: 'Promised', render: r => <span style={NUM}>{fmtKobo(r.amount_promised_kobo)}</span> },
+    { key: 'amount_promised_kobo', label: 'Promised', render: r => <span style={NUM}>{fmtKoboExact(r.amount_promised_kobo)}</span> },
   ]
 
   return (
@@ -169,13 +350,13 @@ export default function RecoveryAgentDashboard() {
 
       <WorkspaceHero
         presence={<PresenceControl status={status} onChange={changeStatus} />}
-        subline={<>You've collected <strong style={{ color: '#fff' }}>{fmtKobo(data.amount_collected_mtd_kobo)}</strong> this month · {fmtNum(data.cases_closed_mtd)} case{data.cases_closed_mtd === 1 ? '' : 's'} closed{severe > 0 ? <> · <strong style={{ color: '#FCA5A5' }}>{severe}</strong> at 90+ DPD</> : ''}</>}
+        subline={<>You've collected <strong style={{ color: '#fff' }}>{fmtKoboExact(data.amount_collected_mtd_kobo)}</strong> this month · {fmtNum(data.cases_closed_mtd)} case{data.cases_closed_mtd === 1 ? '' : 's'} closed{severe > 0 ? <> · <strong style={{ color: '#FCA5A5' }}>{severe}</strong> at 90+ DPD</> : ''}</>}
         ring={{ value: data.cases_closed_mtd, max: clearMax, unit: 'cases' }}
         stats={[
           { label: 'Assigned Cases', value: fmtNum(data.assigned_cases) },
           { label: 'Closed MTD', value: fmtNum(data.cases_closed_mtd), color: '#4ADE80' },
           { label: 'Calls MTD', value: fmtNum(data.calls_made_mtd) },
-          { label: 'Collected MTD', value: fmtKobo(data.amount_collected_mtd_kobo), color: '#4ADE80' },
+          { label: 'Collected MTD', value: fmtKoboExact(data.amount_collected_mtd_kobo), color: '#4ADE80' },
         ]}
         actions={<>
           <HeroButton icon="folder_open" label="My Cases" primary onClick={() => navigate('/recovery/cases')} />
@@ -194,7 +375,7 @@ export default function RecoveryAgentDashboard() {
           color={severe > 0 ? RED : GREEN} urgent={severe > 0} onClick={() => navigate('/recovery/cases')} />
         <MyDayTile icon="directions_walk" count={fmtNum(data.recent_visits.length)} label="Recent visits"
           sub="field visits logged" color={BLUE} />
-        <MyDayTile icon="payments" count={fmtKobo(data.amount_collected_mtd_kobo)} label="Collected MTD"
+        <MyDayTile icon="payments" count={fmtKoboExact(data.amount_collected_mtd_kobo)} label="Collected MTD"
           sub="recovered this month" color={GREEN} />
       </MyDaySection>
 
@@ -213,7 +394,7 @@ export default function RecoveryAgentDashboard() {
           cols={caseCols}
           rows={displayedCases}
           keyFn={r => r.id}
-          onRowClick={() => navigate('/recovery/cases')}
+          onRowClick={r => navigate(`/recovery/cases/${r.id}`)}
           pageSize={10}
           emptyText="No cases assigned"
         />
@@ -222,21 +403,15 @@ export default function RecoveryAgentDashboard() {
       {/* Trend chart + recent visits */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
         <SectionCard title="Monthly Collection Trend">
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={data.monthly_trend} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="rcGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={RED} stopOpacity={0.2} />
-                  <stop offset="95%" stopColor={RED} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => fmtKobo(v)} tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} width={70} />
-              <Tooltip content={<ChartTooltip />} />
-              <Area type="monotone" dataKey="collected" name="Collected" stroke={RED} fill="url(#rcGrad)" strokeWidth={2} dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <EArea
+            data={data.monthly_trend}
+            xKey="month"
+            height={200}
+            endLabel
+            hideYAxis
+            valueFmt={(v) => fmtKoboExact(v)}
+            series={[{ key: 'collected', name: 'Collected', color: GREEN }]}
+          />
         </SectionCard>
 
         <SectionCard title="Recent Field Visits" padding={false}>
@@ -263,6 +438,17 @@ export default function RecoveryAgentDashboard() {
         title={`Log Payment: ${payCase?.debtor_name ?? ''}`}
         endpoint={payCase ? `/api/recovery-ops/cases/${payCase.id}/payment` : ''}
         onSuccess={() => { setPayCase(null); load() }}
+        channels={RECOVERY_PAYMENT_CHANNELS}
+      />
+      <LogVisitModal
+        caseItem={visitCase}
+        onClose={() => setVisitCase(null)}
+        onSuccess={() => { setVisitCase(null); load() }}
+      />
+      <WriteoffModal
+        caseItem={writeoffCase}
+        onClose={() => setWriteoffCase(null)}
+        onSuccess={() => { setWriteoffCase(null); load() }}
       />
     </Page>
   )

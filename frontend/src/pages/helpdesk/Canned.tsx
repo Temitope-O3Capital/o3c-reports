@@ -7,6 +7,7 @@ import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
 import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { canManageScripts } from '../../hooks/useAuth'
+import MailRichEditor from '../../components/MailRichEditor'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -16,13 +17,31 @@ interface CannedResponse {
   title: string      // aliased from name in backend
   category: string
   body: string       // aliased from body_text in backend
+  body_html?: string // rich HTML body (email templates only)
+  subject?: string   // email subject line (email templates only)
   last_used_at: string | null
   created_by: string // joined from o3c_users in backend
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CATEGORIES = ['Account', 'Loans', 'Cards', 'Transfers', 'App', 'General']
+// Call scripts keep their operational taxonomy; email templates get a Care-oriented
+// set matching the reply-workflow the backend fills merge tags for.
+const CALL_CATEGORIES = ['Account', 'Loans', 'Cards', 'Transfers', 'App', 'General']
+const EMAIL_CATEGORIES = [
+  'Acknowledgement', 'Resolution', 'Information', 'Escalation', 'Cards',
+  'Transactions', 'Statements', 'Registration', 'Loans', 'Fixed Deposit',
+  'Complaints', 'Closure', 'General',
+]
+
+// Filled automatically when an agent sends a reply from a template.
+const MERGE_TAGS = ['{{customer_name}}', '{{first_name}}', '{{ticket_ref}}', '{{agent_name}}']
+
+// Plain-text fallback derived from the rich HTML body — mail clients / search that
+// cannot render HTML fall back to this.
+function htmlToText(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+}
 
 
 // ── Canned form ────────────────────────────────────────────────────────────────
@@ -30,19 +49,29 @@ const CATEGORIES = ['Account', 'Loans', 'Cards', 'Transfers', 'App', 'General']
 interface FormState {
   title: string
   category: string
-  body: string
+  body: string       // body_text (plain-text body / call script)
+  subject: string    // email subject
+  body_html: string  // rich HTML body
 }
 
-function CannedForm({ form, onChange }: { form: FormState; onChange: (f: FormState) => void }) {
+function CannedForm({ form, onChange, isEmail, categories }: {
+  form: FormState
+  onChange: (f: FormState) => void
+  isEmail: boolean
+  categories: string[]
+}) {
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)',
     borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)',
-    color: 'var(--txt)', fontFamily: "'Sora', sans-serif", outline: 'none', boxSizing: 'border-box',
+    color: 'var(--txt)', fontFamily: "var(--font-sans)", outline: 'none', boxSizing: 'border-box',
+  }
+  const labelStyle: React.CSSProperties = {
+    fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5,
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div>
-        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Title</label>
+        <label style={labelStyle}>Title</label>
         <input
           value={form.title}
           onChange={e => onChange({ ...form, title: e.target.value })}
@@ -51,25 +80,51 @@ function CannedForm({ form, onChange }: { form: FormState; onChange: (f: FormSta
         />
       </div>
       <div>
-        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Category</label>
+        <label style={labelStyle}>Category</label>
         <select
           value={form.category}
           onChange={e => onChange({ ...form, category: e.target.value })}
           style={{ ...inputStyle, height: 36, padding: '0 10px' }}
         >
           <option value="">— Select —</option>
-          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
+
+      {isEmail && (
+        <div>
+          <label style={labelStyle}>Subject</label>
+          <input
+            value={form.subject}
+            onChange={e => onChange({ ...form, subject: e.target.value })}
+            placeholder="Email subject line…"
+            style={inputStyle}
+          />
+        </div>
+      )}
+
       <div>
-        <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Body</label>
-        <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
-          value={form.body}
-          onChange={e => onChange({ ...form, body: e.target.value })}
-          rows={8}
-          placeholder="Canned response text…"
-          style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }}
-        />
+        <label style={labelStyle}>Body</label>
+        {isEmail ? (
+          <>
+            <MailRichEditor
+              value={form.body_html}
+              onChange={html => onChange({ ...form, body_html: html, body: htmlToText(html) })}
+              minHeight={220}
+            />
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5, marginTop: 6 }}>
+              Merge tags (filled automatically when an agent sends a reply): {MERGE_TAGS.join('  ·  ')}
+            </div>
+          </>
+        ) : (
+          <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
+            value={form.body}
+            onChange={e => onChange({ ...form, body: e.target.value })}
+            rows={8}
+            placeholder="Canned response text…"
+            style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }}
+          />
+        )}
       </div>
     </div>
   )
@@ -77,7 +132,7 @@ function CannedForm({ form, onChange }: { form: FormState; onChange: (f: FormSta
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-const EMPTY_FORM: FormState = { title: '', category: '', body: '' }
+const EMPTY_FORM: FormState = { title: '', category: '', body: '', subject: '', body_html: '' }
 
 export default function Canned() {
   const [rows, setRows] = useState<CannedResponse[]>([])
@@ -101,6 +156,8 @@ export default function Canned() {
   // Module-scoped: Care manages email templates, Call Center manages call scripts.
   const isCare = useLocation().pathname.startsWith('/care')
   const channel = isCare ? 'email' : 'call'
+  const isEmail = channel === 'email'
+  const categories = isEmail ? EMAIL_CATEGORIES : CALL_CATEGORIES
 
   // Reference content: supervisors curate, line agents read-only (enforced server-side).
   const canManage = useMemo(() => canManageScripts(), [])
@@ -113,8 +170,9 @@ export default function Canned() {
       params.set('channel', channel)
       if (dateFrom) params.set('from', dateFrom)
       if (dateTo)   params.set('to', dateTo)
-      const data = await apiFetch<CannedResponse[]>(`/api/helpdesk/canned-responses?${params}`)
-      setRows(Array.isArray(data) ? data : [])
+      const raw = await apiFetch<any>(`/api/helpdesk/canned-responses?${params}`)
+      const list: CannedResponse[] = Array.isArray(raw) ? raw : (raw?.data ?? [])
+      setRows(list)
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -132,17 +190,37 @@ export default function Canned() {
 
   function openEdit(r: CannedResponse) {
     setEditItem(r)
-    setForm({ title: r.title, category: r.category, body: r.body })
+    setForm({
+      title: r.title, category: r.category, body: r.body,
+      subject: r.subject ?? '', body_html: r.body_html ?? '',
+    })
+  }
+
+  // In email mode the body lives in the rich editor (body_html); the plain-text body
+  // is derived from it. In call mode the plain textarea is the only body.
+  function validateForm(): boolean {
+    const bodyText = isEmail ? htmlToText(form.body_html) : form.body
+    if (!form.title || !form.category || !bodyText || (isEmail && !form.subject)) {
+      toast.error('Please fill in all fields')
+      return false
+    }
+    return true
+  }
+
+  function buildPayload() {
+    return isEmail
+      ? {
+          name: form.title, channel, category: form.category,
+          subject: form.subject, body_html: form.body_html, body_text: htmlToText(form.body_html),
+        }
+      : { name: form.title, channel, category: form.category, body_text: form.body }
   }
 
   async function handleCreate() {
-    if (!form.title || !form.category || !form.body) {
-      toast.error('Please fill in all fields')
-      return
-    }
+    if (!validateForm()) return
     setSaving(true)
     try {
-      await apiPost('/api/helpdesk/canned-responses', { name: form.title, category: form.category, body_text: form.body, channel })
+      await apiPost('/api/helpdesk/canned-responses', buildPayload())
       toast.success('Canned response created')
       setNewOpen(false)
       load()
@@ -155,13 +233,10 @@ export default function Canned() {
 
   async function handleUpdate() {
     if (!editItem) return
-    if (!form.title || !form.category || !form.body) {
-      toast.error('Please fill in all fields')
-      return
-    }
+    if (!validateForm()) return
     setSaving(true)
     try {
-      await apiPut(`/api/helpdesk/canned-responses/${editItem.id}`, { name: form.title, category: form.category, body_text: form.body })
+      await apiPut(`/api/helpdesk/canned-responses/${editItem.id}`, buildPayload())
       toast.success('Canned response updated')
       setEditItem(null)
       load()
@@ -201,7 +276,14 @@ export default function Canned() {
     {
       key: 'title',
       label: 'Title / Category',
-      render: r => <NameCell name={r.title} sub={r.category} avatar={false} />,
+      render: r => (
+        <div>
+          <NameCell name={r.title} sub={r.category} avatar={false} />
+          {isEmail && r.subject && (
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{r.subject}</div>
+          )}
+        </div>
+      ),
     },
     {
       key: 'last_used_at',
@@ -257,6 +339,7 @@ export default function Canned() {
     <Page
       title={isCare ? 'Email Templates' : 'Call Scripts'}
       subtitle={isCare ? 'Canned email replies for Care' : 'Canned call talk-tracks for Call Center'}
+      loading={loading && rows.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -279,7 +362,7 @@ export default function Canned() {
             {
               key: 'category',
               label: 'Category',
-              options: CATEGORIES.map(c => ({ value: c })),
+              options: categories.map(c => ({ value: c })),
               selected: fCategories,
               onChange: setFCategories,
             },
@@ -304,10 +387,10 @@ export default function Canned() {
         open={newOpen}
         onClose={() => setNewOpen(false)}
         title="New Canned Response"
-        width={540}
+        width={isEmail ? 680 : 540}
         footer={modalFooter(handleCreate)}
       >
-        <CannedForm form={form} onChange={setForm} />
+        <CannedForm form={form} onChange={setForm} isEmail={isEmail} categories={categories} />
       </Modal>
 
       {/* Edit modal */}
@@ -315,10 +398,10 @@ export default function Canned() {
         open={!!editItem}
         onClose={() => setEditItem(null)}
         title="Edit Canned Response"
-        width={540}
+        width={isEmail ? 680 : 540}
         footer={modalFooter(handleUpdate)}
       >
-        <CannedForm form={form} onChange={setForm} />
+        <CannedForm form={form} onChange={setForm} isEmail={isEmail} categories={categories} />
       </Modal>
 
       {/* Preview modal */}
@@ -335,13 +418,28 @@ export default function Canned() {
                 {previewItem.category}
               </span>
             </div>
-            <div style={{
-              whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: TEXT.base,
-              color: 'var(--txt)', padding: '12px 14px',
-              background: 'var(--th-bg)', borderRadius: RADIUS.md,
-            }}>
-              {previewItem.body || <span style={{ color: 'var(--txt3)', fontStyle: 'italic' }}>No content.</span>}
-            </div>
+            {isEmail && previewItem.subject && (
+              <div style={{ marginBottom: SP[2], fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                <span style={{ color: 'var(--txt3)', fontWeight: FW.medium }}>Subject: </span>{previewItem.subject}
+              </div>
+            )}
+            {isEmail && previewItem.body_html ? (
+              <div
+                style={{
+                  lineHeight: 1.6, fontSize: TEXT.base, color: 'var(--txt)',
+                  padding: '12px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md,
+                }}
+                dangerouslySetInnerHTML={{ __html: previewItem.body_html }}
+              />
+            ) : (
+              <div style={{
+                whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: TEXT.base,
+                color: 'var(--txt)', padding: '12px 14px',
+                background: 'var(--th-bg)', borderRadius: RADIUS.md,
+              }}>
+                {previewItem.body || <span style={{ color: 'var(--txt3)', fontStyle: 'italic' }}>No content.</span>}
+              </div>
+            )}
           </div>
         )}
       </Modal>

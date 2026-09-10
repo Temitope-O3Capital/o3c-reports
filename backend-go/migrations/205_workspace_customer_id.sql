@@ -1,0 +1,13 @@
+-- 205: a mint for workspace customers that have NO core-banking CIF.
+--
+-- Every app.customers row already has a workspace-unique id (contact_id text PK) and
+-- a person-level party_id (app.parties). But both current mint paths derive the id
+-- from a CIF ('Z' || LPAD(cif,15,'0')), so there was no way to create a customer for
+-- someone who simply isn't in the core bank (e.g. the manually-uploaded loan
+-- borrowers, or future FD/loan customers with no CIF).
+--
+-- This sequence backs a reserved 'W'-prefixed id for those: contact_id = cif =
+-- 'W' || LPAD(nextval,15,'0'). It sits in a namespace that can't collide with a real
+-- CIF, keeps the existing CIF-keyed joins (Collections/Recovery/Customer 360) working
+-- unchanged, and still flows into the party layer via app.assign_parties().
+CREATE SEQUENCE IF NOT EXISTS app.ws_customer_seq;

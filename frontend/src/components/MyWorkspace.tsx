@@ -203,7 +203,7 @@ export function WorkspaceHero({ presence, subline, ring, stats, aside, actions, 
       <div style={{ display: 'grid', gridTemplateColumns: aside ? 'minmax(0, 1fr) minmax(240px, 340px)' : '1fr', gap: 26, alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, minWidth: 0 }}>
           {ring && <Ring value={ring.value} max={ring.max} unit={ring.unit} />}
-          <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))', gap: 10 }}>
             {stats.map((s, i) => <HeroStat key={i} {...s} />)}
           </div>
         </div>

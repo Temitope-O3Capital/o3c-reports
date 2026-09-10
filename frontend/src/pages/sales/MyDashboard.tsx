@@ -2,7 +2,7 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
+import { EArea, EBar } from '../../components/echarts'
 import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
@@ -67,19 +67,6 @@ function dueMeta(iso: string): { label: string; color: string } {
   if (day(d) < day(now)) return { label: 'Overdue', color: RED }
   if (day(d) === day(now)) return { label: 'Today', color: AMBER }
   return { label: fmtDate(iso), color: 'var(--txt2)' }
-}
-
-// Charts sit on white cards, so keep the light tooltip variant here.
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: `${SP[2]} ${SP[3]}`, fontSize: TEXT.sm }}>
-      <p style={{ fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>{label}</p>
-      {payload.map((p: any, i: number) => (
-        <p key={i} style={{ color: p.color, marginBottom: 2 }}>{p.name}: {p.value}</p>
-      ))}
-    </div>
-  )
 }
 
 // ── Log-activity quick action ───────────────────────────────────────────────
@@ -363,38 +350,31 @@ export default function SalesMyDashboard() {
       {/* Pipeline + Trend charts */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: SP[4] }}>
         <SectionCard title="Pipeline by Stage">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={data.pipeline} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="stage" tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="count" name="Leads" fill={NAVY} radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <EBar
+            data={data.pipeline.map(p => ({ stage: p.stage, count: Number(p.count) }))}
+            xKey="stage"
+            height={200}
+            legend={false}
+            valueFmt={fmtNum}
+            axisFmt={fmtNum}
+            series={[{ key: 'count', name: 'Leads', color: NAVY }]}
+          />
         </SectionCard>
 
         <SectionCard title="Monthly Trend">
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={data.monthly_trend} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="sLeads" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={NAVY} stopOpacity={0.18} />
-                  <stop offset="95%" stopColor={NAVY} stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="sWon" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={GREEN} stopOpacity={0.2} />
-                  <stop offset="95%" stopColor={GREEN} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--chart-lbl)' }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} />
-              <Area type="monotone" dataKey="leads" name="Leads" stroke={NAVY} fill="url(#sLeads)" strokeWidth={2} dot={false} />
-              <Area type="monotone" dataKey="won" name="Won" stroke={GREEN} fill="url(#sWon)" strokeWidth={2} dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <EArea
+            data={data.monthly_trend.map(m => ({ month: m.month, leads: Number(m.leads), won: Number(m.won) }))}
+            xKey="month"
+            height={200}
+            hideYAxis
+            endLabel
+            endFmt={fmtNum}
+            valueFmt={fmtNum}
+            series={[
+              { key: 'leads', name: 'Leads', color: NAVY },
+              { key: 'won', name: 'Won', color: GREEN },
+            ]}
+          />
         </SectionCard>
       </div>
 

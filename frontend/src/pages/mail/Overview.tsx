@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-  PieChart, Pie, Cell,
-} from 'recharts'
+import { EArea, EDonut } from '../../components/echarts'
 import { Page, KpiCard, SectionCard, StatusBadge, EmptyState, Spinner, ErrBanner } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { useLiveData } from '../../hooks/useRealtime'
@@ -61,8 +58,8 @@ export default function MailOverview() {
 
   const c = data?.counts
   const p = data?.performance
-  const daily = (data?.daily ?? []).map(d => ({ ...d, label: dayLabel(d.day) }))
-  const donut = (data?.status_breakdown ?? []).filter(s => s.count > 0)
+  const daily = (data?.daily ?? []).map(d => ({ ...d, label: dayLabel(d.day), sent: Number(d.sent), opened: Number(d.opened) }))
+  const donut = (data?.status_breakdown ?? []).filter(s => s.count > 0).map(s => ({ status: s.status, count: Number(s.count) }))
 
   const composeBtn = (
     <button
@@ -103,28 +100,19 @@ export default function MailOverview() {
           ) : daily.length === 0 ? (
             <EmptyState icon="mail" title="No mail sent yet" description="Your send activity will appear here once you send email." />
           ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <AreaChart data={daily} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gSent" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={NAVY} stopOpacity={0.28} />
-                    <stop offset="100%" stopColor={NAVY} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gOpen" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={BLUE} stopOpacity={0.22} />
-                    <stop offset="100%" stopColor={BLUE} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--chart-lbl)' }} tickLine={false} axisLine={false} allowDecimals={false} width={34} />
-                <Tooltip
-                  contentStyle={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 12 }}
-                  labelStyle={{ color: 'var(--txt)', fontWeight: 600 }} />
-                <Area type="monotone" dataKey="sent" name="Sent" stroke={NAVY} strokeWidth={2} fill="url(#gSent)" />
-                <Area type="monotone" dataKey="opened" name="Opened" stroke={BLUE} strokeWidth={2} fill="url(#gOpen)" />
-              </AreaChart>
-            </ResponsiveContainer>
+            <EArea
+              data={daily}
+              xKey="label"
+              height={240}
+              hideYAxis
+              endLabel
+              valueFmt={fmtNum}
+              endFmt={fmtNum}
+              series={[
+                { key: 'sent', name: 'Sent', color: NAVY },
+                { key: 'opened', name: 'Opened', color: BLUE },
+              ]}
+            />
           )}
         </SectionCard>
 
@@ -135,14 +123,17 @@ export default function MailOverview() {
             <EmptyState icon="donut_large" title="No data" description="Status mix appears here." />
           ) : (
             <>
-              <ResponsiveContainer width="100%" height={170}>
-                <PieChart>
-                  <Pie data={donut} dataKey="count" nameKey="status" cx="50%" cy="50%" innerRadius={44} outerRadius={68} paddingAngle={2}>
-                    {donut.map((d, i) => <Cell key={i} fill={colorFor(d.status)} />)}
-                  </Pie>
-                  <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: 8, fontSize: 12 }} />
-                </PieChart>
-              </ResponsiveContainer>
+              <EDonut
+                data={donut}
+                valueKey="count"
+                nameKey="status"
+                colorFn={d => colorFor(d.status)}
+                size={170}
+                inner={44}
+                outer={68}
+                valueFmt={fmtNum}
+                nameFmt={s => String(s).replace(/_/g, ' ')}
+              />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
                 {donut.map((d, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: TEXT.sm }}>

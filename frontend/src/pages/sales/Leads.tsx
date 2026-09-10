@@ -5,9 +5,13 @@ import {
   Page, KpiCard, SectionCard, DataTable, Modal, Button, Input, Select, Field,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import NewApplicationModal from '../../components/NewApplicationModal'
+import { apiFetch, apiPost } from '../../lib/api'
+import { currentUser, isSalesHead, allRoles } from '../../hooks/useAuth'
+import { MGMT } from '../../lib/roles'
+import { toast } from 'sonner'
 import { fmtKobo, fmtNum, fmtDate, fmtDatetime, n } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { PRODUCT_LINES, PRODUCT_SUBS, productLabel, lineOfCode, lineColor } from '../../lib/products'
 
 // Lead capture and the lead queue.
@@ -32,6 +36,8 @@ interface Lead {
   last_activity_at: string | null
   qualified_at: string | null
   created_at: string
+  already_customer?: boolean
+  matched_customer_cif?: string | null
 }
 
 interface Funnel {
@@ -90,7 +96,18 @@ export default function SalesLeads() {
   const owner = params.get('owner_id') ?? ''
   const due = params.get('due') ?? ''
   const line = params.get('line') ?? ''
+  const source = params.get('source') ?? ''
+  const stalled = params.get('stalled') ?? ''
+  const includeCustomers = params.get('include_customers') === '1'
   const [search, setSearch] = useState('')
+
+  // Head vs officer: heads (and executives) get the owner filter, the Distribute
+  // action and per-lead assignment; officers work their own book + claim from the pool.
+  const me = currentUser()
+  const isHead = isSalesHead(me) || (!!me && allRoles(me).some(r => MGMT.has(r)))
+  const [distOpen, setDistOpen] = useState(false)
+  const [assignLead, setAssignLead] = useState<Lead | null>(null)
+  const [raiseLead, setRaiseLead] = useState<Lead | null>(null)
 
   // New-lead form
   const [newOpen, setNewOpen] = useState(false)
@@ -126,9 +143,12 @@ export default function SalesLeads() {
     if (owner) p.set('owner_id', owner)
     if (due) p.set('due', due)
     if (line) p.set('line', line)
+    if (source) p.set('source', source)
+    if (stalled) p.set('stalled', stalled)
+    if (includeCustomers) p.set('include_customers', '1')
     if (dq) p.set('q', dq)
     return p.toString()
-  }, [offset, stage, owner, due, line, dq])
+  }, [offset, stage, owner, due, line, source, stalled, includeCustomers, dq])
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -149,7 +169,18 @@ export default function SalesLeads() {
   }, [query])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setOffset(0) }, [stage, owner, due, line, dq])
+  useEffect(() => { setOffset(0) }, [stage, owner, due, line, source, stalled, includeCustomers, dq])
+
+  // Assign a single lead to an officer (heads). Reuses the lead PATCH — no bespoke
+  // endpoint needed — then refreshes so the owner column updates in place.
+  async function assignTo(leadId: number, officerId: number) {
+    try {
+      await apiFetch(`/api/sales/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify({ lead_owner_id: officerId }) })
+      toast.success('Lead assigned')
+      setAssignLead(null)
+      await load()
+    } catch (e: any) { toast.error(e?.message ?? 'Could not assign') }
+  }
 
   async function createLead() {
     setSaving(true); setErr(null)
@@ -206,13 +237,30 @@ export default function SalesLeads() {
     }
   }
 
+  // Claim a lead the call centre forwarded (or any unowned lead). This tells the
+  // forwarding agent's tracker that Sales has picked it up.
+  async function claim(id: number) {
+    try {
+      await apiFetch(`/api/sales/leads/${id}/claim`, { method: 'POST' })
+      toast.success('Lead claimed — it is yours now')
+      await load()
+    } catch (e: any) { toast.error(e?.message ?? 'Could not claim') }
+  }
+  const meId = currentUser()?.id
+
   const cols: TableCol<Lead>[] = [
     {
       key: 'first_name', label: 'Lead', sortable: true,
       render: r => (
         <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', display: 'flex', alignItems: 'center', gap: 6 }}>
             {[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}
+            {r.already_customer && (
+              <span title={r.matched_customer_cif ? `Already customer CIF ${r.matched_customer_cif}` : 'Already a customer'}
+                style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: AMBER, background: `${AMBER}1A`, padding: '1px 7px', borderRadius: RADIUS['2xl'], whiteSpace: 'nowrap' }}>
+                Already a customer
+              </span>
+            )}
           </div>
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
             {r.phone || r.email}{r.created_at ? <span style={{ color: 'var(--txt3)' }}> · {leadAge(r.created_at)}</span> : null}
@@ -241,9 +289,17 @@ export default function SalesLeads() {
     },
     {
       key: 'lead_source', label: 'Source', sortable: true,
-      render: r => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>
-        {sources.find(s => s.code === r.lead_source)?.label ?? r.lead_source ?? '—'}
-      </span>,
+      render: r => r.lead_source === 'call_centre'
+        ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: PURPLE, background: `${PURPLE}16`, padding: '2px 9px', borderRadius: RADIUS['2xl'], display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 13 }}>headset_mic</span> Call Centre
+          </span>
+        : <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>
+            {sources.find(s => s.code === r.lead_source)?.label ?? r.lead_source ?? '—'}
+          </span>,
+    },
+    {
+      key: 'state', label: 'State', sortable: true,
+      render: r => <span style={{ color: 'var(--txt2)', fontSize: TEXT.sm }}>{r.state || '—'}</span>,
     },
     {
       key: 'product_interest', label: 'Product', sortable: true,
@@ -279,15 +335,25 @@ export default function SalesLeads() {
       },
     },
     {
-      key: 'actions', label: '', sortable: false, width: 190,
+      key: 'actions', label: '', sortable: false, width: 270,
       render: r => (
-        <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}>
+          {r.lead_source === 'call_centre' && r.lead_owner_id !== meId
+            && r.lead_stage !== 'converted' && r.lead_stage !== 'disqualified' && (
+            <Button size="sm" variant="secondary" onClick={() => claim(r.id)}>Claim</Button>
+          )}
+          {isHead && r.lead_stage !== 'converted' && r.lead_stage !== 'disqualified' && (
+            <Button size="sm" variant="secondary" onClick={() => setAssignLead(r)}>Assign</Button>
+          )}
           {r.lead_stage !== 'converted' && r.lead_stage !== 'disqualified' && (
             <>
               <Button size="sm" variant="secondary" onClick={() => {
                 setActing(r); setAction('stage')
                 setActionStage(r.lead_stage === 'new' ? 'contacted' : 'qualified')
               }}>Advance</Button>
+              {/* Origination on-ramp: raise a loan/card/FD application straight from the
+                  lead. A prospect with no CIF yet lands provisional and links later. */}
+              <Button size="sm" variant="secondary" onClick={() => setRaiseLead(r)}>Raise app</Button>
               <Button size="sm" variant="primary" onClick={() => { setActing(r); setAction('convert') }}>
                 Convert
               </Button>
@@ -302,6 +368,8 @@ export default function SalesLeads() {
 
   return (
     <Page
+      loading={loading && leads.length === 0}
+      skeletonKpis={4}
       title="Leads"
       subtitle="Capture, qualify and convert: from Business Development, campaigns, the call centre or your own prospecting"
       actions={
@@ -328,6 +396,17 @@ export default function SalesLeads() {
               border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
             }}
           />
+          {isHead && (
+            <select value={owner}
+              onChange={e => { const p = new URLSearchParams(params); e.target.value ? p.set('owner_id', e.target.value) : p.delete('owner_id'); setParams(p) }}
+              title="Filter by owner"
+              style={{ padding: '7px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', maxWidth: 180 }}>
+              <option value="">All officers</option>
+              <option value="unassigned">Unassigned pool</option>
+              {officers.map(o => <option key={o.id} value={String(o.id)}>{o.full_name}</option>)}
+            </select>
+          )}
+          {isHead && <Button variant="secondary" icon="shuffle" onClick={() => setDistOpen(true)}>Distribute</Button>}
           <Button variant="primary" icon="person_add" onClick={() => setNewOpen(true)}>New Lead</Button>
         </div>
       }
@@ -406,6 +485,12 @@ export default function SalesLeads() {
           onClick={() => {
             const p = new URLSearchParams(params); p.delete('stage')
             due === '1' ? p.delete('due') : p.set('due', '1')
+            setParams(p)
+          }} />
+        <FilterChip label="Already customers" color={AMBER} active={includeCustomers}
+          onClick={() => {
+            const p = new URLSearchParams(params)
+            includeCustomers ? p.delete('include_customers') : p.set('include_customers', '1')
             setParams(p)
           }} />
 
@@ -654,7 +739,173 @@ export default function SalesLeads() {
           </div>
         )}
       </Modal>
+
+      {isHead && distOpen && (
+        <DistributeModal officers={officers} meId={meId} onClose={() => setDistOpen(false)} onDone={() => { setDistOpen(false); load() }} />
+      )}
+      {assignLead && (
+        <AssignModal lead={assignLead} officers={officers} onClose={() => setAssignLead(null)} onAssign={assignTo} />
+      )}
+      <NewApplicationModal
+        open={!!raiseLead}
+        onClose={() => setRaiseLead(null)}
+        leadId={raiseLead?.id}
+        presetCif={raiseLead?.matched_customer_cif ?? undefined}
+        presetName={raiseLead ? `${raiseLead.first_name ?? ''} ${raiseLead.last_name ?? ''}`.trim() : undefined}
+        onSaved={() => { setRaiseLead(null); load() }}
+      />
     </Page>
+  )
+}
+
+// Assign one lead to an officer.
+function AssignModal({ lead, officers, onClose, onAssign }: {
+  lead: Lead; officers: Officer[]; onClose: () => void; onAssign: (leadId: number, officerId: number) => void
+}) {
+  const [officerId, setOfficerId] = useState('')
+  const [saving, setSaving] = useState(false)
+  return (
+    <Modal open onClose={onClose} title="Assign lead" width={420}
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={saving} disabled={!officerId}
+            onClick={() => { setSaving(true); onAssign(lead.id, Number(officerId)) }}>Assign</Button>
+        </div>
+      }>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+          Hand <strong style={{ color: 'var(--txt)' }}>{[lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'this lead'}</strong> to an officer.
+        </div>
+        <Select label="Officer" value={officerId} onChange={e => setOfficerId(e.target.value)}>
+          <option value="">Choose an officer…</option>
+          {officers.filter(o => o.is_active).map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
+        </Select>
+      </div>
+    </Modal>
+  )
+}
+
+// Bulk-distribute the unowned lead pool across a set of officers. A team head is
+// pre-scoped to their own team (loaded from /api/sales/teams); executives can pick
+// anyone. Dry-run previews the split before committing.
+function DistributeModal({ officers, meId, onClose, onDone }: {
+  officers: Officer[]; meId: number | undefined; onClose: () => void; onDone: () => void
+}) {
+  const [picked, setPicked]   = useState<Set<number>>(new Set())
+  const [strategy, setStrategy] = useState<'round_robin' | 'by_state'>('round_robin')
+  const [limit, setLimit]     = useState('')
+  const [preview, setPreview] = useState<{ officer_id: number; full_name: string; count: number }[] | null>(null)
+  const [busy, setBusy]       = useState(false)
+  const [teamScoped, setTeamScoped] = useState(false)
+
+  // A team head only distributes to their team. Resolve the eligible officer set from
+  // the teams this user heads; fall back to all officers (executive / no team).
+  useEffect(() => {
+    let cancelled = false
+    apiFetch<{ data: any[] } | any[]>('/api/sales/teams').then(res => {
+      if (cancelled) return
+      const teams = Array.isArray(res) ? res : (res?.data ?? [])
+      const mine = teams.filter((t: any) => t.head_user_id === meId)
+      if (mine.length > 0) {
+        const ids = new Set<number>()
+        mine.forEach((t: any) => (t.members ?? []).forEach((m: any) => ids.add(m.user_id)))
+        setPicked(ids); setTeamScoped(true)
+      } else {
+        setPicked(new Set(officers.filter(o => o.is_active).map(o => o.id)))
+      }
+    }).catch(() => setPicked(new Set(officers.filter(o => o.is_active).map(o => o.id))))
+    return () => { cancelled = true }
+  }, [officers, meId])
+
+  // When team-scoped, only show the head's own team members as options.
+  const options = teamScoped ? officers.filter(o => picked.has(o.id) || false) : officers.filter(o => o.is_active)
+  const eligible = teamScoped ? officers.filter(o => picked.has(o.id)) : officers.filter(o => o.is_active)
+
+  function toggle(id: number) {
+    setPicked(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
+    setPreview(null)
+  }
+
+  async function run(dry: boolean) {
+    const ids = [...picked]
+    if (ids.length === 0) { toast.error('Pick at least one officer'); return }
+    setBusy(true)
+    try {
+      const body: any = { officer_ids: ids, strategy, dry_run: dry }
+      if (limit && Number(limit) > 0) body.limit = Number(limit)
+      const res = await apiPost<{ assigned?: number; would_assign?: number; per_officer: any[] }>('/api/sales/leads/distribute', body)
+      if (dry) {
+        setPreview(res.per_officer ?? [])
+        toast.info(`${res.would_assign ?? 0} lead(s) would be distributed`)
+      } else {
+        toast.success(`${res.assigned ?? 0} lead(s) distributed`)
+        onDone()
+      }
+    } catch (e: any) { toast.error(e?.message ?? 'Distribute failed') }
+    finally { setBusy(false) }
+  }
+
+  const list = (teamScoped ? eligible : options)
+
+  return (
+    <Modal open onClose={onClose} title="Distribute unowned leads" width={520}
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', width: '100%' }}>
+          <Button variant="secondary" onClick={() => run(true)} disabled={busy}>Preview split</Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" loading={busy} onClick={() => run(false)}>Distribute</Button>
+          </div>
+        </div>
+      }>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
+          Hands the <strong>unowned</strong> lead pool to the officers you pick. Safe to re-run —
+          it never touches leads someone already owns.
+          {teamScoped && <span style={{ color: PURPLE, fontWeight: FW.semibold }}> Scoped to your team.</span>}
+        </div>
+
+        <div>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Officers</div>
+          {list.length === 0 ? (
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No eligible officers{teamScoped ? ' on your team — add some under Teams.' : '.'}</div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {list.map(o => {
+                const on = picked.has(o.id)
+                return (
+                  <button key={o.id} onClick={() => toggle(o.id)} style={{
+                    padding: '5px 12px', borderRadius: RADIUS['2xl'], cursor: 'pointer', fontSize: TEXT.sm, fontWeight: FW.semibold,
+                    border: `1px solid ${on ? NAVY : 'var(--bdr)'}`, background: on ? `${NAVY}12` : 'var(--card)', color: on ? NAVY : 'var(--txt2)',
+                  }}>{o.full_name}</button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <Select label="Strategy" value={strategy} onChange={e => { setStrategy(e.target.value as any); setPreview(null) }} wrapStyle={{ flex: 1, minWidth: 160 }}>
+            <option value="round_robin">Round robin (even split)</option>
+            <option value="by_state">By state (keep a state together)</option>
+          </Select>
+          <Input label="Limit (optional)" type="number" value={limit} onChange={e => setLimit(e.target.value)} placeholder="All" wrapStyle={{ width: 130 }} />
+        </div>
+
+        {preview && (
+          <div style={{ background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '10px 12px' }}>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: 6 }}>Preview</div>
+            {preview.filter(p => p.count > 0).map(p => (
+              <div key={p.officer_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: TEXT.sm, padding: '2px 0' }}>
+                <span style={{ color: 'var(--txt)' }}>{p.full_name}</span>
+                <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{p.count}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Modal>
   )
 }
 

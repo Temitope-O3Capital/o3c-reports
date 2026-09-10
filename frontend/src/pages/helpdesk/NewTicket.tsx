@@ -357,7 +357,12 @@ export default function NewTicketForm({
     e.preventDefault()
     if (!ticketType) { setErr('Please select a ticket type.'); return }
     if (!subject.trim()) { setErr('Subject is required.'); return }
-    if (!description.trim() && !customFields.description) { setErr('Description is required.'); return }
+    // The message body is built from the free-text description OR the type-specific
+    // custom fields (complaint_details / issue_description / dispute_type / …). Only
+    // block when BOTH are empty — the old `!customFields.description` check falsely
+    // blocked the 7 ticket types that don't use a field literally named "description".
+    const hasCustom = Object.values(customFields).some(v => String(v ?? '').trim() !== '')
+    if (!description.trim() && !hasCustom) { setErr('Please describe the issue before submitting.'); return }
 
     setSubmitting(true)
     setErr(null)

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { toast } from 'sonner'
 import DOMPurify from 'dompurify'
 import { Page, ErrBanner, btnPrimary, btnSecondary } from '../../components/UI'
 import MailRichEditor from '../../components/MailRichEditor'
@@ -23,6 +24,10 @@ interface Draft {
 }
 
 interface Signature { signature_text: string | null; signature_html: string | null }
+
+// Response shape from POST /api/mail/send. When held, the mail is parked in the
+// Outbox and can be recalled; otherwise the old immediate-send fields apply.
+interface SendResult { held?: boolean; outbox_id?: number; hold_seconds?: number }
 
 // Prefill passed via router state from the Inbox reader (reply / reply-all / forward).
 interface Prefill {
@@ -139,15 +144,40 @@ export default function MailCompose() {
     if (!to.trim() || !subject.trim() || htmlToText(body) === '') return
     setSending(true); setErr(null)
     try {
-      await apiPost('/api/mail/send', {
+      // hold_seconds parks the message for a short window so it can be recalled.
+      // The backend answers { held:true, outbox_id } while parked; a 0/absent hold
+      // sends immediately and returns the old shape.
+      const res = await apiPost<SendResult>('/api/mail/send', {
         to:        parseAddresses(to),
         cc:        cc  ? parseAddresses(cc)  : [],
         bcc:       bcc ? parseAddresses(bcc) : [],
         subject,
         html_body: DOMPurify.sanitize(body),
         send_copy_to_sender: true,
+        hold_seconds: 30,
       })
       if (activeDraftId) await apiDelete(`/api/mail/drafts/${activeDraftId}`).catch(() => {})
+
+      if (res?.held && res.outbox_id) {
+        // Transient "Sending… Undo" affordance. Recall cancels the parked send.
+        const outboxId = res.outbox_id
+        toast('Sending…', {
+          description: 'Message queued — undo it within a few seconds.',
+          duration: 8000,
+          action: {
+            label: 'Undo',
+            onClick: () => {
+              apiPost(`/api/mail/outbox/${outboxId}/cancel`, {})
+                .then(() => toast.success('Message recalled'))
+                .catch((ex: any) => toast.error(ex?.message ?? 'Could not recall — it may already have sent'))
+            },
+          },
+        })
+        navigate('/mail/outbox')
+        return
+      }
+
+      // Old immediate-send shape — keep the existing success screen.
       setSent(true)
     } catch (ex: any) { setErr(ex.message) }
     finally { setSending(false) }

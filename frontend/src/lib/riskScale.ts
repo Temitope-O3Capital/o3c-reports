@@ -92,3 +92,38 @@ export function scoreBand(s: number | null | undefined): RiskBand | null {
 export function fmtScore(s: number | null | undefined): string {
   return s === null || s === undefined ? '—' : `${s} / ${SCORE_MAX}`
 }
+
+// ── DPD (days past due) buckets ────────────────────────────────────────────────
+// Consolidated here because Portfolio, Vintage Detail and the dashboards each
+// declared their own dpdColor / dpdLabel with divergent hex and an NPL cut-off that
+// disagreed (one file treated NPL as 90+, another as 180+). The single standard is
+// NPL = DPD > 90, matching app.cbs_loan_dpd and riskPortfolioKPIs on the backend.
+
+export interface DpdBucket {
+  key: string
+  label: string
+  short: string
+  color: string
+  test: (dpd: number) => boolean
+}
+
+// A five-step green→red heat ramp. Each step is a distinct hue AND dark enough for
+// white text to sit on it (the segmented bar labels are white). par30 used to reuse
+// AMBER (#D97706) and par60 reused the same #D97706, so two buckets rendered as one
+// colour — the ramp below keeps every step visually separate.
+export const DPD_BUCKETS: DpdBucket[] = [
+  { key: 'current', label: 'Current',        short: 'Current', color: GREEN,     test: d => d <= 0 },
+  { key: 'par30',   label: '1–30 DPD',       short: '1–30',    color: '#D97706', test: d => d >= 1 && d <= 30 },
+  { key: 'par60',   label: '31–60 DPD',      short: '31–60',   color: '#EA580C', test: d => d >= 31 && d <= 60 },
+  { key: 'par90',   label: '61–90 DPD',      short: '61–90',   color: '#C2410C', test: d => d >= 61 && d <= 90 },
+  { key: 'npl',     label: '90+ DPD (NPL)',  short: '90+',     color: RED,       test: d => d > 90 },
+]
+
+function dpdBucket(dpd: number | null | undefined): DpdBucket {
+  const d = Number(dpd) || 0
+  return DPD_BUCKETS.find(b => b.test(d)) ?? DPD_BUCKETS[0]
+}
+
+export function dpdColor(dpd: number | null | undefined): string { return dpdBucket(dpd).color }
+export function dpdLabel(dpd: number | null | undefined): string { return dpdBucket(dpd).label }
+export function dpdBucketKey(dpd: number | null | undefined): string { return dpdBucket(dpd).key }

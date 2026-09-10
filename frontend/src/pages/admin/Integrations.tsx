@@ -181,6 +181,8 @@ export default function AdminIntegrations() {
       back={{ label: 'Admin', to: '/admin' }}
       title="Integrations"
       subtitle="External service registry: status, credentials, and health"
+      loading={loading && list.length === 0}
+      skeletonKpis={4}
       actions={
         <button onClick={() => setShowNew(true)} style={{
           display: 'flex', alignItems: 'center', gap: SP[1], padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md,

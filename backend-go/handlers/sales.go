@@ -103,6 +103,10 @@ func RegisterSales(r chi.Router, db *core.DB) {
 	commissionAccess := core.RequirePages("sales", "income", "finance")
 	r.With(commissionAccess).Get("/commission-rates", salesCommissionRates(db))
 	r.With(commissionAccess).Put("/commission-rates", salesSetCommissionRates(db))
+	// Commission METRICS for Finance: the same per-officer earnings the Sales Targets
+	// leaderboard shows, but reachable by finance/income roles that lack the `sales`
+	// page. Reuses salesTargetActuals (period-scoped, includes commission_kobo).
+	r.With(commissionAccess).Get("/commission-summary", salesTargetActuals(db))
 }
 
 // salesSupervisor powers the live team view (frontend sales/Supervisor.tsx). It is
@@ -263,16 +267,16 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			),
 			loan AS (
 			  SELECT COALESCE(SUM(l.loan_amount_kobo),0) AS kobo
-			  FROM customer_officers co
-			  JOIN cbs_loans l ON l.cbs_customer_id = co.cif
-			  WHERE co.officer_id = $1
+			  FROM cbs_loans l
+			  JOIN app.cbs_officer_map m ON m.udara_name = l.raw->>'accountOfficerName'
+			  WHERE m.officer_user_id = $1
 			    AND DATE_TRUNC('month', l.start_date) = DATE_TRUNC('month', NOW())
 			),
 			fd AS (
 			  SELECT COALESCE(SUM(f.principal_kobo),0) AS kobo
-			  FROM customer_officers co
-			  JOIN cbs_fixed_deposits f ON f.cbs_customer_id = co.cif
-			  WHERE co.officer_id = $1
+			  FROM cbs_fixed_deposits f
+			  JOIN app.cbs_officer_map m ON m.udara_name = f.raw->>'accountOfficerName'
+			  WHERE m.officer_user_id = $1
 			    AND DATE_TRUNC('month', f.commencement_date) = DATE_TRUNC('month', NOW())
 			),
 			card AS (
@@ -675,15 +679,24 @@ func salesFunnel(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		stages := map[string]any{}
 		var sources []string
+		// Every stage counts PEOPLE (party), not cards. Registered was already person-
+		// level but the other three counted DISTINCT cif — a person holds many cards, so
+		// "issued/active/transacting" over-counted and the funnel rates (issued/registered)
+		// could exceed 100%. Joining each book back to app.customers and de-duping on the
+		// person key makes the lifecycle funnel internally consistent.
 		for _, s := range []struct{ key, pg string }{
 			{"registered",
 				`SELECT COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS val FROM app.customers`},
 			{"card_issued",
-				`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts`},
+				`SELECT COUNT(DISTINCT COALESCE('p'||c.party_id,'c'||c.contact_id)) AS val
+				 FROM app.customers c JOIN app.accounts a ON a.cif = c.cif`},
 			{"card_active",
-				`SELECT COUNT(DISTINCT cif) AS val FROM app.accounts WHERE status IN ('Open','Active')`},
+				`SELECT COUNT(DISTINCT COALESCE('p'||c.party_id,'c'||c.contact_id)) AS val
+				 FROM app.customers c JOIN app.accounts a ON a.cif = c.cif
+				 WHERE a.status IN ('Open','Active')`},
 			{"transacting",
-				`SELECT COUNT(DISTINCT cif) AS val FROM app.transactions`},
+				`SELECT COUNT(DISTINCT COALESCE('p'||c.party_id,'c'||c.contact_id)) AS val
+				 FROM app.customers c JOIN app.transactions t ON t.cif = c.cif`},
 		} {
 			val, src, err := db.DualScalar(ctx, "val", s.pg)
 			if err != nil {
@@ -955,15 +968,18 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			}
 			periodExpr = fmt.Sprintf("DATE_TRUNC('month', '%s-01'::date)", period)
 		}
-		// Actuals now come from the Udara CBS snapshot (cbs_loans / cbs_fixed_deposits),
-		// not loan_applications. Both books key on cbs_customer_id, which carries the
-		// CIF, and officer attribution flows through customer_officers (officer_id owns a
-		// cif). The two book aggregations are pre-grouped per officer in subqueries and
-		// LEFT JOINed onto o3c_users so the every-officer-with-a-target-shows-up
-		// behaviour is preserved: the anchor is still the officer row, and an officer
-		// with a target but no booked loans/FDs comes back with zeros rather than
-		// dropping out. customer_officers may be empty today (0 officers) — that just
-		// yields all-zero actuals, which is correct.
+		// Actuals come from BOTH loan sources (the user's rule: "two sources for loans
+		// and fd — udara and uploads"):
+		//   • Udara CBS snapshot (cbs_loans / cbs_fixed_deposits), attributed via
+		//     cbs_officer_map (udara accountOfficerName → officer_user_id); and
+		//   • uploaded loans (collection_assignments, data_source='manual'), attributed
+		//     by the sheet's free-text officer_name matched to an o3c_users full name
+		//     (or a unique first name), dated on disbursement_date.
+		// FDs have no uploaded source — every FD is Udara — so the FD arm stays CBS-only.
+		// Each book is pre-grouped per officer in a subquery and LEFT JOINed onto
+		// o3c_users so the every-officer-with-a-target-shows-up behaviour is preserved:
+		// the anchor is the officer row, and an officer with a target but no booked
+		// loans/FDs comes back with zeros rather than dropping out.
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT u.id AS user_id, u.full_name,
 			       COALESCE(t.loan_count,0)        AS target_loans,
@@ -971,8 +987,8 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			       COALESCE(t.fd_count,0)          AS target_fds,
 			       COALESCE(t.fd_amount_kobo,0)    AS target_fd_kobo,
 			       COALESCE(t.card_count,0)        AS target_cards,
-			       COALESCE(la.actual_loans,0)     AS actual_loans,
-			       COALESCE(la.actual_kobo,0)      AS actual_kobo,
+			       COALESCE(la.actual_loans,0) + COALESCE(ul.actual_loans,0) AS actual_loans,
+			       COALESCE(la.actual_kobo,0)  + COALESCE(ul.actual_kobo,0)  AS actual_kobo,
 			       COALESCE(fd.actual_fds,0)       AS actual_fds,
 			       COALESCE(fd.actual_fd_kobo,0)   AS actual_fd_kobo,
 			       COALESCE(cd.actual_cards,0)     AS actual_cards
@@ -980,26 +996,55 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			LEFT JOIN sales_targets t
 			    ON t.user_id=u.id AND DATE_TRUNC('month',(t.period||'-01')::date)=%s
 			LEFT JOIN (
-			    SELECT co.officer_id,
+			    SELECT m.officer_user_id AS officer_id,
 			           COUNT(l.cbs_id)                     AS actual_loans,
 			           COALESCE(SUM(l.loan_amount_kobo),0) AS actual_kobo
-			    FROM customer_officers co
-			    JOIN cbs_loans l ON l.cbs_customer_id = co.cif
+			    FROM cbs_loans l
+			    JOIN app.cbs_officer_map m ON m.udara_name = l.raw->>'accountOfficerName'
 			    WHERE DATE_TRUNC('month', l.start_date) = %s
 			      AND ($1 = '' OR l.start_date::date >= $1::date)
 			      AND ($2 = '' OR l.start_date::date <= $2::date)
-			    GROUP BY co.officer_id
+			    GROUP BY m.officer_user_id
 			) la ON la.officer_id = u.id
 			LEFT JOIN (
-			    SELECT co.officer_id,
+			    -- Uploaded loans (LOAN REPAYMENT CRM → collection_assignments, manual).
+			    -- No officer_user_id on the row, so resolve the sheet's free-text
+			    -- officer_name to a user by exact full-name, else a unique first name.
+			    -- Principal is the loan amount captured at import (outstanding_kobo);
+			    -- booked in the month of disbursement_date.
+			    SELECT om.officer_id,
+			           COUNT(*)                             AS actual_loans,
+			           COALESCE(SUM(ca.outstanding_kobo),0) AS actual_kobo
+			    FROM collection_assignments ca
+			    JOIN LATERAL (
+			        SELECT u2.id AS officer_id
+			        FROM o3c_users u2
+			        WHERE u2.deleted_at IS NULL
+			          AND u2.role ILIKE 'sales%'   -- target credit only ever resolves to a sales rep
+			          AND ( UPPER(TRIM(ca.officer_name)) = UPPER(u2.full_name)
+			             OR ( TRIM(ca.officer_name) <> ''
+			                  AND POSITION(' ' IN TRIM(ca.officer_name)) = 0
+			                  AND UPPER(TRIM(ca.officer_name)) = UPPER(u2.first_name) ) )
+			        ORDER BY u2.id
+			        LIMIT 1
+			    ) om ON TRUE
+			    WHERE ca.product_type='loan' AND ca.data_source='manual'
+			      AND ca.disbursement_date IS NOT NULL
+			      AND DATE_TRUNC('month', ca.disbursement_date) = %s
+			      AND ($1 = '' OR ca.disbursement_date >= $1::date)
+			      AND ($2 = '' OR ca.disbursement_date <= $2::date)
+			    GROUP BY om.officer_id
+			) ul ON ul.officer_id = u.id
+			LEFT JOIN (
+			    SELECT m.officer_user_id AS officer_id,
 			           COUNT(f.cbs_id)                   AS actual_fds,
 			           COALESCE(SUM(f.principal_kobo),0) AS actual_fd_kobo
-			    FROM customer_officers co
-			    JOIN cbs_fixed_deposits f ON f.cbs_customer_id = co.cif
+			    FROM cbs_fixed_deposits f
+			    JOIN app.cbs_officer_map m ON m.udara_name = f.raw->>'accountOfficerName'
 			    WHERE DATE_TRUNC('month', f.commencement_date) = %s
 			      AND ($1 = '' OR f.commencement_date::date >= $1::date)
 			      AND ($2 = '' OR f.commencement_date::date <= $2::date)
-			    GROUP BY co.officer_id
+			    GROUP BY m.officer_user_id
 			) fd ON fd.officer_id = u.id
 			LEFT JOIN (
 			    -- Cards issued in the period by the officer's customers. The card book is
@@ -1017,7 +1062,7 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			    GROUP BY co.officer_id
 			) cd ON cd.officer_id = u.id
 			WHERE u.deleted_at IS NULL AND (`+salesOfficerPredicate+`)
-			ORDER BY actual_kobo DESC`, periodExpr, periodExpr, periodExpr, periodExpr), from, to)
+			ORDER BY actual_kobo DESC`, periodExpr, periodExpr, periodExpr, periodExpr, periodExpr), from, to)
 		if err != nil {
 			respondErrLog(w, 500, "DB error", err)
 			return
@@ -1133,12 +1178,12 @@ func salesCampaignAttribution(db *core.DB) http.HandlerFunc {
 				SELECT DISTINCT ON (r.campaign_id, r.cif)
 				       r.campaign_id, r.cif, r.basis,
 				       (SELECT COALESCE(SUM(l.loan_amount_kobo),0) FROM cbs_loans l
-				        WHERE l.cbs_customer_id = r.cif
+				        WHERE l.cbs_customer_id IN (SELECT k.cbs_customer_id FROM app.cbs_links k WHERE k.entity_type='party' AND k.entity_id = (SELECT party_id FROM app.customers WHERE COALESCE(NULLIF(cif,''),contact_id)=r.cif LIMIT 1))
 				          AND l.start_date >= COALESCE(c.started_at, c.created_at)
 				          AND l.start_date <  COALESCE(c.started_at, c.created_at) + interval '90 days') AS amt
 				FROM resolved r JOIN campaigns c ON c.id = r.campaign_id
 				WHERE r.cif IS NOT NULL
-				  AND EXISTS (SELECT 1 FROM cbs_loans l WHERE l.cbs_customer_id = r.cif
+				  AND EXISTS (SELECT 1 FROM cbs_loans l WHERE l.cbs_customer_id IN (SELECT k.cbs_customer_id FROM app.cbs_links k WHERE k.entity_type='party' AND k.entity_id = (SELECT party_id FROM app.customers WHERE COALESCE(NULLIF(cif,''),contact_id)=r.cif LIMIT 1))
 				              AND l.start_date >= COALESCE(c.started_at, c.created_at)
 				              AND l.start_date <  COALESCE(c.started_at, c.created_at) + interval '90 days')
 				ORDER BY r.campaign_id, r.cif,
@@ -1183,65 +1228,76 @@ func salesCohortMatrix(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 		if from != "" {
-			dateWhere += fmt.Sprintf(" AND DATE_TRUNC('month', created_at) >= DATE_TRUNC('month', $%d::date)", n)
+			dateWhere += fmt.Sprintf(" AND cohort_month >= DATE_TRUNC('month', $%d::date)", n)
 			args = append(args, from)
 			n++
 		}
 		if to != "" {
-			dateWhere += fmt.Sprintf(" AND DATE_TRUNC('month', created_at) <= DATE_TRUNC('month', $%d::date)", n)
+			dateWhere += fmt.Sprintf(" AND cohort_month <= DATE_TRUNC('month', $%d::date)", n)
 			args = append(args, to)
 			n++
 		}
-		// Role-aware scope: an officer only ever sees their own book; a head sees the
-		// whole team and may narrow to one officer via ?officer_id=.
-		if user := core.UserFromCtx(r.Context()); user != nil && !isSalesHead(user) {
-			dateWhere += fmt.Sprintf(" AND sales_officer_id = $%d", n)
-			args = append(args, user.ID)
-			n++
-		} else if oid := qstr(r, "officer_id"); oid != "" {
-			if id, err := parseUserID(oid); err == nil {
-				dateWhere += fmt.Sprintf(" AND sales_officer_id = $%d", n)
-				args = append(args, id)
-				n++
-			}
-		}
 		_ = n
 
+		// Cohort analysis is USAGE-based (the page's stated purpose: "customer
+		// acquisition, lifecycle and retention"). A cohort is the month a person's first
+		// card opened (app.accounts.opened_date); retention at age N is the share of that
+		// cohort — old enough to have reached month N — that TRANSACTED in month N
+		// (app.transactions). Built entirely off the live feed. It is NOT officer-scoped:
+		// customers come from the feed, not a sales officer's book. (The previous version
+		// read loan_applications, which is empty here, so the heatmap always showed
+		// nothing.) par30 is not a customer metric, so it is null.
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT
-				TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS cohort_month,
-				COUNT(*) AS cohort_size,
-				-- Retention at age N = % still active at month N after booking
-				ROUND(100.0 * COUNT(*) FILTER (
-					WHERE status NOT IN ('rejected','cancelled','withdrawn')
-					  AND created_at <= NOW() - INTERVAL '1 month'
-				) / NULLIF(COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '1 month'), 0), 1) AS ret_1m,
-				ROUND(100.0 * COUNT(*) FILTER (
-					WHERE status NOT IN ('rejected','cancelled','withdrawn')
-					  AND created_at <= NOW() - INTERVAL '3 months'
-				) / NULLIF(COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '3 months'), 0), 1) AS ret_3m,
-				ROUND(100.0 * COUNT(*) FILTER (
-					WHERE status NOT IN ('rejected','cancelled','withdrawn')
-					  AND created_at <= NOW() - INTERVAL '6 months'
-				) / NULLIF(COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '6 months'), 0), 1) AS ret_6m,
-				ROUND(100.0 * COUNT(*) FILTER (
-					WHERE status NOT IN ('rejected','cancelled','withdrawn')
-					  AND created_at <= NOW() - INTERVAL '9 months'
-				) / NULLIF(COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '9 months'), 0), 1) AS ret_9m,
-				ROUND(100.0 * COUNT(*) FILTER (
-					WHERE status NOT IN ('rejected','cancelled','withdrawn')
-					  AND created_at <= NOW() - INTERVAL '12 months'
-				) / NULLIF(COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '12 months'), 0), 1) AS ret_12m,
-				-- PAR30 rates per cohort age
-				ROUND(100.0 * COUNT(*) FILTER (WHERE COALESCE(dpd,0) > 30) / NULLIF(COUNT(*),0), 1) AS par30_current
-			FROM loan_applications
-			WHERE stage NOT IN ('draft') `+dateWhere+`
-			GROUP BY DATE_TRUNC('month', created_at)
-			ORDER BY DATE_TRUNC('month', created_at) DESC
+			WITH person AS (
+				-- One row per PERSON per card: a CIF is a card and a person holds many, so
+				-- the acquisition cohort is keyed on the PERSON (party), not the card. This
+				-- is why the "accounts" column used to over-count — it counted cards.
+				SELECT COALESCE('p'||c.party_id::text, 'c'||c.contact_id::text) AS person_key, c.cif,
+				       MIN(a.opened_date) OVER (PARTITION BY COALESCE('p'||c.party_id::text, 'c'||c.contact_id::text)) AS first_open
+				FROM app.customers c
+				JOIN app.accounts a ON a.cif = c.cif
+				WHERE a.opened_date IS NOT NULL AND c.cif <> ''
+			),
+			cohort AS (
+				SELECT person_key, DATE_TRUNC('month', MIN(first_open)) AS cohort_month,
+				       array_agg(DISTINCT cif) AS cifs
+				FROM person
+				WHERE first_open >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '24 months')
+				GROUP BY person_key
+			),
+			act AS (
+				SELECT co.person_key,
+				       (DATE_PART('year',  AGE(DATE_TRUNC('month', t.txn_date), co.cohort_month)) * 12
+				      + DATE_PART('month', AGE(DATE_TRUNC('month', t.txn_date), co.cohort_month)))::int AS age
+				FROM cohort co
+				JOIN app.transactions t ON t.cif = ANY(co.cifs) AND t.txn_date >= co.cohort_month
+				GROUP BY co.person_key, 2
+			),
+			m AS (
+				SELECT co.person_key, co.cohort_month,
+				       DATE_PART('year',  AGE(DATE_TRUNC('month', CURRENT_DATE), co.cohort_month)) * 12
+				     + DATE_PART('month', AGE(DATE_TRUNC('month', CURRENT_DATE), co.cohort_month)) AS max_age,
+				       bool_or(a.age = 1)  AS r1,  bool_or(a.age = 3)  AS r3,
+				       bool_or(a.age = 6)  AS r6,  bool_or(a.age = 9)  AS r9,
+				       bool_or(a.age = 12) AS r12
+				FROM cohort co LEFT JOIN act a ON a.person_key = co.person_key
+				GROUP BY co.person_key, co.cohort_month
+			)
+			SELECT TO_CHAR(cohort_month, 'YYYY-MM') AS cohort_month,
+			       COUNT(*) AS cohort_size,
+			       ROUND(100.0 * COUNT(*) FILTER (WHERE r1)  / NULLIF(COUNT(*) FILTER (WHERE max_age >= 1),  0), 1) AS ret_1m,
+			       ROUND(100.0 * COUNT(*) FILTER (WHERE r3)  / NULLIF(COUNT(*) FILTER (WHERE max_age >= 3),  0), 1) AS ret_3m,
+			       ROUND(100.0 * COUNT(*) FILTER (WHERE r6)  / NULLIF(COUNT(*) FILTER (WHERE max_age >= 6),  0), 1) AS ret_6m,
+			       ROUND(100.0 * COUNT(*) FILTER (WHERE r9)  / NULLIF(COUNT(*) FILTER (WHERE max_age >= 9),  0), 1) AS ret_9m,
+			       ROUND(100.0 * COUNT(*) FILTER (WHERE r12) / NULLIF(COUNT(*) FILTER (WHERE max_age >= 12), 0), 1) AS ret_12m,
+			       NULL::numeric AS par30_current
+			FROM m
+			WHERE 1=1`+dateWhere+`
+			GROUP BY cohort_month
+			ORDER BY cohort_month DESC
 			LIMIT 24`, args...)
-
 		if err != nil {
-			respond(w, []core.Row{}, "pg")
+			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
 		if rows == nil {
@@ -1260,41 +1316,45 @@ func salesCohortDetail(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "cohort required (YYYY-MM)")
 			return
 		}
-		stage := qstr(r, "stage")
 		limit := qint(r, "limit", 100, 1, 500)
 
+		// Drill-down matches the usage-based matrix: the people whose first card opened
+		// in this cohort month, with their card balance and transaction activity. Mapped
+		// onto the existing detail columns — reference=CIF, "outstanding"=card balance
+		// (naira→kobo), status=activity bucket, stage=last transaction date.
 		q := `
-			SELECT
-				id, reference, applicant_name,
-				COALESCE(product_type, loan_type, '') AS product_type,
-				COALESCE(employer, '') AS employer,
-				COALESCE(amount_requested_kobo, 0) AS amount_requested_kobo,
-				COALESCE(outstanding_kobo, 0) AS outstanding_kobo,
-				COALESCE(dpd, 0) AS dpd,
-				status, stage, created_at
-			FROM loan_applications
-			WHERE TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') = $1`
-		args := []any{cohort}
-		n := 2
-		if stage != "" {
-			q += fmt.Sprintf(" AND stage = $%d", n)
-			args = append(args, stage)
-			n++
-		}
-		// Same role-aware scope as the matrix: officer sees own, head sees all or one.
-		if user := core.UserFromCtx(r.Context()); user != nil && !isSalesHead(user) {
-			q += fmt.Sprintf(" AND sales_officer_id = $%d", n)
-			args = append(args, user.ID)
-			n++
-		} else if oid := qstr(r, "officer_id"); oid != "" {
-			if id, err := parseUserID(oid); err == nil {
-				q += fmt.Sprintf(" AND sales_officer_id = $%d", n)
-				args = append(args, id)
-				n++
-			}
-		}
-		q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", n)
-		args = append(args, limit)
+			WITH cohort AS (
+				SELECT cif, DATE_TRUNC('month', MIN(opened_date)) AS cohort_month
+				FROM app.accounts
+				WHERE opened_date IS NOT NULL AND cif IS NOT NULL AND cif <> ''
+				GROUP BY cif
+				HAVING TO_CHAR(DATE_TRUNC('month', MIN(opened_date)), 'YYYY-MM') = $1
+			),
+			usage AS (
+				SELECT co.cif, MAX(t.txn_date) AS last_txn, COUNT(t.txn_id) AS txns
+				FROM cohort co LEFT JOIN app.transactions t ON t.cif = co.cif
+				GROUP BY co.cif
+			)
+			SELECT c.cif AS id, 'CIF ' || c.cif AS reference,
+			       COALESCE(NULLIF(cu.full_name, ''), c.cif) AS applicant_name,
+			       COALESCE((SELECT string_agg(DISTINCT a.product_line, '/')
+			                 FROM app.accounts a WHERE a.cif = c.cif AND a.product_line IS NOT NULL), '') AS product_type,
+			       COALESCE(u.txns, 0)::text || ' txns' AS employer,
+			       0::bigint AS amount_requested_kobo,
+			       ROUND(COALESCE((SELECT SUM(a.current_dr_balance) FROM app.accounts a WHERE a.cif = c.cif), 0) * 100)::bigint AS outstanding_kobo,
+			       0 AS dpd,
+			       CASE WHEN u.last_txn IS NULL                                THEN 'never'
+			            WHEN u.last_txn >= CURRENT_DATE - INTERVAL '90 days'   THEN 'active'
+			            WHEN u.last_txn >= CURRENT_DATE - INTERVAL '365 days'  THEN 'lapsing'
+			            ELSE 'dormant' END AS status,
+			       COALESCE(TO_CHAR(u.last_txn, 'YYYY-MM-DD'), 'no transactions') AS stage,
+			       c.cohort_month AS created_at
+			FROM cohort c
+			LEFT JOIN usage u ON u.cif = c.cif
+			LEFT JOIN app.customers cu ON cu.cif = c.cif
+			ORDER BY COALESCE(u.txns, 0) DESC
+			LIMIT $2`
+		args := []any{cohort, limit}
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {

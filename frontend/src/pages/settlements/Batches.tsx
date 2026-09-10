@@ -170,6 +170,8 @@ export default function SettlementBatches() {
     <Page
       title="Settlement Batches"
       subtitle="Review and track settlement batch activity"
+      loading={loading && !kpis}
+      skeletonKpis={4}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />

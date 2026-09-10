@@ -1,16 +1,14 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-} from 'recharts'
 import { Page, SectionCard, KpiCard, ErrBanner, DataTable } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtKobo, fmtPct, fmtNum, fmtDate } from '../../lib/fmt'
-import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, INTER, SORA, NUM } from '../../lib/design'
-import { bandColor, bandLabel, bandShort, scoreColor, fmtScore } from '../../lib/riskScale'
+import { fmtKoboExact, fmtKobo, fmtPct, fmtNum, fmtDate } from '../../lib/fmt'
+import { TEXT, FW, SP, RADIUS, NAVY, RED, DARKRED, AMBER, GREEN, BLUE, INTER, NUM } from '../../lib/design'
+import { bandColor, bandLabel, bandShort, scoreColor, fmtScore, dpdColor, dpdLabel, DPD_BUCKETS } from '../../lib/riskScale'
+import { EArea, EChart, baseTooltip, tipCard, axisVal, CHART_FONT } from '../../components/echarts'
+import type { ChartTokens } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -52,20 +50,9 @@ interface CohortDetail {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function dpdColor(dpd: number): string {
-  if (dpd < 30)  return GREEN
-  if (dpd < 60)  return AMBER
-  if (dpd < 90)  return '#B45309'
-  return RED
-}
-
-function dpdLabel(dpd: number): string {
-  if (dpd < 30)   return 'Current'
-  if (dpd < 60)   return 'PAR30'
-  if (dpd < 90)   return 'PAR60'
-  if (dpd < 180)  return 'PAR90'
-  return 'NPL'
-}
+// dpdColor / dpdLabel come from lib/riskScale (shared with Portfolio, the Overview
+// and the dashboards). The local versions had current = DPD < 30 and NPL = DPD < 180,
+// which disagreed with the KPI cards on this very page (NPL there is DPD > 90).
 
 // Bands come from lib/riskScale — the local Prime/Near-Prime map never matched the
 // A-E letters this API emits, so every pill fell through to grey.
@@ -82,44 +69,9 @@ function BandPill({ band }: { band: string }) {
 const DPD_BUCKET_COLORS: Record<string, string> = {
   'Current': GREEN,
   'PAR30':   AMBER,
-  'PAR60':   '#B45309',
-  'PAR90':   RED,
-  'NPL':     '#9B1C1C',
-}
-
-// ── Custom Tooltip (dark navy, matches Overview.tsx) ─────────────────────────
-
-function Tip({ active, payload, label, fmt }: {
-  active?: boolean
-  payload?: { name: string; value: number; color: string }[]
-  label?: string
-  fmt?: (v: number) => string
-}) {
-  if (!active || !payload?.length) return null
-  const f = fmt ?? String
-  return (
-    <div style={{
-      background: '#0E2841', borderRadius: RADIUS.lg, padding: '10px 14px',
-      boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)',
-    }}>
-      {label && (
-        <div style={{ fontSize: 9.5, fontWeight: FW.semibold, color: 'rgba(255,255,255,.4)', fontFamily: INTER, marginBottom: 7, letterSpacing: .5, textTransform: 'uppercase' }}>
-          {label}
-        </div>
-      )}
-      {payload.map((p, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginTop: i > 0 ? 5 : 0 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: p.color ?? '#fff', flexShrink: 0 }} />
-          <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: '#fff', fontFamily: INTER, ...NUM }}>
-            {f(p.value)}
-          </span>
-          {p.name && payload.length > 1 && (
-            <span style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.4)', fontFamily: SORA }}>{p.name}</span>
-          )}
-        </div>
-      ))}
-    </div>
-  )
+  'PAR60':   RED,
+  'PAR90':   DARKRED,
+  'NPL':     DARKRED,
 }
 
 // ── Loan table columns ────────────────────────────────────────────────────────
@@ -149,7 +101,7 @@ function loanCols(navigate: ReturnType<typeof useNavigate>): TableCol<LoanRow>[]
     },
     {
       key: 'outstanding_kobo', label: 'Outstanding', align: 'right', sortable: true,
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKobo(r.outstanding_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKoboExact(r.outstanding_kobo)}</span>,
     },
     {
       key: 'dpd', label: 'DPD', align: 'right', sortable: true,
@@ -185,24 +137,22 @@ function loanCols(navigate: ReturnType<typeof useNavigate>): TableCol<LoanRow>[]
 
 // ── DPD filter button group ───────────────────────────────────────────────────
 
-const DPD_FILTERS = [
-  { key: 'all',     label: 'All' },
-  { key: 'current', label: 'Current',  color: GREEN      },
-  { key: 'par30',   label: 'PAR30',    color: AMBER      },
-  { key: 'par60',   label: 'PAR60',    color: '#B45309'  },
-  { key: 'par90',   label: 'PAR90',    color: RED        },
-  { key: 'npl',     label: 'NPL',      color: '#9B1C1C'  },
+// Filter chips derived from the shared DPD scale so the buckets, colours and NPL
+// cut-off (> 90) match the KPI cards and every other Risk page.
+const DPD_FILTERS: { key: string; label: string; color?: string }[] = [
+  { key: 'all', label: 'All' },
+  ...DPD_BUCKETS.map(b => ({ key: b.key, label: b.short, color: b.color })),
 ]
 
 function filterByDPD(loans: LoanRow[], key: string): LoanRow[] {
   if (key === 'all') return loans
   return loans.filter(l => {
     const d = Number(l.dpd)
-    if (key === 'current') return d < 30
-    if (key === 'par30')   return d >= 30 && d < 60
-    if (key === 'par60')   return d >= 60 && d < 90
-    if (key === 'par90')   return d >= 90 && d < 180
-    if (key === 'npl')     return d >= 180
+    if (key === 'current') return d <= 0
+    if (key === 'par30')   return d >= 1 && d <= 30
+    if (key === 'par60')   return d >= 31 && d <= 60
+    if (key === 'par90')   return d >= 61 && d <= 90
+    if (key === 'npl')     return d > 90
     return true
   })
 }
@@ -244,7 +194,6 @@ export default function VintageDetail() {
     () => (detail?.historical_par ?? []).filter(p => p.par30_pct !== null),
     [detail?.historical_par],
   )
-
   function parAccent(v: number): string {
     if (v < 5) return GREEN; if (v <= 15) return AMBER; return RED
   }
@@ -272,6 +221,8 @@ export default function VintageDetail() {
       title={detail ? `Vintage: ${detail.booking_month}` : 'Vintage Detail'}
       subtitle={detail ? `${fmtNum(detail.total_count)} loans booked in this cohort` : 'Loading cohort…'}
       actions={backBtn}
+      loading={loading && !detail}
+      skeletonKpis={3}
     >
       <ErrBanner error={error} onRetry={load} />
 
@@ -295,7 +246,7 @@ export default function VintageDetail() {
         />
         <KpiCard
           label="Active Book"
-          value={loading ? '…' : fmtKobo(detail?.active_book_kobo ?? 0)}
+          value={loading ? '…' : fmtKoboExact(detail?.active_book_kobo ?? 0)}
           loading={false}
           accent={NAVY}
           icon="account_balance_wallet"
@@ -323,7 +274,7 @@ export default function VintageDetail() {
           loading={false}
           accent={detail?.npl_rate_pct ? RED : GREEN}
           icon="block"
-          sub="Loans ≥ 180 DPD"
+          sub="Loans > 90 DPD"
         />
       </div>
 
@@ -336,64 +287,60 @@ export default function VintageDetail() {
               Not enough cohort age data yet
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={parChartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-                <defs>
-                  <linearGradient id="vdParGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={AMBER} stopOpacity={0.22} />
-                    <stop offset="95%" stopColor={AMBER} stopOpacity={0}    />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-                <XAxis dataKey="age_label" tick={{ fontSize: 11, fill: 'var(--chart-lbl)', fontFamily: INTER }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--chart-lbl)', fontFamily: INTER }} tickFormatter={v => `${v}%`} />
-                <Tooltip content={<Tip fmt={v => fmtPct(v, 1)} />} />
-                <Area
-                  type="monotone"
-                  dataKey="par30_pct"
-                  name="PAR30"
-                  stroke={AMBER}
-                  strokeWidth={2}
-                  fill="url(#vdParGrad)"
-                  dot={{ fill: AMBER, r: 4 }}
-                  activeDot={{ r: 5 }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <EArea
+              data={parChartData.map(p => ({ age_label: p.age_label, par30_pct: Number(p.par30_pct) }))}
+              xKey="age_label"
+              height={200}
+              dots
+              hideYAxis
+              endLabel
+              valueFmt={(v) => fmtPct(v, 1)}
+              endFmt={(v) => `${v}%`}
+              series={[{ key: 'par30_pct', name: 'PAR30', color: AMBER }]}
+            />
           )}
         </SectionCard>
 
         {/* DPD Distribution */}
         <SectionCard title="DPD Distribution">
-          {loading || !detail ? (
+          {loading || !detail || (detail.dpd_buckets?.length ?? 0) === 0 ? (
             <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-              Loading…
+              {loading ? 'Loading…' : 'No loans in this cohort'}
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart
-                layout="vertical"
-                data={detail.dpd_buckets}
-                margin={{ top: 4, right: 24, bottom: 4, left: 8 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--chart-grid)" />
-                <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--chart-lbl)', fontFamily: INTER }} allowDecimals={false} />
-                <YAxis type="category" dataKey="label" width={52} tick={{ fontSize: 11, fill: 'var(--chart-lbl)', fontFamily: INTER }} />
-                <Tooltip content={<Tip fmt={v => fmtNum(v)} />} />
-                <Bar dataKey="count" name="Loans" radius={[0, 4, 4, 0]}>
-                  {detail.dpd_buckets.map((entry, i) => (
-                    <Cell key={i} fill={DPD_BUCKET_COLORS[entry.label] ?? NAVY} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <EChart
+              height={200}
+              option={(t: ChartTokens) => ({
+                grid: { top: 8, right: 24, bottom: 8, left: 8, containLabel: true },
+                tooltip: {
+                  trigger: 'item', ...baseTooltip(t),
+                  formatter: (p: any) => tipCard(t, String(p.name), [{ color: p.color, name: 'Loans', value: fmtNum(p.value) }]),
+                },
+                xAxis: { ...axisVal(t, (v: number) => fmtNum(v)), minInterval: 1 },
+                yAxis: {
+                  type: 'category',
+                  inverse: true,
+                  data: detail!.dpd_buckets.map(b => b.label),
+                  axisLine: { show: false }, axisTick: { show: false },
+                  axisLabel: { color: t.lbl, fontSize: 11, fontFamily: CHART_FONT },
+                },
+                series: [{
+                  type: 'bar', name: 'Loans', barMaxWidth: 22,
+                  data: detail!.dpd_buckets.map(b => ({
+                    value: Number(b.count),
+                    itemStyle: { color: DPD_BUCKET_COLORS[b.label] ?? NAVY, borderRadius: [0, 4, 4, 0] },
+                  })),
+                }],
+                animationDuration: 700,
+              })}
+            />
           )}
         </SectionCard>
       </div>
 
       {/* ── Breakdown tables (Employers + Products) ──────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
-        {/* Top Employers */}
+        {/* Top Sectors (CBS carries no employer dimension) */}
         <SectionCard title="Top Sectors" badge={detail?.sectors?.length} padding={false}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
@@ -420,7 +367,7 @@ export default function VintageDetail() {
                   >
                     <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.sector}</td>
                     <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM }}>{fmtNum(r.count)}</td>
-                    <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM }}>{fmtKobo(r.book_kobo)}</td>
+                    <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM }}>{fmtKoboExact(r.book_kobo)}</td>
                     <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM, color: r.par30_count > 0 ? AMBER : 'var(--txt3)' }}>
                       {fmtNum(r.par30_count)}
                     </td>
@@ -461,7 +408,7 @@ export default function VintageDetail() {
                     >
                       <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', fontWeight: FW.semibold, color: 'var(--txt)' }}>{r.product_type}</td>
                       <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM }}>{fmtNum(r.count)}</td>
-                      <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM }}>{fmtKobo(r.book_kobo)}</td>
+                      <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM }}>{fmtKoboExact(r.book_kobo)}</td>
                       <td style={{ padding: '9px 14px', borderBottom: '1px solid var(--bdr)', textAlign: 'right', ...NUM, color: parColor, fontWeight: FW.semibold }}>
                         {fmtPct(pct, 1)}
                       </td>

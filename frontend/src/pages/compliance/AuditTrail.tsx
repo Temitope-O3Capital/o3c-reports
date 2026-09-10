@@ -67,7 +67,7 @@ export default function AuditTrail() {
   const cols: TableCol<AuditLog>[] = [
     {
       key: 'created_at', label: 'Timestamp',
-      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'Inter, monospace', whiteSpace: 'nowrap' }}>{fmtDatetime(r.created_at)}</span>,
+      render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{fmtDatetime(r.created_at)}</span>,
     },
     {
       key: 'actor_name', label: 'User',
@@ -93,14 +93,14 @@ export default function AuditTrail() {
     {
       key: 'entity_id', label: 'Entity ID',
       render: r => (
-        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'Inter, monospace' }}>
+        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>
           {r.entity_id ? `#${r.entity_id}` : '—'}
         </span>
       ),
     },
     {
       key: 'ip_address', label: 'IP',
-      render: r => <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: 'Inter, monospace' }}>{r.ip_address ?? '—'}</span>,
+      render: r => <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: 'var(--font-mono)' }}>{r.ip_address ?? '—'}</span>,
     },
   ]
 
@@ -108,6 +108,7 @@ export default function AuditTrail() {
     <Page
       title="Audit Trail"
       subtitle="Read-only log of all system actions"
+      loading={loading && allLogs.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />

@@ -20,7 +20,9 @@ func RegisterInterswitchSettle(r chi.Router, db *core.DB) {
 	access := core.RequirePages("settlement", "reconciliation")
 	r.With(core.RequirePages("uploads", "settlement")).Post("/import", iswSettleImport(db))
 	r.With(access).Get("/summary", iswSettleSummary(db))
-	r.With(access).Get("/imports", iswSettleImports(db))
+	// Import history is also shown on the Data Management importer, so the uploads
+	// role can read it alongside settlement/reconciliation.
+	r.With(core.RequirePages("uploads", "settlement", "reconciliation")).Get("/imports", iswSettleImports(db))
 }
 
 // iswSettleImport accepts one or many Interswitch report files. Aggregate reports

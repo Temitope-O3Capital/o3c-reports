@@ -21,10 +21,11 @@ func RegisterActiveLoanBook(r chi.Router, db *core.DB) {
 
 // The active loan book is the LIVE Udara/CBS credit book (app owns no origination).
 // The "active" book is every open loan (status NOT IN Closed/Revoked). Customer
-// name/phone come from the Sage master by CIF (cbs_customer_id == cif), falling
-// back to the CBS record's name.
-const cbsLoanName = `COALESCE((SELECT NULLIF(trim(a.first_name||' '||COALESCE(a.last_name,'')),'')
-	         FROM app.customers a WHERE a.cif = cl.cbs_customer_id LIMIT 1), cl.raw->>'name')`
+// name/phone come from Udara's OWN loan record (raw), NOT from the Sage master by CIF:
+// cbs_customer_id and app.customers.cif are different id namespaces, so joining them
+// returns the wrong customer (verified — e.g. Udara CIF 00000424 = FINTRAK, Sage CIF
+// 00000424 = an unrelated person). Udara is the system of record for the booked loan.
+const cbsLoanName = `cl.raw->>'name'`
 
 // DPD is derived from the rebuilt amortisation schedule, NOT from days past final
 // maturity. The old proxy scored a loan four instalments in arrears as "Current"
@@ -58,7 +59,7 @@ func albList(db *core.DB) http.HandlerFunc {
 		q := `SELECT * FROM (
 		      SELECT cl.cbs_id AS id, cl.cbs_account_number AS reference,
 		             cl.cbs_customer_id AS applicant_cif, ` + cbsLoanName + ` AS applicant_name,
-		             (SELECT a.phone FROM app.customers a WHERE a.cif = cl.cbs_customer_id LIMIT 1) AS applicant_phone,
+		             NULL::text AS applicant_phone,
 		             cl.product_name AS product_type, cl.product_name AS loan_product,
 		             cl.loan_amount_kobo AS amount_approved_kobo, cl.loan_amount_kobo AS disbursed_amount_kobo,
 		             cl.outstanding_principal_kobo AS outstanding_kobo, ` + cbsLoanDPD + ` AS dpd,
@@ -160,7 +161,7 @@ func albGet(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT cl.cbs_id AS id, cl.cbs_account_number AS reference,
 			       cl.cbs_customer_id AS applicant_cif, `+cbsLoanName+` AS applicant_name,
-			       (SELECT a.phone FROM app.customers a WHERE a.cif = cl.cbs_customer_id LIMIT 1) AS applicant_phone,
+			       NULL::text AS applicant_phone,
 			       cl.product_name AS product_type, cl.product_name AS loan_product,
 			       cl.loan_amount_kobo AS amount_approved_kobo, cl.loan_amount_kobo AS disbursed_amount_kobo,
 			       cl.outstanding_principal_kobo AS outstanding_kobo,

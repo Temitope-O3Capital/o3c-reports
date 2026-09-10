@@ -6,7 +6,7 @@ import { Page, SectionCard, KpiCard, Spinner, ErrBanner, Modal } from '../../com
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKobo, fmtNum } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
-import { LiveBadge, relTime } from '../../components/MyWorkspace'
+import { LiveBadge, relTime, myUserId } from '../../components/MyWorkspace'
 
 // The sales team-lead's live view — the counterpart of the call-centre supervisor
 // wallboard. It answers, at a glance: who is carrying what, what is unowned, and
@@ -327,6 +327,10 @@ function DistributeModal({ unowned, onClose, onDone }: { unowned: number; onClos
   const [limit, setLimit] = useState<string>('')
   const [preview, setPreview] = useState<{ would_assign: number; per_officer: { officer_id: number; full_name: string; count: number }[] } | null>(null)
   const [busy, setBusy] = useState(false)
+  // A team-lead is often an officer too, so the distribute list would hand them a
+  // share by default. Keep that a deliberate choice: the supervisor opts in.
+  const meId = myUserId()
+  const [includeSelf, setIncludeSelf] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -337,8 +341,23 @@ function DistributeModal({ unowned, onClose, onDone }: { unowned: number; onClos
     })()
   }, [])
 
+  const selfOfficer = officers.find(o => o.id === meId)
+  const otherOfficers = officers.filter(o => o.id !== meId)
+
   function toggle(id: number) {
     setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+    setPreview(null)
+  }
+
+  // The supervisor's own row is governed by this toggle, not the officer list, so
+  // "include me" reads as one clear switch rather than a checkbox lost among agents.
+  function toggleSelf(on: boolean) {
+    setIncludeSelf(on)
+    setSelected(s => {
+      const n = new Set(s)
+      if (on && selfOfficer) n.add(meId); else n.delete(meId)
+      return n
+    })
     setPreview(null)
   }
 
@@ -408,12 +427,29 @@ function DistributeModal({ unowned, onClose, onDone }: { unowned: number; onClos
           </div>
         )}
 
+        {/* Include-me toggle — only when the supervisor is themselves an officer.
+            Off by default so leads go to the agents unless the lead deliberately
+            opts in to taking a share. */}
+        {selfOfficer && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: `1px solid ${includeSelf ? NAVY : 'var(--bdr)'}`, borderRadius: RADIUS.md, background: includeSelf ? `${NAVY}0a` : 'var(--card)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={includeSelf} onChange={e => toggleSelf(e.target.checked)} style={{ width: 16, height: 16, accentColor: NAVY }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Include me in the distribution</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                {includeSelf ? 'You’ll take a share of the leads to call.' : 'Leads go only to the agents you pick below.'}
+              </div>
+            </div>
+          </label>
+        )}
+
         <div>
           <label style={lbl}>Officers ({selected.size} selected)</label>
           <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }}>
             {officers.length === 0 ? (
               <div style={{ padding: 16, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>Loading officers…</div>
-            ) : officers.map(o => (
+            ) : otherOfficers.length === 0 ? (
+              <div style={{ padding: 16, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No other officers — use the toggle above to take the leads yourself.</div>
+            ) : otherOfficers.map(o => (
               <label key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderBottom: '1px solid var(--bdr)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={selected.has(o.id)} onChange={() => toggle(o.id)} />
                 <div style={{ flex: 1, minWidth: 0 }}>

@@ -42,6 +42,7 @@ type graphMessage struct {
 	Subject      string           `json:"subject"`
 	From         graphRecipient   `json:"from"`
 	ToRecipients []graphRecipient `json:"toRecipients"`
+	CcRecipients []graphRecipient `json:"ccRecipients"`
 	BodyPreview  string           `json:"bodyPreview"`
 	Body         struct {
 		ContentType string `json:"contentType"`
@@ -98,6 +99,7 @@ func CareInboundWebhook(db *core.DB) http.HandlerFunc {
 		clean := func(s string) string { return strings.ToValidUTF8(s, "") }
 		fromRaw := clean(strings.TrimSpace(r.FormValue("from")))
 		toAddr := clean(strings.TrimSpace(r.FormValue("to")))
+		ccAddr := clean(strings.TrimSpace(r.FormValue("cc")))
 		subject := clean(strings.TrimSpace(r.FormValue("subject")))
 		bodyText := clean(r.FormValue("text"))
 		bodyHTML := clean(r.FormValue("html"))
@@ -113,7 +115,7 @@ func CareInboundWebhook(db *core.DB) http.HandlerFunc {
 
 		msgID, inReplyTo := extractThreadingHeaders(headersRaw)
 
-		if _, err := ingestInboundEmail(ctx, db, senderEmail, senderName, toAddr,
+		if _, err := ingestInboundEmail(ctx, db, senderEmail, senderName, toAddr, ccAddr,
 			subject, bodyText, bodyHTML, msgID, inReplyTo); err != nil {
 			slog.Warn("care inbound webhook: ingest", "msg_id", msgID, "err", err)
 			respondErr(w, 500, "ingest failed") // 5xx → SendGrid retries later
@@ -197,7 +199,7 @@ func pollCareMailbox(ctx context.Context, db *core.DB) (int, error) {
 	q.Set("$filter", "isRead eq false")
 	q.Set("$orderby", "receivedDateTime asc")
 	q.Set("$top", "50")
-	q.Set("$select", "id,subject,from,toRecipients,bodyPreview,body,internetMessageId,internetMessageHeaders")
+	q.Set("$select", "id,subject,from,toRecipients,ccRecipients,bodyPreview,body,internetMessageId,internetMessageHeaders")
 	endpoint := "https://graph.microsoft.com/v1.0/users/" + url.PathEscape(mbox) + "/mailFolders/inbox/messages?" + q.Encode()
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
@@ -235,6 +237,14 @@ func pollCareMailbox(ctx context.Context, db *core.DB) (int, error) {
 		}
 		toAddr := strings.Join(toParts, ", ")
 
+		ccParts := make([]string, 0, len(m.CcRecipients))
+		for _, c := range m.CcRecipients {
+			if a := strings.TrimSpace(c.EmailAddress.Address); a != "" {
+				ccParts = append(ccParts, a)
+			}
+		}
+		ccAddr := strings.Join(ccParts, ", ")
+
 		bodyHTML := ""
 		bodyText := m.BodyPreview
 		if strings.EqualFold(m.Body.ContentType, "html") {
@@ -251,7 +261,7 @@ func pollCareMailbox(ctx context.Context, db *core.DB) (int, error) {
 			}
 		}
 
-		if _, err := ingestInboundEmail(ctx, db, senderEmail, senderName, toAddr,
+		if _, err := ingestInboundEmail(ctx, db, senderEmail, senderName, toAddr, ccAddr,
 			m.Subject, bodyText, bodyHTML, m.InternetMessageId, inReplyTo); err != nil {
 			slog.Warn("care mail poller: ingest", "msg_id", m.InternetMessageId, "err", err)
 			continue // leave unread so it retries next cycle
@@ -278,7 +288,31 @@ func markGraphMessageRead(ctx context.Context, token, mbox, msgID string) {
 // (channel='email') and records the inbound message. Idempotent on the email
 // Message-ID. Used by the care@ Graph poller; the SendGrid webhook uses the same
 // matching rules inline.
-func ingestInboundEmail(ctx context.Context, db *core.DB, senderEmail, senderName, toAddr,
+// careCcJSON turns a comma-separated Cc header into the same [{Email,Name}] JSON
+// shape outbound replies store in cc_addrs, so the reply composer can offer
+// "Reply all". Returns "[]" when there is no usable Cc.
+func careCcJSON(raw string) []byte {
+	if strings.TrimSpace(raw) == "" {
+		return []byte("[]")
+	}
+	addrs, err := mail.ParseAddressList(raw)
+	if err != nil || len(addrs) == 0 {
+		return []byte("[]")
+	}
+	out := make([]MailAddress, 0, len(addrs))
+	for _, a := range addrs {
+		if e := strings.TrimSpace(a.Address); e != "" {
+			out = append(out, MailAddress{Email: e, Name: strings.TrimSpace(a.Name)})
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return []byte("[]")
+	}
+	return b
+}
+
+func ingestInboundEmail(ctx context.Context, db *core.DB, senderEmail, senderName, toAddr, ccAddr,
 	subject, bodyText, bodyHTML, msgID, inReplyTo string) (int64, error) {
 
 	// Idempotency: if this exact message was already ingested, do nothing.
@@ -335,12 +369,15 @@ func ingestInboundEmail(ctx context.Context, db *core.DB, senderEmail, senderNam
 		// no active policy exists, matching prior behaviour.
 		slaDue := hdComputeSLADue(ctx, db, "normal")
 		frDue := hdComputeFirstResponseDue(ctx, db, "normal")
+		// Sort inbound mail into an inbox subgroup by subject/body keywords. Agents
+		// can always re-file it.
+		subgroup := careClassifySubgroup(subject, bodyText+" "+bodyHTML)
 		newRows, err := db.PGQuery(ctx, `
 			INSERT INTO helpdesk_tickets
-			    (channel, status, priority, subject, customer_cif, customer_name, customer_email, email_thread_id, sla_due_at, first_response_due)
-			VALUES ('email','open','normal',$1,$2,$3,$4,$5,$6,$7)
+			    (channel, status, priority, subject, customer_cif, customer_name, customer_email, email_thread_id, sla_due_at, first_response_due, mail_subgroup)
+			VALUES ('email','open','normal',$1,$2,$3,$4,$5,$6,$7,$8)
 			RETURNING *`,
-			sub, ptrOrNilStr(customerCIF), ptrOrNilStr(senderName), senderEmail, ptrOrNilStr(msgID), slaDue, frDue)
+			sub, ptrOrNilStr(customerCIF), ptrOrNilStr(senderName), senderEmail, ptrOrNilStr(msgID), slaDue, frDue, ptrOrNilStr(subgroup))
 		if err != nil {
 			return 0, err
 		}
@@ -351,9 +388,9 @@ func ingestInboundEmail(ctx context.Context, db *core.DB, senderEmail, senderNam
 
 	db.PGExec(ctx, //nolint:errcheck
 		`INSERT INTO helpdesk_messages
-		    (ticket_id, direction, channel, author_name, body_text, body_html, email_message_id, in_reply_to)
-		VALUES ($1,'inbound','email',$2,$3,$4,NULLIF($5,''),NULLIF($6,''))`,
-		ticketID, senderName, bodyText, bodyHTML, msgID, inReplyTo)
+		    (ticket_id, direction, channel, author_name, body_text, body_html, email_message_id, in_reply_to, cc_addrs)
+		VALUES ($1,'inbound','email',$2,$3,$4,NULLIF($5,''),NULLIF($6,''),$7::jsonb)`,
+		ticketID, senderName, bodyText, bodyHTML, msgID, inReplyTo, careCcJSON(ccAddr))
 	db.PGExec(ctx, "UPDATE helpdesk_tickets SET updated_at=NOW() WHERE id=$1", ticketID) //nolint:errcheck
 
 	if ticket != nil {

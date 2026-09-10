@@ -8,7 +8,7 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
-import { fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
 import { AMBER, GREEN, RED, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -144,14 +144,14 @@ export default function CollectionsPromises() {
       key: 'outstanding_kobo',
       label: 'Outstanding ₦',
       align: 'right',
-      render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtKobo(r.outstanding_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtKoboExact(r.outstanding_kobo)}</span>,
     },
     {
       key: 'promise_amount_kobo',
       label: 'PTP Amount NGN',
       align: 'right',
       sortable: true,
-      render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: NAVY }}>{fmtKobo(r.promise_amount_kobo)}</span>,
+      render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: NAVY }}>{fmtKoboExact(r.promise_amount_kobo)}</span>,
     },
     {
       key: 'promise_date',
@@ -204,6 +204,8 @@ export default function CollectionsPromises() {
     <Page
       title="Promises to Pay"
       subtitle="Track and manage customer payment commitments"
+      loading={loading && !kpis}
+      skeletonKpis={4}
       actions={
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
@@ -215,7 +217,7 @@ export default function CollectionsPromises() {
         <KpiCard label="Total Promises" value={kpis ? fmtNum(kpis.total) : '—'} icon="handshake" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Kept" value={kpis ? fmtNum(kpis.kept) : '—'} icon="check_circle" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Broken" value={kpis ? fmtNum(kpis.broken) : '—'} icon="cancel" accent={RED} loading={kpiLoading} />
-        <KpiCard label="Amount Promised ₦" value={kpis ? fmtKobo(kpis.amount_promised_kobo) : '—'} icon="payments" accent={AMBER} loading={kpiLoading} />
+        <KpiCard label="Amount Promised ₦" value={kpis ? fmtKoboExact(kpis.amount_promised_kobo) : '—'} icon="payments" accent={AMBER} loading={kpiLoading} />
       </div>
 
       <SectionCard title="Promises" badge={rows.length} padding={false}>
@@ -257,7 +259,7 @@ export default function CollectionsPromises() {
       <ConfirmModal
         open={actionRow !== null && actionType === 'kept'}
         title="Mark Promise as Kept"
-        body={`Mark the PTP of ${actionRow ? fmtKobo(actionRow.promise_amount_kobo) : ''} from CIF ${actionRow?.account_cif ?? ''} as Kept?`}
+        body={`Mark the PTP of ${actionRow ? fmtKoboExact(actionRow.promise_amount_kobo) : ''} from CIF ${actionRow?.account_cif ?? ''} as Kept?`}
         confirmLabel="Mark Kept"
         loading={acting}
         onConfirm={doAction}
@@ -268,7 +270,7 @@ export default function CollectionsPromises() {
       <ConfirmModal
         open={actionRow !== null && actionType === 'broken'}
         title="Mark Promise as Broken"
-        body={`Mark the PTP of ${actionRow ? fmtKobo(actionRow.promise_amount_kobo) : ''} from CIF ${actionRow?.account_cif ?? ''} as Broken?`}
+        body={`Mark the PTP of ${actionRow ? fmtKoboExact(actionRow.promise_amount_kobo) : ''} from CIF ${actionRow?.account_cif ?? ''} as Broken?`}
         confirmLabel="Mark Broken"
         danger
         loading={acting}

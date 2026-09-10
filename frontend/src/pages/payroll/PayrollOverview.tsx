@@ -157,6 +157,8 @@ export default function PayrollOverview() {
     <Page
       title="Payroll"
       subtitle="Monthly payroll runs and processing"
+      loading={loading && !data}
+      skeletonKpis={4}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

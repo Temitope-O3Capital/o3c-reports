@@ -256,6 +256,8 @@ export default function CampaignsList() {
     <Page
       title="Campaigns"
       subtitle={`${fmtNum(total)} total campaigns`}
+      loading={loading && campaigns.length === 0}
+      skeletonKpis={4}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

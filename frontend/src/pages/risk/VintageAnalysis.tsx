@@ -4,98 +4,68 @@ import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, ExpandableFilterBar, ErrBanner, Sk, DateFilter } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtPct, fmtNum, monthStart, today } from '../../lib/fmt'
-import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, INTER, NUM } from '../../lib/design'
+import { fmtPct, fmtNum, fmtKoboExact, fmtKobo, monthStart, today } from '../../lib/fmt'
+import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
+// CURRENT delinquency by booking-month vintage. Deliberately NOT the old 1m/3m/6m/12m
+// PAR matrix: app.cbs_loan_dpd is a point-in-time snapshot with no DPD history, so those
+// columns were all the same current number (a flat, fake vintage curve). This shows the
+// real question the data answers — of loans booked in month X, how delinquent are they now.
 interface VintageRow {
   booking_month: string
   cohort_count: number
-  par30_1m: number | null
-  par30_3m: number | null
-  par30_6m: number | null
-  par30_12m: number | null
+  outstanding_kobo: number
+  par30: number | null
+  npl: number | null
+  avg_dpd: number | null
+  worst_dpd: number | null
+  age_months: number
 }
-
 interface VintageKPIs {
-  avg_par30_6m: number | null
-  avg_par30_12m: number | null
+  total_loans: number
+  par30: number | null
+  npl: number | null
+  par30_outstanding_kobo: number
 }
 
-// ── Cell colouring for PAR % values ──────────────────────────────────────────
-
-function parCell(value: number | null): { bg: string; color: string; text: string } {
-  if (value === null) return { bg: 'transparent', color: 'var(--txt3)', text: 'N/A' }
-  if (value < 5)   return { bg: 'rgba(22,163,74,.10)',  color: GREEN, text: fmtPct(value, 1) }
-  if (value <= 15) return { bg: 'rgba(217,119,6,.10)',  color: AMBER, text: fmtPct(value, 1) }
-  return            { bg: 'rgba(192,0,0,.10)',           color: RED,   text: fmtPct(value, 1) }
+// ── Cell colouring ──────────────────────────────────────────────────────────────
+function parStyle(v: number | null): { bg: string; color: string } {
+  if (v === null) return { bg: 'transparent', color: 'var(--txt3)' }
+  if (v < 5)   return { bg: 'rgba(22,163,74,.10)', color: GREEN }
+  if (v <= 15) return { bg: 'rgba(217,119,6,.10)', color: AMBER }
+  return         { bg: 'rgba(192,0,0,.10)',        color: RED }
 }
-
-// ── PAR % table cell ──────────────────────────────────────────────────────────
-
-function ParCell({ value }: { value: number | null }) {
-  const s = parCell(value)
+function dpdColor(v: number | null): string {
+  if (v == null) return 'var(--txt3)'
+  if (v <= 0)  return GREEN
+  if (v <= 30) return AMBER
+  return RED
+}
+function RateCell({ value }: { value: number | null }) {
+  const s = parStyle(value)
   return (
     <td style={{ padding: '10px 16px', textAlign: 'right', background: s.bg, borderBottom: '1px solid var(--bdr)' }}>
-      <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: s.color }}>{s.text}</span>
+      <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: s.color }}>{value === null ? '—' : fmtPct(value, 1)}</span>
     </td>
   )
 }
-
-// ── Sparkline: div-based bar chart for 4 time points ─────────────────────────
-
-function Sparkline({ values }: { values: (number | null)[] }) {
-  const known = values.filter((v): v is number => v !== null)
-  if (!known.length) return <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>—</span>
-
-  const max = Math.max(...known, 1)
-  // trend arrow based on first vs last known value
-  const first = known[0]
-  const last  = known[known.length - 1]
-  const arrow = last > first + 0.5 ? '↑' : last < first - 0.5 ? '↓' : '→'
-  const arrowColor = arrow === '↑' ? RED : arrow === '↓' ? GREEN : AMBER
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3 }}>
-      {values.map((v, i) => {
-        const h = v !== null ? Math.max(4, Math.round((v / max) * 28)) : 4
-        const bg = v === null ? 'var(--bdr)' : v < 5 ? GREEN : v <= 15 ? AMBER : RED
-        return (
-          <div
-            key={i}
-            title={v !== null ? `${fmtPct(v, 1)}` : 'N/A'}
-            style={{ width: 8, height: h, borderRadius: 2, background: bg, transition: 'height 0.2s' }}
-          />
-        )
-      })}
-      <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: arrowColor, marginLeft: 4, lineHeight: 1 }}>{arrow}</span>
-    </div>
-  )
-}
-
-// ── Skeleton rows for loading state ──────────────────────────────────────────
 
 function SkeletonRows({ count }: { count: number }) {
   return (
     <>
       {Array.from({ length: count }, (_, i) => (
         <tr key={i}>
-          <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }}><Sk h={14} w={80} /></td>
-          <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', textAlign: 'right' }}><Sk h={14} w={40} /></td>
-          {[0, 1, 2, 3].map(j => (
-            <td key={j} style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', textAlign: 'right' }}><Sk h={14} w={48} /></td>
+          {Array.from({ length: 8 }, (_, j) => (
+            <td key={j} style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', textAlign: j === 0 ? 'left' : 'right' }}><Sk h={14} w={j === 0 ? 90 : 48} /></td>
           ))}
-          <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }}><Sk h={14} w={56} /></td>
-          <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }} />
         </tr>
       ))}
     </>
   )
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
-
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function VintageAnalysis() {
   const navigate = useNavigate()
   const [rows,      setRows]      = useState<VintageRow[]>([])
@@ -106,7 +76,6 @@ export default function VintageAnalysis() {
   const [search,    setSearch]    = useState('')
   const [dateFrom,  setDateFrom]  = useState(monthStart())
   const [dateTo,    setDateTo]    = useState(today())
-
   const abortRef = useRef<AbortController | null>(null)
 
   const buildQS = useCallback(() => {
@@ -145,9 +114,6 @@ export default function VintageAnalysis() {
     [rows, search],
   )
 
-  const avg6m  = kpis?.avg_par30_6m  != null ? fmtPct(kpis.avg_par30_6m,  1) : 'N/A'
-  const avg12m = kpis?.avg_par30_12m != null ? fmtPct(kpis.avg_par30_12m, 1) : 'N/A'
-
   function parAccent(val: number | null | undefined): string {
     if (val == null) return NAVY
     if (val < 5)   return GREEN
@@ -155,111 +121,64 @@ export default function VintageAnalysis() {
     return RED
   }
 
-  // Best: lowest long-term PAR; Worst: highest long-term PAR
-  const { bestMonth, worstMonth } = useMemo(() => {
-    if (!rows.length) return { bestMonth: null, worstMonth: null }
-    const scored = rows
-      .map(r => ({ month: r.booking_month, rate: r.par30_12m ?? r.par30_6m }))
-      .filter((r): r is { month: string; rate: number } => r.rate !== null)
-    if (!scored.length) return { bestMonth: null, worstMonth: null }
-    scored.sort((a, b) => a.rate - b.rate)
-    return { bestMonth: scored[0].month, worstMonth: scored[scored.length - 1].month }
+  // Worst vintage = highest current PAR30 among cohorts big enough not to be pure noise.
+  const worstMonth = useMemo(() => {
+    const scored = rows.filter(r => r.cohort_count >= 3 && r.par30 != null)
+      .sort((a, b) => (b.par30 ?? 0) - (a.par30 ?? 0))
+    return scored.length && (scored[0].par30 ?? 0) > 0 ? scored[0].booking_month : null
   }, [rows])
 
-  // Portfolio average row (computed from all data, not filtered)
-  const avgRow = useMemo(() => {
-    if (!rows.length) return null
-    const avg = (key: keyof VintageRow): number | null => {
-      const vals = rows.map(r => r[key] as number | null).filter((v): v is number => v !== null)
-      return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null
-    }
-    return {
-      par30_1m:  avg('par30_1m'),
-      par30_3m:  avg('par30_3m'),
-      par30_6m:  avg('par30_6m'),
-      par30_12m: avg('par30_12m'),
-      cohort_count: rows.reduce((s, r) => s + r.cohort_count, 0),
-    }
-  }, [rows])
+  const totalLoans = kpis?.total_loans ?? rows.reduce((s, r) => s + r.cohort_count, 0)
 
   return (
     <Page
       title="Vintage Analysis"
-      subtitle="PAR30 cohort performance by booking month"
+      subtitle="Current delinquency of the loan book by the month each loan was booked"
       actions={
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
+      loading={loading && rows.length === 0}
+      skeletonKpis={4}
     >
       <ErrBanner error={error} onRetry={load} />
 
-      {/* 4-card KPI strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
-        <KpiCard
-          label="Total Cohorts"
-          value={loading ? '…' : fmtNum(rows.length)}
-          loading={false}
-          accent={NAVY}
-          icon="calendar_month"
-          sub="Booking month cohorts"
-        />
-        <KpiCard
-          label="Avg PAR30 at 6m"
-          value={avg6m}
-          loading={kpiLoading}
-          accent={parAccent(kpis?.avg_par30_6m)}
-          icon="monitoring"
-          sub="Portfolio 6-month mark"
-        />
-        <KpiCard
-          label="Avg PAR30 at 12m"
-          value={avg12m}
-          loading={kpiLoading}
-          accent={parAccent(kpis?.avg_par30_12m)}
-          icon="error_outline"
-          sub="Portfolio 12-month mark"
-        />
-        <KpiCard
-          label="Best Vintage"
-          value={loading ? '…' : bestMonth ?? 'N/A'}
-          loading={false}
-          accent={GREEN}
-          icon="emoji_events"
-          sub="Lowest long-term PAR30"
-        />
+      {/* Honest scope note — what this is and isn't. */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.md, background: `${BLUE}0F`, border: `1px solid ${BLUE}33`, marginBottom: SP[4], fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 18, color: BLUE, flexShrink: 0 }}>info</span>
+        <div>
+          Each row shows a booking cohort's delinquency <strong>as it stands today</strong>, next to how old it is —
+          so you can see loans booked longer ago aging into arrears. This is not a classic age-based vintage curve
+          (PAR30 at 1/3/6/12 months of age): that needs a history of DPD snapshots the core system doesn't yet feed.
+          The book is small ({fmtNum(totalLoans)} loans), so cohorts under 5 loans <span style={{ color: AMBER, fontWeight: FW.bold }}>*</span> are statistically noisy.
+        </div>
       </div>
 
-      {/* Worst vintage callout alert */}
+      {/* KPI strip — honest book-level current state */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: SP[3], marginBottom: SP[5] }}>
+        <KpiCard label="Loans in Book" value={loading ? '…' : fmtNum(totalLoans)} accent={NAVY} icon="account_balance" sub={`${fmtNum(rows.length)} booking cohorts`} />
+        <KpiCard label="PAR30 (current)" value={kpis?.par30 != null ? fmtPct(kpis.par30, 1) : 'N/A'} loading={kpiLoading} accent={parAccent(kpis?.par30)} icon="monitoring" sub="30+ days past due" />
+        <KpiCard label="NPL (current)" value={kpis?.npl != null ? fmtPct(kpis.npl, 1) : 'N/A'} loading={kpiLoading} accent={parAccent(kpis?.npl)} icon="error_outline" sub="90+ days past due" />
+        <KpiCard label="At Risk" value={fmtKoboExact(kpis?.par30_outstanding_kobo ?? 0)} loading={kpiLoading} accent={RED} icon="warning" sub="outstanding on PAR30 loans" />
+      </div>
+
       {worstMonth && !loading && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: SP[3],
-          padding: `${SP[3]} ${SP[4]}`,
-          borderRadius: RADIUS.md,
-          background: 'rgba(192,0,0,.07)',
-          border: `1px solid ${RED}40`,
-          marginBottom: SP[4],
-        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[3], padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.md, background: 'rgba(192,0,0,.07)', border: `1px solid ${RED}40`, marginBottom: SP[4] }}>
           <span className="material-symbols-rounded" style={{ fontSize: 18, color: RED }}>warning</span>
           <span style={{ fontSize: TEXT.sm, color: RED, fontWeight: FW.semibold }}>
-            Watch: <strong>{worstMonth}</strong> is the worst-performing vintage by PAR30.
+            Watch: the <strong>{worstMonth}</strong> cohort has the highest current PAR30.
           </span>
         </div>
       )}
 
-      <SectionCard title="Vintage Cohort Matrix" badge={filteredRows.length} padding={false}>
+      <SectionCard title="Delinquency by Booking Vintage" badge={filteredRows.length} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}
           groups={[
             {
-              key: 'product',
-              label: 'Product',
-              options: [
-                { value: 'Salary Loan' },
-                { value: 'Business Loan' },
-                { value: 'Personal Loan' },
-              ],
-              selected: fProducts,
-              onChange: setFProducts,
+              key: 'product', label: 'Product',
+              options: [{ value: 'Salary Loan' }, { value: 'Business Loan' }, { value: 'Personal Loan' }],
+              selected: fProducts, onChange: setFProducts,
             } as FilterGroupDef,
           ]}
           onReset={() => { setFProducts(new Set()); setSearch('') }}
@@ -272,84 +191,61 @@ export default function VintageAnalysis() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
-                {['Booking Month', 'Count', 'PAR30 at 1m', 'PAR30 at 3m', 'PAR30 at 6m', 'PAR30 at 12m', 'Trend', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 16px', textAlign: h === 'Booking Month' || h === 'Trend' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>
-                    {h}
-                  </th>
+                {[
+                  { l: 'Booking Cohort', a: 'left' }, { l: 'Age', a: 'right' }, { l: 'Loans', a: 'right' },
+                  { l: 'Outstanding', a: 'right' }, { l: 'PAR30', a: 'right' }, { l: 'NPL', a: 'right' },
+                  { l: 'Avg DPD', a: 'right' }, { l: 'Worst DPD', a: 'right' }, { l: '', a: 'right' },
+                ].map(h => (
+                  <th key={h.l} style={{ padding: '10px 16px', textAlign: h.a as any, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--bdr)' }}>{h.l}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <SkeletonRows count={8} />
+                <SkeletonRows count={6} />
               ) : filteredRows.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13, borderBottom: '1px solid var(--bdr)' }}>
-                    No vintage data found
-                  </td>
-                </tr>
+                <tr><td colSpan={9} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No loans in the book for this filter</td></tr>
               ) : (
-                <>
-                  {filteredRows.map(row => {
-                    const isBest  = row.booking_month === bestMonth
-                    const isWorst = row.booking_month === worstMonth
-                    const rowBg   = isBest ? 'rgba(22,163,74,.06)' : isWorst ? 'rgba(192,0,0,.05)' : 'transparent'
-                    return (
-                      <tr
-                        key={row.booking_month}
-                        style={{ background: rowBg, cursor: 'pointer' }}
-                        onClick={() => navigate(`/operations/risk/vintage/${encodeURIComponent(row.booking_month)}`)}
-                        onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = isBest ? 'rgba(22,163,74,.12)' : isWorst ? 'rgba(192,0,0,.09)' : 'var(--row-hvr)'}
-                        onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = rowBg}
-                      >
-                        <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', whiteSpace: 'nowrap' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY }}>{row.booking_month}</span>
-                            {isBest && (
-                              <span style={{ fontSize: 10, fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.full, background: 'rgba(22,163,74,.15)', color: GREEN }}>BEST</span>
-                            )}
-                            {isWorst && (
-                              <span style={{ fontSize: 10, fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.full, background: 'rgba(192,0,0,.12)', color: RED }}>WATCH</span>
-                            )}
-                          </div>
-                        </td>
-                        <td style={{ padding: '10px 16px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>
-                          <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtNum(row.cohort_count)}</span>
-                        </td>
-                        <ParCell value={row.par30_1m} />
-                        <ParCell value={row.par30_3m} />
-                        <ParCell value={row.par30_6m} />
-                        <ParCell value={row.par30_12m} />
-                        <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }}>
-                          <Sparkline values={[row.par30_1m, row.par30_3m, row.par30_6m, row.par30_12m]} />
-                        </td>
-                        <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', textAlign: 'center' }}>
-                          <span className="material-symbols-rounded" style={{ fontSize: 14, color: 'var(--txt3)' }}>chevron_right</span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-
-                  {/* Portfolio Average row — not clickable */}
-                  {avgRow && (
-                    <tr style={{ background: 'var(--th-bg)', borderTop: `2px solid ${NAVY}30` }}>
+                filteredRows.map(row => {
+                  const isWorst = row.booking_month === worstMonth
+                  const rowBg = isWorst ? 'rgba(192,0,0,.05)' : 'transparent'
+                  return (
+                    <tr key={row.booking_month} style={{ background: rowBg, cursor: 'pointer' }}
+                      onClick={() => navigate(`/operations/risk/vintage/${encodeURIComponent(row.booking_month)}`)}
+                      onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = isWorst ? 'rgba(192,0,0,.09)' : 'var(--row-hvr)'}
+                      onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = rowBg}>
                       <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', whiteSpace: 'nowrap' }}>
-                        <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: NAVY, fontFamily: INTER }}>Portfolio Avg</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY }}>{row.booking_month}</span>
+                          {isWorst && <span style={{ fontSize: 10, fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.full, background: 'rgba(192,0,0,.12)', color: RED }}>WATCH</span>}
+                        </div>
                       </td>
                       <td style={{ padding: '10px 16px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>
-                        <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>{fmtNum(avgRow.cohort_count)}</span>
+                        <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{row.age_months === 0 ? 'new' : `${row.age_months} mo`}</span>
                       </td>
-                      <ParCell value={avgRow.par30_1m} />
-                      <ParCell value={avgRow.par30_3m} />
-                      <ParCell value={avgRow.par30_6m} />
-                      <ParCell value={avgRow.par30_12m} />
-                      <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }}>
-                        <Sparkline values={[avgRow.par30_1m, avgRow.par30_3m, avgRow.par30_6m, avgRow.par30_12m]} />
+                      <td style={{ padding: '10px 16px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>
+                        <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{fmtNum(row.cohort_count)}</span>
+                        {row.cohort_count > 0 && row.cohort_count < 5 && (
+                          <span title="Small cohort — one loan moves the rate by 20%+ so these are noisy" style={{ marginLeft: 4, fontSize: 11, color: AMBER, fontWeight: FW.bold, cursor: 'help' }}>*</span>
+                        )}
                       </td>
-                      <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }} />
+                      <td style={{ padding: '10px 16px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>
+                        <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt)' }}>{fmtKoboExact(row.outstanding_kobo)}</span>
+                      </td>
+                      <RateCell value={row.par30} />
+                      <RateCell value={row.npl} />
+                      <td style={{ padding: '10px 16px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>
+                        <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: dpdColor(row.avg_dpd) }}>{row.avg_dpd ?? '—'}</span>
+                      </td>
+                      <td style={{ padding: '10px 16px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>
+                        <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: dpdColor(row.worst_dpd) }}>{row.worst_dpd ?? '—'}</span>
+                      </td>
+                      <td style={{ padding: '10px 16px', textAlign: 'right', borderBottom: '1px solid var(--bdr)' }}>
+                        <span className="material-symbols-rounded" style={{ fontSize: 14, color: 'var(--txt3)' }}>chevron_right</span>
+                      </td>
                     </tr>
-                  )}
-                </>
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -357,31 +253,18 @@ export default function VintageAnalysis() {
 
         {/* Legend */}
         <div style={{ padding: '12px 18px', borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>PAR30 colour guide:</span>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>PAR30 / NPL:</span>
           {([
-            { label: '< 5%',   bg: 'rgba(22,163,74,.10)',  color: GREEN },
-            { label: '5–15%',  bg: 'rgba(217,119,6,.10)',  color: AMBER },
-            { label: '> 15%',  bg: 'rgba(192,0,0,.10)',    color: RED   },
-            { label: 'N/A',    bg: 'transparent',          color: 'var(--txt3)' },
+            { label: '< 5%',   bg: 'rgba(22,163,74,.10)', color: GREEN },
+            { label: '5–15%',  bg: 'rgba(217,119,6,.10)', color: AMBER },
+            { label: '> 15%',  bg: 'rgba(192,0,0,.10)',   color: RED },
           ] as const).map(item => (
             <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 24, height: 14, borderRadius: RADIUS.xs, background: item.bg, border: '1px solid var(--bdr)' }} />
               <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, color: item.color }}>{item.label}</span>
             </div>
           ))}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 8 }}>
-            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>Trend:</span>
-            {([
-              { arrow: '↑', label: 'Worsening', color: RED },
-              { arrow: '↓', label: 'Improving',  color: GREEN },
-              { arrow: '→', label: 'Stable',     color: AMBER },
-            ]).map(t => (
-              <div key={t.arrow} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: t.color }}>{t.arrow}</span>
-                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{t.label}</span>
-              </div>
-            ))}
-          </div>
+          <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>Click a cohort to see its loans · DPD = days past due</span>
         </div>
       </SectionCard>
     </Page>

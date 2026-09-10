@@ -140,6 +140,7 @@ export default function DPARegister() {
     <Page
       title="Data Processing Register"
       subtitle="NDPR Article 4.1 / FCCPC compliance: inventory of personal data processing activities"
+      loading={loading && items.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

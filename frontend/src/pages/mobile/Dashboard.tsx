@@ -3,11 +3,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { Page, KpiCard, SectionCard, ErrBanner } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtNum, fmtKobo } from '../../lib/fmt'
-import { AMBER, NUM, TEXT, FW, SP, RADIUS, INTER } from '../../lib/design'
-import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend,
-} from 'recharts'
+import { AMBER, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS, INTER } from '../../lib/design'
+import { ELine } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -101,6 +98,8 @@ export default function MobileAppDashboard() {
     <Page
       title="Mobile App Analytics"
       subtitle="Active users and transaction activity derived from core banking (no dedicated mobile-app telemetry yet)"
+      loading={loading && !data}
+      skeletonKpis={4}
     >
       <ErrBanner error={err} onRetry={load} />
 
@@ -138,37 +137,18 @@ export default function MobileAppDashboard() {
       {/* Trend chart */}
       {trend.length > 0 && (
         <SectionCard title="Monthly Activity Trend" style={{ marginBottom: SP[4] }}>
-          <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={trend} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-              <XAxis
-                dataKey="month"
-                tick={{ fontSize: 11, fill: 'var(--chart-lbl)', fontFamily: INTER }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                tick={{ fontSize: 11, fill: 'var(--chart-lbl)', fontFamily: INTER }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: 'var(--card)', border: '1px solid var(--bdr)',
-                  borderRadius: 8, fontSize: 12, fontFamily: INTER,
-                }}
-              />
-              <Legend wrapperStyle={{ fontSize: 12, fontFamily: INTER }} />
-              <Line
-                type="monotone" dataKey="active_users" name="Active Users"
-                stroke="#2563EB" strokeWidth={2} dot={false}
-              />
-              <Line
-                type="monotone" dataKey="txn_count" name="Transactions"
-                stroke="#16A34A" strokeWidth={2} dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <ELine
+            data={trend}
+            xKey="month"
+            height={240}
+            endLabel
+            hideYAxis
+            valueFmt={(v) => fmtNum(v)}
+            series={[
+              { key: 'active_users', name: 'Active Users', color: NAVY },
+              { key: 'txn_count', name: 'Transactions', color: BLUE },
+            ]}
+          />
         </SectionCard>
       )}
 

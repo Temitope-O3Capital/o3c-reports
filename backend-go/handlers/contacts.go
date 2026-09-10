@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -33,10 +35,54 @@ func cleanNameStr(s string) string {
 
 func RegisterContactProfile(r chi.Router, db *core.DB) {
 	access := core.RequirePages("customer360", "los", "recovery", "helpdesk", "collections")
-	// The more specific path must be registered before the bare "/{cif}" or chi
-	// would never reach it.
+	// The more specific paths must be registered before the bare "/{cif}" or chi
+	// would never reach them.
 	r.With(access).Get("/{cif}/transactions", contactTransactionsHandler(db))
+	r.With(access).Get("/{cif}/documents", contactDocumentsHandler(db))
 	r.With(access).Get("/{cif}", contactProfileHandler(db))
+}
+
+// contactDocumentsHandler returns every document uploaded against any of the
+// person's credit applications (los_documents → loan_applications by applicant_cif),
+// across all the CIFs that belong to the same party. This is what powers the
+// Documents tab on Customer 360: the KYC and supporting files a Sales officer
+// collected during origination, rendered on the customer's own page rather than
+// only inside the application. Empty until an application has been raised — the
+// files live on the application, so a CBS-only customer has none yet.
+func contactDocumentsHandler(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cif := chi.URLParam(r, "cif")
+		ctx := r.Context()
+		// Resolve by the universal customer key: a real CIF (card customers) when present,
+		// else the workspace contact_id (loan/FD customers with no card CIF). $1 may be
+		// either, so match on COALESCE(cif, contact_id).
+		personCIFs := `(SELECT COALESCE(NULLIF(c2.cif,''), c2.contact_id) FROM app.customers c2
+		    WHERE c2.party_id = (SELECT party_id FROM app.customers WHERE COALESCE(NULLIF(cif,''), contact_id) = $1 LIMIT 1)
+		      AND c2.party_id IS NOT NULL
+		    UNION SELECT $1)`
+		rows, err := db.PGQuery(ctx, `
+			SELECT d.id, d.doc_type, d.file_name, d.file_url, d.file_size_bytes,
+			       d.created_at, la.reference AS application_ref, la.product_type,
+			       u.full_name AS uploaded_by_name
+			FROM los_documents d
+			JOIN loan_applications la ON la.id = d.application_id
+			LEFT JOIN o3c_users u ON u.id = d.uploaded_by
+			WHERE la.applicant_cif IN `+personCIFs+`
+			ORDER BY d.created_at DESC`, cif)
+		if err != nil {
+			// The LOS tables may not exist on a fresh DB — return empty, not a 500.
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
+				respond(w, []core.Row{}, "pg")
+				return
+			}
+			respondErrLog(w, 500, "contact documents query failed", err)
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
 }
 
 func contactProfileHandler(db *core.DB) http.HandlerFunc {
@@ -48,18 +94,35 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		// belongs to the same person (party) as the one opened, so Cards and
 		// Transactions show the whole person — not just this one card. Falls back to
 		// the single CIF when the row isn't linked to a party yet.
-		personCIFs := `(SELECT c2.cif FROM app.customers c2
-		    WHERE c2.party_id = (SELECT party_id FROM app.customers WHERE cif = $1 LIMIT 1)
+		// Resolve by the universal customer key: a real CIF (card customers) when present,
+		// else the workspace contact_id (loan/FD customers with no card CIF). $1 may be
+		// either, so match on COALESCE(cif, contact_id).
+		personCIFs := `(SELECT COALESCE(NULLIF(c2.cif,''), c2.contact_id) FROM app.customers c2
+		    WHERE c2.party_id = (SELECT party_id FROM app.customers WHERE COALESCE(NULLIF(cif,''), contact_id) = $1 LIMIT 1)
 		      AND c2.party_id IS NOT NULL
 		    UNION SELECT $1)`
 
+		// The person's Udara/CBS customer ids, resolved through the curated cbs_links
+		// crosswalk (party -> cbs_customer_id). CBS loans/FDs MUST be resolved this way,
+		// NOT by cbs_customer_id IN personCIFs: cbs_customer_id and app.customers.cif are
+		// different id namespaces that collide (Udara 00000424=FINTRAK vs card CIF
+		// 00000424=an unrelated person), which is what showed a stranger's ₦80m loan on
+		// the wrong customer's 360.
+		personCBSIDs := `(SELECT k.cbs_customer_id FROM app.cbs_links k
+		    WHERE k.entity_type='party'
+		      AND k.entity_id = (SELECT party_id FROM app.customers WHERE COALESCE(NULLIF(cif,''), contact_id) = $1 LIMIT 1))`
+
 		// ── Identity from the customer master ("Accounts" — Sage snapshot) ─────
 		acctRows, _ := db.PGQuery(ctx, `
-			SELECT TRIM(CONCAT(first_name, ' ', last_name)) AS name,
+			SELECT COALESCE(NULLIF(TRIM(CONCAT(first_name, ' ', last_name)),''), full_name) AS name,
 			       phone AS phone, email AS email,
-			       state AS state, city AS city, job_title AS job_title,
+			       state AS state, city AS city, country AS country, job_title AS job_title,
+			       COALESCE(NULLIF(TRIM(full_address),''),
+			                NULLIF(TRIM(CONCAT_WS(', ', NULLIF(address_1,''), NULLIF(address_2,''), NULLIF(city,''), NULLIF(state,''))),'')) AS full_address,
+			       address_1, address_2,
+			       contact_id AS customer_id, cif AS real_cif,
 			       birthday::text AS date_of_birth
-			FROM app.customers WHERE cif = $1 LIMIT 1`, cif)
+			FROM app.customers WHERE COALESCE(NULLIF(cif,''), contact_id) = $1 LIMIT 1`, cif)
 
 		// ── Cards / accounts — ALL of the person's cards across their CIFs ─────
 		//    Each card carries its OWN cif (a CIF is a card, not a person), which is
@@ -70,8 +133,9 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			       a.product_name AS product_name, a.status AS status,
 			       a.name_on_card AS name_on_card, a.card_pan AS card_pan,
 			       COALESCE(NULLIF(a.card_product,''), NULLIF(a.card_program,'')) AS scheme,
-			       a.card_limit, a.current_dr_balance, a.card_utilisation,
+			       a.card_limit, a.current_dr_balance, a.cycle_balance, a.card_utilisation,
 			       a.min_payment_due, a.days_overdue,
+			       a.last_amount_paid, a.last_payment_date::text AS last_payment_date,
 			       a.card_expiry_date::text AS card_expiry_date,
 			       a.payment_due_date::text AS payment_due_date,
 			       a.opened_date::text      AS opened_date,
@@ -90,7 +154,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			SELECT cbs_account_number, product_name, status,
 			       outstanding_principal_kobo, loan_amount_kobo, interest_rate,
 			       start_date, maturity_date
-			FROM cbs_loans WHERE cbs_customer_id IN `+personCIFs+`
+			FROM cbs_loans WHERE cbs_customer_id IN `+personCBSIDs+`
 			ORDER BY start_date DESC`, cif)
 
 		// ── Fixed deposits from the CBS/Udara register ────────────────────────
@@ -98,7 +162,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			SELECT cbs_account_number, product_name, status,
 			       principal_kobo, accrued_interest_kobo, interest_rate,
 			       commencement_date, maturity_date
-			FROM cbs_fixed_deposits WHERE cbs_customer_id IN `+personCIFs+`
+			FROM cbs_fixed_deposits WHERE cbs_customer_id IN `+personCBSIDs+`
 			ORDER BY commencement_date DESC`, cif)
 
 		// ── Recent account transactions (naira). Read the base table so we get
@@ -113,6 +177,24 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM transaction WHERE cif IN `+personCIFs, cif); len(rows) > 0 {
 			txnTotal = toInt64(rows[0]["n"])
 		}
+
+		// ── Payment history — the customer's actual repayments (money_in). This is
+		//    what the collections & recovery teams work from, so it gets its own
+		//    detailed list rather than being buried in the mixed transaction feed. ─
+		payRows, _ := db.PGQuery(ctx, `
+			SELECT txn_date::text AS date, ABS(amount)::float8 AS amount,
+			       description, merchant_name AS merchant
+			FROM transaction WHERE cif IN `+personCIFs+` AND money_in = TRUE
+			ORDER BY txn_date DESC LIMIT 60`, cif)
+		// Repayment pattern — money paid in per month over the last 12 months, so the
+		// team can see cadence (regular vs erratic) at a glance.
+		patRows, _ := db.PGQuery(ctx, `
+			SELECT TO_CHAR(DATE_TRUNC('month',txn_date),'Mon YY') AS month,
+			       DATE_TRUNC('month',txn_date) AS msort,
+			       COALESCE(SUM(ABS(amount)),0)::float8 AS amount, COUNT(*) AS count
+			FROM transaction WHERE cif IN `+personCIFs+` AND money_in = TRUE
+			  AND txn_date >= DATE_TRUNC('month',CURRENT_DATE) - INTERVAL '11 months'
+			GROUP BY 1, 2 ORDER BY msort`, cif)
 
 		// ── CRM contact record ────────────────────────────────────────────────
 		contacts, _ := db.PGQuery(ctx, `
@@ -152,7 +234,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			       COALESCE(rc.write_off_amount_kobo, 0) AS write_off_amount_kobo,
 			       rc.legal_stage, u.full_name AS agent_name, rc.opened_at
 			FROM recovery_cases rc
-			LEFT JOIN o3c_users u ON u.id = rc.agent_user_id
+			LEFT JOIN o3c_users u ON u.id = rc.assigned_agent_id
 			WHERE rc.account_cif IN `+personCIFs+`
 			ORDER BY rc.opened_at DESC LIMIT 1`, cif)
 
@@ -162,6 +244,28 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			FROM helpdesk_tickets
 			WHERE customer_cif IN `+personCIFs+`
 			ORDER BY created_at DESC LIMIT 20`, cif)
+
+		// ── Every identity row for this person (party) — so the profile can list ALL
+		//    their ids: card CIFs, the workspace Customer ID, etc. One person holds
+		//    many CIFs (a CIF is a card), plus a workspace id when they have no card. ─
+		partyRows, _ := db.PGQuery(ctx, `
+			SELECT c.cif, c.contact_id, c.source, c.party_id
+			FROM app.customers c
+			WHERE c.party_id = (SELECT party_id FROM app.customers WHERE COALESCE(NULLIF(cif,''),contact_id)=$1 LIMIT 1)
+			  AND c.party_id IS NOT NULL
+			UNION
+			SELECT c.cif, c.contact_id, c.source, c.party_id
+			FROM app.customers c WHERE COALESCE(NULLIF(cif,''),contact_id)=$1`, cif)
+
+		// ── Uploaded / manually-tracked loans (collections book), keyed by any of the
+		//    person's ids — these are NOT in the Udara loan book. ─────────────────────
+		manualLoanRows, _ := db.PGQuery(ctx, `
+			SELECT loan_ref, customer_name, outstanding_kobo, repayment_kobo, loan_tenor,
+			       loan_rate, debit_day, disbursement_date, maturity_date, dpd_bucket,
+			       officer_name, data_source
+			FROM collection_assignments
+			WHERE product_type='loan' AND account_cif IN `+personCIFs+`
+			ORDER BY updated_at DESC`, cif)
 
 		// ── Activity log (UNION across all modules) ────────────────────────────
 		activityRows, _ := db.PGQuery(ctx, `
@@ -258,6 +362,10 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			profile["email"] = a["email"]
 			profile["state"] = a["state"]
 			profile["city"] = a["city"]
+			profile["country"] = a["country"]
+			profile["full_address"] = a["full_address"]
+			profile["address_line"] = a["address_1"]
+			profile["address_2"] = a["address_2"]
 			profile["employer"] = a["job_title"]
 			profile["date_of_birth"] = a["date_of_birth"]
 		}
@@ -283,6 +391,7 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			fillIfEmpty("employer", c["employer"])
 			fillIfEmpty("date_of_birth", c["date_of_birth"])
 			profile["address"] = c["address"]
+			fillIfEmpty("full_address", c["address"])
 			profile["gender"] = c["gender"]
 			idType := str(c["id_type"])
 			if idType == "BVN" {
@@ -404,16 +513,19 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 				"scheme":             p["scheme"],
 				"status":             status,
 				// Balances here are naira numerics from the card book, not kobo.
-				"balance":       p["current_dr_balance"],
-				"credit_limit":  p["card_limit"],
-				"utilisation":   p["card_utilisation"],
-				"min_payment":   p["min_payment_due"],
-				"days_overdue":  p["days_overdue"],
-				"expiry_date":   p["card_expiry_date"],
-				"payment_due":   p["payment_due_date"],
-				"issued_at":     p["opened_date"],
-				"txn_count":     p["txn_count"],
-				"last_txn_date": p["last_txn_date"],
+				"balance":             p["current_dr_balance"],
+				"bill_balance":        p["cycle_balance"],
+				"credit_limit":        p["card_limit"],
+				"utilisation":         p["card_utilisation"],
+				"min_payment":         p["min_payment_due"],
+				"days_overdue":        p["days_overdue"],
+				"last_payment_amount": p["last_amount_paid"],
+				"last_payment_date":   p["last_payment_date"],
+				"expiry_date":         p["card_expiry_date"],
+				"payment_due":         p["payment_due_date"],
+				"issued_at":           p["opened_date"],
+				"txn_count":           p["txn_count"],
+				"last_txn_date":       p["last_txn_date"],
 			})
 			if lc := strings.ToLower(status); lc == "open" || lc == "active" {
 				hasActiveCard = true
@@ -464,6 +576,26 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			})
 		}
 		profile["transactions"] = txnList
+
+		// Payment history (repayments) + monthly repayment pattern.
+		payList := make([]any, 0)
+		for _, p := range payRows {
+			payList = append(payList, map[string]any{
+				"date": p["date"], "amount": p["amount"],
+				"description": p["description"], "merchant": p["merchant"],
+			})
+		}
+		profile["payment_history"] = payList
+		patList := make([]any, 0)
+		for _, p := range patRows {
+			patList = append(patList, map[string]any{
+				"month": p["month"], "amount": p["amount"], "count": p["count"],
+			})
+		}
+		profile["repayment_pattern"] = patList
+		if len(payList) > 0 {
+			profile["last_payment"] = payList[0]
+		}
 
 		// Relationship summary — drives the KPI strip + financial snapshot.
 		var loanOut, fdPrincipal, fdAccrued int64
@@ -535,6 +667,97 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 			if toInt64(rc["write_off_amount_kobo"]) > 0 {
 				profile["is_written_off"] = true
 			}
+		}
+
+		// ── Identifiers — every id this person carries, consolidated. Customer ID is
+		//    the one universal per-person id (party); CIFs are card ids; loan mandates
+		//    and Udara loan/FD account numbers are listed too. ───────────────────────
+		var partyID int64
+		cifSet := map[string]bool{}
+		wsSet := map[string]bool{}
+		for _, pr := range partyRows {
+			if partyID == 0 {
+				partyID = toInt64(pr["party_id"])
+			}
+			id := str(pr["cif"])
+			cid := str(pr["contact_id"])
+			if id != "" && !isSyntheticID(id) {
+				cifSet[id] = true // a real (card) CIF
+			} else if cid != "" && !isSyntheticID(cid) {
+				wsSet[cid] = true // a real workspace-only id (no card CIF)
+			}
+			// Synthetic placeholder handles (W…/Z…/cid:…) generated for customers with no
+			// real card CIF carry no external meaning — the canonical CUST-<party_id> stands
+			// in for them — so they are never surfaced. Make sure one never leaks into the
+			// CIF list either.
+			if isSyntheticID(id) {
+				delete(cifSet, id)
+			}
+			if isSyntheticID(cid) {
+				delete(cifSet, cid)
+			}
+		}
+		cifs := make([]string, 0, len(cifSet))
+		for k := range cifSet {
+			cifs = append(cifs, k)
+		}
+		sort.Strings(cifs)
+		wsIDs := make([]string, 0, len(wsSet))
+		for k := range wsSet {
+			wsIDs = append(wsIDs, k)
+		}
+		sort.Strings(wsIDs)
+
+		// Manual (uploaded) loans + their mandate ids.
+		manualLoans := make([]any, 0)
+		mandates := make([]string, 0)
+		for _, l := range manualLoanRows {
+			manualLoans = append(manualLoans, map[string]any{
+				"mandate_id":        l["loan_ref"],
+				"name":              l["customer_name"],
+				"outstanding_kobo":  l["outstanding_kobo"],
+				"repayment_kobo":    l["repayment_kobo"],
+				"tenor":             l["loan_tenor"],
+				"rate":              l["loan_rate"],
+				"debit_day":         l["debit_day"],
+				"disbursement_date": l["disbursement_date"],
+				"maturity_date":     l["maturity_date"],
+				"dpd_bucket":        l["dpd_bucket"],
+				"officer_name":      l["officer_name"],
+				"source":            l["data_source"],
+			})
+			if m := str(l["loan_ref"]); m != "" && m != "NO MANDATE" {
+				mandates = append(mandates, m)
+			}
+		}
+		profile["loans"] = manualLoans
+
+		// Udara loan / FD account numbers.
+		udaraLoanAccts := make([]string, 0)
+		for _, l := range cbsLoans {
+			if v := str(l["cbs_account_number"]); v != "" {
+				udaraLoanAccts = append(udaraLoanAccts, v)
+			}
+		}
+		fdAccts := make([]string, 0)
+		for _, f := range cbsFDs {
+			if v := str(f["cbs_account_number"]); v != "" {
+				fdAccts = append(fdAccts, v)
+			}
+		}
+		customerID := str(profile["cif"])
+		if partyID > 0 {
+			customerID = fmt.Sprintf("CUST-%06d", partyID)
+		}
+		profile["customer_id"] = customerID
+		profile["identifiers"] = map[string]any{
+			"customer_id":         customerID,
+			"party_id":            partyID,
+			"cifs":                cifs,           // card CIFs
+			"workspace_ids":       wsIDs,          // non-card workspace ids
+			"loan_mandates":       mandates,       // uploaded-loan mandate ids
+			"udara_loan_accounts": udaraLoanAccts, // Udara loan account numbers
+			"fd_accounts":         fdAccts,        // Udara FD account numbers
 		}
 
 		// Helpdesk tickets

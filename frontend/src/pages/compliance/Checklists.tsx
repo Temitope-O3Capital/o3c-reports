@@ -174,7 +174,7 @@ export default function Checklists() {
   useLiveData(() => load(true), { topics: ['compliance'] })
 
   return (
-    <Page title="Compliance Checklists" subtitle="Periodic compliance verification checklists">
+    <Page title="Compliance Checklists" subtitle="Periodic compliance verification checklists" loading={loading && checklists.length === 0}>
       <ErrBanner error={err} onRetry={load} />
 
       <SectionCard title="Checklists" badge={checklists.length} padding={false}>

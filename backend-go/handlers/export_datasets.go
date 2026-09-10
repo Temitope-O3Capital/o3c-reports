@@ -100,8 +100,7 @@ var exportDatasets = []exportDataset{
 			{Key: "account_number", Label: "Account Number", Type: colText, Expr: "cl.cbs_account_number"},
 			{Key: "cif", Label: "CIF", Type: colText, Expr: "cl.cbs_customer_id"},
 			{Key: "customer_name", Label: "Customer Name", Type: colText,
-				Expr: `COALESCE((SELECT NULLIF(TRIM(cu.full_name),'') FROM app.customers cu
-				                 WHERE cu.cif = cl.cbs_customer_id LIMIT 1), cl.raw->>'name')`},
+				Expr: `cl.raw->>'name'`}, // Udara's own name (cbs_customer_id != app.customers.cif)
 			{Key: "product_name", Label: "Product", Type: colText, Expr: "cl.product_name"},
 			{Key: "status", Label: "Status", Type: colText, Expr: "cl.status"},
 			{Key: "loan_amount", Label: "Loan Amount (NGN)", Type: colKobo, Expr: "cl.loan_amount_kobo"},
@@ -328,8 +327,7 @@ var exportDatasets = []exportDataset{
 			{Key: "account_number", Label: "Account Number", Type: colText, Expr: "fd.cbs_account_number"},
 			{Key: "cif", Label: "CIF", Type: colText, Expr: "fd.cbs_customer_id"},
 			{Key: "customer_name", Label: "Customer Name", Type: colText,
-				Expr: `COALESCE((SELECT NULLIF(TRIM(cu.full_name),'') FROM app.customers cu
-				                 WHERE cu.cif = fd.cbs_customer_id LIMIT 1), fd.raw->>'name')`},
+				Expr: `fd.raw->>'name'`}, // Udara's own name (cbs_customer_id != app.customers.cif)
 			{Key: "product_name", Label: "Product", Type: colText, Expr: "fd.product_name"},
 			{Key: "status", Label: "Status", Type: colText, Expr: "fd.status"},
 			{Key: "principal", Label: "Principal (NGN)", Type: colKobo, Expr: "fd.principal_kobo"},
@@ -502,6 +500,7 @@ var exportDatasets = []exportDataset{
 		Module:    "Call Centre",
 		Desc:      "Inbound and outbound calls with direction, purpose, outcome and duration.",
 		From:      "app.helpdesk_calls hc",
+		Where:     "hc.merged_into_call_id IS NULL AND hc.voided_at IS NULL",
 		OrderBy:   "COALESCE(hc.started_at, hc.created_at) DESC",
 		DateCol:   "COALESCE(hc.started_at, hc.created_at)::date",
 		DateLabel: "Call date",
@@ -513,7 +512,8 @@ var exportDatasets = []exportDataset{
 				Expr: `COALESCE((SELECT u.full_name FROM app.o3c_users u WHERE u.id = hc.agent_id), hc.agent_name)`},
 			{Key: "customer_name", Label: "Customer", Type: colText, Expr: "hc.customer_name"},
 			{Key: "customer_cif", Label: "CIF", Type: colText, Expr: "hc.customer_cif"},
-			{Key: "customer_phone", Label: "Phone", Type: colText, Expr: "hc.customer_phone"},
+			{Key: "customer_phone", Label: "Phone", Type: colText,
+				Expr: `CASE WHEN NULLIF(hc.customer_phone,'') IS NULL THEN NULL ELSE '******' || RIGHT(hc.customer_phone, 4) END`},
 			{Key: "duration_sec", Label: "Duration (sec)", Type: colInt, Expr: "hc.duration_sec"},
 			{Key: "outcome", Label: "Outcome", Type: colText, Expr: "hc.outcome"},
 			{Key: "disposition", Label: "Disposition", Type: colText, Expr: "hc.disposition"},
@@ -766,6 +766,53 @@ var exportDatasets = []exportDataset{
 			{Key: "currency", Label: "Currency", Kind: filterText, Expr: "fi.currency = ?"},
 		},
 	},
+	{
+		// The real income book (app.fee_income above has never held a row). amount_ngn is
+		// NAIRA, so ×100 → kobo for the colKobo formatter to render it as naira correctly.
+		Key:       "income_daily",
+		Label:     "Income & Revenue",
+		Module:    "Finance",
+		Desc:      "Card fee, interest and penalty income by day, product and category — the live income book.",
+		From:      "app.income_daily id",
+		OrderBy:   "id.income_date DESC",
+		DateCol:   "id.income_date",
+		DateLabel: "Income date",
+		Cols: []exportCol{
+			{Key: "income_date", Label: "Date", Type: colDate, Expr: "id.income_date"},
+			{Key: "category", Label: "Category", Type: colText, Expr: "id.category"},
+			{Key: "product_name", Label: "Product", Type: colText, Expr: "COALESCE(NULLIF(id.product_name,''),'Unclassified')"},
+			{Key: "txn_count", Label: "Transactions", Type: colInt, Expr: "id.txn_count"},
+			{Key: "amount", Label: "Amount (NGN)", Type: colKobo, Expr: "ROUND(id.amount_ngn * 100)::bigint"},
+		},
+		Filters: []exportFilter{
+			{Key: "category", Label: "Category", Kind: filterText, Expr: "id.category = ?"},
+		},
+	},
+	{
+		// Loan interest income and the collection pipeline at installment level, from the
+		// Udara repayment schedule. payment_status is the reliable state (DueAndUnpaid /
+		// FullyPaid / PartiallyPaid / NotYetDue).
+		Key:       "loan_schedule",
+		Label:     "Loan Repayment Schedule",
+		Module:    "Finance",
+		Desc:      "Per-installment principal, interest, fee and status from the Udara loan repayment schedule.",
+		From:      "app.cbs_loan_schedules s",
+		OrderBy:   "s.payment_date",
+		DateCol:   "s.payment_date",
+		DateLabel: "Due date",
+		Cols: []exportCol{
+			{Key: "loan_account", Label: "Loan Account", Type: colText, Expr: "s.loan_account_number"},
+			{Key: "cif", Label: "CIF", Type: colText, Expr: "s.cbs_customer_id"},
+			{Key: "payment_date", Label: "Due Date", Type: colDate, Expr: "s.payment_date"},
+			{Key: "principal", Label: "Principal (NGN)", Type: colKobo, Expr: "s.principal_kobo"},
+			{Key: "interest", Label: "Interest (NGN)", Type: colKobo, Expr: "s.interest_kobo"},
+			{Key: "fee", Label: "Fee (NGN)", Type: colKobo, Expr: "s.fee_kobo"},
+			{Key: "status", Label: "Status", Type: colText, Expr: "s.payment_status"},
+		},
+		Filters: []exportFilter{
+			{Key: "status", Label: "Status", Kind: filterText, Expr: "s.payment_status = ?"},
+		},
+	},
 
 	// ── Compliance ────────────────────────────────────────────────────────────
 	{
@@ -872,6 +919,61 @@ var exportDatasets = []exportDataset{
 		Filters: []exportFilter{
 			{Key: "action", Label: "Action", Kind: filterText, Expr: "al.action = ?"},
 			{Key: "user_role", Label: "Role", Kind: filterText, Expr: "u.role = ?"},
+		},
+	},
+
+	// ── Marketing / Acquisition (AppsFlyer) ───────────────────────────────────
+	// The "Blink by O3" mobile acquisition feed, mirrored from AppsFlyer. Money
+	// columns are USD (as AppsFlyer reports Blink) — labelled explicitly, no FX.
+	{
+		Key:       "appsflyer_daily",
+		Label:     "App Acquisition (Daily)",
+		Module:    "Mobile",
+		Desc:      "Blink installs, sessions, loyal users and ad spend by day, platform, media source and campaign — from AppsFlyer.",
+		From:      "appsflyer_daily af",
+		OrderBy:   "af.activity_date DESC, af.installs DESC",
+		DateCol:   "af.activity_date",
+		DateLabel: "Activity date",
+		Cols: []exportCol{
+			{Key: "activity_date", Label: "Date", Type: colDate, Expr: "af.activity_date"},
+			{Key: "platform", Label: "Platform", Type: colText, Expr: "af.platform"},
+			{Key: "media_source", Label: "Media Source", Type: colText, Expr: "af.media_source"},
+			{Key: "campaign", Label: "Campaign", Type: colText, Expr: "af.campaign"},
+			{Key: "agency", Label: "Agency/PMD", Type: colText, Expr: "af.agency"},
+			{Key: "installs", Label: "Installs", Type: colInt, Expr: "af.installs"},
+			{Key: "sessions", Label: "Sessions", Type: colInt, Expr: "af.sessions"},
+			{Key: "loyal_users", Label: "Loyal Users", Type: colInt, Expr: "af.loyal_users"},
+			{Key: "impressions", Label: "Impressions", Type: colInt, Expr: "af.impressions"},
+			{Key: "clicks", Label: "Clicks", Type: colInt, Expr: "af.clicks"},
+			{Key: "cost_usd", Label: "Ad Spend (USD)", Type: colMoney, Expr: "af.total_cost_usd"},
+			{Key: "revenue_usd", Label: "Revenue (USD)", Type: colMoney, Expr: "af.total_revenue_usd"},
+		},
+		Filters: []exportFilter{
+			{Key: "platform", Label: "Platform", Kind: filterSelect, Options: []string{"ios", "android"}, Expr: "af.platform = ?"},
+			{Key: "media_source", Label: "Media Source", Kind: filterText, Expr: "af.media_source = ?"},
+		},
+	},
+	{
+		Key:       "appsflyer_events",
+		Label:     "App Funnel Events",
+		Module:    "Mobile",
+		Desc:      "Blink in-app funnel events (first_open → registration → KYC → onboarding) by day, platform and media source — from AppsFlyer.",
+		From:      "appsflyer_events ae",
+		OrderBy:   "ae.activity_date DESC, ae.unique_users DESC",
+		DateCol:   "ae.activity_date",
+		DateLabel: "Activity date",
+		Cols: []exportCol{
+			{Key: "activity_date", Label: "Date", Type: colDate, Expr: "ae.activity_date"},
+			{Key: "platform", Label: "Platform", Type: colText, Expr: "ae.platform"},
+			{Key: "media_source", Label: "Media Source", Type: colText, Expr: "ae.media_source"},
+			{Key: "campaign", Label: "Campaign", Type: colText, Expr: "ae.campaign"},
+			{Key: "event_name", Label: "Event", Type: colText, Expr: "ae.event_name"},
+			{Key: "unique_users", Label: "Unique Users", Type: colInt, Expr: "ae.unique_users"},
+			{Key: "event_count", Label: "Event Count", Type: colInt, Expr: "ae.event_count"},
+		},
+		Filters: []exportFilter{
+			{Key: "platform", Label: "Platform", Kind: filterSelect, Options: []string{"ios", "android"}, Expr: "ae.platform = ?"},
+			{Key: "event_name", Label: "Event", Kind: filterText, Expr: "ae.event_name = ?"},
 		},
 	},
 }

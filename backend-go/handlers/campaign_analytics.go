@@ -47,6 +47,7 @@ func RegisterCampaignAnalytics(r chi.Router, db *core.DB) {
 	r.With(access).Get("/overview", marketingOverview(db))
 	r.With(access).Get("/summary", campaignsSummary(db))
 	r.With(access).Get("/analytics", campaignsAllAnalytics(db))
+	r.With(access).Get("/conversion-funnel", campaignConversionFunnel(db)) // campaign → lead → sales → customer
 	r.With(access).Get("/{id}/analytics", campaignAnalyticsDetail(db))
 	r.With(access).Get("/{id}/contacts-report", campaignContactsReport(db))
 	r.With(access).Post("/upload-image", campaignUploadImage(db))
@@ -353,6 +354,94 @@ func campaignsAllAnalytics(db *core.DB) http.HandlerFunc {
 }
 
 // ── Per-campaign detail analytics ─────────────────────────────────────────────
+
+// campaignConversionFunnel answers the question the engagement funnel never could:
+// of the people a campaign reached, how many became customers? It follows the real
+// lineage — a marketing blast pushes call_center_leads (marketing_campaign_id), agents
+// work them (last_called_at / status), supervisors forward them (forwarded_at), and Sales
+// converts the linked crm_contact (lead_stage='converted'). That lineage now survives
+// auto-advance too (crmLinkLeadToContact stamps source_campaign_id/source_cc_lead_id), so
+// this report is honest even for leads that converted without a formal forward.
+//
+// Per-campaign rows plus a rolled-up funnel. Optional date (campaign created) + channel
+// filters, matching the Analytics page's controls.
+func campaignConversionFunnel(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom, _ := validDate(r, "date_from")
+		dateTo, _ := validDate(r, "date_to")
+		channel := qstr(r, "channel")
+
+		where := "1=1"
+		var args []any
+		n := 1
+		if dateFrom != "" {
+			where += fmt.Sprintf(" AND cmp.created_at::date >= $%d", n)
+			args = append(args, dateFrom)
+			n++
+		}
+		if dateTo != "" {
+			where += fmt.Sprintf(" AND cmp.created_at::date <= $%d", n)
+			args = append(args, dateTo)
+			n++
+		}
+		if channel != "" {
+			where += fmt.Sprintf(" AND cmp.type = $%d", n)
+			args = append(args, channel)
+			n++
+		}
+
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT cmp.id                                                         AS campaign_id,
+			       cmp.name                                                       AS campaign_name,
+			       cmp.type                                                       AS channel,
+			       COUNT(l.id)                                                    AS leads,
+			       COUNT(l.id) FILTER (WHERE l.last_called_at IS NOT NULL
+			                             OR l.status <> 'pending')                AS contacted,
+			       COUNT(l.id) FILTER (WHERE l.status = 'interested')             AS interested,
+			       COUNT(l.id) FILTER (WHERE l.forwarded_at IS NOT NULL)          AS forwarded,
+			       COUNT(l.id) FILTER (WHERE cc.lead_stage = 'converted')         AS converted
+			  FROM campaigns cmp
+			  JOIN app.call_center_leads l ON l.marketing_campaign_id = cmp.id
+			  LEFT JOIN app.crm_contacts cc ON cc.id = l.contact_id
+			 WHERE `+where+`
+			 GROUP BY cmp.id, cmp.name, cmp.type
+			 ORDER BY leads DESC, cmp.name
+			 LIMIT 200`, args...)
+		if err != nil {
+			respondErrLog(w, 500, "Conversion funnel query failed", err)
+			return
+		}
+		if rows == nil {
+			rows = []core.Row{}
+		}
+
+		// Roll the per-campaign rows into one funnel.
+		var leads, contacted, interested, forwarded, converted int64
+		for _, row := range rows {
+			leads += toInt64(row["leads"])
+			contacted += toInt64(row["contacted"])
+			interested += toInt64(row["interested"])
+			forwarded += toInt64(row["forwarded"])
+			converted += toInt64(row["converted"])
+		}
+		funnel := []map[string]any{
+			{"stage": "Campaign leads", "count": leads},
+			{"stage": "Contacted", "count": contacted},
+			{"stage": "Interested", "count": interested},
+			{"stage": "Forwarded to Sales", "count": forwarded},
+			{"stage": "Converted to customer", "count": converted},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"campaigns":       rows,
+			"funnel":          funnel,
+			"leads":           leads,
+			"converted":       converted,
+			"conversion_rate": pipelinePct(converted, leads),
+		})
+	}
+}
 
 func campaignAnalyticsDetail(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -1066,13 +1155,13 @@ func trackClick(db *core.DB) http.HandlerFunc {
 		destURL := r.URL.Query().Get("url")
 
 		if destURL == "" {
-			http.Redirect(w, r, "https://o3ccards.com", http.StatusFound)
+			http.Redirect(w, r, "https://o3cards.com", http.StatusFound)
 			return
 		}
 
 		parsed, err := url.Parse(destURL)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-			http.Redirect(w, r, "https://o3ccards.com", http.StatusFound)
+			http.Redirect(w, r, "https://o3cards.com", http.StatusFound)
 			return
 		}
 

@@ -1,5 +1,5 @@
 import { useLiveData } from "../hooks/useRealtime"
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import DOMPurify from 'dompurify'
 import { toast } from 'sonner'
@@ -9,6 +9,8 @@ import { apiFetch, apiPost, apiPut } from '../lib/api'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, INTER, TEXT, FW, RADIUS, SP } from '../lib/design'
 import { roleLabel } from '../lib/roles'
 import { getSoundPref, setSoundPref, getVoiceMode, setVoiceMode, playChime, primeAudio, preview, type VoiceMode } from '../lib/notifyEffects'
+import { allRoles, currentUser } from '../hooks/useAuth'
+import { scriptsButtonHidden, setScriptsButtonHidden } from '../components/ScriptsDrawer'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -68,7 +70,7 @@ function roleColor(role: string): string {
 const INPUT: React.CSSProperties = {
   height: 40, padding: '0 12px', borderRadius: RADIUS.md,
   border: '1px solid var(--input-bdr)', background: 'var(--input-bg)',
-  color: 'var(--txt)', fontSize: TEXT.base, fontFamily: "'Sora', sans-serif", outline: 'none',
+  color: 'var(--txt)', fontSize: TEXT.base, fontFamily: "var(--font-sans)", outline: 'none',
   width: '100%', boxSizing: 'border-box',
 }
 
@@ -76,7 +78,7 @@ const BTN_PRIMARY: React.CSSProperties = {
   padding: '9px 22px', borderRadius: RADIUS.md, border: 'none',
   background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold,
   cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: SP[2],
-  fontFamily: "'Sora', sans-serif",
+  fontFamily: "var(--font-sans)",
 }
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
@@ -89,7 +91,7 @@ function Avatar({ name, role, size = 40 }: { name: string; role: string; size?: 
       background: color + '20', border: `2px solid ${color}40`,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: size * 0.36, fontWeight: FW.bold, color, flexShrink: 0,
-      fontFamily: "'Sora', sans-serif",
+      fontFamily: "var(--font-sans)",
     }}>
       {initials(name) || '?'}
     </div>
@@ -110,7 +112,7 @@ function NavItem({ label, icon, active, onClick }: { label: string; icon: string
         color: active ? NAVY : 'var(--txt2)',
         fontSize: TEXT.base, fontWeight: active ? 700 : 500,
         cursor: 'pointer', textAlign: 'left', borderRadius: 0,
-        fontFamily: "'Sora', sans-serif",
+        fontFamily: "var(--font-sans)",
         transition: 'background .12s, color .12s',
       }}
       onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
@@ -906,6 +908,40 @@ function SignatureTab() {
 
 interface ZohoVoiceStatus { connected: boolean; agent_id: string }
 
+// Call-centre-only device preference: the floating Call Scripts launcher. Agents can hide
+// the button (from the button itself) and turn it back on here. Stored per-browser in
+// localStorage via ScriptsDrawer's helpers; the toggle broadcasts so a mounted launcher
+// updates without a reload.
+function CallScriptsPref() {
+  const isAgent = useMemo(() => {
+    const u = currentUser()
+    return !!u && allRoles(u).some(r => r === 'call_center_agent' || r === 'call_center_head')
+  }, [])
+  const [hidden, setHidden] = useState(scriptsButtonHidden)
+  if (!isAgent) return null
+
+  const seg: React.CSSProperties = {
+    padding: '6px 14px', borderRadius: RADIUS.md, cursor: 'pointer',
+    border: `1px solid ${!hidden ? BLUE : 'var(--input-bdr)'}`,
+    background: !hidden ? `${BLUE}14` : 'var(--card)', color: !hidden ? BLUE : 'var(--txt2)',
+    fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: INTER,
+  }
+  return (
+    <SectionCard title="Call Scripts Button" subtitle="The floating Scripts launcher on the Call Centre pages. Saved on this device.">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Show the Scripts button</div>
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Drag it anywhere on screen; hide it from the button's ✕. It only appears on Call Centre pages.</div>
+        </div>
+        <button
+          onClick={() => { const show = hidden; setScriptsButtonHidden(!show); setHidden(!show) }}
+          style={seg}
+        >{hidden ? 'Hidden' : 'Shown'}</button>
+      </div>
+    </SectionCard>
+  )
+}
+
 function VoiceTab() {
   const [status, setStatus]     = useState<ZohoVoiceStatus | null>(null)
   const [loading, setLoading]   = useState(true)
@@ -950,6 +986,9 @@ function VoiceTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5] }}>
+
+      {/* Call-centre agents: manage the floating Scripts launcher */}
+      <CallScriptsPref />
 
       {/* Status card */}
       <SectionCard title="Zoho Voice" subtitle="Connect your Zoho Voice account to enable click-to-call and dialer integration">
@@ -1103,7 +1142,7 @@ export default function Settings() {
   const displayRole  = me?.role ?? local?.role ?? ''
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg)', fontFamily: "'Sora', sans-serif" }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg)', fontFamily: "var(--font-sans)" }}>
 
       {/* Page header */}
       <div style={{ padding: '20px 28px 16px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>

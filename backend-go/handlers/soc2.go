@@ -14,33 +14,12 @@ import (
 func RegisterSOC2(r chi.Router, db *core.DB) {
 	all := core.RequirePages("compliance_all", "compliance_head")
 
-	// SOC 2 overview + controls
-	r.With(all).Get("/soc2/overview", soc2Overview(db))
-	r.With(all).Get("/soc2/controls", soc2ControlList(db))
-	r.With(all).Get("/soc2/controls/{id}", soc2ControlGet(db))
-	r.With(all).Patch("/soc2/controls/{id}", soc2ControlUpdate(db))
-	r.With(all).Post("/soc2/controls", soc2ControlCreate(db))
-
-	// Evidence
-	r.With(all).Post("/soc2/controls/{id}/evidence", soc2EvidenceAdd(db))
-	r.With(all).Delete("/soc2/evidence/{eid}", soc2EvidenceDelete(db))
-
-	// Policy documents
+	// Policy Documents register (the only surviving feature of this file — the SOC 2
+	// controls/evidence and Pentest trackers were dropped 2026-08-26 as empty and not a
+	// CBN requirement; their handler funcs below are retained but no longer routed).
 	r.With(all).Get("/soc2/policies", soc2PolicyList(db))
 	r.With(all).Post("/soc2/policies", soc2CreatePolicy(db))
 	r.With(all).Patch("/soc2/policies/{id}", soc2PolicyUpdate(db))
-
-	// Pentest engagements
-	r.With(all).Get("/pentests", pentestList(db))
-	r.With(all).Post("/pentests", pentestCreate(db))
-	r.With(all).Get("/pentests/{id}", pentestGet(db))
-	r.With(all).Patch("/pentests/{id}", pentestUpdate(db))
-
-	// Pentest findings
-	r.With(all).Get("/pentest-findings", pentestFindingListAll(db))
-	r.With(all).Post("/pentests/{id}/findings", pentestFindingCreate(db))
-	r.With(all).Patch("/pentest-findings/{fid}", pentestFindingUpdate(db))
-	r.With(all).Delete("/pentest-findings/{fid}", pentestFindingDelete(db))
 }
 
 // ── SOC 2 overview ────────────────────────────────────────────────────────────

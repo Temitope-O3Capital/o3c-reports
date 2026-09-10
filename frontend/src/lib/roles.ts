@@ -11,6 +11,7 @@ export const ROLE_LABELS: Record<string, string> = {
   coo:                      'Chief Operating Officer',
   cfo:                      'Chief Financial Officer',
   cmo:                      'Chief Marketing Officer',
+  exec_overview:            'Executive (Overview)',
 
   // IT & Analytics
   it_admin:                 'IT Administrator',
@@ -82,5 +83,5 @@ export function roleLabel(role: string): string {
 // Management tier — the executive roles that see the General Overview and
 // company-wide dashboards. Must stay in sync with core/scope.go managementRoles.
 export const MGMT = new Set([
-  'admin', 'md', 'coo', 'cfo', 'cmo',
+  'admin', 'md', 'coo', 'cfo', 'cmo', 'head_ops', 'exec_overview',
 ])

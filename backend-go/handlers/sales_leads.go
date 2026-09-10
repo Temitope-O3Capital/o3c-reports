@@ -45,6 +45,7 @@ func RegisterSalesLeads(r chi.Router, db *core.DB) {
 	r.With(access).Get("/leads/{id}", getLead(db))
 	r.With(access).Patch("/leads/{id}", updateLead(db))
 	r.With(access).Post("/leads/{id}/stage", moveLeadStage(db))
+	r.With(access).Post("/leads/{id}/claim", claimLead(db))
 	r.With(access).Post("/leads/{id}/convert", convertLead(db))
 	r.With(access).Post("/leads/{id}/disqualify", disqualifyLead(db))
 	r.With(access).Get("/leads/{id}/events", leadEvents(db))
@@ -52,6 +53,42 @@ func RegisterSalesLeads(r chi.Router, db *core.DB) {
 	// Bulk distribution of the unowned lead pool. Head-only (enforced in-handler,
 	// like the book's assign routes). Static path — no conflict with /leads/{id}.
 	r.With(access).Post("/leads/distribute", distributeLeads(db))
+
+	// Re-flag leads that are already customers (matched by phone) so they drop out of
+	// the queue. Head-only; the initial pass runs in migration 192.
+	r.With(access).Post("/leads/rescan-customers", rescanCustomerLeads(db))
+}
+
+// rescanCustomerLeads re-flags any non-converted lead whose phone now matches a real
+// customer (customers arrive continuously via the feed, so new matches appear over
+// time). Idempotent — only touches rows not already flagged.
+func rescanCustomerLeads(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isSalesHead(core.UserFromCtx(r.Context())) {
+			respondErr(w, 403, "Only a sales head can run the customer match")
+			return
+		}
+		res, err := db.PGExec(r.Context(), `
+			UPDATE app.crm_contacts c
+			   SET already_customer     = true,
+			       matched_customer_cif = (
+			         SELECT cu.cif FROM app.customers cu
+			          WHERE app.normalise_ng_phone(cu.phone) = app.normalise_ng_phone(c.phone)
+			          ORDER BY cu.cif LIMIT 1),
+			       customer_matched_at  = now()
+			 WHERE c.lead_stage <> 'converted'
+			   AND COALESCE(c.already_customer, false) = false
+			   AND app.normalise_ng_phone(c.phone) IS NOT NULL
+			   AND EXISTS (
+			     SELECT 1 FROM app.customers cu
+			      WHERE app.normalise_ng_phone(cu.phone) = app.normalise_ng_phone(c.phone))`)
+		if err != nil {
+			respondErrLog(w, 500, "Rescan failed", err)
+			return
+		}
+		flagged, _ := res.RowsAffected()
+		respond(w, map[string]any{"flagged": flagged}, "pg")
+	}
 }
 
 type distributeReq struct {
@@ -106,6 +143,21 @@ func distributeLeads(db *core.DB) http.HandlerFunc {
 		default:
 			respondErr(w, 400, "strategy must be round_robin or by_state")
 			return
+		}
+
+		// A team head may only distribute to officers on their own team; executives
+		// (scopeAll) distribute to anyone.
+		if mode, teamIDs := salesLeadScope(r, db, user); mode == scopeTeam {
+			allowed := map[int64]bool{}
+			for _, id := range teamIDs {
+				allowed[id] = true
+			}
+			for _, id := range req.OfficerIDs {
+				if !allowed[id] {
+					respondErr(w, 403, "You can only distribute leads to officers on your team")
+					return
+				}
+			}
 		}
 
 		// Validate every recipient is a real, active user. Preserve the caller's
@@ -270,27 +322,14 @@ func listLeads(db *core.DB) http.HandlerFunc {
 		args := []any{}
 		n := 1
 
-		if isSalesHead(user) {
-			switch q := qstr(r, "owner_id"); q {
-			case "":
-			case "unassigned":
-				where = append(where, "c.lead_owner_id IS NULL")
-			default:
-				id, err := parseUserID(q)
-				if err != nil {
-					respondErr(w, 400, "owner_id must be a number, 'unassigned', or omitted")
-					return
-				}
-				where = append(where, fmt.Sprintf("c.lead_owner_id = $%d", n))
-				args = append(args, id)
-				n++
-			}
-		} else {
-			// An officer sees leads they own plus anything unclaimed, so a new lead is
-			// visible to the team rather than invisible until someone assigns it.
-			where = append(where, fmt.Sprintf("(c.lead_owner_id = $%d OR c.lead_owner_id IS NULL)", n))
-			args = append(args, user.ID)
-			n++
+		// Owner scope: executives see all, a team head sees their team + the unowned
+		// pool, an officer sees their own + the pool. (salesLeadScope / applyLeadScope.)
+		where, args, n = applyLeadScope(r, db, user, where, args, n)
+
+		// This is the lead queue, not the customer book: hide contacts already matched to
+		// a real customer by phone. ?include_customers=1 surfaces them for review.
+		if qstr(r, "include_customers") != "1" {
+			where = append(where, "COALESCE(c.already_customer, false) = false")
 		}
 
 		if s := qstr(r, "stage"); s != "" && leadStages[s] {
@@ -327,6 +366,12 @@ func listLeads(db *core.DB) http.HandlerFunc {
 		if qstr(r, "due") == "1" {
 			where = append(where, "c.next_action_at IS NOT NULL AND c.next_action_at <= NOW()")
 		}
+		// stalled=1 mirrors the overview's "stalled leads" worklist: contacted or
+		// qualified, but untouched for a fortnight — so that attention tile deep-links
+		// to exactly the rows it counts.
+		if qstr(r, "stalled") == "1" {
+			where = append(where, "c.lead_stage IN ('contacted','qualified') AND COALESCE(c.last_activity_at, c.updated_at) < NOW() - INTERVAL '14 days'")
+		}
 
 		cond := strings.Join(where, " AND ")
 		limit := qint(r, "limit", 50, 1, 200)
@@ -347,6 +392,7 @@ func listLeads(db *core.DB) http.HandlerFunc {
 			       c.lead_owner_id, c.estimated_value_kobo,
 			       c.next_action_at, c.last_activity_at,
 			       c.qualified_at, c.created_at, c.updated_at,
+			       c.already_customer, c.matched_customer_cif,
 			       u.full_name AS owner_name,
 			       e.name      AS employer_name
 			  FROM crm_contacts c
@@ -386,21 +432,14 @@ func listLeadSources(db *core.DB) http.HandlerFunc {
 func leadFunnel(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		scope, args := "TRUE", []any{}
-		if !isSalesHead(user) {
-			scope = "c.lead_owner_id = $1"
-			args = append(args, user.ID)
-		} else if q := qstr(r, "owner_id"); q != "" && q != "unassigned" {
-			id, err := parseUserID(q)
-			if err != nil {
-				respondErr(w, 400, "owner_id must be a number, 'unassigned', or omitted")
-				return
-			}
-			scope = "c.lead_owner_id = $1"
-			args = append(args, id)
-		} else if q == "unassigned" {
-			scope = "c.lead_owner_id IS NULL"
+		// Same owner scope as the queue, so the funnel counts exactly what the list shows.
+		where := []string{"TRUE"}
+		args := []any{}
+		where, args, _ = applyLeadScope(r, db, user, where, args, 1)
+		if qstr(r, "include_customers") != "1" {
+			where = append(where, "COALESCE(c.already_customer, false) = false")
 		}
+		scope := strings.Join(where, " AND ")
 
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT c.lead_stage AS stage, COUNT(*) AS n,
@@ -595,11 +634,21 @@ func getLead(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT c.*, u.full_name AS owner_name, e.name AS employer_name,
-			       cb.full_name AS created_by_name
+			       cb.full_name AS created_by_name,
+			       f.forwarded_by_name  AS cc_forwarded_by,
+			       f.notes              AS cc_forward_notes,
+			       f.product_interest   AS cc_product_interest,
+			       f.forwarded_at       AS cc_forwarded_at
 			  FROM crm_contacts c
 			  LEFT JOIN o3c_users u  ON u.id  = c.lead_owner_id
 			  LEFT JOIN o3c_users cb ON cb.id = c.created_by
 			  LEFT JOIN employers e  ON e.id  = c.employer_id
+			  LEFT JOIN LATERAL (
+			      SELECT forwarded_by_name, notes, product_interest, forwarded_at
+			        FROM call_center_lead_forwards
+			       WHERE contact_id = c.id
+			       ORDER BY forwarded_at DESC LIMIT 1
+			  ) f ON true
 			 WHERE c.id = $1`, chi.URLParam(r, "id"))
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
@@ -614,6 +663,47 @@ func getLead(db *core.DB) http.HandlerFunc {
 		delete(rows[0], "id_number_hmac")
 		delete(rows[0], "id_number")
 		respond(w, rows[0], "pg")
+	}
+}
+
+// claimLead lets a sales officer take ownership of a lead handed over by the call
+// centre (or any unowned lead). It records the claim on the call-centre hand-off
+// tracker as 'assigned', so the forwarding agent sees Sales has picked it up.
+func claimLead(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+		if user == nil || user.ID == 0 {
+			respondErr(w, 401, "Not authenticated")
+			return
+		}
+		var owner sql.NullInt64
+		var stage string
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT lead_owner_id, lead_stage FROM crm_contacts WHERE id=$1`, id).Scan(&owner, &stage); err != nil {
+			respondErr(w, 404, "Lead not found")
+			return
+		}
+		isHead := core.IsManagement(user.Role) || user.Role == "sales_head"
+		if owner.Valid && owner.Int64 != user.ID && !isHead {
+			respondErr(w, 409, "This lead is already owned by another officer")
+			return
+		}
+		if _, err := db.PGExec(r.Context(), `
+			UPDATE crm_contacts
+			   SET lead_owner_id    = $2,
+			       lead_stage       = CASE WHEN lead_stage IN ('new','contacted') THEN 'qualified' ELSE lead_stage END,
+			       last_activity_at = NOW(), updated_at = NOW()
+			 WHERE id = $1`, id, user.ID); err != nil {
+			respondErr(w, 500, "Could not claim the lead")
+			return
+		}
+		db.PGExec(r.Context(), //nolint:errcheck
+			`INSERT INTO crm_lead_events (contact_id, event, to_owner, note, created_by)
+			 VALUES ($1,'claimed',$2,'Claimed from the call-centre hand-off',$2)`, id, user.ID)
+		me := user.ID
+		markForwardResolved(r.Context(), db, toInt64FromStr(id), "assigned", &me, "Claimed by "+user.FullName)
+		respond(w, map[string]any{"ok": true, "owner_id": user.ID}, "pg")
 	}
 }
 
@@ -709,6 +799,10 @@ func moveLeadStage(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, fmt.Sprintf("Cannot move a lead back from %s to %s", current, req.Stage))
 			return
 		}
+		if u := core.UserFromCtx(r.Context()); !canWorkLead(u, owner) {
+			respondErr(w, 403, "You can only advance a lead you own")
+			return
+		}
 
 		var actor sql.NullInt64
 		if u := core.UserFromCtx(r.Context()); u != nil && u.ID != 0 {
@@ -800,6 +894,10 @@ func convertLead(db *core.DB) http.HandlerFunc {
 			respondErr(w, 409, "This lead has already converted")
 			return
 		}
+		if u := core.UserFromCtx(r.Context()); !canWorkLead(u, owner) {
+			respondErr(w, 403, "You can only convert a lead you own")
+			return
+		}
 
 		var actor sql.NullInt64
 		if u := core.UserFromCtx(r.Context()); u != nil && u.ID != 0 {
@@ -862,6 +960,17 @@ func convertLead(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// If this lead reached Sales via a call-centre hand-off, close the loop so the
+		// agent who forwarded it sees it converted.
+		{
+			var own *int64
+			if actor.Valid {
+				v := actor.Int64
+				own = &v
+			}
+			markForwardResolved(r.Context(), db, toInt64FromStr(id), "converted", own, "Converted to customer "+req.CIF)
+		}
+
 		respond(w, map[string]any{
 			"ok": true, "cif": req.CIF, "assigned_officer_id": assignedOfficer,
 		}, "pg")
@@ -886,13 +995,18 @@ func disqualifyLead(db *core.DB) http.HandlerFunc {
 
 		id := chi.URLParam(r, "id")
 		var current string
+		var owner sql.NullInt64
 		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT lead_stage FROM crm_contacts WHERE id=$1`, id).Scan(&current); err != nil {
+			`SELECT lead_stage, lead_owner_id FROM crm_contacts WHERE id=$1`, id).Scan(&current, &owner); err != nil {
 			respondErr(w, 404, "Lead not found")
 			return
 		}
 		if current == "converted" {
 			respondErr(w, 409, "A converted lead cannot be disqualified")
+			return
+		}
+		if u := core.UserFromCtx(r.Context()); !canWorkLead(u, owner) {
+			respondErr(w, 403, "You can only disqualify a lead you own")
 			return
 		}
 
@@ -928,6 +1042,8 @@ func disqualifyLead(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Commit failed")
 			return
 		}
+		// Reflect a rejection back to the call-centre hand-off tracker.
+		markForwardResolved(r.Context(), db, toInt64FromStr(id), "rejected", nil, req.Reason)
 		respond(w, map[string]any{"ok": true, "from": current, "to": "disqualified"}, "pg")
 	}
 }

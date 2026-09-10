@@ -135,12 +135,45 @@ func hdEditCall(db *core.DB) http.HandlerFunc {
 		}
 		hdRecordCallEdit(r, db, id, "edit", user, changes, b.Reason)
 
-		// The lead's status was derived from the old disposition — re-derive it.
-		if row["lead_id"] != nil {
-			if b.Disposition != nil {
+		// A corrected disposition must reach the lead. Both the lead's status AND its
+		// displayed "last disposition" are derived from calls LINKED to it (lead_id), so
+		// an edit only moved the lead when the call already had a lead_id. But a lead's
+		// history also shows calls matched to it only by PHONE (the 97% from Zoho / the
+		// queue, which carry no lead_id) — editing one of those changed the call and
+		// nothing else. So when the edited call has no lead_id, link it to the lead that
+		// owns the number first, then re-derive: the correction then lands on the lead's
+		// status and its displayed disposition alike.
+		if b.Disposition != nil {
+			leadID := toInt64(row["lead_id"])
+			if leadID == 0 {
+				// Only auto-link when the number matches EXACTLY ONE lead. A shared or
+				// household number (the data model warns these exist) matches several
+				// leads; picking the most-recently-updated one would stamp an arbitrary
+				// person's lead with another customer's disposition. One match or none.
+				if lr, _ := db.PGQuery(r.Context(), `
+					WITH matches AS (
+					  SELECT l.id
+					    FROM call_center_leads l, helpdesk_calls h
+					   WHERE h.id = $1
+					     AND right(regexp_replace(COALESCE(h.customer_phone,''),'\D','','g'),10) <> ''
+					     AND right(regexp_replace(COALESCE(l.customer_phone,''),'\D','','g'),10)
+					       = right(regexp_replace(COALESCE(h.customer_phone,''),'\D','','g'),10)
+					)
+					SELECT id FROM matches
+					 WHERE (SELECT COUNT(*) FROM matches) = 1
+					 LIMIT 1`, id); len(lr) > 0 {
+					leadID = toInt64(lr[0]["id"])
+					if leadID != 0 {
+						db.PGExec(r.Context(), //nolint:errcheck
+							`UPDATE helpdesk_calls SET lead_id = $1 WHERE id = $2 AND lead_id IS NULL`, leadID, id)
+					}
+				}
+			}
+			if leadID != 0 {
 				d := strings.TrimSpace(*b.Disposition)
-				syncLeadFromCall(r.Context(), db, toInt64(row["lead_id"]),
-					str(row["outcome"]), &d, "", &user.ID)
+				// A disposition edit carries no fresh handle time; the call's own duration
+				// already lives on helpdesk_calls. Pass nil so it doesn't overwrite with 0.
+				syncLeadFromCall(r.Context(), db, leadID, str(row["outcome"]), &d, "", &user.ID, nil)
 			}
 		}
 		respond(w, map[string]any{"id": id, "changed": len(changes)}, "pg")

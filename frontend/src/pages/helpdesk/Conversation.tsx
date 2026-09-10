@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { avatarColor, nameInitials } from '../../components/UI'
+import EmailHtml from '../../components/EmailHtml'
 import { fmtDatetime } from '../../lib/fmt'
 import { NAVY, AMBER, BLUE, FW, RADIUS, SP, TEXT } from '../../lib/design'
 
@@ -14,6 +15,7 @@ export interface ConvMessage {
   author_user_name?: string
   sender_name?: string
   body_text: string
+  body_html?: string
   is_internal_note?: boolean
   created_at: string
   _opening?: boolean
@@ -105,6 +107,7 @@ function MessageBubble({ msg, dense }: { msg: ConvMessage; dense?: boolean }) {
   const sender = msg.author_user_name || msg.author_name || msg.sender_name || (isAgent ? 'Agent' : 'Customer')
   const avBg = isNote ? AMBER : isAgent ? NAVY : avatarColor(sender)
   const av = dense ? 26 : 32
+  const hasHtml = !!(msg.body_html && msg.body_html.trim()) && !isNote
   return (
     <div className="hd-msg" style={{ display: 'flex', flexDirection: isAgent ? 'row-reverse' : 'row', gap: SP[2], marginBottom: dense ? 12 : 16 }}>
       <div style={{
@@ -112,7 +115,7 @@ function MessageBubble({ msg, dense }: { msg: ConvMessage; dense?: boolean }) {
         boxShadow: `0 0 0 3px ${avBg}22`, display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: dense ? 10 : 11, fontWeight: FW.bold, letterSpacing: '0.3px',
       }}>{nameInitials(sender)}</div>
-      <div style={{ maxWidth: '76%', minWidth: 0 }}>
+      <div style={{ maxWidth: hasHtml ? '94%' : '76%', width: hasHtml ? '94%' : undefined, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], flexDirection: isAgent ? 'row-reverse' : 'row', marginBottom: 4 }}>
           <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{sender}</span>
           <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtDatetime(msg.created_at)}</span>
@@ -120,16 +123,22 @@ function MessageBubble({ msg, dense }: { msg: ConvMessage; dense?: boolean }) {
           {msg._opening && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 6px', borderRadius: RADIUS.lg, background: `${BLUE}14`, color: BLUE }}>Original request</span>}
           {isNote && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 6px', borderRadius: RADIUS.lg, background: `${AMBER}18`, color: AMBER }}>Internal note</span>}
         </div>
-        <div style={{
-          padding: dense ? '9px 12px' : '11px 14px', borderRadius: 14,
-          borderTopLeftRadius: isAgent ? 14 : 3, borderTopRightRadius: isAgent ? 3 : 14,
-          background: isNote ? `${AMBER}10` : (isAgent ? `${NAVY}0E` : 'var(--card)'),
-          border: `1px solid ${isNote ? `${AMBER}30` : isAgent ? `${NAVY}22` : 'var(--bdr)'}`,
-          boxShadow: 'var(--shadow-xs)', fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        }}>
-          <MessageBody text={msg.body_text} />
-        </div>
+        {hasHtml ? (
+          <div style={{ display: 'flex', justifyContent: isAgent ? 'flex-end' : 'flex-start' }}>
+            <EmailHtml html={msg.body_html!} maxWidth="100%" />
+          </div>
+        ) : (
+          <div style={{
+            padding: dense ? '9px 12px' : '11px 14px', borderRadius: 14,
+            borderTopLeftRadius: isAgent ? 14 : 3, borderTopRightRadius: isAgent ? 3 : 14,
+            background: isNote ? `${AMBER}10` : (isAgent ? `${NAVY}0E` : 'var(--card)'),
+            border: `1px solid ${isNote ? `${AMBER}30` : isAgent ? `${NAVY}22` : 'var(--bdr)'}`,
+            boxShadow: 'var(--shadow-xs)', fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.6,
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          }}>
+            <MessageBody text={msg.body_text} />
+          </div>
+        )}
       </div>
     </div>
   )

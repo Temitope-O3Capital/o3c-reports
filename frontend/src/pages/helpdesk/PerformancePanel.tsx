@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import {
-  ResponsiveContainer, ComposedChart, Bar, Line, BarChart,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell,
-} from 'recharts'
+import { CHART_SERIES } from '../../components/charts'
+import { EBar, ELine } from '../../components/echarts'
 import { SectionCard, KpiCard, Spinner, ErrBanner, DateFilter } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { fmtDate, today } from '../../lib/fmt'
-import { NAVY, GREEN, RED, AMBER, BLUE, PURPLE, INTER, NUM, MONO, FW, RADIUS, SP, TEXT } from '../../lib/design'
+import { NAVY, GREEN, RED, AMBER, BLUE, PURPLE, NUM, MONO, FW, SP, TEXT } from '../../lib/design'
 import { BAND_COLOR, qaBand } from '../../lib/qa'
 
 const num = (v: any) => Number(v ?? 0) || 0
@@ -21,7 +19,19 @@ interface Stats {
   by_day: { day: string; total: number; inbound: number; outbound: number; connected: number }[]
   by_hour: { hour: number; total: number; inbound: number; outbound: number }[]
   by_agent: any[]
+  by_purpose?: { purpose: string; total: number; inbound: number; outbound: number; connected: number; inbound_missed: number; outbound_noanswer: number; avg_duration_sec: number | null }[]
   talk_distribution: { bucket: string; count: number }[]
+}
+
+// Call type / purpose → label + colour, in step with Calls.tsx / Overview.
+const PURPOSE_LABEL: Record<string, { label: string; color: string }> = {
+  marketing: { label: 'Marketing / Leads', color: BLUE },
+  sales: { label: 'Outbound Sales', color: PURPLE },
+  collections: { label: 'Collections', color: RED },
+  retention: { label: 'Retention', color: AMBER },
+  other: { label: 'Other', color: NAVY },
+  support: { label: 'Support', color: GREEN },
+  unspecified: { label: 'Support / Unspecified', color: GREEN },
 }
 
 export default function PerformancePanel() {
@@ -53,8 +63,9 @@ export default function PerformancePanel() {
     return { label: String(h).padStart(2, '0'), inbound: num(f?.inbound), outbound: num(f?.outbound) }
   }), [d])
   const dist = useMemo(() => (d?.talk_distribution ?? []).map(x => ({ bucket: x.bucket, count: num(x.count) })), [d])
-  const DIST_COLORS = [RED, AMBER, GREEN, BLUE]
+  const DIST_COLORS = CHART_SERIES
   const agents = useMemo(() => [...(d?.by_agent ?? [])].sort((a, b) => num(b.total) - num(a.total)), [d])
+  const purposes = useMemo(() => [...(d?.by_purpose ?? [])].sort((a, b) => num(b.total) - num(a.total)), [d])
 
   const loading = !d
   const TH: React.CSSProperties = { padding: '9px 14px', fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.04em', background: 'var(--th-bg)', borderBottom: '1px solid var(--bdr)', whiteSpace: 'nowrap' }
@@ -81,30 +92,29 @@ export default function PerformancePanel() {
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: SP[4] }}>
         <SectionCard title="Connect Rate Trend" subtitle="Daily connect rate: quality of contact over time">
           {trend.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls in range</div> : (
-            <ResponsiveContainer width="100%" height={200}>
-              <ComposedChart data={trend} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
-                <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-                <XAxis dataKey="date" tickFormatter={(v: string) => fmtDate(v, { month: 'short', day: 'numeric' })} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} minTickGap={44} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }} labelFormatter={(v: string) => fmtDate(v)} />
-                <Line type="monotone" dataKey="rate" name="Connect %" stroke={GREEN} strokeWidth={2.4} dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
+            <ELine
+              data={trend.map(x => ({ ...x, label: fmtDate(x.date, { month: 'short', day: 'numeric' }) }))}
+              xKey="label"
+              height={200}
+              endLabel
+              hideYAxis
+              valueFmt={(v) => `${v}%`}
+              endFmt={(v) => `${v}%`}
+              series={[{ key: 'rate', name: 'Connect %', color: GREEN }]}
+            />
           )}
         </SectionCard>
         <SectionCard title="Talk-Time Distribution" subtitle="Length of connected calls">
           {dist.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No connected calls</div> : (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={dist} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
-                <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-                <XAxis dataKey="bucket" tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-                <Tooltip cursor={{ fill: 'var(--row-hvr)' }} contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }} />
-                <Bar dataKey="count" name="Calls" radius={[4, 4, 0, 0]} maxBarSize={54}>
-                  {dist.map((_, i) => <Cell key={i} fill={DIST_COLORS[i % DIST_COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <EBar
+              data={dist}
+              xKey="bucket"
+              height={200}
+              legend={false}
+              valueFmt={(v) => v.toLocaleString()}
+              axisFmt={(v) => v.toLocaleString()}
+              series={[{ key: 'count', name: 'Calls', colorFn: (_r, i) => DIST_COLORS[i % DIST_COLORS.length] }]}
+            />
           )}
         </SectionCard>
       </div>
@@ -112,18 +122,55 @@ export default function PerformancePanel() {
       {/* Busiest hours */}
       <SectionCard title="Busiest Hours" subtitle="Inbound & outbound by hour of day">
         {total === 0 ? <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No calls in range</div> : (
-          <ResponsiveContainer width="100%" height={190}>
-            <ComposedChart data={hours} margin={{ top: 4, right: 8, left: -18, bottom: 0 }} barCategoryGap="20%">
-              <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="label" interval={1} tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--chart-lbl)', fontFamily: INTER }} axisLine={false} tickLine={false} />
-              <Tooltip cursor={{ fill: 'var(--row-hvr)' }} contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs, fontFamily: INTER }} />
-              <Bar dataKey="inbound" stackId="h" name="Inbound" fill={BLUE} maxBarSize={26} />
-              <Bar dataKey="outbound" stackId="h" name="Outbound" fill={NAVY} radius={[3, 3, 0, 0]} maxBarSize={26} />
-            </ComposedChart>
-          </ResponsiveContainer>
+          <EBar
+            data={hours}
+            xKey="label"
+            height={190}
+            stack
+            valueFmt={(v) => v.toLocaleString()}
+            axisFmt={(v) => v.toLocaleString()}
+            series={[
+              { key: 'inbound', name: 'Inbound', color: BLUE },
+              { key: 'outbound', name: 'Outbound', color: NAVY },
+            ]}
+          />
         )}
+      </SectionCard>
+
+      {/* Calls by type / purpose — every metric per book */}
+      <SectionCard title="Calls by Type" subtitle="Volume, mix, connect rate & handle time per book" badge={purposes.length} padding={false}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>
+              <th style={{ ...TH, textAlign: 'left' }}>Type</th>
+              {['Total', '% Mix', 'Connected', 'Conn %', 'Out / In', 'Missed In', 'Avg Talk'].map(h => <th key={h} style={{ ...TH, textAlign: 'right' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {loading ? <tr><td colSpan={8} style={{ ...TD, textAlign: 'center', padding: 40 }}><Spinner size={18} /></td></tr>
+                : purposes.length === 0 ? <tr><td colSpan={8} style={{ ...TD, textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No calls in range</td></tr>
+                : purposes.map((p) => {
+                  const t = num(p.total), conn = num(p.connected)
+                  const cr = t > 0 ? Math.round((conn / t) * 100) : 0
+                  const mix = total > 0 ? Math.round((t / total) * 100) : 0
+                  const meta = PURPOSE_LABEL[p.purpose] ?? { label: p.purpose, color: NAVY }
+                  return (
+                    <tr key={p.purpose}>
+                      <td style={{ ...TD, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: meta.color, marginRight: 8, verticalAlign: 'middle' }} />{meta.label}
+                      </td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt)', fontWeight: FW.semibold }}>{t.toLocaleString()}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt3)' }}>{mix}%</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{conn.toLocaleString()}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', fontWeight: FW.semibold, color: cr >= 30 ? GREEN : cr >= 15 ? AMBER : RED }}>{cr}%</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{num(p.outbound)} / {num(p.inbound)}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: num(p.inbound_missed) > 0 ? 'var(--txt2)' : 'var(--txt3)' }}>{num(p.inbound_missed).toLocaleString()}</td>
+                      <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{fmtDur(num(p.avg_duration_sec))}</td>
+                    </tr>
+                  )
+                })}
+            </tbody>
+          </table>
+        </div>
       </SectionCard>
 
       {/* Agent performance — now with QA */}

@@ -107,10 +107,17 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 		for _, s := range []spec{
 			{"total_issued",
 				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, ctFilter.PG())},
+			// Read app.card_book, not app.accounts.status.
+			//
+			// status does not track expiry. 16,215 cards were past their expiry date
+			// and still marked Open or Active, so "active cards" counted a book that
+			// was 87% dead — and because `status NOT IN (...)` drops NULLs, the 192
+			// rows the live feed writes with no status at all fell out of BOTH
+			// numbers, so active + inactive did not even sum to the total.
 			{"active",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')%s`, ctFilter.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE card_state = 'Live'%s`, ctFilter.PG())},
 			{"inactive",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status NOT IN ('Open','Active')%s`, ctFilter.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE card_state <> 'Live'%s`, ctFilter.PG())},
 		} {
 			val, src, err := db.DualScalar(ctx, "val", s.pg, ctFilter.Args()...)
 			if err != nil {

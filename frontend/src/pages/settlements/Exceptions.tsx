@@ -200,6 +200,8 @@ export default function SettlementExceptions() {
     <Page
       title="Exceptions & Failures"
       subtitle="Everything that didn't reconcile, and every payment that moved wrong"
+      loading={loading && !summary}
+      skeletonKpis={4}
     >
       <ErrBanner error={error} onRetry={load} />
 

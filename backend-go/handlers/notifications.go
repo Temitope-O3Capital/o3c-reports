@@ -100,7 +100,7 @@ func notificationsListHandler(db *core.DB) http.HandlerFunc {
 		pageArgs := append(args, perPage, offset)
 		n := len(args) + 1
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT id, type, title, body, entity_type, entity_id, action_url,
+			SELECT id, type, title, body, entity_type, entity_id, entity_ref, action_url,
 			              priority, group_count,
 			       is_read, read_at, created_at
 			FROM notifications
@@ -267,7 +267,7 @@ func notificationsSSE(db *core.DB) http.HandlerFunc {
 				rc.Flush()                       //nolint:errcheck
 			case <-poll.C:
 				rows, err := db.PGQuery(ctx, `
-					SELECT id, type, title, body, entity_type, entity_id, action_url,
+					SELECT id, type, title, body, entity_type, entity_id, entity_ref, action_url,
 					              priority, group_count,
 					       is_read, read_at, created_at
 					FROM notifications

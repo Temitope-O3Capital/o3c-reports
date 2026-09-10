@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { Page, SectionCard, DataTable, ErrBanner, Spinner, Modal, KpiCard } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPut } from '../../lib/api'
-import { fmtKobo, fmtNum } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, INTER, NUM } from '../../lib/design'
 import { hasPage } from '../../hooks/useAuth'
 
@@ -92,7 +92,7 @@ export default function SectorCodes() {
     },
     {
       key: 'book_kobo', label: 'Exposure', align: 'right', sortable: true,
-      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{r.book_kobo > 0 ? fmtKobo(r.book_kobo) : '—'}</span>,
+      render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{r.book_kobo > 0 ? fmtKoboExact(r.book_kobo) : '—'}</span>,
     },
     ...(canEdit ? [{
       key: 'actions' as const, label: '', align: 'right' as const,
@@ -131,7 +131,7 @@ export default function SectorCodes() {
             <strong style={{ color: AMBER }}>
               {unmapped} code{unmapped !== 1 ? 's' : ''} not yet named
             </strong>:{' '}
-            {fmtKobo(unmappedExposure)} of the active book sits behind them. Until they are
+            {fmtKoboExact(unmappedExposure)} of the active book sits behind them. Until they are
             named, Sector Concentration and the vintage breakdowns show “Unmapped (code)”.
             {!canEdit && ' Ask a Risk Head to name them.'}
           </div>
@@ -141,7 +141,7 @@ export default function SectorCodes() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: SP[3], marginBottom: SP[4] }}>
         <KpiCard label="Registered Codes" value={String(rows.length)} sub="Seen on the book or added here" icon="format_list_numbered" accent={NAVY} />
         <KpiCard label="Named"            value={String(mappedCount)} sub={`${rows.length - mappedCount} outstanding`} icon="label" accent={mappedCount === rows.length ? GREEN : AMBER} />
-        <KpiCard label="Unnamed Exposure" value={fmtKobo(unmappedExposure)} sub="Active book behind unnamed codes" icon="help" accent={unmappedExposure > 0 ? AMBER : GREEN} />
+        <KpiCard label="Unnamed Exposure" value={fmtKoboExact(unmappedExposure)} sub="Active book behind unnamed codes" icon="help" accent={unmappedExposure > 0 ? AMBER : GREEN} />
       </div>
 
       <SectionCard
@@ -217,7 +217,7 @@ function SectorCodeModal({ entry, open, isNew, onClose, onDone }: {
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
         {!isNew && entry && entry.loan_count > 0 && (
           <p style={{ fontSize: TEXT.xs, color: 'var(--txt2)', margin: 0 }}>
-            {fmtNum(entry.loan_count)} active loan{entry.loan_count !== 1 ? 's' : ''} · {fmtKobo(entry.book_kobo)} exposure
+            {fmtNum(entry.loan_count)} active loan{entry.loan_count !== 1 ? 's' : ''} · {fmtKoboExact(entry.book_kobo)} exposure
           </p>
         )}
 

@@ -132,6 +132,15 @@ func hdEscalateTicket(db *core.DB) http.HandlerFunc {
 			       escalation_reason      = $3,
 			       escalation_resolved_at = NULL,
 			       escalation_resolved_by = NULL,
+			       -- Response deadline: how long the escalation target has to respond,
+			       -- scaled by ticket priority. Drives the escalation timer + popup.
+			       escalation_due_at      = NOW() + (CASE priority
+			                                   WHEN 'urgent' THEN INTERVAL '1 hour'
+			                                   WHEN 'high'   THEN INTERVAL '2 hours'
+			                                   WHEN 'low'    THEN INTERVAL '8 hours'
+			                                   ELSE               INTERVAL '4 hours' END),
+			       escalation_warned          = FALSE,
+			       escalation_overdue_alerted = FALSE,
 			       updated_at             = NOW()
 			 WHERE id = $4
 			   AND status NOT IN ('resolved','closed')
@@ -220,6 +229,7 @@ func hdResolveEscalation(db *core.DB) http.HandlerFunc {
 			UPDATE helpdesk_tickets
 			   SET escalation_resolved_at = NOW(),
 			       escalation_resolved_by = $1,
+			       escalation_due_at      = NULL,
 			       updated_at = NOW()
 			 WHERE id = $2 AND escalated_at IS NOT NULL AND escalation_resolved_at IS NULL
 			 RETURNING ticket_ref, escalated_by, assigned_to`, user.ID, ticketID)

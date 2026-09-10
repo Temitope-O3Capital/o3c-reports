@@ -1,13 +1,12 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Page, SectionCard, ErrBanner, Spinner, Modal, DataTable, DateFilter,
+  Page, SectionCard, ErrBanner, Spinner, Modal, DataTable,
   NameCell, ExpandableFilterBar,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
-import { monthStart, today } from '../../lib/fmt'
 import { currentUser, isSalesHead } from '../../hooks/useAuth'
 import { toast } from 'sonner'
 
@@ -42,8 +41,6 @@ interface Actual {
   actual_cards: number
   commission_kobo: number
 }
-
-interface CommissionRate { line: string; basis: string; rate_bps: number; amount_kobo: number }
 
 interface User { id: number; full_name: string; role: string }
 
@@ -94,8 +91,6 @@ export default function SalesTargets() {
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
   const [period,   setPeriod]   = useState(currentPeriod)
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
   const [showForm, setShowForm] = useState(false)
   const [saving,   setSaving]   = useState(false)
   const [bulkSel,  setBulkSel]  = useState<Set<string | number>>(new Set())
@@ -110,31 +105,18 @@ export default function SalesTargets() {
   const [fCards,   setFCards]   = useState('')
   const [fNotes,   setFNotes]   = useState('')
 
-  // Commission rates (Finance-set)
-  const [rates,     setRates]     = useState<CommissionRate[]>([])
-  const [canEditRates, setCanEditRates] = useState(false)
-  const [rateForm,  setRateForm]  = useState(false)
-  const [rLoan,     setRLoan]     = useState('')
-  const [rFd,       setRFd]       = useState('')
-  const [rCard,     setRCard]     = useState('')
-  const [savingRates, setSavingRates] = useState(false)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); setError(null)
     try {
       const [act, tgt] = await Promise.all([
-        apiFetch<{ data: Actual[] }>(`/api/sales/targets/actuals?period=${period}&from=${dateFrom}&to=${dateTo}`),
-        apiFetch<{ data: SalesTarget[] }>(`/api/sales/targets?period=${period}&from=${dateFrom}&to=${dateTo}`),
+        apiFetch<{ data: Actual[] }>(`/api/sales/targets/actuals?period=${period}`),
+        apiFetch<{ data: SalesTarget[] }>(`/api/sales/targets?period=${period}`),
       ])
       setActuals(act?.data ?? [])
       setTargets(tgt?.data ?? [])
-      // Commission rates — everyone can read; the Set button shows only if can_edit.
-      try {
-        const rr = await apiFetch<{ data: { rates: CommissionRate[]; can_edit: boolean } }>('/api/sales/commission-rates')
-        const payload = (rr as any)?.data ?? rr
-        setRates(payload?.rates ?? [])
-        setCanEditRates(!!payload?.can_edit)
-      } catch { /* non-fatal */ }
+      // Commission RATE SETTING now lives under Finance (finance/Overview →
+      // CommissionRatesModal). This page only shows the commission EARNED per officer.
       // Only a head needs the assignable-officer list, and /api/admin/users is
       // admin-scoped — fetching it as an officer just 403s and blanks the page.
       // The sales officers endpoint is the right source anyway: it lists who can
@@ -148,7 +130,7 @@ export default function SalesTargets() {
       }
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
-  }, [period, dateFrom, dateTo, canEdit])
+  }, [period, canEdit])
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['deals','crm'] })
@@ -173,33 +155,6 @@ export default function SalesTargets() {
     finally { setSaving(false) }
   }
 
-  // Commission rate helpers. rate_bps is basis points (150 = 1.50%); card is kobo/card.
-  const rateOf = (line: string) => rates.find(r => r.line === line)
-  const loanPct = ((rateOf('loans')?.rate_bps ?? 0) / 100)
-  const fdPct   = ((rateOf('fixed_deposit')?.rate_bps ?? 0) / 100)
-  const cardEach = ((rateOf('cards')?.amount_kobo ?? 0) / 100)
-
-  function openRateForm() {
-    setRLoan(String(loanPct || '')); setRFd(String(fdPct || '')); setRCard(String(cardEach || ''))
-    setRateForm(true)
-  }
-  async function saveRates() {
-    setSavingRates(true)
-    try {
-      await apiFetch('/api/sales/commission-rates', {
-        method: 'PUT',
-        body: JSON.stringify({
-          loan_percent:    parseFloat(rLoan) || 0,
-          fd_percent:      parseFloat(rFd) || 0,
-          card_naira_each: parseFloat(rCard) || 0,
-        }),
-      })
-      toast.success('Commission rates updated')
-      setRateForm(false)
-      load()
-    } catch (e: any) { toast.error(e.message) }
-    finally { setSavingRates(false) }
-  }
 
   // Merge actuals with any targets not yet in actuals — then search-filter
   const leaderboard: Actual[] = actuals.map(a => {
@@ -314,20 +269,19 @@ export default function SalesTargets() {
 
   return (
     <Page
+      loading={loading && actuals.length === 0}
+      skeletonKpis={5}
       title="Sales Targets"
       subtitle={`Performance vs targets: ${period}`}
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          {/* One filter only: targets are MONTHLY (keyed on period), so a month picker is
+              the correct control. A from/to range used to sit here too and silently broke
+              past-period actuals (it defaulted to the current month, filtering them to
+              zero). Commission-rate SETTING now lives under Finance, not here. */}
+          <label style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.medium }}>Period</label>
           <input type="month" value={period} onChange={e => setPeriod(e.target.value)}
             style={{ padding: '7px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: INTER }} />
-          {canEditRates && (
-            <button onClick={openRateForm}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>percent</span>
-              Commission Rates
-            </button>
-          )}
           {canEdit && (
             <button onClick={() => setShowForm(true)}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
@@ -483,41 +437,6 @@ export default function SalesTargets() {
         </div>
       </Modal>
 
-      {/* Commission Rates modal — Finance sets these; they drive every officer's earnings */}
-      <Modal open={rateForm} onClose={() => setRateForm(false)} title="Commission Rates" width={420}
-        footer={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={saveRates} disabled={savingRates}
-              style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: savingRates ? 'wait' : 'pointer', opacity: savingRates ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {savingRates && <Spinner size={13} color="#fff" />}Save rates
-            </button>
-            <button onClick={() => setRateForm(false)}
-              style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>
-              Cancel
-            </button>
-          </div>
-        }
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', lineHeight: 1.5 }}>
-            These apply to every officer. Loans and Fixed Deposits pay a percentage of booked value; Cards pay a fixed amount per card issued.
-          </div>
-          {[
-            { label: 'Loans — % of disbursement', value: rLoan, set: setRLoan, suffix: '%' },
-            { label: 'Fixed Deposit — % of principal', value: rFd, set: setRFd, suffix: '%' },
-            { label: 'Cards — ₦ per card issued', value: rCard, set: setRCard, suffix: '₦' },
-          ].map(({ label, value, set, suffix }) => (
-            <div key={label}>
-              <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input type="number" step="0.01" value={value} onChange={e => set(e.target.value)} placeholder="0"
-                  style={{ flex: 1, padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
-                <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt3)', width: 20 }}>{suffix}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Modal>
     </Page>
   )
 }

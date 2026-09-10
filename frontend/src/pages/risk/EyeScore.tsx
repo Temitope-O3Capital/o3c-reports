@@ -171,6 +171,8 @@ export default function EyeScore() {
       actions={
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
+      loading={loading && rows.length === 0}
+      skeletonKpis={4}
     >
       <ErrBanner error={error} onRetry={() => load(0)} />
 

@@ -20,7 +20,8 @@ func RegisterCardsCredit(r chi.Router, db *core.DB) {
 	r.With(access).Get("/by-product", ccByProduct(db))
 	r.With(access).Get("/accounts", ccAccounts(db))
 	r.With(access).Get("/at-risk", ccAtRisk(db))
-	r.With(access).Post("/import", cardCycleImport(db))
+	// Also reachable from the central Reports → Data Management hub (uploads key).
+	r.With(core.RequirePages("cards", "uploads")).Post("/import", cardCycleImport(db))
 }
 
 // latest cycle_date across all credit-card cycle rows, as a scalar subquery.

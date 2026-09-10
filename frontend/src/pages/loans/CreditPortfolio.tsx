@@ -328,6 +328,8 @@ export default function CreditPortfolio() {
     <Page
       title="Credit Portfolio"
       subtitle="Full loan origination pipeline and performance"
+      loading={loading && !summary}
+      skeletonKpis={4}
     >
       <ErrBanner error={err} onRetry={load} />
 

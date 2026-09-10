@@ -1,9 +1,9 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Page, SectionCard, ErrBanner, Spinner, Tabs, Pagination, filterInputStyle } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
-import { fmtDate, fmtDatetime, fmtKobo, fmtNum } from '../../lib/fmt'
+import { Page, SectionCard, ErrBanner, Spinner, Tabs, Pagination, Modal, filterInputStyle } from '../../components/UI'
+import { apiFetch, apiPost, apiPut } from '../../lib/api'
+import { fmtDate, fmtDatetime, fmtKoboExact, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, SORA, TEXT, FW, SP, RADIUS, TRANSITION } from '../../lib/design'
 import { useDebouncedValue } from '../../hooks/useDebounce'
 import { toast } from 'sonner'
@@ -12,17 +12,49 @@ import { toast } from 'sonner'
 
 interface ContactProfileData {
   cif: string
+  customer_id?: string
+  identifiers?: {
+    customer_id: string
+    party_id: number
+    cifs: string[]
+    workspace_ids: string[]
+    loan_mandates: string[]
+    udara_loan_accounts: string[]
+    fd_accounts: string[]
+  }
+  loans?: {
+    mandate_id: string | null
+    name: string | null
+    outstanding_kobo: number | null
+    repayment_kobo: number | null
+    tenor: string | null
+    rate: string | null
+    debit_day: string | null
+    disbursement_date: string | null
+    maturity_date: string | null
+    dpd_bucket: string | null
+    officer_name: string | null
+    source: string | null
+  }[]
   name: string
   phone: string
   email: string
   bvn?: string
   nin?: string
   address?: string
+  full_address?: string
+  city?: string
+  country?: string
   state?: string
   employer?: string
   monthly_income_kobo?: number
   date_of_birth?: string
   gender?: string
+
+  // Repayments (naira) + monthly cadence, for the collections/recovery teams.
+  payment_history?: { date: string; amount: number; description: string | null; merchant: string | null }[]
+  repayment_pattern?: { month: string; amount: number; count: number }[]
+  last_payment?: { date: string; amount: number; description: string | null; merchant: string | null }
 
   is_prospect: boolean
   is_applicant: boolean
@@ -73,11 +105,14 @@ interface ContactProfileData {
     scheme: string | null
     status: string
     // Card-book money is naira numerics, not kobo.
-    balance: number | null
+    balance: number | null            // current bill / current debit balance
+    bill_balance: number | null       // statement cycle balance
     credit_limit: number | null
     utilisation: number | null
     min_payment: number | null
     days_overdue: number | null
+    last_payment_amount: number | null
+    last_payment_date: string | null
     expiry_date: string | null
     payment_due: string | null
     issued_at: string | null
@@ -186,16 +221,28 @@ function Badge({ label, colour, outline }: { label: string; colour: string; outl
   )
 }
 
+// Label above value, not a fixed 140px label column — the old two-column layout gave the
+// value ~120px inside a 300px card, so emails, addresses and employer names overflowed or
+// wrapped under a wide empty gap. Stacked + break-word renders cleanly at any card width.
 function InfoPair({ label, value, mono }: { label: string; value?: string | number | null; mono?: boolean }) {
   if (!value && value !== 0) return null
   return (
-    <div style={{ display: 'flex', gap: 8, fontSize: TEXT.base, marginBottom: 6 }}>
-      <span style={{ color: 'var(--txt2)', minWidth: 140, flexShrink: 0 }}>{label}</span>
-      <span style={{ color: 'var(--txt)', fontFamily: mono ? 'var(--font-mono)' : undefined, fontWeight: mono ? FW.semibold : FW.normal }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+      <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: 0.3 }}>{label}</span>
+      <span style={{
+        fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.35, wordBreak: 'break-word',
+        fontFamily: mono ? 'var(--font-mono)' : undefined, fontWeight: mono ? FW.semibold : FW.medium,
+      }}>
         {value}
       </span>
     </div>
   )
+}
+
+// Flows InfoPairs into as many columns as fit — Identity's 8 fields read as a tidy 2–3
+// column block instead of one tall single-file list. Null pairs (no value) collapse out.
+function InfoGrid({ children }: { children: React.ReactNode }) {
+  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '13px 18px' }}>{children}</div>
 }
 
 function StagePill({ stage }: { stage: string }) {
@@ -467,14 +514,14 @@ function KpiStrip({ profile }: { profile: ContactProfileData }) {
   const s = profile.summary
   const net = s?.net_position_kobo ?? 0
   const cards = [
-    { label: 'Deposits',     value: fmtKobo(s?.fd_principal_kobo ?? 0),     sub: `${s?.fd_count ?? 0} fixed deposit${(s?.fd_count ?? 0) === 1 ? '' : 's'}`,  icon: 'savings',                 color: AMBER },
-    { label: 'Borrowings',   value: fmtKobo(s?.loan_outstanding_kobo ?? 0), sub: `${s?.loan_count ?? 0} active loan${(s?.loan_count ?? 0) === 1 ? '' : 's'}`, icon: 'account_balance_wallet',  color: NAVY  },
-    { label: 'Net Position', value: fmtKobo(net),                           sub: net >= 0 ? 'net saver' : 'net borrower',                                    icon: 'balance',                 color: net >= 0 ? GREEN : RED },
+    { label: 'Deposits',     value: fmtKoboExact(s?.fd_principal_kobo ?? 0),     sub: `${s?.fd_count ?? 0} fixed deposit${(s?.fd_count ?? 0) === 1 ? '' : 's'}`,  icon: 'savings',                 color: AMBER },
+    { label: 'Borrowings',   value: fmtKoboExact(s?.loan_outstanding_kobo ?? 0), sub: `${s?.loan_count ?? 0} active loan${(s?.loan_count ?? 0) === 1 ? '' : 's'}`, icon: 'account_balance_wallet',  color: NAVY  },
+    { label: 'Net Position', value: fmtKoboExact(net),                           sub: net >= 0 ? 'net saver' : 'net borrower',                                    icon: 'balance',                 color: net >= 0 ? GREEN : RED },
     { label: 'Active Cards', value: String(s?.active_card_count ?? 0),       sub: `${s?.card_count ?? 0} on file`,                                            icon: 'credit_card',             color: PURPLE },
     { label: 'Transactions', value: fmtNum(s?.txn_count ?? 0),              sub: 'lifetime activity',                                                        icon: 'receipt_long',            color: BLUE  },
   ]
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 20 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
       {cards.map(c => (
         <div key={c.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -520,6 +567,147 @@ interface LedgerSummary {
 // profile carries 40 rows for the whole person, and a single card in this book
 // can hold 4,600+ transactions. Filtering that client-side would silently show a
 // slice while looking like the whole thing.
+// ── Spending & behaviour analytics ──────────────────────────────────────────────
+// ISO-18245 merchant categories, named for the codes that actually appear in O3's book
+// (6011 dominates — it's ATM cash). Unknown codes fall back to "MCC ####".
+const MCC_NAMES: Record<string, string> = {
+  '6011': 'ATM cash', '6010': 'Cash — manual', '6012': 'Financial institution', '6013': 'Financial — other', '6014': 'Cash disbursement',
+  '6051': 'Quasi-cash / crypto', '4829': 'Money transfer',
+  '5541': 'Fuel', '5542': 'Fuel — automated', '5411': 'Groceries', '5300': 'Wholesale', '5310': 'Discount stores',
+  '5399': 'General merchandise', '5999': 'Retail — misc', '5311': 'Department stores', '5651': 'Clothing', '5691': 'Apparel',
+  '5812': 'Restaurants', '5814': 'Fast food', '5811': 'Caterers', '7011': 'Hotels', '7399': 'Business services',
+  '4814': 'Telecoms / airtime', '4900': 'Utilities', '5912': 'Pharmacy', '8011': 'Doctors', '8062': 'Hospitals',
+  '4111': 'Transport', '4121': 'Taxi / rideshare', '7995': 'Betting', '7994': 'Gaming', '5964': 'Direct marketing',
+  '1111': 'Uncategorised',
+}
+const mccName = (m: string) => MCC_NAMES[m] ?? `MCC ${m}`
+
+const _num = (x: unknown) => Number(x ?? 0)
+function nairaShort(v: number): string {
+  const n = Math.abs(v)
+  if (n >= 1e9) return `₦${(v / 1e9).toFixed(1)}b`
+  if (n >= 1e6) return `₦${(v / 1e6).toFixed(1)}m`
+  if (n >= 1e3) return `₦${Math.round(v / 1e3)}k`
+  return `₦${Math.round(v)}`
+}
+
+interface Analytics {
+  totals?: { txns: number; outflow: number; inflow: number; out_txns: number; in_txns: number; first_txn: string; last_txn: string }
+  top_merchants?: { merchant: string; txns: number; spend: number }[]
+  by_category?: { mcc: string; txns: number; spend: number }[]
+  by_channel?: { channel: string; txns: number; spend: number }[]
+  by_city?: { city: string; txns: number; spend: number }[]
+  monthly?: { month: string; outflow: number; inflow: number }[]
+}
+
+function BarList({ items, color }: { items: { label: string; value: number; sub: string }[]; color: string }) {
+  const max = Math.max(1, ...items.map(i => i.value))
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+      {items.map((it, i) => (
+        <div key={i}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: TEXT.sm, marginBottom: 3 }}>
+            <span style={{ color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.label}</span>
+            <span style={{ ...NUM, color: 'var(--txt2)', flexShrink: 0 }}>{it.sub}</span>
+          </div>
+          <div style={{ height: 6, background: 'var(--chip-bg)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ width: `${Math.max(3, (it.value / max) * 100)}%`, height: '100%', background: color, borderRadius: 3 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function InsightCard({ title, icon, tone, children }: { title: string; icon: string; tone: string; children: React.ReactNode }) {
+  return (
+    <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: '13px 15px', background: 'var(--card)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 11 }}>
+        <span className="material-symbols-rounded" style={{ fontSize: 16, color: tone }}>{icon}</span>
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{title}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function SpendingInsights({ cif }: { cif: string }) {
+  const [a, setA] = useState<Analytics | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    apiFetch<any>(`/api/contacts/${cif}/transaction-analytics`)
+      .then(r => { if (!cancelled) setA(r?.data ?? r) })
+      .catch(() => { if (!cancelled) setA(null) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [cif])
+
+  if (loading) return null
+  const merchants = a?.top_merchants ?? []
+  const cats = a?.by_category ?? []
+  const channels = a?.by_channel ?? []
+  const cities = a?.by_city ?? []
+  const monthly = a?.monthly ?? []
+  if (merchants.length === 0 && cats.length === 0 && channels.length === 0) return null
+
+  const monthMax = Math.max(1, ...monthly.flatMap(m => [_num(m.outflow), _num(m.inflow)]))
+  const span = a?.totals ? `${fmtDate(a.totals.first_txn)} – ${fmtDate(a.totals.last_txn)}` : ''
+
+  return (
+    <SectionCard title="Spending & behaviour" subtitle={span ? `Across all accounts · ${span}` : 'Across all accounts'}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+        {merchants.length > 0 && (
+          <InsightCard title="Top merchants" icon="storefront" tone={NAVY}>
+            <BarList color={NAVY} items={merchants.map(m => ({ label: m.merchant || '—', value: _num(m.spend), sub: nairaShort(_num(m.spend)) }))} />
+          </InsightCard>
+        )}
+        {cats.length > 0 && (
+          <InsightCard title="Spending by category" icon="category" tone={PURPLE}>
+            <BarList color={PURPLE} items={cats.map(c => ({ label: mccName(c.mcc), value: _num(c.spend), sub: nairaShort(_num(c.spend)) }))} />
+          </InsightCard>
+        )}
+        {channels.length > 0 && (
+          <InsightCard title="How they transact" icon="lan" tone={BLUE}>
+            <BarList color={BLUE} items={channels.map(c => ({ label: initCap(c.channel), value: _num(c.txns), sub: `${fmtNum(c.txns)}×` }))} />
+          </InsightCard>
+        )}
+        {cities.length > 0 && (
+          <InsightCard title="Where they transact" icon="location_on" tone={GREEN}>
+            <BarList color={GREEN} items={cities.map(c => ({ label: c.city || '—', value: _num(c.txns), sub: `${fmtNum(c.txns)}×` }))} />
+          </InsightCard>
+        )}
+        {monthly.length > 1 && (
+          <InsightCard title="Cashflow · last 12 months" icon="bar_chart" tone={AMBER}>
+            <div style={{ display: 'flex', gap: 5, alignItems: 'flex-end', height: 92 }}>
+              {monthly.map(m => (
+                <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 2, width: '100%', justifyContent: 'center' }}>
+                    <div title={`Out ${nairaShort(_num(m.outflow))}`} style={{ width: 5, height: `${(_num(m.outflow) / monthMax) * 100}%`, background: RED, borderRadius: 2, minHeight: _num(m.outflow) > 0 ? 2 : 0 }} />
+                    <div title={`In ${nairaShort(_num(m.inflow))}`} style={{ width: 5, height: `${(_num(m.inflow) / monthMax) * 100}%`, background: GREEN, borderRadius: 2, minHeight: _num(m.inflow) > 0 ? 2 : 0 }} />
+                  </div>
+                  <span style={{ fontSize: 9, color: 'var(--txt3)' }}>{m.month.slice(5)}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: RED }} />Out</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: GREEN }} />In</span>
+            </div>
+          </InsightCard>
+        )}
+      </div>
+    </SectionCard>
+  )
+}
+
+function initCap(s: string): string {
+  if (!s) return '—'
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
 function TransactionsTab({ profile, cardCif, onCardCif }: {
   profile: ContactProfileData
   cardCif: string
@@ -595,7 +783,7 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
 
       {/* Totals describe the filtered set, not the visible page. Naira only —
           any dollar movement is reported separately underneath. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 12 }}>
         {[
           { label: 'Transactions', value: fmtNum(summary?.count ?? 0),       colour: 'var(--txt)', icon: 'receipt_long', sub: null },
           { label: 'Money In',     value: fmtNaira(summary?.money_in ?? 0),  colour: GREEN,        icon: 'south_west',   sub: (summary?.usd_in ?? 0) > 0 ? `+ ${fmtMoney(summary!.usd_in, 'USD')}` : null },
@@ -619,6 +807,11 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
           {fmtNum(summary!.usd_count)} of these transactions are on a USD card. Dollar amounts are totalled separately. Naira figures above exclude them.
         </div>
       )}
+
+      {/* Spending & behaviour — merchants, categories, channels, geography, cashflow.
+          Reads the whole ledger for the person (not the paged/filtered list), so it is a
+          stable picture regardless of the filters below. */}
+      <SpendingInsights cif={profile.cif} />
 
       {/* Filters */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -724,39 +917,104 @@ const LIFECYCLE_STEPS = [
   { key: 'is_written_off',    label: 'Written Off',icon: 'do_not_disturb_on' },
 ] as const
 
-function LifecycleBar({ profile }: { profile: ContactProfileData }) {
-  const STEP_COLOUR: Record<string, string> = {
-    is_prospect: BLUE, is_applicant: '#8B5CF6', is_active_customer: GREEN,
-    is_card_holder: PURPLE, is_delinquent: AMBER, is_in_recovery: RED, is_written_off: '#6B7280',
-  }
+const STEP_COLOUR: Record<string, string> = {
+  is_prospect: BLUE, is_applicant: '#8B5CF6', is_active_customer: GREEN,
+  is_card_holder: PURPLE, is_delinquent: AMBER, is_in_recovery: RED, is_written_off: '#6B7280',
+}
+
+// The customer's own status badges (Customer, Card Holder, Delinquent, In Recovery…),
+// rendered as pills inside the blue overview hero — only the ones this customer
+// actually has. Replaces the standalone horizontal lifecycle stepper.
+function HeroStatusBadges({ profile }: { profile: ContactProfileData }) {
+  const active = LIFECYCLE_STEPS.filter(s => profile[s.key as keyof ContactProfileData] as boolean)
+  if (active.length === 0) return null
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'wrap', padding: '14px 20px', background: 'var(--card)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)' }}>
-      {LIFECYCLE_STEPS.map((step, i) => {
-        const active = profile[step.key as keyof ContactProfileData] as boolean
-        const colour = active ? STEP_COLOUR[step.key] : 'var(--txt3)'
+    <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 12 }}>
+      {active.map(s => {
+        const c = STEP_COLOUR[s.key]
         return (
-          <div key={step.key} style={{ display: 'flex', alignItems: 'center' }}>
-            {i > 0 && (
-              <div style={{ width: 20, height: 1.5, background: active ? colour : 'var(--bdr)', flexShrink: 0 }} />
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '0 6px' }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%',
-                background: active ? colour : 'var(--th-bg)',
-                border: `2px solid ${active ? colour : 'var(--bdr)'}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15, color: active ? '#fff' : 'var(--txt3)' }}>
-                  {step.icon}
-                </span>
-              </div>
-              <span style={{ fontSize: TEXT['2xs'], fontWeight: active ? FW.bold : FW.normal, color: active ? colour : 'var(--txt3)', whiteSpace: 'nowrap' }}>
-                {step.label}
-              </span>
-            </div>
-          </div>
+          <span key={s.key} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '3px 10px', borderRadius: RADIUS.xl,
+            background: 'rgba(255,255,255,0.12)', border: `1px solid ${c}99`,
+            fontSize: TEXT.xs, fontWeight: FW.semibold, color: '#fff',
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 13, color: c }}>{s.icon}</span>
+            {s.label}
+          </span>
         )
       })}
+    </div>
+  )
+}
+
+// A single copyable identifier chip. One person legitimately holds many CIFs (a CIF
+// is a card), plus loan/FD account numbers and a workspace Customer ID — click any to
+// copy it.
+function IdChip({ id, colour }: { id: string; colour: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={() => { try { navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200) } catch { /* clipboard unavailable */ } }}
+      title="Click to copy"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        fontFamily: 'var(--font-mono)', fontSize: TEXT.xs, fontWeight: FW.semibold,
+        padding: '3px 9px', borderRadius: RADIUS.full, cursor: 'pointer',
+        background: copied ? `${GREEN}1f` : `${colour}14`,
+        color: copied ? GREEN : colour,
+        border: `1px solid ${copied ? GREEN : colour}3a`,
+      }}
+    >
+      <span className="material-symbols-rounded" style={{ fontSize: 12 }}>{copied ? 'check' : 'content_copy'}</span>
+      {id}
+    </button>
+  )
+}
+
+// Every id a customer carries, grouped and colour-coded: the universal Customer ID,
+// each card CIF, workspace-only ids, uploaded-loan mandates and Udara loan/FD accounts.
+// Surfaces the full identity graph instead of hiding it behind one field.
+function AllIdentifiersCard({ profile }: { profile: ContactProfileData }) {
+  const ids = profile.identifiers
+  if (!ids) return null
+  const groups: { label: string; icon: string; colour: string; items: string[] }[] = [
+    { label: 'Card CIFs',      icon: 'credit_card',     colour: PURPLE, items: ids.cifs ?? [] },
+    { label: 'Loan Mandates',  icon: 'account_balance', colour: AMBER,  items: ids.loan_mandates ?? [] },
+    { label: 'Udara Loans',    icon: 'request_quote',   colour: RED,    items: ids.udara_loan_accounts ?? [] },
+    { label: 'Udara Deposits', icon: 'savings',         colour: GREEN,  items: ids.fd_accounts ?? [] },
+  ].filter(g => g.items.length > 0)
+  const total = groups.reduce((s, g) => s + g.items.length, 0)
+
+  return (
+    <div style={{ gridColumn: '1 / -1' }}>
+      <SectionCard title="Identifiers" subtitle={`One customer · ${total} linked id${total === 1 ? '' : 's'} across products`}>
+        {/* Customer ID — the one id that unifies everything */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          padding: '12px 14px', marginBottom: groups.length ? 14 : 0,
+          borderRadius: RADIUS.md, background: `${NAVY}0c`, border: `1px solid ${NAVY}26`,
+        }}>
+          <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: NAVY, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Customer ID</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)' }}>{ids.customer_id}</span>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>universal · with or without a CIF</span>
+        </div>
+        {/* Grouped id chips */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+          {groups.map(g => (
+            <div key={g.label}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15, color: g.colour }}>{g.icon}</span>
+                <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{g.label}</span>
+                <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: g.colour, background: `${g.colour}1a`, borderRadius: RADIUS.full, padding: '0 6px', minWidth: 16, textAlign: 'center' }}>{g.items.length}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {g.items.map(id => <IdChip key={id} id={id} colour={g.colour} />)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
     </div>
   )
 }
@@ -767,15 +1025,15 @@ function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOp
   const s = profile.summary
   const txns = profile.transactions.slice(0, 5)
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
       {s && (
         <div style={{ gridColumn: '1 / -1' }}>
           <SectionCard title="Financial Snapshot">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
               {[
-                { label: 'Deposits',    value: fmtKobo(s.fd_principal_kobo),     sub: `${fmtNum(s.fd_count)} FD${s.fd_count === 1 ? '' : 's'}`,              colour: GREEN },
-                { label: 'Borrowings',  value: fmtKobo(s.loan_outstanding_kobo), sub: `${fmtNum(s.loan_count)} loan${s.loan_count === 1 ? '' : 's'}`,        colour: s.loan_outstanding_kobo > 0 ? RED : 'var(--txt)' },
-                { label: 'Net Position',value: fmtKobo(s.net_position_kobo),     sub: s.fd_accrued_kobo > 0 ? `+${fmtKobo(s.fd_accrued_kobo)} accrued` : 'Deposits − borrowings', colour: s.net_position_kobo >= 0 ? GREEN : RED },
+                { label: 'Deposits',    value: fmtKoboExact(s.fd_principal_kobo),     sub: `${fmtNum(s.fd_count)} FD${s.fd_count === 1 ? '' : 's'}`,              colour: GREEN },
+                { label: 'Borrowings',  value: fmtKoboExact(s.loan_outstanding_kobo), sub: `${fmtNum(s.loan_count)} loan${s.loan_count === 1 ? '' : 's'}`,        colour: s.loan_outstanding_kobo > 0 ? RED : 'var(--txt)' },
+                { label: 'Net Position',value: fmtKoboExact(s.net_position_kobo),     sub: s.fd_accrued_kobo > 0 ? `+${fmtKoboExact(s.fd_accrued_kobo)} accrued` : 'Deposits − borrowings', colour: s.net_position_kobo >= 0 ? GREEN : RED },
                 { label: 'Cards',       value: fmtNum(s.active_card_count),      sub: `${fmtNum(s.card_count)} on file`,                                     colour: 'var(--txt)' },
               ].map(m => (
                 <div key={m.label} style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>
@@ -788,29 +1046,38 @@ function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOp
           </SectionCard>
         </div>
       )}
-      <SectionCard title="Identity">
-        <InfoPair label="Full Name"      value={profile.name} />
-        <InfoPair label="Phone"          value={profile.phone} />
-        <InfoPair label="Email"          value={profile.email} />
-        <InfoPair label="Gender"         value={profile.gender} />
-        <InfoPair label="Date of Birth"  value={profile.date_of_birth ? fmtDate(profile.date_of_birth) : undefined} />
-        <InfoPair label="CIF"            value={profile.cif} mono />
-        <InfoPair label="BVN"            value={profile.bvn} mono />
-        <InfoPair label="NIN"            value={profile.nin} mono />
+      <AllIdentifiersCard profile={profile} />
+
+      <SectionCard title="Identity &amp; Contact">
+        <InfoGrid>
+          <InfoPair label="Full Name"      value={profile.name} />
+          <InfoPair label="Phone"          value={profile.phone} />
+          <InfoPair label="Email"          value={profile.email} />
+          <InfoPair label="Gender"         value={profile.gender} />
+          <InfoPair label="Date of Birth"  value={profile.date_of_birth ? fmtDate(profile.date_of_birth) : undefined} />
+          <InfoPair label="BVN"            value={profile.bvn} mono />
+          <InfoPair label="NIN"            value={profile.nin} mono />
+        </InfoGrid>
       </SectionCard>
 
       <SectionCard title="Employment &amp; Address">
-        <InfoPair label="Employer"        value={profile.employer} />
-        <InfoPair label="Monthly Income"  value={profile.monthly_income_kobo != null ? fmtKobo(profile.monthly_income_kobo) : undefined} />
-        <InfoPair label="State"           value={profile.state} />
-        <InfoPair label="Address"         value={profile.address} />
+        <InfoGrid>
+          <InfoPair label="Employer"        value={profile.employer} />
+          <InfoPair label="Monthly Income"  value={profile.monthly_income_kobo != null ? fmtKoboExact(profile.monthly_income_kobo) : undefined} />
+          <InfoPair label="Address"         value={profile.full_address ?? profile.address} />
+          <InfoPair label="City"            value={profile.city} />
+          <InfoPair label="State"           value={profile.state} />
+          <InfoPair label="Country"         value={profile.country} />
+        </InfoGrid>
       </SectionCard>
 
       {profile.crm && (
         <SectionCard title="Sales Record">
-          <InfoPair label="Status"       value={profile.crm.status.replace(/_/g,' ')} />
-          <InfoPair label="Assigned To"  value={profile.crm.assigned_to} />
-          <InfoPair label="Since"        value={fmtDate(profile.crm.created_at)} />
+          <InfoGrid>
+            <InfoPair label="Status"       value={profile.crm.status.replace(/_/g,' ')} />
+            <InfoPair label="Assigned To"  value={profile.crm.assigned_to} />
+            <InfoPair label="Since"        value={fmtDate(profile.crm.created_at)} />
+          </InfoGrid>
           {profile.crm.deals.length > 0 && (
             <div style={{ marginTop: 8 }}>
               <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Deals</div>
@@ -818,7 +1085,7 @@ function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOp
                 <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderTop: '1px solid var(--bdr)', fontSize: TEXT.sm }}>
                   <span style={{ color: 'var(--txt)' }}>{d.title}</span>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={NUM}>{fmtKobo(d.value_kobo)}</span>
+                    <span style={NUM}>{fmtKoboExact(d.value_kobo)}</span>
                     <StagePill stage={d.stage} />
                   </div>
                 </div>
@@ -830,22 +1097,28 @@ function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOp
 
       {(profile.collections || profile.recovery_case) && (
         <SectionCard title="Risk Snapshot">
-          {profile.collections && (
-            <>
-              <InfoPair label="DPD" value={`${profile.collections.dpd}d (${profile.collections.dpd_bucket})`} />
-              <InfoPair label="Outstanding" value={fmtKobo(profile.collections.outstanding_kobo)} />
-              <InfoPair label="Collections Agent" value={profile.collections.agent_name ?? 'Unassigned'} />
-              {profile.collections.ptp_date && <InfoPair label="PTP Date" value={fmtDate(profile.collections.ptp_date)} />}
-            </>
-          )}
-          {profile.recovery_case && (
-            <>
-              <InfoPair label="Case Ref"   value={profile.recovery_case.case_ref} mono />
-              <InfoPair label="Status"     value={profile.recovery_case.status} />
-              <InfoPair label="Recovered"  value={fmtKobo(profile.recovery_case.recovered_kobo)} />
-              {profile.recovery_case.legal_stage && <InfoPair label="Legal Stage" value={profile.recovery_case.legal_stage} />}
-            </>
-          )}
+          <InfoGrid>
+            {profile.collections && (
+              <>
+                <InfoPair label="DPD" value={`${profile.collections.dpd}d (${profile.collections.dpd_bucket})`} />
+                <InfoPair label="Outstanding" value={fmtKoboExact(profile.collections.outstanding_kobo)} />
+                <InfoPair label="Collections Agent" value={profile.collections.agent_name ?? 'Unassigned'} />
+                {profile.collections.ptp_date && <InfoPair label="PTP Date" value={fmtDate(profile.collections.ptp_date)} />}
+              </>
+            )}
+            {profile.recovery_case && (
+              <>
+                <InfoPair label="Recovery Case" value={profile.recovery_case.case_ref} mono />
+                <InfoPair label="Recovery Status" value={profile.recovery_case.status} />
+                <InfoPair label="Recovery Agent" value={profile.recovery_case.agent_name ?? 'Unassigned'} />
+                <InfoPair label="Recovered"  value={fmtKoboExact(profile.recovery_case.recovered_kobo)} />
+                {profile.recovery_case.legal_stage && <InfoPair label="Legal Stage" value={profile.recovery_case.legal_stage} />}
+              </>
+            )}
+            {profile.last_payment && (
+              <InfoPair label="Last Payment" value={`${fmtNaira(profile.last_payment.amount)} · ${fmtDate(profile.last_payment.date)}`} />
+            )}
+          </InfoGrid>
         </SectionCard>
       )}
 
@@ -883,17 +1156,86 @@ function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOp
           </SectionCard>
         </div>
       )}
+
+      {(profile.payment_history?.length ?? 0) > 0 && (
+        <div style={{ gridColumn: '1 / -1' }}>
+          <SectionCard title="Payment History" subtitle="Repayments received — monthly cadence and detail">
+            {(profile.repayment_pattern?.length ?? 0) > 0 && (() => {
+              const pat = profile.repayment_pattern!
+              const max = Math.max(...pat.map(x => Number(x.amount) || 0), 1)
+              return (
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 62, marginBottom: 16, paddingTop: 4 }}>
+                  {pat.map((m, i) => (
+                    <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 0 }}>
+                      <div title={`${m.month}: ${fmtNaira(m.amount)} · ${m.count} payment${m.count === 1 ? '' : 's'}`}
+                        style={{ width: '100%', height: `${Math.max(3, ((Number(m.amount) || 0) / max) * 44)}px`, background: GREEN, borderRadius: 3 }} />
+                      <span style={{ fontSize: 8, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>{m.month}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {profile.payment_history!.slice(0, 20).map((p, i, arr) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 2px', borderBottom: i < arr.length - 1 ? '1px solid var(--bdr)' : 'none' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: `${GREEN}14`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: 15, color: GREEN }}>payments</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.description || 'Repayment'}</div>
+                    <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtDate(p.date)}{p.merchant ? ` · ${p.merchant}` : ''}</div>
+                  </div>
+                  <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: GREEN, flexShrink: 0 }}>+{fmtNaira(p.amount)}</div>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+        </div>
+      )}
     </div>
   )
 }
 
 function LoansTab({ profile }: { profile: ContactProfileData }) {
-  const hasContent = profile.applications.length > 0 || profile.active_loans.length > 0
+  const manual = profile.loans ?? []
+  const hasContent = profile.applications.length > 0 || profile.active_loans.length > 0 || manual.length > 0
   if (!hasContent) return (
     <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No loan applications or active loans found.</div>
   )
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {manual.length > 0 && (
+        <SectionCard title="Loan Repayment (uploaded)">
+          {manual.map((l, i) => (
+            <div key={i} style={{ padding: '12px 0', borderBottom: '1px solid var(--bdr)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>
+                  {l.mandate_id && l.mandate_id !== 'NO MANDATE' ? `Mandate ${l.mandate_id}` : 'Loan'}
+                </div>
+                <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+                  {[l.officer_name && `Officer: ${l.officer_name}`,
+                    l.tenor && `Tenor ${l.tenor}`,
+                    l.rate && `${l.rate}%`,
+                    l.debit_day && `Debit day ${l.debit_day}`,
+                    l.maturity_date && `Matures ${fmtDate(l.maturity_date)}`,
+                   ].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)' }}>
+                  {fmtKoboExact(l.outstanding_kobo ?? 0)}
+                </div>
+                {l.repayment_kobo != null && (
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Repay {fmtKoboExact(l.repayment_kobo)}</div>
+                )}
+                {l.dpd_bucket && l.dpd_bucket !== '0' && (
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: RED }}>DPD {l.dpd_bucket}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </SectionCard>
+      )}
       {profile.active_loans.length > 0 && (
         <SectionCard title="Active Loans">
           {profile.active_loans.map(l => (
@@ -904,7 +1246,7 @@ function LoansTab({ profile }: { profile: ContactProfileData }) {
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold, color: l.dpd > 0 ? RED : 'var(--txt)' }}>
-                  {fmtKobo(l.outstanding_kobo)}
+                  {fmtKoboExact(l.outstanding_kobo)}
                 </div>
                 {l.dpd > 0 && (
                   <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: RED, marginBottom: 2 }}>{l.dpd}d DPD</div>
@@ -925,7 +1267,7 @@ function LoansTab({ profile }: { profile: ContactProfileData }) {
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 4 }}>
-                  {fmtKobo(a.amount_requested_kobo)}
+                  {fmtKoboExact(a.amount_requested_kobo)}
                 </div>
                 <StagePill stage={a.stage} />
               </div>
@@ -951,7 +1293,28 @@ function CardsTab({ profile, onViewTransactions }: {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 18 }}>
         {profile.cards.map(c => (
-          <CardFace key={c.id} card={c} onClick={() => onViewTransactions(c.cif)} />
+          <div key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <CardFace card={c} onClick={() => onViewTransactions(c.cif)} />
+            <div style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: '12px 14px' }}>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Billing</div>
+              {([
+                ['Current Bill',  c.balance != null ? fmtNaira(c.balance) : '—'],
+                ['Bill Balance',  c.bill_balance != null ? fmtNaira(c.bill_balance) : '—'],
+                ['Min Payment',   c.min_payment != null ? fmtNaira(c.min_payment) : '—'],
+                ['Credit Limit',  c.credit_limit != null ? fmtNaira(c.credit_limit) : '—'],
+                ['Payment Due',   c.payment_due ? fmtDate(c.payment_due) : '—'],
+                ['Last Payment',  c.last_payment_amount != null ? `${fmtNaira(c.last_payment_amount)}${c.last_payment_date ? ' · ' + fmtDate(c.last_payment_date) : ''}` : '—'],
+              ] as [string, string][]).map(([label, val]) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '3px 0', fontSize: TEXT.sm }}>
+                  <span style={{ color: 'var(--txt2)' }}>{label}</span>
+                  <span style={{ ...NUM, color: 'var(--txt)', fontWeight: FW.medium }}>{val}</span>
+                </div>
+              ))}
+              {Number(c.days_overdue) > 0 && (
+                <div style={{ marginTop: 6, fontSize: TEXT.xs, fontWeight: FW.semibold, color: RED }}>{fmtNum(c.days_overdue)} days overdue</div>
+              )}
+            </div>
+          </div>
         ))}
       </div>
     </div>
@@ -976,9 +1339,9 @@ function FixedDepositsTab({ profile }: { profile: ContactProfileData }) {
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>{fmtKobo(f.principal_kobo)}</div>
+            <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>{fmtKoboExact(f.principal_kobo)}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-              {f.accrued_interest_kobo > 0 && <span style={{ fontSize: TEXT.xs, color: GREEN }}>+{fmtKobo(f.accrued_interest_kobo)} int</span>}
+              {f.accrued_interest_kobo > 0 && <span style={{ fontSize: TEXT.xs, color: GREEN }}>+{fmtKoboExact(f.accrued_interest_kobo)} int</span>}
               <Badge label={f.status} colour={statusColour(f.status)} />
             </div>
           </div>
@@ -996,11 +1359,11 @@ function CollectionsTab({ profile }: { profile: ContactProfileData }) {
   const dpdColour = c.dpd >= 90 ? '#7F1D1D' : c.dpd >= 60 ? RED : c.dpd >= 30 ? '#EA580C' : c.dpd > 0 ? AMBER : GREEN
   return (
     <SectionCard title="Collections Status">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginBottom: 16 }}>
         {[
           { label: 'DPD', value: `${c.dpd}d`, colour: dpdColour },
           { label: 'Bucket', value: c.dpd_bucket, colour: dpdColour },
-          { label: 'Outstanding', value: fmtKobo(c.outstanding_kobo), colour: 'var(--txt)' },
+          { label: 'Outstanding', value: fmtKoboExact(c.outstanding_kobo), colour: 'var(--txt)' },
           { label: 'Stage', value: c.current_stage ?? '—', colour: 'var(--txt)' },
         ].map(({ label, value, colour }) => (
           <div key={label} style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>
@@ -1024,11 +1387,11 @@ function RecoveryTab({ profile }: { profile: ContactProfileData }) {
   const net = r.outstanding_kobo - r.recovered_kobo
   return (
     <SectionCard title="Recovery Case">
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 16 }}>
         {[
-          { label: 'Outstanding', value: fmtKobo(r.outstanding_kobo), colour: RED },
-          { label: 'Recovered',   value: fmtKobo(r.recovered_kobo),   colour: GREEN },
-          { label: 'Net',         value: fmtKobo(net),                  colour: net > 0 ? RED : GREEN },
+          { label: 'Outstanding', value: fmtKoboExact(r.outstanding_kobo), colour: RED },
+          { label: 'Recovered',   value: fmtKoboExact(r.recovered_kobo),   colour: GREEN },
+          { label: 'Net',         value: fmtKoboExact(net),                  colour: net > 0 ? RED : GREEN },
         ].map(({ label, value, colour }) => (
           <div key={label} style={{ padding: '12px 14px', background: 'var(--th-bg)', borderRadius: RADIUS.md }}>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, marginBottom: 4 }}>{label}</div>
@@ -1040,7 +1403,7 @@ function RecoveryTab({ profile }: { profile: ContactProfileData }) {
       <InfoPair label="Status"       value={r.status} />
       <InfoPair label="Assigned To"  value={r.agent_name ?? 'Unassigned'} />
       {r.legal_stage && <InfoPair label="Legal Stage" value={r.legal_stage} />}
-      {r.write_off_amount_kobo > 0 && <InfoPair label="Written Off" value={fmtKobo(r.write_off_amount_kobo)} />}
+      {r.write_off_amount_kobo > 0 && <InfoPair label="Written Off" value={fmtKoboExact(r.write_off_amount_kobo)} />}
       <InfoPair label="Opened"       value={fmtDate(r.opened_at)} />
     </SectionCard>
   )
@@ -1107,12 +1470,36 @@ interface TimelineItem {
 
 const PURPOSE_STYLE: Record<string, { label: string; colour: string }> = {
   collections: { label: 'Collections', colour: AMBER },
+  recovery:    { label: 'Recovery',    colour: RED },
   marketing:   { label: 'Marketing',   colour: BLUE },
   support:     { label: 'Support',      colour: '#0891B2' },
   retention:   { label: 'Retention',    colour: GREEN },
   other:       { label: 'Other',        colour: 'var(--txt3)' },
+  // Interaction channels / purposes added to the unified timeline
+  email:       { label: 'Email',       colour: BLUE },
+  sms:         { label: 'SMS',         colour: '#0891B2' },
+  whatsapp:    { label: 'WhatsApp',    colour: '#25D366' },
+  phone:       { label: 'Phone',       colour: BLUE },
+  in_app:      { label: 'In-App',      colour: PURPLE },
+  statement:   { label: 'Statement',   colour: NAVY },
+  campaign:    { label: 'Campaign',    colour: PURPLE },
+  risk:        { label: 'Risk',        colour: '#DC2626' },
+  collections_payment: { label: 'Payment', colour: GREEN },
+  recovery_payment:    { label: 'Payment', colour: GREEN },
+  loan_repayment:      { label: 'Payment', colour: GREEN },
 }
-const KIND_ICON: Record<string, string> = { call: 'call', ticket: 'confirmation_number', collection: 'phone_in_talk' }
+const KIND_ICON: Record<string, string> = {
+  call: 'call', ticket: 'confirmation_number', collection: 'phone_in_talk', credit: 'account_balance',
+  message: 'forum', statement_email: 'receipt_long', campaign_email: 'campaign', campaign_sms: 'sms',
+  field_visit: 'pin_drop', payment: 'payments', activity: 'bolt',
+}
+
+// Activity-stream rows all arrive as kind 'activity'; their specific type comes on `purpose`
+// (handoff, decision, note, …), so pick the icon from that.
+const STREAM_ICON: Record<string, string> = {
+  handoff: 'swap_horiz', decision: 'gavel', note: 'sticky_note_2', document: 'description',
+  stage_change: 'trending_up', task: 'task_alt', email: 'mail', sms: 'sms', meeting: 'groups',
+}
 
 function fmtDur(s?: number | null): string {
   if (!s || s <= 0) return ''
@@ -1136,35 +1523,39 @@ function InteractionTimeline({ cif }: { cif: string }) {
   }, [cif])
 
   if (err) return (
-    <SectionCard title="Calls & Interactions">
+    <SectionCard title="All Interactions">
       <div style={{ fontSize: TEXT.sm, color: RED }}>Couldn’t load interactions: {err}</div>
     </SectionCard>
   )
   if (!items) return (
-    <SectionCard title="Calls & Interactions">
+    <SectionCard title="All Interactions">
       <div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}><Spinner size={20} /></div>
     </SectionCard>
   )
   if (items.length === 0) return (
-    <SectionCard title="Calls & Interactions">
-      <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No calls, tickets, or collections touches on record.</div>
+    <SectionCard title="All Interactions">
+      <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No interactions on record yet.</div>
     </SectionCard>
   )
 
   return (
-    <SectionCard title="Calls & Interactions" subtitle={`${items.length} most recent`}>
+    <SectionCard title="All Interactions" subtitle={`${items.length} most recent · calls, emails, tickets, visits, collections & payments`}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
         {items.map((it, i) => {
           const isLast  = i === items.length - 1
-          const icon    = KIND_ICON[it.kind] ?? 'history'
+          const icon    = it.kind === 'activity' ? (STREAM_ICON[it.purpose ?? ''] ?? 'bolt') : (KIND_ICON[it.kind] ?? 'history')
           const ps      = PURPOSE_STYLE[it.purpose ?? ''] ?? null
-          const dirIcon = it.direction === 'inbound' ? 'call_received'
-                        : it.direction === 'outbound' ? 'call_made' : null
+          const dirIcon = it.kind === 'call'
+                        ? (it.direction === 'inbound' ? 'call_received' : it.direction === 'outbound' ? 'call_made' : null)
+                        : null
           const dirLabel = it.direction === 'inbound' ? 'Inbound'
                          : it.direction === 'outbound' ? 'Outbound' : ''
-          // A call gets a direction-aware heading ("Call — Inbound"); other kinds
-          // keep their server-supplied title.
-          const heading = it.kind === 'call' ? `Call${dirLabel ? ': ' + dirLabel : ''}` : (it.title || it.kind)
+          // A call gets a direction-aware heading ("Call — Inbound"); a credit-audit
+          // row humanises its raw action ("promise_created" → "Promise Created");
+          // other kinds keep their server-supplied title.
+          const heading = it.kind === 'call' ? `Call${dirLabel ? ': ' + dirLabel : ''}`
+                        : it.kind === 'credit' ? (it.title || 'Credit activity').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                        : (it.title || it.kind)
           const result  = it.outcome || it.status || ''
           const dur     = fmtDur(it.duration_sec)
           return (
@@ -1307,15 +1698,401 @@ function SystemActivityList({ profile }: { profile: ContactProfileData }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+// ── Documents tab ─────────────────────────────────────────────────────────────
+// Renders every file collected on the customer's credit applications (KYC, payslips,
+// bank statements…), aggregated by CIF from los_documents. Images render inline, PDFs
+// in an iframe, anything else offers the original. Empty until an application is raised.
+
+interface DocRow {
+  id: number; doc_type: string; file_name: string; file_url: string
+  file_size_bytes: number | null; created_at: string
+  application_ref: string; product_type: string | null; uploaded_by_name: string | null
+}
+
+const DOC_TYPE_LABEL: Record<string, string> = {
+  id_card: 'ID Card', passport: 'Passport', utility_bill: 'Utility Bill',
+  bank_statement: 'Bank Statement', payslip: 'Payslip', employment_letter: 'Employment Letter',
+  signature: 'Signature', photo: 'Passport Photo', other: 'Other Document',
+}
+function docLabel(t: string) { return DOC_TYPE_LABEL[t] ?? t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }
+function isImageDoc(name: string) { return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name) }
+function isPdfDoc(name: string) { return /\.pdf$/i.test(name) }
+function fmtBytes(n: number | null) {
+  if (!n) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / 1048576).toFixed(1)} MB`
+}
+
+function DocumentsTab({ cif }: { cif: string }) {
+  const [docs, setDocs] = useState<DocRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [preview, setPreview] = useState<DocRow | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    apiFetch<{ data: DocRow[] }>(`/api/contacts/${cif}/documents`)
+      .then(r => setDocs(r.data ?? []))
+      .catch(() => setDocs([]))
+      .finally(() => setLoading(false))
+  }, [cif])
+
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: '50px 0' }}><Spinner size={26} /></div>
+
+  return (
+    <>
+      <SectionCard title="Documents" badge={docs.length}>
+        {docs.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '40px 16px', textAlign: 'center' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 38, color: 'var(--txt3)' }}>folder_open</span>
+            <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No documents on file</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', maxWidth: 380 }}>
+              KYC and supporting files uploaded on this customer's credit applications appear here.
+              None have been collected yet.
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+            {docs.map(d => (
+              <div key={d.id} onClick={() => setPreview(d)} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+                border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, cursor: 'pointer', background: 'var(--card)',
+              }}>
+                <div style={{ width: 38, height: 38, borderRadius: RADIUS.md, background: 'var(--chip-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 20, color: NAVY }}>{isImageDoc(d.file_name) ? 'image' : isPdfDoc(d.file_name) ? 'picture_as_pdf' : 'description'}</span>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{docLabel(d.doc_type)}</div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.application_ref}{d.file_size_bytes ? ` · ${fmtBytes(d.file_size_bytes)}` : ''}</div>
+                </div>
+                <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt3)' }}>visibility</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <Modal open={!!preview} onClose={() => setPreview(null)} title={preview ? docLabel(preview.doc_type) : ''} width={720} maxHeight="82vh">
+        {preview && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                {preview.file_name} · {preview.application_ref}{preview.uploaded_by_name ? ` · by ${preview.uploaded_by_name}` : ''}
+              </div>
+              <a href={preview.file_url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, textDecoration: 'none' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>open_in_new</span> Open original
+              </a>
+            </div>
+            {isImageDoc(preview.file_name) ? (
+              <img src={preview.file_url} alt={preview.file_name} style={{ maxWidth: '100%', maxHeight: '64vh', display: 'block', margin: '0 auto', borderRadius: RADIUS.md }} />
+            ) : isPdfDoc(preview.file_name) ? (
+              <iframe src={preview.file_url} title={preview.file_name} style={{ width: '100%', height: '64vh', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }} />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '50px 0', color: 'var(--txt2)' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 44, color: 'var(--txt3)' }}>description</span>
+                <div style={{ fontSize: TEXT.sm }}>Preview not available — use "Open original"</div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+    </>
+  )
+}
+
+// ── Concessions & Restructuring tab ─────────────────────────────────────────────
+
+interface Accommodation {
+  id: number; kind: string; concession_type: string | null; account_ref: string | null
+  amount_kobo: number | null
+  new_tenor_months: number | null; new_rate_bps: number | null
+  new_installment_kobo: number | null; new_maturity_date: string | null
+  reason: string; status: string
+  requested_by_name: string | null; requested_at: string
+  decided_by_name: string | null; decided_at: string | null; decision_note: string | null
+}
+
+const CONCESSION_TYPES = [
+  { value: 'interest_waiver',   label: 'Interest Waiver' },
+  { value: 'penalty_waiver',    label: 'Penalty Waiver' },
+  { value: 'partial_settlement', label: 'Partial Settlement' },
+  { value: 'payment_holiday',   label: 'Payment Holiday' },
+  { value: 'rate_reduction',    label: 'Rate Reduction' },
+  { value: 'other',             label: 'Other' },
+]
+
+function isCreditHead(): boolean {
+  try {
+    const u = JSON.parse(localStorage.getItem('o3c_user') || '{}')
+    return ['recovery_head', 'collections_head', 'risk_head', 'risk_all', 'admin', 'management', 'md', 'coo', 'head_recovery', 'head_collections'].includes(u.role)
+  } catch { return false }
+}
+
+const accStatusColor: Record<string, string> = { pending: AMBER, approved: GREEN, rejected: RED }
+
+function titleCase(s: string) { return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }
+
+function RequestAccommodationModal({ cif, open, onClose, onDone }: {
+  cif: string; open: boolean; onClose: () => void; onDone: () => void
+}) {
+  const [kind, setKind] = useState<'concession' | 'restructure'>('concession')
+  const [cType, setCType] = useState('interest_waiver')
+  const [amount, setAmount] = useState('')
+  const [accountRef, setAccountRef] = useState('')
+  const [tenor, setTenor] = useState('')
+  const [rate, setRate] = useState('')
+  const [installment, setInstallment] = useState('')
+  const [maturity, setMaturity] = useState('')
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function submit() {
+    if (!reason.trim() || saving) return
+    setSaving(true)
+    try {
+      await apiPost('/api/credit-accommodations', {
+        cif, account_ref: accountRef || null, kind, reason,
+        concession_type: kind === 'concession' ? cType : null,
+        amount_kobo: kind === 'concession' && amount ? Math.round(parseFloat(amount) * 100) : null,
+        new_tenor_months: kind === 'restructure' && tenor ? parseInt(tenor) : null,
+        new_rate_bps: kind === 'restructure' && rate ? Math.round(parseFloat(rate) * 100) : null,
+        new_installment_kobo: kind === 'restructure' && installment ? Math.round(parseFloat(installment) * 100) : null,
+        new_maturity_date: kind === 'restructure' && maturity ? maturity : null,
+      })
+      toast.success('Submitted for approval')
+      setReason(''); setAmount(''); setAccountRef(''); setTenor(''); setRate(''); setInstallment(''); setMaturity('')
+      onDone()
+    } catch (e: any) { toast.error(e.message ?? 'Failed to submit') } finally { setSaving(false) }
+  }
+
+  const inp = { ...filterInputStyle, height: 36, width: '100%' } as React.CSSProperties
+  const lbl = { fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 } as React.CSSProperties
+
+  return (
+    <Modal open={open} onClose={onClose} title="Request Concession / Restructure" width={520}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {(['concession', 'restructure'] as const).map(k => (
+            <button key={k} onClick={() => setKind(k)} style={{
+              flex: 1, padding: '8px', borderRadius: RADIUS.md, cursor: 'pointer',
+              border: `1px solid ${kind === k ? NAVY : 'var(--bdr)'}`,
+              background: kind === k ? NAVY : 'transparent', color: kind === k ? '#fff' : 'var(--txt2)',
+              fontSize: TEXT.sm, fontWeight: FW.semibold,
+            }}>{titleCase(k)}</button>
+          ))}
+        </div>
+        <div><label style={lbl}>Account / Loan Reference (optional)</label>
+          <input value={accountRef} onChange={e => setAccountRef(e.target.value)} placeholder="e.g. loan or card ref" style={inp} /></div>
+        {kind === 'concession' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+            <div><label style={lbl}>Concession Type</label>
+              <select value={cType} onChange={e => setCType(e.target.value)} style={inp}>
+                {CONCESSION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select></div>
+            <div><label style={lbl}>Amount (NGN)</label>
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="waiver / settlement" style={inp} /></div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+            <div><label style={lbl}>New Tenor (months)</label>
+              <input type="number" value={tenor} onChange={e => setTenor(e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>New Rate (% p.a.)</label>
+              <input type="number" value={rate} onChange={e => setRate(e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>New Installment (NGN)</label>
+              <input type="number" value={installment} onChange={e => setInstallment(e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>New Maturity</label>
+              <input type="date" value={maturity} onChange={e => setMaturity(e.target.value)} style={inp} /></div>
+          </div>
+        )}
+        <div><label style={lbl}>Reason *</label>
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} spellCheck={false}
+            placeholder="Why this accommodation is warranted…"
+            style={{ ...filterInputStyle, width: '100%', resize: 'vertical' }} /></div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={!reason.trim() || saving} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: (!reason.trim() || saving) ? 'not-allowed' : 'pointer', opacity: (!reason.trim() || saving) ? 0.6 : 1 }}>Submit for Approval</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function ConcessionsTab({ cif }: { cif: string }) {
+  const [rows, setRows] = useState<Accommodation[]>([])
+  const [loading, setLoading] = useState(true)
+  const [open, setOpen] = useState(false)
+  const isHead = isCreditHead()
+
+  const load = () => {
+    setLoading(true)
+    apiFetch<{ data: Accommodation[] }>(`/api/credit-accommodations?cif=${encodeURIComponent(cif)}`)
+      .then(r => setRows(r.data ?? [])).catch(() => setRows([])).finally(() => setLoading(false))
+  }
+  useEffect(load, [cif])
+
+  async function decide(id: number, outcome: 'approve' | 'reject') {
+    try {
+      await apiPut(`/api/credit-accommodations/${id}/${outcome}`, {})
+      toast.success(outcome === 'approve' ? 'Approved' : 'Rejected')
+      load()
+    } catch (e: any) { toast.error(e.message ?? 'Failed') }
+  }
+
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: '50px 0' }}><Spinner size={26} /></div>
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Concessions (waivers / settlements) and restructures raised on this customer's credit.</div>
+        <button onClick={() => setOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>New Concession / Restructure
+        </button>
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '46px 16px', textAlign: 'center' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 38, color: 'var(--txt3)' }}>handshake</span>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No concessions or restructures yet</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', maxWidth: 360 }}>Raise one to waive/settle a balance or re-term the facility. It goes to a head for approval before taking effect.</div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {rows.map(a => (
+            <div key={a.id} style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: '14px 16px', background: 'var(--card)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>{titleCase(a.kind)}{a.concession_type ? ` · ${titleCase(a.concession_type)}` : ''}</span>
+                  <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 9px', borderRadius: RADIUS['2xl'], background: `${accStatusColor[a.status] ?? NAVY}18`, color: accStatusColor[a.status] ?? NAVY }}>{titleCase(a.status)}</span>
+                </div>
+                {a.status === 'pending' && isHead && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => decide(a.id, 'approve')} style={{ padding: '4px 12px', borderRadius: RADIUS.sm, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Approve</button>
+                    <button onClick={() => decide(a.id, 'reject')} style={{ padding: '4px 12px', borderRadius: RADIUS.sm, border: `1px solid ${RED}40`, background: 'transparent', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Reject</button>
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: SP[4], flexWrap: 'wrap', fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: 6 }}>
+                {a.amount_kobo != null && <span>Amount <strong style={{ ...NUM, color: 'var(--txt)' }}>{fmtKoboExact(a.amount_kobo)}</strong></span>}
+                {a.new_tenor_months != null && <span>Tenor <strong style={{ color: 'var(--txt)' }}>{a.new_tenor_months}m</strong></span>}
+                {a.new_rate_bps != null && <span>Rate <strong style={{ color: 'var(--txt)' }}>{(a.new_rate_bps / 100).toFixed(1)}%</strong></span>}
+                {a.new_installment_kobo != null && <span>Installment <strong style={{ ...NUM, color: 'var(--txt)' }}>{fmtKoboExact(a.new_installment_kobo)}</strong></span>}
+                {a.new_maturity_date && <span>Maturity <strong style={{ color: 'var(--txt)' }}>{fmtDate(a.new_maturity_date)}</strong></span>}
+                {a.account_ref && <span>Ref <strong style={{ color: 'var(--txt)' }}>{a.account_ref}</strong></span>}
+              </div>
+              {a.reason && <div style={{ fontSize: TEXT.sm, color: 'var(--txt)', marginBottom: 4 }}>{a.reason}</div>}
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                Requested by {a.requested_by_name ?? '—'} · {fmtDate(a.requested_at)}
+                {a.status !== 'pending' && a.decided_by_name ? ` · ${titleCase(a.status)} by ${a.decided_by_name}${a.decided_at ? ' · ' + fmtDate(a.decided_at) : ''}` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <RequestAccommodationModal cif={cif} open={open} onClose={() => setOpen(false)} onDone={() => { setOpen(false); load() }} />
+    </>
+  )
+}
+
+// Core-banking account activity — the live Udara posting ledger (disbursements,
+// repayments, interest, fees) resolved across the customer's accounts. This is real
+// money movement the card feed (app.transactions) never carries.
+function AccountStatementTab({ cif }: { cif: string }) {
+  const iso = (dt: Date) => dt.toISOString().slice(0, 10)
+  const [from, setFrom] = useState(() => iso(new Date(Date.now() - 90 * 86400000)))
+  const [to, setTo]     = useState(() => iso(new Date()))
+  const [data, setData] = useState<{ accounts: { account: string; name: string }[]; postings: any[]; count: number } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr]   = useState<string | null>(null)
+
+  useEffect(() => {
+    let live = true
+    setLoading(true); setErr(null)
+    apiFetch<any>(`/api/cbs/customer/${cif}/statement?from=${from}&to=${to}`)
+      .then(r => { if (live) setData(r) })
+      .catch(e => { if (live) setErr(e?.message || 'Failed to load account activity') })
+      .finally(() => { if (live) setLoading(false) })
+    return () => { live = false }
+  }, [cif, from, to])
+
+  const postings   = data?.postings ?? []
+  const multiAcct  = (data?.accounts?.length ?? 0) > 1
+
+  return (
+    <SectionCard
+      title="Core Banking Account Activity"
+      subtitle="Live posting ledger from Udara — disbursements, repayments, interest & fees"
+      actions={
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={filterInputStyle} />
+          <span style={{ color: 'var(--txt3)', fontSize: TEXT.xs }}>→</span>
+          <input type="date" value={to} min={from} onChange={e => setTo(e.target.value)} style={filterInputStyle} />
+        </div>
+      }
+    >
+      {data?.accounts?.length ? (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+          {data.accounts.map(a => (
+            <span key={a.account} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt2)', background: 'var(--chip-bg)', border: '1px solid var(--bdr)', borderRadius: 99, padding: '4px 11px' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14, color: NAVY }}>account_balance</span>
+              {a.name || 'Account'} <span style={{ ...NUM, color: 'var(--txt3)' }}>{a.account}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}><Spinner size={18} color={NAVY} /></div>
+      ) : err ? (
+        <div style={{ padding: '30px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>{err}</div>
+      ) : postings.length === 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '40px 16px', textAlign: 'center' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 30, color: 'var(--txt3)' }}>receipt_long</span>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No postings in this window</div>
+          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', maxWidth: 320 }}>No core-banking account movement between the selected dates.</div>
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--bdr)' }}>
+                {['Value date', 'Description', 'Debit', 'Credit', 'Balance'].map((h, i) => (
+                  <th key={h} style={{ textAlign: i > 1 ? 'right' : 'left', padding: '9px 12px', fontSize: TEXT['2xs'], textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--txt3)', fontWeight: FW.bold, whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {postings.map((p, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--bdr)' }}>
+                  <td style={{ padding: '9px 12px', whiteSpace: 'nowrap', color: 'var(--txt2)', ...NUM }}>{fmtDate(p.financial_date)}</td>
+                  <td style={{ padding: '9px 12px', color: 'var(--txt)' }}>
+                    {p.narration || '—'}
+                    {multiAcct && p.account ? <span style={{ ...NUM, fontSize: TEXT['2xs'], color: 'var(--txt3)', marginLeft: 6 }}>·{String(p.account).slice(-4)}</span> : null}
+                    {p.reference ? <span style={{ ...NUM, fontSize: TEXT['2xs'], color: 'var(--txt3)', marginLeft: 6 }}>#{p.reference}</span> : null}
+                  </td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', ...NUM, color: p.debit_kobo > 0 ? RED : 'var(--txt3)', whiteSpace: 'nowrap' }}>{p.debit_kobo > 0 ? fmtKoboExact(p.debit_kobo) : '—'}</td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', ...NUM, color: p.credit_kobo > 0 ? GREEN : 'var(--txt3)', whiteSpace: 'nowrap' }}>{p.credit_kobo > 0 ? fmtKoboExact(p.credit_kobo) : '—'}</td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', ...NUM, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{fmtKoboExact(p.balance_kobo)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </SectionCard>
+  )
+}
+
 const TABS = [
   { key: 'overview',    label: 'Overview' },
   { key: 'loans',       label: 'Loans & Applications' },
   { key: 'fixed_deposits', label: 'Fixed Deposits' },
   { key: 'cards',       label: 'Cards' },
   { key: 'transactions', label: 'Transactions' },
+  { key: 'statement',   label: 'Account Activity' },
   { key: 'collections', label: 'Collections' },
   { key: 'recovery',    label: 'Recovery' },
   { key: 'helpdesk',    label: 'Helpdesk' },
+  { key: 'concessions', label: 'Concessions' },
+  { key: 'documents',   label: 'Documents' },
   { key: 'activity',    label: 'Activity' },
 ]
 
@@ -1336,6 +2113,46 @@ export default function ContactProfile() {
     setCardCif(cif)
     setTab('transactions')
   }, [])
+
+  // Only surface tabs the customer actually has data for. Keeps the bar short (it was
+  // 12 tabs and overflowed small screens) and means a loan-only customer isn't shown
+  // Cards/FD/Recovery tabs that would just be empty. Overview + Activity are always on.
+  const visibleTabs = useMemo(() => {
+    const p = profile
+    if (!p) return TABS
+    const has = {
+      loans:       (p.active_loans?.length ?? 0) + (p.applications?.length ?? 0) + (p.loans?.length ?? 0) > 0,
+      fds:         (p.fixed_deposits?.length ?? 0) > 0,
+      cards:       (p.cards?.length ?? 0) > 0,
+      txns:        (p.summary?.txn_count ?? 0) > 0 || (p.cards?.length ?? 0) > 0,
+      collections: !!p.collections || p.is_delinquent,
+      recovery:    !!p.recovery_case || p.is_in_recovery,
+      helpdesk:    (p.helpdesk_tickets?.length ?? 0) > 0,
+      credit:      (p.cards?.length ?? 0) > 0 || (p.active_loans?.length ?? 0) > 0 || (p.loans?.length ?? 0) > 0,
+    }
+    return TABS.filter(t => {
+      switch (t.key) {
+        case 'overview': case 'activity': return true
+        case 'loans':          return has.loans
+        case 'fixed_deposits': return has.fds
+        case 'cards':          return has.cards
+        case 'transactions':   return has.txns
+        case 'statement':      return has.cards
+        case 'collections':    return has.collections
+        case 'recovery':       return has.recovery
+        case 'helpdesk':       return has.helpdesk
+        case 'concessions':    return has.credit
+        case 'documents':      return has.credit
+        default:               return true
+      }
+    })
+  }, [profile])
+
+  // If the active tab is no longer visible (e.g. after loading a customer without it),
+  // fall back to Overview.
+  useEffect(() => {
+    if (!visibleTabs.some(t => t.key === tab)) setTab('overview')
+  }, [visibleTabs, tab])
 
   const load = useCallback(async (silent = false) => {
     if (!key) return
@@ -1408,7 +2225,7 @@ export default function ContactProfile() {
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
             <h1 style={{ margin: 0, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: '#fff', fontFamily: SORA }}>{profile.name || 'Unknown Customer'}</h1>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.sm, color: 'rgba(255,255,255,0.6)', fontWeight: FW.semibold }}>{profile.cif}</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.sm, color: 'rgba(255,255,255,0.6)', fontWeight: FW.semibold }}>{profile.customer_id ?? profile.cif}</span>
           </div>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
             {([['call', profile.phone], ['mail', profile.email], ['location_on', profile.state], ['work', profile.employer]] as [string, string | undefined][])
@@ -1418,6 +2235,8 @@ export default function ContactProfile() {
               </span>
             ))}
           </div>
+          {/* The customer's status badges live here on the blue overview */}
+          <HeroStatusBadges profile={profile} />
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
@@ -1438,14 +2257,11 @@ export default function ContactProfile() {
       {/* Relationship KPIs */}
       <KpiStrip profile={profile} />
 
-      {/* Lifecycle bar */}
-      <div style={{ marginBottom: 20 }}>
-        <LifecycleBar profile={profile} />
-      </div>
+      <div style={{ marginBottom: 20 }} />
 
       {/* Tabs */}
       <div style={{ marginBottom: 16 }}>
-        <Tabs tabs={TABS} active={tab} onChange={setTab} />
+        <Tabs tabs={visibleTabs} active={tab} onChange={setTab} />
       </div>
 
       {tab === 'overview'    && <OverviewTab    profile={profile} onOpenTab={setTab} />}
@@ -1453,9 +2269,12 @@ export default function ContactProfile() {
       {tab === 'fixed_deposits' && <FixedDepositsTab profile={profile} />}
       {tab === 'cards'       && <CardsTab       profile={profile} onViewTransactions={openCardTransactions} />}
       {tab === 'transactions' && <TransactionsTab profile={profile} cardCif={cardCif} onCardCif={setCardCif} />}
+      {tab === 'statement'   && <AccountStatementTab cif={profile.cif} />}
       {tab === 'collections' && <CollectionsTab profile={profile} />}
       {tab === 'recovery'    && <RecoveryTab    profile={profile} />}
       {tab === 'helpdesk'    && <HelpdeskTab    profile={profile} />}
+      {tab === 'concessions' && <ConcessionsTab  cif={profile.cif} />}
+      {tab === 'documents'   && <DocumentsTab   cif={profile.cif} />}
       {tab === 'activity'    && <ActivityTab    profile={profile} cif={profile.cif} />}
     </Page>
   )

@@ -131,6 +131,8 @@ export default function SettlementRuns() {
     <Page
       title="Runs & Imports"
       subtitle="Every reconciliation, sync and file import — who ran it, when, and what it produced"
+      loading={loading && !data}
+      skeletonKpis={4}
       actions={
         <Button variant="secondary" icon="refresh" onClick={load}>Refresh</Button>
       }

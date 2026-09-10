@@ -190,6 +190,8 @@ export default function ReconWorkbench() {
     <Page
       title="Recon Workbench"
       subtitle="Reconcile a settlement source against the ledger, then work what didn't match"
+      loading={loading && runs.length === 0}
+      skeletonKpis={4}
       actions={<Button icon="play_arrow" onClick={() => setRunOpen(true)}>Run reconciliation</Button>}
     >
       <ErrBanner error={error} onRetry={loadRuns} />

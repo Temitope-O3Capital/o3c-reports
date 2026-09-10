@@ -807,7 +807,7 @@ function InterswitchTab({ from, to }: { from: string; to: string }) {
           <StatusBadge status={data?.has_data ? 'EOD Uploaded' : 'No EOD Uploaded'} />
           <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Reconciled from your uploaded Interswitch EOD (no live API)</span>
         </div>
-        <a href="/settlements/interswitch/import" style={btn(NAVY, '#fff')}>
+        <a href="/reports/uploads/interswitch" style={btn(NAVY, '#fff')}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>upload_file</span>
           Upload EOD
         </a>
@@ -819,7 +819,7 @@ function InterswitchTab({ from, to }: { from: string; to: string }) {
           <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 4px' }}>No Interswitch EOD uploaded for {from} → {to}</p>
           <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: '0 0 16px' }}>Upload the Interswitch EOD file to reconcile it against the internal ledger.</p>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-            <a href="/settlements/interswitch/import" style={btn(NAVY, '#fff')}>Import EOD</a>
+            <a href="/reports/uploads/interswitch" style={btn(NAVY, '#fff')}>Import EOD</a>
             <a href="/settlements/interswitch" style={btn('transparent', 'var(--txt)')}>View Interswitch Summary</a>
           </div>
         </div>

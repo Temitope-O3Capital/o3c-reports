@@ -163,7 +163,7 @@ function TemplateForm({ open, editing, onClose, onSaved }: TemplateFormProps) {
         <div>
           <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Description</label>
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={description} onChange={e => setDescription(e.target.value)} placeholder="When is this template used?" rows={2}
-            style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: "'Sora', sans-serif" }} />
+            style={{ ...inputStyle, height: 'auto', padding: '8px 10px', resize: 'vertical', fontFamily: "var(--font-sans)" }} />
         </div>
 
         <div style={{ padding: '12px 14px', borderRadius: RADIUS.lg, background: 'var(--th-bg)', display: 'flex', gap: SP[2], fontSize: TEXT.sm, color: 'var(--txt2)', alignItems: 'flex-start' }}>
@@ -300,6 +300,7 @@ export default function WorkflowTemplates() {
     <Page
       title="Workflow Templates"
       subtitle="Configure approval chains for manual postings: who gets notified, who approves, who posts"
+      loading={loading && templates.length === 0}
       actions={
         <button onClick={() => { setEditing(null); setFormOpen(true) }} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>

@@ -5,9 +5,8 @@ import type { TableCol } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKobo, fmtNum, fmtPct } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
-} from 'recharts'
+import { EChart, baseTooltip, tipCard, axisCat, axisVal, CHART_FONT } from '../../components/echarts'
+import type { ChartTokens } from '../../components/echarts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -164,17 +163,29 @@ export default function Attribution() {
         <>
           {disbChart.length > 0 && (
             <SectionCard title="Attributed Disbursement by Campaign" subtitle="Top campaigns by ₦ originated" style={{ marginBottom: 14 }}>
-              <ResponsiveContainer width="100%" height={Math.max(160, disbChart.length * 34)}>
-                <BarChart data={disbChart} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" horizontal={false} />
-                  <XAxis type="number" tickFormatter={v => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : `${v}`} tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt2)' }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="name" width={160} tick={{ fontSize: TEXT.xs, fill: 'var(--txt2)' }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(v: any) => fmtKobo(Number(v))} contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)' }} cursor={{ fill: 'var(--row-hvr)' }} />
-                  <Bar dataKey="kobo" name="Attributed ₦" radius={[0, 4, 4, 0]}>
-                    {disbChart.map((_, i) => <Cell key={i} fill={NAVY} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <EChart
+                height={Math.max(160, disbChart.length * 34)}
+                option={(t: ChartTokens) => {
+                  const axisFmt = (v: number) => v >= 1_000_000_00 ? `₦${(v / 1_000_000_00).toFixed(0)}m` : v >= 1_000_00 ? `₦${(v / 1_000_00).toFixed(0)}k` : `${v}`
+                  return {
+                    grid: { top: 4, right: 16, bottom: 4, left: 8, containLabel: true },
+                    tooltip: {
+                      trigger: 'axis',
+                      axisPointer: { type: 'shadow', shadowStyle: { color: t.rowHvr, opacity: 0.5 } },
+                      ...baseTooltip(t),
+                      formatter: (ps: any[]) => tipCard(t, String(ps[0].axisValue), [{ color: ps[0].color, value: fmtKobo(Number(ps[0].value)) }]),
+                    },
+                    xAxis: axisVal(t, axisFmt),
+                    yAxis: { ...axisCat(t, disbChart.map(d => d.name)), inverse: true, axisLabel: { color: t.txt2, fontSize: 11, fontFamily: CHART_FONT, interval: 0 } },
+                    series: [{
+                      type: 'bar', name: 'Attributed ₦', barMaxWidth: 26,
+                      itemStyle: { color: NAVY, borderRadius: [0, 4, 4, 0] },
+                      data: disbChart.map(d => Number(d.kobo)),
+                    }],
+                    animationDuration: 700,
+                  }
+                }}
+              />
             </SectionCard>
           )}
 

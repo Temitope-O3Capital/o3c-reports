@@ -140,12 +140,14 @@ func exportValue(v any, t exportColType) string {
 			return ts.Format("2006-01-02")
 		}
 	case colDateTime:
+		// Normalised, human-readable timestamp (no T/Z/microseconds) in the value's own
+		// zone — the DB session is Africa/Lagos, so this reads as local time.
 		if ts, ok := v.(time.Time); ok {
-			return ts.UTC().Format(time.RFC3339)
+			return ts.Format("2006-01-02 15:04:05")
 		}
 	}
 	if ts, ok := v.(time.Time); ok {
-		return ts.UTC().Format(time.RFC3339)
+		return ts.Format("2006-01-02 15:04:05")
 	}
 	return fmt.Sprintf("%v", v)
 }

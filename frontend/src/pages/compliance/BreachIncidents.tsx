@@ -174,6 +174,8 @@ export default function BreachIncidents() {
     <Page
       title="Data Breach Incidents"
       subtitle="Track and manage NDPC-notifiable data breaches within the 72-hour window"
+      loading={loading && items.length === 0}
+      skeletonKpis={3}
       actions={
         <button onClick={() => setAddOpen(true)} style={btnPrimary}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>report</span>

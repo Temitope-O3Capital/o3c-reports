@@ -182,6 +182,7 @@ export default function RegulatoryCalendar() {
     <Page
       title="Regulatory Calendar"
       subtitle="CBN, NDIC, and regulatory submission deadlines"
+      loading={loading && rawItems.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />

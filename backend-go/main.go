@@ -103,12 +103,29 @@ func main() {
 	// call-back comes due (in-app bell + email), exactly once per callback.
 	go handlers.StartCallbackReminderWorker(db)
 
+	// Lead advance — every 2 minutes, move a lead off 'pending' when its NUMBER has a
+	// newer call, so a call that arrived without a lead_id (Zoho Voice, the Call Log
+	// page, the queue — 97% of calls) still advances the lead instead of leaving it
+	// stuck as "never called". Backfills on boot.
+	go handlers.StartLeadAdvanceWorker(db)
+
+	// AI assistant warm-up — load the model and prime its prefix cache now, so the
+	// first person to ask a question after a restart does not pay a 17s model load
+	// plus a 28s preamble prefill on top of their answer.
+	handlers.StartAssistantWarmer()
+
 	// Birthday worker — fires daily at 08:00.
 	go handlers.ScheduleBirthdayWorker(db)
 
 	// Account alert worker — fires daily at 08:00 to notify Sales AMs about
 	// upcoming loan repayments, past-due loans, and FD maturities.
 	go handlers.ScheduleAccountAlerts(db)
+
+	// Recovery auto-escalation — daily at 02:00, opens recovery cases for any account
+	// that has crossed 90 DPD and isn't already in recovery, moving it out of the
+	// collections queue. Manual hand-off (Generate Cases, Add Customer, per-account
+	// Send to Recovery) works alongside it.
+	go handlers.ScheduleRecoveryEscalation(db)
 
 	// NDPR erasure worker — processes approved erasure DSARs daily at midnight.
 	go handlers.StartNDPRErasureWorker(db)
@@ -118,6 +135,10 @@ func main() {
 
 	// Zoho Desk — import call logs at startup then hourly so the Call Center stays current.
 	go handlers.StartZohoAutoSync(db)
+
+	// Pre-download recent calls' voice recordings into local storage (and purge old
+	// ones) so playback is instant instead of depending on a live, lately-slow Zoho fetch.
+	go handlers.StartRecordingPrefetch(db)
 
 	// Zoho Desk — import the newest tickets every hour so the helpdesk queue stays fresh.
 	go handlers.StartZohoDeskAutoSync(db)
@@ -135,6 +156,14 @@ func main() {
 	// acquisition figure in Sales & CRM understates reality.
 	go handlers.StartCustomerFeedWorker(db)
 
+	// Account & card-family feeds — ingest the 15-minute acct_file / cardfam_file drops.
+	// acct_file refreshes app.accounts (balances, limits, status) past the baseline
+	// snapshot; cardfam_file is tracked (its layout is undecoded until it first carries
+	// data). The transaction stream is handled separately once its dedup is in place.
+	go handlers.StartAccountFeedWorker(db)
+	go handlers.StartTxnFeedWorker(db)
+	go handlers.StartCardfamFeedWorker(db)
+
 	// Phoenix — drain the credit-decisioning submission queue every 30s. Submission is
 	// queued rather than done inline so a Phoenix restart or a slow decision can never
 	// fail a risk officer's click or drop an application. Idles until PHOENIX_BASE_URL
@@ -147,9 +176,25 @@ func main() {
 	// report on; the settlement pages can only proxy the live API.
 	go handlers.StartPaystackSyncWorker(db)
 
+	// AppsFlyer — mirror the "Blink by O3" mobile acquisition feed (installs, media
+	// source, campaigns, spend and the signup→onboarding funnel) into local snapshot
+	// tables every APPSFLYER_SYNC_INTERVAL (default 6h). Outbound-only poll of the
+	// Aggregate Pull API; idles until APPSFLYER_API_TOKEN is set, so it is safe to
+	// run before a token lands.
+	go handlers.StartAppsFlyerSyncWorker(db)
+
 	// Mail bounce monitor — poll SendGrid every 30m and alert admins about
 	// recipients whose mail bounced (e.g. an @o3cards.com mailbox that doesn't exist).
 	handlers.StartBounceMonitor(db)
+
+	// Survey dispatch — every 20s, mail any 'queued' survey invitations (customer
+	// feedback surveys). Nothing sends until an admin dispatches a survey.
+	go handlers.StartSurveyDispatchWorker(db)
+
+	// Scheduled reports — every minute, deliver any Report Builder report whose
+	// schedule has come due: run the pivot live, render it to CSV/XLSX and email
+	// it to the recipients, then roll next_run_at forward.
+	go handlers.StartReportScheduleWorker(db)
 
 	// DB14: TTL enforcement — nightly cleanup of expired short-lived rows.
 	go func() {
@@ -305,6 +350,18 @@ func main() {
 		})
 	})
 
+	// Surveys / customer feedback: public token endpoints (/r/{token}) sit outside
+	// auth so customers can respond from an email link; admin CRUD + results are
+	// authenticated and page-gated inside the group.
+	r.Route("/api/surveys", func(r chi.Router) {
+		handlers.RegisterSurveysPublic(r, db)
+		r.Group(func(r chi.Router) {
+			r.Use(core.AuthMiddleware)
+			r.Use(activityLogger(activityCh, auditCh))
+			handlers.RegisterSurveys(r, db)
+		})
+	})
+
 	// WhatsApp inbound webhook (Meta Cloud API — no JWT)
 	r.Route("/api/whatsapp", func(r chi.Router) {
 		handlers.RegisterWhatsAppPublic(r, db)
@@ -354,6 +411,11 @@ func main() {
 		handlers.RegisterEvents(r, db)
 	})
 
+	// Care mail inline-image proxy — public route, authed by the same short-lived
+	// ticket as SSE (an <img> tag can't send the JWT header). Streams Zoho Desk
+	// inline email images with our OAuth token so they stop rendering broken.
+	r.Get("/api/helpdesk/mail/inline-image", handlers.HdMailInlineImage(db))
+
 	r.Route("/api/notifications", func(r chi.Router) {
 		handlers.RegisterNotificationsSSE(r, db)
 		r.Group(func(r chi.Router) {
@@ -382,6 +444,7 @@ func main() {
 			handlers.RegisterSales(r, db)
 			handlers.RegisterSalesBook(r, db)         // the account officer's book of customers
 			handlers.RegisterSalesLeads(r, db)        // lead capture and lifecycle
+			handlers.RegisterSalesTeams(r, db)        // flexible head→officers team model
 			handlers.RegisterSalesOverview(r, db)     // the team lead's dashboard
 			handlers.RegisterSalesApplications(r, db) // raise loan/card applications for a customer
 		})
@@ -405,6 +468,9 @@ func main() {
 		r.Get("/api/modules", handlers.GetEnabledModules(db))
 		r.Route("/api", func(r chi.Router) {
 			handlers.RegisterRecipientSuggest(r, db)
+			// Activity stream — cross-team, authed for any staff (each activity is tied
+			// to a customer/lead the caller is already working). No single page gate fits.
+			handlers.RegisterActivities(r, db)
 		})
 		r.Route("/api/user", func(r chi.Router) {
 			handlers.RegisterNotificationPrefs(r, db)
@@ -436,6 +502,14 @@ func main() {
 			r.Use(core.RequirePages("call_center"))
 			handlers.RegisterQA(r, db)
 		})
+		// AI assistant — deliberately NOT gated by a single page key here. Each tool
+		// in handlers/assistant.go carries its own page requirement and re-checks it
+		// at execution time, so a user only ever reaches data they could have opened
+		// directly. One gate here would be either too broad, or would lock out staff
+		// who should be able to ask about their own module.
+		r.Route("/api/assistant", func(r chi.Router) {
+			handlers.RegisterAssistant(r, db)
+		})
 		r.Route("/api/campaigns", func(r chi.Router) {
 			r.Use(bdReadOnly)
 			handlers.RegisterCampaigns(r, db)
@@ -457,6 +531,10 @@ func main() {
 			handlers.RegisterPaystackSync(r, db)
 			handlers.RegisterPaystackOps(r, db)
 		})
+		r.Route("/api/appsflyer", func(r chi.Router) {
+			handlers.RegisterAppsFlyer(r, db)     // acquisition read API (Marketing → Acquisition)
+			handlers.RegisterAppsFlyerSync(r, db) // sync trigger + status
+		})
 		r.Route("/api/recon", func(r chi.Router) {
 			handlers.RegisterRecon(r, db)
 		})
@@ -471,9 +549,8 @@ func main() {
 		r.Route("/api/uploads", func(r chi.Router) {
 			handlers.RegisterUploads(r, db)
 		})
-		r.Route("/api/eod", func(r chi.Router) {
-			handlers.RegisterEOD(r, db)
-		})
+		// EOD is now a DERIVED report (see /api/finance/eod). The old upload-based
+		// /api/eod surface wrote to tables that were never created; it is retired.
 		r.Route("/api/credit-portfolio", func(r chi.Router) {
 			handlers.RegisterCreditPortfolio(r, db)
 		})
@@ -488,9 +565,6 @@ func main() {
 		})
 		r.Route("/api/finance", func(r chi.Router) {
 			handlers.RegisterFinance(r, db)
-			r.Get("/fx-rates/latest", handlers.FXRatesLatest(db))
-			r.Get("/fx-rates/history", handlers.FXRatesHistory(db))
-			r.Post("/fx-rates/refresh", handlers.FXRatesRefresh(db))
 		})
 		r.Route("/api/settlements", func(r chi.Router) {
 			handlers.RegisterSettlementOps(r, db)
@@ -533,6 +607,10 @@ func main() {
 		r.Route("/api/recovery-ops", func(r chi.Router) {
 			handlers.RegisterRecoveryOps(r, db)
 		})
+		// Concessions & restructuring for credit accounts (request → head approval).
+		r.Route("/api/credit-accommodations", func(r chi.Router) {
+			handlers.RegisterCreditAccommodations(r, db)
+		})
 		r.Route("/api/approvals", func(r chi.Router) {
 			handlers.RegisterApprovals(r, db)
 		})
@@ -558,6 +636,11 @@ func main() {
 		r.Route("/api/bi", func(r chi.Router) {
 			handlers.RegisterBI(r, db)
 		})
+		// Customer Growth & Activity monitor — registrations, transaction activity
+		// and churn. Access is gated per-endpoint (management + operating teams).
+		r.Route("/api/growth", func(r chi.Router) {
+			handlers.RegisterGrowth(r, db)
+		})
 		r.Route("/api/cbs", func(r chi.Router) {
 			handlers.RegisterCoreBanking(r, cbsClient)
 			handlers.RegisterCBSSync(r, cbsClient, db)
@@ -566,6 +649,9 @@ func main() {
 		})
 		r.Route("/api/customer-feed", func(r chi.Router) {
 			handlers.RegisterCustomerFeed(r, db)
+		})
+		r.Route("/api/feed", func(r chi.Router) {
+			handlers.RegisterFeedWorkers(r, db)
 		})
 		r.Route("/api/cc-statements", func(r chi.Router) {
 			handlers.RegisterCCStatements(r, db)

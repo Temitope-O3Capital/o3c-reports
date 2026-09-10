@@ -594,6 +594,7 @@ export default function BDMyDashboard() {
     <Page
       title="My Workspace"
       subtitle="Your BD station: employers, referral pipeline and monthly activity"
+      loading={loading && !data}
       actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
     >
       <ErrBanner error={error} onRetry={load} />

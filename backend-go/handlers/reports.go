@@ -23,6 +23,7 @@ func RegisterReports(r chi.Router, db *core.DB) {
 	r.With(read).Post("/customer-statement/send", sendCustomerStatementEmail(db))
 	r.With(read).Get("/customer-statement/emails", listStatementEmails(db))
 	r.With(read).Get("/npl-return", reportNPLReturn(db))
+	r.With(read).Get("/sales-pipeline", reportSalesPipeline(db))
 	r.With(audit).Get("/audit-trail-export", reportAuditTrailExport(db))
 	// The KPI Tracker is a dashboard, not an extract, and every operational head
 	// holds kpi_dashboard. Narrowing "reports" to the BI team would otherwise have
@@ -35,6 +36,10 @@ func RegisterReports(r chi.Router, db *core.DB) {
 	// The centralised export engine: dataset registry, preview and download.
 	// Every file the workspace emits comes from here — see handlers/exports.go.
 	RegisterExports(r, db)
+
+	// Saved + scheduled pivot reports for the drag-and-drop Report Builder —
+	// see handlers/reports_saved.go (persistence, on-demand email, schedules).
+	RegisterSavedReports(r, db)
 
 	// Rollup health and manual triggers — the reporting layer's own plumbing.
 	RegisterReportingRollups(r, db)
@@ -62,6 +67,9 @@ func reportsList(db *core.DB) http.HandlerFunc {
 			// Customers
 			{"key": "customer-acquisition", "group": "Customers", "name": "Customer Acquisition Report",
 				"description": "New customers by month, first product and state, counted by first account opened"},
+			// Sales
+			{"key": "sales-pipeline", "group": "Sales", "name": "Sales Pipeline & Attribution Report",
+				"description": "Campaign → call-centre → sales funnel: leads by source and stage, forwards, conversion, and per-officer attribution"},
 			// Credit
 			{"key": "loan-portfolio", "group": "Credit", "name": "Loan Portfolio Report",
 				"description": "All loans: status, amounts, tenor, interest rate distribution, top 10 by outstanding"},
@@ -668,6 +676,101 @@ func reportNPLReturn(db *core.DB) http.HandlerFunc {
 }
 
 // reportPeriodRange converts a period name to (dateFrom, dateTo) strings in YYYY-MM-DD format.
+// reportSalesPipeline is the BI view of the campaign → call-centre → sales pipeline:
+// the funnel, lead source mix with conversion, stage distribution, per-officer
+// attribution, and the forward outcomes. Date range applies to lead creation.
+func reportSalesPipeline(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dateFrom, err := validDate(r, "date_from")
+		if err != nil {
+			respondErr(w, 400, err.Error())
+			return
+		}
+		dateTo, err := validDate(r, "date_to")
+		if err != nil {
+			respondErr(w, 400, err.Error())
+			return
+		}
+		if dateFrom == "" {
+			dateFrom = "2000-01-01"
+		}
+		if dateTo == "" {
+			dateTo = time.Now().UTC().Format("2006-01-02")
+		}
+		ctx := r.Context()
+
+		// Lead source mix with conversion, over the window (excluding already-customers).
+		bySource, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(NULLIF(lead_source,''),'other')                       AS source,
+			       COUNT(*)                                                        AS leads,
+			       COUNT(*) FILTER (WHERE lead_stage = 'converted')                AS converted,
+			       COUNT(*) FILTER (WHERE lead_stage = 'disqualified')             AS disqualified
+			  FROM app.crm_contacts
+			 WHERE COALESCE(already_customer,false) = false
+			   AND created_at::date BETWEEN $1 AND $2
+			 GROUP BY 1 ORDER BY leads DESC`, dateFrom, dateTo)
+		for _, row := range bySource {
+			leads := toFloat(row["leads"])
+			if leads > 0 {
+				row["conversion_rate_pct"] = round1(toFloat(row["converted"]) / leads * 100)
+			} else {
+				row["conversion_rate_pct"] = 0.0
+			}
+		}
+
+		// Stage distribution.
+		byStage, _ := db.PGQuery(ctx, `
+			SELECT lead_stage AS stage, COUNT(*) AS leads,
+			       COALESCE(SUM(estimated_value_kobo),0) AS value_kobo
+			  FROM app.crm_contacts
+			 WHERE COALESCE(already_customer,false) = false
+			   AND created_at::date BETWEEN $1 AND $2
+			 GROUP BY 1 ORDER BY leads DESC`, dateFrom, dateTo)
+
+		// Per-officer attribution: owned leads and how many they've converted. Windowed to
+		// the report's date range so it doesn't mix all-time officer totals into a
+		// last-month funnel (which made the conversion ratios internally inconsistent).
+		byOfficer, _ := db.PGQuery(ctx, `
+			SELECT u.full_name AS officer_name,
+			       COUNT(*)                                            AS owned,
+			       COUNT(*) FILTER (WHERE c.lead_stage = 'converted')  AS converted,
+			       COUNT(*) FILTER (WHERE c.lead_stage IN ('new','contacted','qualified')) AS open_leads
+			  FROM app.crm_contacts c
+			  JOIN o3c_users u ON u.id = c.lead_owner_id
+			 WHERE COALESCE(c.already_customer,false) = false
+			   AND c.created_at::date BETWEEN $1 AND $2
+			 GROUP BY u.full_name
+			 ORDER BY converted DESC, owned DESC
+			 LIMIT 50`, dateFrom, dateTo)
+		for _, row := range byOfficer {
+			owned := toFloat(row["owned"])
+			if owned > 0 {
+				row["conversion_rate_pct"] = round1(toFloat(row["converted"]) / owned * 100)
+			} else {
+				row["conversion_rate_pct"] = 0.0
+			}
+		}
+
+		// Forward outcomes — windowed to the report range (was all-time, so it disagreed
+		// with the windowed funnel above).
+		forwards, _ := db.PGQuery(ctx, `
+			SELECT `+forwardStatusExpr+` AS status, COUNT(*) AS count
+			  FROM app.call_center_lead_forwards f
+			  LEFT JOIN app.crm_contacts c ON c.id = f.contact_id
+			 WHERE f.forwarded_at::date BETWEEN $1 AND $2
+			 GROUP BY 1 ORDER BY count DESC`, dateFrom, dateTo)
+
+		respond(w, map[string]any{
+			"date_from":     dateFrom,
+			"date_to":       dateTo,
+			"by_source":     bySource,
+			"by_stage":      byStage,
+			"by_officer":    byOfficer,
+			"forwards":      forwards,
+		}, "pg")
+	}
+}
+
 func reportPeriodRange(period string) (dateFrom, dateTo string) {
 	now := time.Now()
 	switch period {
@@ -844,6 +947,20 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 				}
 			}
 			out["revenue_kobo"] = int64(total * 100)
+		}
+
+		// Loan interest income (accrual) from the Udara repayment schedule — makes the
+		// headline revenue full-business (card book + loan book), consistent with the
+		// executive Revenue KPI and the finance Income Statement. FD interest is a cost of
+		// funds and is deliberately excluded from revenue.
+		out["revenue_loan_interest_kobo"] = int64(0)
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(interest_kobo), 0) AS v FROM app.cbs_loan_schedules
+			WHERE payment_date BETWEEN $1::date AND $2::date`, dateFrom, dateTo); len(rows) > 0 {
+			loanKobo := toInt64(rows[0]["v"])
+			out["revenue_loan_interest_kobo"] = loanKobo
+			out["revenue_interest_kobo"] = toInt64(out["revenue_interest_kobo"]) + loanKobo
+			out["revenue_kobo"] = toInt64(out["revenue_kobo"]) + loanKobo
 		}
 
 		// Targets.

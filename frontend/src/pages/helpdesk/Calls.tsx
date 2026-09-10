@@ -1,33 +1,39 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { EArea, EDonut } from '../../components/echarts'
 import {
-  XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
-  AreaChart, Area, CartesianGrid,
-} from 'recharts'
-import {
-  Page, SectionCard, DataTable, ExpandableFilterBar,
+  Page, SectionCard, DataTable, ExpandableFilterBar, Pagination,
   ErrBanner, DateFilter, Modal, Spinner, KpiCard, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
-import { apiFetch, apiPost, API, refreshSession } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
+import { useDebouncedValue } from '../../hooks/useDebounce'
+import { RecordingPlayer, RecordingModal } from '../../components/RecordingPlayer'
 import { fmtDatetime, fmtDate, today } from '../../lib/fmt'
 import { NAVY, BLUE, PURPLE, GREEN, RED, AMBER, NUM, SORA, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import QAEvaluation from './QAEvaluation'
 import { BAND_COLOR } from '../../lib/qa'
 import { toast } from 'sonner'
-import LogCallModal, { LogCallInitial } from '../../components/LogCallModal'
+import LogCallModal, { LogCallInitial, dispositionCopy } from '../../components/LogCallModal'
 import CallLogEditModal from '../../components/CallLogEditModal'
 import CallReviewPanel from '../../components/CallReviewPanel'
+import { hasPage } from '../../hooks/useAuth'
 
 function myRole(): string { try { return String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '') } catch { return '' } }
-const CAN_EVALUATE = /head|admin|super|manager|lead|supervisor/i.test(myRole())
 // Who may correct someone else's write-up. Mirrors the server rule; the server is
 // the one that enforces it — this only decides whether the control is offered.
-const CAN_SUPERVISE = CAN_EVALUATE
+const CAN_SUPERVISE = /head|admin|super|manager|lead|supervisor/i.test(myRole())
+// QA evaluation is a call-centre function and /api/qa is gated to `call_center` on the
+// server, so only offer the Evaluate control to a supervisor who actually holds that
+// page — otherwise a helpdesk-only head (care/finance/…) sees a button that 403s.
+const CAN_EVALUATE = CAN_SUPERVISE && hasPage('call_center')
 function myUserId(): number { try { return Number(JSON.parse(localStorage.getItem('o3c_user') || '{}').id) || -1 } catch { return -1 } }
 const CURRENT_USER_ID = myUserId()
+
+// Rows fetched per server page of the call log. Uniform page size = uniform table
+// height, so paging no longer makes the card grow/shrink between pages.
+const PAGE_SIZE = 20
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -53,6 +59,7 @@ interface CallLog {
   recording_url: string | null
   recording_filename: string | null
   has_recording: boolean
+  source_system: string | null
   qa_evaluation_id: number | null
   qa_score: number | null
   qa_band: string | null
@@ -72,6 +79,10 @@ interface CallStats {
     avg_duration_sec: number | null; avg_inbound_sec: number | null; avg_outbound_sec: number | null
   }
   by_outcome: { outcome: string; count: number }[]
+  // Counts keyed by the SAME category the table pill shows (direction folded in),
+  // so the Outcome filter and the donut speak the pill's language, not the raw
+  // telephony outcome. See RESULT_CFG.
+  by_result?: { cat: string; count: number }[]
   by_day: { day: string; total: number; inbound: number; outbound: number }[]
   by_hour: { hour: number; total: number; inbound: number; outbound: number }[]
 }
@@ -87,6 +98,9 @@ const PURPOSE_META: Record<string, { label: string; color: string }> = {
   sales:       { label: 'Outbound Sales',    color: PURPLE },
   collections: { label: 'Collections',       color: RED },
   support:     { label: 'Support',           color: GREEN },
+  retention:   { label: 'Retention',         color: AMBER },
+  other:       { label: 'Other',             color: NAVY },
+  unspecified: { label: 'Support / Unspecified', color: GREEN },
 }
 
 // Zoho-sourced calls only carry `completed` (connected) and `missed` (no answer);
@@ -100,10 +114,24 @@ const OUTCOME_CFG: Record<string, { bg: string; txt: string; label: string; char
   no_answer:   { bg: `${RED}12`,   txt: RED,   label: 'No Answer',   chart: RED   },
   voicemail:   { bg: `${AMBER}18`, txt: AMBER, label: 'Voicemail',   chart: AMBER },
   transferred: { bg: `${AMBER}18`, txt: AMBER, label: 'Transferred', chart: AMBER },
-  escalated:   { bg: `${RED}12`,   txt: RED,   label: 'Escalated',   chart: '#7C3AED' },
+  escalated:   { bg: `${RED}12`,   txt: RED,   label: 'Escalated',   chart: PURPLE },
 }
 
-const OUTCOME_CHART_FALLBACK = ['#7C3AED', BLUE, AMBER, GREEN, RED]
+const OUTCOME_CHART_FALLBACK = [PURPLE, BLUE, AMBER, GREEN, RED]
+
+// The displayed-result vocabulary — one entry per label the OutcomePill can show,
+// with direction already folded in (inbound-unanswered = "Missed", outbound = "No
+// Answer"). The Outcome filter options and the By-Outcome donut are both built from
+// this, so what you filter and chart is exactly what you see in the table. Colours
+// mirror the pill's text colour for each label.
+const RESULT_CFG: Record<string, { label: string; color: string }> = {
+  connected:   { label: 'Connected',   color: GREEN },
+  resolved:    { label: 'Resolved',    color: GREEN },
+  missed:      { label: 'Missed',      color: RED },
+  no_answer:   { label: 'No Answer',   color: 'var(--txt2)' },
+  transferred: { label: 'Transferred', color: AMBER },
+  escalated:   { label: 'Escalated',   color: RED },
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -148,14 +176,16 @@ function DirectionBadge({ direction }: { direction: string }) {
 
 // ── Outcome pill ──────────────────────────────────────────────────────────────
 
-function OutcomePill({ outcome, direction, durationSec, hasRecording }: {
-  outcome: string | null; direction?: string; durationSec?: number | null; hasRecording?: boolean
+function OutcomePill({ outcome, direction, durationSec, hasRecording, sourceSystem }: {
+  outcome: string | null; direction?: string; durationSec?: number | null; hasRecording?: boolean; sourceSystem?: string | null
 }) {
   let o = (outcome ?? '').toLowerCase()
   // Zoho Desk writes a call record for activity that never reached the phone.
-  // A 'completed' row with no duration and no recording did not connect, and
-  // showing it as "Connected" tells the agent a conversation happened.
-  if (o === 'completed' && !durationSec && !hasRecording) o = 'missed'
+  // A 'completed' dial shorter than 5 seconds with no recording never became a
+  // conversation — showing it as "Connected" tells the agent a call happened when
+  // it dropped on ring. A manually logged call-centre row is exempt (the agent
+  // recorded a real interaction regardless of the stored duration).
+  if (o === 'completed' && (durationSec ?? 0) < 5 && !hasRecording && (sourceSystem ?? '') !== 'call_center') o = 'missed'
   const base = OUTCOME_CFG[o]
   let bg = base?.bg ?? 'var(--chip-bg)'
   let txt = base?.txt ?? 'var(--txt2)'
@@ -195,118 +225,58 @@ function DurationCell({ seconds, max }: { seconds: number; max: number }) {
 // ── Charts ────────────────────────────────────────────────────────────────────
 
 function CallVolumeChart({ series }: { series: CallStats['by_day'] }) {
+  // No Y-axis: the exact figure is on hover, and the latest value is stamped on each
+  // line's endpoint (endLabel) — a single reference number that stays readable
+  // even across a 365-day range, instead of a scale rail down the side.
   const data = useMemo(() => series.map(d => ({
-    date: d.day,
+    date: fmtDate(d.day, { month: 'short', day: 'numeric' }),
     Inbound: num(d.inbound),
     Outbound: num(d.outbound),
   })), [series])
 
   return (
-    <ResponsiveContainer width="100%" height={180}>
-      <AreaChart data={data} margin={{ top: 6, right: 6, bottom: 0, left: -20 }}>
-        <defs>
-          <linearGradient id="gOut" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={PURPLE} stopOpacity={0.35} />
-            <stop offset="100%" stopColor={PURPLE} stopOpacity={0.02} />
-          </linearGradient>
-          <linearGradient id="gIn" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={BLUE} stopOpacity={0.35} />
-            <stop offset="100%" stopColor={BLUE} stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--bdr)" vertical={false} />
-        <XAxis dataKey="date" tickFormatter={(v: string) => fmtDate(v, { month: 'short', day: 'numeric' })} tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt3)' }} tickLine={false} axisLine={false} minTickGap={44} />
-        <YAxis tick={{ fontSize: TEXT['2xs'], fill: 'var(--txt3)' }} tickLine={false} axisLine={false} allowDecimals={false} width={44} />
-        <Tooltip
-          contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }}
-          labelStyle={{ color: 'var(--txt)', fontWeight: FW.semibold }}
-          labelFormatter={(v: string) => fmtDate(v)}
-        />
-        <Area type="monotone" dataKey="Outbound" stackId="1" stroke={PURPLE} fill="url(#gOut)" strokeWidth={2} />
-        <Area type="monotone" dataKey="Inbound"  stackId="1" stroke={BLUE}   fill="url(#gIn)"  strokeWidth={2} />
-      </AreaChart>
-    </ResponsiveContainer>
+    <EArea
+      data={data}
+      xKey="date"
+      height={180}
+      stack
+      endLabel
+      hideYAxis
+      valueFmt={(v) => v.toLocaleString()}
+      endFmt={(v) => v.toLocaleString()}
+      series={[
+        { key: 'Outbound', name: 'Outbound', color: PURPLE },
+        { key: 'Inbound', name: 'Inbound', color: BLUE },
+      ]}
+    />
   )
 }
 
-function OutcomeDonut({ series }: { series: CallStats['by_outcome'] }) {
+function OutcomeDonut({ series }: { series: NonNullable<CallStats['by_result']> }) {
   const data = useMemo(() => series.map(o => {
-    const cfg = OUTCOME_CFG[(o.outcome || '').toLowerCase()]
-    return { name: cfg?.label ?? (o.outcome || 'Unknown'), value: num(o.count), color: cfg?.chart }
+    const cfg = RESULT_CFG[(o.cat || '').toLowerCase()]
+    // Only pass a concrete colour to the canvas; RESULT_CFG carries CSS vars
+    // (e.g. var(--txt2)) for pill text that ECharts can't read, so fall those
+    // back to the categorical palette below.
+    const c = cfg?.color
+    return { name: cfg?.label ?? (o.cat || 'Other'), value: num(o.count), color: c && !c.startsWith('var(') ? c : undefined }
   }), [series])
 
   return (
-    <ResponsiveContainer width="100%" height={180}>
-      <PieChart>
-        <Pie data={data} dataKey="value" innerRadius={46} outerRadius={66} paddingAngle={2} stroke="none">
-          {data.map((d, i) => <Cell key={i} fill={d.color ?? OUTCOME_CHART_FALLBACK[i % OUTCOME_CHART_FALLBACK.length]} />)}
-        </Pie>
-        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: TEXT.xs }} />
-        <Tooltip contentStyle={{ fontSize: TEXT.sm, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }} />
-      </PieChart>
-    </ResponsiveContainer>
+    <EDonut
+      data={data}
+      valueKey="value"
+      nameKey="name"
+      colorFn={(o, i) => o.color ?? OUTCOME_CHART_FALLBACK[i % OUTCOME_CHART_FALLBACK.length]}
+      size={180}
+      inner={46}
+      legend
+      valueFmt={(v) => v.toLocaleString()}
+    />
   )
 }
 
 // ── Zoho Sync Bar ─────────────────────────────────────────────────────────────
-
-interface ZohoSyncStatus {
-  configured: boolean
-  last_sync_at: string | null
-  total_imported: number
-}
-
-function ZohoSyncBar({ onSynced }: { onSynced: () => void }) {
-  const [status, setStatus] = useState<ZohoSyncStatus | null>(null)
-  const [syncing, setSyncing] = useState(false)
-
-  const fetchStatus = useCallback(() => {
-    apiFetch<ZohoSyncStatus>('/api/zoho/sync-status').then(setStatus).catch(() => {})
-  }, [])
-
-  useEffect(() => { fetchStatus() }, [fetchStatus])
-
-  if (!status?.configured) return null
-
-  async function handleSync() {
-    setSyncing(true)
-    try {
-      const res = await apiPost<{ imported: number; skipped: number; failed: number }>(
-        '/api/zoho/voice/import-logs', {}
-      )
-      toast.success(`Synced ${res.imported} new call${res.imported !== 1 ? 's' : ''} from Zoho Desk`)
-      fetchStatus()
-      onSynced()
-    } catch (e: any) {
-      toast.error(e.message ?? 'Zoho sync failed')
-    } finally {
-      setSyncing(false)
-    }
-  }
-
-  return (
-    <div style={{
-      background: 'var(--card)', border: '1px solid var(--bdr)',
-      borderRadius: RADIUS.lg, padding: '10px 16px', marginBottom: SP[4],
-      display: 'flex', alignItems: 'center', gap: SP[3], flexWrap: 'wrap',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: GREEN, flexShrink: 0 }} />
-        <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Zoho Desk</span>
-      </div>
-      <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
-        {status.total_imported.toLocaleString()} calls imported
-      </span>
-      {status.last_sync_at && (
-        <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>
-          · Last synced {relativeTime(status.last_sync_at)} · Auto-syncs hourly
-        </span>
-      )}
-      <div style={{ flex: 1 }} />
-      <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Managed in Admin to Sync &amp; Workers</span>
-    </div>
-  )
-}
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
@@ -316,18 +286,40 @@ export default function Calls() {
   const [stats, setStats]   = useState<CallStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState<string | null>(null)
+  // Server-side pagination: the log holds tens of thousands of calls, so the table
+  // pages through the whole filtered set on the server (one page fetched at a time)
+  // rather than client-slicing a single capped batch — which only ever reached the
+  // most-recent few hundred. `total` is the exact filtered count (COUNT(*) OVER())
+  // returned by the list query itself, so it matches the rows and excludes
+  // merged/voided (which the stats total counts, and so must not drive paging).
+  const [page,  setPage]  = useState(1)
+  const [total, setTotal] = useState(0)
   // Supervisor "view agent" drawer target.
   // Per-call detail modal (everything logged about one call).
   const [viewCall, setViewCall] = useState<CallLog | null>(null)
   const [playCall, setPlayCall] = useState<CallLog | null>(null)
   // Filters
-  const [agentFilter, setAgentFilter] = useState('')
+  const [search, setSearch] = useState('')
+  // Search hits the server (caller name, number or agent). Debounced so typing
+  // doesn't fire a fetch per keystroke — the box stays responsive, the query waits
+  // for a pause.
+  const dq = useDebouncedValue(search, 400)
   const [fDirs,       setFDirs]       = useState(new Set<string>())
-  const [fOutcomes,   setFOutcomes]   = useState(new Set<string>())
+  // Outcome filter is keyed by the displayed pill category (see RESULT_CFG), sent to
+  // the server as ?result= so "Missed" filters the calls that actually show as missed.
+  const [fResults,    setFResults]    = useState(new Set<string>())
+  // Call type / purpose filter (marketing, support, sales, collections, retention,
+  // other) — sent to the server as ?purpose= so the log, KPIs and charts all narrow
+  // to one book at once.
+  const [fPurposes,   setFPurposes]   = useState(new Set<string>())
   // Default to the last 12 months — call data is historical (synced from Zoho),
   // so a "this month" default would show nothing.
   const [dateFrom,    setDateFrom]    = useState(new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10))
   const [dateTo,      setDateTo]      = useState(today())
+  // Duplicates: one conversation reaches us as several rows (Zoho records per
+  // activity). The log collapses those to one row per call by default; a supervisor
+  // can flip to the full per-attempt audit view.
+  const [showAllLegs, setShowAllLegs] = useState(false)
 
   // QA evaluation modal (opened from a call's Evaluate action)
   const [evalCall, setEvalCall] = useState<CallLog | null>(null)
@@ -345,13 +337,15 @@ export default function Calls() {
   // Shared filter — the log table, KPI strip and charts all move together.
   const filterQS = useCallback(() => {
     const p = new URLSearchParams()
-    if (agentFilter) p.set('agent', agentFilter)
-    if (fDirs.size)     p.set('direction', [...fDirs].join(','))
-    if (fOutcomes.size) p.set('outcome', [...fOutcomes].join(','))
+    if (dq.trim()) p.set('search', dq.trim())
+    if (fDirs.size)    p.set('direction', [...fDirs].join(','))
+    if (fResults.size) p.set('result', [...fResults].join(','))
+    if (fPurposes.size) p.set('purpose', [...fPurposes].join(','))
     p.set('date_from', dateFrom)
     p.set('date_to', dateTo)
+    if (showAllLegs) p.set('collapse', '0')
     return p
-  }, [agentFilter, fDirs, fOutcomes, dateFrom, dateTo])
+  }, [dq, fDirs, fResults, fPurposes, dateFrom, dateTo, showAllLegs])
 
   // silent: a background refresh must not blank the table. Showing skeletons every
   // time the change-feed ticks is what made the page look like it was breaking
@@ -362,13 +356,21 @@ export default function Calls() {
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const p = filterQS(); p.set('limit', '200')
-      const data = await apiFetch<CallLog[]>(`/api/helpdesk/calls?${p}`, { signal: abortRef.current.signal })
-      setRows(Array.isArray(data) ? data : [])
+      const p = filterQS()
+      p.set('limit', String(PAGE_SIZE))
+      p.set('offset', String((page - 1) * PAGE_SIZE))
+      const data = await apiFetch<(CallLog & { total_count?: number })[]>(`/api/helpdesk/calls?${p}`, { signal: abortRef.current.signal })
+      const list = Array.isArray(data) ? data : []
+      setRows(list)
+      // total_count rides on every row (window count over the full filtered set).
+      // Keep the prior total if a non-first page comes back empty mid-transition, so
+      // the pager doesn't flicker to zero.
+      if (list.length) setTotal(Number(list[0].total_count) || 0)
+      else if (page === 1) setTotal(0)
     } catch (e: any) {
       if (e.name !== 'AbortError') setError(e.message)
     } finally { setLoading(false) }
-  }, [filterQS])
+  }, [filterQS, page])
 
   // KPIs + charts come from a server-side aggregate over the FULL filtered set —
   // never from the 200-row table page (which would badly under-count 98k calls).
@@ -379,8 +381,29 @@ export default function Calls() {
     } catch { /* non-fatal — KPI cards fall back to dashes */ }
   }, [filterQS])
 
-  useEffect(() => { load(); loadStats() }, [load, loadStats])
-  useLiveData(() => { load(true); loadStats() }, { topics: ['calls', 'tickets'] })
+  // A new filter/date/search set changes what "page 1" means, so jump back to it —
+  // otherwise you could be stranded on page 40 of a result that now has 3 pages.
+  // setPage(1) is a no-op when already on page 1, so this won't double-fetch there.
+  useEffect(() => { setPage(1) }, [dq, fDirs, fResults, fPurposes, dateFrom, dateTo, showAllLegs])
+
+  // Reload on every filter/page change, but only show skeletons on the FIRST load.
+  // Subsequent loads (paging especially) run silent so the table keeps its current
+  // rows and simply swaps them in — it never collapses to 8 skeleton rows and back,
+  // which is what read as the table "zooming out" on each page change.
+  const firstLoad = useRef(true)
+  useEffect(() => { load(!firstLoad.current); firstLoad.current = false }, [load])
+  useEffect(() => { loadStats() }, [loadStats])
+  // Throttle live refreshes: the change-feed ticks on every call event, and during a
+  // drop storm that reordered the log under the supervisor constantly. Coalesce to at
+  // most once every 30s so the table stays readable; a filter/date change still
+  // refreshes immediately via the effect above.
+  const liveThrottle = useRef(0)
+  useLiveData(() => {
+    const now = Date.now()
+    if (now - liveThrottle.current < 30_000) return
+    liveThrottle.current = now
+    load(true); loadStats()
+  }, { topics: ['calls', 'tickets'] })
 
   // ── KPIs computed from loaded rows ────────────────────────────────────────
 
@@ -391,10 +414,11 @@ export default function Calls() {
     const missed    = num(s?.missed)
     const outbound  = num(s?.outbound)
     const inbound   = num(s?.inbound)
-    const talkSec   = num(s?.total_talk_sec)
-    // Average talk time over calls that actually connected (missed calls carry 0s
-    // duration and would otherwise drag the mean toward zero).
-    const avgTalk   = connected > 0 ? Math.round(talkSec / connected) : 0
+    // Use the backend's avg_duration_sec: it averages over exactly the connected calls
+    // whose duration is in the 0–4h sane range. Recomputing total_talk_sec/connected
+    // here understated it, because total_talk_sec excludes out-of-range durations that
+    // `connected` still counts, so the denominator's population was the larger one.
+    const avgTalk   = num(s?.avg_duration_sec)
     return {
       total, connected, missed, outbound, inbound, avgTalk,
       connectRate: total > 0 ? (connected / total) * 100 : 0,
@@ -407,16 +431,18 @@ export default function Calls() {
   // Cap the bar scale so one corrupt long-duration call can't flatten every bar.
   const maxDuration = useMemo(() => Math.min(Math.max(...rows.map(r => r.duration_seconds), 1), 1800), [rows])
 
-  // Outcome filter options come from the actual data (deduped by label), so we
-  // never show duplicate ("Connected"×2) or non-existent ("Voicemail") choices.
-  const outcomeOpts = useMemo(() => {
-    const seen = new Set<string>()
-    return (stats?.by_outcome ?? []).map(o => {
-      const key = (o.outcome ?? '').toLowerCase()
-      const cfg = OUTCOME_CFG[key]
-      return { value: key, label: cfg?.label ?? (o.outcome || 'Unknown'), color: cfg?.txt ?? 'var(--txt2)' }
-    }).filter(o => o.value && !seen.has(o.label) && !!seen.add(o.label))
-  }, [stats])
+  // Outcome filter options are the displayed pill categories that actually occur in
+  // the data — so the choices read exactly like the Outcome column ("Missed", "No
+  // Answer", "Connected") instead of the raw telephony vocabulary, and selecting one
+  // returns precisely the rows that show that pill.
+  const outcomeOpts = useMemo(() =>
+    (stats?.by_result ?? [])
+      .filter(o => RESULT_CFG[(o.cat ?? '').toLowerCase()])
+      .map(o => {
+        const cfg = RESULT_CFG[(o.cat ?? '').toLowerCase()]
+        return { value: (o.cat ?? '').toLowerCase(), label: cfg.label, color: cfg.color }
+      })
+  , [stats])
 
   // ── Log Call ──────────────────────────────────────────────────────────────
   // The form is the shared LogCallModal; opening it just seeds an optional prefill.
@@ -449,7 +475,7 @@ export default function Calls() {
     {
       key: 'outcome',
       label: 'Outcome',
-      render: r => <OutcomePill outcome={r.outcome} direction={r.direction} durationSec={r.duration_seconds} hasRecording={r.has_recording} />,
+      render: r => <OutcomePill outcome={r.outcome} direction={r.direction} durationSec={r.duration_seconds} hasRecording={r.has_recording} sourceSystem={r.source_system} />,
     },
     {
       key: 'disposition' as any,
@@ -560,17 +586,21 @@ export default function Calls() {
             icon: 'grade', label: r.qa_evaluation_id ? 'Re-evaluate call (QA)' : 'Evaluate call (QA)',
             onClick: () => setEvalCall(r),
           }] : []),
-          // Correct or withdraw the write-up. Offered on your own logs, and on any
-          // log to a supervisor; the API enforces the same rule, and every change
-          // is recorded with what it replaced.
-          ...((r.agent_id === CURRENT_USER_ID || CAN_SUPERVISE) && (r.notes || r.disposition) ? [{
-            icon: 'edit', label: 'Correct or withdraw this log',
+          // Correct or withdraw the log. Offered on your own calls, and on any call
+          // to a supervisor; the API enforces the same rule, and every change is
+          // recorded with what it replaced. Available on ANY call (not only ones
+          // with a write-up) — you still need to withdraw a spurious/duplicate
+          // Zoho record or add a missing write-up.
+          ...((r.agent_id === CURRENT_USER_ID || CAN_SUPERVISE) ? [{
+            icon: 'edit', label: 'Correct or withdraw this call',
             onClick: () => setEditCall(r),
           }] : []),
-          // Play the Zoho Voice recording in-app (streamed through our proxy) when
-          // one is attached to the call.
-          ...(r.has_recording ? [{
-            icon: 'play_circle', label: 'Play recording',
+          // Play the Zoho Voice recording in-app (streamed). Shown for a connected call
+          // even without an attached recording — the player then offers "Fetch from Zoho"
+          // to pull it on demand. Missed/0-sec calls (never recorded) get no button.
+          ...((r.has_recording || (r.outcome === 'completed' && (r.duration_seconds ?? 0) > 0)) ? [{
+            icon: r.has_recording ? 'play_circle' : 'cloud_sync',
+            label: r.has_recording ? 'Play recording' : 'Fetch recording from Zoho',
             onClick: () => setPlayCall(r),
           }] : []),
           {
@@ -592,9 +622,11 @@ export default function Calls() {
     <Page
       title="Call Log"
       subtitle={CAN_EVALUATE ? 'All inbound and outbound calls across agents' : 'Your inbound and outbound calls'}
+      loading={loading && rows.length === 0}
+      skeletonKpis={5}
       actions={
         <div style={{ display: 'flex', gap: SP[2] }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} />
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           <button onClick={() => openLog()}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 15px', background: NAVY, color: '#fff', border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add_call</span>
@@ -604,9 +636,6 @@ export default function Calls() {
       }
     >
       <ErrBanner error={error} onRetry={load} />
-
-      {/* Zoho sync bar — only renders when Zoho credentials are configured */}
-      <ZohoSyncBar onSynced={load} />
 
       {/* KPI strip — over the full filtered dataset, not the loaded page */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[3], marginBottom: SP[4] }}>
@@ -635,17 +664,30 @@ export default function Calls() {
             <CallVolumeChart series={stats?.by_day ?? []} />
           </SectionCard>
           <SectionCard title="By Outcome">
-            <OutcomeDonut series={stats?.by_outcome ?? []} />
+            <OutcomeDonut series={stats?.by_result ?? []} />
           </SectionCard>
         </div>
       ) : null}
 
       {/* Table */}
       <SectionCard padding={false} title="Call Records"
-        subtitle={kpis.total > rows.length ? `Most recent ${rows.length} shown · KPIs & charts cover all ${kpis.total.toLocaleString()}` : `${rows.length} call${rows.length !== 1 ? 's' : ''}`}>
+        subtitle={`${total.toLocaleString()} ${showAllLegs ? `call record${total !== 1 ? 's' : ''}` : `call${total !== 1 ? 's' : ''} · duplicate attempts collapsed`} in range`}
+        actions={
+          <button
+            onClick={() => setShowAllLegs(v => !v)}
+            title="Zoho logs several rows per call. Collapsed shows one row per conversation; All attempts shows every dialing leg (audit view)."
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: RADIUS.md,
+              border: '1px solid var(--bdr)', background: showAllLegs ? NAVY : 'var(--card)',
+              color: showAllLegs ? '#fff' : 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{showAllLegs ? 'unfold_more' : 'unfold_less'}</span>
+            {showAllLegs ? 'Showing all attempts' : 'Duplicates collapsed'}
+          </button>
+        }>
         <ExpandableFilterBar
-          search={agentFilter}
-          onSearch={setAgentFilter}
+          search={search}
+          onSearch={setSearch}
           groups={[
             {
               key: 'direction',
@@ -661,24 +703,47 @@ export default function Calls() {
               key: 'outcome',
               label: 'Outcome',
               options: outcomeOpts,
-              selected: fOutcomes,
-              onChange: setFOutcomes,
+              selected: fResults,
+              onChange: setFResults,
+            },
+            {
+              key: 'purpose',
+              label: 'Type',
+              options: [
+                { value: 'Marketing', color: BLUE },
+                { value: 'Sales', color: PURPLE },
+                { value: 'Collections', color: RED },
+                { value: 'Retention', color: AMBER },
+                { value: 'Other', color: NAVY },
+              ],
+              selected: fPurposes,
+              onChange: setFPurposes,
             },
           ] as FilterGroupDef[]}
-          onReset={() => { setAgentFilter(''); setFDirs(new Set()); setFOutcomes(new Set()) }}
+          onReset={() => { setSearch(''); setFDirs(new Set()); setFResults(new Set()); setFPurposes(new Set()) }}
           onApply={load}
-          resultCount={rows.length}
-          totalCount={Math.max(kpis.total, rows.length)}
-          placeholder="Search by agent name…"
+          resultCount={total}
+          totalCount={Math.max(kpis.total, total)}
+          placeholder="Search caller, number, or agent…"
         />
 
+        {/* No client pageSize: the rows ARE one server page, so the table renders them
+            all and the server pager below drives navigation over the whole log. */}
         <DataTable<CallLog>
           cols={cols}
           rows={rows}
           keyFn={r => r.id}
           loading={loading}
+          skeletonRows={PAGE_SIZE}
           emptyText="No call records found for the selected filters"
-          pageSize={25}
+        />
+        {/* Self-hides at a single page; renders its own top border + padding. */}
+        <Pagination
+          page={page}
+          pages={Math.max(1, Math.ceil(total / PAGE_SIZE))}
+          total={total}
+          pageSize={PAGE_SIZE}
+          onPage={p => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
         />
       </SectionCard>
 
@@ -723,10 +788,21 @@ export default function Calls() {
       <LogCallModal open={logOpen} initial={logInitial}
         onClose={() => setLogOpen(false)} onSaved={() => { load(); loadStats() }} />
       <CallDetailModal call={viewCall} onClose={() => setViewCall(null)}
-        onEvaluate={CAN_EVALUATE ? c => { setViewCall(null); setEvalCall(c) } : undefined}
+        onEvaluate={CAN_EVALUATE ? c => {
+          // Close the detail modal, then open QA once its exit animation has
+          // finished — sequencing the two so their transitions don't overlap
+          // (the overlap is what read as a shaky/flashing hand-off).
+          setViewCall(null)
+          setTimeout(() => setEvalCall(c), 200)
+        } : undefined}
         onOpenTicket={id => { setViewCall(null); navigate(`/helpdesk/${id}`) }} />
 
-      <RecordingModal call={playCall} onClose={() => setPlayCall(null)} />
+      <RecordingModal
+        callId={playCall?.id ?? null}
+        title={`Recording · ${playCall?.customer_name ?? playCall?.phone ?? 'Call'}`}
+        subtitle={playCall ? `${playCall.direction}${playCall.phone ? ` · ${playCall.phone}` : ''}${playCall.agent_name ? ` · ${playCall.agent_name}` : ''}` : undefined}
+        onClose={() => setPlayCall(null)}
+      />
     </Page>
   )
 }
@@ -735,74 +811,6 @@ export default function Calls() {
 // Everything logged about a single call — the identifiers, the connection facts,
 // and the two things the agent actually wrote (the complaint and the resolution) —
 // so a supervisor can read a call without hunting across columns.
-
-// Streams a call's Zoho Voice recording in-app. The audio is fetched as an
-// authenticated blob (the proxy needs the session cookie, and a bare <audio src>
-// on a cross-origin dev host wouldn't send it), then played from an object URL.
-// Shared by the row-menu modal and the call-detail modal.
-function RecordingPlayer({ callId, autoPlay = true }: { callId: number; autoPlay?: boolean }) {
-  const [url, setUrl] = useState<string | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    let objUrl: string | null = null
-    setLoading(true); setErr(null); setUrl(null)
-    const hit = () => fetch(`${API}/api/helpdesk/calls/${callId}/recording`, { credentials: 'include' })
-    ;(async () => {
-      try {
-        let res = await hit()
-        if (res.status === 401 && await refreshSession()) res = await hit()
-        if (!res.ok) throw new Error(res.status === 404 ? 'No recording found for this call.' : 'This recording could not be retrieved from Zoho Voice.')
-        const blob = await res.blob()
-        if (cancelled) return
-        objUrl = URL.createObjectURL(blob)
-        setUrl(objUrl)
-      } catch (e: any) {
-        if (!cancelled) setErr(e?.message ?? 'Could not load the recording.')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => { cancelled = true; if (objUrl) URL.revokeObjectURL(objUrl) }
-  }, [callId])
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {loading && (
-        <div style={{ padding: '18px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>Loading recording…</div>
-      )}
-      {err && (
-        <div style={{ padding: 12, borderRadius: RADIUS.md, background: `${RED}0F`, border: `1px solid ${RED}33`, color: RED, fontSize: TEXT.sm }}>{err}</div>
-      )}
-      {url && (
-        <>
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <audio controls autoPlay={autoPlay} src={url} style={{ width: '100%' }} />
-          <a href={url} download={`recording-${callId}.wav`}
-            style={{ fontSize: TEXT.xs, color: NAVY, fontWeight: FW.semibold, textDecoration: 'none', alignSelf: 'flex-end' }}>
-            Download
-          </a>
-        </>
-      )}
-    </div>
-  )
-}
-
-function RecordingModal({ call, onClose }: { call: CallLog | null; onClose: () => void }) {
-  if (!call) return null
-  return (
-    <Modal open={!!call} onClose={onClose} title={`Recording · ${call.customer_name ?? call.phone ?? 'Call'}`} width={460}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 4 }}>
-        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
-          {call.direction}{call.phone ? ` · ${call.phone}` : ''}{call.agent_name ? ` · ${call.agent_name}` : ''}
-        </div>
-        <RecordingPlayer callId={call.id} />
-      </div>
-    </Modal>
-  )
-}
 
 function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
   call: CallLog | null
@@ -843,7 +851,7 @@ function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
         {/* Header chips */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <DirectionBadge direction={call.direction} />
-          <OutcomePill outcome={call.outcome} direction={call.direction} durationSec={call.duration_seconds} hasRecording={call.has_recording} />
+          <OutcomePill outcome={call.outcome} direction={call.direction} durationSec={call.duration_seconds} hasRecording={call.has_recording} sourceSystem={call.source_system} />
           {call.disposition && (
             <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS['2xl'], background: 'var(--chip-bg)', color: 'var(--txt2)' }}>{call.disposition}</span>
           )}
@@ -882,15 +890,30 @@ function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
           </div>
         )}
 
-        {/* What the agent logged */}
-        <div>
-          <div style={secLbl}>Customer complaint / summary</div>
-          <div style={noteBox}>{(call.notes ?? '').trim() || <span style={{ color: 'var(--txt3)' }}>Nothing logged.</span>}</div>
-        </div>
-        <div>
-          <div style={secLbl}>Agent response / resolution</div>
-          <div style={noteBox}>{(call.resolution ?? '').trim() || <span style={{ color: 'var(--txt3)' }}>Nothing logged.</span>}</div>
-        </div>
+        {/* What the agent logged — using the SAME contextual field labels the agent saw
+            in the Log-Call form (driven by the call's purpose + disposition), not the
+            one-size-fits-all "complaint / resolution". */}
+        {(() => {
+          const copy = dispositionCopy(call.disposition ?? '', call.purpose ?? '')
+          const res = (call.resolution ?? '').trim()
+          return (
+            <>
+              <div>
+                <div style={secLbl}>{copy.notesLabel}</div>
+                <div style={noteBox}>{(call.notes ?? '').trim() || <span style={{ color: 'var(--txt3)' }}>Nothing logged.</span>}</div>
+              </div>
+              {/* Only show the response field when this disposition actually uses one
+                  (or the agent recorded something), so a "Paid"/"Wrong Number" call
+                  doesn't show an empty "resolution" box. */}
+              {(!copy.hideRes || res) && (
+                <div>
+                  <div style={secLbl}>{copy.resLabel || 'Outcome'}</div>
+                  <div style={noteBox}>{res || <span style={{ color: 'var(--txt3)' }}>Nothing logged.</span>}</div>
+                </div>
+              )}
+            </>
+          )
+        })()}
       </div>
     </Modal>
   )
@@ -903,7 +926,7 @@ interface AgentDetail {
   calls:   { total: number; outbound: number; inbound: number; connected: number; missed: number; no_answer: number; avg_talk_sec: number; talk_time_sec: number }
   tickets: { open: number; resolved: number }
   qa:      { evaluations: number; avg_score: number | null; pass_rate: number | null }
-  recent_calls: { id: number; direction: string; customer: string; phone: string; outcome: string; duration_sec: number | null; started_at: string; ticket_id: number | null }[]
+  recent_calls: { id: number; direction: string; customer: string; phone: string; outcome: string; duration_sec: number | null; started_at: string; ticket_id: number | null; has_recording?: boolean }[]
 }
 
 function AgentDetailModal({ agent, dateFrom, dateTo, onClose, onOpenTicket }: {
@@ -912,6 +935,8 @@ function AgentDetailModal({ agent, dateFrom, dateTo, onClose, onOpenTicket }: {
 }) {
   const [data, setData] = useState<AgentDetail | null>(null)
   const [loading, setLoading] = useState(false)
+  // Recent call whose recording is open in the streaming player (stacks over this drawer).
+  const [playRc, setPlayRc] = useState<AgentDetail['recent_calls'][number] | null>(null)
 
   useEffect(() => {
     if (!agent) { setData(null); return }
@@ -992,6 +1017,14 @@ function AgentDetailModal({ agent, dateFrom, dateTo, onClose, onOpenTicket }: {
                       {rc.phone && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: 'var(--font-mono)' }}>{rc.phone}</span>}
                       <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{inbound ? 'In' : 'Out'} · {fmtDuration(rc.duration_sec)}</span>
                       <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: col, width: 62, textAlign: 'right' }}>{label}</span>
+                      {/* Play the recording in-app (same streaming player as the log);
+                          stop the row's ticket-open click from firing underneath it. */}
+                      {rc.has_recording ? (
+                        <button title="Play recording" onClick={e => { e.stopPropagation(); setPlayRc(rc) }}
+                          style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: GREEN, cursor: 'pointer' }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>play_circle</span>
+                        </button>
+                      ) : <span style={{ width: 24, flexShrink: 0 }} />}
                       <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', width: 74, textAlign: 'right' }}>{fmtDate(rc.started_at)}</span>
                     </div>
                   )
@@ -1003,6 +1036,12 @@ function AgentDetailModal({ agent, dateFrom, dateTo, onClose, onOpenTicket }: {
       ) : (
         <div style={{ padding: 24, color: 'var(--txt3)' }}>Could not load this agent.</div>
       )}
+      <RecordingModal
+        callId={playRc?.id ?? null}
+        title={`Recording · ${playRc?.customer ?? playRc?.phone ?? 'Call'}`}
+        subtitle={playRc ? `${playRc.direction}${playRc.phone ? ` · ${playRc.phone}` : ''}` : undefined}
+        onClose={() => setPlayRc(null)}
+      />
     </Modal>
   )
 }
