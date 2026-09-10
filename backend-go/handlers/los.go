@@ -120,44 +120,6 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	r.With(viewDoor).Get("/{id}/credit-report", losCreditReport(db))
 }
 
-// losCreditReport returns the full Phoenix prequalification report stored verbatim for
-// this application (or {report:null} when Phoenix has not sent one). The report is
-// returned as real JSON — not re-encoded — so the Credit Report view renders Phoenix's
-// report field-for-field.
-func losCreditReport(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := losParseID(r)
-		if err != nil {
-			respondErr(w, 400, "Invalid application ID")
-			return
-		}
-		var raw []byte
-		var source string
-		var updatedAt time.Time
-		err = db.PG.QueryRowContext(r.Context(),
-			`SELECT report, source, updated_at FROM app.loan_application_reports WHERE application_id=$1`, id).
-			Scan(&raw, &source, &updatedAt)
-		if err == sql.ErrNoRows || len(raw) == 0 {
-			respond(w, map[string]any{"report": nil}, "pg")
-			return
-		}
-		if err != nil {
-			respondErrLog(w, 500, "Query failed", err)
-			return
-		}
-		sj, _ := json.Marshal(source)
-		uj, _ := json.Marshal(updatedAt)
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"data":{"source":`)) //nolint:errcheck
-		w.Write(sj)                           //nolint:errcheck
-		w.Write([]byte(`,"updated_at":`))     //nolint:errcheck
-		w.Write(uj)                           //nolint:errcheck
-		w.Write([]byte(`,"report":`))         //nolint:errcheck
-		w.Write(raw)                          //nolint:errcheck
-		w.Write([]byte(`}}`))                 //nolint:errcheck
-	}
-}
-
 // losSetOffer records the offer/acceptance step in the workspace (CRM). It writes the
 // offer terms + status onto the application and an event to the trail, but does NOT
 // advance the LOS stage or gate booking — Phoenix is the system of record for this step,

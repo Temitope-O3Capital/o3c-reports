@@ -1446,9 +1446,9 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
           "what do I do next", before the applicant record — because that is the
           order Sales works in: read the verdict, then act on the offer. */}
       <PhoenixDecisionBanner app={app} />
+      <PrequalSection appId={app.id} />
       <OfferPanel app={app} onRefresh={onRefresh} />
       <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />
-      <PrequalSection appId={app.id} />
 
       {/* The customer's own steps — consent, the amount they accepted, the mandate.
           Phoenix owns all three, so these call Phoenix and show its answer. They sit
@@ -1741,6 +1741,9 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
         ? <DecisionSummary facts={facts} />
         : <><PhoenixDecisionBanner app={app} /><EyeUnavailable state={eye} /></>}
 
+      {/* The prequalification behind the verdict: a headline, the full report on expand. */}
+      <PrequalSection appId={app.id} />
+
       {/* The numbers a credit decision turns on, as Phoenix used them */}
       <div className="sd-stats">
         <SDStat label="Engine score" value={facts.score ?? '—'} tone={facts.hardGate ? RED : undefined}
@@ -1867,7 +1870,6 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
       </div>
 
       {offerStage && <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />}
-      <PrequalSection appId={app.id} />
 
       {/* Approval chain */}
       <SDPanel title="Approval chain" flush>
@@ -1982,9 +1984,9 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
           actions on the los_* pages, which compliance does not hold, so this reads
           as a record here rather than as something compliance can change. */}
       <PhoenixDecisionBanner app={app} />
+      <PrequalSection appId={app.id} />
       <OfferPanel app={app} onRefresh={onRefresh} />
       <PhoenixOfferPanel appId={app.id} canAct={false} onRefresh={onRefresh} />
-      <PrequalSection appId={app.id} />
 
       <div className="sd-stats">
         <SDStat label="Identification" value={`${kycOk}/${kyc.length}`}
@@ -2207,9 +2209,9 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
           terms it is about to book against the terms the customer actually accepted,
           so both belong above the figures rather than floating over the page. */}
       <PhoenixDecisionBanner app={app} />
+      <PrequalSection appId={app.id} />
       <OfferPanel app={app} onRefresh={onRefresh} />
       <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />
-      <PrequalSection appId={app.id} />
 
       {/* The money, as finance reads it */}
       <div className="sd-stats">
