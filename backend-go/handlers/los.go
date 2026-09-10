@@ -104,6 +104,8 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	// action, so it keeps the origination door.
 	r.With(viewDoor).Get("/{id}/offers", losOffers(db))
 	r.With(door).Post("/{id}/offers/{offer_id}/resend", losOfferResend(db))
+	// The letter itself, as Phoenix renders it. Reading, so viewDoor like the list.
+	r.With(viewDoor).Get("/{id}/offers/{offer_id}/pdf", losOfferPDF(db))
 	// The customer's answer. Phoenix confirms the amount and activates the credit
 	// account on accept, and declines the credit request on decline, so these are
 	// the two most consequential actions on this page.
@@ -1766,7 +1768,7 @@ func losEyeDecision(db *core.DB) http.HandlerFunc {
 
 		raw, err := phoenixEyeDecision(r.Context(), phoenixID)
 		if err != nil {
-			respondErrLog(w, 502, "Could not reach Phoenix", err)
+			respondPhoenixErr(w, r, err, "read the Eye decision")
 			return
 		}
 		if raw == nil {

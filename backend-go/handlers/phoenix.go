@@ -133,7 +133,8 @@ func phoenixEyeDecision(ctx context.Context, requestID string) (json.RawMessage,
 		return nil, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("phoenix eye-decision %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		return nil, phoenixCallError{Method: http.MethodGet, Path: "/credit-requests/" + requestID + "/eye-decision",
+			Status: resp.StatusCode, Detail: phoenixProblemDetail(raw)}
 	}
 	return json.RawMessage(raw), nil
 }
@@ -212,20 +213,9 @@ func phoenixCall(ctx context.Context, method, path string, body any) (json.RawMe
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		detail := strings.TrimSpace(string(out))
-		// Phoenix wraps errors as RFC7807; surface just the human part when present.
-		var perr struct {
-			Detail string `json:"detail"`
-			Title  string `json:"title"`
-		}
-		if json.Unmarshal(out, &perr) == nil {
-			if perr.Detail != "" {
-				detail = perr.Detail
-			} else if perr.Title != "" {
-				detail = perr.Title
-			}
-		}
-		return nil, fmt.Errorf("phoenix %s %s: %d — %s", method, path, resp.StatusCode, detail)
+		// Typed, so respondPhoenixErr can tell a refusal from a Phoenix fault; Detail
+		// is just the human part of Phoenix's RFC 7807 body.
+		return nil, phoenixCallError{Method: method, Path: path, Status: resp.StatusCode, Detail: phoenixProblemDetail(out)}
 	}
 	return json.RawMessage(out), nil
 }
@@ -661,8 +651,11 @@ func phoenixDrainOutbox(ctx context.Context, db *core.DB) (sent, failed int, err
 			// Give up on permanent errors immediately, and after the attempt cap
 			// otherwise. Backoff is 2^n minutes, capped at an hour.
 			if perm || attempts >= phoenixMaxAttempts {
+				// Staff read phoenix_error on the application, so it gets the worded
+				// reason; the outbox keeps the raw error for whoever debugs the link.
+				reason := phoenixErrorText(e, "take this application")
 				db.PGExec(ctx, `UPDATE app.phoenix_outbox SET state='abandoned', attempts=$2, last_error=$3, updated_at=NOW() WHERE id=$1`, jobID, attempts, e.Error()) //nolint:errcheck
-				db.PGExec(ctx, `UPDATE app.loan_applications SET phoenix_sync_state='failed', phoenix_error=$2, updated_at=NOW() WHERE id=$1`, appID, e.Error())        //nolint:errcheck
+				db.PGExec(ctx, `UPDATE app.loan_applications SET phoenix_sync_state='failed', phoenix_error=$2, updated_at=NOW() WHERE id=$1`, appID, reason)           //nolint:errcheck
 				slog.Error("phoenix submit abandoned", "application_id", appID, "attempts", attempts, "err", e)
 			} else {
 				backoff := time.Duration(1<<uint(attempts)) * time.Minute

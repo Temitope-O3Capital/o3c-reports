@@ -6,17 +6,17 @@
 // approved, freezes the terms at that moment, versions it, sends it, and expires it
 // after the tenant's window. This shows that record.
 //
-// Accept and decline are absent on purpose. Phoenix exposes them only on
-// /v1/portal/offers/{id}/accept|decline behind a staff JWT, with no machine
-// equivalent, so an API-key integration cannot record the customer's answer. Rather
-// than show a button that would fail, the panel says where the action lives.
+// Accept and decline record the customer's answer through Phoenix's machine routes
+// (/v1/offers/{id}/accept|decline). The letter itself is Phoenix's own PDF, shown in
+// a modal; Phoenix does not yet let the workspace's API key read it, and the modal
+// says so in that case rather than showing an empty frame.
 
 import { useCallback, useEffect, useState } from 'react'
-import { apiFetch, apiPost } from '../../lib/api'
+import { apiFetch, apiPost, apiBlob } from '../../lib/api'
 import { fmtKobo, fmtDatetime } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE } from '../../lib/design'
 import { toast } from 'sonner'
-import { Spinner } from '../../components/UI'
+import { Spinner, Modal } from '../../components/UI'
 
 export interface PhoenixOffer {
   id: string
@@ -89,6 +89,75 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
+// The letter as Phoenix renders it from the frozen terms — the document the customer
+// was sent, not a workspace re-drawing of it. Fetched as a blob for the same reason
+// the document preview is: a bare frame cannot show why the file was refused.
+function OfferLetterModal({ appId, offer, onClose }: {
+  appId: number
+  offer: PhoenixOffer | null
+  onClose: () => void
+}) {
+  const [url, setUrl]     = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!offer) return
+    let revoked = false
+    let objectUrl: string | null = null
+    setUrl(null); setError(null)
+    apiBlob(`/api/los/${appId}/offers/${offer.id}/pdf`)
+      .then(blob => {
+        if (revoked) return
+        objectUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
+        setUrl(objectUrl)
+      })
+      .catch(e => { if (!revoked) setError(e instanceof Error ? e.message : 'Could not load the offer letter') })
+    return () => {
+      revoked = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [appId, offer])
+
+  if (!offer) return null
+
+  const linkStyle: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 13px', borderRadius: 7,
+    border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5,
+    textDecoration: 'none', fontWeight: 600,
+  }
+
+  return (
+    <Modal open={!!offer} onClose={onClose} title={`Offer letter ${offer.reference} · version ${offer.version}`} width={900}>
+      {!url && !error && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '60px 0', color: 'var(--txt2)', fontSize: 13.5 }}>
+          <Spinner size={16} />Asking Phoenix for the letter…
+        </div>
+      )}
+      {error && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '46px 20px', textAlign: 'center' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 40, color: RED }}>error</span>
+          <div style={{ fontSize: 14, color: 'var(--txt)', maxWidth: 460, lineHeight: 1.6 }}>{error}</div>
+        </div>
+      )}
+      {url && (
+        <>
+          <div style={{ height: '70vh', minHeight: 420, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--bdr)', background: 'var(--th-bg)' }}>
+            <iframe src={url} style={{ width: '100%', height: '100%', border: 'none' }} title={`Offer letter ${offer.reference}`} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+            <a href={url} target="_blank" rel="noreferrer" style={linkStyle}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>Open in new tab
+            </a>
+            <a href={url} download={`offer-${offer.reference}.pdf`} style={{ ...linkStyle, border: 'none', background: NAVY, color: '#fff' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Download
+            </a>
+          </div>
+        </>
+      )}
+    </Modal>
+  )
+}
+
 export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
   appId: number
   canAct: boolean
@@ -101,6 +170,7 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
   const [showAll, setShowAll] = useState(false)
   const [declining, setDeclining]         = useState(false)
   const [declineReason, setDeclineReason] = useState('')
+  const [letter, setLetter]               = useState<PhoenixOffer | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -108,9 +178,11 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
       const res = await apiFetch<{ data: { offers: PhoenixOffer[] | null; reason?: string } }>(`/api/los/${appId}/offers`)
       setOffers(Array.isArray(res.data?.offers) ? res.data.offers : [])
       setReason(res.data?.reason ?? null)
-    } catch {
+    } catch (e) {
+      // The server words Phoenix failures for staff (respondPhoenixErr) — a refusal,
+      // a Phoenix fault and an outage read differently, so show which it was.
       setOffers(null)
-      setReason('Phoenix could not be reached.')
+      setReason(e instanceof Error ? e.message : 'Phoenix could not be reached.')
     } finally {
       setLoading(false)
     }
@@ -196,6 +268,7 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
 
   return (
     <div className="sd-panel">
+      <OfferLetterModal appId={appId} offer={letter} onClose={() => setLetter(null)} />
       <div className="sd-panel-head">
         <h2>Offer letter</h2>
         <span className="sd-panel-hint">
@@ -269,6 +342,11 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
               Resend to customer
             </button>
           )}
+          {/* Reading, so not gated on canAct: whoever can open the file can read
+              what was put to the customer. */}
+          <button className="sd-btn" onClick={() => setLetter(current)}>
+            <span className="material-symbols-rounded">description</span>View letter
+          </button>
           {older.length > 0 && (
             <button className="sd-btn" onClick={() => setShowAll(s => !s)}>
               <span className="material-symbols-rounded">{showAll ? 'expand_less' : 'history'}</span>
@@ -320,6 +398,7 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
                 <span>{o.offered_amount_minor ? fmtKobo(o.offered_amount_minor) : '—'}</span>
                 <span>{o.tenor_months ? `${o.tenor_months} months` : ''}</span>
                 <span style={{ marginLeft: 'auto' }}>{o.generated_at ? fmtDatetime(o.generated_at) : ''}</span>
+                <button className="sd-btn" style={{ padding: '3px 9px' }} onClick={() => setLetter(o)}>Letter</button>
               </div>
             ))}
           </div>

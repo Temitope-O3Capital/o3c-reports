@@ -11,15 +11,16 @@ package handlers
 // with no link between them is exactly the drift the Phoenix integration exists to
 // prevent, so these read Phoenix's offer and act on Phoenix's copy.
 //
-// One capability is deliberately missing: recording that the customer accepted or
-// declined. Phoenix exposes accept and decline only on /v1/portal/offers/{id}/…,
-// behind a staff JWT, with no machine equivalent — so an API-key integration can
-// read an offer, resend it, and watch it expire, but cannot record the answer.
-// Adding those two routes to Phoenix is the fix; until then the workspace does not
-// pretend to offer the action.
+// The customer's answer is recorded through Phoenix's machine routes
+// (/v1/offers/{id}/accept|decline), which Phoenix added for this integration. The
+// offer letter PDF is read the same way, but Phoenix does not yet let the API key
+// read it — see losOfferPDF.
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -54,7 +55,7 @@ func losOffers(db *core.DB) http.HandlerFunc {
 		raw, err := phoenixCall(r.Context(), http.MethodGet,
 			"/credit-requests/"+c.PhoenixID+"/offers", nil)
 		if err != nil {
-			respondErrLog(w, 502, "Could not read offers from Phoenix", err)
+			respondPhoenixErr(w, r, err, "read the offers for this application")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -78,14 +79,14 @@ func losOfferResend(db *core.DB) http.HandlerFunc {
 			return
 		}
 		offerID := strings.TrimSpace(chi.URLParam(r, "offer_id"))
-		if offerID == "" {
-			respondErr(w, 400, "offer_id is required")
+		if !phoenixUUID(offerID) {
+			respondErr(w, 400, "offer_id is not a Phoenix offer id")
 			return
 		}
 		raw, err := phoenixCall(r.Context(), http.MethodPost,
 			"/offers/"+offerID+"/resend", map[string]any{})
 		if err != nil {
-			respondErrLog(w, 502, err.Error(), err)
+			respondPhoenixErr(w, r, err, "resend the offer")
 			return
 		}
 		user := core.UserFromCtx(r.Context())
@@ -129,8 +130,8 @@ func losOfferDecision(db *core.DB, action string) http.HandlerFunc {
 			return
 		}
 		offerID := strings.TrimSpace(chi.URLParam(r, "offer_id"))
-		if offerID == "" {
-			respondErr(w, 400, "offer_id is required")
+		if !phoenixUUID(offerID) {
+			respondErr(w, 400, "offer_id is not a Phoenix offer id")
 			return
 		}
 		var b body
@@ -159,7 +160,10 @@ func losOfferDecision(db *core.DB, action string) http.HandlerFunc {
 		if err != nil {
 			// Phoenix enforces the rules here — an offer already accepted, declined or
 			// past its expiry is refused, and its reason is the useful message.
-			respondErrLog(w, 502, err.Error(), err)
+			respondPhoenixErr(w, r, err, map[string]string{
+				"accept":  "record the acceptance",
+				"decline": "record the decline",
+			}[action])
 			return
 		}
 
@@ -188,6 +192,92 @@ func losOfferDecision(db *core.DB, action string) http.HandlerFunc {
 	}
 }
 
+// losOfferPDF streams the offer letter Phoenix renders for one offer — the document
+// the customer was sent, drawn by Phoenix from the frozen terms. The workspace shows
+// Phoenix's PDF rather than drawing its own for the reason it shows Phoenix's offer
+// rather than keeping one: two renderings of "the offer" drift apart.
+//
+// The offer must belong to this application's credit request. Without that check any
+// offer id in the tenant could be read through any application the caller can open.
+//
+// Phoenix currently serves this PDF only to someone signed in to Phoenix: offerPDF
+// takes the tenant from a staff login and never consults the API key, so the
+// workspace's key is answered 401. The same key has just read the offer list, so a
+// 401 here is that rule and not a bad key, and it is reported as such. The fix is
+// Phoenix's (offer_pdf.go); this starts working the moment it lands.
+func losOfferPDF(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := losParseID(r)
+		if err != nil {
+			respondErr(w, 400, "Invalid application ID")
+			return
+		}
+		offerID := strings.TrimSpace(chi.URLParam(r, "offer_id"))
+		if !phoenixUUID(offerID) {
+			respondErr(w, 400, "offer_id is not a Phoenix offer id")
+			return
+		}
+		c, err := phoenixLoadAppContext(r.Context(), db, id)
+		if err != nil {
+			respondErr(w, 422, err.Error())
+			return
+		}
+		raw, err := phoenixCall(r.Context(), http.MethodGet, "/credit-requests/"+c.PhoenixID+"/offers", nil)
+		if err != nil {
+			respondPhoenixErr(w, r, err, "check the offer belongs to this application")
+			return
+		}
+		var offers []struct {
+			ID        string `json:"id"`
+			Reference string `json:"reference"`
+		}
+		_ = json.Unmarshal(raw, &offers)
+		ref := ""
+		for _, o := range offers {
+			if strings.EqualFold(o.ID, offerID) {
+				ref = o.Reference
+				if ref == "" {
+					ref = offerID
+				}
+				break
+			}
+		}
+		if ref == "" {
+			respondErr(w, 404, "That offer is not one of this application's offers")
+			return
+		}
+
+		pdf, err := phoenixCall(r.Context(), http.MethodGet, "/offers/"+offerID+"/pdf", nil)
+		if err != nil {
+			var ce phoenixCallError
+			if errors.As(err, &ce) && ce.Status == http.StatusUnauthorized {
+				writePhoenixFailure(w, phoenixFailure{http.StatusBadGateway, "PHOENIX_PDF_STAFF_ONLY",
+					"Phoenix only hands out the offer letter PDF to someone signed in to Phoenix, not to the workspace's API key. The Phoenix team needs to let the API key read it (offer_pdf.go). Until then, open the letter from the application in Phoenix."}, err)
+				return
+			}
+			respondPhoenixErr(w, r, err, "produce the offer letter")
+			return
+		}
+		if !bytes.HasPrefix(pdf, []byte("%PDF")) {
+			writePhoenixFailure(w, phoenixFailure{http.StatusBadGateway, "PHOENIX_ERROR",
+				"Phoenix answered, but not with a PDF, so the offer letter cannot be shown."},
+				fmt.Errorf("offer %s pdf: %d bytes, not a PDF", offerID, len(pdf)))
+			return
+		}
+		// The reference comes from Phoenix; keep only what is safe in a header.
+		name := strings.Map(func(c rune) rune {
+			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+				return c
+			}
+			return -1
+		}, ref)
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", `inline; filename="offer-`+name+`.pdf"`)
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Write(pdf) //nolint:errcheck
+	}
+}
+
 // ── Mandate cancellation ─────────────────────────────────────────────────────
 
 // losMandateCancel cancels a direct-debit mandate.
@@ -209,8 +299,8 @@ func losMandateCancel(db *core.DB) http.HandlerFunc {
 			return
 		}
 		mandateID := strings.TrimSpace(chi.URLParam(r, "mandate_id"))
-		if mandateID == "" {
-			respondErr(w, 400, "mandate_id is required")
+		if !phoenixUUID(mandateID) {
+			respondErr(w, 400, "mandate_id is not a Phoenix mandate id")
 			return
 		}
 		var b body
@@ -228,7 +318,7 @@ func losMandateCancel(db *core.DB) http.HandlerFunc {
 				"failure_reason": strings.TrimSpace(b.Reason),
 			})
 		if err != nil {
-			respondErrLog(w, 502, err.Error(), err)
+			respondPhoenixErr(w, r, err, "cancel the mandate")
 			return
 		}
 		user := core.UserFromCtx(r.Context())
@@ -254,14 +344,14 @@ func losMandateCollections(db *core.DB) http.HandlerFunc {
 			return
 		}
 		mandateID := strings.TrimSpace(chi.URLParam(r, "mandate_id"))
-		if mandateID == "" {
-			respondErr(w, 400, "mandate_id is required")
+		if !phoenixUUID(mandateID) {
+			respondErr(w, 400, "mandate_id is not a Phoenix mandate id")
 			return
 		}
 		raw, err := phoenixCall(r.Context(), http.MethodGet,
 			"/open-banking/collections?mandate_id="+mandateID, nil)
 		if err != nil {
-			respondErrLog(w, 502, "Could not read collections from Phoenix", err)
+			respondPhoenixErr(w, r, err, "read the debits on this mandate")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -311,7 +401,7 @@ func losConsentTrail(db *core.DB) http.HandlerFunc {
 			phoenixNote = "Phoenix has no customer id for this application yet"
 		} else if raw, perr := phoenixCall(r.Context(), http.MethodGet,
 			"/customers/"+c.CustomerID+"/consent-records", nil); perr != nil {
-			phoenixNote = perr.Error()
+			phoenixNote = classifyPhoenixErr(perr, "read Phoenix's consent ledger", false).Message
 		} else if jerr := json.Unmarshal(raw, &phoenixRecords); jerr != nil {
 			phoenixNote = "Phoenix returned consent records the workspace could not read"
 		} else {

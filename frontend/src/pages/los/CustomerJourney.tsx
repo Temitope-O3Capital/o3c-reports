@@ -92,6 +92,26 @@ const MANDATE_TONE: Record<string, { label: string; tone: 'good' | 'warn' | 'bad
   CANCELLED: { label: 'Cancelled', tone: 'bad' },
   EXPIRED: { label: 'Expired', tone: 'bad' },
 }
+// A mandate in one of these is over; there is nothing left to cancel.
+const MANDATE_ENDED = new Set(['CANCELLED', 'FAILED', 'EXPIRED'])
+
+// One debit Phoenix attempted against a mandate (DirectDebitCollection).
+type Debit = {
+  id: string
+  amount_minor?: number | null
+  status?: string | null
+  failure_reason?: string | null
+  collected_at?: string | null
+  created_at?: string | null
+}
+
+// Phoenix's DirectDebitCollectionStatus.
+const DEBIT_TONE: Record<string, { label: string; tone: 'good' | 'warn' | 'bad' | 'idle' }> = {
+  SUCCESSFUL: { label: 'Collected', tone: 'good' },
+  PENDING: { label: 'Pending', tone: 'warn' },
+  FAILED: { label: 'Failed', tone: 'bad' },
+  REVERSED: { label: 'Reversed', tone: 'bad' },
+}
 
 function Pill({ text, tone }: { text: string; tone: 'good' | 'warn' | 'bad' | 'idle' }) {
   const c = {
@@ -148,6 +168,15 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
   const [showAmount, setShowAmount] = useState(false)
   const [amount, setAmount] = useState('')
 
+  // Cancelling stops a real instruction to debit a real account, so it takes a reason.
+  const [showCancel, setShowCancel] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  // What Phoenix has actually tried to take on the mandate — ACTIVE only says the
+  // instruction exists. Loaded on demand.
+  const [showDebits, setShowDebits] = useState(false)
+  const [debits, setDebits] = useState<Debit[] | null>(null)
+  const [debitsErr, setDebitsErr] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     try {
       const res = await apiFetch<{ data: {
@@ -193,19 +222,34 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
 
   useEffect(() => { void load() }, [load])
 
-  async function run(key: string, fn: () => Promise<unknown>, ok: string) {
+  // Resolves false on failure, so a form stays open with what the officer typed.
+  async function run(key: string, fn: () => Promise<unknown>, ok: string): Promise<boolean> {
     setBusy(key)
     try {
       await fn()
       toast.success(ok)
       await load()
       onRefresh?.()
+      return true
     } catch (e) {
       // Phoenix's validation messages are specific and actionable; show them rather
       // than a generic failure.
       toast.error(e instanceof Error ? e.message : 'Phoenix rejected that')
+      return false
     } finally {
       setBusy(null)
+    }
+  }
+
+  async function toggleDebits(mandateId: string) {
+    if (showDebits) { setShowDebits(false); return }
+    setShowDebits(true); setDebits(null); setDebitsErr(null)
+    try {
+      const res = await apiFetch<{ data: { collections: Debit[] | null } }>(`/api/los/${appId}/mandate/${mandateId}/collections`)
+      setDebits(Array.isArray(res.data?.collections) ? res.data.collections : [])
+    } catch (e) {
+      setDebitsErr(e instanceof Error ? e.message : 'Could not read the debits')
+      setDebits([])
     }
   }
 
@@ -296,7 +340,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
               <button className="sd-btn is-primary" disabled={busy !== null || !amount}
                 onClick={() => run('amount', () => apiPost(`/api/los/${appId}/confirm-amount`, {
                   chosen_amount_kobo: Math.round(Number(amount) * 100),
-                }), 'Amount confirmed').then(() => setShowAmount(false))}>
+                }), 'Amount confirmed').then(ok => { if (ok) setShowAmount(false) })}>
                 {busy === 'amount' ? 'Saving…' : 'Confirm'}
               </button>
               <button className="sd-btn" onClick={() => setShowAmount(false)}>Cancel</button>
@@ -345,7 +389,67 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
               </button>
             </>
           )}
+          {latest && (
+            <button className="sd-btn" disabled={busy !== null} onClick={() => toggleDebits(latest.id)}>
+              <span className="material-symbols-rounded">receipt_long</span>{showDebits ? 'Hide debits' : 'Debits'}
+            </button>
+          )}
+          {latest && !MANDATE_ENDED.has(mStatus) && (
+            <button className="sd-btn is-danger" disabled={busy !== null}
+              onClick={() => { setCancelReason(''); setShowCancel(v => !v) }}>
+              <span className="material-symbols-rounded">block</span>Cancel
+            </button>
+          )}
         </Step>
+
+        {showCancel && latest && (
+          <div style={{ padding: '12px 4px 16px', borderBottom: '1px solid var(--bdr)' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.55, marginBottom: 10 }}>
+              Cancelling tells the bank to stop debiting account <b>{latest.account_number ?? '—'}</b>. Repayments
+              cannot be collected automatically again until a new mandate is active.
+            </div>
+            <label style={label}>Why is it being cancelled?
+              <input style={input} value={cancelReason} onChange={e => setCancelReason(e.target.value)}
+                placeholder="Recorded in Phoenix and on this application's trail" />
+            </label>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button className="sd-btn is-danger" disabled={busy !== null || !cancelReason.trim()}
+                onClick={() => run('cancel', () => apiPost(`/api/los/${appId}/mandate/${latest.id}/cancel`, {
+                  reason: cancelReason.trim(),
+                }), 'Mandate cancelled').then(ok => { if (ok) setShowCancel(false) })}>
+                {busy === 'cancel' ? 'Cancelling…' : 'Cancel mandate'}
+              </button>
+              <button className="sd-btn" onClick={() => setShowCancel(false)}>Keep it</button>
+            </div>
+          </div>
+        )}
+
+        {showDebits && (
+          <div style={{ padding: '10px 4px 14px', borderBottom: '1px solid var(--bdr)', fontSize: 12.5, color: 'var(--txt2)' }}>
+            {debits === null
+              ? 'Reading the debits from Phoenix…'
+              : debitsErr
+                ? <span style={{ color: 'var(--sd-amber)' }}>{debitsErr}</span>
+                : debits.length === 0
+                  ? 'Phoenix has not tried to debit this mandate yet.'
+                  : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {debits.map(d => {
+                        const m = DEBIT_TONE[(d.status ?? '').toUpperCase()]
+                        const when = d.collected_at ?? d.created_at
+                        return (
+                          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                            <span style={{ minWidth: 92 }}>{when ? fmtDay(when) : '—'}</span>
+                            <b style={{ color: 'var(--txt)', minWidth: 96 }}>{naira(d.amount_minor)}</b>
+                            <Pill text={m?.label ?? (d.status ?? 'Unknown')} tone={m?.tone ?? 'idle'} />
+                            {d.failure_reason && <span>{d.failure_reason}</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+          </div>
+        )}
 
         {showMandate && ddAvailable !== false && (
           <div style={{ padding: '12px 4px 16px' }}>
@@ -366,7 +470,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
                   account_number: acct.trim(),
                   account_name: acctName.trim(),
                   institution_code: bank.trim(),
-                }), 'Mandate registered').then(() => setShowMandate(false))}>
+                }), 'Mandate registered').then(ok => { if (ok) setShowMandate(false) })}>
                 {busy === 'mandate' ? 'Registering…' : 'Register mandate'}
               </button>
               <button className="sd-btn" onClick={() => setShowMandate(false)}>Cancel</button>

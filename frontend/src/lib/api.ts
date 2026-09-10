@@ -183,6 +183,30 @@ export async function apiDelete(path: string): Promise<void> {
   await apiFetch(path, { method: 'DELETE' })
 }
 
+/**
+ * Fetch an authenticated file as a Blob, to render a PDF or image in the page.
+ *
+ * An <iframe src> pointed at an /api route cannot refresh an expired session or say
+ * why a file was refused — it just renders the error body. Fetching the bytes here
+ * and handing the frame an object URL does both. Sent on the session cookie like
+ * every other call: an Authorization header would be read first, and an empty one
+ * fails auth outright. A failure carries the server's detail and `status`.
+ */
+export async function apiBlob(path: string): Promise<Blob> {
+  const send = () => fetch(`${API}${path}`, { credentials: 'include' })
+  let res = await send()
+  if (res.status === 401 && await refreshSession()) res = await send()
+  if (res.status === 401) {
+    signOut()
+    throw Object.assign(new Error('Session expired'), { status: 401 })
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw Object.assign(new Error((err as any).detail || `Request failed (${res.status})`), { status: res.status })
+  }
+  return res.blob()
+}
+
 export interface ExportResult {
   filename: string
   rows: number

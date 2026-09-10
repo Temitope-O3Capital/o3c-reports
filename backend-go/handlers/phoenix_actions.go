@@ -157,7 +157,7 @@ func losMandate(db *core.DB) http.HandlerFunc {
 		}
 		raw, err := phoenixCall(r.Context(), http.MethodGet, "/open-banking/mandates?customer_id="+c.CustomerID, nil)
 		if err != nil {
-			respondErrLog(w, 502, "Could not read mandates from Phoenix", err)
+			respondPhoenixErr(w, r, err, "read the mandates")
 			return
 		}
 		// Carried alongside the list so the page can explain a disabled button up
@@ -246,7 +246,7 @@ func losMandateSetup(db *core.DB) http.HandlerFunc {
 
 		raw, err := phoenixCall(r.Context(), http.MethodPost, "/open-banking/mandates", payload)
 		if err != nil {
-			respondErrLog(w, 502, err.Error(), err)
+			respondPhoenixErr(w, r, err, "register the mandate")
 			return
 		}
 		// Belt and braces for the check above. A mandate that comes back without a
@@ -266,7 +266,10 @@ func losMandateSetup(db *core.DB) http.HandlerFunc {
 			}); cerr != nil {
 				slog.Error("mandate setup: could not cancel an unregistered mandate", "application_id", id, "mandate_id", made.ID, "err", cerr)
 			}
-			respondErr(w, 502, "Phoenix accepted the mandate but did not register it with any bank, so the workspace cancelled it straight away. Check that a direct-debit provider is configured in Phoenix.")
+			// Not respondErr: its 5xx scrubbing would turn this into "Internal server error".
+			writePhoenixFailure(w, phoenixFailure{http.StatusBadGateway, "PHOENIX_MANDATE_UNREGISTERED",
+				"Phoenix accepted the mandate but did not register it with any bank, so the workspace cancelled it straight away. Check that a direct-debit provider is configured in Phoenix."},
+				fmt.Errorf("mandate %s came back with no provider reference", made.ID))
 			return
 		}
 		user := core.UserFromCtx(r.Context())
@@ -289,14 +292,17 @@ func losMandateAction(db *core.DB, action string) http.HandlerFunc {
 			return
 		}
 		mandateID := strings.TrimSpace(chi.URLParam(r, "mandate_id"))
-		if mandateID == "" {
-			respondErr(w, 400, "mandate_id is required")
+		if !phoenixUUID(mandateID) {
+			respondErr(w, 400, "mandate_id is not a Phoenix mandate id")
 			return
 		}
 		raw, err := phoenixCall(r.Context(), http.MethodPost,
 			"/open-banking/mandates/"+mandateID+"/"+action, map[string]any{})
 		if err != nil {
-			respondErrLog(w, 502, err.Error(), err)
+			respondPhoenixErr(w, r, err, map[string]string{
+				"remind":       "send the mandate reminder",
+				"check-status": "re-check the mandate with the bank",
+			}[action])
 			return
 		}
 		user := core.UserFromCtx(r.Context())
@@ -370,7 +376,7 @@ func losConfirmAmount(db *core.DB) http.HandlerFunc {
 		raw, err := phoenixCall(r.Context(), http.MethodPost,
 			"/credit-requests/"+c.PhoenixID+"/confirm-amount", payload)
 		if err != nil {
-			respondErrLog(w, 502, err.Error(), err)
+			respondPhoenixErr(w, r, err, "confirm the amount")
 			return
 		}
 		chosen := b.ChosenAmountKobo
@@ -430,7 +436,7 @@ func losRecordConsent(db *core.DB) http.HandlerFunc {
 		raw, err := phoenixCall(r.Context(), http.MethodPost,
 			"/portal/customers/"+c.CustomerID+"/consent-records", payload)
 		if err != nil {
-			respondErrLog(w, 502, err.Error(), err)
+			respondPhoenixErr(w, r, err, "record consent")
 			return
 		}
 		user := core.UserFromCtx(r.Context())
@@ -486,7 +492,7 @@ func losCards(db *core.DB) http.HandlerFunc {
 		}
 		raw, err := phoenixCall(r.Context(), http.MethodGet, "/card-accounts?customer_id="+c.CustomerID, nil)
 		if err != nil {
-			respondErrLog(w, 502, "Could not read cards from Phoenix", err)
+			respondPhoenixErr(w, r, err, "read the cards")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -513,8 +519,8 @@ func losCardAction(db *core.DB, action string) http.HandlerFunc {
 			return
 		}
 		cardID := strings.TrimSpace(chi.URLParam(r, "card_id"))
-		if cardID == "" {
-			respondErr(w, 400, "card_id is required")
+		if !phoenixUUID(cardID) {
+			respondErr(w, 400, "card_id is not a Phoenix card id")
 			return
 		}
 		var b body
@@ -531,7 +537,7 @@ func losCardAction(db *core.DB, action string) http.HandlerFunc {
 		}
 		raw, err := phoenixCall(r.Context(), http.MethodPost, "/card-accounts/"+cardID+"/"+action, payload)
 		if err != nil {
-			respondErrLog(w, 502, err.Error(), err)
+			respondPhoenixErr(w, r, err, action+" the card")
 			return
 		}
 		label := map[string]string{

@@ -6,7 +6,7 @@ import CustomerJourney from './CustomerJourney'
 import {
   Page, SectionCard, Modal, ConfirmModal, Spinner, Sk, ErrBanner, KpiCard,
 } from '../../components/UI'
-import { apiFetch, apiPut, apiPost, apiDelete } from '../../lib/api'
+import { apiFetch, apiPut, apiPost, apiDelete, apiBlob } from '../../lib/api'
 import { fmtKobo, fmtDatetime, fmtDate, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
@@ -67,6 +67,8 @@ interface Application {
   phoenix_sync_state:      string | null
   phoenix_stage?:          string | null
   phoenix_status?:         string | null
+  // Why Phoenix did not take a submission, worded by phoenixErrorText.
+  phoenix_error?:          string | null
   source_system:           string | null
   source_lead_id:          number | null
   lead_source:             string | null
@@ -481,11 +483,11 @@ function ConditionsInline({ appId, conditions, onRefresh, canManage }: {
 
 // The document itself, rendered in place.
 //
-// The file is fetched as a blob rather than pointed at with an <iframe src>,
-// because the content route is authenticated and a bare iframe, img or anchor
-// sends no Authorization header — it would have loaded a 401 body into the
-// frame. Fetching with apiFetch's credentials and handing the frame an object
-// URL is what makes an authenticated document renderable at all.
+// The file is fetched as a blob rather than pointed at with an <iframe src>: a
+// frame cannot refresh an expired session or say why a file was refused, it just
+// renders the error body. apiBlob does both, on the session cookie. (This used to
+// send "Authorization: Bearer" with a token the workspace never stores; the auth
+// middleware reads that header before the cookie, so every preview was a 401.)
 function DocPreviewModal({ doc, onClose }: { doc: LosDoc | null; onClose: () => void }) {
   const [url, setUrl]         = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -504,20 +506,15 @@ function DocPreviewModal({ doc, onClose }: { doc: LosDoc | null; onClose: () => 
     let revoked = false
     let objectUrl: string | null = null
     setLoading(true); setError(null)
-    const token = localStorage.getItem('o3c_token') ?? ''
-    fetch(`/api/los/documents/${doc.id}/content`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(async res => {
-        if (!res.ok) {
-          throw new Error(res.status === 404
-            ? 'The stored file is missing. It may have been uploaded before the document store moved.'
-            : `Could not load the document (${res.status})`)
-        }
-        const blob = await res.blob()
+    apiBlob(`/api/los/documents/${doc.id}/content`)
+      .then(blob => {
         if (revoked) return
         objectUrl = URL.createObjectURL(blob)
         setUrl(objectUrl)
       })
-      .catch(e => setError(e instanceof Error ? e.message : 'Could not load the document'))
+      .catch(e => setError((e as { status?: number })?.status === 404
+        ? 'The stored file is missing. It may have been uploaded before the document store moved.'
+        : e instanceof Error ? e.message : 'Could not load the document'))
       .finally(() => { if (!revoked) setLoading(false) })
     // Object URLs pin the blob in memory until revoked, so a staff member opening
     // twenty documents in a sitting would otherwise hold twenty files.
@@ -959,10 +956,13 @@ function PhoenixDecisionBanner({ app }: { app: Application }) {
   // "Phoenix decision: Phoenix-originated", with the same words repeated in a pill
   // beside it. It stated nothing, twice. A pending assessment should say it is
   // pending; where the application came from is provenance, not a verdict.
-  const title = hasDecision ? `Credit decision: ${d.label}` : 'Awaiting credit decision'
+  const failed = !hasDecision && app.phoenix_sync_state === 'failed'
+  const title = hasDecision ? `Credit decision: ${d.label}` : failed ? 'Not sent for a credit decision' : 'Awaiting credit decision'
   const body = hasDecision
     ? 'Advisory recommendation. A credit approver still decides — advancing or declining remains a human action.'
-    : 'This has been sent for assessment. The recommendation appears here once the credit engine returns it.'
+    : failed
+      ? 'The credit engine never received this application.'
+      : 'This has been sent for assessment. The recommendation appears here once the credit engine returns it.'
 
   return (
     <div className={`sd-panel${hasDecision ? '' : ' sd-decision-pending'}`}>
@@ -978,11 +978,60 @@ function PhoenixDecisionBanner({ app }: { app: Application }) {
               {reasons.map((r, i) => <span key={i} className="sd-chip">{r}</span>)}
             </div>
           )}
+          {failed && <PhoenixSendFailure app={app} />}
         </div>
         <div className="sd-decision-meta">
           {fromPhoenix && <span className="sd-tagline">Originated in Phoenix</span>}
           {sync && <span className="sd-tagline" style={{ color: sync.txt }}>{sync.label}</span>}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// A submission Phoenix gave up on. The outbox worker stores the reason in Phoenix's
+// own words (phoenixErrorText), but nothing showed it, so a file could sit in Risk
+// looking "awaiting Phoenix" long after Phoenix had refused it.
+//
+// Whether sending again can help depends on why it failed. Phoenix keeps its answer
+// to a refused request under the idempotency key (wsapp-{id}) and replays it, so a
+// refusal — worded "Phoenix would not …" — comes back unchanged however often it is
+// re-sent; the way on is a corrected new application. A timeout or a Phoenix fault
+// is not kept, so those can simply go again.
+function PhoenixSendFailure({ app }: { app: Application }) {
+  const refused = (app.phoenix_error ?? '').startsWith('Phoenix would not')
+  const canResend = ['risk_all', 'risk_officer', 'risk_head', 'credit_portfolio'].some(p => hasPage(p))
+  const [state, setState] = useState<'idle' | 'busy' | 'queued'>('idle')
+
+  async function resend() {
+    setState('busy')
+    try {
+      await apiPost(`/api/phoenix/applications/${app.id}/submit`, {})
+      setState('queued')
+      toast.success('Queued for Phoenix — it goes within a minute')
+    } catch (e) {
+      setState('idle')
+      toast.error(e instanceof Error ? e.message : 'Could not queue it for Phoenix')
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, fontSize: 13, lineHeight: 1.55, color: 'var(--txt)',
+      border: '1px solid color-mix(in srgb, #C00000 24%, transparent)', background: 'color-mix(in srgb, #C00000 6%, transparent)' }}>
+      <b style={{ color: RED }}>Why: </b>{app.phoenix_error || 'No reason was recorded.'}
+      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: 'var(--txt2)', fontSize: 12.5 }}>
+        {refused
+          ? 'Phoenix gives the same answer to the same request, so sending it again will not help. Decline it with this reason, then resubmit it from Sales with the details corrected.'
+          : state === 'queued'
+            ? 'Queued. This updates once Phoenix answers.'
+            : canResend
+              ? (
+                <button className="sd-btn" disabled={state === 'busy'} onClick={resend}>
+                  {state === 'busy' ? <Spinner size={13} /> : <span className="material-symbols-rounded">send</span>}
+                  Send to Phoenix again
+                </button>
+              )
+              : 'Someone in Risk can send it to Phoenix again.'}
       </div>
     </div>
   )
