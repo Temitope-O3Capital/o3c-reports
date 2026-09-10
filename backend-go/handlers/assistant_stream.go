@@ -40,7 +40,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // assistantWaiting counts requests either holding or waiting for the inference

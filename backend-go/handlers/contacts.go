@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // isNameLike reports whether s contains at least one alphabetic character, so a

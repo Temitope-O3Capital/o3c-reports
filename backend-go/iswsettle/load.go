@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // Result summarises one import run.

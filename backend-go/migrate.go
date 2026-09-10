@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 //go:embed migrations/*.sql

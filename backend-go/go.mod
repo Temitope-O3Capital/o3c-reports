@@ -1,4 +1,4 @@
-module github.com/o3c/reports
+module github.com/o3c/workspace
 
 go 1.25.11
 

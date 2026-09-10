@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/o3c/reports/core"
-	"github.com/o3c/reports/udara"
+	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/udara"
 )
 
 const (

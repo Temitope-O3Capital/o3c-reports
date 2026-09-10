@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // RegisterApprovals wires the central approvals queue endpoints.

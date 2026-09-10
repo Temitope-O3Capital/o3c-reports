@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
-	"github.com/o3c/reports/paystacksync"
+	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/paystacksync"
 )
 
 // paystackSyncInterval reads PAYSTACK_SYNC_INTERVAL (a Go duration, e.g. "15m").

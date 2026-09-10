@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // zohoFailedSpike reports whether an import's insert-failure rate is high enough to

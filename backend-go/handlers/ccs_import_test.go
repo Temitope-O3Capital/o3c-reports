@@ -11,7 +11,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // TestLoadCCSDir parses a directory of raw CCS EODTXN files (Report 620) and loads

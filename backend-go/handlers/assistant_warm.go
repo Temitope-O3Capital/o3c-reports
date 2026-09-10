@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // assistantWarmDelay holds the first warm-up back until the boot storm has

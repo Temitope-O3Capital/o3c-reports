@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // The map-order bug this guards against is invisible in code review and cost

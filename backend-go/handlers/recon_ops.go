@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
-	"github.com/o3c/reports/recon"
+	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/recon"
 )
 
 // RegisterRecon mounts the reconciliation engine under /api/recon.

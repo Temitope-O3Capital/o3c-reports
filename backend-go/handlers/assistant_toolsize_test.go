@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // Guards the round-2 prefill cost. Every token a tool returns is read back into

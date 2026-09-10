@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // End-to-end: real preamble -> model picks a tool -> real tool runs against the

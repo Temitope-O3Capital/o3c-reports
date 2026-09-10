@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
-	"github.com/o3c/reports/custfeed"
+	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/custfeed"
 )
 
 // custFeedInterval reads CUSTOMER_FEED_INTERVAL (a Go duration, e.g. "15m").

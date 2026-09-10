@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // liveTopics maps a realtime topic → a cheap signature query (row count + latest

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // Exercises the assistant the way staff would actually use it: reporting,

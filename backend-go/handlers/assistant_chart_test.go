@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // Runs every tool and reports which of them yield a chart, so the extractor's

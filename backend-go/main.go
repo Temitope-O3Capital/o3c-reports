@@ -20,9 +20,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
-	"github.com/o3c/reports/core"
-	"github.com/o3c/reports/handlers"
-	"github.com/o3c/reports/udara"
+	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/handlers"
+	"github.com/o3c/workspace/udara"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 

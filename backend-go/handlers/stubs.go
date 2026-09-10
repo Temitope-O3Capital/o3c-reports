@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // RegisterSettlement — daily settlement vs clearing summary from the Transactions table.

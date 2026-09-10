@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // customerMasterTable is the Sage/MSSQL customer snapshot (populated by the nightly

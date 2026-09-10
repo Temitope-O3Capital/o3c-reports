@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // GlobalSearch powers the ⌘K palette: a few best matches from each entity type —

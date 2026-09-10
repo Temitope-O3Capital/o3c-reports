@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 var careHTTP = &http.Client{Timeout: 30 * time.Second}

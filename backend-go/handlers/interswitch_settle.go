@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/core"
-	"github.com/o3c/reports/iswsettle"
+	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/iswsettle"
 )
 
 // RegisterInterswitchSettle mounts the real Interswitch settlement feed under

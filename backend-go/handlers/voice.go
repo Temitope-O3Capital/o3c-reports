@@ -39,7 +39,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // ── Config ────────────────────────────────────────────────────────────────────

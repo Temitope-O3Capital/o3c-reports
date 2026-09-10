@@ -6,8 +6,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/cbssync"
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/cbssync"
+	"github.com/o3c/workspace/core"
 )
 
 // RegisterCBSReports mounts read-only reporting endpoints over the CBS snapshot

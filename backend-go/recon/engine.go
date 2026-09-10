@@ -16,7 +16,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // Pair identifies a reconciliation: one source against one counterparty.

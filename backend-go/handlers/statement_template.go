@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // ── Template data types ───────────────────────────────────────────────────────

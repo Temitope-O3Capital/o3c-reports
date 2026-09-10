@@ -6,7 +6,7 @@ import (
 	"net/url"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/udara"
+	"github.com/o3c/workspace/udara"
 )
 
 // RegisterCoreBanking mounts all Udara360 CBS proxy endpoints under /api/cbs.

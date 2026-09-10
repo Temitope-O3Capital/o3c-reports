@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 var dateRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)

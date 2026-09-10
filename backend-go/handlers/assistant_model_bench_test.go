@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // Compares candidate models on the REAL tool set against live database truth,

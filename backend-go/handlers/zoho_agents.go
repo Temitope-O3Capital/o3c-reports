@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // zohoPollInterval is the cadence of the fast incremental Zoho poll. Near-real-time

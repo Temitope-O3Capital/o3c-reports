@@ -12,7 +12,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // TestLiveImport parses a directory of real Interswitch reports and loads them.

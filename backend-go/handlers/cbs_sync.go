@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/cbssync"
-	"github.com/o3c/reports/core"
-	"github.com/o3c/reports/udara"
+	"github.com/o3c/workspace/cbssync"
+	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/udara"
 )
 
 // cbsSyncInterval reads CBS_SYNC_INTERVAL (a Go duration, e.g. "30m", "1h").

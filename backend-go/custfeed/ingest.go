@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // Dir returns the cust_file directory. DATA_FEED_DIR points at the drop root; the

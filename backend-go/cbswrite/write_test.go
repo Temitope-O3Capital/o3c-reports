@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/o3c/reports/udara"
+	"github.com/o3c/workspace/udara"
 )
 
 // TestDryRunSendsNothing verifies that with CBS_WRITE_ENABLED unset (the default),

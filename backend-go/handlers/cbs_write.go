@@ -5,9 +5,9 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/o3c/reports/cbswrite"
-	"github.com/o3c/reports/core"
-	"github.com/o3c/reports/udara"
+	"github.com/o3c/workspace/cbswrite"
+	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/udara"
 )
 
 // RegisterCBSWrite mounts the write-through endpoints under /api/cbs. All are

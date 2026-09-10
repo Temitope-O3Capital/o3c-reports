@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // The call-outcome vocabulary for the outbound queue.

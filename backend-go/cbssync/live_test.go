@@ -10,8 +10,8 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/o3c/reports/core"
-	"github.com/o3c/reports/udara"
+	"github.com/o3c/workspace/core"
+	"github.com/o3c/workspace/udara"
 )
 
 // TestLiveSync spools the live Udara360 book into the snapshot tables against the

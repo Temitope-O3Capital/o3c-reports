@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // ScheduleAccountAlerts runs daily at 08:00 and notifies Sales Account Managers

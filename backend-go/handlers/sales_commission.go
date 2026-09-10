@@ -6,7 +6,7 @@ import (
 	"math"
 	"net/http"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // Sales commission. Rates are set by Finance (migration 161 seeds the three lines);

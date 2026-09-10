@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // CC Statement PDF generator — raw PDF 1.4, no external dependencies.

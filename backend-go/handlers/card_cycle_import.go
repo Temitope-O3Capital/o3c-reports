@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/o3c/reports/core"
+	"github.com/o3c/workspace/core"
 )
 
 // Card cycle-data importer. O3's core banking (Udara) exports four fixed-cycle

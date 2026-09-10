@@ -16,7 +16,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/o3c/reports/udara"
+	"github.com/o3c/workspace/udara"
 )
 
 // Enabled reports whether live writes are on. Default false => dry-run/shadow mode.
