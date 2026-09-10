@@ -50,6 +50,42 @@ export function displayMetricValue(label: string, value: unknown): unknown {
   return value;
 }
 
+// Feature keys whose value is a 0–1 fraction meant to be read as a percentage —
+// as opposed to unbounded multiplier ratios (DSCR, current ratio, debt-to-equity,
+// balance-ratio-style fields) that are conventionally shown with "×" notation and
+// must stay as plain decimals. Checked against both the raw feature key and a
+// normalized form of the human label, since the scorer sends these pre-formatted
+// as a bare decimal string (e.g. value: "0.9522") rather than a raw number, so
+// they'd otherwise bypass any raw_value-only percent formatting entirely.
+const PERCENT_FEATURE_KEYS = new Set([
+  "debt_to_income_ratio", "dti_ratio", "dti",
+  "bureau_payment_history_rate", "bureau_payment_history", "payment_history_rate", "corp_payment_history_rate",
+  "bureau_credit_utilization",
+  "gambling_ratio", "ob_gambling_ratio",
+  "mobile_money_transaction_ratio", "ob_mobile_money_ratio",
+  "ob_utility_payments_ratio",
+  "savings_rate", "ob_savings_rate",
+  "platform_repayment_rate",
+  "financial_net_profit_margin", "fs_net_profit_margin",
+  "financial_return_on_assets", "fs_return_on_assets",
+]);
+
+function isPercentFeature(label: string, featureKey?: string): boolean {
+  if (featureKey && PERCENT_FEATURE_KEYS.has(featureKey)) return true;
+  const normalized = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return PERCENT_FEATURE_KEYS.has(normalized);
+}
+
+export function formatFeatureDisplayValue(factor: { label: string; value?: string; raw_value?: unknown; feature?: string }): string {
+  if (isPercentFeature(factor.label, factor.feature)) {
+    const n = typeof factor.raw_value === "number" ? factor.raw_value : Number(factor.value);
+    if (Number.isFinite(n)) return `${(n * 100).toFixed(1)}%`;
+  }
+  if (factor.value) return factor.value;
+  if (factor.raw_value != null) return String(displayMetricValue(factor.label, factor.raw_value));
+  return "—";
+}
+
 const FEATURE_EXPLANATIONS: Record<string, string> = {
   // ── Bureau: delinquency & defaults ──────────────────────────────────────────
   worst_delinquency_days: "Historical worst days-past-due across all bureau accounts. Bands: 0 = clean; 1–30 = minor; 31–90 = moderate; 91–180 = severe; 180+ = write-off territory. A value of 999 is a sentinel indicating a historical charge-off or write-off with no recovery — the maximum penalty band.",

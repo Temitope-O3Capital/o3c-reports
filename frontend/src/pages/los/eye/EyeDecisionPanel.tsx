@@ -14,7 +14,7 @@ import BankLogo, { getBankName } from "./vendor/banks/BankLogo";
 import { ScoreGauge } from "./vendor/ScoreGauge";
 import { HoverHint } from "./vendor/HoverHint";
 import { ExtractionConfidenceLine, TamperRiskLine } from "./vendor/ExtractionConfidenceLine";
-import { featureExplanation, displayMetricValue } from "./vendor/featureExplanations";
+import { featureExplanation, formatFeatureDisplayValue } from "./vendor/featureExplanations";
 import { formatMoney } from "./vendor/format";
 import { getScores, sendDecisionReport, overrideDecision, rescoreDecision, recordOutcome } from "./eyeActions";
 import type { EyeDecisionDetail, EyeDecisionStatement, EyeScoreItem, FeatureContribution, SendDecisionBody, ShadowScoreResult } from "./eyeActions";
@@ -744,8 +744,13 @@ function TimelineItem({ icon, title, body, at, last }: { icon: ReactNode; title:
 
 function ContributionBar({ factor, max }: { factor: FeatureContribution; max: number }) {
   const positive = contributionTone(factor) === "positive";
-  const halfPct = max > 0 ? Math.min(46, (Math.abs(factor.points) / max) * 46) : 0;
-  const displayVal = factor.value || (factor.raw_value != null ? String(displayMetricValue(factor.label, factor.raw_value)) : "—");
+  // Capped at 40, not the bar's full visual half-width — the value label below is
+  // positioned relative to this same percentage, so it needs the bar to stop short
+  // of the label's own clamp rather than share one that lets a long bar's colored
+  // fill extend past where the label starts, rendering the (same-hued) label text
+  // on top of the bar instead of clear of it.
+  const halfPct = max > 0 ? Math.min(40, (Math.abs(factor.points) / max) * 40) : 0;
+  const displayVal = formatFeatureDisplayValue(factor);
   return (
     <HoverHint hint={featureExplanation(factor)} style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) 1fr", gap: 14, alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--rule-soft)" }}>
       <div>
@@ -757,7 +762,7 @@ function ContributionBar({ factor, max }: { factor: FeatureContribution; max: nu
         {factor.points !== 0 && (
           <div style={{ position: "absolute", left: positive ? "50%" : `calc(50% - ${halfPct}%)`, width: `${halfPct}%`, height: 12, borderRadius: "var(--r-pill)", background: positive ? "var(--good)" : "var(--bad)", opacity: 0.85 }} />
         )}
-        <span style={{ position: "absolute", left: positive ? `calc(50% + ${Math.min(halfPct, 44)}% + 4px)` : `calc(50% - ${Math.min(halfPct, 44)}% - 4px)`, transform: positive ? "none" : "translateX(-100%)", font: "650 11px/1 var(--font-mono)", color: factor.points === 0 ? "var(--ink-faint)" : positive ? "var(--good)" : "var(--bad)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+        <span style={{ position: "absolute", left: positive ? `calc(50% + ${halfPct}% + 6px)` : `calc(50% - ${halfPct}% - 6px)`, transform: positive ? "none" : "translateX(-100%)", font: "650 11px/1 var(--font-mono)", color: factor.points === 0 ? "var(--ink-faint)" : positive ? "var(--good)" : "var(--bad)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
           {factor.points === 0 ? "0" : `${positive ? "+" : ""}${factor.points.toFixed(0)}`}
         </span>
       </div>
@@ -765,12 +770,12 @@ function ContributionBar({ factor, max }: { factor: FeatureContribution; max: nu
   );
 }
 
-function SignalRow({ f, barColor, maxPts }: { f: FeatureContribution; barColor: string; maxPts: number }) {
+function SignalRow({ f, barColor, maxPts, placement }: { f: FeatureContribution; barColor: string; maxPts: number; placement?: "up" | "down" }) {
   const pos = contributionTone(f) === "positive";
-  const displayVal = f.value || (f.raw_value != null ? String(displayMetricValue(f.label, f.raw_value)) : "—");
+  const displayVal = formatFeatureDisplayValue(f);
   const barW = maxPts > 0 ? Math.min(100, (Math.abs(f.points) / maxPts) * 100) : 0;
   return (
-    <HoverHint hint={featureExplanation(f)} style={{ padding: "9px 0", borderBottom: "1px solid var(--rule-soft)" }}>
+    <HoverHint hint={featureExplanation(f)} placement={placement} style={{ padding: "9px 0", borderBottom: "1px solid var(--rule-soft)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
         <span style={{ color: "var(--ink)", font: "600 12.5px/1.3 var(--font)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={f.label}>{f.label}</span>
         <span style={{ color: pos ? "var(--good)" : "var(--bad)", font: "700 12px/1 var(--font-mono)", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
@@ -1732,7 +1737,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ color: "var(--ink)", font: "700 13px/1.25 var(--font)" }}>{f.label}</div>
-                          {f.value && <div style={{ color: "var(--ink-faint)", font: "400 12px/1.35 var(--font)", marginTop: 2 }}>{f.value}</div>}
+                          {(f.value || f.raw_value != null) && <div style={{ color: "var(--ink-faint)", font: "400 12px/1.35 var(--font)", marginTop: 2 }}>{formatFeatureDisplayValue(f)}</div>}
                         </div>
                         <span style={{ color: pos ? "var(--good)" : "var(--bad)", font: "750 13px/1 var(--font-mono)", flexShrink: 0 }}>{pos ? "+" : "−"}{Math.abs(f.points).toFixed(0)}</span>
                       </div>
@@ -2073,7 +2078,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                                     <span style={{ color: "var(--ink-faint)", font: "500 11px/1 var(--font-mono)" }}>No data</span>
                                   </div>
                                 )
-                                : <SignalRow key={f.feature ?? i} f={f} barColor={contributionTone(f) === "positive" ? "var(--good)" : "var(--bad)"} maxPts={maxPts} />
+                                : <SignalRow key={f.feature ?? i} f={f} barColor={contributionTone(f) === "positive" ? "var(--good)" : "var(--bad)"} maxPts={maxPts} placement={i < 2 ? "down" : "up"} />
                             )
                           : (
                             <div style={{ padding: "32px 0", textAlign: "center", color: "var(--ink-faint)", font: "400 12.5px/1.5 var(--font)" }}>

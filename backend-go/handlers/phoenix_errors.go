@@ -170,6 +170,20 @@ func writePhoenixFailure(w http.ResponseWriter, f phoenixFailure, err error) {
 	json.NewEncoder(w).Encode(map[string]string{"detail": f.Message, "error_code": f.Code}) //nolint:errcheck
 }
 
+// respondEyeServiceErr answers a call to the standalone Eye scoring service
+// (EYE_SERVICE_URL) that got no reply. It went out as a 502 with the transport error
+// appended, which respondErr then scrubbed to "Internal server error".
+func respondEyeServiceErr(w http.ResponseWriter, err error) {
+	var ne net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
+		writePhoenixFailure(w, phoenixFailure{http.StatusGatewayTimeout, "EYE_TIMEOUT",
+			"The Eye scoring service did not answer in time. Try again in a minute."}, err)
+		return
+	}
+	writePhoenixFailure(w, phoenixFailure{http.StatusBadGateway, "EYE_UNREACHABLE",
+		"The Eye scoring service could not be reached. It may be down or restarting."}, err)
+}
+
 // phoenixErrorText is the same wording for a failure that is stored rather than
 // answered — the reason an abandoned submission shows on the application.
 func phoenixErrorText(err error, action string) string {

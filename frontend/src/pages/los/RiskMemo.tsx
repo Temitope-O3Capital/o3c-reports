@@ -115,7 +115,8 @@ export type MemoFacts = {
   policy: string | null
   decidedAt: string | null
   reasons: string[]
-  hardGate: { reason: string; label: string } | null
+  // detail: the numbers that fired the gate, as a sentence, when Phoenix recorded them.
+  hardGate: { reason: string; label: string; detail: string | null } | null
   requestedKobo: number | null
   requestedKind: 'limit' | 'amount' | null
   recommendedKobo: number | null
@@ -172,8 +173,41 @@ export function deriveMemo(app: AppLike, eye: EyeDecisionDetail | null): MemoFac
 
   const gateOn = sr?.hard_gate_triggered === true || md.hard_gate_triggered === true
   const gateReason = str(sr?.hard_gate_reason) || str(md.hard_gate_reason)
+  // The arithmetic behind the gate. Phoenix records it in hard_gate_detail from its
+  // hard-gate audit fix onward; decisions made before that, and the flag-only gates
+  // (watchlist, PEP, existing default), carry none, and then nothing is shown.
+  const gd = rec(md.hard_gate_detail)
+  const kobo = (v: unknown) => { const n = num(v); return n === null ? null : fmtKobo(n) }
+  const gateDetail = ((): string | null => {
+    switch (gateReason) {
+      case 'hard_gate_dti': {
+        const d = num(gd.dti), max = num(gd.max_dti)
+        if (d === null || max === null) return null
+        const inc = kobo(gd.monthly_income_minor), obl = kobo(gd.monthly_obligations_minor)
+        return `DTI ${pct(d)} against a ${pct(max)} maximum${inc && obl ? `: ${obl} a month of obligations on ${inc} of income` : ''}.`
+      }
+      case 'hard_gate_active_loans': {
+        const n = num(gd.active_loan_count), max = num(gd.max_active_loans)
+        return n !== null && max !== null ? `${n} active loans against a maximum of ${max}.` : null
+      }
+      case 'hard_gate_bureau_score': {
+        const s = num(gd.bureau_score), min = num(gd.min_bureau_score)
+        return s !== null && min !== null ? `Bureau score ${s}, below the ${min} minimum.` : null
+      }
+      case 'hard_gate_residual_income': {
+        const left = kobo(gd.residual_minor), floor = kobo(gd.residual_income_floor_minor)
+        return left && floor ? `${left} a month left after obligations and the new repayment, below the ${floor} floor.` : null
+      }
+      default:
+        return null
+    }
+  })()
   const hardGate = gateOn
-    ? { reason: gateReason, label: str(sr?.hard_gate_label) || str(md.hard_gate_label) || humanise(gateReason || 'hard gate') }
+    ? {
+        reason: gateReason,
+        label: str(sr?.hard_gate_label) || str(md.hard_gate_label) || humanise(gateReason || 'hard gate'),
+        detail: gateDetail,
+      }
     : null
 
   // DTI — Phoenix's own figure first. The workspace row holds a copy that can lag.
@@ -260,7 +294,7 @@ export function deriveMemo(app: AppLike, eye: EyeDecisionDetail | null): MemoFac
   // ── What could stop it ──
   const flags: Flag[] = []
   if (hardGate) {
-    flags.push({ tone: 'stop', text: `Hard gate: ${hardGate.label.replace(/\.$/, '')}. The application was stopped before the scorecard ran.` })
+    flags.push({ tone: 'stop', text: `Hard gate: ${hardGate.label.replace(/\.$/, '')}.${hardGate.detail ? ` ${hardGate.detail}` : ''} The application was stopped before the scorecard ran.` })
   }
   for (const b of bureau) {
     if ((b.delinquent ?? 0) > 0) flags.push({ tone: 'stop', text: `${b.label}: ${b.delinquent} delinquent account${b.delinquent === 1 ? '' : 's'}.` })
@@ -398,7 +432,7 @@ export function DecisionSummary({ facts }: { facts: MemoFacts }) {
   const o = OUTCOME[(facts.outcome ?? '').toUpperCase()]
     ?? { label: humanise((facts.outcome ?? 'no decision').toLowerCase()), tone: 'amber' as const }
   const body = facts.hardGate
-    ? <>Stopped by a hard gate before scoring: <b>{facts.hardGate.label.replace(/\.$/, '')}</b>. The score of {facts.score ?? 0} is the gate’s result, not the scorecard’s.</>
+    ? <>Stopped by a hard gate before scoring: <b>{facts.hardGate.label.replace(/\.$/, '')}</b>.{facts.hardGate.detail ? <> {facts.hardGate.detail}</> : null} The score of {facts.score ?? 0} is the gate’s result, not the scorecard’s.</>
     : facts.reasons.length ? facts.reasons.join(' · ') : 'Phoenix gave no reason with this decision.'
   return (
     <div className="sd-panel">
