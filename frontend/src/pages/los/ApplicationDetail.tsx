@@ -13,7 +13,7 @@ import { toast } from 'sonner'
 import { EBarH } from '../../components/echarts'
 import { hasPage } from '../../hooks/useAuth'
 import { canAdvance, canDecline, canRequestInfo, stageMeta, decisionMeta, syncStateMeta, isTerminalStage, STAGE_SEQUENCE } from '../../lib/losFlow'
-import PhoenixEyeReport from './eye/PhoenixEyeReport'
+import PhoenixEyeReport, { PrequalSection } from './eye/PhoenixEyeReport'
 import PhoenixOfferPanel from './PhoenixOffer'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1243,6 +1243,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
       <PhoenixDecisionBanner app={app} />
       <OfferPanel app={app} onRefresh={onRefresh} />
       <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />
+      <PrequalSection appId={app.id} />
 
       {/* The customer's own steps — consent, the amount they accepted, the mandate.
           Phoenix owns all three, so these call Phoenix and show its answer. They sit
@@ -1517,6 +1518,7 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
       <PhoenixDecisionBanner app={app} />
       <OfferPanel app={app} onRefresh={onRefresh} />
       <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />
+      <PrequalSection appId={app.id} />
 
       {/* The numbers a credit decision turns on */}
       <div className="sd-stats">
@@ -1745,6 +1747,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
       <PhoenixDecisionBanner app={app} />
       <OfferPanel app={app} onRefresh={onRefresh} />
       <PhoenixOfferPanel appId={app.id} canAct={false} onRefresh={onRefresh} />
+      <PrequalSection appId={app.id} />
 
       <div className="sd-stats">
         <SDStat label="Identification" value={`${kycOk}/${kyc.length}`}
@@ -1973,6 +1976,7 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
       <PhoenixDecisionBanner app={app} />
       <OfferPanel app={app} onRefresh={onRefresh} />
       <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />
+      <PrequalSection appId={app.id} />
 
       {/* The money, as finance reads it */}
       <div className="sd-stats">

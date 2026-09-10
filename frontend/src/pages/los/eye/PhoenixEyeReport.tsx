@@ -80,7 +80,6 @@ export default function PhoenixEyeReport({ appId }: { appId: number | string }) 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Notice title={n.title} body={n.body} />
-        <PrequalSection appId={appId} />
       </div>
     )
   }
@@ -88,17 +87,15 @@ export default function PhoenixEyeReport({ appId }: { appId: number | string }) 
   // phx-eye-report carries Phoenix's tokens. Everything inside is Phoenix's own
   // markup, untouched.
   //
-  // The prequalification report follows it rather than living on a tab of its own.
-  // The two are the same assessment seen twice — the decision detail is the live
-  // record, the prequalification report is the snapshot Phoenix posted with the
-  // decision — and splitting them across sibling tabs called "Eye Report" and
-  // "Credit Report" left people guessing which one to trust.
+  // The prequalification report is NOT here. It used to sit below this panel, which
+  // buried it under the full decision detail — an officer had to scroll past every
+  // statement section to reach it. It now renders on the Overview, next to the
+  // decision it supports, and PrequalSection is exported for that.
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="phx-eye-report">
         <EyeDecisionPanel decisionDetail={detail} loading={loading} onRefresh={() => void load()} />
       </div>
-      <PrequalSection appId={appId} />
     </div>
   )
 }
@@ -106,7 +103,7 @@ export default function PhoenixEyeReport({ appId }: { appId: number | string }) 
 // The report Phoenix posts alongside its decision, stored verbatim by the webhook.
 // Collapsed by default: it is the supporting document, not the headline, and the
 // decision detail above already carries everything an officer reads first.
-function PrequalSection({ appId }: { appId: number | string }) {
+export function PrequalSection({ appId }: { appId: number | string }) {
   const [open, setOpen] = useState(false)
   return (
     <div style={{ border: '1px solid var(--card-bdr)', borderRadius: 12, background: 'var(--card)', overflow: 'hidden' }}>
