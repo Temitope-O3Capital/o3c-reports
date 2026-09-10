@@ -1020,7 +1020,7 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			        SELECT u2.id AS officer_id
 			        FROM o3c_users u2
 			        WHERE u2.deleted_at IS NULL
-			          AND u2.role ILIKE 'sales%'   -- target credit only ever resolves to a sales rep
+			          AND u2.role ILIKE 'sales%%'   -- target credit only ever resolves to a sales rep
 			          AND ( UPPER(TRIM(ca.officer_name)) = UPPER(u2.full_name)
 			             OR ( TRIM(ca.officer_name) <> ''
 			                  AND POSITION(' ' IN TRIM(ca.officer_name)) = 0
