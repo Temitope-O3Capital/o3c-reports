@@ -125,6 +125,11 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
   const [mandates, setMandates] = useState<Mandate[] | null>(null)
   const [reason, setReason] = useState<string | undefined>()
   const [busy, setBusy] = useState<string | null>(null)
+  // Whether Phoenix has a direct-debit provider to register a mandate with. null is
+  // "not told" — an older backend, or no Phoenix link yet — and must not be read as
+  // "unavailable", or the button would disappear for the wrong reason.
+  const [ddAvailable, setDdAvailable] = useState<boolean | null>(null)
+  const [ddNote, setDdNote] = useState('')
 
   const [showMandate, setShowMandate] = useState(false)
   const [acct, setAcct] = useState('')
@@ -136,13 +141,20 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
 
   const load = useCallback(async () => {
     try {
-      const res = await apiFetch<{ data: { mandates: Mandate[] | { items?: Mandate[] } | null; reason?: string } }>(`/api/los/${appId}/mandate`)
+      const res = await apiFetch<{ data: {
+        mandates: Mandate[] | { items?: Mandate[] } | null
+        reason?: string
+        provider_available?: boolean
+        provider_note?: string
+      } }>(`/api/los/${appId}/mandate`)
       const raw = res.data?.mandates as any
       // Phoenix returns either a bare array or a paged envelope depending on the
       // endpoint's age. Accept both rather than guessing one and rendering nothing.
       const list: Mandate[] = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : []
       setMandates(list)
       setReason(res.data?.reason)
+      setDdAvailable(typeof res.data?.provider_available === 'boolean' ? res.data.provider_available : null)
+      setDdNote(res.data?.provider_note ?? '')
     } catch (e) {
       setReason(e instanceof Error ? e.message : 'Could not read mandates')
       setMandates([])
@@ -262,15 +274,24 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
             reason ? <span style={{ color: 'var(--sd-amber)' }}>{reason}</span>
               : latest
                 ? <>Account {latest.account_number ?? '—'}{latest.account_name ? ` · ${latest.account_name}` : ''}</>
-                : 'No mandate registered. Repayments cannot be collected automatically until one is active.'
+                : ddAvailable === false
+                  // Said before the form opens rather than after it fails. Phoenix
+                  // would otherwise "register" a mandate no bank has seen and then
+                  // text the customer to authorise it every four hours.
+                  ? <span style={{ color: 'var(--sd-amber)' }}>{ddNote}</span>
+                  : 'No mandate registered. Repayments cannot be collected automatically until one is active.'
           }
           status={
             latest
               ? <Pill text={mMeta?.label ?? (latest.status ?? 'Unknown')} tone={mMeta?.tone ?? 'idle'} />
-              : <Pill text="Not set up" tone="idle" />
+              : ddAvailable === false
+                ? <Pill text="No provider" tone="warn" />
+                : <Pill text="Not set up" tone="idle" />
           }>
           {!active && (
-            <button className="sd-btn" disabled={busy !== null} onClick={() => setShowMandate(v => !v)}>
+            <button className="sd-btn" disabled={busy !== null || ddAvailable === false}
+              title={ddAvailable === false ? ddNote : undefined}
+              onClick={() => setShowMandate(v => !v)}>
               <span className="material-symbols-rounded">add</span>Set up
             </button>
           )}
@@ -288,7 +309,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
           )}
         </Step>
 
-        {showMandate && (
+        {showMandate && ddAvailable !== false && (
           <div style={{ padding: '12px 4px 16px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
               <label style={label}>Account number

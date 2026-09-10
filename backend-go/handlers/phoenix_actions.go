@@ -109,7 +109,39 @@ func phoenixLogWorkspaceAction(ctx context.Context, db *core.DB, appID int64, us
 
 // ── Mandate ──────────────────────────────────────────────────────────────────
 
-// losMandate returns the direct-debit mandates Phoenix holds for this applicant.
+// phoenixDirectDebitProvider reports whether Phoenix has a direct-debit provider it
+// can actually register a mandate with, and if not, why not.
+//
+// This has to be asked BEFORE registering. Phoenix creates the mandate row first and
+// only then looks for a NIBSS, Mono or Remita connection — and when it finds none it
+// still returns success. The result is a PENDING mandate no bank has ever seen, which
+// Phoenix's mandate-reminders job then texts the customer about every four hours. The
+// workspace cannot fix that inside Phoenix, but it can refuse to set it in motion.
+//
+// "Could not check" is reported as unavailable rather than guessed at: a retry costs
+// the officer a minute, a phantom mandate costs the customer a stream of SMS.
+func phoenixDirectDebitProvider(ctx context.Context) (bool, string) {
+	raw, err := phoenixCall(ctx, http.MethodGet, "/provider-connections", nil)
+	if err != nil {
+		return false, "Could not confirm a direct-debit provider with Phoenix: " + err.Error()
+	}
+	var conns []struct {
+		ProviderType string `json:"provider_type"`
+		Status       string `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &conns); err != nil {
+		return false, "Phoenix returned a provider list the workspace could not read."
+	}
+	for _, c := range conns {
+		if strings.Contains(strings.ToUpper(c.ProviderType), "DEBIT") && strings.EqualFold(c.Status, "ACTIVE") {
+			return true, ""
+		}
+	}
+	return false, "No direct-debit provider (NIBSS, Mono or Remita) is configured in Phoenix, so a mandate cannot be registered with any bank yet."
+}
+
+// losMandate returns the direct-debit mandates Phoenix holds for this applicant,
+// and whether a new one could be registered at all.
 // Read-only, so it is safe for anyone who can open the application.
 func losMandate(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -128,10 +160,14 @@ func losMandate(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 502, "Could not read mandates from Phoenix", err)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"data":{"mandates":`)) //nolint:errcheck
-		w.Write(raw)                            //nolint:errcheck
-		w.Write([]byte(`}}`))                   //nolint:errcheck
+		// Carried alongside the list so the page can explain a disabled button up
+		// front, instead of letting the officer fill in a form that can only fail.
+		available, note := phoenixDirectDebitProvider(r.Context())
+		respond(w, map[string]any{
+			"mandates":           raw,
+			"provider_available": available,
+			"provider_note":      note,
+		}, "phoenix")
 	}
 }
 
@@ -166,6 +202,11 @@ func losMandateSetup(db *core.DB) http.HandlerFunc {
 		c, err := phoenixLoadAppContext(r.Context(), db, id)
 		if err != nil {
 			respondErr(w, 422, err.Error())
+			return
+		}
+		// Refuse before Phoenix creates anything — see phoenixDirectDebitProvider.
+		if ok, note := phoenixDirectDebitProvider(r.Context()); !ok {
+			respondErr(w, 422, note)
 			return
 		}
 
@@ -206,6 +247,26 @@ func losMandateSetup(db *core.DB) http.HandlerFunc {
 		raw, err := phoenixCall(r.Context(), http.MethodPost, "/open-banking/mandates", payload)
 		if err != nil {
 			respondErrLog(w, 502, err.Error(), err)
+			return
+		}
+		// Belt and braces for the check above. A mandate that comes back without a
+		// provider reference was never registered with a bank, whatever its status
+		// says — the provider could have been removed between the two calls. Cancel
+		// it at once so the reminder job never texts the customer about it. That is
+		// safe: Phoenix only calls a provider's cancel API when a reference exists.
+		var made struct {
+			ID                string  `json:"id"`
+			ProviderReference *string `json:"provider_reference"`
+		}
+		if json.Unmarshal(raw, &made) == nil && made.ID != "" &&
+			(made.ProviderReference == nil || strings.TrimSpace(*made.ProviderReference) == "") {
+			if _, cerr := phoenixCall(r.Context(), http.MethodPost, "/open-banking/mandates/"+made.ID+"/status", map[string]any{
+				"status":         "CANCELLED",
+				"failure_reason": "Never registered with a bank: no direct-debit provider answered. Cancelled by the workspace before it could be collected against or reminded about.",
+			}); cerr != nil {
+				slog.Error("mandate setup: could not cancel an unregistered mandate", "application_id", id, "mandate_id", made.ID, "err", cerr)
+			}
+			respondErr(w, 502, "Phoenix accepted the mandate but did not register it with any bank, so the workspace cancelled it straight away. Check that a direct-debit provider is configured in Phoenix.")
 			return
 		}
 		user := core.UserFromCtx(r.Context())
