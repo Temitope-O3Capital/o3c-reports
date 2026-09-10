@@ -477,43 +477,108 @@ function ConditionsInline({ appId, conditions, onRefresh, canManage }: {
 
 // ── Document preview modal ────────────────────────────────────────────────────
 
+// The document itself, rendered in place.
+//
+// The file is fetched as a blob rather than pointed at with an <iframe src>,
+// because the content route is authenticated and a bare iframe, img or anchor
+// sends no Authorization header — it would have loaded a 401 body into the
+// frame. Fetching with apiFetch's credentials and handing the frame an object
+// URL is what makes an authenticated document renderable at all.
 function DocPreviewModal({ doc, onClose }: { doc: LosDoc | null; onClose: () => void }) {
-  if (!doc) return null
-  const ext = doc.file_name.split('.').pop()?.toLowerCase() ?? ''
+  const [url, setUrl]         = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError]     = useState<string | null>(null)
+
+  const ext = (doc?.file_name.split('.').pop() ?? '').toLowerCase()
   const isPdf   = ext === 'pdf'
-  const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
+  const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext)
   const canRender = isPdf || isImage
 
+  useEffect(() => {
+    // Fetched for every type, not only the renderable ones: a .docx cannot be
+    // shown inline but still has to be downloadable, and the download needs the
+    // same authenticated blob.
+    if (!doc) return
+    let revoked = false
+    let objectUrl: string | null = null
+    setLoading(true); setError(null)
+    const token = localStorage.getItem('o3c_token') ?? ''
+    fetch(`/api/los/documents/${doc.id}/content`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async res => {
+        if (!res.ok) {
+          throw new Error(res.status === 404
+            ? 'The stored file is missing. It may have been uploaded before the document store moved.'
+            : `Could not load the document (${res.status})`)
+        }
+        const blob = await res.blob()
+        if (revoked) return
+        objectUrl = URL.createObjectURL(blob)
+        setUrl(objectUrl)
+      })
+      .catch(e => setError(e instanceof Error ? e.message : 'Could not load the document'))
+      .finally(() => { if (!revoked) setLoading(false) })
+    // Object URLs pin the blob in memory until revoked, so a staff member opening
+    // twenty documents in a sitting would otherwise hold twenty files.
+    return () => {
+      revoked = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      setUrl(null)
+    }
+  }, [doc])
+
+  if (!doc) return null
+
   return (
-    <Modal open={!!doc} onClose={onClose} title={doc.file_name} width={isPdf ? 820 : 640}>
-      {isPdf && (
-        <div style={{ height: 620, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--bdr)' }}>
-          <iframe src={doc.file_url} style={{ width: '100%', height: '100%', border: 'none' }} title={doc.file_name} />
+    <Modal open={!!doc} onClose={onClose} title={doc.file_name} width={isPdf ? 900 : 680}>
+      {loading && canRender && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '60px 0', color: 'var(--txt2)', fontSize: 13.5 }}>
+          <Spinner size={16} />Loading the document…
         </div>
       )}
-      {isImage && (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
-          <img src={doc.file_url} alt={doc.file_name} style={{ maxWidth: '100%', maxHeight: 560, borderRadius: 8, objectFit: 'contain', border: '1px solid var(--bdr)' }} />
+
+      {error && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '46px 20px', textAlign: 'center' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 40, color: RED }}>error</span>
+          <div style={{ fontSize: 14, color: 'var(--txt)', maxWidth: 420, lineHeight: 1.6 }}>{error}</div>
         </div>
       )}
+
+      {!loading && !error && canRender && url && (
+        isPdf ? (
+          <div style={{ height: '70vh', minHeight: 420, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--bdr)', background: 'var(--th-bg)' }}>
+            <iframe src={url} style={{ width: '100%', height: '100%', border: 'none' }} title={doc.file_name} />
+          </div>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
+            <img src={url} alt={doc.file_name} style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 8, objectFit: 'contain', border: '1px solid var(--bdr)' }} />
+          </div>
+        )
+      )}
+
       {!canRender && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '40px 0' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '40px 0', textAlign: 'center' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 44, color: 'var(--txt3)' }}>description</span>
-          <div style={{ fontSize: 14, color: 'var(--txt2)' }}>This file type cannot be previewed in-browser.</div>
-          <a href={doc.file_url} target="_blank" rel="noreferrer"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 8, background: NAVY, color: '#fff', fontWeight: 600, fontSize: 13, textDecoration: 'none' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>Download
-          </a>
+          <div style={{ fontSize: 14, color: 'var(--txt2)', maxWidth: 380, lineHeight: 1.6 }}>
+            A {ext ? `.${ext}` : 'file of this'} document cannot be shown in the browser.
+            Open it in a new tab to view it in its own application.
+          </div>
         </div>
       )}
-      {canRender && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-          <a href={doc.file_url} target="_blank" rel="noreferrer"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, textDecoration: 'none' }}>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+        {url && (
+          <a href={url} target="_blank" rel="noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 13px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, textDecoration: 'none', fontWeight: 600 }}>
             <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>Open in new tab
           </a>
-        </div>
-      )}
+        )}
+        {url && (
+          <a href={url} download={doc.file_name}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 13px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', fontSize: 12.5, textDecoration: 'none', fontWeight: 600 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Download
+          </a>
+        )}
+      </div>
     </Modal>
   )
 }
@@ -593,14 +658,13 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
                   <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 1 }}>
                     {uploaded.map(d => (
                       <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 12 }}>
-                        {readOnly ? (
-                          <button onClick={() => setPreview(d)}
-                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: NAVY, fontWeight: 600, fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <span className="material-symbols-rounded" style={{ fontSize: 13 }}>visibility</span>{d.file_name}
-                          </button>
-                        ) : (
-                          <a href={d.file_url} target="_blank" rel="noreferrer" style={{ color: NAVY, fontWeight: 600, textDecoration: 'none' }}>{d.file_name}</a>
-                        )}
+                        {/* Opens the viewer in both modes. It used to be a plain
+                            link when editing, which pointed at a URL nothing served
+                            and would not have carried the auth header regardless. */}
+                        <button onClick={() => setPreview(d)}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: NAVY, fontWeight: 600, fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <span className="material-symbols-rounded" style={{ fontSize: 13 }}>visibility</span>{d.file_name}
+                        </button>
                         {!readOnly && (
                           <button onClick={() => handleDelete(d)} disabled={deleting[d.id]} style={{ background: 'none', border: 'none', cursor: 'pointer', color: RED, padding: 0, lineHeight: 1 }}>
                             <span className="material-symbols-rounded" style={{ fontSize: 13 }}>close</span>
@@ -619,7 +683,7 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
                   : <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: 'rgba(22,163,74,.12)', color: GREEN }}>Uploaded</span>
                 }
               </div>
-              {readOnly && uploaded.length > 0 && (
+              {uploaded.length > 0 && (
                 <button onClick={() => setPreview(uploaded[0])}
                   style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: `1px solid ${NAVY}25`, background: `${NAVY}08`, color: NAVY, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 13 }}>visibility</span>View

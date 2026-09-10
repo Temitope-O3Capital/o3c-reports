@@ -66,6 +66,10 @@ func RegisterLOS(r chi.Router, db *core.DB) {
 	r.With(viewDoor).Get("/{id}/events", losGetEvents(db))
 	r.With(riskDoor).Put("/{id}/credit-assessment", losSaveCreditAssessment(db))
 	r.With(viewDoor).Get("/{id}/documents", losGetDocuments(db))
+	// Streams the file itself. Read-only and on viewDoor for the same reason the
+	// list is: auditing a credit file means opening the evidence, not just seeing
+	// that a row exists.
+	r.With(viewDoor).Get("/documents/{doc_id}/content", losDocumentContent(db))
 	r.With(door).Post("/{id}/documents", losUploadDocument(db))
 	r.With(door).Delete("/documents/{doc_id}", losDeleteDocument(db))
 	r.With(door).Get("/team-users", losTeamUsers(db))
@@ -1529,8 +1533,10 @@ func losUploadDocument(db *core.DB) http.HandlerFunc {
 				fileURL = endpoint
 			}
 		} else {
-			// Local fallback
-			dir := fmt.Sprintf("/tmp/los-documents/%d/%s", appID, uid)
+			// Local fallback. Was "/tmp/los-documents", which on Windows resolves
+			// against whatever the current drive is and sits in a directory the OS
+			// may clear — losDocumentDir() points at the data drive instead.
+			dir := fmt.Sprintf("%s/%d/%s", strings.TrimRight(losDocumentDir(), "/"), appID, uid)
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				respondErr(w, 500, "storage error")
 				return
@@ -1541,7 +1547,10 @@ func losUploadDocument(db *core.DB) http.HandlerFunc {
 				return
 			}
 			storageKey = dest
-			fileURL = fmt.Sprintf("/api/los/documents/file/%d/%s/%s", appID, uid, filename)
+			// file_url is filled in below, once the row has an id: documents are
+			// addressed by id, not by a path built from the filename, so there is
+			// no caller-controlled path segment to traverse.
+			fileURL = ""
 		}
 
 		rows, err := db.PGQuery(r.Context(), `
@@ -1557,6 +1566,18 @@ func losUploadDocument(db *core.DB) http.HandlerFunc {
 		if len(rows) == 0 {
 			respondErr(w, 500, "insert returned no rows")
 			return
+		}
+		// A locally-stored document is addressed by its row id. That is only known
+		// after the insert, so file_url is backfilled here rather than guessed
+		// beforehand from a path.
+		if fileURL == "" {
+			newID := toInt64(rows[0]["id"])
+			contentURL := fmt.Sprintf("/api/los/documents/%d/content", newID)
+			if _, uerr := db.PGExec(r.Context(),
+				`UPDATE los_documents SET file_url=$1 WHERE id=$2`, contentURL, newID); uerr != nil {
+				slog.Error("losUploadDocument: could not set file_url", "doc_id", newID, "err", uerr)
+			}
+			rows[0]["file_url"] = contentURL
 		}
 		respond(w, rows[0], "json")
 	}
