@@ -2606,18 +2606,22 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 			inReplyTo = str(lastMsgRows[0]["email_message_id"])
 		}
 
+		// send_after is NOW() + ($14::int * interval '1 second'), with holdSecs bound
+		// as an integer. The previous ($14 || ' seconds')::interval made Postgres
+		// infer $14 as text; it only worked because the Go side pre-stringified the
+		// number, which is the pattern TestNoConcatenatedIntervalParams forbids.
 		msgRows, err := db.PGQuery(ctx, `
 			INSERT INTO helpdesk_messages
 			    (ticket_id, direction, channel, author_user_id, author_name,
 			     body_text, body_html, attachments, email_message_id, in_reply_to, is_internal_note,
 			     cc_addrs, bcc_addrs, send_state, send_after)
 			VALUES ($1,'outbound',$2,$3,$4,$5,$6,$7::jsonb,$8,NULLIF($9,''),$10,
-			        $11::jsonb,$12::jsonb,$13, NOW() + ($14 || ' seconds')::interval)
+			        $11::jsonb,$12::jsonb,$13, NOW() + ($14::int * interval '1 second'))
 			RETURNING *`,
 			ticketID, channel, user.ID, user.FullName,
 			b.BodyText, ptrOrNil(b.BodyHTML), attachJSON,
 			emailMsgID, inReplyTo, b.IsInternalNote,
-			ccJSON, bccJSON, sendState, strconv.Itoa(holdSecs))
+			ccJSON, bccJSON, sendState, holdSecs)
 		if err != nil {
 			slog.Error("hdSendMessage: insert", "err", err)
 			respondErr(w, 500, "Could not insert message")

@@ -35,11 +35,14 @@ type outboxPayload struct {
 // stageOutboxMail parks a composed mail in the outbox for delayed dispatch.
 func stageOutboxMail(ctx context.Context, db *core.DB, userID int64, p outboxPayload, holdSeconds int) (int64, error) {
 	raw, _ := json.Marshal(p)
+	// Hold window bound as an integer and multiplied into an interval. The old
+	// ($5 || ' seconds')::interval made Postgres infer $5 as text and only worked
+	// because holdSeconds was pre-stringified — see TestNoConcatenatedIntervalParams.
 	rows, err := db.PGQuery(ctx, `
 		INSERT INTO mail_outbox (created_by, from_email, subject, payload, send_after)
-		VALUES ($1, NULLIF($2,''), $3, $4::jsonb, NOW() + ($5 || ' seconds')::interval)
+		VALUES ($1, NULLIF($2,''), $3, $4::jsonb, NOW() + ($5::int * interval '1 second'))
 		RETURNING id`,
-		userID, p.FromEmail, p.Subject, string(raw), strconv.Itoa(holdSeconds))
+		userID, p.FromEmail, p.Subject, string(raw), holdSeconds)
 	if err != nil {
 		return 0, err
 	}
