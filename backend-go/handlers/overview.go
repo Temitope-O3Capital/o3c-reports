@@ -66,6 +66,11 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 			"revenue_loans_kobo":         int64(0),
 			"revenue_loans_forward_kobo": int64(0),
 			"revenue_fd_cost_kobo":       int64(0),
+			// Card-income feed freshness: the latest income_date the feed has delivered,
+			// and whether the selected window runs past it (so the exec knows a low
+			// current-period figure is the feed catching up, not a revenue collapse).
+			"revenue_cards_asof":         nil,
+			"revenue_cards_stale":        false,
 			"active_customers":           int64(0),
 			"active_loans":               int64(0),
 			"portfolio_change_pct":       nil,
@@ -182,6 +187,18 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 		// Per-product breakdown for the Revenue filter (Cards / Loans / FD / All).
 		out["revenue_cards_kobo"] = curCards
 		out["revenue_loans_kobo"] = curLoans
+
+		// Card-income feed as-of: the latest income_date the feed has delivered. The
+		// card feed lands in bursts and can lag whole months, so a window that ends
+		// after this date has an incomplete card slice — and therefore an incomplete
+		// blended headline. Surfacing it lets the UI flag "cards through <date>"
+		// instead of letting a lagging feed read as a revenue collapse.
+		if rows, err := db.PGQuery(ctx, `SELECT MAX(income_date)::text AS d FROM app.income_daily`); err == nil && len(rows) > 0 {
+			if asof := str(rows[0]["d"]); asof != "" {
+				out["revenue_cards_asof"] = asof
+				out["revenue_cards_stale"] = d(ce) > asof
+			}
+		}
 		// Forward loan interest — the next 12 months of scheduled interest still to come due,
 		// so the exec can see the book's earning power beyond the current window.
 		if rows, err := db.PGQuery(ctx, `
@@ -190,24 +207,46 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 			out["revenue_loans_forward_kobo"] = toInt64(rows[0]["v"])
 		}
 		// FD = interest accrued to depositors — a COST of funds (what O3 pays out), not
-		// revenue. Point-in-time liability; surfaced so the toggle can show it honestly.
-		if rows, err := db.PGQuery(ctx, `
-			SELECT COALESCE(SUM(accrued_interest_kobo), 0) AS v FROM cbs_fixed_deposits WHERE status='Active'`); err == nil && len(rows) > 0 {
-			out["revenue_fd_cost_kobo"] = toInt64(rows[0]["v"])
+		// revenue. Computed as a PERIOD FLOW consistent with the card/loan slices: the
+		// straight-line interest that accrues WITHIN the window, not the lifetime
+		// accrued-to-date liability (which is a stock ~15× a month's flow and, shown
+		// beside period flows, read as if O3 paid ₦940M in the current month). Daily
+		// accrual = principal × rate% ÷ 365, summed over the days each deposit was live
+		// inside the window — the same straight-line basis the CBS accrued figure uses
+		// (verified against cbs_fixed_deposits.accrued_interest_kobo).
+		fdCost := func(s, e time.Time) int64 {
+			if rows, err := db.PGQuery(ctx, `
+				SELECT COALESCE(SUM(
+				         principal_kobo * (interest_rate/100.0) / 365.0
+				         * GREATEST(0, LEAST($2::date, maturity_date::date)
+				                     - GREATEST($1::date, commencement_date::date) + 1)
+				       ), 0)::bigint AS v
+				  FROM cbs_fixed_deposits
+				 WHERE interest_rate > 0 AND principal_kobo > 0
+				   AND commencement_date::date <= $2 AND maturity_date::date >= $1`,
+				d(s), d(e)); err == nil && len(rows) > 0 {
+				return toInt64(rows[0]["v"])
+			}
+			return 0
 		}
+		out["revenue_fd_cost_kobo"] = fdCost(cs, ce)
 
-		// Revenue sparkline — real trailing 12-month monthly series (has genuine gaps
-		// where the card feed dropped no income rows; plotting them as 0 is honest).
+		// Revenue sparkline — trailing 12-month monthly series of the BLENDED headline
+		// (card income + loan interest accrued), so the trend matches the "All" value
+		// rather than card income alone. Card-feed gaps still plot honestly as the
+		// loan-only floor for that month.
 		if rows, err := db.PGQuery(ctx, `
 			WITH months AS (
 				SELECT generate_series(DATE_TRUNC('month', NOW()) - INTERVAL '11 months',
 				                       DATE_TRUNC('month', NOW()), '1 month'::interval) AS m)
-			SELECT COALESCE((SELECT SUM(amount_ngn) FROM app.income_daily d
-			                 WHERE DATE_TRUNC('month', d.income_date) = mo.m), 0) AS v
+			SELECT COALESCE((SELECT SUM(amount_ngn) * 100 FROM app.income_daily d
+			                 WHERE DATE_TRUNC('month', d.income_date) = mo.m), 0)
+			     + COALESCE((SELECT SUM(interest_kobo) FROM app.cbs_loan_schedules s
+			                 WHERE DATE_TRUNC('month', s.payment_date) = mo.m), 0) AS v
 			FROM months mo ORDER BY mo.m`); err == nil {
 			ser := make([]int64, 0, len(rows))
 			for _, row := range rows {
-				ser = append(ser, int64(toFloat(row["v"])*100))
+				ser = append(ser, toInt64(row["v"]))
 			}
 			out["revenue_series"] = ser
 		}
