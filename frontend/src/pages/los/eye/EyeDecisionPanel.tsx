@@ -1432,7 +1432,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
   // Score's upload step already uses instead of displaying it verbatim.
   const bankName = statement?.institution_name ? getBankName(statement.institution_name) : null;
   const incomeSource = statement
-    ? `${bankName ?? "Bank"} · ${statement.transaction_count ?? "—"} txns`
+    ? `${bankName ?? "Bank"} · ${statement.aggregate_source === "periculum" && !statement.transaction_count ? "—" : statement.transaction_count ?? "—"} txns`
     : Object.keys(accountSummary).length > 0 ? "Account summary" : "Declared";
 
   // EWS signals
@@ -2713,7 +2713,11 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                       <MetricCard label="DSCR" value={statement.dscr != null ? pct(statement.dscr) : "—"} />
                       <MetricCard label="Savings rate" value={statement.savings_rate != null ? pct(statement.savings_rate) : "—"} />
                       <MetricCard label="Gambling ratio" value={statement.gambling_ratio != null ? pct(statement.gambling_ratio) : "—"} valueColor={statement.gambling_ratio != null && statement.gambling_ratio > 0.05 ? "var(--bad)" : undefined} />
-                      <MetricCard label="Transactions" value={statement.transaction_count != null ? String(statement.transaction_count) : "—"} />
+                      <MetricCard
+                        label="Transactions"
+                        value={statement.aggregate_source === "periculum" && !statement.transaction_count ? "—" : statement.transaction_count != null ? String(statement.transaction_count) : "—"}
+                        sub={statement.aggregate_source === "periculum" && !statement.transaction_count ? "Periculum reports totals only, no transaction list" : undefined}
+                      />
                       <MetricCard label="Months of data" value={statement.months_of_data != null ? String(statement.months_of_data) : "—"} />
                       <MetricCard label="Bounces / mo" value={statement.bounce_count_per_month != null ? statement.bounce_count_per_month.toFixed(1) : "—"} valueColor={statement.bounce_count_per_month != null && statement.bounce_count_per_month >= 1 ? "var(--warn)" : undefined} />
                     </div>

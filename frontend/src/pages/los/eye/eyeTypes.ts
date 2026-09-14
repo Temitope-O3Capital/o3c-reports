@@ -82,6 +82,12 @@ export interface EyeDecisionStatement {
   avg_monthly_debits_minor?: number | null;
   closing_balance_minor?: number | null;
   transaction_count?: number | null;
+  // "ours" | "periculum" — which engine produced the analytics fields above.
+  // transaction_count specifically is only ever set from our own parser's
+  // transaction list; Periculum's API is aggregate-only and never supplies
+  // one, so this tells "genuinely zero transactions" apart from "Periculum
+  // carried this statement and never had a transaction list to begin with".
+  aggregate_source?: string | null;
   salary_regularity_score?: number | null;
   loan_repayment_detected?: boolean | null;
   gambling_ratio?: number | null;
