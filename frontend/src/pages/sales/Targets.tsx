@@ -79,6 +79,29 @@ function currentPeriod() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
+// Targets arrive from Sales as one figure against a range of months ("January - June:
+// Deposit N130m | Risk N25m"), but a target row is per month. Rather than making a head
+// repeat the same entry twelve times, one save writes one row per month in the range.
+const MAX_RANGE_MONTHS = 24
+
+// Inclusive list of 'YYYY-MM' between two months. Returns [] for a backwards or
+// unparseable range, or one longer than the cap — callers treat that as "do not save",
+// so a mistyped year cannot quietly write hundreds of rows.
+function monthsInRange(from: string, to: string): string[] {
+  if (!/^\d{4}-\d{2}$/.test(from) || !/^\d{4}-\d{2}$/.test(to)) return []
+  const [fromYear, fromMonth] = from.split('-').map(Number)
+  const [toYear, toMonth] = to.split('-').map(Number)
+  let cursor = fromYear * 12 + (fromMonth - 1)
+  const end = toYear * 12 + (toMonth - 1)
+  if (cursor > end || end - cursor >= MAX_RANGE_MONTHS) return []
+  const out: string[] = []
+  while (cursor <= end) {
+    out.push(`${Math.floor(cursor / 12)}-${String((cursor % 12) + 1).padStart(2, '0')}`)
+    cursor++
+  }
+  return out
+}
+
 // ── RAG bar ───────────────────────────────────────────────────────────────────
 
 function RagBar({ actual, target }: { actual: number; target: number }) {
@@ -131,6 +154,13 @@ export default function SalesTargets() {
   const [fFdAmt,   setFFdAmt]   = useState('')
   const [fCards,   setFCards]   = useState('')
   const [fNotes,   setFNotes]   = useState('')
+  const [fFrom,    setFFrom]    = useState(currentPeriod)
+  const [fTo,      setFTo]      = useState(currentPeriod)
+
+  // What the range in the form covers right now. Drives the hint under the inputs and
+  // the Save button's disabled state, so a head can see how many rows one click writes
+  // before clicking it.
+  const formMonths = monthsInRange(fFrom, fTo)
 
 
   const load = useCallback(async (silent = false) => {
@@ -163,22 +193,46 @@ export default function SalesTargets() {
   useLiveData(() => load(true), { topics: ['deals','crm'] })
 
   async function handleSave() {
+    if (!fUserId) { toast.error('Pick an officer first'); return }
+    if (!formMonths.length) {
+      toast.error(`Check the range: ${fFrom} to ${fTo} runs backwards or is longer than ${MAX_RANGE_MONTHS} months`)
+      return
+    }
     setSaving(true)
+    // Same figures against every month in the range. The endpoint upserts on
+    // (user_id, period), so re-entering a range corrects those months rather than
+    // duplicating them. Posted in sequence, not in parallel, so a failure part way
+    // through can say exactly how far it got instead of leaving it a guess.
+    const figures = {
+      user_id:           parseInt(fUserId),
+      loan_count:        parseInt(fLoans) || 0,
+      disbursement_kobo: Math.round(parseFloat(fDisb) * 100) || 0,
+      fd_count:          parseInt(fFds) || 0,
+      fd_amount_kobo:    Math.round(parseFloat(fFdAmt) * 100) || 0,
+      card_count:        parseInt(fCards) || 0,
+      notes:             fNotes,
+    }
+    let saved = 0
     try {
-      await apiPost('/api/sales/targets', {
-        user_id:           parseInt(fUserId),
-        period,
-        loan_count:        parseInt(fLoans) || 0,
-        disbursement_kobo: Math.round(parseFloat(fDisb) * 100) || 0,
-        fd_count:          parseInt(fFds) || 0,
-        fd_amount_kobo:    Math.round(parseFloat(fFdAmt) * 100) || 0,
-        card_count:        parseInt(fCards) || 0,
-        notes:             fNotes,
-      })
-      toast.success('Target saved')
-      setShowForm(false); setFUserId(''); setFLoans(''); setFDisb(''); setFFds(''); setFFdAmt(''); setFCards(''); setFNotes('')
+      for (const month of formMonths) {
+        await apiPost('/api/sales/targets', { ...figures, period: month })
+        saved++
+      }
+      toast.success(formMonths.length === 1
+        ? 'Target saved'
+        : `Target saved for ${formMonths.length} months (${formMonths[0]} to ${formMonths[formMonths.length - 1]})`)
+      setShowForm(false)
+      setFUserId(''); setFLoans(''); setFDisb(''); setFFds(''); setFFdAmt(''); setFCards(''); setFNotes('')
+      // Land on a month that was actually written, otherwise a save outside the month
+      // being viewed looks like it did nothing. Changing the period reloads on its own.
+      if (!formMonths.includes(period)) setPeriod(formMonths[0])
+      else load()
+    } catch (e: any) {
+      toast.error(saved
+        ? `Saved ${saved} of ${formMonths.length} months, then failed on ${formMonths[saved]}: ${e.message}`
+        : e.message)
       load()
-    } catch (e: any) { toast.error(e.message) }
+    }
     finally { setSaving(false) }
   }
 
@@ -310,7 +364,7 @@ export default function SalesTargets() {
           <input type="month" value={period} onChange={e => setPeriod(e.target.value)}
             style={{ padding: '7px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: INTER }} />
           {canEdit && (
-            <button onClick={() => setShowForm(true)}
+            <button onClick={() => { setFFrom(period); setFTo(period); setShowForm(true) }}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
               <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
               Set Target
@@ -423,7 +477,7 @@ export default function SalesTargets() {
       <Modal open={showForm} onClose={() => setShowForm(false)} title="Set Sales Target" width={440}
         footer={
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={handleSave} disabled={saving}
+            <button onClick={handleSave} disabled={saving || !fUserId || formMonths.length === 0}
               style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {saving && <Spinner size={13} color="#fff" />}Save
             </button>
@@ -442,6 +496,23 @@ export default function SalesTargets() {
               <option value="">— Select officer —</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
             </select>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            {[
+              { label: 'From month', value: fFrom, set: setFFrom },
+              { label: 'To month',   value: fTo,   set: setFTo },
+            ].map(({ label, value, set }) => (
+              <div key={label} style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>
+                <input type="month" value={value} onChange={e => set(e.target.value)}
+                  style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: -8, fontSize: TEXT.xs, color: formMonths.length ? 'var(--txt3)' : RED }}>
+            {formMonths.length
+              ? `Writes ${formMonths.length} monthly row${formMonths.length > 1 ? 's' : ''}, ${formMonths[0]} to ${formMonths[formMonths.length - 1]}. The same figures go on every month; re-saving a range corrects it.`
+              : `To must not be before From, and a range cannot exceed ${MAX_RANGE_MONTHS} months.`}
           </div>
           {[
             { label: 'Loan Count Target', value: fLoans, set: setFLoans, type: 'number', placeholder: '0' },
