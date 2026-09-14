@@ -24,6 +24,14 @@ interface User {
   must_change_password: boolean
   last_login?: string
   created_at: string
+  failed_logins?: number
+  // Set only while a sign-in lockout is in force (too many failed passwords).
+  locked_until?: string | null
+}
+
+// A lockout lifts on its own, so re-check the expiry rather than trusting the flag.
+function isLocked(u: Pick<User, 'locked_until'>): boolean {
+  return !!u.locked_until && new Date(u.locked_until).getTime() > Date.now()
 }
 
 // Normalize extra_roles, which the users-list API returns as a JSON *string*
@@ -352,8 +360,24 @@ function EditUserModal({ user, onClose, onSaved }: {
   const [resettingPw,     setResettingPw]     = useState(false)
   const [newTempPw,       setNewTempPw]       = useState<string | null>(null)
   const [confirmDeact,    setConfirmDeact]    = useState(false)
+  const [lockedUntil,     setLockedUntil]     = useState<string | null>(isLocked(user) ? user.locked_until! : null)
+  const [unlocking,       setUnlocking]       = useState(false)
 
   function field(k: keyof typeof form, v: string | boolean) { setForm(f => ({ ...f, [k]: v })) }
+
+  async function unlock() {
+    setUnlocking(true)
+    try {
+      await apiFetch(`/api/admin/users/${user.id}/unlock`, { method: 'POST' })
+      setLockedUntil(null)
+      toast.success(`${user.full_name} unlocked`)
+      onSaved()
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setUnlocking(false)
+    }
+  }
 
   async function save() {
     setSaving(true)
@@ -377,6 +401,7 @@ function EditUserModal({ user, onClose, onSaved }: {
     try {
       const res = await apiFetch<{ temporary_password: string }>(`/api/admin/users/${user.id}/reset-password`, { method: 'POST' })
       setNewTempPw(res.temporary_password)
+      setLockedUntil(null) // the reset also lifts any sign-in lockout
       toast.success('Password reset')
     } catch (e: any) {
       toast.error(e.message)
@@ -456,7 +481,9 @@ function EditUserModal({ user, onClose, onSaved }: {
           {/* Meta info */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: SP[3], marginBottom: 20, background: 'var(--input-bg)', borderRadius: RADIUS.md, padding: '12px 14px' }}>
             {[
-              { label: 'Status', value: form.is_active ? 'Active' : (!user.last_login ? 'Pending Approval' : 'Inactive'), color: form.is_active ? GREEN : (!user.last_login ? '#B45309' : RED) },
+              lockedUntil
+                ? { label: 'Status', value: 'Locked', color: RED }
+                : { label: 'Status', value: form.is_active ? 'Active' : (!user.last_login ? 'Pending Approval' : 'Inactive'), color: form.is_active ? GREEN : (!user.last_login ? '#B45309' : RED) },
               { label: 'Last Login', value: user.last_login ? fmtDate(user.last_login) : 'Never' },
               { label: 'Created', value: fmtDate(user.created_at) },
             ].map(({ label, value, color }) => (
@@ -466,6 +493,20 @@ function EditUserModal({ user, onClose, onSaved }: {
               </div>
             ))}
           </div>
+
+          {/* Sign-in lockout */}
+          {lockedUntil && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.22)', borderRadius: RADIUS.md, padding: '12px 14px', marginBottom: 16 }}>
+              <span className="material-symbols-rounded" style={{ fontSize: 22, color: RED }}>lock</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>Locked after {user.failed_logins ?? 'repeated'} failed sign-ins</div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>Lifts on its own at {fmtDatetime(lockedUntil)}. Unlocking keeps their current password.</div>
+              </div>
+              <button onClick={unlock} disabled={unlocking} style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER, opacity: unlocking ? 0.7 : 1, flexShrink: 0 }}>
+                {unlocking ? 'Unlocking…' : 'Unlock now'}
+              </button>
+            </div>
+          )}
 
           {/* Temp PW display */}
           {newTempPw && (
@@ -655,12 +696,25 @@ export default function AdminUsers() {
     }
   }
 
+  async function unlockUsers(users: User[]) {
+    try {
+      await Promise.all(users.map(u => apiFetch(`/api/admin/users/${u.id}/unlock`, { method: 'POST' })))
+      toast.success(users.length === 1 ? `${users[0].full_name} unlocked` : `${users.length} accounts unlocked`)
+      setSelected(new Set())
+      load(true)
+    } catch (e: any) {
+      toast.error(e.message)
+    }
+  }
+
   const pendingUsers = useMemo(() => rows.filter(u => !u.is_active && !u.last_login), [rows])
+  const lockedUsers = useMemo(() => rows.filter(isLocked), [rows])
+  const selectedLocked = rows.filter(u => selected.has(u.id) && isLocked(u))
 
   const filtered = useMemo(() => rows.filter(u => {
     if (pendingOnly && !(!u.is_active && !u.last_login)) return false
     if (fRoles.size && !fRoles.has(u.role)) return false
-    if (fStatuses.size && !fStatuses.has(u.is_active ? 'active' : 'inactive')) return false
+    if (fStatuses.size && !(fStatuses.has(u.is_active ? 'active' : 'inactive') || (isLocked(u) && fStatuses.has('locked')))) return false
     if (fDepts.size && !fDepts.has(u.department)) return false
     if (search) {
       const q = search.toLowerCase()
@@ -698,7 +752,7 @@ export default function AdminUsers() {
       </div>
     ) },
     { key: 'department', label: 'Dept', render: u => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{u.department || '—'}</span> },
-    { key: 'is_active', label: 'Status', render: u => <StatusBadge status={u.is_active ? 'Active' : (!u.last_login ? 'Pending' : 'Inactive')} /> },
+    { key: 'is_active', label: 'Status', render: u => <StatusBadge status={isLocked(u) ? 'Locked' : u.is_active ? 'Active' : (!u.last_login ? 'Pending' : 'Inactive')} /> },
     { key: 'last_login', label: 'Last Login', sortable: true,
       render: u => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{u.last_login ? fmtDatetime(u.last_login) : 'Never'}</span> },
     { key: 'created_at', label: 'Created', sortable: true,
@@ -707,6 +761,7 @@ export default function AdminUsers() {
       render: u => {
         const pending = !u.is_active && !u.last_login
         const actions: RowAction[] = [
+          ...(isLocked(u) ? [{ icon: 'lock_open', label: 'Unlock', onClick: () => unlockUsers([u]) }] : []),
           ...(pending ? [{ icon: 'how_to_reg', label: 'Approve', onClick: () => setApproving(u) }] : []),
           { icon: 'edit', label: 'Edit', onClick: () => setEditing(u) },
           { icon: 'lock_reset', label: 'Reset Password', onClick: () => resetUserPassword(u.id) },
@@ -755,6 +810,24 @@ export default function AdminUsers() {
         </div>
       )}
 
+      {lockedUsers.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', marginBottom: 14, borderRadius: RADIUS.lg, background: 'rgba(192,0,0,.06)', border: '1px solid rgba(192,0,0,.25)' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 22, color: RED }}>lock</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>
+              {lockedUsers.length} {lockedUsers.length === 1 ? 'account is' : 'accounts are'} locked out
+            </div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+              {lockedUsers.map(u => u.full_name).join(', ')}. Too many failed sign-ins; a lock lifts on its own after 15 minutes.
+            </div>
+          </div>
+          <button onClick={() => unlockUsers(lockedUsers)}
+            style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER, flexShrink: 0 }}>
+            {lockedUsers.length === 1 ? 'Unlock' : 'Unlock all'}
+          </button>
+        </div>
+      )}
+
       <SectionCard title={pendingOnly ? 'Pending Approval' : 'All Users'} badge={filtered.length} padding={false}>
 
         <ExpandableFilterBar
@@ -777,6 +850,7 @@ export default function AdminUsers() {
               options: [
                 { value: 'active',   label: 'Active',   color: GREEN },
                 { value: 'inactive', label: 'Inactive', color: RED },
+                { value: 'locked',   label: 'Locked',   color: RED },
               ],
               selected: fStatuses,
               onChange: setFStatuses,
@@ -798,6 +872,11 @@ export default function AdminUsers() {
         {selected.size > 0 && (
           <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--bdr)', background: '#F0F4FF', display: 'flex', gap: SP[2], alignItems: 'center' }}>
             <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: NAVY }}>{selected.size} selected</span>
+            {selectedLocked.length > 0 && (
+              <button onClick={() => unlockUsers(selectedLocked)} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: 'rgba(22,163,74,.1)', color: GREEN, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+                Unlock {selectedLocked.length}
+              </button>
+            )}
             <button onClick={() => setDeactivateOpen(true)} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: 'rgba(192,0,0,.1)', color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
               Deactivate
             </button>

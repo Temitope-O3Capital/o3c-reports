@@ -35,6 +35,7 @@ func RegisterAdmin(r chi.Router, db *core.DB) {
 	r.Put("/users/{id}", updateUser(db))
 	r.Delete("/users/{id}", deleteUser(db))
 	r.Post("/users/{id}/reset-password", resetPassword(db))
+	r.Post("/users/{id}/unlock", unlockUser(db))
 	r.Patch("/users/{id}/deactivate", deactivateUser(db))
 	r.Patch("/users/{id}/reactivate", reactivateUser(db))
 	r.Get("/roles", listRoles(db))
@@ -142,7 +143,9 @@ func listUsers(db *core.DB) http.HandlerFunc {
 			       COALESCE(last_name,'')  AS last_name,
 			       role, COALESCE(extra_roles,'[]'::jsonb) AS extra_roles, department,
 			       COALESCE(office_location,'') AS office_location, created_at,
-			       must_change_password, last_login, is_active, deleted_at
+			       must_change_password, last_login, is_active, deleted_at,
+			       COALESCE((SELECT lf.failure_count FROM login_failures lf WHERE lf.user_id = o3c_users.id), 0) AS failed_logins,
+			       (SELECT lf.last_failure_at FROM login_failures lf WHERE lf.user_id = o3c_users.id) AS last_failed_login
 			FROM o3c_users `+where+` ORDER BY created_at DESC, id DESC`, args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
@@ -152,6 +155,12 @@ func listUsers(db *core.DB) http.HandlerFunc {
 		// so the client doesn't receive a JSON string.
 		for _, row := range rows {
 			row["extra_roles"] = core.ParsePages(row["extra_roles"])
+			// locked_until is set only while a sign-in lockout is in force, using the
+			// same rule the login handler enforces.
+			row["locked_until"] = nil
+			if until := accountLockedUntil(toInt64(row["failed_logins"]), row["last_failed_login"]); !until.IsZero() {
+				row["locked_until"] = until
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rows) //nolint:errcheck
@@ -490,6 +499,8 @@ func resetPassword(db *core.DB) http.HandlerFunc {
 		// C2: revoke the user's existing tokens so the old password can't keep a
 		// session alive after a reset.
 		core.InvalidateUserTokens(r.Context(), toInt64(rows[0]["id"]))
+		// A fresh temporary password is useless behind a sign-in lockout, so lift it.
+		db.PGExec(r.Context(), `DELETE FROM login_failures WHERE user_id=$1`, id) //nolint:errcheck
 		mailRes := SendTemporaryPasswordEmail(r.Context(), db,
 			str(rows[0]["email"]), str(rows[0]["full_name"]), tempPW, toInt64(rows[0]["id"]))
 		w.Header().Set("Content-Type", "application/json")
@@ -499,6 +510,41 @@ func resetPassword(db *core.DB) http.HandlerFunc {
 			// Returned once so the admin can relay it if email delivery is down.
 			"temporary_password": tempPW,
 		})
+	}
+}
+
+// unlockUser lifts a sign-in lockout (S7) by clearing the account's failed-login
+// counter. The password is untouched; the user signs in with the one they have.
+func unlockUser(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		rows, _ := db.PGQuery(r.Context(),
+			`SELECT id, email, full_name FROM o3c_users WHERE id=$1 AND deleted_at IS NULL`, id)
+		if len(rows) == 0 {
+			respondErr(w, 404, "User not found")
+			return
+		}
+		res, err := db.PGExec(r.Context(), `DELETE FROM login_failures WHERE user_id=$1`, id)
+		if err != nil {
+			respondErrLog(w, 500, "Unlock failed", err)
+			return
+		}
+		cleared, _ := res.RowsAffected()
+
+		caller := core.UserFromCtx(r.Context())
+		var callerID int64
+		callerRole, callerName := "", ""
+		if caller != nil {
+			callerID, callerRole, callerName = caller.ID, caller.Role, caller.FullName
+		}
+		changesJSON, _ := json.Marshal(map[string]any{"email": str(rows[0]["email"])})
+		db.PGExec(r.Context(), //nolint:errcheck
+			`INSERT INTO audit_logs (actor_id, actor_role, actor_name, action, entity_type, entity_id, changes, ip_address, created_at)
+			 VALUES ($1,$2,$3,'account_unlocked','user',$4,$5,'',NOW())`,
+			callerID, callerRole, callerName, id, string(changesJSON))
+		slog.Info("account-unlocked", "user", id, "email", str(rows[0]["email"]), "by", callerID)
+
+		writeJSON(w, map[string]any{"detail": "Account unlocked", "was_locked": cleared > 0})
 	}
 }
 

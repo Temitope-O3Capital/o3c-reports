@@ -299,6 +299,27 @@ func resolveRolePages(ctx context.Context, db *core.DB, roles []string) []string
 	return out
 }
 
+// Per-account lockout (S7): this many consecutive failed sign-ins blocks the account
+// for loginLockWindow. Counted in login_failures, cleared on success or by an admin.
+const (
+	loginLockThreshold = 10
+	loginLockWindow    = 15 * time.Minute
+)
+
+// accountLockedUntil returns when an account's lockout ends, or the zero time if the
+// account is not currently locked.
+func accountLockedUntil(failureCount int64, lastFailure any) time.Time {
+	t, ok := lastFailure.(time.Time)
+	if !ok || failureCount < loginLockThreshold {
+		return time.Time{}
+	}
+	until := t.Add(loginLockWindow)
+	if !time.Now().Before(until) {
+		return time.Time{}
+	}
+	return until
+}
+
 func loginHandler(db *core.DB) http.HandlerFunc {
 	type response struct {
 		AccessToken string         `json:"access_token"`
@@ -347,22 +368,21 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 		}
 		userID := toInt64(rows[0]["id"])
 
-		// S7: Per-account lockout — block after 10 consecutive failures for 15 minutes.
+		// S7: Per-account lockout — block after loginLockThreshold consecutive failures
+		// for loginLockWindow. An administrator can lift it early from User Management.
 		lockRows, _ := db.PGQuery(r.Context(),
 			`SELECT failure_count, last_failure_at
 			 FROM login_failures WHERE user_id=$1`, userID)
 		if len(lockRows) > 0 {
 			count := toInt64(lockRows[0]["failure_count"])
-			if count >= 10 {
-				if lastFailure, ok := lockRows[0]["last_failure_at"].(time.Time); ok {
-					if time.Since(lastFailure) < 15*time.Minute {
-						respondErr(w, 429, "Account temporarily locked. Try again in 15 minutes.")
-						return
-					}
-					// Lockout window expired — reset
-					db.PGExec(r.Context(), //nolint:errcheck
-						`DELETE FROM login_failures WHERE user_id=$1`, userID)
+			if count >= loginLockThreshold {
+				if !accountLockedUntil(count, lockRows[0]["last_failure_at"]).IsZero() {
+					respondErr(w, 429, "Account temporarily locked after too many failed sign-ins. Try again in 15 minutes, or ask an administrator to unlock it.")
+					return
 				}
+				// Lockout window expired — reset
+				db.PGExec(r.Context(), //nolint:errcheck
+					`DELETE FROM login_failures WHERE user_id=$1`, userID)
 			}
 		}
 
