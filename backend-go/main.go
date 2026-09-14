@@ -574,7 +574,7 @@ func main() {
 			handlers.RegisterMobileApp(r, db)
 		})
 		r.Route("/api/blink-card", func(r chi.Router) {
-			handlers.RegisterBlinkCard(r, db)
+			handlers.RegisterBlink(r, db)
 		})
 		// Activity log — any authenticated user (not just admins)
 		handlers.RegisterActivityLog(r, db)

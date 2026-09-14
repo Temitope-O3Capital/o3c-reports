@@ -646,23 +646,32 @@ func overviewCardsSummary(db *core.DB) http.HandlerFunc {
 			"prepaid_ngn_count": 0, "prepaid_ngn_balance_kobo": 0,
 			"prepaid_usd_count": 0, "prepaid_usd_balance_cents": 0,
 			"credit_ngn_count": 0, "credit_ngn_balance_kobo": 0,
+			"blink_count": 0, "blink_balance_kobo": 0,
 		}
 
 		// Counts by card product / tier from live card data. active_total is the WHOLE
 		// active book — the per-tier green/gold/platinum sums only match the few hundred
 		// cards whose product string carries the tier word, so they must never be summed
 		// as "active cards" (that undercounts ~18.7k cards to a few hundred).
+		// The tier counts (green/gold/platinum) still read the product string,
+		// because tier is a marketing label the catalogue does not model — only
+		// the FAMILY counts below were string-matched, and those now join the
+		// catalogue. '%prep%' in particular counted Blink as prepaid, since the
+		// Blink product is named 'PREP Temporary Virtual'.
 		rows, _, err := db.DualQuery(ctx,
 			`SELECT
 				COUNT(*) AS active_total,
-				SUM(CASE WHEN LOWER(COALESCE(card_product, card_program,'')) LIKE '%green%'    THEN 1 ELSE 0 END) AS green_count,
-				SUM(CASE WHEN LOWER(COALESCE(card_product, card_program,'')) LIKE '%gold%'     THEN 1 ELSE 0 END) AS gold_count,
-				SUM(CASE WHEN LOWER(COALESCE(card_product, card_program,'')) LIKE '%platinum%' THEN 1 ELSE 0 END) AS platinum_count,
-				SUM(CASE WHEN LOWER(COALESCE(product_name,'')) LIKE '%prep%'     THEN 1 ELSE 0 END) AS prepaid_ngn_count,
-				SUM(CASE WHEN LOWER(COALESCE(product_name,'')) LIKE '%usd%'      THEN 1 ELSE 0 END) AS prepaid_usd_count,
-				SUM(CASE WHEN LOWER(COALESCE(product_name,'')) LIKE '%classic%'
-				      OR LOWER(COALESCE(product_name,'')) LIKE '%credit%'        THEN 1 ELSE 0 END) AS credit_ngn_count
-			FROM app.accounts WHERE status IN ('Open','Active')`)
+				SUM(CASE WHEN LOWER(COALESCE(a.card_product, a.card_program,'')) LIKE '%green%'    THEN 1 ELSE 0 END) AS green_count,
+				SUM(CASE WHEN LOWER(COALESCE(a.card_product, a.card_program,'')) LIKE '%gold%'     THEN 1 ELSE 0 END) AS gold_count,
+				SUM(CASE WHEN LOWER(COALESCE(a.card_product, a.card_program,'')) LIKE '%platinum%' THEN 1 ELSE 0 END) AS platinum_count,
+				SUM(CASE WHEN p.category = 'prepaid' THEN 1 ELSE 0 END) AS prepaid_ngn_count,
+				SUM(CASE WHEN p.category = 'prepaid' AND p.currency = 'USD' THEN 1 ELSE 0 END) AS prepaid_usd_count,
+				SUM(CASE WHEN p.category = 'credit'  THEN 1 ELSE 0 END) AS credit_ngn_count,
+				SUM(CASE WHEN p.category = 'blink'   THEN 1 ELSE 0 END) AS blink_count
+			FROM app.accounts a
+			LEFT JOIN app.card_products p
+			       ON p.system_name = a.product_name OR p.product_name = a.product_name
+			WHERE a.status IN ('Open','Active')`)
 		if err != nil || len(rows) == 0 {
 			respond(w, empty, "pg")
 			return
@@ -693,7 +702,9 @@ func overviewCardsSummary(db *core.DB) http.HandlerFunc {
 			  COALESCE(SUM(CASE WHEN p.category='prepaid' AND d.currency='USD'
 			               THEN d.outstanding_balance_kobo END), 0) AS prepaid_usd_balance_cents,
 			  COALESCE(SUM(CASE WHEN p.category='credit'  AND d.currency='NGN'
-			               THEN d.outstanding_balance_kobo END), 0) AS credit_ngn_balance_kobo
+			               THEN d.outstanding_balance_kobo END), 0) AS credit_ngn_balance_kobo,
+			  COALESCE(SUM(CASE WHEN p.category='blink'
+			               THEN d.outstanding_balance_kobo END), 0) AS blink_balance_kobo
 			FROM card_cycle_data d
 			LEFT JOIN card_products p ON p.product_code = d.product_code
 			WHERE d.cycle_date = (SELECT MAX(cycle_date) FROM card_cycle_data)`)
@@ -730,6 +741,8 @@ func overviewCardsSummary(db *core.DB) http.HandlerFunc {
 			"prepaid_usd_balance_cents": toInt64(bal["prepaid_usd_balance_cents"]),
 			"credit_ngn_count":          toInt64(row["credit_ngn_count"]),
 			"credit_ngn_balance_kobo":   toInt64(bal["credit_ngn_balance_kobo"]),
+			"blink_count":               toInt64(row["blink_count"]),
+			"blink_balance_kobo":        toInt64(bal["blink_balance_kobo"]),
 		}, "pg")
 	}
 }

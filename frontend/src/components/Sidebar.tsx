@@ -183,8 +183,15 @@ const SECTIONS: Section[] = [
           { label: 'Credit Limit Review', to: '/cards/credit-limit' },
           { label: 'Loan Booking',        to: '/loans/approvals', vis: ['cards_agent','cards_head'] },
           { label: 'Billing Cycles',      to: '/cards/billing' },
-          { label: 'Blink Card',          to: '/blink-card', vis: ['cards_agent','cards_head'] },
         ],
+      },
+      // Blink is its own product line, not a page under Card Operations: a
+      // temporary virtual card funded in foreign currency and credited in naira,
+      // with its own funding family in the catalogue (app.card_products.category).
+      // It sits beside Card Operations rather than inside it.
+      {
+        icon: 'bolt', label: 'Blink', to: '/blink-card',
+        vis: ['cards_agent','cards_head'],
       },
       {
         icon: 'smartphone', label: 'Mobile App', to: '/mobile-app',

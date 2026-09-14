@@ -5,6 +5,7 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { useCardProducts } from '../../lib/cardProducts'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -79,6 +80,9 @@ function IssuanceActions({ row, onReload }: { row: IssuanceRequest; onReload: ()
 function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({ cif_number: '', customer_name: '', card_type: 'PREP', notes: '' })
   const [saving, setSaving] = useState(false)
+  // Active products only — an operator should not be able to raise a request
+  // against a product that was retired years ago.
+  const { products } = useCardProducts()
 
   async function submit() {
     if (!form.customer_name.trim()) { toast.error('Customer name is required'); return }
@@ -130,10 +134,11 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
               value={form.card_type} onChange={e => setForm(f => ({ ...f, card_type: e.target.value }))}
               style={{ display: 'block', width: '100%', marginTop: 6, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             >
-              <option value="PREP">Prepaid (PREP)</option>
-              <option value="Amex Naira">Amex Naira</option>
-              <option value="Amex USD">Amex USD</option>
-              <option value="Classic Accounts">Classic Accounts</option>
+              {products.map(p => (
+                <option key={p.product_name} value={p.product_name}>
+                  {p.product_name}{p.category === 'blink' ? ' — Blink' : ''}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -188,6 +193,9 @@ export default function CardsIssuance() {
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['cards'] })
+
+  // Filter chips follow the catalogue, not a literal.
+  const { products } = useCardProducts()
 
   const cols: TableCol<IssuanceRequest>[] = useMemo(() => [
     { key: 'customer_name', label: 'Customer',
@@ -252,7 +260,7 @@ export default function CardsIssuance() {
             {
               key: 'card_type',
               label: 'Card Type',
-              options: ['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts'].map(v => ({ value: v })),
+              options: products.map(p => ({ value: p.product_name })),
               selected: fCardTypes,
               onChange: setFCardTypes,
             },

@@ -52,18 +52,26 @@ func cardTrendsKPIs(db *core.DB) http.HandlerFunc {
 		kpis := map[string]any{}
 		var sources []string
 
+		// Counts read app.card_book.card_state, not the raw status column.
+		//
+		// Three defects came with the old version: status does not track expiry,
+		// so "active" counted a book that is 87% past its expiry date; `status NOT
+		// IN (...)` drops NULLs, so rows the live feed writes with no status fell
+		// out of BOTH active and inactive; and 'LEGAL ACTI' is a value that no
+		// longer exists — migration 177 repaired that truncation to 'LEGAL ACTION',
+		// so this filter had been silently returning zero ever since.
 		type spec struct{ key, pg string }
 		for _, s := range []spec{
 			{"total_issued",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE 1=1%s`, f.PG())},
 			{"active",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE card_state='Live'%s`, f.PG())},
 			{"inactive",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status NOT IN ('Open','Active')%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE card_state<>'Live'%s`, f.PG())},
 			{"terminated",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status='TERMINATED'%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE card_state='Terminated'%s`, f.PG())},
 			{"legal_suspended",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('LEGAL ACTI','SUSPENDED')%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE card_state IN ('Legal action','Suspended')%s`, f.PG())},
 		} {
 			val, src, err := db.DualScalar(ctx, "val", s.pg, f.Args()...)
 			if err != nil {

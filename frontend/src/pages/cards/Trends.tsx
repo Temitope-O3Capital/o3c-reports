@@ -40,13 +40,19 @@ interface ProductRow  {
 
 // ── Chart palette ──────────────────────────────────────────────────────────────
 
+// The card_state vocabulary (app.card_book), which is what /api/card-trends now
+// returns. The old keys were raw app.accounts.status values in three different
+// casings — and one of them, 'LEGAL ACTI', is a truncation that migration 177
+// repaired to 'LEGAL ACTION' long ago, so it had been colouring nothing.
 const STATUS_COLORS: Record<string, string> = {
-  Open:           GREEN,  Active:     GREEN,  ACTIVE:     GREEN,
-  Inactive:       AMBER,  INACTIVE:   AMBER,
-  Closed:         'var(--chart-lbl)', CLOSED: 'var(--chart-lbl)',
-  Terminated:     RED,    TERMINATED: RED,
-  'LEGAL ACTI':   PURPLE, 'Legal Suspended': PURPLE,
-  SUSPENDED:      AMBER,
+  'Live':         GREEN,
+  'Expired':      AMBER,
+  'Terminated':   RED,
+  'Legal action': PURPLE,
+  'Suspended':    AMBER,
+  'Hot listed':   RED,
+  'Inactive':     'var(--chart-lbl)',
+  'Unknown':      'var(--chart-lbl)',
 }
 
 const PIE_FALLBACK = CHART_SERIES

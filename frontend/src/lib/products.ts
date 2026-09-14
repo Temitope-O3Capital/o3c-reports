@@ -31,9 +31,14 @@ export const PRODUCT_LINES: ProductLineMeta[] = [
 ]
 
 // The sub-products under each line.
+//
+// blink is a third card family, not a prepaid variant: the customer funds it in
+// foreign currency and is credited the naira equivalent, and the card is
+// temporary. See app.card_products.category (migration 239).
 export const PRODUCT_SUBS: ProductSub[] = [
   { code: 'prepaid',       label: 'Prepaid Card', line: 'cards' },
   { code: 'credit_card',   label: 'Credit Card',  line: 'cards' },
+  { code: 'blink',         label: 'Blink',        line: 'cards' },
   { code: 'salary_loan',   label: 'Salary Loan',  line: 'loans' },
   { code: 'business_loan', label: 'Business Loan', line: 'loans' },
   { code: 'fixed_deposit', label: 'Fixed Deposit', line: 'fixed_deposit' },
@@ -51,6 +56,8 @@ const LEGACY_ALIASES: Record<string, string> = {
   cc:                 'credit_card',
   creditcard:         'credit_card',
   prepaid_card:       'prepaid',
+  blink_card:         'blink',
+  prep_temporary_virtual: 'blink',
   fd:                 'fixed_deposit',
   'fixed deposit':    'fixed_deposit',
 }
@@ -65,6 +72,9 @@ export function normalizeProductCode(raw: string | null | undefined): string {
   if (LEGACY_ALIASES[k]) return LEGACY_ALIASES[k]
   if (LEGACY_ALIASES[raw.trim().toLowerCase()]) return LEGACY_ALIASES[raw.trim().toLowerCase()]
   // Loose contains-matching for free-text like "Business Loan application".
+  // Blink is tested FIRST: the /card/ fallthrough at the bottom would otherwise
+  // classify the literal string "Blink Card" as a credit card.
+  if (/blink|prep.?temporary/.test(k))   return 'blink'
   if (/prepaid/.test(k))                 return 'prepaid'
   if (/credit.?card|\bcc\b/.test(k))     return 'credit_card'
   if (/salary/.test(k))                  return 'salary_loan'

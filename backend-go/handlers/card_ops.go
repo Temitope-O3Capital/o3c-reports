@@ -687,12 +687,36 @@ func cardGenerateBilling(db *core.DB) http.HandlerFunc {
 		}
 		var results []result
 
-		for _, product := range []string{"PREP", "Amex Naira", "Amex USD", "Classic Accounts"} {
-			var f Filter
-			f.Eq(" AND Product_Name=?", ` AND product_name=?`, product)
+		// Products come from the catalogue, not a literal.
+		//
+		// This used to iterate {"PREP","Amex Naira","Amex USD","Classic Accounts"}.
+		// Two of those (Amex Naira 001, Amex USD 002) are is_active=false legacy
+		// system_names, so a cycle was generated every month for dead products
+		// while six live ones — BB Classic, Business, Corporate, Financial
+		// Inclusion, Platinum, Prestige — got none at all.
+		//
+		// app.accounts.product_name holds the legacy system_name, so the account
+		// count matches on that while the cycle row records the canonical name.
+		prodRows, perr := db.PGQuery(r.Context(), `
+			SELECT product_name,
+			       COALESCE(NULLIF(system_name, ''), product_name) AS match_name
+			  FROM app.card_products
+			 WHERE is_active
+			 ORDER BY product_name`)
+		if perr != nil {
+			respondErr(w, 500, "product catalogue unavailable: "+perr.Error())
+			return
+		}
+		if len(prodRows) == 0 {
+			respondErr(w, 500, "no active card products in the catalogue")
+			return
+		}
+
+		for _, p := range prodRows {
+			product := str(p["product_name"])
 			count, _, _ := db.DualScalar(r.Context(), "val",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, f.PG()),
-				f.Args()...)
+				`SELECT COUNT(*) AS val FROM app.accounts WHERE product_name = $1`,
+				str(p["match_name"]))
 
 			_, err := db.PGExec(r.Context(), `
 				INSERT INTO card_billing_cycles (product, cycle_start, cycle_end, accounts_count)

@@ -5,6 +5,7 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { useCardProducts } from '../../lib/cardProducts'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -84,6 +85,7 @@ function NewDisputeModal({ onClose, onCreated }: { onClose: () => void; onCreate
     cif_number: '', customer_name: '', card_type: 'PREP', amount_kobo: '', dispute_type: DISPUTE_TYPES[0], notes: '',
   })
   const [saving, setSaving] = useState(false)
+  const { products } = useCardProducts()
 
   async function submit() {
     if (!form.customer_name.trim()) { toast.error('Customer name required'); return }
@@ -132,7 +134,7 @@ function NewDisputeModal({ onClose, onCreated }: { onClose: () => void; onCreate
             <div>
               <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Card Type</label>
               <select value={form.card_type} onChange={e => setForm(f => ({ ...f, card_type: e.target.value }))} style={inputStyle}>
-                {['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts'].map(t => <option key={t} value={t}>{t}</option>)}
+                {products.map(p => <option key={p.product_name} value={p.product_name}>{p.product_name}</option>)}
               </select>
             </div>
             <div>

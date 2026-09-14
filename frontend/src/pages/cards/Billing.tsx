@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, Sk, FilterBar, filterInputStyle, DateFilter, NameCell } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -56,13 +56,20 @@ function StatusPill({ date }: { date: string }) {
   )
 }
 
+// Three funding families, not two. This pill was binary — prepaid, else red for
+// credit — so a blink row would have been painted as a credit card, and a row
+// the catalogue does not know would have been too.
+const CAT_PILL: Record<string, { bg: string; color: string }> = {
+  prepaid: { bg: 'rgba(14,40,65,.08)',  color: NAVY },
+  credit:  { bg: 'rgba(192,0,0,.08)',   color: RED },
+  blink:   { bg: 'rgba(124,58,237,.10)', color: PURPLE },
+}
+
 function CatPill({ category }: { category: string }) {
-  const s = category === 'prepaid'
-    ? { bg: 'rgba(14,40,65,.08)',  color: NAVY }
-    : { bg: 'rgba(192,0,0,.08)',   color: RED }
+  const s = CAT_PILL[category] ?? { bg: 'var(--chip-bg)', color: 'var(--chip-txt)' }
   return (
     <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.xl, background: s.bg, color: s.color, textTransform: 'capitalize' as const }}>
-      {category}
+      {category || 'unmatched'}
     </span>
   )
 }

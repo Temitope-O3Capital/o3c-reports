@@ -83,6 +83,7 @@ interface CardsSummary {
   prepaid_ngn_count: number;   prepaid_ngn_balance_kobo: number
   prepaid_usd_count: number;   prepaid_usd_balance_cents: number
   credit_ngn_count: number;    credit_ngn_balance_kobo: number
+  blink_count: number;         blink_balance_kobo: number
 }
 interface MonthlyPoint { month: string; disbursements_kobo: number; fd_payouts_kobo: number; card_spend_kobo: number }
 interface ProductPoint  { product: string; count: number; volume_kobo: number }
@@ -807,15 +808,23 @@ export default function Overview() {
             )}
           </div>
 
-          {/* 3 ATM visuals — the REAL card book: Credit (owed to O3), Prepaid ₦ float
-              (mostly customer credit), and Prepaid USD. The old green/gold/platinum tiles
-              covered <600 of ~18.7k cards and had no synced cycle balances, so they read
-              as unwired — these three are the categories that actually carry the money. */}
+          {/* 4 ATM visuals — the REAL card book, one per funding family plus the
+              USD split: Credit (owed to O3), Prepaid ₦ float (mostly customer
+              credit), Prepaid USD, and Blink. The old green/gold/platinum tiles
+              covered <600 of ~18.7k cards and had no synced cycle balances, so
+              they read as unwired — these are the categories that carry the money.
+
+              Blink is its own tile because it is its own funding family
+              (app.card_products.category, migration 239), not a prepaid variant.
+              Before that split it was counted inside Prepaid ₦, because its
+              product is named 'PREP Temporary Virtual' and the old query matched
+              product_name LIKE '%prep%'. */}
           <div style={{ display: 'flex', gap: SP[2] }}>
             {cards && <>
             <ATMCard tier="Credit Card ₦" gradient="linear-gradient(135deg,#7F0000,#C00000,#E23A3A)" count={cards.credit_ngn_count}  outstanding={cards.credit_ngn_balance_kobo}  countLabel="holders" lastFour="CR" />
             <ATMCard tier="Prepaid ₦"     gradient="linear-gradient(135deg,#0A2847,#12507F,#2C7BB6)" count={cards.prepaid_ngn_count}  outstanding={cards.prepaid_ngn_balance_kobo} countLabel="active"  lastFour="₦" />
             <ATMCard tier="Prepaid $"     gradient="linear-gradient(135deg,#14532D,#15803D,#22C55E)" count={cards.prepaid_usd_count}  outstanding={cards.prepaid_usd_balance_cents} currency="USD" countLabel="active" lastFour="$" />
+            <ATMCard tier="Blink"         gradient="linear-gradient(135deg,#5B21B6,#7C3AED,#0E7490)" count={cards.blink_count}        outstanding={cards.blink_balance_kobo}       countLabel="live"    lastFour="BL" />
             </>}
           </div>
         </div>

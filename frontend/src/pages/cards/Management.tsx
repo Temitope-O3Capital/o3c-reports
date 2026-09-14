@@ -6,6 +6,9 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, fmtDatetime, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import {
+  useCardProducts, CARD_STATES, CARD_ACTIVITY, CARD_ACTIVITY_COLORS, CARD_ACTIVITY_HINTS,
+} from '../../lib/cardProducts'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -23,13 +26,19 @@ interface ListResp { data: Cardholder[]; total: number }
 
 // ── Status colours ─────────────────────────────────────────────────────────────
 
+// Keyed on the card_state vocabulary (app.card_book), which is what the API now
+// returns. The previous keys — Open, Closed, 'Legal Suspended' — were values of
+// the raw app.accounts.status column, so once the endpoint moved to card_state
+// every pill would have fallen through to the default grey.
 const STATUS_COLORS: Record<string, { bg: string; txt: string }> = {
-  Open:             { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
-  Active:           { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
-  Inactive:         { bg: 'rgba(217,119,6,.12)',  txt: AMBER },
-  Closed:           { bg: 'rgba(107,114,128,.1)', txt: 'var(--chart-lbl)' },
-  Terminated:       { bg: 'rgba(192,0,0,.1)',     txt: RED },
-  'Legal Suspended':{ bg: 'rgba(124,58,237,.1)',  txt: '#7C3AED' },
+  'Live':         { bg: 'rgba(22,163,74,.1)',   txt: GREEN },
+  'Expired':      { bg: 'rgba(217,119,6,.12)',  txt: AMBER },
+  'Terminated':   { bg: 'rgba(192,0,0,.1)',     txt: RED },
+  'Legal action': { bg: 'rgba(124,58,237,.1)',  txt: '#7C3AED' },
+  'Suspended':    { bg: 'rgba(217,119,6,.12)',  txt: AMBER },
+  'Hot listed':   { bg: 'rgba(192,0,0,.1)',     txt: RED },
+  'Inactive':     { bg: 'rgba(107,114,128,.1)', txt: 'var(--chart-lbl)' },
+  'Unknown':      { bg: 'rgba(107,114,128,.1)', txt: 'var(--chart-lbl)' },
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -248,8 +257,11 @@ function makeCols(onDone: () => void, navigate: (path: string) => void): TableCo
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 50
-const STATUSES = ['Open', 'Active', 'Inactive', 'Closed', 'Terminated', 'Legal Suspended']
-const PRODUCTS = ['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts']
+// Statuses are the card_state vocabulary. Products are no longer a literal here:
+// the old list held two retired products (Amex Naira and Amex USD, renamed to O3
+// Green and inactive) and omitted six live ones, so the filter offered a set that
+// matched neither the catalogue nor the book. They come from useCardProducts now.
+const STATUSES = [...CARD_STATES]
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -265,7 +277,12 @@ export default function CardsManagement() {
   const [search,    setSearch]    = useState('')
   const [fStatuses, setFStatuses] = useState(new Set<string>())
   const [fProducts, setFProducts] = useState(new Set<string>())
+  const [fActivity, setFActivity] = useState(new Set<string>())
   const [page, setPage] = useState(1)
+
+  // The product picker comes from the catalogue, so a product added or retired by
+  // migration shows up here without a code change.
+  const { products } = useCardProducts()
 
   // Debounce the box and search on the SERVER (by CIF and cardholder name, phone-aware)
   // — the old code filtered the current page in-memory by CIF only, so a name query or a
@@ -279,8 +296,12 @@ export default function CardsManagement() {
       const p = new URLSearchParams()
       p.set('limit',  String(PAGE_SIZE))
       p.set('offset', String((pg - 1) * PAGE_SIZE))
-      if (fStatuses.size)  p.set('status',    [...fStatuses].join(','))
-      if (fProducts.size)  p.set('card_type', [...fProducts].join(','))
+      // One value per filter, not a comma-joined list. The backend compares with
+      // `=` (Filter.Eq), so "Live,Expired" was never going to match a row — the
+      // multi-select silently returned nothing as soon as a second chip was on.
+      if (fStatuses.size)  p.set('status',   [...fStatuses][0])
+      if (fProducts.size)  p.set('card_type', [...fProducts][0])
+      if (fActivity.size)  p.set('activity', [...fActivity][0])
       if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim())
       p.set('from', dateFrom)
       p.set('to',   dateTo)
@@ -293,7 +314,7 @@ export default function CardsManagement() {
     } finally {
       setLoading(false)
     }
-  }, [fStatuses, fProducts, dateFrom, dateTo, debouncedSearch])
+  }, [fStatuses, fProducts, fActivity, dateFrom, dateTo, debouncedSearch])
 
   useEffect(() => { load(1) }, [load])
 
@@ -324,14 +345,21 @@ export default function CardsManagement() {
               onChange: setFStatuses,
             },
             {
+              key: 'activity',
+              label: 'Activity',
+              options: CARD_ACTIVITY.map(a => ({ value: a, label: a, color: CARD_ACTIVITY_COLORS[a], hint: CARD_ACTIVITY_HINTS[a] })),
+              selected: fActivity,
+              onChange: setFActivity,
+            },
+            {
               key: 'product',
               label: 'Product',
-              options: PRODUCTS.map(p => ({ value: p })),
+              options: products.map(p => ({ value: p.product_name })),
               selected: fProducts,
               onChange: setFProducts,
             },
           ] as FilterGroupDef[]}
-          onReset={() => { setSearch(''); setFStatuses(new Set()); setFProducts(new Set()) }}
+          onReset={() => { setSearch(''); setFStatuses(new Set()); setFProducts(new Set()); setFActivity(new Set()) }}
           onApply={() => load(1)}
           resultCount={total}
           totalCount={total}
