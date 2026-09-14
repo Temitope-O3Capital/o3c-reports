@@ -8,7 +8,6 @@ package custfeed
 
 import (
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -135,7 +134,15 @@ var nameRe = regexp.MustCompile(`^cust_file\.(\d{8})\.(\d+)\.csv$`)
 // applied in the order they were produced. The date is DDMMYYYY, not the ISO order —
 // reading it as YYYYMMDD would silently sort a year's worth of files wrongly.
 func ParseFileName(path string) (FileMeta, error) {
-	base := filepath.Base(path)
+	// Strip through the last separator of EITHER kind, not filepath.Base. The feed
+	// folder is a Windows share (E:\cust_file\...), but this package also builds
+	// and tests on Linux CI, where filepath.Base does not split on `\` — so a
+	// Windows path came back whole, failed nameRe, and TestParseFileNameAndOrdering
+	// passed on the server while failing on every CI run. This is the same on both.
+	base := path
+	if i := strings.LastIndexAny(path, `/\`); i >= 0 {
+		base = path[i+1:]
+	}
 	m := nameRe.FindStringSubmatch(base)
 	if m == nil {
 		return FileMeta{}, fmt.Errorf("unrecognised feed filename: %s", base)
