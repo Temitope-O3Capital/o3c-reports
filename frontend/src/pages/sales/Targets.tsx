@@ -56,6 +56,24 @@ function ragColor(pct: number) {
   return RED
 }
 
+// A target of 0 means "not set", not "0% achieved". Submissions from Sales arrive as
+// naira only — no counts — so the loan/FD/card COUNT targets sit at 0 for the whole
+// team. The old code passed 100 here, painting the actual GREEN as though it had been
+// hit, while RagBar painted the same cell RED at 0%. Both are wrong: show it as unset.
+function metricColor(actual: number, target: number) {
+  return target > 0 ? ragColor((actual / target) * 100) : 'var(--txt)'
+}
+
+const NOT_SET = '—'
+
+function fmtCountTarget(n: number) {
+  return n > 0 ? n.toLocaleString() : NOT_SET
+}
+
+function fmtNairaTarget(kobo: number) {
+  return kobo > 0 ? fmtNaira(kobo) : NOT_SET
+}
+
 function currentPeriod() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -64,7 +82,16 @@ function currentPeriod() {
 // ── RAG bar ───────────────────────────────────────────────────────────────────
 
 function RagBar({ actual, target }: { actual: number; target: number }) {
-  const pct = target > 0 ? Math.min(Math.round((actual / target) * 100), 100) : 0
+  // No target set: an empty track and a dash, rather than a red 0% that reads as failure.
+  if (!(target > 0)) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1, height: 7, background: 'var(--th-bg)', borderRadius: RADIUS.xs }} />
+        <span style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: 'var(--txt3)', minWidth: 32 }}>{NOT_SET}</span>
+      </div>
+    )
+  }
+  const pct = Math.min(Math.round((actual / target) * 100), 100)
   const color = ragColor(pct)
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -202,8 +229,8 @@ export default function SalesTargets() {
       key: 'actual_loans', label: 'Loans',
       render: r => (
         <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: ragColor(r.target_loans > 0 ? (r.actual_loans / r.target_loans) * 100 : 100) }}>
-            {r.actual_loans} / {r.target_loans}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: metricColor(r.actual_loans, r.target_loans) }}>
+            {r.actual_loans} / {fmtCountTarget(r.target_loans)}
           </div>
           <RagBar actual={r.actual_loans} target={r.target_loans} />
         </div>
@@ -213,8 +240,8 @@ export default function SalesTargets() {
       key: 'actual_kobo', label: 'Disbursement',
       render: r => (
         <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: ragColor(r.target_kobo > 0 ? (r.actual_kobo / r.target_kobo) * 100 : 100) }}>
-            {fmtNaira(r.actual_kobo)} / {fmtNaira(r.target_kobo)}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: metricColor(r.actual_kobo, r.target_kobo) }}>
+            {fmtNaira(r.actual_kobo)} / {fmtNairaTarget(r.target_kobo)}
           </div>
           <RagBar actual={r.actual_kobo} target={r.target_kobo} />
         </div>
@@ -224,8 +251,8 @@ export default function SalesTargets() {
       key: 'actual_fds', label: 'Fixed Deposits',
       render: r => (
         <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: ragColor(r.target_fds > 0 ? (r.actual_fds / r.target_fds) * 100 : 100) }}>
-            {r.actual_fds} / {r.target_fds}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: metricColor(r.actual_fds, r.target_fds) }}>
+            {r.actual_fds} / {fmtCountTarget(r.target_fds)}
           </div>
           <RagBar actual={r.actual_fds} target={r.target_fds} />
         </div>
@@ -235,8 +262,8 @@ export default function SalesTargets() {
       key: 'actual_fd_kobo', label: 'FD Amount',
       render: r => (
         <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: ragColor(r.target_fd_kobo > 0 ? (r.actual_fd_kobo / r.target_fd_kobo) * 100 : 100) }}>
-            {fmtNaira(r.actual_fd_kobo)} / {fmtNaira(r.target_fd_kobo)}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: metricColor(r.actual_fd_kobo, r.target_fd_kobo) }}>
+            {fmtNaira(r.actual_fd_kobo)} / {fmtNairaTarget(r.target_fd_kobo)}
           </div>
           <RagBar actual={r.actual_fd_kobo} target={r.target_fd_kobo} />
         </div>
@@ -246,8 +273,8 @@ export default function SalesTargets() {
       key: 'actual_cards', label: 'Cards',
       render: r => (
         <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: ragColor(r.target_cards > 0 ? (r.actual_cards / r.target_cards) * 100 : 100) }}>
-            {r.actual_cards} / {r.target_cards}
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: metricColor(r.actual_cards, r.target_cards) }}>
+            {r.actual_cards} / {fmtCountTarget(r.target_cards)}
           </div>
           <RagBar actual={r.actual_cards} target={r.target_cards} />
         </div>
@@ -305,31 +332,31 @@ export default function SalesTargets() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <div>
               <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
-                {myRow.actual_loans} / {myRow.target_loans} loans
+                {myRow.actual_loans} / {fmtCountTarget(Number(myRow.target_loans))} loans
               </div>
               <RagBar actual={Number(myRow.actual_loans)} target={Number(myRow.target_loans)} />
             </div>
             <div>
               <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
-                {fmtNaira(Number(myRow.actual_kobo))} / {fmtNaira(Number(myRow.target_kobo))}
+                {fmtNaira(Number(myRow.actual_kobo))} / {fmtNairaTarget(Number(myRow.target_kobo))}
               </div>
               <RagBar actual={Number(myRow.actual_kobo)} target={Number(myRow.target_kobo)} />
             </div>
             <div>
               <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
-                {myRow.actual_fds} / {myRow.target_fds} FDs
+                {myRow.actual_fds} / {fmtCountTarget(Number(myRow.target_fds))} FDs
               </div>
               <RagBar actual={Number(myRow.actual_fds)} target={Number(myRow.target_fds)} />
             </div>
             <div>
               <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
-                {fmtNaira(Number(myRow.actual_fd_kobo))} / {fmtNaira(Number(myRow.target_fd_kobo))}
+                {fmtNaira(Number(myRow.actual_fd_kobo))} / {fmtNairaTarget(Number(myRow.target_fd_kobo))}
               </div>
               <RagBar actual={Number(myRow.actual_fd_kobo)} target={Number(myRow.target_fd_kobo)} />
             </div>
             <div>
               <div style={{ fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', ...NUM, marginBottom: 6 }}>
-                {myRow.actual_cards} / {myRow.target_cards} cards
+                {myRow.actual_cards} / {fmtCountTarget(Number(myRow.target_cards))} cards
               </div>
               <RagBar actual={Number(myRow.actual_cards)} target={Number(myRow.target_cards)} />
             </div>
@@ -349,16 +376,16 @@ export default function SalesTargets() {
       {/* Summary strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 14, marginBottom: SP[5] }}>
         {[
-          { label: 'Target Loans',    value: totalTargetLoans,              fmt: (v: number) => v.toLocaleString() },
-          { label: 'Actual Loans',    value: totalActualLoans,              fmt: (v: number) => v.toLocaleString(),      color: ragColor(totalTargetLoans > 0 ? (totalActualLoans / totalTargetLoans) * 100 : 100) },
-          { label: 'Target Disb.',    value: totalTargetKobo,               fmt: fmtNaira },
-          { label: 'Actual Disb.',    value: totalActualKobo,               fmt: fmtNaira,                               color: ragColor(totalTargetKobo > 0 ? (totalActualKobo / totalTargetKobo) * 100 : 100) },
-          { label: 'Target FDs',      value: totalTargetFds,                fmt: (v: number) => v.toLocaleString() },
-          { label: 'Actual FDs',      value: totalActualFds,                fmt: (v: number) => v.toLocaleString(),      color: ragColor(totalTargetFds > 0 ? (totalActualFds / totalTargetFds) * 100 : 100) },
-          { label: 'Target FD Amt.',  value: totalTargetFdKobo,             fmt: fmtNaira },
-          { label: 'Actual FD Amt.',  value: totalActualFdKobo,             fmt: fmtNaira,                               color: ragColor(totalTargetFdKobo > 0 ? (totalActualFdKobo / totalTargetFdKobo) * 100 : 100) },
-          { label: 'Target Cards',    value: totalTargetCards,              fmt: (v: number) => v.toLocaleString() },
-          { label: 'Actual Cards',    value: totalActualCards,              fmt: (v: number) => v.toLocaleString(),      color: ragColor(totalTargetCards > 0 ? (totalActualCards / totalTargetCards) * 100 : 100) },
+          { label: 'Target Loans',    value: totalTargetLoans,              fmt: fmtCountTarget },
+          { label: 'Actual Loans',    value: totalActualLoans,              fmt: (v: number) => v.toLocaleString(),      color: metricColor(totalActualLoans, totalTargetLoans) },
+          { label: 'Target Disb.',    value: totalTargetKobo,               fmt: fmtNairaTarget },
+          { label: 'Actual Disb.',    value: totalActualKobo,               fmt: fmtNaira,                               color: metricColor(totalActualKobo, totalTargetKobo) },
+          { label: 'Target FDs',      value: totalTargetFds,                fmt: fmtCountTarget },
+          { label: 'Actual FDs',      value: totalActualFds,                fmt: (v: number) => v.toLocaleString(),      color: metricColor(totalActualFds, totalTargetFds) },
+          { label: 'Target FD Amt.',  value: totalTargetFdKobo,             fmt: fmtNairaTarget },
+          { label: 'Actual FD Amt.',  value: totalActualFdKobo,             fmt: fmtNaira,                               color: metricColor(totalActualFdKobo, totalTargetFdKobo) },
+          { label: 'Target Cards',    value: totalTargetCards,              fmt: fmtCountTarget },
+          { label: 'Actual Cards',    value: totalActualCards,              fmt: (v: number) => v.toLocaleString(),      color: metricColor(totalActualCards, totalTargetCards) },
         ].map(({ label, value, fmt, color }) => (
           <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{label}</div>
