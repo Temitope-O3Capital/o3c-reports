@@ -21,46 +21,58 @@ func StartCallbackReminderWorker(db *core.DB) {
 	run := func() {
 		ctx := context.Background()
 		WorkerBeat(ctx, db, "callback_reminders", "running", "", "")
-		rows, err := db.PGQuery(ctx, `
-			SELECT id, assigned_to, COALESCE(NULLIF(customer_name,''), phone) AS who, phone
-			FROM call_center_contacts
-			WHERE status='pending' AND assigned_to IS NOT NULL
-			  AND callback_at IS NOT NULL AND callback_at <= NOW()
-			  AND callback_notified_at IS NULL
-			ORDER BY callback_at
-			LIMIT 200`)
+		// Stamp every freshly-due call-back as alerted in ONE atomic step and get back
+		// exactly the ones that flipped this cycle. The NOT EXISTS makes it self-clearing:
+		// a call-back already returned (a call at/after its due time) is never alerted,
+		// so a logged call-back can't ping. callback_notified_at guarantees once-per.
+		freshRows, err := db.PGQuery(ctx, `
+			UPDATE call_center_contacts c SET callback_notified_at=NOW()
+			 WHERE status='pending' AND assigned_to IS NOT NULL
+			   AND callback_at IS NOT NULL AND callback_at <= NOW()
+			   AND callback_notified_at IS NULL
+			   AND NOT EXISTS (
+			     SELECT 1 FROM helpdesk_calls h
+			      WHERE norm_phone(h.customer_phone) = norm_phone(c.phone)
+			        AND h.merged_into_call_id IS NULL AND h.voided_at IS NULL
+			        AND h.started_at >= c.callback_at)
+			 RETURNING assigned_to`)
 		if err != nil {
 			WorkerBeat(ctx, db, "callback_reminders", "error", err.Error(), err.Error())
 			return
 		}
-		n := 0
-		for _, r := range rows {
-			uid := toInt64(r["assigned_to"])
-			if uid == 0 {
+		// One collapsing digest per agent with newly-due call-backs — NOT one ping per
+		// call-back (which piled ~3,500 unread across the floor). The bottom-right
+		// Call-back popup is where an agent works the individual list; the bell just
+		// says how many are waiting, and the GroupKey upsert updates that in place.
+		perAgent := map[int64]bool{}
+		for _, r := range freshRows {
+			if a := toInt64(r["assigned_to"]); a > 0 {
+				perAgent[a] = true
+			}
+		}
+		for agentID := range perAgent {
+			due := ccDueCallbackCount(ctx, db, agentID)
+			if due == 0 {
 				continue
 			}
-			who, phone := str(r["who"]), str(r["phone"])
-			Notify(ctx, db, NotifPayload{
+			Notify(context.WithoutCancel(ctx), db, NotifPayload{
 				EventType: EvtCallbackDue,
-				UserID:    uid,
-				Title:     "Call-back due now",
-				Body:      "Time to call " + who + " · " + phone,
+				UserID:    agentID,
+				Title:     fmt.Sprintf("%d call-back(s) due now", due),
+				Body:      fmt.Sprintf("%d of your scheduled call-backs are due. Open the queue to return them.", due),
 				ActionURL: "/call-center/queue?bucket=ready",
-				EntityRef: "callback:" + str(r["id"]),
+				EntityRef: "callback:due",
+				GroupKey:  "callback:due:agent",
 				Priority:  "high", // stands out in the bell — it's an alarm
 			})
-			db.PGExec(ctx, `UPDATE call_center_contacts SET callback_notified_at=NOW() WHERE id=$1`, toInt64(r["id"])) //nolint:errcheck
-			n++
 		}
 
 		// NO auto-snooze. The "due" query already keeps an un-dialled call-back
 		// surfacing (callback_at <= NOW() AND not called since) at its REAL scheduled
 		// time, until the agent logs the call. The old code instead rewrote callback_at
 		// to NOW()+10min every cycle — which corrupted the scheduled time into a rolling
-		// "now" (why a call-back read as "due now" rather than the time it was set for)
-		// and re-fired the alarm endlessly. The notify above already fires exactly once
-		// per call-back via callback_notified_at.
-		WorkerBeat(ctx, db, "callback_reminders", "ok", fmt.Sprintf("%d alerted", n), "")
+		// "now" and re-fired the alarm endlessly.
+		WorkerBeat(ctx, db, "callback_reminders", "ok", fmt.Sprintf("%d agent(s) alerted", len(perAgent)), "")
 	}
 	run()
 	ticker := time.NewTicker(60 * time.Second)
@@ -68,6 +80,28 @@ func StartCallbackReminderWorker(db *core.DB) {
 	for range ticker.C {
 		run()
 	}
+}
+
+// ccDueCallbackCount counts an agent's queue call-backs that are due now and still
+// need the call — the same actionable set the popup shows, so the bell digest number
+// matches what the agent finds when they open the queue. Self-clearing: a call-back
+// already returned (a call at/after its due time) does not count.
+func ccDueCallbackCount(ctx context.Context, db *core.DB, agentID int64) int {
+	rows, _ := db.PGQuery(ctx, `
+		SELECT COUNT(*) AS n
+		  FROM call_center_contacts c
+		 WHERE c.status='pending' AND c.assigned_to = $1
+		   AND c.callback_at IS NOT NULL AND c.callback_at <= NOW()
+		   AND (c.last_called_at IS NULL OR c.last_called_at < c.callback_at)
+		   AND NOT EXISTS (
+		     SELECT 1 FROM helpdesk_calls h
+		      WHERE norm_phone(h.customer_phone) = norm_phone(c.phone)
+		        AND h.merged_into_call_id IS NULL AND h.voided_at IS NULL
+		        AND h.started_at >= c.callback_at)`, agentID)
+	if len(rows) > 0 {
+		return int(toInt64(rows[0]["n"]))
+	}
+	return 0
 }
 
 // ensureCCContactColumns adds provenance columns so the queue can distinguish
@@ -463,24 +497,45 @@ func ccMyCallbacksDue(db *core.DB) http.HandlerFunc {
 		// marketing leads (call_center_leads). Each row carries its source so the popup
 		// can send the agent to the right screen — a lead call-back opens the Leads page,
 		// a queue call-back opens the Outbound Queue — instead of always the queue.
+		// Two guards keep this an actionable alarm rather than a growing backlog:
+		//   1. Self-clearing — a call-back with ANY real call at or after its due time
+		//      is done, regardless of whether last_called_at got stamped. The direct
+		//      EXISTS on helpdesk_calls is authoritative, so a call-back can never
+		//      "linger after calling and logging it" because of a phone-format or
+		//      logging-path gap (the stamp path could miss; this cannot).
+		//   2. Bounded — only call-backs that came due in the last 24h alarm here. An
+		//      un-dialled call-back older than a day is backlog, worked from the queue's
+		//      "ready" bucket, not popped as an alarm every session.
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT source, id, name, phone, callback_at, last_disposition, purpose FROM (
 			  SELECT 'contact'::text AS source, id,
 			         COALESCE(NULLIF(customer_name,''), phone) AS name, phone,
 			         callback_at, COALESCE(last_disposition,'') AS last_disposition,
-			         COALESCE(purpose,'') AS purpose, last_called_at
-			    FROM call_center_contacts
+			         COALESCE(purpose,'') AS purpose
+			    FROM call_center_contacts c
 			   WHERE status='pending' AND assigned_to = $1
 			     AND callback_at IS NOT NULL AND callback_at <= NOW()
+			     AND callback_at >= NOW() - INTERVAL '24 hours'
 			     AND (last_called_at IS NULL OR last_called_at < callback_at)
+			     AND NOT EXISTS (
+			       SELECT 1 FROM helpdesk_calls h
+			        WHERE norm_phone(h.customer_phone) = norm_phone(c.phone)
+			          AND h.merged_into_call_id IS NULL AND h.voided_at IS NULL
+			          AND h.started_at >= c.callback_at)
 			  UNION ALL
 			  SELECT 'lead'::text AS source, id,
 			         COALESCE(NULLIF(customer_name,''), customer_phone) AS name, customer_phone AS phone,
-			         callback_at, '' AS last_disposition, 'marketing' AS purpose, last_called_at
-			    FROM call_center_leads
+			         callback_at, '' AS last_disposition, 'marketing' AS purpose
+			    FROM call_center_leads l
 			   WHERE assigned_to = $1 AND status NOT IN ('converted','dnc')
 			     AND callback_at IS NOT NULL AND callback_at <= NOW()
+			     AND callback_at >= NOW() - INTERVAL '24 hours'
 			     AND (last_called_at IS NULL OR last_called_at < callback_at)
+			     AND NOT EXISTS (
+			       SELECT 1 FROM helpdesk_calls h
+			        WHERE norm_phone(h.customer_phone) = norm_phone(l.customer_phone)
+			          AND h.merged_into_call_id IS NULL AND h.voided_at IS NULL
+			          AND h.started_at >= l.callback_at)
 			) x
 			 ORDER BY callback_at
 			 LIMIT 20`, u.ID)
