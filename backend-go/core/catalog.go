@@ -28,6 +28,7 @@ var PageCatalog = []CatalogModule{
 		{"executive", "Executive Dashboard"},
 		{"kpi_dashboard", "KPI Dashboard"},
 		{"reports", "Reports"},
+		{"report_builder", "Report Builder"},
 		{"statements", "Statements"},
 		{"approvals", "Approvals"},
 	}},

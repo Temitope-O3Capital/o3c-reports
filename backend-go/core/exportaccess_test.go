@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The Reports & BI module is the only place the workspace produces a data file.
 // That makes the "reports" page a security boundary, not just a nav entry, so
@@ -69,6 +72,30 @@ func TestNarrowingReportsDidNotRemoveDashboardsFromHeads(t *testing.T) {
 	for _, role := range []string{"finance_head", "collections_head", "recovery_head", "sales_head"} {
 		if !hasPage(role, "statements") {
 			t.Errorf("role %q lost statements", role)
+		}
+	}
+}
+
+// The Report Builder is the supervisors' tool: every department head and the
+// management tier build reports on their own departments' data (which data is decided
+// per data source in handlers/report_access.go). Line staff do not, and neither do
+// roles with no department of their own.
+func TestReportBuilderIsForSupervisorsAndManagement(t *testing.T) {
+	must := []string{"bi_analyst", "bi_head", "coo", "cfo", "cmo", "head_ops", "admin", "md"}
+	for role := range RolePages {
+		if strings.HasSuffix(role, "_head") {
+			must = append(must, role)
+		}
+	}
+	for _, role := range must {
+		if !hasPage(role, "report_builder") {
+			t.Errorf("role %q must hold report_builder: supervisors build their own department's reports", role)
+		}
+	}
+	for role := range RolePages {
+		lineStaff := strings.HasSuffix(role, "_officer") || strings.HasSuffix(role, "_agent")
+		if (lineStaff || role == "it_admin" || role == "exec_overview") && hasPage(role, "report_builder") {
+			t.Errorf("role %q holds report_builder, which is for supervisors and management", role)
 		}
 	}
 }

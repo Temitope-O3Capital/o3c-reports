@@ -37,8 +37,9 @@ the scheduled-email worker. See reports_saved.go.
 */
 
 type pivotValue struct {
-	Column string `json:"column"` // dataset column key; "" allowed only with agg=count
-	Agg    string `json:"agg"`    // sum|avg|min|max|count|count_distinct
+	Column string `json:"column"`          // dataset column key; "" allowed only with agg=count
+	Agg    string `json:"agg"`             // sum|avg|min|max|count|count_distinct
+	Label  string `json:"label,omitempty"` // display override; "" falls back to the auto-generated label
 }
 
 type pivotRequest struct {
@@ -46,10 +47,11 @@ type pivotRequest struct {
 	DateTo     string            `json:"date_to"`
 	Filters    map[string]string `json:"filters"`
 	ColFilters []colFilter       `json:"col_filters"`
-	Rows       []string          `json:"rows"`             // column keys → row dimensions
-	Cols       []string          `json:"cols"`             // column keys → column dimensions
-	Values     []pivotValue      `json:"values"`           // measures
-	Grains     map[string]string `json:"grains,omitempty"` // temporal dim key → date|time|datetime
+	Rows       []string          `json:"rows"`                 // column keys → row dimensions
+	Cols       []string          `json:"cols"`                 // column keys → column dimensions
+	Values     []pivotValue      `json:"values"`               // measures
+	Grains     map[string]string `json:"grains,omitempty"`     // temporal dim key → date|time|datetime
+	DimLabels  map[string]string `json:"dim_labels,omitempty"` // row/col column key → display override
 	Limit      int               `json:"limit"`
 }
 
@@ -64,6 +66,7 @@ type pivotSpec struct {
 	Cols       []string
 	Values     []pivotValue
 	Grains     map[string]string
+	DimLabels  map[string]string
 	Limit      int
 }
 
@@ -91,6 +94,11 @@ type pivotResult struct {
 	Rows      []core.Row
 	Truncated bool
 	Cap       int
+	// RawCount is the number of underlying (pre-aggregation) rows matched by the
+	// same WHERE, so a caller can tell when grouping is merging distinct records
+	// into one line (e.g. "5,391 groups from 8,244 rows") instead of assuming one
+	// row per group.
+	RawCount int64
 }
 
 // pivotAggWhitelist maps an allowed aggregate to whether it needs a numeric column.
@@ -168,9 +176,13 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 			}
 			outType = "text"
 		}
+		label := c.Label
+		if override := strings.TrimSpace(spec.DimLabels[k]); override != "" {
+			label = override
+		}
 		selects = append(selects, fmt.Sprintf("%s AS %q", expr, alias))
 		groupBy = append(groupBy, expr)
-		dimsOut = append(dimsOut, pivotDimOut{Key: alias, Label: c.Label, Role: roleOf[k], Type: outType})
+		dimsOut = append(dimsOut, pivotDimOut{Key: alias, Label: label, Role: roleOf[k], Type: outType})
 	}
 
 	var measOuts []pivotMeasOut
@@ -181,8 +193,12 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 		}
 		alias := fmt.Sprintf("m_%d", i)
 		if v.Agg == "count" && strings.TrimSpace(v.Column) == "" {
+			label := "Count"
+			if override := strings.TrimSpace(v.Label); override != "" {
+				label = override
+			}
 			selects = append(selects, fmt.Sprintf("COUNT(*) AS %q", alias))
-			measOuts = append(measOuts, pivotMeasOut{Key: alias, Label: "Count", Agg: v.Agg, Type: "int"})
+			measOuts = append(measOuts, pivotMeasOut{Key: alias, Label: label, Agg: v.Agg, Type: "int"})
 			continue
 		}
 		c, ok := d.colByKey(v.Column)
@@ -209,6 +225,9 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 		}
 		selects = append(selects, fmt.Sprintf("%s AS %q", expr, alias))
 		label := aggLabel(v.Agg) + " " + c.Label
+		if override := strings.TrimSpace(v.Label); override != "" {
+			label = override
+		}
 		measOuts = append(measOuts, pivotMeasOut{Key: alias, Label: label, Agg: v.Agg, Type: outType})
 	}
 	// No forced Count. With dimensions and no measures the GROUP BY already returns the
@@ -220,6 +239,21 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 	where, args, err := buildExportWhere(d, exReq)
 	if err != nil {
 		return pivotResult{}, pivotUserError{err.Error()}
+	}
+
+	// Raw (pre-aggregation) row count against the same WHERE, so a caller can tell
+	// when grouping is folding several underlying rows into one line — e.g. two
+	// calls to the same customer on the same day with the same outcome collapse
+	// into a single group, and without this a viewer has no way to notice.
+	var rawCount int64
+	if len(groupBy) > 0 {
+		cq := "SELECT COUNT(*) AS c FROM " + d.From
+		if len(where) > 0 {
+			cq += "\nWHERE " + strings.Join(where, "\n  AND ")
+		}
+		if crows, cerr := db.PGQuery(ctx, cq, args...); cerr == nil && len(crows) > 0 {
+			rawCount = toInt64(crows[0]["c"])
+		}
 	}
 
 	limit := pivotMaxGroups
@@ -253,7 +287,7 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 		rows = []core.Row{}
 	}
 
-	return pivotResult{Dims: dimsOut, Meas: measOuts, Rows: rows, Truncated: truncated, Cap: limit}, nil
+	return pivotResult{Dims: dimsOut, Meas: measOuts, Rows: rows, Truncated: truncated, Cap: limit, RawCount: rawCount}, nil
 }
 
 func exportPivot(db *core.DB) http.HandlerFunc {
@@ -262,6 +296,10 @@ func exportPivot(db *core.DB) http.HandlerFunc {
 		d, ok := exportDatasetByKey(key)
 		if !ok {
 			respondErr(w, 404, "Unknown dataset: "+key)
+			return
+		}
+		if !reportDatasetAllowed(core.UserFromCtx(r.Context()), key) {
+			respondErr(w, 403, reportDatasetDenied)
 			return
 		}
 
@@ -282,7 +320,7 @@ func exportPivot(db *core.DB) http.HandlerFunc {
 
 		res, err := runPivot(r.Context(), db, d, pivotSpec{
 			DateFrom: pr.DateFrom, DateTo: pr.DateTo, Filters: pr.Filters, ColFilters: pr.ColFilters,
-			Rows: pr.Rows, Cols: pr.Cols, Values: pr.Values, Grains: pr.Grains, Limit: pr.Limit,
+			Rows: pr.Rows, Cols: pr.Cols, Values: pr.Values, Grains: pr.Grains, DimLabels: pr.DimLabels, Limit: pr.Limit,
 		})
 		if err != nil {
 			var ue pivotUserError
@@ -301,6 +339,7 @@ func exportPivot(db *core.DB) http.HandlerFunc {
 			"rows":       res.Rows,
 			"truncated":  res.Truncated,
 			"group_cap":  res.Cap,
+			"raw_count":  res.RawCount,
 		}, "pg")
 	}
 }

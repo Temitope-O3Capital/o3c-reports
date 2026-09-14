@@ -325,20 +325,24 @@ const SECTIONS: Section[] = [
     key: 'analytics',
     header: 'Analytics',
     items: [
-      // Reports & BI. The data-extract surfaces (Report Builder, My Dashboard,
-      // Customer Behaviour) stay BI-only via per-sub vis. KPI Tracker lives here as
-      // a page too, but its audience is every operating head plus management, so the
-      // MODULE is visible to that wider set; the sensitive subs are gated below and
-      // each sub's canOpen still enforces the real page permission. The /reports
-      // landing routes each role to a page they can actually open (see ReportsHome).
+      // Reports & BI. The raw data-extract surfaces (My Dashboard, Customer Behaviour)
+      // stay BI-only via per-sub vis. The Report Builder is for every department head
+      // and management too: they build reports on their own departments' data only,
+      // enforced per data source by the backend. KPI Tracker's audience is the same
+      // wider set, so the MODULE is visible to it; each sub's canOpen still enforces the
+      // real page permission. The /reports landing routes each role to a page they can
+      // actually open (see ReportsHome).
       {
         icon: 'analytics', label: 'Reports & BI', to: '/reports',
         vis: ['bi_analyst','bi_head','sales_head','collections_head','recovery_head',
               'finance_head','compliance_head','cards_head','risk_head','call_center_head',
-              'care_head','bd_head','coo','cfo','cmo','md'],
+              'care_head','bd_head','settlement_head','coo','cfo','cmo','md'],
         subs: [
           { label: 'My Dashboard',       to: '/reports/my-dashboard', vis: ['bi_analyst'] },
-          { label: 'Report Builder',     to: '/reports/builder',      vis: ['bi_analyst','bi_head'] },
+          { label: 'Report Builder',     to: '/reports/builder',
+            vis: ['bi_analyst','bi_head','sales_head','bd_head','collections_head','recovery_head',
+                  'cards_head','finance_head','settlement_head','call_center_head','care_head',
+                  'risk_head','compliance_head','coo','cfo','cmo','md'] },
           { label: 'Customer Behaviour', to: '/reports/behaviour',    vis: ['bi_analyst','bi_head'] },
           { label: 'Data Management',    to: '/reports/uploads',      vis: ['bi_head','cards_head','finance_head','settlement_head','coo','cfo'] },
           { label: 'KPI Tracker',        to: '/reports/kpi',
@@ -470,7 +474,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // '/reports' itself is intentionally left ungated so the KPI audience (heads +
   // management, who lack the 'reports' page) can open the module; ReportsHome routes
   // them to a page they can access. The individual subs below still enforce pages.
-  '/reports/my-dashboard': 'reports', '/reports/behaviour': 'reports', '/reports/builder': 'reports', '/reports/kpi': 'kpi_dashboard', '/reports/uploads': 'uploads', '/compliance/cbn-complaints': 'cbn_reports',
+  '/reports/my-dashboard': 'reports', '/reports/behaviour': 'reports', '/reports/builder': ['reports', 'report_builder'], '/reports/kpi': 'kpi_dashboard', '/reports/uploads': 'uploads', '/compliance/cbn-complaints': 'cbn_reports',
   '/growth': ['kpi_dashboard', 'reports', 'executive'],
   '/statements': 'statements', '/statements/credit-cards': 'statements', '/core-banking': 'core-banking',
   // Admin

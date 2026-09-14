@@ -58,15 +58,18 @@ type colFilter struct {
 
 // RegisterExports mounts the export engine under /api/reports.
 //
-// The guard is the `reports` page for every route: O3 concentrates all data
-// extraction in Reports & BI, so the question "may this person export?" has
-// exactly one answer in exactly one place.
+// The raw file export (preview, download, log) is the `reports` page only: O3
+// concentrates bulk data extraction in BI. The Report Builder's two routes — the
+// data-source list and the pivot — are also open to department supervisors
+// (`report_builder`), who only ever see their own departments' data sources; that
+// is decided per data source in report_access.go.
 func RegisterExports(r chi.Router, db *core.DB) {
 	rd := core.RequirePages("reports")
+	build := core.RequirePages("reports", "report_builder")
 
-	r.With(rd).Get("/datasets", exportListDatasets(db))
+	r.With(build).Get("/datasets", exportListDatasets(db))
 	r.With(rd).Post("/datasets/{key}/preview", exportPreview(db))
-	r.With(rd).Post("/datasets/{key}/pivot", exportPivot(db))
+	r.With(build).Post("/datasets/{key}/pivot", exportPivot(db))
 	r.With(rd).Post("/datasets/{key}/download", exportDownload(db))
 	r.With(rd).Get("/exports/log", exportLog(db))
 }
@@ -76,8 +79,13 @@ func RegisterExports(r chi.Router, db *core.DB) {
 // from this, so adding a dataset needs no frontend change.
 func exportListDatasets(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		u := core.UserFromCtx(r.Context())
 		out := make([]exportDataset, 0, len(exportDatasets))
 		for _, d := range exportDatasets {
+			// A supervisor sees only their departments' data sources; BI sees them all.
+			if !reportDatasetAllowed(u, d.Key) {
+				continue
+			}
 			d.MaxRows = d.maxRows() // surface the effective cap, not the zero default
 			out = append(out, d)
 		}
