@@ -330,12 +330,12 @@ function RequireAccess({ page, user, children }: { page: string | string[]; user
 }
 
 // ReportsHome resolves the "/reports" landing to a page the signed-in user can
-// actually open. The BI team lands on the Report Builder; the KPI audience (heads
-// + management, who lack the 'reports' page) lands on the KPI Tracker; anyone else
-// who reached here falls back to Growth. This is what lets KPI Tracker live inside
-// the Reports & BI module without stranding the roles that can't see the builder.
+// actually open. BI and the department supervisors land on the Report Builder
+// (supervisors see only their own departments' data there); anyone holding only the
+// KPI dashboard lands on the KPI Tracker; anyone else who reached here falls back to
+// Growth.
 function ReportsHome({ user }: { user: AuthUser }) {
-  if (hasPage('reports', user)) return <Navigate to="/reports/builder" replace />
+  if (hasPage('reports', user) || hasPage('report_builder', user)) return <Navigate to="/reports/builder" replace />
   if (hasPage('kpi_dashboard', user)) return <Navigate to="/reports/kpi" replace />
   return <Navigate to="/growth" replace />
 }
@@ -1255,7 +1255,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                       as Data Management: judging whether two spellings are one business is
                       product knowledge, not server administration. */}
                   <Route path="/reports/merchant-names" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><ReportsMerchantNames /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/reports/builder" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsBuilder /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/builder" element={<RequireAccess page={['reports', 'report_builder']} user={user}><PageErrorBoundary><ReportsBuilder /></PageErrorBoundary></RequireAccess>} />
                   {/* Growth & Activity — registrations / transactions / churn monitor. Open to
                       the operating teams plus BI and management (mirrors the backend gate). */}
                   <Route path="/growth" element={<RequireAccess page={['kpi_dashboard','reports','executive']} user={user}><PageErrorBoundary><GrowthActivity /></PageErrorBoundary></RequireAccess>} />

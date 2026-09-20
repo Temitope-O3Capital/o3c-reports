@@ -812,6 +812,23 @@ func phoenixApplyDecision(ctx context.Context, db *core.DB, appID int64, dec pho
 		return err
 	}
 
+	// Activity stream: the Eye/credit decision on the customer's timeline. This is the ONE
+	// place a decision is persisted and it never writes application_events, so it has no
+	// capture trigger — emit directly. Actor is the engine, not a user.
+	if dec.Decision != "" {
+		var cif string
+		if cr, _ := db.PGQuery(ctx, `SELECT COALESCE(applicant_cif,'') AS cif FROM app.loan_applications WHERE id=$1`, appID); len(cr) > 0 {
+			cif = str(cr[0]["cif"])
+		}
+		logActivitySafe(ctx, db, Activity{
+			ApplicationID: &appID, CIF: cif, ActorName: "Eye credit engine", ActorTeam: "risk",
+			Type: "decision", Outcome: dec.Decision, Subject: "Credit decision — " + dec.Decision,
+			Body: dec.DeclineReason, Source: "phoenix",
+			EntityType: "loan_application", EntityID: fmt.Sprintf("%d", appID),
+			Metadata: map[string]any{"eye_score": dec.Score, "eye_rating": dec.Rating, "dti_pct": dec.DTIPct},
+		})
+	}
+
 	// Store the full prequalification report verbatim when Phoenix included it on the
 	// webhook. Best-effort: the decision itself is already applied above, so a failure to
 	// persist the (large, optional) report must not fail decision processing.

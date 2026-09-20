@@ -97,37 +97,32 @@ func StartSLABreachMonitor(db *core.DB) {
 		defer ticker.Stop()
 		for range ticker.C {
 			ctx := context.Background()
-			rows, err := db.PGQuery(ctx, `
+			// Mark newly-breached tickets. RETURNING gives EXACTLY the ones that
+			// flipped this cycle — the only SLA transition worth an interrupt.
+			breachRows, err := db.PGQuery(ctx, `
 				UPDATE helpdesk_tickets
 				SET sla_breached=true, updated_at=NOW()
 				WHERE sla_due_at < NOW()
 				  AND (sla_breached IS NULL OR sla_breached=false)
 				  AND status NOT IN ('resolved','closed')
-				RETURNING id, ticket_ref, assigned_to`)
+				RETURNING id, ticket_ref, assigned_to, COALESCE(priority,'') AS priority`)
 			if err != nil {
 				slog.Error("SLA breach monitor: update failed", "err", err)
 				continue
 			}
-			for _, row := range rows {
-				ticketID := toInt64(row["id"])
-				ticketRef := str(row["ticket_ref"])
-				assignedTo := toInt64(row["assigned_to"])
-				hdRecordEvent(ctx, db, ticketID, 0, "sla_breached", "", ticketRef)
-				payload := NotifPayload{
-					EventType: EvtTicketSLABreach,
-					Title:     fmt.Sprintf("SLA breached: %s", ticketRef),
-					Body:      fmt.Sprintf("Ticket %s has breached its SLA and requires immediate attention.", ticketRef),
-					ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
-					EntityRef: ticketRef,
-					Priority:  "urgent",
-				}
-				if assignedTo > 0 {
-					go Notify(ctx, db, NotifPayload{EventType: payload.EventType, UserID: assignedTo, Title: payload.Title, Body: payload.Body, ActionURL: payload.ActionURL, EntityRef: payload.EntityRef})
-				}
-				go NotifyRole(ctx, db, "call_center_head", payload)
+			for _, row := range breachRows {
+				hdRecordEvent(ctx, db, toInt64(row["id"]), 0, "sla_breached", "", str(row["ticket_ref"]))
+			}
+			// Fresh-only, grouped: one collapsing digest per affected agent + a floor
+			// digest, and ONLY on cycles where a ticket actually breached. A static
+			// backlog of already-breached tickets now produces zero new pings — this is
+			// what ends the thousands of piled-up, unread per-ticket SLA notifications
+			// (one alarm per ticket, per breach, forever).
+			if len(breachRows) > 0 {
+				hdNotifySLADigest(ctx, db, breachRows, "breach")
 			}
 
-			// SLA warning: 30 min before breach
+			// SLA warning: 30 min before breach — same fresh-only, grouped treatment.
 			warnRows, _ := db.PGQuery(ctx, `
 				UPDATE helpdesk_tickets
 				SET sla_warning_sent=TRUE, updated_at=NOW()
@@ -135,22 +130,9 @@ func StartSLABreachMonitor(db *core.DB) {
 				  AND (sla_warning_sent IS NULL OR sla_warning_sent=FALSE)
 				  AND (sla_breached IS NULL OR sla_breached=FALSE)
 				  AND status NOT IN ('resolved','closed')
-				RETURNING id, ticket_ref, assigned_to`)
-			for _, row := range warnRows {
-				ticketID := toInt64(row["id"])
-				ticketRef := str(row["ticket_ref"])
-				assignedTo := toInt64(row["assigned_to"])
-				p := NotifPayload{
-					EventType: EvtTicketSLAWarning,
-					Title:     fmt.Sprintf("SLA warning: %s", ticketRef),
-					Body:      fmt.Sprintf("Ticket %s will breach its SLA in less than 30 minutes.", ticketRef),
-					ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
-					EntityRef: ticketRef,
-				}
-				if assignedTo > 0 {
-					go Notify(ctx, db, NotifPayload{EventType: p.EventType, UserID: assignedTo, Title: p.Title, Body: p.Body, ActionURL: p.ActionURL, EntityRef: p.EntityRef})
-				}
-				go NotifyRole(ctx, db, "call_center_head", p)
+				RETURNING id, ticket_ref, assigned_to, COALESCE(priority,'') AS priority`)
+			if len(warnRows) > 0 {
+				hdNotifySLADigest(ctx, db, warnRows, "warn")
 			}
 
 			// The per-ticket unassigned alert used to live here. It sent one
@@ -173,6 +155,77 @@ func StartSLABreachMonitor(db *core.DB) {
 			hdUnassignedDigest(context.Background(), db)
 		}
 	}()
+}
+
+// hdNotifySLADigest fires ONE collapsing in-app notification per affected agent
+// (and one floor digest to call_center_head) for a batch of tickets that just
+// breached ("breach") or just entered the 30-minute warning window ("warn").
+//
+// It replaces the old one-notification-per-ticket firehose. With the GroupKey
+// upsert collapsing unread rows and a fresh-only trigger (the caller only invokes
+// this on cycles where a ticket actually transitioned), an agent sees a single
+// "N tickets past SLA" row that updates in place — not hundreds of separate pings,
+// which is why ~3,400 SLA breach + ~3,300 warning notifications had piled up unread.
+func hdNotifySLADigest(ctx context.Context, db *core.DB, fresh []core.Row, kind string) {
+	perAgent := map[int64]int{}
+	for _, r := range fresh {
+		if a := toInt64(r["assigned_to"]); a > 0 {
+			perAgent[a]++
+		}
+	}
+
+	var evt, groupAgent, groupFloor, nowVerb, totalWord, actionURL, prio string
+	if kind == "warn" {
+		evt, groupAgent, groupFloor = EvtTicketSLAWarning, "sla:warn:agent", "sla:warn:floor"
+		nowVerb, totalWord = "are within 30 min of breaching SLA", "at risk"
+		actionURL, prio = "/helpdesk/tickets?sort=sla", "high"
+	} else {
+		evt, groupAgent, groupFloor = EvtTicketSLABreach, "sla:breach:agent", "sla:breach:floor"
+		nowVerb, totalWord = "breached SLA", "past SLA"
+		actionURL, prio = "/helpdesk/tickets?bucket=overdue&sort=sla", "urgent"
+	}
+
+	// Per-agent digest — the fresh count plus their whole open pile for context.
+	for agentID, freshN := range perAgent {
+		total := hdOpenSLACount(ctx, db, kind, agentID)
+		Notify(context.WithoutCancel(ctx), db, NotifPayload{
+			EventType: evt, UserID: agentID,
+			Title:     fmt.Sprintf("%d ticket(s) %s", freshN, nowVerb),
+			Body:      fmt.Sprintf("%d of your tickets just %s — %d %s in total. Open the queue to action them.", freshN, nowVerb, total, totalWord),
+			ActionURL: actionURL, EntityRef: groupAgent, GroupKey: groupAgent, Priority: prio,
+		})
+	}
+
+	// Floor digest for supervisors — one row, whole floor.
+	floorTotal := hdOpenSLACount(ctx, db, kind, 0)
+	NotifyRole(context.WithoutCancel(ctx), db, "call_center_head", NotifPayload{
+		EventType: evt,
+		Title:     fmt.Sprintf("%d ticket(s) %s", len(fresh), nowVerb),
+		Body:      fmt.Sprintf("%d tickets just %s across the floor — %d %s in total.", len(fresh), nowVerb, floorTotal, totalWord),
+		ActionURL: actionURL, EntityRef: groupFloor, GroupKey: groupFloor, Priority: prio,
+	})
+}
+
+// hdOpenSLACount counts open tickets currently past SLA (kind "breach") or at risk
+// within the next 60 minutes (kind "warn"); agentID 0 counts the whole floor.
+func hdOpenSLACount(ctx context.Context, db *core.DB, kind string, agentID int64) int {
+	cond := "t.sla_due_at < NOW()"
+	if kind == "warn" {
+		cond = "t.sla_due_at >= NOW() AND t.sla_due_at <= NOW() + INTERVAL '60 minutes'"
+	}
+	q := `SELECT COUNT(*) AS n FROM helpdesk_tickets t
+	       WHERE t.status NOT IN ('resolved','closed') AND t.deleted_at IS NULL
+	         AND t.sla_due_at IS NOT NULL AND ` + cond
+	args := []any{}
+	if agentID > 0 {
+		q += " AND t.assigned_to = $1"
+		args = append(args, agentID)
+	}
+	rows, _ := db.PGQuery(ctx, q, args...)
+	if len(rows) > 0 {
+		return int(toInt64(rows[0]["n"]))
+	}
+	return 0
 }
 
 // hdUnassignedDigest sends a single rolled-up alert about the unowned pool.

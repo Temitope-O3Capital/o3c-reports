@@ -21,6 +21,8 @@ interface KPIs {
   revenue_loans_kobo: number
   revenue_loans_forward_kobo: number
   revenue_fd_cost_kobo: number
+  revenue_cards_asof: string | null
+  revenue_cards_stale: boolean
   active_customers: number
   active_loans: number
   portfolio_change_pct: number | null
@@ -490,19 +492,31 @@ export default function Overview() {
   // Revenue product filter — the KPI narrows to each product line. Cards (fees/interest/
   // penalties) and loan interest accrued are income; FD interest is a cost of funds, shown
   // but flagged (amber) rather than counted as revenue. "All" = cards + loan interest.
+  // FD is now a period FLOW (interest accruing within the window), consistent with the
+  // card/loan slices, rather than the lifetime accrued-to-date liability.
   const REV_VIEWS = {
     all:   { val: kpis?.revenue_kobo,        sub: 'cards + loan interest',       tone: GREEN, showChg: true  },
     cards: { val: kpis?.revenue_cards_kobo,  sub: 'fees · interest · penalties', tone: GREEN, showChg: false },
     loans: { val: kpis?.revenue_loans_kobo,  sub: kpis ? `interest accrued · ${fmtKobo(kpis.revenue_loans_forward_kobo)} forward` : 'interest accrued', tone: GREEN, showChg: false },
-    fd:    { val: kpis?.revenue_fd_cost_kobo, sub: 'cost of funds · accrued',     tone: AMBER, showChg: false },
+    fd:    { val: kpis?.revenue_fd_cost_kobo, sub: 'cost of funds · this period', tone: AMBER, showChg: false },
   } as const
   const rv = REV_VIEWS[revProduct]
+
+  // Card-income feed lag: the feed lands in bursts and can trail whole months, so a
+  // window that ends past its latest date has an incomplete card slice — which would
+  // otherwise read as a revenue collapse. When that's the case for a view that includes
+  // cards (All / Cards), we flag "cards through <date>" and suppress the misleading
+  // vs-last-period delta rather than paint a red crash that's really the feed catching up.
+  const cardsStale = !!kpis?.revenue_cards_stale && (revProduct === 'all' || revProduct === 'cards')
+  const cardsAsOf  = kpis?.revenue_cards_asof
+    ? new Date(kpis.revenue_cards_asof).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : null
 
   // Revenue headline + three product-line books + one portfolio-health metric — O3 is a
   // multi-product business (Credit, Fixed Deposits, Cards), so each line gets a slot, led
   // by the period revenue, filterable by product.
   const KPI_CARDS = [
-    { lbl: 'Revenue',          sub: rv.sub,          icon: 'payments',             color: GREEN,  val: kpis ? fmtKobo(Number(rv.val) || 0)             : '—', chg: rv.showChg ? (kpis?.revenue_change_pct ?? null) : null, spark: kpis?.revenue_series ?? [], unit: '%' as const },
+    { lbl: 'Revenue',          sub: cardsStale && cardsAsOf ? `cards through ${cardsAsOf} · feed catching up` : rv.sub, icon: 'payments', color: GREEN, val: kpis ? fmtKobo(Number(rv.val) || 0) : '—', chg: (rv.showChg && !cardsStale) ? (kpis?.revenue_change_pct ?? null) : null, spark: kpis?.revenue_series ?? [], unit: '%' as const },
     { lbl: 'Loan Book',        sub: 'outstanding',   icon: 'account_balance_wallet', color: NAVY,   val: kpis ? fmtKobo(kpis.portfolio_outstanding_kobo) : '—', chg: kpis?.portfolio_change_pct  ?? null, spark: kpis?.portfolio_series  ?? [], unit: '%' as const },
     { lbl: 'FD Book',          sub: 'deposits',      icon: 'savings',                color: AMBER,  val: kpis ? fmtKobo(kpis.fd_book_kobo)               : '—', chg: kpis?.fd_change_pct         ?? null, spark: kpis?.fd_series         ?? [], unit: '%' as const },
     { lbl: 'Active Cards',     sub: 'cardholders',   icon: 'credit_card',            color: PURPLE, val: kpis ? fmtNum(kpis.active_cards)                : '—', chg: null,                               spark: [],                            unit: '%' as const },
@@ -561,7 +575,14 @@ export default function Overview() {
             </div>
             <div style={{ ...NUM, fontSize: 30, fontWeight: FW.extrabold, color: isRev ? rv.tone : 'var(--txt)', letterSpacing: -1.5, fontFamily: INTER, lineHeight: 1 }}>{k.val}</div>
             {k.chg == null ? (
-              <div style={{ marginTop: 8, fontSize: TEXT.xs, fontWeight: FW.medium, color: 'var(--txt3)', fontFamily: INTER }}>{k.sub}</div>
+              isRev && cardsStale ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], marginTop: 8, fontSize: TEXT.xs, fontWeight: FW.semibold, color: AMBER, fontFamily: INTER }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>schedule</span>
+                  <span>{k.sub}</span>
+                </div>
+              ) : (
+                <div style={{ marginTop: 8, fontSize: TEXT.xs, fontWeight: FW.medium, color: 'var(--txt3)', fontFamily: INTER }}>{k.sub}</div>
+              )
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: SP[1], marginTop: 8, fontSize: TEXT.xs, fontWeight: FW.semibold, color: k.chg >= 0 ? GREEN : RED, fontFamily: INTER }}>
                 <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>{k.chg >= 0 ? 'arrow_upward' : 'arrow_downward'}</span>

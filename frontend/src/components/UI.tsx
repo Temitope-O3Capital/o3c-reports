@@ -293,6 +293,7 @@ const STATUS_MAP: Record<string, { bg: string; txt: string }> = {
   broken:           { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
   rejected:         { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
   blocked:          { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
+  locked:           { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
   expired:          { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
   defaulted:        { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },
   written_off_bad:  { bg: 'rgba(192,0,0,.1)',     txt: '#C00000' },

@@ -1079,6 +1079,11 @@ func losDecline(db *core.DB) http.HandlerFunc {
 			VALUES ($1, 'declined', $2, 'declined', $3, $4, NOW())`,
 			id, fromStage, user.ID, b.Reason) //nolint:errcheck
 
+		// Reflect-back: close any open hand-off for this customer (e.g. the call-centre
+		// agent who forwarded the lead) so the ineligible outcome reaches the originator
+		// instead of the application dying silently in LOS.
+		resolveHandoffsForApplication(ctx, db, id, "returned", "ineligible")
+
 		if declSalesID != 0 && declSalesID != user.ID {
 			go Notify(context.Background(), db, NotifPayload{
 				EventType: EvtLoanRejected,
@@ -1543,6 +1548,19 @@ func losUploadDocument(db *core.DB) http.HandlerFunc {
 				slog.Error("losUploadDocument: could not set file_url", "doc_id", newID, "err", uerr)
 			}
 			rows[0]["file_url"] = contentURL
+		}
+		// Activity stream: a document collected on the application → the customer's timeline
+		// (this is the "collected documents" step). Anchored on the application; the DB
+		// trigger resolves the party from applicant_cif.
+		{
+			docID := toInt64(rows[0]["id"])
+			aid, aname, ateam := actorOf(user)
+			logActivitySafe(r.Context(), db, Activity{
+				ApplicationID: &appID, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+				Type: "document", Subject: "Document uploaded — " + docType, Source: "los",
+				EntityType: "los_document", EntityID: strconv.FormatInt(docID, 10),
+				Metadata: map[string]any{"doc_type": docType, "file_name": filename},
+			})
 		}
 		respond(w, rows[0], "json")
 	}

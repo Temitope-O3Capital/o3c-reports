@@ -11,6 +11,7 @@ import {
 import { EBar, ELine, EArea, EDonut } from '../../components/echarts'
 import { CHART_SERIES } from '../../components/charts'
 import { apiFetch, apiPost, apiPut, apiDelete } from '../../lib/api'
+import { currentUser, hasPage } from '../../hooks/useAuth'
 import { today } from '../../lib/fmt'
 import { NAVY, GREEN, BLUE, PURPLE, RED, AMBER, NUM, FW, RADIUS, SP, TEXT } from '../../lib/design'
 
@@ -25,9 +26,9 @@ interface PivotDim { key: string; label: string; role: 'row' | 'col'; type: stri
 interface PivotMeasure { key: string; label: string; agg: string; type: string }
 interface PivotResult {
   dimensions: PivotDim[]; measures: PivotMeasure[]
-  rows: Record<string, any>[]; truncated: boolean; group_cap: number
+  rows: Record<string, any>[]; truncated: boolean; group_cap: number; raw_count?: number
 }
-interface ValueField { key: string; agg: string }
+interface ValueField { key: string; agg: string; label?: string }
 interface SavedReport {
   id: number; name: string; description: string; dataset: string; config: any
   is_public: boolean; is_mine?: boolean; created_by_name?: string
@@ -38,6 +39,7 @@ interface Schedule {
   frequency: string; hour: number; day_of_week: number; day_of_month: number
   recipients: any; format: string; is_active: boolean
   last_run_at?: string; next_run_at?: string; last_status?: string; created_by_name?: string
+  can_manage?: boolean // false → set up by someone else: view only
 }
 type ChartKind = 'bar' | 'stacked' | 'line' | 'area' | 'pie'
 
@@ -91,7 +93,22 @@ const WINDOWS = [
   { k: 'custom', label: 'Custom range…' },
 ]
 
+// The unsaved draft is kept per user: on a shared machine one person's half-built
+// report, on their department's data, must never be restored into someone else's
+// session. The old single shared slot is cleared on load for the same reason.
+const LEGACY_DRAFT_KEY = 'o3c_report_builder_draft'
+const draftKey = () => `${LEGACY_DRAFT_KEY}:${currentUser()?.id ?? 'anon'}`
+
 const unwrap = (r: any) => (r && typeof r === 'object' && 'data' in r ? r.data : r)
+
+// A saved report's `config` is a jsonb column that the generic row serializer
+// hands back as a plain string (same reason `recipients` on a schedule needs
+// JSON.parse below) — never assume it's already an object.
+function parseConfig(raw: any): any {
+  if (raw == null) return {}
+  if (typeof raw === 'object') return raw
+  try { return JSON.parse(raw) } catch { return {} }
+}
 const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
 // resolveWindow — kept in lockstep with resolveReportWindow() in the backend so a
@@ -136,11 +153,13 @@ function fmtVal(v: any, type: string): string {
 }
 
 // ── Draggable + clickable field pill ──────────────────────────────────────────
-function FieldPill({ col, onAdd }: { col: DsColumn; onAdd: (zone: 'rows' | 'cols' | 'values') => void }) {
+function FieldPill({ col, onAdd, onUnique }: {
+  col: DsColumn; onAdd: (zone: 'rows' | 'cols' | 'values') => void; onUnique: () => void
+}) {
   const numeric = NUMERIC.has(col.type)
-  const mini = (label: string, zone: 'rows' | 'cols' | 'values', color: string, title: string) => (
+  const mini = (label: string, color: string, title: string, onClick: () => void) => (
     <button
-      onClick={(e) => { e.stopPropagation(); onAdd(zone) }}
+      onClick={(e) => { e.stopPropagation(); onClick() }}
       title={title}
       style={{ border: `1px solid ${color}55`, background: `${color}12`, color, borderRadius: RADIUS.sm, fontSize: 10, fontWeight: FW.bold, width: 18, height: 18, cursor: 'pointer', lineHeight: 1, padding: 0, flexShrink: 0 }}
     >{label}</button>
@@ -160,9 +179,10 @@ function FieldPill({ col, onAdd }: { col: DsColumn; onAdd: (zone: 'rows' | 'cols
       <span style={{ width: 7, height: 7, borderRadius: 2, background: numeric ? GREEN : BLUE, flexShrink: 0 }} />
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
       <span style={{ display: 'flex', gap: 3 }}>
-        {mini('R', 'rows', NAVY, 'Add to Rows')}
-        {mini('C', 'cols', PURPLE, 'Add to Columns')}
-        {mini('Σ', 'values', GREEN, 'Add to Values')}
+        {mini('R', NAVY, 'Add to Rows', () => onAdd('rows'))}
+        {mini('C', PURPLE, 'Add to Columns', () => onAdd('cols'))}
+        {mini('Σ', GREEN, 'Add to Values', () => onAdd('values'))}
+        {mini('≠', AMBER, 'See unique values of this field (replaces the current Rows/Columns/Values)', onUnique)}
       </span>
     </div>
   )
@@ -193,12 +213,37 @@ function DropZone({ title, hint, accent, children, onDrop }: {
   )
 }
 
-function Chip({ label, color, onRemove, children }: {
-  label: string; color: string; onRemove: () => void; children?: React.ReactNode
+// A chip's label is double-click-to-rename when onRename is given — this is how a
+// report column or measure header gets a friendlier display name than the raw
+// dataset field label (e.g. "Sum of Duration (sec)" → "Total talk time").
+function Chip({ label, color, onRemove, onRename, children }: {
+  label: string; color: string; onRemove: () => void; onRename?: (v: string) => void; children?: React.ReactNode
 }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(label)
+  useEffect(() => { if (!editing) setDraft(label) }, [label, editing])
+  const commit = () => {
+    setEditing(false)
+    const v = draft.trim()
+    if (onRename && v && v !== label) onRename(v)
+    else setDraft(label)
+  }
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 6px 4px 9px', background: `${color}14`, border: `1px solid ${color}55`, borderRadius: RADIUS.md, fontSize: TEXT.sm, color: 'var(--txt)' }}>
-      <span style={{ fontWeight: FW.semibold }}>{label}</span>
+      {editing ? (
+        <input
+          autoFocus value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit}
+          onClick={e => e.stopPropagation()}
+          onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(label); setEditing(false) } }}
+          style={{ fontWeight: FW.semibold, fontSize: 'inherit', fontFamily: 'inherit', color: 'var(--txt)', background: 'var(--card)', border: `1px solid ${color}`, borderRadius: RADIUS.sm, padding: '0 4px', width: Math.max(48, draft.length * 7) }}
+        />
+      ) : (
+        <span
+          style={{ fontWeight: FW.semibold, cursor: onRename ? 'text' : 'default' }}
+          onDoubleClick={(e) => { if (onRename) { e.stopPropagation(); setEditing(true) } }}
+          title={onRename ? 'Double-click to rename this column header' : undefined}
+        >{label}</span>
+      )}
       {children}
       <button onClick={onRemove} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt3)', fontSize: 15, lineHeight: 1, padding: '0 2px' }}>×</button>
     </span>
@@ -273,6 +318,18 @@ function Note({ children }: { children: React.ReactNode }) {
 
 interface Matrix { header: string[]; body: string[][]; rawBody: any[][]; rowDimCount: number }
 
+// Describes what the preview table actually shows — including the raw-vs-grouped
+// row count, so it's visible when several underlying records have been folded
+// into one line (the thing that made a duplicate-looking pivot hard to spot).
+function previewSubtitle(matrix: Matrix | null, distinctMode: boolean, result: PivotResult): string {
+  const groups = matrix?.body.length ?? 0
+  const raw = result.raw_count ?? 0
+  let s = `${groups.toLocaleString()} ${distinctMode ? 'unique row' : 'row'}${groups === 1 ? '' : 's'}`
+  if (raw > 0 && raw !== groups) s += ` from ${raw.toLocaleString()} record${raw === 1 ? '' : 's'}`
+  if (result.truncated) s += ` · capped at ${result.group_cap}`
+  return s
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function ReportBuilder() {
   const [params] = useSearchParams()
@@ -287,6 +344,7 @@ export default function ReportBuilder() {
   const [filterVals, setFilterVals] = useState<Record<string, string>>({})
   const [colFilters, setColFilters] = useState<ColFilter[]>([])
   const [grains, setGrains] = useState<Record<string, string>>({}) // date/datetime col key → date|time|datetime
+  const [fieldLabels, setFieldLabels] = useState<Record<string, string>>({}) // row/col column key → renamed header
   const [win, setWin] = useState('last_30_days')
   const [from, setFrom] = useState(resolveWindow('last_30_days', { from: '', to: '' }).from)
   const [to, setTo] = useState(today())
@@ -294,6 +352,7 @@ export default function ReportBuilder() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dsError, setDsError] = useState<string | null>(null)
+  const [dsLoaded, setDsLoaded] = useState(false)
   const [view, setView] = useState<'table' | 'chart'>('table')
   const [chartKind, setChartKind] = useState<ChartKind>('bar')
   const debRef = useRef<any>(null)
@@ -303,6 +362,10 @@ export default function ReportBuilder() {
   const [reportName, setReportName] = useState('')
   const [reportDesc, setReportDesc] = useState('')
   const [isPublic, setIsPublic] = useState(false)
+  // False when the loaded report was shared by someone else: it can be run and copied,
+  // but Save would be refused, so the toolbar offers "Save a copy" instead.
+  const [loadedMine, setLoadedMine] = useState(true)
+  const [saveAsNew, setSaveAsNew] = useState(false) // Save modal in "Duplicate" mode: always creates, never overwrites loadedId
 
   const [saved, setSaved] = useState<SavedReport[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
@@ -311,7 +374,11 @@ export default function ReportBuilder() {
   const [saveOpen, setSaveOpen] = useState(false)
   const [emailOpen, setEmailOpen] = useState(false)
   const [schedOpen, setSchedOpen] = useState(false)
+  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null) // set → ScheduleModal edits instead of creates
   const [confirmDel, setConfirmDel] = useState<{ kind: 'report' | 'schedule'; id: number; name: string } | null>(null)
+  // A pending "this will discard your unsaved work" action — either switching to a
+  // different data source, or starting a blank new report.
+  const [confirmAction, setConfirmAction] = useState<{ kind: 'switch'; key: string } | { kind: 'new' } | null>(null)
   const [busy, setBusy] = useState(false)
 
   const ds = useMemo(() => datasets.find(d => d.key === dsKey) || null, [datasets, dsKey])
@@ -321,11 +388,13 @@ export default function ReportBuilder() {
     return m
   }, [ds])
   const dated = !!ds?.date_label
+  // BI sees every data source; everyone else only their own departments'.
+  const scoped = !hasPage('reports')
   const range = useMemo(() => resolveWindow(win, { from, to }), [win, from, to])
 
   useEffect(() => {
     apiFetch<any>('/api/reports/datasets')
-      .then(r => setDatasets((Array.isArray(r) ? r : (r?.data ?? [])) as Dataset[]))
+      .then(r => { setDatasets((Array.isArray(r) ? r : (r?.data ?? [])) as Dataset[]); setDsLoaded(true) })
       .catch(e => setDsError(e.message))
     refreshSaved(); refreshSchedules()
   }, [])
@@ -333,10 +402,82 @@ export default function ReportBuilder() {
   const refreshSaved = () => apiFetch<any>('/api/reports/saved').then(r => setSaved(unwrap(r) ?? [])).catch(() => {})
   const refreshSchedules = () => apiFetch<any>('/api/reports/schedules').then(r => setSchedules(unwrap(r) ?? [])).catch(() => {})
 
-  // A fresh dataset choice starts a new report.
+  // Whether the in-progress build has anything worth losing — guards an accidental
+  // data-source switch, which otherwise silently wipes the whole config.
+  const isDirty = !!(rows.length || cols.length || values.length || colFilters.length || Object.values(filterVals).some(Boolean))
+
+  // ── Local draft ──────────────────────────────────────────────────────────────
+  // The in-progress build is continuously mirrored to localStorage so a refresh,
+  // a closed tab, or a crash doesn't lose work that was never explicitly saved —
+  // one slot, the most recent state, restored once on mount. It's a safety net
+  // for accidents, not an alternative to Save: an explicit "New"/switch discards
+  // it, same as it discards the on-screen build.
+  const draftRestored = useRef(false)
+  useEffect(() => {
+    if (draftRestored.current) return
+    draftRestored.current = true
+    try {
+      localStorage.removeItem(LEGACY_DRAFT_KEY)
+      const raw = localStorage.getItem(draftKey())
+      if (!raw) return
+      const d = JSON.parse(raw)
+      if (!d || !d.dsKey) return
+      setDsKey(d.dsKey)
+      setRows(d.rows ?? []); setCols(d.cols ?? []); setValues(d.values ?? [])
+      setFilterVals(d.filterVals ?? {}); setColFilters(d.colFilters ?? []); setGrains(d.grains ?? {})
+      setFieldLabels(d.fieldLabels ?? {})
+      setWin(d.win ?? 'last_30_days'); if (d.from) setFrom(d.from); if (d.to) setTo(d.to)
+      if (d.view) setView(d.view); if (d.chartKind) setChartKind(d.chartKind)
+      setReportName(d.reportName ?? ''); setReportDesc(d.reportDesc ?? ''); setIsPublic(!!d.isPublic)
+      setLoadedId(d.loadedId ?? null)
+      setLoadedMine(d.loadedMine ?? true)
+      toast.success('Restored your unsaved draft', d.reportName ? { description: d.reportName } : undefined)
+    } catch { /* a corrupt or inaccessible draft is silently skipped, never fatal */ }
+  }, [])
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        if (!dsKey) { localStorage.removeItem(draftKey()); return }
+        localStorage.setItem(draftKey(), JSON.stringify({
+          dsKey, rows, cols, values, filterVals, colFilters, grains, fieldLabels,
+          win, from, to, view, chartKind, reportName, reportDesc, isPublic, loadedId, loadedMine,
+        }))
+      } catch { /* storage full or unavailable (private browsing) — best-effort only */ }
+    }, 500)
+    return () => clearTimeout(t)
+  }, [dsKey, rows, cols, values, filterVals, colFilters, grains, fieldLabels, win, from, to, view, chartKind, reportName, reportDesc, isPublic, loadedId, loadedMine])
+
+  const clearDraft = () => { try { localStorage.removeItem(draftKey()) } catch { /* ignore */ } }
+
+  const resetBuilder = (key: string) => {
+    setDsKey(key); setRows([]); setCols([]); setValues([]); setFilterVals({}); setColFilters([]); setGrains({}); setFieldLabels({})
+    setResult(null); setError(null); setLoadedId(null); setReportName(''); setReportDesc(''); setIsPublic(false); setLoadedMine(true)
+  }
+
+  // A restored draft can point at a data source this person can't use — their roles
+  // changed, or the draft predates department scoping. Clear it rather than keep
+  // firing a preview that will only ever be refused.
+  useEffect(() => {
+    if (!dsLoaded || !dsKey || datasets.some(d => d.key === dsKey)) return
+    resetBuilder('')
+    toast.error("That data source isn't available to you, so the unsaved report was cleared.")
+  }, [dsLoaded, datasets, dsKey])
+  // A fresh dataset choice starts a new report — confirm first if it would discard
+  // unsaved work (dropping the dataset picker was the single easiest way to lose a
+  // half-built report).
   const pickDataset = (key: string) => {
-    setDsKey(key); setRows([]); setCols([]); setValues([]); setFilterVals({}); setColFilters([]); setGrains({})
-    setResult(null); setError(null); setLoadedId(null); setReportName(''); setReportDesc(''); setIsPublic(false)
+    if (!key || key === dsKey) return
+    if (isDirty) { setConfirmAction({ kind: 'switch', key }); return }
+    resetBuilder(key)
+  }
+
+  // Explicit "start over" — separate from the dataset picker, since re-picking the
+  // *same* dataset there is a no-op and previously the only way to blank the
+  // builder (even to rebuild against the same data source) was a full page reload.
+  const startNew = () => {
+    if (isDirty) { setConfirmAction({ kind: 'new' }); return }
+    resetBuilder('')
   }
 
   const addTo = (zone: 'rows' | 'cols' | 'values') => (key: string) => {
@@ -344,6 +485,15 @@ export default function ReportBuilder() {
     if (zone === 'rows') setRows(p => p.includes(key) ? p : [...p, key])
     if (zone === 'cols') setCols(p => p.includes(key) ? p : [...p, key])
     if (zone === 'values') setValues(p => p.some(v => v.key === key) ? p : [...p, { key, agg: NUMERIC.has(colByKey.get(key)!.type) ? 'sum' : 'count' }])
+  }
+
+  // One-click "unique values of this field" — replaces the whole build with a
+  // plain distinct list, since that's what an empty Values + one Rows field does,
+  // but nothing in the UI otherwise hints that's how you'd get there.
+  const showUniques = (key: string) => {
+    if (!colByKey.has(key)) return
+    setRows([key]); setCols([]); setValues([])
+    toast.success('Showing unique values — add more fields to Rows to see combinations, or drag one into Values to count/sum.')
   }
 
   // Drop a field into Filters — add a filter row with a type-appropriate default operator.
@@ -371,15 +521,18 @@ export default function ReportBuilder() {
   const canRun = dsKey && (rows.length || cols.length || values.length)
 
   const run = useCallback(async () => {
-    if (!dsKey) return
+    // Wait for the data source itself, not just its key: before the list arrives the
+    // date range isn't known, and a date-required source would flash a bogus error.
+    if (!ds) return
     if (!rows.length && !cols.length && !values.length) { setResult(null); return }
     setLoading(true); setError(null)
     try {
       const body = {
-        rows, cols, values: values.map(v => ({ column: v.key, agg: v.agg })),
+        rows, cols, values: values.map(v => ({ column: v.key, agg: v.agg, label: v.label })),
         filters: filterVals,
         col_filters: colFilters.filter(cf => !opNeedsValue(cf.op) || cf.value !== '' || (cf.value2 ?? '') !== ''),
         grains,
+        dim_labels: fieldLabels,
         date_from: dated ? range.from : '',
         date_to: dated ? range.to : '',
       }
@@ -387,7 +540,7 @@ export default function ReportBuilder() {
       setResult(unwrap(r) as PivotResult)
     } catch (e: any) { setError(e.message); setResult(null) }
     finally { setLoading(false) }
-  }, [dsKey, rows, cols, values, filterVals, colFilters, grains, range.from, range.to, dated])
+  }, [ds, dsKey, rows, cols, values, filterVals, colFilters, grains, fieldLabels, range.from, range.to, dated])
 
   // Live preview — debounced so each drop doesn't fire instantly.
   useEffect(() => {
@@ -435,36 +588,65 @@ export default function ReportBuilder() {
     return { header, body, rawBody, rowDimCount: rowDims.length }
   }, [result])
 
+  // Click-to-sort + "show more" paging on the preview table. Reset whenever a new
+  // query lands so a stale sort/page from a previous build doesn't linger.
+  const [sortCol, setSortCol] = useState<number | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [pageSize, setPageSize] = useState(200)
+  useEffect(() => { setSortCol(null); setSortDir('asc'); setPageSize(200) }, [result])
+
+  const sortedMatrix = useMemo(() => {
+    if (!matrix || sortCol == null) return matrix
+    const idx = matrix.body.map((_, i) => i)
+    idx.sort((a, b) => {
+      const av = matrix.rawBody[a][sortCol], bv = matrix.rawBody[b][sortCol]
+      const an = typeof av === 'number', bn = typeof bv === 'number'
+      let cmp: number
+      if (an && bn) cmp = av - bv
+      else cmp = String(av ?? '').localeCompare(String(bv ?? ''))
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return { ...matrix, body: idx.map(i => matrix.body[i]), rawBody: idx.map(i => matrix.rawBody[i]) }
+  }, [matrix, sortCol, sortDir])
+
+  const toggleSort = (ci: number) => {
+    if (sortCol === ci) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(ci); setSortDir('asc') }
+  }
+
   const title = reportName || (ds ? `${ds.label} report` : 'report')
 
-  // ── Client-side export of the current preview ───────────────────────────────
+  // ── Client-side export of the current preview (in whatever order it's sorted to) ─
   const exportExcel = () => {
-    if (!matrix) return
-    const ws = XLSX.utils.aoa_to_sheet([matrix.header, ...matrix.rawBody])
+    const m = sortedMatrix
+    if (!m) return
+    const ws = XLSX.utils.aoa_to_sheet([m.header, ...m.rawBody])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Report')
     XLSX.writeFile(wb, `${title.replace(/\s+/g, '_')}.xlsx`)
   }
   const exportPDF = () => {
-    if (!matrix) return
-    const doc = new jsPDF({ orientation: matrix.header.length > 6 ? 'landscape' : 'portrait' })
+    const m = sortedMatrix
+    if (!m) return
+    const doc = new jsPDF({ orientation: m.header.length > 6 ? 'landscape' : 'portrait' })
     doc.setFontSize(14); doc.text(title, 14, 16)
     doc.setFontSize(9); doc.setTextColor(120)
-    doc.text(`${dated ? `${range.from} → ${range.to}  ·  ` : ''}${matrix.body.length} rows${result?.truncated ? ' (capped)' : ''}`, 14, 22)
+    doc.text(`${dated ? `${range.from} → ${range.to}  ·  ` : ''}${m.body.length} rows${result?.truncated ? ' (capped)' : ''}`, 14, 22)
     autoTable(doc, {
-      head: [matrix.header], body: matrix.body, startY: 26,
+      head: [m.header], body: m.body, startY: 26,
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [14, 40, 65], textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [245, 247, 250] },
-      columnStyles: Object.fromEntries(Array.from({ length: matrix.header.length }, (_, i) => [i, { halign: i < matrix.rowDimCount ? 'left' : 'right' }])),
+      columnStyles: Object.fromEntries(Array.from({ length: m.header.length }, (_, i) => [i, { halign: i < m.rowDimCount ? 'left' : 'right' }])),
     })
     doc.save(`${title.replace(/\s+/g, '_')}.pdf`)
   }
 
   // ── Config assembly + persistence ───────────────────────────────────────────
   const currentConfig = () => ({
-    rows, cols, values: values.map(v => ({ column: v.key, agg: v.agg })),
-    filters: filterVals, col_filters: colFilters, grains, date_window: win, date_from: from, date_to: to,
+    rows, cols, values: values.map(v => ({ column: v.key, agg: v.agg, label: v.label })),
+    filters: filterVals, col_filters: colFilters, grains, dim_labels: fieldLabels,
+    date_window: win, date_from: from, date_to: to,
     chart: { view, kind: chartKind },
   })
 
@@ -474,35 +656,58 @@ export default function ReportBuilder() {
     setBusy(true)
     try {
       const payload = { name: reportName.trim(), description: reportDesc, dataset: dsKey, is_public: isPublic, config: currentConfig() }
-      if (loadedId) {
+      if (loadedId && !saveAsNew && loadedMine) {
         await apiPut(`/api/reports/saved/${loadedId}`, payload)
         toast.success('Report updated')
       } else {
         const created = unwrap(await apiPost('/api/reports/saved', payload))
         setLoadedId(created?.id ?? null)
-        toast.success('Report saved')
+        setLoadedMine(true)
+        toast.success(saveAsNew ? 'Saved as a new report' : 'Report saved')
       }
-      setSaveOpen(false); refreshSaved()
+      setSaveOpen(false); setSaveAsNew(false); clearDraft(); refreshSaved()
     } catch (e: any) { toast.error(e.message) }
     finally { setBusy(false) }
   }
 
+  // Opens the Save modal pre-armed to create a copy instead of overwriting the
+  // report currently loaded — the only way, previously, to branch off a report
+  // was to rebuild it from scratch against a blank data source.
+  const openDuplicate = () => {
+    setSaveAsNew(true)
+    setReportName(reportName ? `${reportName} (copy)` : '')
+    setSaveOpen(true)
+  }
+
   const loadSaved = (rep: SavedReport) => {
-    const c = rep.config || {}
+    const c = parseConfig(rep.config)
     setDsKey(rep.dataset)
     setRows(c.rows ?? []); setCols(c.cols ?? [])
-    setValues((c.values ?? []).map((v: any) => ({ key: v.column, agg: v.agg })))
+    setValues((c.values ?? []).map((v: any) => ({ key: v.column, agg: v.agg, label: v.label })))
     setFilterVals(c.filters ?? {})
     setColFilters(c.col_filters ?? [])
     setGrains(c.grains ?? {})
+    setFieldLabels(c.dim_labels ?? {})
     setWin(c.date_window || 'last_30_days')
     if (c.date_from) setFrom(c.date_from)
     if (c.date_to) setTo(c.date_to)
     if (c.chart?.view) setView(c.chart.view)
     if (c.chart?.kind) setChartKind(c.chart.kind)
     setLoadedId(rep.id); setReportName(rep.name); setReportDesc(rep.description || ''); setIsPublic(rep.is_public)
+    setLoadedMine(rep.is_mine !== false)
+    setSaveAsNew(false)
     setTab('build')
     toast.success(`Loaded "${rep.name}"`)
+  }
+
+  // Duplicate straight from the Saved Reports list — no need to open the builder
+  // first. Always creates a new report, never touches the source.
+  const duplicateSaved = async (rep: SavedReport) => {
+    try {
+      await apiPost('/api/reports/saved', { name: `${rep.name} (copy)`, description: rep.description, dataset: rep.dataset, is_public: false, config: parseConfig(rep.config) })
+      toast.success(`Duplicated "${rep.name}"`)
+      refreshSaved()
+    } catch (e: any) { toast.error(e.message) }
   }
 
   const deleteConfirmed = async () => {
@@ -545,6 +750,12 @@ export default function ReportBuilder() {
     <Page title="Report Builder" subtitle="Build a report by dragging or clicking fields, visualise it, then save, email or schedule it">
       <ErrBanner error={dsError} onRetry={() => location.reload()} />
       <div style={{ marginBottom: SP[4] }}><Tabs tabs={tabs} active={tab} onChange={setTab} /></div>
+      {scoped && dsLoaded && datasets.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '9px 12px', marginBottom: SP[4], background: `${BLUE}10`, border: `1px solid ${BLUE}40`, borderRadius: RADIUS.md, fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 17, color: BLUE, flexShrink: 0, marginTop: 1 }}>shield_person</span>
+          <span>You can build reports on your departments' data: <b style={{ color: 'var(--txt)' }}>{Object.keys(grouped).join(', ')}</b>. Other data sources aren't available to your role.</span>
+        </div>
+      )}
 
       {tab === 'build' && (
         <>
@@ -566,16 +777,26 @@ export default function ReportBuilder() {
                 {win === 'custom' && <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="left" />}
               </>
             )}
-            {loadedId && <Badge variant="info">Editing: {reportName}</Badge>}
+            {loadedId && <Badge variant="info">{loadedMine ? 'Editing' : 'Shared with you'}: {reportName}</Badge>}
+            <Button variant="ghost" size="sm" icon="add" onClick={startNew}>New</Button>
             <div style={{ flex: 1 }} />
-            <Button variant="secondary" size="sm" icon="save" disabled={!canRun} onClick={() => setSaveOpen(true)}>{loadedId ? 'Update' : 'Save'}</Button>
+            {/* Someone else's shared report can be run and copied, not overwritten. */}
+            {loadedId && !loadedMine
+              ? <Button variant="secondary" size="sm" icon="content_copy" disabled={!canRun} onClick={openDuplicate}>Save a copy</Button>
+              : <Button variant="secondary" size="sm" icon="save" disabled={!canRun} onClick={() => { setSaveAsNew(false); setSaveOpen(true) }}>{loadedId ? 'Update' : 'Save'}</Button>}
+            {loadedId && loadedMine && <Button variant="secondary" size="sm" icon="content_copy" disabled={!canRun} onClick={openDuplicate}>Duplicate</Button>}
             <Button variant="secondary" size="sm" icon="mail" disabled={!canRun} onClick={() => setEmailOpen(true)}>Email</Button>
-            <Button variant="secondary" size="sm" icon="schedule" disabled={!canRun} onClick={() => setSchedOpen(true)}>Schedule</Button>
+            <Button variant="secondary" size="sm" icon="schedule" disabled={!canRun} onClick={() => { setEditingSchedule(null); setSchedOpen(true) }}>Schedule</Button>
             <Button variant="secondary" size="sm" icon="grid_on" disabled={!matrix} onClick={exportExcel}>Excel</Button>
             <Button variant="secondary" size="sm" icon="picture_as_pdf" disabled={!matrix} onClick={exportPDF}>PDF</Button>
           </div>
 
-          {!ds ? (
+          {dsLoaded && datasets.length === 0 ? (
+            <SectionCard title="">
+              <EmptyState icon="lock" title="No data sources for your role yet"
+                description="The Report Builder shows the data your departments cover, and none of your roles covers a data source yet. An administrator can add the module to your role in User Management." />
+            </SectionCard>
+          ) : !ds ? (
             <SectionCard title="">
               <EmptyState icon="table_chart" title="Pick a data source to start"
                 description="Choose a data source above, then drag fields into Rows, Columns and Values — or click a field to add it. Build once, then save, email or schedule it." />
@@ -587,40 +808,47 @@ export default function ReportBuilder() {
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields…"
                   style={{ ...inp, width: '100%', boxSizing: 'border-box', marginBottom: SP[2] }} />
                 <div style={{ maxHeight: 480, overflowY: 'auto', paddingRight: 2 }}>
-                  {visibleCols.map(c => <FieldPill key={c.key} col={c} onAdd={(z) => addTo(z)(c.key)} />)}
+                  {visibleCols.map(c => <FieldPill key={c.key} col={c} onAdd={(z) => addTo(z)(c.key)} onUnique={() => showUniques(c.key)} />)}
                   {!visibleCols.length && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', padding: '8px 0' }}>No matching fields.</div>}
                 </div>
-                <div style={{ marginTop: SP[2], fontSize: TEXT['2xs'], color: 'var(--txt3)', display: 'flex', gap: SP[3] }}>
+                <div style={{ marginTop: SP[2], fontSize: TEXT['2xs'], color: 'var(--txt3)', display: 'flex', flexWrap: 'wrap', gap: SP[3] }}>
                   <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: GREEN, marginRight: 4 }} />numeric</span>
                   <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: BLUE, marginRight: 4 }} />text/date</span>
+                  <span><b style={{ color: AMBER }}>≠</b> unique values</span>
                 </div>
               </SectionCard>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-                  <DropZone title="Rows" hint="group down" accent={NAVY} onDrop={addTo('rows')}>
+                  <DropZone title="Rows" hint="group down · double-click a chip to rename" accent={NAVY} onDrop={addTo('rows')}>
                     {rows.map(k => { const c = colByKey.get(k); return (
-                      <Chip key={k} label={c?.label ?? k} color={NAVY} onRemove={() => setRows(p => p.filter(x => x !== k))}>
+                      <Chip key={k} label={fieldLabels[k] ?? c?.label ?? k} color={NAVY}
+                        onRemove={() => setRows(p => p.filter(x => x !== k))}
+                        onRename={(v) => setFieldLabels(p => ({ ...p, [k]: v }))}>
                         {isTemporal(c?.type) && grainSelect(k, c!.type)}
                       </Chip>
                     )})}
                     {!rows.length && <span style={zoneEmpty}>drag or click fields here</span>}
                   </DropZone>
-                  <DropZone title="Columns" hint="spread across" accent={PURPLE} onDrop={addTo('cols')}>
+                  <DropZone title="Columns" hint="spread across · double-click a chip to rename" accent={PURPLE} onDrop={addTo('cols')}>
                     {cols.map(k => { const c = colByKey.get(k); return (
-                      <Chip key={k} label={c?.label ?? k} color={PURPLE} onRemove={() => setCols(p => p.filter(x => x !== k))}>
+                      <Chip key={k} label={fieldLabels[k] ?? c?.label ?? k} color={PURPLE}
+                        onRemove={() => setCols(p => p.filter(x => x !== k))}
+                        onRename={(v) => setFieldLabels(p => ({ ...p, [k]: v }))}>
                         {isTemporal(c?.type) && grainSelect(k, c!.type)}
                       </Chip>
                     )})}
                     {!cols.length && <span style={zoneEmpty}>optional</span>}
                   </DropZone>
                 </div>
-                <DropZone title="Values" hint="what to measure" accent={GREEN} onDrop={addTo('values')}>
+                <DropZone title="Values" hint="what to measure · leave empty to list unique rows · double-click a chip to rename" accent={GREEN} onDrop={addTo('values')}>
                   {values.map(v => {
                     const c = colByKey.get(v.key)
                     const opts = c && NUMERIC.has(c.type) ? AGGS_NUM : AGGS_TXT
                     return (
-                      <Chip key={v.key} label={c?.label ?? v.key} color={GREEN} onRemove={() => setValues(p => p.filter(x => x.key !== v.key))}>
+                      <Chip key={v.key} label={v.label ?? c?.label ?? v.key} color={GREEN}
+                        onRemove={() => setValues(p => p.filter(x => x.key !== v.key))}
+                        onRename={(nl) => setValues(p => p.map(x => x.key === v.key ? { ...x, label: nl } : x))}>
                         <select value={v.agg} onChange={e => setValues(p => p.map(x => x.key === v.key ? { ...x, agg: e.target.value } : x))}
                           style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.sm, background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT['2xs'], padding: '1px 3px', fontFamily: 'inherit' }}>
                           {opts.map(a => <option key={a} value={a}>{AGG_LABEL[a] ?? a}</option>)}
@@ -628,7 +856,7 @@ export default function ReportBuilder() {
                       </Chip>
                     )
                   })}
-                  {!values.length && <span style={zoneEmpty}>drag or click fields here — e.g. Count of ID, Sum of Amount</span>}
+                  {!values.length && <span style={zoneEmpty}>drag or click fields here — e.g. Count of ID, Sum of Amount. Leave empty for a distinct list of Rows/Columns.</span>}
                 </DropZone>
 
                 <SectionCard title="Filters" subtitle="drag any field here to filter — or use the built-in ones">
@@ -686,7 +914,7 @@ export default function ReportBuilder() {
                 {/* Preview / chart */}
                 <SectionCard
                   title={view === 'table' ? 'Preview' : 'Chart'}
-                  subtitle={result ? `${matrix?.body.length ?? 0} row${(matrix?.body.length ?? 0) === 1 ? '' : 's'}${result.truncated ? ` · capped at ${result.group_cap}` : ''}` : 'live'}
+                  subtitle={result ? previewSubtitle(matrix, values.length === 0, result) : 'live'}
                   actions={
                     <div style={{ display: 'flex', gap: SP[2], alignItems: 'center' }}>
                       <Segmented value={view} onChange={(v) => setView(v as any)} options={[{ k: 'table', label: 'Table', icon: 'table_rows' }, { k: 'chart', label: 'Chart', icon: 'bar_chart' }]} />
@@ -703,6 +931,12 @@ export default function ReportBuilder() {
                   }
                 >
                   <ErrBanner error={error} onRetry={run} />
+                  {!!result?.raw_count && !!matrix && result.raw_count > matrix.body.length && (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 12px', marginBottom: SP[3], background: `${AMBER}14`, border: `1px solid ${AMBER}55`, borderRadius: RADIUS.md, fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                      <span className="material-symbols-rounded" style={{ fontSize: 16, color: AMBER, flexShrink: 0, marginTop: 1 }}>info</span>
+                      <span><b>{result.raw_count.toLocaleString()} underlying records collapse into {matrix.body.length.toLocaleString()} row{matrix.body.length === 1 ? '' : 's'}</b> — rows sharing the same value on every Rows/Columns field are combined and their measures summed together. Add another field to Rows (e.g. a time or an ID) to keep them separate.</span>
+                    </div>
+                  )}
                   {loading ? (
                     <div style={{ display: 'flex', justifyContent: 'center', padding: 50 }}><Spinner size={26} /></div>
                   ) : !canRun ? (
@@ -716,13 +950,16 @@ export default function ReportBuilder() {
                       <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: TEXT.sm }}>
                         <thead>
                           <tr>
-                            {matrix.header.map((h, i) => (
-                              <th key={i} style={{ textAlign: i < matrix.rowDimCount ? 'left' : 'right', padding: '7px 10px', borderBottom: '2px solid var(--bdr)', background: 'var(--th-bg)', position: 'sticky', top: 0, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>{h}</th>
+                            {(sortedMatrix ?? matrix).header.map((h, i) => (
+                              <th key={i} onClick={() => toggleSort(i)} title="Click to sort"
+                                style={{ textAlign: i < matrix.rowDimCount ? 'left' : 'right', padding: '7px 10px', borderBottom: '2px solid var(--bdr)', background: 'var(--th-bg)', position: 'sticky', top: 0, fontWeight: FW.semibold, color: 'var(--txt2)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
+                                {h}{sortCol === i ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                              </th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {matrix.body.slice(0, 200).map((line, ri) => (
+                          {(sortedMatrix ?? matrix).body.slice(0, pageSize).map((line, ri) => (
                             <tr key={ri}>
                               {line.map((v, ci) => (
                                 <td key={ci} style={{ textAlign: ci < matrix.rowDimCount ? 'left' : 'right', padding: '6px 10px', borderBottom: '1px solid var(--bdr)', color: ci < matrix.rowDimCount ? 'var(--txt)' : 'var(--txt2)', fontWeight: ci < matrix.rowDimCount ? FW.semibold : FW.normal, whiteSpace: 'nowrap', ...(ci >= matrix.rowDimCount ? NUM : {}) }}>{v}</td>
@@ -731,8 +968,12 @@ export default function ReportBuilder() {
                           ))}
                         </tbody>
                       </table>
-                      {matrix.body.length > 200 && (
-                        <div style={{ padding: '8px 0 0', fontSize: TEXT.xs, color: 'var(--txt3)', textAlign: 'center' }}>Showing first 200 of {matrix.body.length} rows — export for the full report.</div>
+                      {matrix.body.length > pageSize && (
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: SP[3], alignItems: 'center', padding: '10px 0 0', fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                          <span>Showing {Math.min(pageSize, matrix.body.length)} of {matrix.body.length} rows</span>
+                          <button onClick={() => setPageSize(p => p + 200)} style={{ ...inp, padding: '4px 10px', cursor: 'pointer', color: NAVY, border: `1px solid ${NAVY}55`, background: 'none' }}>Show 200 more</button>
+                          <button onClick={() => setPageSize(matrix.body.length)} style={{ ...inp, padding: '4px 10px', cursor: 'pointer', color: NAVY, border: `1px solid ${NAVY}55`, background: 'none' }}>Show all</button>
+                        </div>
                       )}
                     </div>
                   )}
@@ -744,21 +985,36 @@ export default function ReportBuilder() {
       )}
 
       {tab === 'saved' && (
-        <SavedTab saved={saved} onOpen={loadSaved}
+        <SavedTab saved={saved} datasets={datasets} onOpen={loadSaved} onDuplicate={duplicateSaved}
           onEmail={(rep) => { loadSaved(rep); setEmailOpen(true) }}
-          onSchedule={(rep) => { loadSaved(rep); setSchedOpen(true) }}
+          onSchedule={(rep) => { loadSaved(rep); setEditingSchedule(null); setSchedOpen(true) }}
           onDelete={(rep) => setConfirmDel({ kind: 'report', id: rep.id, name: rep.name })} />
       )}
 
       {tab === 'schedules' && (
         <SchedulesTab schedules={schedules}
-          onToggle={async (s) => { await apiPut(`/api/reports/schedules/${s.id}`, { is_active: !s.is_active }); refreshSchedules() }}
+          onToggle={async (s) => {
+            try {
+              await apiPut(`/api/reports/schedules/${s.id}`, { is_active: !s.is_active })
+              toast.success(s.is_active ? 'Schedule paused' : 'Schedule resumed')
+              refreshSchedules()
+            } catch (e: any) { toast.error(e.message) }
+          }}
+          onEdit={(s) => { setEditingSchedule(s); setSchedOpen(true) }}
+          onRunNow={async (s) => {
+            try {
+              const r: any = unwrap(await apiPost(`/api/reports/schedules/${s.id}/run-now`, {}))
+              toast.success(r?.status ? `Sent now — ${r.status}` : 'Sent now')
+              refreshSchedules()
+            } catch (e: any) { toast.error(e.message) }
+          }}
           onDelete={(s) => setConfirmDel({ kind: 'schedule', id: s.id, name: s.report_name })} />
       )}
 
       {/* Save modal */}
-      <Modal open={saveOpen} onClose={() => setSaveOpen(false)} title={loadedId ? 'Update report' : 'Save report'}
-        footer={<><Button variant="ghost" onClick={() => setSaveOpen(false)}>Cancel</Button><Button loading={busy} onClick={doSave}>{loadedId ? 'Update' : 'Save'}</Button></>}>
+      <Modal open={saveOpen} onClose={() => { setSaveOpen(false); setSaveAsNew(false) }} title={saveAsNew ? 'Save as new report' : loadedId ? 'Update report' : 'Save report'}
+        footer={<><Button variant="ghost" onClick={() => { setSaveOpen(false); setSaveAsNew(false) }}>Cancel</Button><Button loading={busy} onClick={doSave}>{saveAsNew ? 'Save as new' : loadedId ? 'Update' : 'Save'}</Button></>}>
+        {saveAsNew && <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: SP[3] }}>This creates a separate copy — the original report is left untouched.</div>}
         <Labeled label="Report name">
           <input value={reportName} onChange={e => setReportName(e.target.value)} placeholder="e.g. Monthly loan book by product" style={{ ...inp, width: '100%', boxSizing: 'border-box' }} autoFocus />
         </Labeled>
@@ -767,7 +1023,7 @@ export default function ReportBuilder() {
         </Labeled>
         <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', fontSize: TEXT.sm, color: 'var(--txt)' }}>
           <input type="checkbox" checked={isPublic} onChange={e => setIsPublic(e.target.checked)} style={{ width: 16, height: 16, accentColor: NAVY }} />
-          Share with everyone who can view reports (they can run it, not edit it)
+          Share with colleagues who can report on this data (they can run and copy it, not change it)
         </label>
       </Modal>
 
@@ -781,8 +1037,9 @@ export default function ReportBuilder() {
             } else {
               await apiPost('/api/reports/pivot-email', {
                 name: reportName || title, dataset: dsKey,
-                rows, cols, values: values.map(v => ({ column: v.key, agg: v.agg })),
-                filters: filterVals, date_window: win, date_from: range.from, date_to: range.to,
+                rows, cols, values: values.map(v => ({ column: v.key, agg: v.agg, label: v.label })),
+                filters: filterVals, col_filters: colFilters, grains, dim_labels: fieldLabels,
+                date_window: win, date_from: range.from, date_to: range.to,
                 recipients, format, message,
               })
             }
@@ -792,16 +1049,22 @@ export default function ReportBuilder() {
           finally { setBusy(false) }
         }} busy={busy} />
 
-      {/* Schedule modal */}
-      <ScheduleModal open={schedOpen} onClose={() => setSchedOpen(false)} needsSave={!loadedId}
+      {/* Schedule modal — creates when editingSchedule is null, otherwise edits it in place */}
+      <ScheduleModal open={schedOpen} onClose={() => { setSchedOpen(false); setEditingSchedule(null) }} needsSave={!loadedId && !editingSchedule}
+        initial={editingSchedule ?? undefined}
         onSaveFirst={() => { setSchedOpen(false); setSaveOpen(true) }}
-        onCreate={async (payload) => {
-          if (!loadedId) return
+        onSubmit={async (payload) => {
           setBusy(true)
           try {
-            await apiPost(`/api/reports/saved/${loadedId}/schedule`, payload)
-            toast.success('Schedule created')
-            setSchedOpen(false); setTab('schedules'); refreshSchedules()
+            if (editingSchedule) {
+              await apiPut(`/api/reports/schedules/${editingSchedule.id}`, payload)
+              toast.success('Schedule updated')
+            } else {
+              if (!loadedId) return
+              await apiPost(`/api/reports/saved/${loadedId}/schedule`, payload)
+              toast.success('Schedule created')
+            }
+            setSchedOpen(false); setEditingSchedule(null); setTab('schedules'); refreshSchedules()
           } catch (e: any) { toast.error(e.message) }
           finally { setBusy(false) }
         }} busy={busy} />
@@ -809,39 +1072,79 @@ export default function ReportBuilder() {
       <ConfirmModal open={!!confirmDel} title={`Delete ${confirmDel?.kind === 'report' ? 'report' : 'schedule'}?`}
         body={confirmDel ? `"${confirmDel.name}" will be permanently removed.` : ''}
         danger loading={busy} confirmLabel="Delete" onConfirm={deleteConfirmed} onClose={() => setConfirmDel(null)} />
+
+      <ConfirmModal open={!!confirmAction} title={confirmAction?.kind === 'new' ? 'Start a new report?' : 'Discard unsaved report?'}
+        body={(confirmAction?.kind === 'new'
+          ? "This clears the fields, filters and settings you've built so far. "
+          : "Switching data source clears the fields, filters and settings you've built so far. ")
+          + "Save it first if you want to keep it — once you continue, it's gone for good."}
+        danger confirmLabel={confirmAction?.kind === 'new' ? 'Start new' : 'Discard and switch'}
+        onConfirm={() => { if (confirmAction?.kind === 'switch') resetBuilder(confirmAction.key); if (confirmAction?.kind === 'new') resetBuilder(''); setConfirmAction(null) }}
+        onClose={() => setConfirmAction(null)} />
     </Page>
   )
 }
 
 // ── Saved reports tab ──────────────────────────────────────────────────────────
-function SavedTab({ saved, onOpen, onEmail, onSchedule, onDelete }: {
-  saved: SavedReport[]
-  onOpen: (r: SavedReport) => void; onEmail: (r: SavedReport) => void
+function SavedTab({ saved, datasets, onOpen, onDuplicate, onEmail, onSchedule, onDelete }: {
+  saved: SavedReport[]; datasets: Dataset[]
+  onOpen: (r: SavedReport) => void; onDuplicate: (r: SavedReport) => void; onEmail: (r: SavedReport) => void
   onSchedule: (r: SavedReport) => void; onDelete: (r: SavedReport) => void
 }) {
+  const [q, setQ] = useState('')
+  const [sort, setSort] = useState<'updated' | 'name'>('updated')
+  const dsLabel = (key: string) => datasets.find(d => d.key === key)?.label ?? key
+
   if (!saved.length) return (
     <SectionCard title=""><EmptyState icon="bookmark" title="No saved reports yet"
       description="Build a report on the Builder tab and hit Save — it will show up here for you (and, if shared, your team) to run, email or schedule." /></SectionCard>
   )
+
+  const shown = saved
+    .filter(r => {
+      const s = q.trim().toLowerCase()
+      if (!s) return true
+      return r.name.toLowerCase().includes(s) || (r.description ?? '').toLowerCase().includes(s) || dsLabel(r.dataset).toLowerCase().includes(s)
+    })
+    .sort((a, b) => sort === 'name'
+      ? a.name.localeCompare(b.name)
+      : (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: SP[3] }}>
-      {saved.map(r => (
-        <SectionCard key={r.id} title={r.name} subtitle={r.description || undefined}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: SP[3] }}>
-            <Badge variant="neutral">{r.dataset}</Badge>
-            {r.is_public && <Badge variant="info">Shared</Badge>}
-            {!r.is_mine && r.created_by_name && <Badge variant="neutral">by {r.created_by_name}</Badge>}
-            {!!r.active_schedules && <Badge variant="success">{r.active_schedules} schedule{r.active_schedules === 1 ? '' : 's'}</Badge>}
-          </div>
-          <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
-            <Button size="xs" icon="open_in_new" onClick={() => onOpen(r)}>Open</Button>
-            <Button size="xs" variant="secondary" icon="mail" onClick={() => onEmail(r)}>Email</Button>
-            <Button size="xs" variant="secondary" icon="schedule" onClick={() => onSchedule(r)}>Schedule</Button>
-            {r.is_mine !== false && <Button size="xs" variant="ghost" icon="delete" onClick={() => onDelete(r)} />}
-          </div>
-        </SectionCard>
-      ))}
-    </div>
+    <>
+      <div style={{ display: 'flex', gap: SP[3], alignItems: 'center', marginBottom: SP[3], flexWrap: 'wrap' }}>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search saved reports…" style={{ ...inp, minWidth: 240 }} />
+        <select value={sort} onChange={e => setSort(e.target.value as any)} style={sel}>
+          <option value="updated">Sort: recently updated</option>
+          <option value="name">Sort: name</option>
+        </select>
+        <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{shown.length} of {saved.length}</span>
+      </div>
+      {!shown.length ? (
+        <SectionCard title=""><EmptyState icon="search_off" title="No reports match" description="Try a different search term." /></SectionCard>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: SP[3] }}>
+          {shown.map(r => (
+            <SectionCard key={r.id} title={r.name} subtitle={r.description || undefined}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: SP[2] }}>
+                <Badge variant="neutral">{dsLabel(r.dataset)}</Badge>
+                {r.is_public && <Badge variant="info">Shared</Badge>}
+                {!r.is_mine && r.created_by_name && <Badge variant="neutral">by {r.created_by_name}</Badge>}
+                {!!r.active_schedules && <Badge variant="success">{r.active_schedules} schedule{r.active_schedules === 1 ? '' : 's'}</Badge>}
+              </div>
+              {r.updated_at && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginBottom: SP[2] }}>Updated {timeAgo(r.updated_at)}</div>}
+              <div style={{ display: 'flex', gap: SP[2], flexWrap: 'wrap' }}>
+                <Button size="xs" icon={r.is_mine === false ? 'open_in_new' : 'edit'} onClick={() => onOpen(r)}>{r.is_mine === false ? 'Open' : 'Open & edit'}</Button>
+                <Button size="xs" variant="secondary" icon="content_copy" onClick={() => onDuplicate(r)}>Duplicate</Button>
+                <Button size="xs" variant="secondary" icon="mail" onClick={() => onEmail(r)}>Email</Button>
+                <Button size="xs" variant="secondary" icon="schedule" onClick={() => onSchedule(r)}>Schedule</Button>
+                {r.is_mine !== false && <Button size="xs" variant="ghost" icon="delete" onClick={() => onDelete(r)} />}
+              </div>
+            </SectionCard>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -860,16 +1163,29 @@ function fmtWhen(s?: string): string {
   if (!s) return '—'
   const d = new Date(s); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
+function timeAgo(s: string): string {
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return '—'
+  const mins = Math.round((Date.now() - d.getTime()) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.round(hrs / 24)
+  if (days < 30) return `${days}d ago`
+  return fmtWhen(s)
+}
 
-function SchedulesTab({ schedules, onToggle, onDelete }: {
-  schedules: Schedule[]; onToggle: (s: Schedule) => void; onDelete: (s: Schedule) => void
+function SchedulesTab({ schedules, onToggle, onEdit, onRunNow, onDelete }: {
+  schedules: Schedule[]; onToggle: (s: Schedule) => void; onEdit: (s: Schedule) => void
+  onRunNow: (s: Schedule) => void; onDelete: (s: Schedule) => void
 }) {
   if (!schedules.length) return (
     <SectionCard title=""><EmptyState icon="schedule" title="No schedules yet"
       description="Open a saved report and choose Schedule to have it emailed automatically — daily, weekly or monthly." /></SectionCard>
   )
   return (
-    <SectionCard title="Scheduled deliveries" subtitle="reports emailed automatically">
+    <SectionCard title="Scheduled deliveries" subtitle="reports emailed automatically · times are West Africa (Lagos)">
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: TEXT.sm }}>
           <thead>
@@ -890,8 +1206,16 @@ function SchedulesTab({ schedules, onToggle, onDelete }: {
                   <td style={td}>{fmtWhen(s.last_run_at)}</td>
                   <td style={{ ...td, maxWidth: 200, whiteSpace: 'normal', color: (s.last_status || '').startsWith('error') ? RED : 'var(--txt2)' }}>{s.last_status || '—'}</td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
-                    <Button size="xs" variant="ghost" icon={s.is_active ? 'pause' : 'play_arrow'} onClick={() => onToggle(s)}>{s.is_active ? 'Pause' : 'Resume'}</Button>
-                    <Button size="xs" variant="ghost" icon="delete" onClick={() => onDelete(s)} />
+                    {s.can_manage === false ? (
+                      <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{s.created_by_name ? `Set up by ${s.created_by_name}` : 'Set up by a colleague'}</span>
+                    ) : (
+                      <>
+                        <Button size="xs" variant="ghost" icon="edit" onClick={() => onEdit(s)}>Edit</Button>
+                        <Button size="xs" variant="ghost" icon="send" onClick={() => onRunNow(s)}>Send now</Button>
+                        <Button size="xs" variant="ghost" icon={s.is_active ? 'pause' : 'play_arrow'} onClick={() => onToggle(s)}>{s.is_active ? 'Pause' : 'Resume'}</Button>
+                        <Button size="xs" variant="ghost" icon="delete" onClick={() => onDelete(s)} />
+                      </>
+                    )}
                   </td>
                 </tr>
               )
@@ -931,9 +1255,13 @@ function EmailModal({ open, onClose, name, onSend, busy }: {
 }
 
 // ── Schedule modal ──────────────────────────────────────────────────────────────
-function ScheduleModal({ open, onClose, needsSave, onSaveFirst, onCreate, busy }: {
+// Doubles as both create (initial omitted) and edit (initial = the schedule being
+// changed) — previously only create existed in the UI, even though the backend's
+// PUT /schedules/{id} already supported editing every field.
+interface ScheduleInitial { frequency: string; hour: number; day_of_week: number; day_of_month: number; format: string; recipients: any }
+function ScheduleModal({ open, onClose, needsSave, onSaveFirst, onSubmit, busy, initial }: {
   open: boolean; onClose: () => void; needsSave: boolean; onSaveFirst: () => void
-  onCreate: (payload: any) => void; busy: boolean
+  onSubmit: (payload: any) => void; busy: boolean; initial?: ScheduleInitial
 }) {
   const [frequency, setFrequency] = useState('daily')
   const [hour, setHour] = useState(7)
@@ -941,12 +1269,21 @@ function ScheduleModal({ open, onClose, needsSave, onSaveFirst, onCreate, busy }
   const [dom, setDom] = useState(1)
   const [format, setFormat] = useState('xlsx')
   const [recipients, setRecipients] = useState<string[]>([])
-  useEffect(() => { if (open) { setRecipients([]) } }, [open])
+  useEffect(() => {
+    if (!open) return
+    if (initial) {
+      setFrequency(initial.frequency ?? 'daily'); setHour(initial.hour ?? 7)
+      setDow(initial.day_of_week ?? 1); setDom(initial.day_of_month ?? 1)
+      setFormat(initial.format ?? 'xlsx'); setRecipients(recipientList(initial.recipients))
+    } else {
+      setFrequency('daily'); setHour(7); setDow(1); setDom(1); setFormat('xlsx'); setRecipients([])
+    }
+  }, [open, initial])
 
   return (
-    <Modal open={open} onClose={onClose} title="Schedule this report"
+    <Modal open={open} onClose={onClose} title={initial ? 'Edit schedule' : 'Schedule this report'}
       footer={needsSave ? <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={onSaveFirst}>Save report first</Button></>
-        : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button loading={busy} disabled={!recipients.length} onClick={() => onCreate({ frequency, hour, day_of_week: dow, day_of_month: dom, recipients, format })}>Create schedule</Button></>}>
+        : <><Button variant="ghost" onClick={onClose}>Cancel</Button><Button loading={busy} disabled={!recipients.length} onClick={() => onSubmit({ frequency, hour, day_of_week: dow, day_of_month: dom, recipients, format })}>{initial ? 'Save changes' : 'Create schedule'}</Button></>}>
       {needsSave ? (
         <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Save this report first, then schedule it — a schedule points at a saved report so it can keep running on its own.</div>
       ) : (
@@ -972,6 +1309,7 @@ function ScheduleModal({ open, onClose, needsSave, onSaveFirst, onCreate, busy }
                 <select value={dom} onChange={e => setDom(Number(e.target.value))} style={{ ...inp, width: '100%', boxSizing: 'border-box' }}>
                   {Array.from({ length: 28 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
+                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 3 }}>Capped at 28 so the schedule fires every month, including February.</div>
               </Labeled>
             )}
             <Labeled label="Time" style={{ flex: 1 }}>

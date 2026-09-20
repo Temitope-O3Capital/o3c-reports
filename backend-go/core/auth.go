@@ -756,5 +756,21 @@ func buildRolePages() map[string][]string {
 		}
 	}
 
+	// Report Builder — department supervisors and management build their own reports,
+	// but only on the data sources their own module pages already show them (enforced
+	// per data source in handlers/report_access.go). Deliberately a separate key from
+	// "reports", which is BI's whole-registry access plus the raw file export and stays
+	// BI-only. admin and md already hold it through AllCatalogPages.
+	for _, r := range []string{
+		"coo", "cfo", "cmo", "head_ops", "bi_analyst", "bi_head",
+		"sales_head", "bd_head", "collections_head", "recovery_head", "cards_head",
+		"finance_head", "settlement_head", "call_center_head", "care_head",
+		"risk_head", "compliance_head",
+	} {
+		if p, ok := m[r]; ok {
+			m[r] = union(p, []string{"report_builder"})
+		}
+	}
+
 	return m
 }

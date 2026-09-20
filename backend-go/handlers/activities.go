@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,57 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
 )
+
+// viewerSeesSAR reports whether the request user may see Suspicious Activity Report detail.
+// SARs surface on the timeline as a bare "compliance flag" for everyone; only compliance
+// roles see the detail — anti-tipping-off. Kept here so both the Customer 360 timeline and
+// the activity list gate identically.
+func viewerSeesSAR(u *core.Claims) bool {
+	return u != nil && (u.HasPage("sars") || u.HasPage("compliance_all") || u.HasPage("compliance_head"))
+}
+
+// actorOf pulls the standard actor fields (id, name, team) from the request user for an
+// emitted activity. Handles a nil user (unauthenticated/system) gracefully.
+func actorOf(u *core.Claims) (id *int64, name, team string) {
+	if u != nil {
+		id = &u.ID
+		name = u.FullName
+		team = teamFromRole(u.Role)
+	}
+	return
+}
+
+// logActivitySafe emits an activity as a SIDE-EFFECT of a primary action. A failure is
+// logged, never returned, so recording an activity can never break the action that caused
+// it (a lead move, a decision, a card block). Use this from handlers; use LogActivity
+// directly only when the id or a hard failure matters.
+func logActivitySafe(ctx context.Context, db *core.DB, a Activity) {
+	if _, err := LogActivity(ctx, db, a); err != nil {
+		slog.Warn("LogActivity failed", "type", a.Type, "source", a.Source, "err", err)
+	}
+}
+
+// resolveHandoffsForApplication closes the open hand-offs for the customer behind a loan
+// application when a downstream team reaches a verdict — the reflect-back that lets the
+// call-centre agent who forwarded the lead see the outcome. Matches open handoff activities
+// by the application's CIF or phone (the lead may still have no CIF), stamps status +
+// outcome. Best-effort: a failure is swallowed so it never blocks the decision.
+func resolveHandoffsForApplication(ctx context.Context, db *core.DB, applicationID int64, status, outcome string) {
+	db.PGExec(ctx, `
+		WITH la AS (
+		  SELECT NULLIF(applicant_cif,'') AS cif,
+		         NULLIF(app.norm_phone(applicant_phone),'') AS phone,
+		         (SELECT c.party_id FROM app.customers c WHERE c.cif = lo.applicant_cif AND c.party_id IS NOT NULL LIMIT 1) AS party_id
+		    FROM app.loan_applications lo WHERE lo.id = $1)
+		UPDATE app.activities a
+		   SET status = $2, outcome = COALESCE(NULLIF($3,''), a.outcome)
+		  FROM la
+		 WHERE a.type = 'handoff' AND a.status = 'open'
+		   AND ( (la.party_id IS NOT NULL AND a.party_id = la.party_id)
+		      OR (la.cif   IS NOT NULL AND a.cif   = la.cif)
+		      OR (la.phone IS NOT NULL AND a.phone = la.phone) )`,
+		applicationID, status, outcome) //nolint:errcheck
+}
 
 // Activity stream — see migrations/228_activities.sql.
 //
@@ -24,6 +76,7 @@ import (
 
 // Activity is the input to LogActivity. Only set what you have; empty fields are stored NULL.
 type Activity struct {
+	PartyID       *int64 // set directly when the caller already knows the person (else the DB trigger resolves it)
 	LeadID        *int64
 	ContactID     *int64
 	CIF           string
@@ -43,6 +96,8 @@ type Activity struct {
 	TargetUserID  *int64
 	Status        string
 	RelatedID     *int64 // reflect-back → the originating handoff
+	EntityType    string // deep-link to a sub-entity: promise | dispute | fd_txn | card_request | condition | deal | ...
+	EntityID      string
 	Metadata      map[string]any
 	Source        string
 	OccurredAt    *time.Time
@@ -100,14 +155,17 @@ func LogActivity(ctx context.Context, db *core.DB, a Activity) (int64, error) {
 		INSERT INTO app.activities
 		  (lead_id, contact_id, cif, application_id, ticket_id, call_id, phone,
 		   actor_user_id, actor_name, actor_team, type, direction, subject, body, outcome,
-		   target_team, target_user_id, status, related_activity_id, metadata, source, occurred_at)
+		   target_team, target_user_id, status, related_activity_id, metadata, source, occurred_at,
+		   entity_type, entity_id, party_id)
 		VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,NULLIF($7,''),
 		        $8,NULLIF($9,''),NULLIF($10,''),$11,NULLIF($12,''),NULLIF($13,''),NULLIF($14,''),NULLIF($15,''),
-		        NULLIF($16,''),$17,NULLIF($18,''),$19,$20::jsonb,$21,$22)
+		        NULLIF($16,''),$17,NULLIF($18,''),$19,$20::jsonb,$21,$22,
+		        NULLIF($23,''),NULLIF($24,''),$25)
 		RETURNING id`,
 		a.LeadID, a.ContactID, a.CIF, a.ApplicationID, a.TicketID, a.CallID, phone,
 		a.ActorUserID, a.ActorName, a.ActorTeam, a.Type, a.Direction, a.Subject, a.Body, a.Outcome,
-		a.TargetTeam, a.TargetUserID, a.Status, a.RelatedID, meta, a.Source, occurred)
+		a.TargetTeam, a.TargetUserID, a.Status, a.RelatedID, meta, a.Source, occurred,
+		a.EntityType, a.EntityID, a.PartyID)
 	if err != nil {
 		return 0, err
 	}
@@ -123,6 +181,9 @@ func LogActivity(ctx context.Context, db *core.DB, a Activity) (int64, error) {
 func RegisterActivities(r chi.Router, db *core.DB) {
 	r.Get("/activities", activityList(db))
 	r.Post("/activities", activityCreate(db))
+	// Lead/contact document uploads (pre-application file store).
+	r.Post("/activities/document", activityUploadDocument(db))
+	r.Get("/activities/documents/{doc_id}/content", activityDocumentContent(db))
 }
 
 // activityList returns activities for a person, matched by any anchor supplied as a query
@@ -134,6 +195,11 @@ func activityList(db *core.DB) http.HandlerFunc {
 		var args []any
 		add := func(col string, v any) { args = append(args, v); clauses = append(clauses, fmt.Sprintf("a.%s = $%d", col, len(args))) }
 
+		if v := r.URL.Query().Get("party_id"); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				add("party_id", n)
+			}
+		}
 		if v := r.URL.Query().Get("lead_id"); v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 				add("lead_id", n)
@@ -175,6 +241,17 @@ func activityList(db *core.DB) http.HandlerFunc {
 		}
 		if rows == nil {
 			rows = []core.Row{}
+		}
+		// Anti-tipping-off: non-compliance viewers see a SAR only as a bare flag, no detail.
+		if !viewerSeesSAR(core.UserFromCtx(r.Context())) {
+			for _, row := range rows {
+				if str(row["type"]) == "compliance_flag" {
+					row["subject"] = "Compliance flag"
+					row["body"] = nil
+					row["outcome"] = nil
+					row["metadata"] = nil
+				}
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck

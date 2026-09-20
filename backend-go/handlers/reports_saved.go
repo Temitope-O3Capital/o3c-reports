@@ -9,6 +9,7 @@ import (
 	"html"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -48,7 +49,8 @@ type savedPivotConfig struct {
 	Filters    map[string]string `json:"filters"`
 	ColFilters []colFilter       `json:"col_filters"`
 	Grains     map[string]string `json:"grains"`
-	DateWindow string            `json:"date_window"` // "" | custom | today | last_7_days | ...
+	DimLabels  map[string]string `json:"dim_labels,omitempty"` // row/col column key → display override
+	DateWindow string            `json:"date_window"`          // "" | custom | today | last_7_days | ...
 	DateFrom   string            `json:"date_from"`
 	DateTo     string            `json:"date_to"`
 	Chart      json.RawMessage   `json:"chart,omitempty"` // view prefs; opaque to the server
@@ -64,7 +66,7 @@ func (c savedPivotConfig) toSpec(now time.Time) pivotSpec {
 			from, to = f, t
 		}
 	}
-	return pivotSpec{DateFrom: from, DateTo: to, Filters: c.Filters, ColFilters: c.ColFilters, Rows: c.Rows, Cols: c.Cols, Values: c.Values, Grains: c.Grains}
+	return pivotSpec{DateFrom: from, DateTo: to, Filters: c.Filters, ColFilters: c.ColFilters, Rows: c.Rows, Cols: c.Cols, Values: c.Values, Grains: c.Grains, DimLabels: c.DimLabels}
 }
 
 // resolveReportWindow turns a named relative window into concrete YYYY-MM-DD
@@ -125,7 +127,9 @@ func parseSavedConfig(v any) savedPivotConfig {
 // ── Registration ──────────────────────────────────────────────────────────────
 
 func RegisterSavedReports(r chi.Router, db *core.DB) {
-	rd := core.RequirePages("reports")
+	// Open to BI ("reports") and to department supervisors ("report_builder"). What a
+	// supervisor reaches inside is decided per data source — see report_access.go.
+	rd := core.RequirePages("reports", "report_builder")
 
 	r.With(rd).Get("/saved", savedListReports(db))
 	r.With(rd).Post("/saved", savedCreateReport(db))
@@ -140,72 +144,133 @@ func RegisterSavedReports(r chi.Router, db *core.DB) {
 	r.With(rd).Post("/saved/{id}/schedule", savedCreateSchedule(db))
 	r.With(rd).Put("/schedules/{sid}", savedUpdateSchedule(db))
 	r.With(rd).Delete("/schedules/{sid}", savedDeleteSchedule(db))
+	r.With(rd).Post("/schedules/{sid}/run-now", savedRunScheduleNow(db))
 
 	r.With(rd).Get("/my-dashboard", savedMyDashboard(db))
 }
 
 // savedMyDashboard is the analyst's station over the pivot Report Builder: their
 // saved reports, active/due schedules, recent delivery health and upcoming runs.
-// A missing table simply omits that field.
+//
+// Everything on it is limited to what this person can see: their own reports and
+// shared ones, on data sources their departments cover, plus schedules they set up.
+// It used to count and list every schedule in the table, which put other people's
+// private report names on screen.
 func savedMyDashboard(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		u := core.UserFromCtx(ctx)
 		var uid int64
-		if u := core.UserFromCtx(ctx); u != nil {
+		if u != nil {
 			uid = u.ID
 		}
-		dash := map[string]any{}
-		scalar := func(key, q string, args ...any) {
-			rows, _ := db.PGQuery(ctx, q, args...)
-			if len(rows) > 0 {
-				dash[key] = rows[0]["count"]
+
+		reports, _ := db.PGQuery(ctx, `
+			SELECT id, name, dataset, is_public, created_by, updated_at
+			FROM pivot_reports
+			WHERE created_by = $1 OR is_public
+			ORDER BY updated_at DESC`, uid)
+		visible := map[int64]bool{}
+		myCount, sharedCount := 0, 0
+		myList := []core.Row{}
+		for _, p := range reports {
+			if !reportDatasetAllowed(u, str(p["dataset"])) {
+				continue
+			}
+			visible[toInt64(p["id"])] = true
+			if toInt64(p["created_by"]) == uid {
+				myCount++
+				if len(myList) < 8 {
+					myList = append(myList, p)
+				}
+			}
+			if shared, _ := p["is_public"].(bool); shared {
+				sharedCount++
 			}
 		}
-		scalar("my_reports", `SELECT COUNT(*) AS count FROM pivot_reports WHERE created_by=$1`, uid)
-		scalar("shared_reports", `SELECT COUNT(*) AS count FROM pivot_reports WHERE is_public`)
-		scalar("scheduled_active", `SELECT COUNT(*) AS count FROM pivot_report_schedules s
-			JOIN pivot_reports p ON p.id=s.report_id
-			WHERE s.is_active AND (p.created_by=$1 OR s.created_by=$1 OR p.is_public)`, uid)
-		scalar("scheduled_due", `SELECT COUNT(*) AS count FROM pivot_report_schedules s
-			JOIN pivot_reports p ON p.id=s.report_id
-			WHERE s.is_active AND s.next_run_at IS NOT NULL AND s.next_run_at<=NOW()
-			  AND (p.created_by=$1 OR s.created_by=$1 OR p.is_public)`, uid)
-		scalar("delivered_today", `SELECT COUNT(*) AS count FROM pivot_report_schedules
-			WHERE last_run_at::date=CURRENT_DATE AND COALESCE(last_status,'') LIKE 'sent%'`)
-		scalar("failed_recent", `SELECT COUNT(*) AS count FROM pivot_report_schedules
-			WHERE COALESCE(last_status,'') LIKE 'error%' AND last_run_at >= NOW() - INTERVAL '7 days'`)
 
-		if rows, _ := db.PGQuery(ctx, `SELECT MIN(next_run_at) AS next FROM pivot_report_schedules WHERE is_active AND next_run_at>NOW()`); len(rows) > 0 {
-			dash["next_scheduled_at"] = rows[0]["next"]
+		all, _ := db.PGQuery(ctx, `
+			SELECT s.report_id, s.created_by, s.frequency, s.hour, s.day_of_week, s.day_of_month,
+			       s.next_run_at, s.last_run_at, s.last_status, s.format, s.is_active,
+			       p.name AS report_name, p.dataset
+			FROM pivot_report_schedules s
+			JOIN pivot_reports p ON p.id = s.report_id`)
+		now := time.Now()
+		today := now.In(reportTZ).Format("2006-01-02")
+		var (
+			scheduled                           []core.Row
+			active, due, deliveredToday, failed int
+			nextRun                             *time.Time
+		)
+		for _, s := range all {
+			setUpByMe := toInt64(s["created_by"]) == uid && reportDatasetAllowed(u, str(s["dataset"]))
+			if !visible[toInt64(s["report_id"])] && !setUpByMe {
+				continue
+			}
+			scheduled = append(scheduled, s)
+			next, hasNext := s["next_run_at"].(time.Time)
+			last, hasLast := s["last_run_at"].(time.Time)
+			status := str(s["last_status"])
+			if on, _ := s["is_active"].(bool); on {
+				active++
+				if hasNext && !next.After(now) {
+					due++
+				}
+				if hasNext && next.After(now) && (nextRun == nil || next.Before(*nextRun)) {
+					n := next
+					nextRun = &n
+				}
+			}
+			if hasLast && strings.HasPrefix(status, "sent") && last.In(reportTZ).Format("2006-01-02") == today {
+				deliveredToday++
+			}
+			if hasLast && strings.HasPrefix(status, "error") && now.Sub(last) <= 7*24*time.Hour {
+				failed++
+			}
 		}
 
-		up, _ := db.PGQuery(ctx, `
-			SELECT s.frequency, s.hour, s.day_of_week, s.day_of_month, s.next_run_at, s.last_run_at,
-			       s.format, p.name AS report_name
-			FROM pivot_report_schedules s JOIN pivot_reports p ON p.id=s.report_id
-			WHERE s.is_active
-			ORDER BY (s.next_run_at IS NULL), s.next_run_at ASC LIMIT 8`)
-		if up == nil {
-			up = []core.Row{}
+		upcoming := []core.Row{}
+		recent := []core.Row{}
+		for _, s := range scheduled {
+			if on, _ := s["is_active"].(bool); on {
+				upcoming = append(upcoming, s)
+			}
+			if _, ok := s["last_run_at"].(time.Time); ok {
+				recent = append(recent, s)
+			}
 		}
-		dash["upcoming_schedules"] = up
-
-		recent, _ := db.PGQuery(ctx, `
-			SELECT s.last_run_at, s.last_status, s.format, p.name AS report_name
-			FROM pivot_report_schedules s JOIN pivot_reports p ON p.id=s.report_id
-			WHERE s.last_run_at IS NOT NULL
-			ORDER BY s.last_run_at DESC LIMIT 8`)
-		if recent == nil {
-			recent = []core.Row{}
+		sort.SliceStable(upcoming, func(i, j int) bool {
+			a, aok := upcoming[i]["next_run_at"].(time.Time)
+			b, bok := upcoming[j]["next_run_at"].(time.Time)
+			if aok != bok {
+				return aok // unscheduled runs go last
+			}
+			return aok && a.Before(b)
+		})
+		sort.SliceStable(recent, func(i, j int) bool {
+			return recent[i]["last_run_at"].(time.Time).After(recent[j]["last_run_at"].(time.Time))
+		})
+		if len(upcoming) > 8 {
+			upcoming = upcoming[:8]
 		}
-		dash["recent_deliveries"] = recent
-
-		mine, _ := db.PGQuery(ctx, `SELECT id, name, dataset, is_public, updated_at FROM pivot_reports WHERE created_by=$1 ORDER BY updated_at DESC LIMIT 8`, uid)
-		if mine == nil {
-			mine = []core.Row{}
+		if len(recent) > 8 {
+			recent = recent[:8]
 		}
-		dash["my_report_list"] = mine
 
+		dash := map[string]any{
+			"my_reports":         myCount,
+			"shared_reports":     sharedCount,
+			"scheduled_active":   active,
+			"scheduled_due":      due,
+			"delivered_today":    deliveredToday,
+			"failed_recent":      failed,
+			"upcoming_schedules": upcoming,
+			"recent_deliveries":  recent,
+			"my_report_list":     myList,
+		}
+		if nextRun != nil {
+			dash["next_scheduled_at"] = *nextRun
+		}
 		respond(w, dash, "pg")
 	}
 }
@@ -215,8 +280,9 @@ func savedMyDashboard(db *core.DB) http.HandlerFunc {
 func savedListReports(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		u := core.UserFromCtx(ctx)
 		var uid int64
-		if u := core.UserFromCtx(ctx); u != nil {
+		if u != nil {
 			uid = u.ID
 		}
 		rows, err := db.PGQuery(ctx, `
@@ -234,10 +300,14 @@ func savedListReports(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Could not load saved reports", err)
 			return
 		}
-		if rows == nil {
-			rows = []core.Row{}
+		visibleRows := make([]core.Row, 0, len(rows))
+		for _, row := range rows {
+			// A shared report on another department's data is not this person's to run.
+			if reportDatasetAllowed(u, str(row["dataset"])) {
+				visibleRows = append(visibleRows, row)
+			}
 		}
-		respond(w, rows, "pg")
+		respond(w, visibleRows, "pg")
 	}
 }
 
@@ -255,6 +325,10 @@ func savedGetReport(db *core.DB) http.HandlerFunc {
 		isPublic, _ := rep["is_public"].(bool)
 		if !isPublic && u != nil && toInt64(rep["created_by"]) != u.ID {
 			respondErr(w, 403, "Not your report")
+			return
+		}
+		if !reportDatasetAllowed(u, str(rep["dataset"])) {
+			respondErr(w, 403, reportDatasetDenied)
 			return
 		}
 		respond(w, rep, "pg")
@@ -284,6 +358,10 @@ func savedCreateReport(db *core.DB) http.HandlerFunc {
 		}
 		if _, ok := exportDatasetByKey(b.Dataset); !ok {
 			respondErr(w, 422, "Unknown data source")
+			return
+		}
+		if !reportDatasetAllowed(u, b.Dataset) {
+			respondErr(w, 403, reportDatasetDenied)
 			return
 		}
 		cfg := b.Config
@@ -323,13 +401,17 @@ func savedUpdateReport(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		existing, _ := db.PGQuery(ctx, `SELECT created_by FROM pivot_reports WHERE id=$1`, id)
+		existing, _ := db.PGQuery(ctx, `SELECT created_by, dataset FROM pivot_reports WHERE id=$1`, id)
 		if len(existing) == 0 {
 			respondErr(w, 404, "Report not found")
 			return
 		}
-		if u != nil && toInt64(existing[0]["created_by"]) != u.ID {
-			respondErr(w, 403, "Not your report")
+		if !canManageReportItem(u, toInt64(existing[0]["created_by"])) {
+			respondErr(w, 403, "Only the person who made this report can change it. Save a copy instead.")
+			return
+		}
+		if !reportDatasetAllowed(u, str(existing[0]["dataset"])) {
+			respondErr(w, 403, reportDatasetDenied)
 			return
 		}
 		set := "updated_at=NOW()"
@@ -373,8 +455,8 @@ func savedDeleteReport(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Report not found")
 			return
 		}
-		if u != nil && toInt64(existing[0]["created_by"]) != u.ID {
-			respondErr(w, 403, "Not your report")
+		if !canManageReportItem(u, toInt64(existing[0]["created_by"])) {
+			respondErr(w, 403, "Only the person who made this report can delete it")
 			return
 		}
 		db.PGExec(ctx, `DELETE FROM pivot_reports WHERE id=$1`, id) //nolint:errcheck
@@ -393,6 +475,9 @@ func loadReportSpec(ctx context.Context, db *core.DB, id string, u *core.Claims)
 	isPublic, _ := rep["is_public"].(bool)
 	if !isPublic && u != nil && toInt64(rep["created_by"]) != u.ID {
 		return exportDataset{}, pivotSpec{}, "", 403, fmt.Errorf("Not authorised")
+	}
+	if !reportDatasetAllowed(u, str(rep["dataset"])) {
+		return exportDataset{}, pivotSpec{}, "", 403, fmt.Errorf("%s", reportDatasetDenied)
 	}
 	d, ok := exportDatasetByKey(str(rep["dataset"]))
 	if !ok {
@@ -487,6 +572,7 @@ func savedEmailAdhoc(db *core.DB) http.HandlerFunc {
 		Filters    map[string]string `json:"filters"`
 		ColFilters []colFilter       `json:"col_filters"`
 		Grains     map[string]string `json:"grains"`
+		DimLabels  map[string]string `json:"dim_labels,omitempty"`
 		DateWindow string            `json:"date_window"`
 		DateFrom   string            `json:"date_from"`
 		DateTo     string            `json:"date_to"`
@@ -511,8 +597,12 @@ func savedEmailAdhoc(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Unknown data source")
 			return
 		}
+		if !reportDatasetAllowed(core.UserFromCtx(ctx), b.Dataset) {
+			respondErr(w, 403, reportDatasetDenied)
+			return
+		}
 		cfg := savedPivotConfig{
-			Rows: b.Rows, Cols: b.Cols, Values: b.Values, Filters: b.Filters, ColFilters: b.ColFilters, Grains: b.Grains,
+			Rows: b.Rows, Cols: b.Cols, Values: b.Values, Filters: b.Filters, ColFilters: b.ColFilters, Grains: b.Grains, DimLabels: b.DimLabels,
 			DateWindow: b.DateWindow, DateFrom: b.DateFrom, DateTo: b.DateTo,
 		}
 		res, err := runPivot(ctx, db, d, cfg.toSpec(time.Now()))
@@ -682,15 +772,16 @@ func cleanRecipients(in []string) []string {
 func savedListSchedules(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		u := core.UserFromCtx(ctx)
 		var uid int64
-		if u := core.UserFromCtx(ctx); u != nil {
+		if u != nil {
 			uid = u.ID
 		}
 		rows, err := db.PGQuery(ctx, `
 			SELECT s.id, s.report_id, p.name AS report_name, p.dataset,
 			       s.frequency, s.hour, s.day_of_week, s.day_of_month,
 			       s.recipients, s.format, s.is_active, s.last_run_at, s.next_run_at,
-			       s.last_status, s.created_at, s.created_by,
+			       s.last_status, s.created_at, s.created_by, p.created_by AS report_created_by,
 			       u.full_name AS created_by_name
 			FROM pivot_report_schedules s
 			JOIN pivot_reports p ON p.id = s.report_id
@@ -701,10 +792,16 @@ func savedListSchedules(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Could not load schedules", err)
 			return
 		}
-		if rows == nil {
-			rows = []core.Row{}
+		visibleRows := make([]core.Row, 0, len(rows))
+		for _, row := range rows {
+			if !reportDatasetAllowed(u, str(row["dataset"])) {
+				continue
+			}
+			// Tells the page whether to offer edit, pause, send-now and delete.
+			row["can_manage"] = canManageReportItem(u, toInt64(row["created_by"]), toInt64(row["report_created_by"]))
+			visibleRows = append(visibleRows, row)
 		}
-		respond(w, rows, "pg")
+		respond(w, visibleRows, "pg")
 	}
 }
 
@@ -722,7 +819,7 @@ func savedCreateSchedule(db *core.DB) http.HandlerFunc {
 		u := core.UserFromCtx(ctx)
 		id := chi.URLParam(r, "id")
 
-		exists, _ := db.PGQuery(ctx, `SELECT created_by, is_public FROM pivot_reports WHERE id=$1`, id)
+		exists, _ := db.PGQuery(ctx, `SELECT created_by, is_public, dataset FROM pivot_reports WHERE id=$1`, id)
 		if len(exists) == 0 {
 			respondErr(w, 404, "Report not found")
 			return
@@ -730,6 +827,10 @@ func savedCreateSchedule(db *core.DB) http.HandlerFunc {
 		isPublic, _ := exists[0]["is_public"].(bool)
 		if !isPublic && u != nil && toInt64(exists[0]["created_by"]) != u.ID {
 			respondErr(w, 403, "Not your report")
+			return
+		}
+		if !reportDatasetAllowed(u, str(exists[0]["dataset"])) {
+			respondErr(w, 403, reportDatasetDenied)
 			return
 		}
 
@@ -791,9 +892,22 @@ func savedUpdateSchedule(db *core.DB) http.HandlerFunc {
 			return
 		}
 		// Read current values so we can recompute next_run_at when timing changes.
-		cur, _ := db.PGQuery(ctx, `SELECT frequency, hour, day_of_week, day_of_month FROM pivot_report_schedules WHERE id=$1`, sid)
+		cur, _ := db.PGQuery(ctx, `
+			SELECT s.frequency, s.hour, s.day_of_week, s.day_of_month,
+			       s.created_by, p.created_by AS report_created_by, p.dataset
+			FROM pivot_report_schedules s JOIN pivot_reports p ON p.id = s.report_id
+			WHERE s.id=$1`, sid)
 		if len(cur) == 0 {
 			respondErr(w, 404, "Schedule not found")
+			return
+		}
+		u := core.UserFromCtx(ctx)
+		if !canManageReportItem(u, toInt64(cur[0]["created_by"]), toInt64(cur[0]["report_created_by"])) {
+			respondErr(w, 403, "Only the person who set up this schedule can change it")
+			return
+		}
+		if !reportDatasetAllowed(u, str(cur[0]["dataset"])) {
+			respondErr(w, 403, reportDatasetDenied)
 			return
 		}
 		freq := str(cur[0]["frequency"])
@@ -870,8 +984,58 @@ func savedUpdateSchedule(db *core.DB) http.HandlerFunc {
 func savedDeleteSchedule(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sid := chi.URLParam(r, "sid")
+		cur, _ := db.PGQuery(r.Context(), `
+			SELECT s.created_by, p.created_by AS report_created_by
+			FROM pivot_report_schedules s JOIN pivot_reports p ON p.id = s.report_id
+			WHERE s.id=$1`, sid)
+		if len(cur) == 0 {
+			respondErr(w, 404, "Schedule not found")
+			return
+		}
+		if !canManageReportItem(core.UserFromCtx(r.Context()), toInt64(cur[0]["created_by"]), toInt64(cur[0]["report_created_by"])) {
+			respondErr(w, 403, "Only the person who set up this schedule can delete it")
+			return
+		}
 		db.PGExec(r.Context(), `DELETE FROM pivot_report_schedules WHERE id=$1`, sid) //nolint:errcheck
 		respond(w, map[string]any{"ok": true}, "json")
+	}
+}
+
+// savedRunScheduleNow delivers a schedule immediately, on demand — so an analyst
+// can confirm a schedule looks right without waiting for its next_run_at. It
+// records the attempt (last_run_at/last_status) like a real run but leaves
+// next_run_at untouched, since a manual test shouldn't shift the cadence.
+func savedRunScheduleNow(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		u := core.UserFromCtx(ctx)
+		sid := chi.URLParam(r, "sid")
+		rows, err := db.PGQuery(ctx, `
+			SELECT s.id, s.report_id, s.recipients, s.format, p.name, p.dataset, p.config, p.is_public, p.created_by, s.created_by AS sched_created_by
+			FROM pivot_report_schedules s JOIN pivot_reports p ON p.id = s.report_id
+			WHERE s.id=$1`, sid)
+		if err != nil || len(rows) == 0 {
+			respondErr(w, 404, "Schedule not found")
+			return
+		}
+		s := rows[0]
+		// Sending now mails the recipients, so it is for the people who own the schedule
+		// or its report — not everyone who can see a shared report.
+		if !canManageReportItem(u, toInt64(s["sched_created_by"]), toInt64(s["created_by"])) {
+			respondErr(w, 403, "Only the person who set up this schedule can send it now")
+			return
+		}
+		if !reportDatasetAllowed(u, str(s["dataset"])) {
+			respondErr(w, 403, reportDatasetDenied)
+			return
+		}
+		status := deliverScheduledReport(ctx, db, s)
+		db.PGExec(ctx, `UPDATE pivot_report_schedules SET last_run_at=NOW(), last_status=$2 WHERE id=$1`, sid, status) //nolint:errcheck
+		if strings.HasPrefix(status, "error") {
+			respondErr(w, 502, status)
+			return
+		}
+		respond(w, map[string]any{"ok": true, "status": status}, "json")
 	}
 }
 
@@ -927,7 +1091,8 @@ func StartReportScheduleWorker(db *core.DB) {
 		WorkerBeat(ctx, db, "report_schedules", "running", "", "")
 		rows, err := db.PGQuery(ctx, `
 			SELECT s.id, s.report_id, s.frequency, s.hour, s.day_of_week, s.day_of_month,
-			       s.recipients, s.format, p.name, p.dataset, p.config
+			       s.recipients, s.format, p.name, p.dataset, p.config,
+			       COALESCE(s.created_by, p.created_by) AS owner_id
 			FROM pivot_report_schedules s
 			JOIN pivot_reports p ON p.id = s.report_id
 			WHERE s.is_active = TRUE AND (s.next_run_at IS NULL OR s.next_run_at <= NOW())
@@ -940,8 +1105,17 @@ func StartReportScheduleWorker(db *core.DB) {
 		sent := 0
 		for _, s := range rows {
 			schedID := toInt64(s["id"])
-			status := deliverScheduledReport(ctx, db, s)
 			next := nextReportRun(str(s["frequency"]), int(toInt64(s["hour"])), int(toInt64(s["day_of_week"])), int(toInt64(s["day_of_month"])), time.Now())
+			// A schedule runs with its owner's access as it stands today. Someone who has
+			// moved department or left must not keep mailing out data they can no longer
+			// see, so the schedule is paused with the reason on it.
+			if owner := reportOwnerClaims(ctx, db, toInt64(s["owner_id"])); !reportDatasetAllowed(owner, str(s["dataset"])) {
+				db.PGExec(ctx, //nolint:errcheck
+					`UPDATE pivot_report_schedules SET is_active=FALSE, last_run_at=NOW(), next_run_at=$2, last_status=$3 WHERE id=$1`,
+					schedID, next, "error: paused, the person who set this up no longer has access to this data")
+				continue
+			}
+			status := deliverScheduledReport(ctx, db, s)
 			db.PGExec(ctx, //nolint:errcheck
 				`UPDATE pivot_report_schedules SET last_run_at=NOW(), next_run_at=$2, last_status=$3 WHERE id=$1`,
 				schedID, next, status)

@@ -7,9 +7,11 @@ import LogCallModal from './LogCallModal'
 
 // Global call-back reminder for call-centre agents. Polls the agent's due call-backs
 // and pops a non-blocking card (bottom-right) when one is due — Call now / Snooze /
-// Dismiss. The server auto-snoozes an un-dialled call-back every 10 min so it keeps
-// re-surfacing, and drops it from "due" the moment the agent logs the call, at which
-// point this popup clears itself.
+// Dismiss. The server's /callbacks/due feed is bounded (came due in the last 24h) and
+// self-clearing: the moment a call exists at/after a call-back's due time it drops out
+// of the feed — by the actual call ledger, not a stamp that could be missed — so a
+// call-back never lingers here after it has been called and logged. Older un-dialled
+// call-backs are backlog, worked from the queue's "ready" bucket rather than alarmed.
 
 interface DueCallback {
   id: number

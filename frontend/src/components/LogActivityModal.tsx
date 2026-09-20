@@ -42,11 +42,14 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved }: {
   const [targetTeam, setTeam]     = useState('risk')
   const [subject, setSubject]     = useState('')
   const [body, setBody]           = useState('')
+  const [file, setFile]           = useState<File | null>(null)
   const [saving, setSaving]       = useState(false)
 
-  const isHandoff = type === 'handoff'
+  const isHandoff  = type === 'handoff'
+  const isDocument = type === 'document'
 
   async function submit() {
+    if (isDocument && file) { await uploadDocument(); return }
     if (!subject.trim() && !body.trim()) { toast.error('Add a subject or a note'); return }
     setSaving(true)
     try {
@@ -62,6 +65,32 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved }: {
       onSaved()
     } catch (e: any) {
       toast.error(e?.message || 'Could not log activity')
+    } finally { setSaving(false) }
+  }
+
+  // A document upload is multipart, not JSON — mirrors the LOS document upload (Bearer
+  // token + FormData). It stores the file against the lead/contact and emits the activity.
+  async function uploadDocument() {
+    if (!file) return
+    setSaving(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('doc_type', subject.trim() || 'Document')
+      if (anchor.lead_id != null) form.append('lead_id', String(anchor.lead_id))
+      if (anchor.contact_id != null) form.append('contact_id', String(anchor.contact_id))
+      if (anchor.cif) form.append('cif', anchor.cif)
+      if (anchor.phone) form.append('phone', anchor.phone)
+      const token = localStorage.getItem('o3c_token') ?? ''
+      const res = await fetch('/api/activities/document', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form,
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.error || e?.detail || 'Upload failed') }
+      toast.success('Document uploaded')
+      setSubject(''); setBody(''); setFile(null); setType('note')
+      onSaved()
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not upload document')
     } finally { setSaving(false) }
   }
 
@@ -111,6 +140,19 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved }: {
           />
         </div>
 
+        {isDocument && (
+          <div>
+            <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>File (optional — attach the document)</label>
+            <input
+              type="file"
+              onChange={e => setFile(e.target.files?.[0] ?? null)}
+              style={{ ...field, padding: '6px 10px' }}
+            />
+            {file && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>{file.name} · {(file.size / 1024).toFixed(0)} KB</div>}
+            <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 4 }}>No file? It's logged as a note that the document was collected.</div>
+          </div>
+        )}
+
         <div>
           <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Details</label>
           <textarea
@@ -130,8 +172,8 @@ export default function LogActivityModal({ open, anchor, onClose, onSaved }: {
             cursor: saving ? 'not-allowed' : 'pointer', width: '100%', fontFamily: 'inherit',
           }}
         >
-          <span className="material-symbols-rounded" style={{ fontSize: 18 }}>{isHandoff ? 'swap_horiz' : 'add'}</span>
-          {saving ? 'Saving…' : isHandoff ? 'Hand off' : 'Log activity'}
+          <span className="material-symbols-rounded" style={{ fontSize: 18 }}>{isHandoff ? 'swap_horiz' : isDocument && file ? 'upload_file' : 'add'}</span>
+          {saving ? 'Saving…' : isHandoff ? 'Hand off' : isDocument && file ? 'Upload document' : 'Log activity'}
         </button>
       </div>
     </Modal>

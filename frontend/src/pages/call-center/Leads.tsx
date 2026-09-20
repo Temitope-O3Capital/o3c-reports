@@ -308,7 +308,7 @@ interface LeadActivity {
 
 const ACT_ICON: Record<string, string> = {
   handoff: 'swap_horiz', decision: 'gavel', note: 'sticky_note_2', document: 'description',
-  stage_change: 'trending_up', task: 'task_alt',
+  stage_change: 'trending_up', task: 'task_alt', compliance_flag: 'flag',
 }
 
 function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () => void; onLogged: () => void }) {

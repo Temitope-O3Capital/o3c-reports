@@ -741,7 +741,12 @@ func hdSLADue(db *core.DB) http.HandlerFunc {
 			 WHERE `+where+`
 			   AND t.sla_due_at IS NOT NULL
 			   AND t.status NOT IN ('resolved','closed') AND t.deleted_at IS NULL
-			   AND (t.sla_breached = TRUE OR t.sla_due_at <= NOW() + INTERVAL '60 minutes')
+			   -- An alarm is for TIMELY work: breaching within the hour, or breached
+			   -- in the last 12h. The full past-SLA backlog (which ran hundreds deep and
+			   -- produced a permanent "+24 more" that nobody could ever clear from a
+			   -- popup) lives on the Tickets page under sort=sla, not here.
+			   AND t.sla_due_at <= NOW() + INTERVAL '60 minutes'
+			   AND t.sla_due_at >= NOW() - INTERVAL '12 hours'
 			 ORDER BY t.sla_due_at ASC
 			 LIMIT 25`, args...)
 		if err != nil {
