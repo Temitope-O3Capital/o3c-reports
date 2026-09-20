@@ -313,6 +313,33 @@ Two separate causes, both unrelated to the code being pushed:
 Note the workflow deploys to a Linux server at `/opt/o3c`; the Windows box that
 actually serves the workspace builds from its own working tree and is unaffected.
 
+## 20. The monitor alerted on ordinary quiet
+
+**Status:** Fixed (migration 259).
+
+Migration 238 seeded every threshold from judgement. Measured on 2026-09-20 over the
+preceding 90 days, three of them fire on normal behaviour:
+
+| Source | Reality | Was | Now |
+|---|---|---|---|
+| `paystack` | settlements land daily (Mon 37 … Sat 15, Sun 19) but the p95 gap is **1d 17h** and the worst is **3d** | warn 6h / stale 24h | warn 48h / stale 96h |
+| `zoho_calls` | Mon–Fri **20,548–25,745** calls; **Sat 24, Sun 13** | warn 4h / stale 12h | warn 18h / stale 36h, weekends excluded |
+| `appsflyer` | `activity_date` is a DATE, so the newest row reads as midnight — it warned at 17h while holding **that same day's** data | warn 12h / stale 48h | warn 36h / stale 72h |
+
+The call centre does not work weekends, so no fixed threshold serves it: anything
+tight enough to catch a Monday-morning outage alerts every Saturday, and anything
+wide enough to cover a 62-hour Friday-to-Monday silence leaves that outage
+undetected until Thursday. `app.pipeline_source.business_days_only` now marks such a
+source, and the verdict subtracts whole weekend days from its age. Partial days are
+not subtracted, so a Monday-morning gap is still measured honestly.
+
+`v_pipeline_data_age` stays raw and `data_age` remains true wall-clock age;
+`effective_data_age` is what the verdict tests. Measurement and policy stay separate,
+which is why the weekend rule lives in the verdict view alone.
+
+An alert that fires every weekend is worse than no alert: it teaches everyone to
+ignore the one that matters, which is the failure this whole feature exists to catch.
+
 ## 13. Backfill of the migration 233 columns — run log
 
 **Status:** Done, 2026-09-14 12:20:58–12:23:27, with `go run ./cmd/feedbackfill -apply`.
