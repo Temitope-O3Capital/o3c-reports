@@ -217,7 +217,11 @@ export default function AgentDashboard() {
     { key: 'min_payment', label: 'Min Repayment', align: 'right', render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.min_payment != null ? fmtKoboExact(Math.round(r.min_payment * 100)) : '—'}</span> },
     { key: 'last_payment_amount', label: 'Amount Paid', align: 'right', render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: (r.last_payment_amount ?? 0) > 0 ? GREEN : 'var(--txt3)' }}>{r.last_payment_amount != null ? fmtKoboExact(Math.round(r.last_payment_amount * 100)) : '—'}</span> },
     {
-      key: 'min_payment', label: '% Paid', align: 'right',
+      // "% Paid" was a lie by omission: this is the LAST PAYMENT against ONE month's
+      // minimum due, while Credit Portfolio prints the same Tier vocabulary from repaid
+      // over total exposure. The same customer could read "Cleared" on one screen and
+      // "Minimal" on the other. Naming it for what it measures keeps both honest.
+      key: 'min_payment', label: '% of Min Due', align: 'right',
       render: r => {
         const pct = r.min_payment && r.min_payment > 0 ? Math.min(Math.round(((r.last_payment_amount ?? 0) / r.min_payment) * 100), 100) : 0
         return <PctBar pct={pct} tier={tierFromPct(pct)} />

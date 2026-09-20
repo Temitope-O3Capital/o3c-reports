@@ -223,7 +223,16 @@ function ApprovalsPane({ onCount }: { onCount: (n: number) => void }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
         <KpiCard label="Total Write-offs" value={kpis ? fmtNum(kpis.total) : '—'} icon="delete_forever" accent={RED} loading={kpiLoading} />
         <KpiCard label="Total Amount NGN" value={kpis ? fmtKoboExact(kpis.amount_kobo) : '—'} icon="account_balance" accent={NAVY} loading={kpiLoading} />
-        <KpiCard label="Recovery Rate %" value={kpis ? `${Number(kpis.recovery_rate_pct).toFixed(1)}%` : '—'} icon="trending_up" accent={GREEN} loading={kpiLoading} />
+        {/* A rate needs something to divide by. The endpoint returns a literal 0 when the
+            denominator is empty, and .toFixed(1) dressed that up as a measured "0.0%" in
+            green — with recovery_write_off_approvals empty, that is every single render.
+            Show a dash and say so, the way the Supervisor tiles now do. */}
+        <KpiCard label="Recovery Rate %"
+          value={kpis && Number(kpis.total) > 0 ? `${Number(kpis.recovery_rate_pct).toFixed(1)}%` : '—'}
+          sub={kpis && Number(kpis.total) > 0 ? undefined : 'no write-offs to measure yet'}
+          icon="trending_up"
+          accent={kpis && Number(kpis.total) > 0 ? GREEN : 'var(--txt3)'}
+          loading={kpiLoading} />
         <KpiCard label="Pending Approval" value={kpis ? fmtNum(kpis.pending) : '—'} icon="pending_actions" accent={AMBER} loading={kpiLoading} />
       </div>
 
