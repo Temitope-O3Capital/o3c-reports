@@ -196,6 +196,19 @@ func main() {
 	// it to the recipients, then roll next_run_at forward.
 	go handlers.StartReportScheduleWorker(db)
 
+	// Pipeline freshness — every 15 min, compare the age of each inbound source's
+	// DATA against its expectation (app.v_pipeline_freshness, migration 238) and
+	// notify the source's own team when it goes quiet, collapses in volume, or its
+	// ingest job stops running. Exists because the CCS feed died on 2026-09-08 and
+	// every existing signal — run status, task exit code, worker hub — stayed green
+	// for six days.
+	go handlers.StartPipelineMonitor(db)
+
+	// Merchant aliases — daily, map truncated merchant spellings (the feed cuts the
+	// name at ~21 characters) to their fuller form so rankings stop splitting one
+	// merchant across several rows. See migration 244.
+	go handlers.StartMerchantAliasRefresh(db)
+
 	// DB14: TTL enforcement — nightly cleanup of expired short-lived rows.
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
@@ -457,6 +470,9 @@ func main() {
 		r.Route("/api/admin", func(r chi.Router) {
 			handlers.RegisterAdmin(r, db)
 			r.Route("/workers", func(r chi.Router) { handlers.RegisterWorkers(r, db) })
+			r.Route("/pipeline", func(r chi.Router) { handlers.RegisterPipelineHealth(r, db) })
+			// Review of the merchant-name merges the daily job proposes (migration 244).
+			r.Route("/merchant-aliases", func(r chi.Router) { handlers.RegisterMerchantAliases(r, db) })
 			handlers.RegisterNotificationSettings(r, db)
 			handlers.RegisterEmailSenders(r, db)
 			handlers.RegisterTermiiAdmin(r, db) // Termii SMS status + test-send

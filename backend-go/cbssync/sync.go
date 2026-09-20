@@ -278,9 +278,10 @@ func refreshCBSCustomers(ctx context.Context, db *core.DB, rows []map[string]any
 	    gender, marital_status, occupation, employer_name, employer_address, office_phone,
 	    means_of_id, id_number, nok_name, nok_phone, nok_relationship,
 	    business_phone, nature_of_business, industrial_sector, registration_number,
-	    contact_person_name, contact_person_phone, state_of_operation, pep, raw, synced_at)
+	    contact_person_name, contact_person_phone, state_of_operation, pep,
+    religion, hometown, nok_gender, raw, synced_at)
 	  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
-	          $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39::jsonb, NOW())
+	          $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$40,$41,$42,$39::jsonb, NOW())
 	  ON CONFLICT (cbs_customer_id) DO UPDATE SET
 	    cbs_id=EXCLUDED.cbs_id, customer_type=EXCLUDED.customer_type, name=EXCLUDED.name,
 	    title=EXCLUDED.title, first_name=EXCLUDED.first_name, last_name=EXCLUDED.last_name,
@@ -296,7 +297,8 @@ func refreshCBSCustomers(ctx context.Context, db *core.DB, rows []map[string]any
 	    nature_of_business=EXCLUDED.nature_of_business, industrial_sector=EXCLUDED.industrial_sector,
 	    registration_number=EXCLUDED.registration_number, contact_person_name=EXCLUDED.contact_person_name,
 	    contact_person_phone=EXCLUDED.contact_person_phone, state_of_operation=EXCLUDED.state_of_operation,
-	    pep=EXCLUDED.pep, raw=EXCLUDED.raw, synced_at=NOW()`
+	    pep=EXCLUDED.pep, religion=EXCLUDED.religion, hometown=EXCLUDED.hometown,
+    nok_gender=EXCLUDED.nok_gender, raw=EXCLUDED.raw, synced_at=NOW()`
 	n := 0
 	for _, m := range rows {
 		cif := strings.TrimSpace(gstr(m, "customerID"))
@@ -306,7 +308,14 @@ func refreshCBSCustomers(ctx context.Context, db *core.DB, rows []map[string]any
 		if _, err := db.PG.ExecContext(ctx, q,
 			cif, gstr(m, "id"), gstr(m, "customerType"), gstr(m, "name"), gstr(m, "title"),
 			gstr(m, "firstName"), gstr(m, "lastName"), gstr(m, "otherNames"),
-			gstr(m, "phoneNumber"), gstr(m, "email"), gstr(m, "address"), gstr(m, "hometown"),
+			// city takes Udara's city, NOT its hometown. This used to pass hometown
+			// here, which made cbs_customers.city mean "place of origin" for every
+			// row — and enrichCustomersFromCBS then copied it into
+			// app.customers.city, where it reads as a residence. hometown now has
+			// its own column (migration 233/235). Existing mislabelled city values
+			// are left alone deliberately; correcting them is a separate, explicit
+			// cleanup, not a side effect of a sync.
+			gstr(m, "phoneNumber"), gstr(m, "email"), gstr(m, "address"), gstr(m, "city"),
 			gstr(m, "state"), gstr(m, "lga"), gstr(m, "nationality"), gstr(m, "bvn"), gstr(m, "nin"), gstr(m, "tin"),
 			gts(m, "dateOfBirth"), gstr(m, "gender"), gstr(m, "maritalStatus"), gstr(m, "occupation"),
 			gstr(m, "employerName"), gstr(m, "employerAddress"), gstr(m, "officePhoneNumber"),
@@ -314,6 +323,10 @@ func refreshCBSCustomers(ctx context.Context, db *core.DB, rows []map[string]any
 			gstr(m, "nokRelationship"), gstr(m, "businessPhoneNumber"), gstr(m, "natureOfBusiness"),
 			gstr(m, "industrialSector"), gstr(m, "registrationNumber"), gstr(m, "contactPersonName"),
 			gstr(m, "contactPersonPhoneNumber"), gstr(m, "stateOfOperation"), gbool(m, "pep"), rawOf(m),
+			// $40-$42. Religion is special-category data under the NDPA — it is
+			// stored because Udara already returns it and burying it in jsonb made it
+			// unauditable, not because anything should score on it.
+			gstr(m, "religion"), gstr(m, "hometown"), gstr(m, "nokGender"),
 		); err != nil {
 			return n, fmt.Errorf("cbs upsert customer %s: %w", cif, err)
 		}

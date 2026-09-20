@@ -269,9 +269,26 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "reporting_rollups:ok")
 	}
 
+	// Status must reflect the STEPS, not just batchErr.
+	//
+	// Only the first two steps assign batchErr; steps 3-15 append ":FAILED" to
+	// `steps` and leave it nil. So a run with failing steps recorded
+	// status='success' and looked healthy — 32 of 57 logged runs contain a
+	// ":FAILED" step and every one of them says 'success', including
+	// campaign_delivery_alerts failing on every run for days.
+	//
+	// batchErr is still what this function RETURNS, so RunBatchNightly's logging
+	// contract is unchanged; this only fixes what gets recorded.
 	status := "success"
 	if batchErr != nil {
 		status = "partial"
+	} else {
+		for _, s := range steps {
+			if strings.HasSuffix(s, ":FAILED") {
+				status = "partial"
+				break
+			}
+		}
 	}
 	errMsg := ""
 	if batchErr != nil {

@@ -4,7 +4,7 @@ import { Page, SectionCard, DataTable, ErrBanner, StatusBadge } from '../../comp
 import type { TableCol } from '../../components/UI'
 import { apiFetch, unwrapList } from '../../lib/api'
 import { fmtDatetime } from '../../lib/fmt'
-import { BLUE, PURPLE, GREEN, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { BLUE, PURPLE, GREEN, RED, AMBER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // Central data-ingestion hub — the single home for every dataset upload in the
 // workspace. Each ingest keeps its own dedicated importer (with tailored preview
@@ -25,6 +25,22 @@ interface AuditRow {
   error_msg: string
   uploaded_at: string
   uploaded_by_name: string
+}
+
+// One manual-upload source and how overdue it is, from app.v_pipeline_freshness
+// (the same thresholds the alerts use, so this page and the alert can never
+// disagree). Nothing showed this before: all three sources sat 45-47 days stale
+// while this page looked perfectly normal, because it only listed what HAD been
+// uploaded.
+interface Overdue {
+  source_key: string
+  label: string
+  owner: string | null
+  state: string
+  data_age_sec: number | null
+  stale_after_sec: number | null
+  last_upload_at: string | null
+  last_upload_by: string | null
 }
 
 interface Ingest {
@@ -49,6 +65,76 @@ const INGESTS: Ingest[] = [
     to: '/reports/uploads/settlement', target: 'interswitch_transactions', icon: 'account_balance', accent: GREEN },
 ]
 
+// Which importer fixes which source.
+const SOURCE_TO_INGEST: Record<string, string> = {
+  card_cycle: '/reports/uploads/card-cycle',
+  ccs_eodtxn: '/reports/uploads/interswitch',
+  interswitch_settlement: '/reports/uploads/settlement',
+}
+
+const OVERDUE_STATE: Record<string, { c: string; label: string }> = {
+  stale: { c: RED, label: 'Overdue' },
+  never: { c: RED, label: 'Never uploaded' },
+  warn: { c: AMBER, label: 'Due' },
+  ok: { c: GREEN, label: 'Up to date' },
+}
+
+function ageWords(sec: number | null): string {
+  if (sec == null) return 'never'
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`
+  if (sec < 48 * 3600) return `${Math.floor(sec / 3600)}h ago`
+  return `${Math.floor(sec / 86400)} days ago`
+}
+
+function OverduePanel({ rows, onOpen }: { rows: Overdue[]; onOpen: (to: string) => void }) {
+  if (rows.length === 0) return null
+  const late = rows.filter(r => r.state === 'stale' || r.state === 'never' || r.state === 'warn')
+  return (
+    <SectionCard
+      title="Upload Status"
+      subtitle={late.length > 0
+        ? `${late.length} of ${rows.length} datasets are overdue — the people who upload them are alerted by role`
+        : 'Every manual dataset is within its expected window'}
+      style={{ marginBottom: SP[5] }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+        {rows.map(r => {
+          const s = OVERDUE_STATE[r.state] ?? { c: 'var(--txt3)', label: r.state }
+          const to = SOURCE_TO_INGEST[r.source_key]
+          return (
+            <div key={r.source_key} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP[3],
+              flexWrap: 'wrap', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md,
+              background: r.state === 'ok' ? 'var(--th-bg)' : `${s.c}0A`,
+              border: `1px solid ${r.state === 'ok' ? 'var(--bdr)' : `${s.c}26`}`,
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.c, flexShrink: 0 }} />
+                  <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold }}>{r.label}</span>
+                  <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: s.c }}>{s.label}</span>
+                </div>
+                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3 }}>
+                  Newest data {ageWords(r.data_age_sec)}
+                  {r.last_upload_at ? ` · last uploaded ${fmtDatetime(r.last_upload_at)}${r.last_upload_by ? ` by ${r.last_upload_by}` : ''}` : ' · no upload recorded yet'}
+                  {r.owner ? ` · ${r.owner}` : ''}
+                </div>
+              </div>
+              {to && (
+                <button onClick={() => onOpen(to)} style={{
+                  padding: '6px 12px', borderRadius: RADIUS.md, border: `1px solid ${s.c}44`,
+                  background: 'transparent', color: s.c, fontSize: TEXT.sm, fontWeight: FW.semibold,
+                  cursor: 'pointer', whiteSpace: 'nowrap',
+                }}>Upload now</button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </SectionCard>
+  )
+}
+
 function IngestCard({ ingest, onOpen }: { ingest: Ingest; onOpen: (to: string) => void }) {
   return (
     <button onClick={() => onOpen(ingest.to)} style={{
@@ -63,7 +149,7 @@ function IngestCard({ ingest, onOpen }: { ingest: Ingest; onOpen: (to: string) =
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: 'var(--font-mono)' }}>→ {ingest.target}</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: TEXT.sm, fontWeight: FW.semibold, color: ingest.accent }}>
-          Open importer <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_forward</span>
+          Open Importer <span className="material-symbols-rounded" style={{ fontSize: 16 }}>arrow_forward</span>
         </span>
       </div>
     </button>
@@ -89,14 +175,20 @@ const LEDGER_COLS: TableCol<AuditRow>[] = [
 export default function ReportsUploads() {
   const navigate = useNavigate()
   const [ledger, setLedger] = useState<AuditRow[]>([])
+  const [overdue, setOverdue] = useState<Overdue[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const r = await apiFetch('/api/uploads/audit?limit=200')
+      // The status panel must not take the page down with it.
+      const [r, p] = await Promise.all([
+        apiFetch('/api/uploads/audit?limit=200'),
+        apiFetch('/api/uploads/pending').catch(() => null),
+      ])
       setLedger(unwrapList<AuditRow>(r))
+      setOverdue(unwrapList<Overdue>(p))
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])
@@ -107,11 +199,16 @@ export default function ReportsUploads() {
     <Page title="Data Management" subtitle="Central data ingestion & upload history" loading={loading && ledger.length === 0}>
       <ErrBanner error={error} onRetry={load} />
 
-      <SectionCard title="Upload a dataset" subtitle="Every workspace data ingest lives here — pick a dataset to import">
+      <OverduePanel rows={overdue} onOpen={navigate} />
+
+      <SectionCard title="Upload a Dataset" subtitle="Every workspace data ingest lives here — pick a dataset to import">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: SP[4] }}>
           {INGESTS.map(ing => <IngestCard key={ing.key} ingest={ing} onOpen={navigate} />)}
         </div>
         <p style={{ margin: '14px 0 0', fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5 }}>
+          Merchant names arrive truncated and are merged back together —{' '}
+          <a href="/reports/merchant-names" style={{ color: BLUE, fontWeight: FW.semibold }}>review those merges</a>.
+          <br />
           End-of-Day is no longer uploaded — it is derived automatically from live data. Credit-card statement
           generation and document/email attachments are handled within their own modules and are not dataset uploads.
         </p>
@@ -119,7 +216,7 @@ export default function ReportsUploads() {
 
       <div style={{ height: SP[5] }} />
 
-      <SectionCard title="Upload history" subtitle="Every ingest across modules" badge={ledger.length || undefined} padding={false}>
+      <SectionCard title="Upload History" subtitle="Every ingest across modules" badge={ledger.length || undefined} padding={false}>
         <DataTable cols={LEDGER_COLS} rows={ledger} keyFn={(r, i) => r.id ?? i} loading={loading} emptyText="No uploads recorded yet" pageSize={25} />
       </SectionCard>
     </Page>

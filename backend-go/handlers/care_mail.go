@@ -165,7 +165,12 @@ func StartCareMailPoller(db *core.DB) {
 			defer cancel()
 			WorkerBeat(ctx, db, "care_mail", "running", "", "")
 			if !graphConfigured(ctx, db) {
-				WorkerBeat(ctx, db, "care_mail", "ok", "Graph not configured", "") // dormant until IT connects Microsoft Graph
+				// 'idle', not 'ok': the run succeeded but nothing was ingested, and
+				// beating 'ok' showed this poller as green "Healthy" across 44,869
+				// consecutive runs while MS_GRAPH_* was unset and it read no mail at
+				// all. 'idle' renders as amber "Waiting" on the Sync hub, which is what
+				// "present but dormant" should look like.
+				WorkerBeat(ctx, db, "care_mail", "idle", "Graph not configured — no mail is being ingested", "")
 				return
 			}
 			n, err := pollCareMailbox(ctx, db)

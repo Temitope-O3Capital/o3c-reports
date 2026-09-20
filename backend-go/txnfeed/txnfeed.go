@@ -65,6 +65,14 @@ type Txn struct {
 	MCC         string
 	City        string
 	RowSeq      string
+	// CodeClass is field 8 and PCC is field 14 — both were parsed past until
+	// migration 233 gave them columns. Neither is what the field map guesses:
+	// field 8 is a class that is 1:1 with txn_code (so channel stays derived from
+	// txn_code, not from this), and field 14 is a processing code, NOT a
+	// transaction time — it is 000000 on ~99.4% of rows across 2021-2026. They are
+	// carried because they are free to carry and they corroborate the code map.
+	CodeClass string
+	PCC       string
 }
 
 // MoneyIn reports whether the code is a money-in (credit).
@@ -130,7 +138,8 @@ func ParseLine(line string) (Txn, error) {
 	}
 	return Txn{
 		PostDate: post, TxnDate: txn, Code: f[2], AmountMag: amt, Description: f[4],
-		AccountNo: f[5], PAN: f[6], Trace: f[8], Merchant: f[10], MCC: f[11], City: f[12], RowSeq: f[15],
+		AccountNo: f[5], PAN: f[6], CodeClass: f[7], Trace: f[8], Merchant: f[10],
+		MCC: f[11], City: f[12], PCC: f[13], RowSeq: f[15],
 	}, nil
 }
 
@@ -139,7 +148,7 @@ const insertHead = `
 INSERT INTO app.transactions (
     txn_id, account_id, contact_id, cif, account_no, post_date, txn_date, txn_code, description,
     amount, amount_debit, amount_credit, money_in, pan_number, merchant_name, mcc, city, trace,
-    product_name, source, source_file, row_hash, channel)
+    product_name, source, source_file, row_hash, channel, pcc, code_class, currency_code)
 `
 
 // apply parses one txn_file and inserts its new rows in a single statement: a VALUES
@@ -171,7 +180,7 @@ func Apply(ctx context.Context, tx *sql.Tx, lines []string, meta feedcore.FileMe
 		return 0, 0, rejected, nil
 	}
 
-	const perRow = 18
+	const perRow = 20
 	ph := make([]string, 0, len(rows))
 	args := make([]any, 0, len(rows)*perRow)
 	for i, r := range rows {
@@ -186,33 +195,44 @@ func Apply(ctx context.Context, tx *sql.Tx, lines []string, meta feedcore.FileMe
 			debit, credit = 0.0, r.t.AmountMag
 		}
 		args = append(args,
-			"ZT"+r.rowHash,                                     // txn_id
-			r.t.AccountNo,                                      // account_no
-			r.t.PostDate.Format("2006-01-02"),                 // post_date
-			r.t.TxnDate.Format("2006-01-02"),                  // txn_date
-			r.t.Code,                                          // txn_code
-			r.t.Description,                                   // description
+			"ZT"+r.rowHash,                    // txn_id
+			r.t.AccountNo,                     // account_no
+			r.t.PostDate.Format("2006-01-02"), // post_date
+			r.t.TxnDate.Format("2006-01-02"),  // txn_date
+			r.t.Code,                          // txn_code
+			r.t.Description,                   // description
 			strconv.FormatFloat(r.t.SignedAmount(), 'f', 2, 64), // amount (signed)
-			strconv.FormatFloat(debit, 'f', 2, 64),            // amount_debit
-			strconv.FormatFloat(credit, 'f', 2, 64),           // amount_credit
-			boolStr(r.t.MoneyIn()),                            // money_in
+			strconv.FormatFloat(debit, 'f', 2, 64),              // amount_debit
+			strconv.FormatFloat(credit, 'f', 2, 64),             // amount_credit
+			boolStr(r.t.MoneyIn()),                              // money_in
 			r.t.PAN, r.t.Merchant, r.t.MCC, r.t.City, r.t.Trace, // pan, merchant, mcc, city, trace
-			meta.Name,      // source_file
-			r.rowHash,      // row_hash
+			meta.Name,         // source_file
+			r.rowHash,         // row_hash
 			Channel(r.t.Code), // channel
+			r.t.PCC,           // pcc        (field 14 — processing code, not a time)
+			r.t.CodeClass,     // code_class (field 8)
 		)
 	}
 
 	q := insertHead + `
 WITH v(txn_id, account_no, post_date, txn_date, txn_code, description, amount, amount_debit,
-       amount_credit, money_in, pan, merchant, mcc, city, trace, source_file, row_hash, channel) AS (
+       amount_credit, money_in, pan, merchant, mcc, city, trace, source_file, row_hash, channel,
+       pcc, code_class) AS (
     VALUES ` + strings.Join(ph, ",") + `
 )
 SELECT v.txn_id, a.account_id, a.contact_id, a.cif, v.account_no,
        v.post_date::date, v.txn_date::date, v.txn_code, NULLIF(v.description,''),
        v.amount::numeric, v.amount_debit::numeric, v.amount_credit::numeric, v.money_in::boolean,
        NULLIF(v.pan,''), NULLIF(v.merchant,''), NULLIF(v.mcc,''), NULLIF(v.city,''), NULLIF(v.trace,''),
-       a.product_name, 'feed', v.source_file, v.row_hash, v.channel
+       a.product_name, 'feed', v.source_file, v.row_hash, v.channel,
+       NULLIF(v.pcc,''), NULLIF(v.code_class,''),
+       -- Currency is the ACCOUNT's, resolved through the join this insert already
+       -- does. The txn_file carries no currency of its own, and without this a
+       -- SUM(amount) adds USD (214 accounts, 4,882 rows) to naira. Resolved via
+       -- app.resolve_currency (migration 243) rather than a.currency_code alone,
+       -- because accounts.currency_code stays NULL until the account feed next
+       -- touches each account — the product name ('Amex USD') is populated now.
+       app.resolve_currency(NULL, a.currency_code, a.product_name)
 FROM v
 LEFT JOIN app.accounts a ON a.account_no = v.account_no
 WHERE NOT EXISTS (

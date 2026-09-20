@@ -41,6 +41,7 @@ const ReportsMyDashboard = lazy(() => import('./pages/reports/MyDashboard'))
 const ReportsKPI      = lazy(() => import('./pages/reports/KPITracker'))
 const ReportsBehaviour = lazy(() => import('./pages/reports/Behaviour'))
 const ReportsUploads  = lazy(() => import('./pages/reports/Uploads'))
+const ReportsMerchantNames = lazy(() => import('./pages/reports/MerchantNames'))
 const SettlementImport = lazy(() => import('./pages/settlements/SettlementImport'))
 const GrowthActivity  = lazy(() => import('./pages/growth/GrowthActivity'))
 const ReportsBuilder  = lazy(() => import('./pages/reports/ReportBuilder'))
@@ -202,6 +203,7 @@ const AdminNotificationSettings  = lazy(() => import('./pages/admin/Notification
 const AdminIntegrations          = lazy(() => import('./pages/admin/Integrations'))
 const AdminAuditLog              = lazy(() => import('./pages/admin/AuditLog'))
 const AdminSyncStatus            = lazy(() => import('./pages/admin/SyncStatus'))
+const AdminDataFreshness         = lazy(() => import('./pages/admin/DataFreshness'))
 const AdminHelpdeskSettings      = lazy(() => import('./pages/admin/HelpdeskSettings'))
 const AdminWorkflowTemplates     = lazy(() => import('./pages/admin/WorkflowTemplates'))
 const AdminModules               = lazy(() => import('./pages/admin/Modules'))
@@ -1249,6 +1251,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/reports/uploads/card-cycle" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><CardCycleImport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/uploads/interswitch" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><InterswitchImport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/uploads/settlement" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><SettlementImport /></PageErrorBoundary></RequireAccess>} />
+                  {/* Reviewing the merchant-name merges the daily job proposes. Same audience
+                      as Data Management: judging whether two spellings are one business is
+                      product knowledge, not server administration. */}
+                  <Route path="/reports/merchant-names" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><ReportsMerchantNames /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/builder" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsBuilder /></PageErrorBoundary></RequireAccess>} />
                   {/* Growth & Activity — registrations / transactions / churn monitor. Open to
                       the operating teams plus BI and management (mirrors the backend gate). */}
@@ -1274,6 +1280,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/admin/integrations"          element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminIntegrations /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/audit"                 element={<RequireAccess page="sync_status" user={user}><PageErrorBoundary><AdminAuditLog /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/sync"                  element={<RequireAccess page="sync_status" user={user}><PageErrorBoundary><AdminSyncStatus /></PageErrorBoundary></RequireAccess>} />
+                  {/* Same audience as the Sync hub: sync_status sits in the it_admin
+                      page bundle (core/auth.go), and the admin super-user bypasses
+                      page gating entirely. */}
+                  <Route path="/admin/data-freshness"        element={<RequireAccess page="sync_status" user={user}><PageErrorBoundary><AdminDataFreshness /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/helpdesk-settings"     element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminHelpdeskSettings /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/workflow-templates"    element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminWorkflowTemplates /></PageErrorBoundary></RequireAccess>} />
 

@@ -513,6 +513,10 @@ export default function NewApplication() {
         bvn:                   form.personal.bvn,
         nin:                   form.personal.nin,
         date_of_birth:         form.personal.dob,
+        // Gender is a REQUIRED field on step 1 and was never sent — this payload
+        // claimed to carry "ALL collected fields" but omitted it, so a mandatory
+        // answer was collected, shown back on the review step, and thrown away.
+        gender:                form.personal.gender,
         address:               form.personal.address,
         // Step 2 — employment
         employer:              form.employment.employer,

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -33,6 +34,19 @@ func WorkerBeat(ctx context.Context, db *core.DB, key, phase, detail, errStr str
 			VALUES ($1,'error',NOW(),NULLIF($2,''),NULLIF($3,''),1,NOW())
 			ON CONFLICT (worker_key) DO UPDATE SET status='error', last_finished_at=NOW(),
 			    last_error=NULLIF($2,''), detail=NULLIF($3,''), runs_total=worker_heartbeats.runs_total+1, updated_at=NOW()`, key, errStr, detail) //nolint:errcheck
+	case "idle":
+		// The run completed but the worker did nothing, because it is not
+		// configured to. Distinct from 'ok' on purpose: the Graph pollers used to
+		// beat 'ok' while ingesting no mail whatsoever, so they showed green
+		// "Healthy" for tens of thousands of runs. 'idle' renders amber "Waiting".
+		//
+		// last_ok_at is deliberately NOT advanced — a dormant worker has not
+		// succeeded at anything, and any dead-man's-switch reading last_ok_at
+		// should not be reassured by it.
+		db.PGExec(ctx, `INSERT INTO worker_heartbeats (worker_key, status, last_finished_at, detail, last_error, runs_total, updated_at)
+			VALUES ($1,'idle',NOW(),NULLIF($2,''),NULL,1,NOW())
+			ON CONFLICT (worker_key) DO UPDATE SET status='idle', last_finished_at=NOW(),
+			    detail=NULLIF($2,''), last_error=NULL, runs_total=worker_heartbeats.runs_total+1, updated_at=NOW()`, key, detail) //nolint:errcheck
 	}
 }
 
@@ -109,6 +123,28 @@ var workerRegistry = []workerDef{
 		"Delivers Report Builder reports on their schedule: runs the pivot live, renders CSV/XLSX and emails it to the recipients.", "heartbeat", ""},
 	{"ttl_cleanup", "TTL Cleanup", "Scheduled Job", "Daily",
 		"Purges expired tokens, sessions and idempotency keys.", "heartbeat", ""},
+	{"pipeline_monitor", "Pipeline Freshness Monitor", "Scheduled Job", "Every 15 min",
+		"Compares the age of every inbound source's data against its expectation and alerts when a feed goes quiet, its volume collapses, or its ingest job stops running. Watches the watchers.", "heartbeat", ""},
+
+	// These five write heartbeats but had no registry row, so they ran invisibly:
+	// the hub showed 24 workers while 30 were beating. A worker nobody can see is a
+	// worker nobody notices failing. (Zoho Voice is deliberately absent here — the
+	// zoho_voice row above already covers it via zoho_sync_state, and a second row
+	// would list the same worker twice.)
+	{"callback_reminders", "Call-back Reminders", "Scheduled Job", "Every 1 min",
+		"Alerts the assigned agent when a scheduled call-back comes due, exactly once per callback.", "heartbeat", ""},
+	// Cadence must match the worker's real ticker (call_center_outbound.go), or the
+	// hub's "next run" countdown is simply wrong — it ticks every 2 minutes.
+	{"lead_advance", "Lead Advance", "Scheduled Job", "Every 2 min",
+		"Moves a lead off 'pending' when its number has a newer call, so calls arriving without a lead_id (97% of them) still advance the lead.", "heartbeat", ""},
+	{"survey_dispatch", "Survey Dispatch", "Scheduled Job", "Every 1 min",
+		"Mails queued customer-feedback survey invitations. Nothing sends until an admin dispatches a survey.", "heartbeat", ""},
+	{"recovery_escalation", "Recovery Escalation", "Scheduled Job", "Daily",
+		"Opens recovery cases for accounts reaching 90+ DPD.", "heartbeat", ""},
+	{"zoho_recordings", "Zoho Voice · Recordings", "Data Sync", "Inside Zoho sync",
+		"Attaches call recordings to imported calls. Runs inside the Zoho Voice cycle rather than on its own timer.", "heartbeat", ""},
+	{"merchant_alias", "Merchant Alias Refresh", "Scheduled Job", "Daily",
+		"Maps truncated merchant spellings to their fuller form so top-merchant rankings stop splitting one merchant across several rows. New aliases apply immediately and are flagged for review.", "heartbeat", ""},
 
 	// ── Worker pools (always-on plumbing) ──
 	{"activity_log", "Activity-Log Writers", "Worker Pool", "Always on",
@@ -146,6 +182,8 @@ func cadenceSecs(cadence string) int {
 	switch cadence {
 	case "Every 1 min":
 		return 60
+	case "Every 2 min":
+		return 120
 	case "Every 3 min":
 		return 180
 	case "Every 15 min":
@@ -247,6 +285,39 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 			}
 		}
 
+		// ── Drop freshness ───────────────────────────────────────────────────
+		//
+		// A feed worker reports "ok" when its last RUN succeeded — and a run over a
+		// folder containing no new files succeeds. So a dead upstream reads as
+		// healthy indefinitely, which is precisely what happened: the CCS export
+		// stopped producing on 2026-09-08 and every stream reported ok every
+		// 15 minutes afterwards, while the older PowerShell ingester has reported ok
+		// on an empty folder since April 2026 without ever loading a single row.
+		//
+		// What matters is the age of the newest DROP, not the age of the last run.
+		// Only files that CARRIED ROWS count as data. A zero-byte drop legitimately
+		// means "no change in this window" (docs/DATA_FEED_INGESTION.md §2) and keeps
+		// arriving after the source dies — on 2026-09-07 the feed was already
+		// 30-95% zero-byte per stream, and the last two non-empty drops before the
+		// outage were 198 and 136 bytes. Counting every file would report a dead
+		// feed as fresh for up to a day. Matches app.v_pipeline_freshness.
+		newestDrop := map[string]time.Time{}
+		if rows, _ := db.PGQuery(ctx, `SELECT stream, MAX(feed_date) AS newest FROM feed_files
+			 WHERE status = 'ok' AND COALESCE(rows_read,0) > 0 GROUP BY stream`); len(rows) > 0 {
+			for _, x := range rows {
+				if t, okDate := dateOf(x["newest"]); okDate {
+					newestDrop[str(x["stream"])] = t
+				}
+			}
+		}
+		// custfeed predates feedcore and keeps its own table, with no stream column.
+		if rows, _ := db.PGQuery(ctx, `SELECT MAX(feed_date) AS newest FROM customer_feed_files
+			 WHERE status = 'ok' AND COALESCE(rows_read,0) > 0`); len(rows) > 0 {
+			if t, okDate := dateOf(rows[0]["newest"]); okDate {
+				newestDrop["customers"] = t
+			}
+		}
+
 		out := make([]workerOut, 0, len(workerRegistry))
 		for _, d := range workerRegistry {
 			o := workerOut{Key: d.Key, Name: d.Name, Category: d.Category, Cadence: d.Cadence,
@@ -277,6 +348,31 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 				}
 				o.LastRunAt, o.LastOKAt, o.LastError, o.Detail = s.lastRun, s.lastOK, s.err, s.detail
 			}
+			// Stale-drop override. Deliberately applied AFTER the run status: a
+			// successful run over a folder that has received nothing is not health,
+			// and the operator needs to see that distinction on the hub rather than
+			// discovering it days later. 36h of tolerance on a 15-minute feed is
+			// generous enough to survive a weekend outage upstream without crying
+			// wolf, and tight enough that 5 days of silence cannot hide.
+			if stream, isFeed := map[string]string{
+				"feed_accounts":     "accounts",
+				"feed_transactions": "transactions",
+				"feed_cardfam":      "cardfam",
+				"customer_feed":     "customers",
+			}[d.Key]; isFeed {
+				if newest, seen := newestDrop[stream]; seen {
+					if age := time.Since(newest); age > 36*time.Hour {
+						o.Status = "stale"
+						msg := fmt.Sprintf("no new drop in %dd — newest %s",
+							int(age.Hours()/24), newest.Format("2006-01-02"))
+						if o.Detail != nil && *o.Detail != "" {
+							msg += " · last run: " + *o.Detail
+						}
+						o.Detail = &msg
+					}
+				}
+			}
+
 			// Live "next run" for interval workers = last run + interval.
 			o.IntervalSec = cadenceSecs(d.Cadence)
 			if o.IntervalSec > 0 && o.LastRunAt != nil {
@@ -289,6 +385,27 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 		}
 		respond(w, map[string]any{"workers": out, "generated_at": time.Now().Format(time.RFC3339)}, "pg")
 	}
+}
+
+// dateOf normalises a scanned date/timestamp cell into a time.Time.
+//
+// PGQuery hands back either a time.Time or a string depending on how the driver
+// maps the column type, and feed_date is a bare `date`. A silent type-assertion
+// failure here would leave newestDrop empty and the staleness check permanently
+// quiet — the precise failure mode it exists to detect — so both shapes are
+// handled rather than assumed. tsPtr below takes the same precaution.
+func dateOf(v any) (time.Time, bool) {
+	switch t := v.(type) {
+	case time.Time:
+		return t, !t.IsZero()
+	case string:
+		for _, layout := range []string{"2006-01-02", time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05"} {
+			if p, err := time.Parse(layout, t); err == nil {
+				return p, true
+			}
+		}
+	}
+	return time.Time{}, false
 }
 
 // tsPtr / strPtr normalise a scanned cell into a *string (nil when empty/null).

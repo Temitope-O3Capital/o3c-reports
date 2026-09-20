@@ -195,11 +195,13 @@ const upsertSQL = `
 INSERT INTO app.customers (
     contact_id, cif, first_name, last_name, full_name, email, phone,
     address_1, address_2, full_address, city, state, country,
-    source, source_file, last_seen, first_seen_at, created_at, email_was_malformed
+    source, source_file, last_seen, first_seen_at, created_at, email_was_malformed,
+    address_3, phone_2
 ) VALUES (
     'Z' || LPAD($1, 15, '0'), $1, $2, $3, $4, $5, $6,
     $7, $8, $9, $10, $11, $12,
-    'feed', $13, NOW(), NOW(), NOW(), $14
+    'feed', $13, NOW(), NOW(), NOW(), $14,
+    NULLIF($15,''), NULLIF($16,'')
 )
 ON CONFLICT (cif) WHERE cif IS NOT NULL AND cif <> ''
 DO UPDATE SET
@@ -214,6 +216,11 @@ DO UPDATE SET
     city                = COALESCE(NULLIF(EXCLUDED.city, ''),         app.customers.city),
     state               = COALESCE(NULLIF(EXCLUDED.state, ''),        app.customers.state),
     country             = COALESCE(NULLIF(EXCLUDED.country, ''),      app.customers.country),
+    -- Field 5 (address line 3) and field 11 (cell) were parsed all along and had
+    -- nowhere to go until migration 233; address_3 was only ever folded into
+    -- full_address, and the second number was dropped outright.
+    address_3           = COALESCE(NULLIF(EXCLUDED.address_3, ''),    app.customers.address_3),
+    phone_2             = COALESCE(NULLIF(EXCLUDED.phone_2, ''),      app.customers.phone_2),
     email_was_malformed = EXCLUDED.email_was_malformed,
     source_file         = EXCLUDED.source_file,
     last_seen           = EXCLUDED.last_seen
@@ -285,6 +292,7 @@ func applyFile(ctx context.Context, db *core.DB, path string, meta FileMeta, res
 			c.CIF, c.FirstName, c.LastName, c.FullName(), c.Email, c.Phone,
 			c.Address1, c.Address2, c.FullAddress(), c.City, c.State, c.Country,
 			meta.Name, c.EmailLooksMalformed(),
+			c.Address3, c.Cell,
 		).Scan(&isNew)
 		if err != nil {
 			return fmt.Errorf("upsert cif %s: %w", c.CIF, err)

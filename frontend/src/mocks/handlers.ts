@@ -3622,21 +3622,24 @@ const EXECUTIVE_DEPT = [
           atm:      Math.round(MO[5].atm      / 30 * (0.85 + Math.random() * 0.3)),
           pos:      Math.round(MO[5].pos      / 30 * (0.85 + Math.random() * 0.3)),
           web:      Math.round(MO[5].web      / 30 * (0.85 + Math.random() * 0.3)),
-          transfer: Math.round(MO[5].transfer / 30 * (0.85 + Math.random() * 0.3)),
+          bills: 0, repayment: 0, fees: 0,
+          other: Math.round(MO[5].transfer / 30 * (0.85 + Math.random() * 0.3)),
         }))
       : (period === 'l30d' ? [MO[5]] : range).map((m, i) => ({
           date: period === 'ytd' ? MONTHS[i] : period === 'l90d' ? MONTHS[3 + i] : MONTHS[5],
-          atm: m.atm, pos: m.pos, web: m.web, transfer: m.transfer,
+          atm: m.atm, pos: m.pos, web: m.web, bills: 0, repayment: 0, fees: 0, other: m.transfer,
         }))
 
     return wd({
       report_date: period === 'ytd' ? '2026-06-30' : period === 'l30d' ? '2026-06-30' : '2026-07-24',
       total_volume_kobo: total, total_count: totalCt,
+      // The static sample predates the naira/USD split; it carries no dollar cards.
+      usd_count: 0, usd_volume_cents: 0, usd_channel_breakdown: [],
       channel_breakdown: [
-        { channel: 'ATM',      volume_kobo: atm,      count: atmCt, pct: parseFloat((atm / total * 100).toFixed(2)) },
-        { channel: 'POS',      volume_kobo: pos,      count: posCt, pct: parseFloat((pos / total * 100).toFixed(2)) },
-        { channel: 'WEB',      volume_kobo: web,      count: webCt, pct: parseFloat((web / total * 100).toFixed(2)) },
-        { channel: 'TRANSFER', volume_kobo: transfer, count: trCt,  pct: parseFloat((transfer / total * 100).toFixed(2)) },
+        { channel: 'ATM / cash',     volume_kobo: atm,      count: atmCt, pct: parseFloat((atm / total * 100).toFixed(2)) },
+        { channel: 'POS / purchase', volume_kobo: pos,      count: posCt, pct: parseFloat((pos / total * 100).toFixed(2)) },
+        { channel: 'Web transfer',   volume_kobo: web,      count: webCt, pct: parseFloat((web / total * 100).toFixed(2)) },
+        { channel: 'Other',          volume_kobo: transfer, count: trCt,  pct: parseFloat((transfer / total * 100).toFixed(2)) },
       ],
       product_breakdown: [
         { product: 'Classic (100)',  volume_kobo: Math.round(total * 0.42), count: Math.round(totalCt * 0.55) },
@@ -3672,19 +3675,21 @@ const EXECUTIVE_DEPT = [
 
   // Half-year report — real H1 2026 figures from the transaction report
   http.get(u('/api/cards/interswitch/half-year'), () => wd({
-    period: 'H1 2026', generated_at: '2026-07-01',
+    // Mirrors the API's static fallback: the source report's residual Transfer
+    // column is carried as Other, and it holds no dollar-card figures.
+    period_label: 'H1 2026', generated_at: '2026-07-01', source: 'static',
     months: [
-      { month: 'January',  atm: 168_500_000,   pos: 2_094_254_691,  web: 5_507_397_656,  transfer: 5_515_403_000,  total: 13_285_555_347 },
-      { month: 'February', atm: 172_200_000,   pos: 1_142_586_698,  web: 4_336_613_728,  transfer: 6_371_468_692,  total: 12_022_869_118 },
-      { month: 'March',    atm: 115_400_000,   pos: 1_435_062_160,  web: 2_825_917_248,  transfer: 8_441_525_120,  total: 12_817_904_528 },
-      { month: 'April',    atm: 125_200_000,   pos: 1_164_520_084,  web: 3_775_154_082,  transfer: 9_533_611_655,  total: 14_598_485_821 },
-      { month: 'May',      atm: 123_300_000,   pos: 1_141_592_869,  web: 3_923_585_065,  transfer: 42_530_445_160, total: 47_718_923_094 },
-      { month: 'June',     atm: 115_800_000,   pos: 1_497_544_357,  web: 3_324_723_845,  transfer: 9_851_054_276,  total: 14_789_122_478 },
+      { month: 'January',  atm: 168_500_000, pos: 2_094_254_691, web: 5_507_397_656, bills: 0, repayment: 0, fees: 0, other: 5_515_403_000,  total: 13_285_555_347, usd: 0 },
+      { month: 'February', atm: 172_200_000, pos: 1_142_586_698, web: 4_336_613_728, bills: 0, repayment: 0, fees: 0, other: 6_371_468_692,  total: 12_022_869_118, usd: 0 },
+      { month: 'March',    atm: 115_400_000, pos: 1_435_062_160, web: 2_825_917_248, bills: 0, repayment: 0, fees: 0, other: 8_441_525_120,  total: 12_817_904_528, usd: 0 },
+      { month: 'April',    atm: 125_200_000, pos: 1_164_520_084, web: 3_775_154_082, bills: 0, repayment: 0, fees: 0, other: 9_533_611_655,  total: 14_598_485_821, usd: 0 },
+      { month: 'May',      atm: 123_300_000, pos: 1_141_592_869, web: 3_923_585_065, bills: 0, repayment: 0, fees: 0, other: 42_530_445_160, total: 47_718_923_094, usd: 0 },
+      { month: 'June',     atm: 115_800_000, pos: 1_497_544_357, web: 3_324_723_845, bills: 0, repayment: 0, fees: 0, other: 9_851_054_276,  total: 14_789_122_478, usd: 0 },
     ],
     totals: {
-      atm: 820_400_000, pos: 8_475_560_859, web: 23_693_391_624, transfer: 82_243_507_903, total: 115_232_860_386,
-      atm_pct: 0.71, pos_pct: 7.36, web_pct: 20.56, transfer_pct: 71.37,
-      atm_avg: 136_733_333, pos_avg: 1_412_593_477, web_avg: 3_948_898_604, transfer_avg: 13_707_251_317,
+      atm: 820_400_000, pos: 8_475_560_859, web: 23_693_391_624, bills: 0, repayment: 0, fees: 0, other: 82_243_507_903, total: 115_232_860_386, usd: 0,
+      atm_pct: 0.71, pos_pct: 7.36, web_pct: 20.56, bills_pct: 0, repayment_pct: 0, fees_pct: 0, other_pct: 71.37,
+      atm_avg: 136_733_333, pos_avg: 1_412_593_477, web_avg: 3_948_898_604, bills_avg: 0, repayment_avg: 0, fees_avg: 0, other_avg: 13_707_251_317, usd_avg: 0,
     },
   })),
 

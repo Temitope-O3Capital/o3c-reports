@@ -348,6 +348,7 @@ const SECTIONS: Section[] = [
           { label: 'Report Builder',     to: '/reports/builder',      vis: ['bi_analyst','bi_head'] },
           { label: 'Customer Behaviour', to: '/reports/behaviour',    vis: ['bi_analyst','bi_head'] },
           { label: 'Data Management',    to: '/reports/uploads',      vis: ['bi_head','cards_head','finance_head','settlement_head','coo','cfo'] },
+          { label: 'Merchant Names',     to: '/reports/merchant-names', vis: ['bi_head','cards_head','finance_head','settlement_head','coo','cfo'] },
           { label: 'KPI Tracker',        to: '/reports/kpi',
             vis: ['bi_analyst','bi_head','sales_head','collections_head','recovery_head',
                   'finance_head','compliance_head','cards_head','risk_head','call_center_head',
@@ -477,7 +478,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // '/reports' itself is intentionally left ungated so the KPI audience (heads +
   // management, who lack the 'reports' page) can open the module; ReportsHome routes
   // them to a page they can access. The individual subs below still enforce pages.
-  '/reports/my-dashboard': 'reports', '/reports/behaviour': 'reports', '/reports/builder': 'reports', '/reports/kpi': 'kpi_dashboard', '/reports/uploads': 'uploads', '/compliance/cbn-complaints': 'cbn_reports',
+  '/reports/my-dashboard': 'reports', '/reports/behaviour': 'reports', '/reports/builder': 'reports', '/reports/kpi': 'kpi_dashboard', '/reports/uploads': 'uploads', '/reports/merchant-names': 'uploads', '/compliance/cbn-complaints': 'cbn_reports',
   '/growth': ['kpi_dashboard', 'reports', 'executive'],
   '/statements': 'statements', '/statements/credit-cards': 'statements', '/core-banking': 'core-banking',
   // Admin

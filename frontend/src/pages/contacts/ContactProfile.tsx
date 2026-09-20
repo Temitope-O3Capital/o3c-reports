@@ -6,6 +6,8 @@ import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate, fmtDatetime, fmtKoboExact, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, SORA, TEXT, FW, SP, RADIUS, TRANSITION } from '../../lib/design'
 import { useDebouncedValue } from '../../hooks/useDebounce'
+import { mccName } from '../../lib/mcc'
+import { currencyName } from '../../lib/currency'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -568,19 +570,10 @@ interface LedgerSummary {
 // can hold 4,600+ transactions. Filtering that client-side would silently show a
 // slice while looking like the whole thing.
 // ── Spending & behaviour analytics ──────────────────────────────────────────────
-// ISO-18245 merchant categories, named for the codes that actually appear in O3's book
-// (6011 dominates — it's ATM cash). Unknown codes fall back to "MCC ####".
-const MCC_NAMES: Record<string, string> = {
-  '6011': 'ATM cash', '6010': 'Cash — manual', '6012': 'Financial institution', '6013': 'Financial — other', '6014': 'Cash disbursement',
-  '6051': 'Quasi-cash / crypto', '4829': 'Money transfer',
-  '5541': 'Fuel', '5542': 'Fuel — automated', '5411': 'Groceries', '5300': 'Wholesale', '5310': 'Discount stores',
-  '5399': 'General merchandise', '5999': 'Retail — misc', '5311': 'Department stores', '5651': 'Clothing', '5691': 'Apparel',
-  '5812': 'Restaurants', '5814': 'Fast food', '5811': 'Caterers', '7011': 'Hotels', '7399': 'Business services',
-  '4814': 'Telecoms / airtime', '4900': 'Utilities', '5912': 'Pharmacy', '8011': 'Doctors', '8062': 'Hospitals',
-  '4111': 'Transport', '4121': 'Taxi / rideshare', '7995': 'Betting', '7994': 'Gaming', '5964': 'Direct marketing',
-  '1111': 'Uncategorised',
-}
-const mccName = (m: string) => MCC_NAMES[m] ?? `MCC ${m}`
+// MCC names come from lib/mcc — this file used to carry its own copy of the table,
+// which had already drifted from the one the portfolio analytics use. The shared
+// table also covers the codes measured off the retained drops (76 distinct in a
+// 120-file sample) rather than the original 32.
 
 const _num = (x: unknown) => Number(x ?? 0)
 function nairaShort(v: number): string {
@@ -597,6 +590,9 @@ interface Analytics {
   by_category?: { mcc: string; txns: number; spend: number }[]
   by_channel?: { channel: string; txns: number; spend: number }[]
   by_city?: { city: string; txns: number; spend: number }[]
+  by_currency?: { currency_code: string; txns: number; spend: number; inflow: number }[]
+  by_type?: { txn_type: string; txns: number; spend: number }[]
+  top_atm_locations?: { location: string; txns: number; amount: number }[]
   monthly?: { month: string; outflow: number; inflow: number }[]
 }
 
@@ -650,8 +646,15 @@ function SpendingInsights({ cif }: { cif: string }) {
   const cats = a?.by_category ?? []
   const channels = a?.by_channel ?? []
   const cities = a?.by_city ?? []
+  const currencies = a?.by_currency ?? []
+  const types = a?.by_type ?? []
+  const atmLocations = a?.top_atm_locations ?? []
   const monthly = a?.monthly ?? []
-  if (merchants.length === 0 && cats.length === 0 && channels.length === 0) return null
+  // A person holding an Amex USD card has their dollars and naira summed in the
+  // totals above; flag it rather than presenting one figure.
+  const mixedCurrency = currencies.filter(c => _num(c.txns) > 0).length > 1
+  if (merchants.length === 0 && cats.length === 0 && channels.length === 0
+    && types.length === 0 && currencies.length === 0 && atmLocations.length === 0) return null
 
   const monthMax = Math.max(1, ...monthly.flatMap(m => [_num(m.outflow), _num(m.inflow)]))
   const span = a?.totals ? `${fmtDate(a.totals.first_txn)} – ${fmtDate(a.totals.last_txn)}` : ''
@@ -664,6 +667,11 @@ function SpendingInsights({ cif }: { cif: string }) {
             <BarList color={NAVY} items={merchants.map(m => ({ label: m.merchant || '—', value: _num(m.spend), sub: nairaShort(_num(m.spend)) }))} />
           </InsightCard>
         )}
+        {atmLocations.length > 0 && (
+          <InsightCard title="Where they withdraw cash" icon="local_atm" tone={NAVY}>
+            <BarList color={NAVY} items={atmLocations.map(l => ({ label: l.location || '—', value: _num(l.txns), sub: `${fmtNum(l.txns)}× · ${nairaShort(_num(l.amount))}` }))} />
+          </InsightCard>
+        )}
         {cats.length > 0 && (
           <InsightCard title="Spending by category" icon="category" tone={PURPLE}>
             <BarList color={PURPLE} items={cats.map(c => ({ label: mccName(c.mcc), value: _num(c.spend), sub: nairaShort(_num(c.spend)) }))} />
@@ -674,9 +682,30 @@ function SpendingInsights({ cif }: { cif: string }) {
             <BarList color={BLUE} items={channels.map(c => ({ label: initCap(c.channel), value: _num(c.txns), sub: `${fmtNum(c.txns)}×` }))} />
           </InsightCard>
         )}
+        {types.length > 0 && (
+          <InsightCard title="What they did" icon="account_balance_wallet" tone={NAVY}>
+            <BarList color={NAVY} items={types.map(t => ({ label: t.txn_type, value: _num(t.txns), sub: `${fmtNum(t.txns)}×` }))} />
+          </InsightCard>
+        )}
         {cities.length > 0 && (
-          <InsightCard title="Where they transact" icon="location_on" tone={GREEN}>
+          /* Feed field 13 is a packed merchant/terminal location ("La", "Lagos Stat",
+             "Lekki Expre"), not a city — titled for what it actually holds. */
+          <InsightCard title="Merchant location" icon="location_on" tone={GREEN}>
             <BarList color={GREEN} items={cities.map(c => ({ label: c.city || '—', value: _num(c.txns), sub: `${fmtNum(c.txns)}×` }))} />
+          </InsightCard>
+        )}
+        {currencies.length > 0 && (
+          <InsightCard title="Currency" icon="currency_exchange" tone={AMBER}>
+            <BarList color={AMBER} items={currencies.map(c => ({
+              label: currencyName(c.currency_code),
+              value: _num(c.txns),
+              sub: `${fmtNum(c.txns)}× · ${currencyName(c.currency_code)} ${fmtNum(Math.round(_num(c.spend)))}`,
+            }))} />
+            {mixedCurrency && (
+              <div style={{ marginTop: 9, fontSize: TEXT.xs, color: AMBER }}>
+                Not converted — reported as supplied by the feed.
+              </div>
+            )}
           </InsightCard>
         )}
         {monthly.length > 1 && (

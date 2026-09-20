@@ -44,16 +44,29 @@ type Account struct {
 	Indicator        string
 	CardPAN          string
 	NameOnCard       string
+	CurrencyCode     string
+	StatusCode       string
 	CurrentDrBalance sql.NullFloat64
 	CycleBalance     sql.NullFloat64
 	CardWdAvailable  sql.NullFloat64
 	MinPaymentDue    sql.NullFloat64
 	CardLimit        sql.NullFloat64
+	InterestRate     sql.NullFloat64
 	OpenedDate       sql.NullTime
 	LastPaymentDate  sql.NullTime
 	CardExpiryDate   sql.NullTime
 	PaymentDueDate   sql.NullTime
+	CardIssueDate    sql.NullTime
 }
+
+// currencyRE and statusCodeRE gate fields 7 and 4. Both columns carry the
+// occasional junk cell (a stray ' 1' and '0.000' turn up in the 2026 drops), and
+// a currency of "0.000" is worse than no currency at all — it would look like a
+// real ISO code to everything downstream.
+var (
+	currencyRE   = regexp.MustCompile(`^\d{3}$`)
+	statusCodeRE = regexp.MustCompile(`^\d{1,2}$`)
+)
 
 func num(s string) sql.NullFloat64 {
 	s = strings.TrimSpace(s)
@@ -96,11 +109,26 @@ func ParseLine(line string) (Account, error) {
 	if len(acctNo) < 6 {
 		return Account{}, fmt.Errorf("field 1 is not an account number: %q", acctNo)
 	}
+	// Fields 4, 6, 7 and 20 were parsed past and dropped until migration 233 gave
+	// them columns. Field 7 is the currency (566 NGN / 840 USD), NOT the branch
+	// code docs/DATA_FEED_INGESTION.md §3.2 guesses at — see the migration for the
+	// evidence. Field 4's status code is carried raw and never mapped onto
+	// app.accounts.status, which it does not agree with.
+	currency, statusCode := f[6], f[3]
+	if !currencyRE.MatchString(currency) {
+		currency = ""
+	}
+	if !statusCodeRE.MatchString(statusCode) {
+		statusCode = ""
+	}
 	return Account{
 		AccountNo:        acctNo,
 		ProductName:      f[1],
 		CurrentDrBalance: num(f[2]),
+		StatusCode:       statusCode,
 		CycleBalance:     num(f[4]),
+		InterestRate:     num(f[5]),
+		CurrencyCode:     currency,
 		OpenedDate:       dt(f[7]),
 		CardWdAvailable:  num(f[8]),
 		MinPaymentDue:    num(f[9]),
@@ -112,6 +140,7 @@ func ParseLine(line string) (Account, error) {
 		PaymentDueDate:   dt(f[16]),
 		CardPAN:          f[17],
 		NameOnCard:       f[18],
+		CardIssueDate:    dt(f[19]),
 	}, nil
 }
 
@@ -147,12 +176,14 @@ INSERT INTO app.accounts (
     card_pan, name_on_card, current_dr_balance, cycle_balance, card_wd_available,
     min_payment_due, card_limit, card_utilisation,
     opened_date, last_payment_date, card_expiry_date, payment_due_date,
+    currency_code, status_code, interest_rate, card_issue_date,
     source, source_file, last_seen
 ) VALUES (
     'ZA' || $1, $1, NULLIF($2,''), NULLIF($3,''), NULLIF($4,''), NULLIF($5,''),
     NULLIF($6,''), NULLIF($7,''), $8, $9, $10,
     $11, $12, $13,
     $14, $15, $16, $17,
+    NULLIF($19,''), NULLIF($20,''), $21, $22,
     'feed', $18, NOW()
 )
 ON CONFLICT (account_no) WHERE account_no IS NOT NULL AND account_no <> ''
@@ -173,6 +204,10 @@ DO UPDATE SET
     last_payment_date  = COALESCE(EXCLUDED.last_payment_date,  app.accounts.last_payment_date),
     card_expiry_date   = COALESCE(EXCLUDED.card_expiry_date,   app.accounts.card_expiry_date),
     payment_due_date   = COALESCE(EXCLUDED.payment_due_date,   app.accounts.payment_due_date),
+    currency_code      = COALESCE(NULLIF(EXCLUDED.currency_code, ''), app.accounts.currency_code),
+    status_code        = COALESCE(NULLIF(EXCLUDED.status_code, ''),   app.accounts.status_code),
+    interest_rate      = COALESCE(EXCLUDED.interest_rate,      app.accounts.interest_rate),
+    card_issue_date    = COALESCE(EXCLUDED.card_issue_date,    app.accounts.card_issue_date),
     source_file        = EXCLUDED.source_file,
     last_seen          = EXCLUDED.last_seen
 RETURNING (xmax = 0) AS inserted`
@@ -203,6 +238,7 @@ func apply(_ *core.DB) feedcore.Applier {
 				a.MinPaymentDue, a.CardLimit, a.Utilisation(),
 				a.OpenedDate, a.LastPaymentDate, a.CardExpiryDate, a.PaymentDueDate,
 				meta.Name,
+				a.CurrencyCode, a.StatusCode, a.InterestRate, a.CardIssueDate,
 			).Scan(&isNew); err != nil {
 				return inserted, updated, rejected, fmt.Errorf("upsert account %s: %w", a.AccountNo, err)
 			}

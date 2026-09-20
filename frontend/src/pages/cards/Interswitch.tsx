@@ -4,6 +4,7 @@ import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, PURPLE, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../../lib/design'
 import { EArea, EBar } from '../../components/echarts'
+import { fmtUsdCents } from '../../lib/currency'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -14,8 +15,13 @@ interface InterswitchSummary {
   channel_breakdown: { channel: string; volume_kobo: number; count: number; pct: number }[]
   product_breakdown: { product: string; volume_kobo: number; count: number }[]
   txn_type_breakdown: { type: string; count: number; volume_kobo: number }[]
-  daily_trend: { date: string; atm: number; pos: number; web: number; transfer: number }[]
+  daily_trend: { date: string; atm: number; pos: number; web: number; bills: number; repayment: number; fees: number }[]
   top_merchants: { name: string; volume_kobo: number; count: number }[]
+  // Dollar cards, in cents. CCS posts them in US dollars, so every figure above
+  // is naira cards only and these are reported on their own.
+  usd_count?: number
+  usd_volume_cents?: number
+  usd_channel_breakdown?: { channel: string; volume_cents: number; count: number }[]
 }
 
 type Period = 'mtd' | 'l30d' | 'l90d' | 'ytd'
@@ -24,7 +30,19 @@ const PERIOD_OPTIONS: { id: Period; label: string }[] = [
   { id: 'l90d', label: 'Last 90d' }, { id: 'ytd', label: 'YTD' },
 ]
 
-const CH_COLOR: Record<string, string> = { ATM: NAVY, POS: BLUE, WEB: AMBER, TRANSFER: GREEN }
+// Keys are the channel label upper-cased (see the lookup below). The labels come
+// from app.card_txn_codes.category via iswChannelCase — they used to be
+// ATM/POS/WEB/Transfer, a classification that matched no code in this feed and
+// reported everything as Transfer.
+const CH_COLOR: Record<string, string> = {
+  'ATM / CASH': NAVY,
+  'POS / PURCHASE': BLUE,
+  'WEB TRANSFER': AMBER,
+  'BILL PAYMENT': GREEN,
+  'REPAYMENT': PURPLE,
+  'FEES & INTEREST': RED,
+  'OTHER': '#94A3B8',
+}
 
 function PeriodFilter({ period, onChange }: { period: Period; onChange: (p: Period) => void }) {
   return (
@@ -97,14 +115,33 @@ export default function Interswitch() {
     >
       {/* KPI row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
-        <KpiCard label="Total Volume"       value={fmtKoboExact(data.total_volume_kobo)} icon="swap_horiz"    accent={NAVY}  />
+        <KpiCard label="Total Volume (₦)"       value={fmtKoboExact(data.total_volume_kobo)} icon="swap_horiz"    accent={NAVY}  />
         <KpiCard label="Total Transactions" value={fmtNum(data.total_count)}         icon="receipt_long"  accent={BLUE}  />
         <KpiCard label="Avg Transaction"    value={fmtKoboExact(avgTxn)}                  icon="bar_chart"     accent={AMBER} />
         <KpiCard label="Products Active"    value={fmtNum(productsActive)}            icon="credit_card"   accent={GREEN} />
       </div>
 
+      {(data.usd_count ?? 0) > 0 && (
+        <SectionCard title="USD Cards" subtitle="Posted by CCS in US dollars, so kept out of every naira figure on this page" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: SP[6], flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: 'var(--txt)', lineHeight: 1.1 }}>{fmtUsdCents(data.usd_volume_cents ?? 0)}</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, marginTop: 2 }}>{fmtNum(data.usd_count ?? 0)} transactions</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
+              {(data.usd_channel_breakdown ?? []).map(ch => (
+                <div key={ch.channel} style={{ display: 'flex', justifyContent: 'space-between', gap: SP[3], fontSize: TEXT.sm, fontFamily: INTER }}>
+                  <span style={{ color: 'var(--txt)' }}>{ch.channel}</span>
+                  <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtUsdCents(ch.volume_cents)} · {fmtNum(ch.count)} txns</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
       {/* Channel breakdown bar chart */}
-      <SectionCard title="Channel Breakdown" subtitle="Transaction volume by channel (ATM / POS / WEB / Transfer)" style={{ marginBottom: 14 }}>
+      <SectionCard title="Channel Breakdown" subtitle="Volume by what the customer did — cash, purchase, transfer, bills, repayment, charges" style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[6], alignItems: 'center' }}>
           <EBar
             data={data.channel_breakdown}
@@ -149,10 +186,12 @@ export default function Interswitch() {
           data={data.daily_trend}
           xKey="date"
           series={[
-            { key: 'atm', name: 'ATM', color: NAVY },
-            { key: 'pos', name: 'POS', color: BLUE },
-            { key: 'web', name: 'WEB', color: AMBER },
-            { key: 'transfer', name: 'Transfer', color: GREEN },
+            { key: 'atm', name: 'ATM / Cash', color: NAVY },
+            { key: 'pos', name: 'POS / Purchase', color: BLUE },
+            { key: 'web', name: 'Web Transfer', color: AMBER },
+            { key: 'bills', name: 'Bill Payment', color: GREEN },
+            { key: 'repayment', name: 'Repayment', color: PURPLE },
+            { key: 'fees', name: 'Fees & Interest', color: RED },
           ]}
           height={220}
           stack
@@ -164,7 +203,7 @@ export default function Interswitch() {
 
       {/* Product breakdown + Transaction type */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: 14 }}>
-        <SectionCard title="Product Breakdown" subtitle="Volume by card product">
+        <SectionCard title="Product Breakdown" subtitle="Naira card volume by product">
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
@@ -223,7 +262,7 @@ export default function Interswitch() {
       </div>
 
       {/* Top merchants */}
-      <SectionCard title="Top Merchants" subtitle="By transaction volume">
+      <SectionCard title="Top Merchants" subtitle="Card purchases on naira cards, by volume">
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'var(--th-bg)' }}>
