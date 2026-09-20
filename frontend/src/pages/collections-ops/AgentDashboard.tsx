@@ -164,7 +164,11 @@ export default function AgentDashboard() {
   // Personal view: pick the signed-in agent's own row out of the array (the dashboard
   // scopes a non-head to just their own row).
   const uid = myUserId()
-  const myRow = agents.find(a => a.id === uid) ?? agents[0] ?? null
+  // No falling back to agents[0]. A new or unassigned agent — or anyone the id lookup
+  // fails for — was shown the FIRST row in the array under the headings "My Queue" and
+  // "Collected Today", silently attributing a colleague's accounts and money to them.
+  // With no row of their own the tiles read zero, which is what is actually true.
+  const myRow = agents.find(a => a.id === uid) ?? null
   const myAssigned  = Number(myRow?.assigned ?? 0)
   const myContacts  = Number(myRow?.contacts_today ?? 0)
   const myPtps      = Number(myRow?.ptps_secured_today ?? myRow?.ptps_today ?? 0)
@@ -179,9 +183,12 @@ export default function AgentDashboard() {
   // ourselves; fall back to the whole list otherwise. "To chase" = a pending
   // promise whose date is today or already past (unkept).
   const myName = (myRow?.full_name ?? '').trim().toLowerCase()
+  // When we cannot identify ourselves, show NOTHING rather than the whole team's
+  // promises. The old fallback presented every agent's PTPs as "mine to chase", which
+  // is the same misattribution the agents[0] fallback above caused.
   const myPromises = myName
     ? promises.filter(p => (p.agent_name ?? '').trim().toLowerCase() === myName)
-    : promises
+    : []
   const t = today()
   const pendingPromises = myPromises.filter(p => p.status === 'Pending')
   const ptpDueToday = pendingPromises.filter(p => (p.promise_date ?? '').slice(0, 10) === t).length

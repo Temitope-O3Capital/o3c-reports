@@ -104,13 +104,24 @@ func escalateSevereToRecovery(ctx context.Context, db *core.DB, minDPD int) (int
 
 	// Take every active collection assignment that is now in an open recovery case out
 	// of the collections queue, so no account is worked by both teams at once.
+	//
+	// The delinquency condition is essential and was missing. Without it this swept out
+	// any account whose customer had ANY open case, regardless of whether the debt was
+	// still severe — and because nothing closes a case when a debt cures, that exit was
+	// permanent and re-applied every night. The queue therefore drained to nothing
+	// (0 active assignments survived), and re-assigning an account by hand was undone
+	// within 24 hours. An account only leaves collections while it is genuinely at or
+	// beyond the escalation threshold.
 	if _, err := db.PG.ExecContext(ctx, `
 		UPDATE collection_assignments ca
 		   SET status = 'sent_to_recovery', updated_at = NOW()
 		 WHERE ca.status = 'active'
 		   AND EXISTS (SELECT 1 FROM recovery_cases rc
 		               WHERE rc.account_cif = ca.account_cif
-		                 AND rc.status NOT IN ('closed','recovered','written_off'))`); err != nil {
+		                 AND rc.status NOT IN ('closed','recovered','written_off'))
+		   AND EXISTS (SELECT 1 FROM app.collections_delinquent_unified v
+		               WHERE v.cif = ca.account_cif
+		                 AND v.dpd >= $1)`, minDPD); err != nil {
 		return created, err
 	}
 	return created, nil

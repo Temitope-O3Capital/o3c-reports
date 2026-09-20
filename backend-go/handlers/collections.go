@@ -80,10 +80,17 @@ func collectionsGenerateAssignments(db *core.DB) http.HandlerFunc {
 			WHEN dpd<=180 THEN '91-180' WHEN dpd<=360 THEN '181-360' ELSE '360+' END`
 
 		// Refresh outstanding/bucket/name on assignments still being worked.
+		//
+		// The "Loan (uploaded)" arm of the view is built FROM collection_assignments, so
+		// including it here feeds this UPDATE its own output: a CIF with two manual loans
+		// has BOTH rows set to their combined total, and the next run squares that again.
+		// Only externally-sourced delinquency (cards, Udara loans) may refresh a row.
 		if _, err := db.PGExec(ctx, `
 			WITH agg AS (
 				SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo, MAX(customer_name) AS customer_name
-				FROM app.collections_delinquent_unified GROUP BY cif
+				FROM app.collections_delinquent_unified
+				WHERE product_name <> 'Loan (uploaded)'
+				GROUP BY cif
 			)
 			UPDATE collection_assignments ca SET
 				outstanding_kobo = agg.outstanding_kobo,
