@@ -10,10 +10,36 @@ stated otherwise.
 
 ---
 
-## 1. Two corrupt interest postings on USD cards (2023)
+## 1. Impossible interest on one USD card — ONGOING, not historical
 
-**Status:** Documented, not fixed — historical, outside the reporting window that
-matters (decision 2026-09-14).
+**Status:** Open — upstream (CCS). Reclassified 2026-09-20: this was recorded as two
+2023 spikes and set aside as historical. It is neither. It is monthly, it runs to
+**2026-08-14**, and it accounts for **99.5% of all USD "income" the book has ever
+recorded**.
+
+**What the numbers are.** One account — product Amex USD, **card limit $1,000**,
+balance $2,633.25 — has taken **29 "Total Interest" (604) postings over $1,000,
+totalling $7,677,337.68**, between 2023-04-14 and 2026-08-14:
+
+| Year | Postings | Total |
+|---|---|---|
+| 2023 | 7 | 6,763,602.28 |
+| 2024 | 11 | 317,371.67 |
+| 2025 | 7 | 337,222.89 |
+| 2026 (to Aug) | 5 | 259,140.84 |
+
+All-time USD income is **$7,715,339.91**. Remove these and what is left is
+**$2,845.68 across 591 postings** — dollar-scale, plausible, and the real number.
+Every USD revenue figure in the app is therefore meaningless until this is corrected
+at source; the split by currency (migration 243) makes the corruption visible but
+does not remove it.
+
+Monthly interest of $43k–$69k on a $1,000 limit is impossible as dollars. These are
+naira amounts posted to a dollar account, and the mechanism is still running.
+
+**Do not fix this downstream.** Deleting or rescaling the rows would put the
+workspace out of agreement with CCS, which is the system of record. It needs the
+card team to correct the posting at source.
 
 CCS posts USD-card amounts **in dollars** (confirmed by the business, and by the data:
 fixed fees on USD cards are $5 joining / $10 maintenance / $5 re-issue, against
@@ -39,9 +65,8 @@ Notes for anyone revisiting:
 - Across all time there are **63** fee/interest/penalty postings over 1,000 on USD
   cards, totalling 14,905,439.13 of the 14,927,440.78 on those cards. Excluding the
   top 50 rows leaves **$94,831** — dollar-scale and plausible.
-- Recurring 604 postings of ~$47k–$70k per cycle through 2025–2026 are also large
-  relative to the median and have not been investigated. They may be one
-  large-balance account or the same mis-booking pattern.
+- The recurring $47k–$70k postings once listed here as "not investigated" are the
+  same account and the same defect — that is what the table above measures.
 - Correction belongs at source (CCS), not downstream.
 
 ## 2. USD revenue was summed into a column labelled naira
@@ -74,17 +99,29 @@ POS, web transfer, bills, repayment, fees and Other. Its old fourth column,
 therefore not safe as a freshness signal. `app.v_pipeline_freshness` measures ingest
 timestamps only for this reason.
 
-## 4. Feed files that failed and were never retried (2021–2022)
+## 4. Feed files that failed and were never retried (2021–2023)
 
-**Status:** Documented, not fixed.
+**Status:** Fixed (2026-09-20). No rows were lost, and the cause — which was still
+live — is gone.
 
 Twelve `txn_file` drops are recorded in `app.feed_files` with `status='failed'` and
 the error `insert N txns: extended protocol limited to 65535 parameters` — a batch
 too large for a single parameterised insert. Around 47,000 rows in total. Failed
 files are recorded and never reprocessed.
 
-These dates fall inside the `mssql_baseline` era, so the transactions are very
-likely present from the baseline load rather than lost. **Not verified.**
+**Now verified (2026-09-20):** every one of those twelve dates is fully present in
+the ledger from the `mssql_baseline` load — e.g. 2021-11-14 holds 5,114 rows, 5,112
+of them baseline. Nothing was lost.
+
+**But the cause was still live.** All twelve are the monthly bulk drop (sequence 94,
+the 14th of the month) carrying 3,700–4,800 transactions. `txnfeed` binds 20
+parameters per row, so 65,535 / 20 caps a single statement at **3,276 rows** — every
+future bulk drop would have failed the same way. The insert is now chunked at 2,000
+rows per statement inside the same transaction, so a file is still all-or-nothing.
+`txnfeed/batch_test.go` locks the invariant so it cannot regress.
+
+The twelve recorded failures are left in `app.feed_files` as history; their rows are
+already in the ledger, so reprocessing them would achieve nothing.
 
 ## 5. CCS feed intermittent from 2026-09-08
 
@@ -221,6 +258,60 @@ Data Management listed upload history and the importers, so three datasets sitti
 status panel per manual source — how overdue, the owning team, the last upload and
 who did it — from the same thresholds the alerts use, so the page and the alert can
 never disagree.
+
+## 17. The customer feed alerted stale when it was healthy
+
+**Status:** Fixed (migration 257).
+
+On 2026-09-20 the monitor reported the customer feed stale, with the taper check
+firing first. It was wrong. The drops were arriving on time — 96 files that day,
+newest at 17:19 — but none carried rows:
+
+| Date | Files | Non-empty |
+|---|---|---|
+| 2026-09-15 | 96 | 33 |
+| 2026-09-16 | 96 | 1 |
+| 2026-09-17 | 96 | 5 |
+| 2026-09-18 | 96 | 3 |
+| 2026-09-19 | 96 | 0 |
+| 2026-09-20 | 96 | 0 |
+
+Two consecutive days with no customer changes is ordinary. The seeded note claimed
+"~27 non-empty drops/day", which was never measured and is wrong by an order of
+magnitude. Thresholds are now warn 48h / stale 120h, and taper detection is off for
+this source: with a median of 1–3 rows a day, a ratio test is noise. The account and
+transaction feeds keep their tight thresholds — they really do deliver ~1,090
+non-empty drops a day.
+
+## 18. A rejected merchant merge came back the next day
+
+**Status:** Fixed (migration 258).
+
+`app.refresh_merchant_aliases()` inserts `ON CONFLICT (clean_name) DO NOTHING`, which
+protects an alias that exists. A rejected one does not exist — it was deleted — so
+the job re-proposed it and the reviewer had to reject it again, indefinitely. The
+only durable escape was to write an opposing mapping by hand, which is not what
+"reject" should mean. Rejections are now recorded in `app.merchant_alias_rejected`
+and the refresh skips them. Deleting a row there lets the job propose that merge
+again.
+
+## 19. Every push to main reported failure
+
+**Status:** Fixed (2026-09-20).
+
+Two separate causes, both unrelated to the code being pushed:
+
+- **govulncheck** — GO-2026-6348 in `google.golang.org/grpc@v1.82.1`, reachable
+  through the OpenTelemetry OTLP exporter, the only thing that pulls grpc in. Bumped
+  to v1.83.1.
+- **The on-prem deploy job** — `SERVER_HOST` and `SSH_PRIVATE_KEY` have never been
+  set on this repository (its only secret is `CF_ACCOUNT_ID`), so the job wrote an
+  empty key file and called `ssh-keyscan` with no host. It now runs only when both
+  secrets exist, and otherwise skips with a warning saying so. A permanently red main
+  teaches everyone to ignore it, which hides the failures that matter.
+
+Note the workflow deploys to a Linux server at `/opt/o3c`; the Windows box that
+actually serves the workspace builds from its own working tree and is unaffected.
 
 ## 13. Backfill of the migration 233 columns — run log
 

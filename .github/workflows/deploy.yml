@@ -85,10 +85,40 @@ jobs:
         run: npx tsc --noEmit
         working-directory: frontend
 
+  # ── Is the on-prem deploy actually configured? ──────────────────────────────
+  # SERVER_HOST and SSH_PRIVATE_KEY have never been set on this repository (the
+  # only secret it holds is CF_ACCOUNT_ID), so every push to main ended red at
+  # "Configure SSH": the key file was written as an empty string and ssh-keyscan
+  # was invoked with no host at all. A permanently red main teaches everyone to
+  # ignore it, which hides the failures that matter — so the deploy is skipped,
+  # with a warning that says why, until the secrets exist.
+  #
+  # This needs its own job because the `secrets` context is not available to a
+  # job-level `if`; it is only readable inside a step.
+  preflight:
+    name: Deploy configured?
+    needs: [test]
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          if [ -n "$SERVER_HOST" ] && [ -n "$SSH_PRIVATE_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=On-prem deploy skipped::SERVER_HOST and/or SSH_PRIVATE_KEY are not set on this repository, so there is nothing to deploy to. Set both in Settings → Secrets and variables → Actions to enable it."
+          fi
+
   # ── Deploy — on-prem server via SSH ─────────────────────────────────────────
   deploy:
     name: Deploy (On-prem)
-    needs: [test]
+    needs: [test, preflight]
+    if: needs.preflight.outputs.configured == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
