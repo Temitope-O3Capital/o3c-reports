@@ -121,16 +121,22 @@ func campaignContactMergeData(c map[string]any) map[string]any {
 
 // ── Provider functions ────────────────────────────────────────────────────────
 
-// withSMSOptOut appends a compliance opt-out line unless the body already has one.
+// withSMSOptOut no longer appends "Reply STOP to opt out", because nothing in this
+// system can receive that reply.
+//
+// The SMS webhook (smsWebhook, below) handles DELIVERY RECEIPTS only: it reads
+// status/delivery_status and updates campaign_contacts. It never sees an inbound
+// message body, so a customer replying STOP was heard by nobody — every campaign SMS
+// we have ever sent carried an opt-out promise we could not honour, which is worse
+// than offering none.
+//
+// Opt-out is real, it simply is not by SMS reply: dnc_list (operator-added, honoured by
+// the dialler and by app.is_suppressed for call/sms/whatsapp), app.contact_suppressions
+// (per channel, per customer — migration 259), mail_suppressions for email, and the
+// contact centre. If Termii inbound forwarding is configured later, wire it into
+// contact_suppressions with source='sms_stop' and restore a truthful footer here.
 func withSMSOptOut(body string) string {
-	if strings.TrimSpace(body) == "" {
-		return body
-	}
-	low := strings.ToLower(body)
-	if strings.Contains(low, "opt out") || strings.Contains(low, "opt-out") || strings.Contains(low, "reply stop") {
-		return body
-	}
-	return strings.TrimRight(body, " \n\t") + " Reply STOP to opt out."
+	return body
 }
 
 func sendSMS(ctx context.Context, db *core.DB, phone, body string) (ok bool, providerID string) {
