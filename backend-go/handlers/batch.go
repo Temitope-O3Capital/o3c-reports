@@ -269,6 +269,32 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "reporting_rollups:ok")
 	}
 
+	// 16. Refresh the collections work book from the delinquency view.
+	//
+	// This was a button and nothing else: collectionsGenerateAssignments is reachable
+	// only from the Supervisor screen, no scheduler ever called it, and it had not been
+	// pressed since 7 September — while the 02:00 recovery escalation drained the queue
+	// nightly. One job removed work from collections and nothing refilled it. Running it
+	// here, BEFORE escalation's next 02:00 pass, is what makes the module self-sustaining.
+	if n, err := batchGenerateCollectionAssignments(ctx, db); err != nil {
+		slog.Error("Batch: collections book refresh failed", "err", err)
+		steps = append(steps, "collections_generate:FAILED")
+	} else {
+		steps = append(steps, fmt.Sprintf("collections_generate:ok(%d)", n))
+	}
+
+	// 17. Push the collections book into the dialler queue.
+	//
+	// Also on-demand-only, and never once triggered automatically — it had no registry
+	// heartbeat either, so a sync that never ran looked identical to one that did.
+	// 865 of the 1,184 queued numbers have never been called.
+	if n, err := batchSyncCollectionsToDialler(ctx, db); err != nil {
+		slog.Error("Batch: dialler sync failed", "err", err)
+		steps = append(steps, "callcenter_collections:FAILED")
+	} else {
+		steps = append(steps, fmt.Sprintf("callcenter_collections:ok(%d)", n))
+	}
+
 	// Status must reflect the STEPS, not just batchErr.
 	//
 	// Only the first two steps assign batchErr; steps 3-15 append ":FAILED" to
@@ -304,6 +330,129 @@ func runBatch(ctx context.Context, db *core.DB) error {
 
 	slog.Info("Batch: finished", "status", status, "steps", steps)
 	return batchErr
+}
+
+// batchGenerateCollectionAssignments refreshes the collections work book on a schedule.
+//
+// The same two statements collectionsGenerateAssignments runs behind the Supervisor's
+// "Generate Cases" button, with assigned_by left NULL because no human triggered this.
+// Kept deliberately separate from the handler rather than shared: the handler enforces a
+// permission and records who pressed the button, neither of which applies to a batch run.
+//
+// The refresh EXCLUDES the view's "Loan (uploaded)" arm, which is itself built from
+// collection_assignments — including it makes the UPDATE feed on its own output and
+// compound a customer's balance every run.
+func batchGenerateCollectionAssignments(ctx context.Context, db *core.DB) (int64, error) {
+	WorkerBeat(ctx, db, "collections_generate", "running", "", "")
+
+	bucketExpr := `CASE WHEN dpd<=30 THEN '1-30' WHEN dpd<=60 THEN '31-60' WHEN dpd<=90 THEN '61-90'
+		WHEN dpd<=180 THEN '91-180' WHEN dpd<=360 THEN '181-360' ELSE '360+' END`
+
+	if _, err := db.PGExec(ctx, `
+		WITH agg AS (
+			SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo, MAX(customer_name) AS customer_name
+			FROM app.collections_delinquent_unified
+			WHERE product_name <> 'Loan (uploaded)'
+			GROUP BY cif
+		)
+		UPDATE collection_assignments ca SET
+			outstanding_kobo = agg.outstanding_kobo,
+			dpd_bucket       = `+bucketExpr+`,
+			customer_name    = COALESCE(NULLIF(ca.customer_name,''), agg.customer_name),
+			updated_at       = NOW()
+		FROM agg WHERE ca.account_cif = agg.cif AND ca.status = 'active'`); err != nil {
+		WorkerBeat(ctx, db, "collections_generate", "error", "", err.Error())
+		return 0, fmt.Errorf("refresh assignments: %w", err)
+	}
+
+	res, err := db.PGExec(ctx, `
+		WITH agg AS (
+			SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo, MAX(customer_name) AS customer_name
+			FROM app.collections_delinquent_unified GROUP BY cif
+		)
+		INSERT INTO collection_assignments
+		  (cif_number, account_cif, customer_name, dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
+		SELECT cif, cif, customer_name, `+bucketExpr+`, outstanding_kobo, 'active', CURRENT_DATE, NOW(), NOW()
+		FROM agg
+		WHERE cif NOT IN (
+			SELECT account_cif FROM collection_assignments
+			WHERE status IN ('active','sent_to_recovery') AND account_cif IS NOT NULL
+		)`)
+	if err != nil {
+		WorkerBeat(ctx, db, "collections_generate", "error", "", err.Error())
+		return 0, fmt.Errorf("create assignments: %w", err)
+	}
+	created := int64(0)
+	if res != nil {
+		created, _ = res.RowsAffected()
+	}
+	// 'idle' rather than 'ok' when nothing was opened: the book being already current is
+	// a different state from the job doing work, and a dead-man's switch reading
+	// last_ok_at should not be reassured by a run that found nothing.
+	if created == 0 {
+		WorkerBeat(ctx, db, "collections_generate", "idle", "book already current — no new assignments", "")
+	} else {
+		WorkerBeat(ctx, db, "collections_generate", "ok", fmt.Sprintf("%d new assignment(s) opened", created), "")
+	}
+	return created, nil
+}
+
+// batchSyncCollectionsToDialler queues the delinquency book for calling, nightly.
+//
+// Mirrors ccSyncCollections (see its comment for the three faults fixed there: it read
+// the card table so loans could never be dialled, its dedupe was permanent, and its DNC
+// comparison missed any stored number that was not already bare digits). Until now this
+// ran only when somebody pressed "Sync now", and wrote no heartbeat at all — so a sync
+// that never happened was indistinguishable from one that did.
+func batchSyncCollectionsToDialler(ctx context.Context, db *core.DB) (int64, error) {
+	WorkerBeat(ctx, db, "callcenter_collections", "running", "", "")
+
+	res, err := db.PGExec(ctx, `
+		INSERT INTO call_center_contacts
+		  (customer_name, phone, cif, party_id, product_name, priority,
+		   outstanding_kobo, dpd, is_existing_customer, loan_product,
+		   status, purpose, source)
+		SELECT DISTINCT ON (norm_phone)
+		  COALESCE(clean_name,''), phone, cif, party_id, product_name,
+		  CASE WHEN dpd > 90 THEN 'High' WHEN dpd > 30 THEN 'Medium' ELSE 'Low' END,
+		  outstanding_kobo, dpd, true, product_name,
+		  'pending', 'collections', 'collections'
+		FROM (
+		  SELECT COALESCE(NULLIF(TRIM(v.full_name),''), NULLIF(TRIM(d.customer_name),'')) AS clean_name,
+		         COALESCE(NULLIF(v.phone,''), NULLIF(c.phone,''))                         AS phone,
+		         right(regexp_replace(COALESCE(COALESCE(NULLIF(v.phone,''), c.phone),''),'\D','','g'),10) AS norm_phone,
+		         d.cif, d.party_id, d.product_name, d.dpd, d.outstanding_kobo
+		  FROM app.collections_delinquent_unified d
+		  LEFT JOIN app.v_contact_identity v ON v.party_id = d.party_id
+		  LEFT JOIN app.customers c          ON c.cif = d.cif
+		  WHERE d.dpd > 0 AND d.outstanding_kobo > 0
+		) x
+		WHERE length(norm_phone) = 10
+		  AND NOT EXISTS (
+		    SELECT 1 FROM dnc_list dn
+		    WHERE right(regexp_replace(COALESCE(dn.phone,''),'\D','','g'),10) = x.norm_phone
+		  )
+		  AND NOT EXISTS (
+		    SELECT 1 FROM call_center_contacts t
+		    WHERE right(regexp_replace(COALESCE(t.phone,''),'\D','','g'),10) = x.norm_phone
+		      AND COALESCE(t.purpose,'marketing') = 'collections'
+		      AND t.status = 'pending'
+		  )
+		ORDER BY norm_phone, dpd DESC`)
+	if err != nil {
+		WorkerBeat(ctx, db, "callcenter_collections", "error", "", err.Error())
+		return 0, fmt.Errorf("sync collections to dialler: %w", err)
+	}
+	queued := int64(0)
+	if res != nil {
+		queued, _ = res.RowsAffected()
+	}
+	if queued == 0 {
+		WorkerBeat(ctx, db, "callcenter_collections", "idle", "nothing new to queue", "")
+	} else {
+		WorkerBeat(ctx, db, "callcenter_collections", "ok", fmt.Sprintf("%d number(s) queued for calling", queued), "")
+	}
+	return queued, nil
 }
 
 // batchPortfolioSnapshot computes today's portfolio metrics from loan_applications and writes a snapshot row.
