@@ -27,6 +27,11 @@ interface Source {
   last_data_at: string | null
   last_ok_at: string | null
   data_age_sec: number | null
+  // The age the verdict tested. Differs from data_age_sec only where whole
+  // weekend days were removed (migration 259), so an "ok" verdict next to a
+  // two-day raw age explains itself instead of looking like a bug.
+  effective_data_age_sec: number | null
+  business_days_only: boolean | null
   run_age_sec: number | null
   warn_after_sec: number | null
   stale_after_sec: number | null
@@ -207,6 +212,13 @@ export default function DataFreshness() {
                       <td style={{ padding: '11px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt)', whiteSpace: 'nowrap' }}
                         title={s.last_data_at ? fmtDatetime(s.last_data_at) : 'never'}>
                         {ageWords(s.data_age_sec)}
+                        {s.business_days_only && s.effective_data_age_sec != null
+                          && s.data_age_sec != null && s.effective_data_age_sec < s.data_age_sec && (
+                          <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}
+                            title="This source only produces data on working days, so whole weekend days are not counted against it.">
+                            {ageWords(s.effective_data_age_sec)} excl. weekend
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '11px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.xs, color: 'var(--txt2)', whiteSpace: 'nowrap' }}>
                         {durWords(s.stale_after_sec)}

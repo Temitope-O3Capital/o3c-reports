@@ -161,13 +161,28 @@ which is exactly the case the volume-taper check exists for.
 
 ## 8. Duplicate customer rows per CIF
 
-**Status:** Documented, not fixed.
+**Status:** Resolved — the original finding was a measurement artefact.
 
-Joining the 2026-07-14 `cust_file` export to `app.customers` on zero-padded CIF, 21,057
-matched CIFs produced 21,442 rows while the export itself had no duplicate CIFs — so
-**~385 customer rows share a CIF** in `app.customers`. Any upsert keyed on CIF must
-dedupe first. A diagnostic view is the recommended next step; no rows should be
-deleted without review.
+The entry recorded that joining the 2026-07-14 `cust_file` export to `app.customers`
+on zero-padded CIF produced 21,442 rows from 21,057 CIFs, and concluded that **~385
+customer rows share a CIF**.
+
+Re-measured 2026-09-20, directly on the table rather than through a join:
+
+| Test | Result |
+|---|---|
+| CIFs appearing on more than one row | **0** |
+| Same, ignoring leading zeros | **0** |
+
+There are none, and there cannot be: `uq_customers_cif` is a unique index on `cif`
+(partial, where `cif` is neither NULL nor empty). The row multiplication was in the
+join, not in the data — the export and the table pad CIFs differently, so a
+zero-insensitive join matched some export rows against more than one candidate.
+
+The practical warning still stands: **match on a normalised CIF**, never the raw
+value, because padding differs between sources. The backfill (entry 13) does exactly
+that — `ltrim(cif,'0')` on both sides — and matched 4,712 customers with no row
+matching two CIFs.
 
 ## 9. Field-map corrections to `docs/DATA_FEED_INGESTION.md`
 

@@ -91,6 +91,12 @@ SELECT f.source_key, f.label, f.category, f.owner, f.enabled, f.notes,
        f.state, f.run_state,
        f.last_run_at, f.last_ok_at, f.last_data_at,
        EXTRACT(EPOCH FROM f.data_age)::bigint    AS data_age_sec,
+       -- The age the verdict actually tested. Equal to data_age except on a
+       -- business_days_only source, where whole weekend days are removed
+       -- (migration 259) — without this the page shows "60h ago" beside an "ok"
+       -- verdict on a Monday and looks broken.
+       EXTRACT(EPOCH FROM f.effective_data_age)::bigint AS effective_data_age_sec,
+       f.business_days_only,
        EXTRACT(EPOCH FROM f.run_age)::bigint     AS run_age_sec,
        EXTRACT(EPOCH FROM f.warn_after)::bigint  AS warn_after_sec,
        EXTRACT(EPOCH FROM f.stale_after)::bigint AS stale_after_sec,
