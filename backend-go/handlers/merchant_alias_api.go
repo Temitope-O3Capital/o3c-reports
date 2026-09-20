@@ -188,11 +188,14 @@ func merchantAliasApprove(db *core.DB) http.HandlerFunc {
 }
 
 // merchantAliasReject deletes the mapping, so the two spellings rank separately
-// again. The daily refresh will not re-propose it: refresh_merchant_aliases only
-// inserts where no row exists... which is also true of a deleted one, so a
-// rejected auto merge comes back. It is re-inserted as pending, never as
-// reviewed, so it cannot quietly re-apply unnoticed — and writing the opposite
-// mapping by hand (which is never overwritten) is the permanent fix.
+// again, and records the decision in app.merchant_alias_rejected (migration 258)
+// so the daily refresh does not propose the same merge tomorrow.
+//
+// The tombstone exists because ON CONFLICT DO NOTHING only protects an alias that
+// EXISTS: a deleted one was re-created on the next run, and rejecting it was
+// therefore a chore with no end. The alias row itself must still be deleted —
+// app.clean_merchant applies any row it finds — so the decision has to be kept
+// somewhere the row is not.
 func merchantAliasReject(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name, ok := merchantAliasName(w, r)
@@ -200,8 +203,16 @@ func merchantAliasReject(db *core.DB) http.HandlerFunc {
 			return
 		}
 		rows, err := db.PGQuery(r.Context(), `
-			DELETE FROM app.merchant_alias WHERE clean_name = $1
-			 RETURNING clean_name, canonical`, name)
+			WITH gone AS (
+			    DELETE FROM app.merchant_alias WHERE clean_name = $1
+			     RETURNING clean_name, canonical
+			)
+			INSERT INTO app.merchant_alias_rejected (clean_name, canonical, rejected_by)
+			SELECT clean_name, canonical, NULLIF($2::bigint, 0) FROM gone
+			ON CONFLICT (clean_name) DO UPDATE
+			   SET canonical = EXCLUDED.canonical, rejected_at = now(),
+			       rejected_by = EXCLUDED.rejected_by
+			 RETURNING clean_name, canonical`, name, merchantAliasActor(r))
 		if err != nil {
 			respondErrLog(w, 500, "Could not remove the mapping", err)
 			return

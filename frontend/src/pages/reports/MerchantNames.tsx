@@ -194,10 +194,10 @@ export default function MerchantNames() {
         )}
 
         <p style={{ margin: `${SP[4]} 0 0`, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.6 }}>
-          <strong>Separate</strong> removes the mapping, so the two spellings count as different merchants again.
-          The daily job can propose the same merge later — it will come back unchecked, never silently applied as
-          confirmed. To make a decision permanent, write it by hand with <strong>Add Mapping</strong>: the job never
-          overwrites those.
+          <strong>Separate</strong> removes the mapping, so the two spellings count as different merchants again,
+          and the decision sticks: the daily job records it and will not propose that merge again. Use
+          <strong>Add Mapping</strong> for a merge the automatic rule cannot see — those are never overwritten
+          either.
         </p>
       </SectionCard>
 
