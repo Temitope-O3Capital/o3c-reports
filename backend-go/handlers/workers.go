@@ -89,6 +89,11 @@ var workerRegistry = []workerDef{
 	{"callcenter_collections", "Call-Center Queue · Collections", "Data Sync", "Nightly (batch) + on demand",
 		"Queues the delinquency book for dialling — cards, core-banking loans and the uploaded book alike. " +
 			"Skips numbers on Do Not Call and any customer already sitting in an open collections queue row.", "heartbeat", "/api/call-center/queue/sync-collections"},
+	{"collections_dunning", "Arrears Reminders", "Scheduled Job", "Nightly (batch)",
+		"Emails, WhatsApps and texts customers whose facilities are past due — every band, all three channels, " +
+			"at most one round per facility per week. Skips anyone who has opted out of that channel. Starts in " +
+			"staff_preview mode: messages are fully resolved but delivered to COLLECTIONS_DUNNING_INBOX, not to " +
+			"customers, until COLLECTIONS_DUNNING_MODE is set to 'live'.", "heartbeat", ""},
 	{"collections_generate", "Collections Book · Refresh", "Scheduled Job", "Nightly (batch)",
 		"Rebuilds the collections work book from the delinquency view: refreshes balances and DPD buckets on " +
 			"accounts still being worked, and opens assignments for newly delinquent customers. Until this ran " +

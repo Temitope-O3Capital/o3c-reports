@@ -295,6 +295,18 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, fmt.Sprintf("callcenter_collections:ok(%d)", n))
 	}
 
+	// 18. Arrears reminders to customers.
+	//
+	// Nothing has ever told a borrower they are overdue before an agent phones them.
+	// Starts in staff_preview mode: everything is resolved for real but delivered to a
+	// staff inbox, so a batch can be read before any customer receives one.
+	if n, err := batchDunningRun(ctx, db); err != nil {
+		slog.Error("Batch: dunning run failed", "err", err)
+		steps = append(steps, "collections_dunning:FAILED")
+	} else {
+		steps = append(steps, fmt.Sprintf("collections_dunning:ok(%d)", n))
+	}
+
 	// Status must reflect the STEPS, not just batchErr.
 	//
 	// Only the first two steps assign batchErr; steps 3-15 append ":FAILED" to
