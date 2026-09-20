@@ -151,17 +151,57 @@ INSERT INTO app.transactions (
     product_name, source, source_file, row_hash, channel, pcc, code_class, currency_code)
 `
 
-// apply parses one txn_file and inserts its new rows in a single statement: a VALUES
-// batch, cast from text, left-joined to app.accounts to resolve the owning
-// account_id/contact_id/cif, filtered by the natural-key NOT EXISTS dedup against the
-// whole ledger, and ON CONFLICT (row_hash) DO NOTHING for re-read idempotency.
+// txnRow is one parsed feed row plus its idempotency key. Lifted out of Apply so
+// the insert can be done in chunks by a helper.
+type txnRow struct {
+	t       Txn
+	rowHash string
+}
+
+// perRow is how many placeholders one row binds, and maxStatementParams is
+// PostgreSQL's hard limit on bound parameters in a single statement.
+//
+// This is not theoretical. Twelve txn_file drops are recorded in app.feed_files
+// as failed with "extended protocol limited to 65535 parameters" — one per month
+// from 2021-11 to 2023-07, always sequence 94 on the 14th, the monthly bulk drop,
+// each carrying 3,700-4,800 transactions. Nothing ever retried them; their rows
+// survived only because the mssql_baseline load already contained them (verified
+// 2026-09-20: every one of those twelve dates is fully present in the ledger).
+//
+// 65535 / 20 = 3,276 rows, so any bulk drop still exceeds one statement today.
+// Chunking makes a large file ordinary instead of fatal.
+const (
+	perRow             = 20
+	maxStatementParams = 65535
+	txnBatchRows       = 2000 // 40,000 parameters — comfortably inside the limit
+)
+
+// chunkRanges splits total items into [start,end) ranges of at most size.
+func chunkRanges(total, size int) [][2]int {
+	if total <= 0 || size <= 0 {
+		return nil
+	}
+	out := make([][2]int, 0, (total+size-1)/size)
+	for start := 0; start < total; start += size {
+		end := start + size
+		if end > total {
+			end = total
+		}
+		out = append(out, [2]int{start, end})
+	}
+	return out
+}
+
+// Apply parses one txn_file and inserts its new rows: a VALUES batch, cast from
+// text, left-joined to app.accounts to resolve the owning account_id/contact_id/
+// cif, filtered by the natural-key NOT EXISTS dedup against the whole ledger, and
+// ON CONFLICT (row_hash) DO NOTHING for re-read idempotency.
+//
+// Rows are inserted in chunks of txnBatchRows; every chunk runs in the caller's
+// transaction, so a file is still all-or-nothing.
 // Apply is exported so a dry-run can exercise it inside a rolled-back transaction.
 func Apply(ctx context.Context, tx *sql.Tx, lines []string, meta feedcore.FileMeta) (inserted, updated, rejected int, err error) {
-	type row struct {
-		t       Txn
-		rowHash string
-	}
-	var rows []row
+	var rows []txnRow
 	seen := map[string]bool{} // dedup identical row_hash within the same file
 	for _, line := range lines {
 		t, perr := ParseLine(line)
@@ -174,13 +214,24 @@ func Apply(ctx context.Context, tx *sql.Tx, lines []string, meta feedcore.FileMe
 			continue
 		}
 		seen[h] = true
-		rows = append(rows, row{t, h})
+		rows = append(rows, txnRow{t, h})
 	}
 	if len(rows) == 0 {
 		return 0, 0, rejected, nil
 	}
 
-	const perRow = 20
+	for _, c := range chunkRanges(len(rows), txnBatchRows) {
+		n, cerr := insertTxnChunk(ctx, tx, rows[c[0]:c[1]], meta)
+		if cerr != nil {
+			return inserted, 0, rejected, cerr
+		}
+		inserted += n
+	}
+	return inserted, 0, rejected, nil
+}
+
+// insertTxnChunk writes one chunk of at most txnBatchRows rows.
+func insertTxnChunk(ctx context.Context, tx *sql.Tx, rows []txnRow, meta feedcore.FileMeta) (int, error) {
 	ph := make([]string, 0, len(rows))
 	args := make([]any, 0, len(rows)*perRow)
 	for i, r := range rows {
@@ -255,10 +306,10 @@ ON CONFLICT (row_hash) WHERE row_hash IS NOT NULL DO NOTHING`
 
 	res, err := tx.ExecContext(ctx, q, args...)
 	if err != nil {
-		return 0, 0, rejected, fmt.Errorf("insert %d txns: %w", len(rows), err)
+		return 0, fmt.Errorf("insert %d txns: %w", len(rows), err)
 	}
 	n, _ := res.RowsAffected()
-	return int(n), 0, rejected, nil
+	return int(n), nil
 }
 
 func boolStr(b bool) string {
