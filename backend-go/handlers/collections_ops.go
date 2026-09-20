@@ -1041,6 +1041,23 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 				       END AS val
 				FROM collection_assignments
 				WHERE status = 'active'`},
+			// The DENOMINATORS behind the three rates above.
+			//
+			// Each rate returns 0 when its population is empty, which is indistinguishable
+			// from a real 0% — and collection_promises and collection_contacts are empty,
+			// so the supervisor's tiles painted RED as though the floor were failing when
+			// in truth nothing was being measured. Sending the counts lets the UI say "no
+			// promises resolved this month" instead of "0%", and light up on its own the
+			// moment agents start logging.
+			{"ptp_resolved_month", `
+				SELECT COUNT(*) AS val
+				FROM collection_promises
+				WHERE is_kept IS NOT NULL
+				  AND DATE_TRUNC('month', actual_date) = DATE_TRUNC('month', CURRENT_DATE)`},
+			{"cured_accounts", `
+				SELECT COUNT(*) FILTER (WHERE dpd_bucket = '0') AS val
+				FROM collection_assignments
+				WHERE status = 'active'`},
 		}
 
 		result := map[string]any{}

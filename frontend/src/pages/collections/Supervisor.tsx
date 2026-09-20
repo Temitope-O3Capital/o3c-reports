@@ -24,6 +24,12 @@ interface Dash {
   ptp_kept_rate_pct:    number
   contact_rate_pct:     number
   cure_rate_pct:        number
+  // Denominators for the three rates above, so the UI can tell "0% of a real
+  // population" from "nothing measured yet". Each rate returns 0 when its population is
+  // empty, which is indistinguishable from genuine failure — and with collection_promises
+  // and collection_contacts empty, all three read 0 and painted red.
+  ptp_resolved_month:   number
+  cured_accounts:       number
 }
 
 // GET /api/collections-ops/agent-dashboard
@@ -246,12 +252,30 @@ export default function CollectionsSupervisor() {
         <KpiCard label="Collected Today" value={loading && !d ? '—' : fmtKoboExact(collected)}
           sub={target > 0 ? `${targetPct}% of ${fmtKoboExact(target)} target` : 'no target set today'}
           icon="payments" accent={GREEN} loading={loading && !d} />
-        <KpiCard label="PTP Kept Rate" value={loading && !d ? '—' : `${Number(d?.ptp_kept_rate_pct ?? 0)}%`}
-          sub="promises honoured this month" icon="handshake" accent={pctColour(Number(d?.ptp_kept_rate_pct ?? 0))} loading={loading && !d} />
-        <KpiCard label="Contact Rate" value={loading && !d ? '—' : `${Number(d?.contact_rate_pct ?? 0)}%`}
-          sub="of active book contacted today" icon="call" accent={pctColour(Number(d?.contact_rate_pct ?? 0))} loading={loading && !d} />
-        <KpiCard label="Cure Rate" value={loading && !d ? '—' : `${Number(d?.cure_rate_pct ?? 0)}%`}
-          sub="active accounts back to current" icon="healing" accent={pctColour(Number(d?.cure_rate_pct ?? 0))} loading={loading && !d} />
+        {/* These three are behavioural rates with no instrumentation behind them yet:
+            collection_promises and collection_contacts are empty, so each resolves to 0
+            and pctColour(0) painted them RED — a supervisor read catastrophic floor
+            performance where there was simply nothing measured. Show a dash and say why,
+            exactly as "Collected Today" above already does for a missing target. They
+            light up on their own once agents start logging contacts and promises. */}
+        <KpiCard label="PTP Kept Rate"
+          value={loading && !d ? '—' : (Number(d?.ptp_resolved_month ?? 0) > 0 ? `${Number(d?.ptp_kept_rate_pct ?? 0)}%` : '—')}
+          sub={Number(d?.ptp_resolved_month ?? 0) > 0 ? 'promises honoured this month' : 'no promises resolved this month'}
+          icon="handshake"
+          accent={Number(d?.ptp_resolved_month ?? 0) > 0 ? pctColour(Number(d?.ptp_kept_rate_pct ?? 0)) : 'var(--txt3)'}
+          loading={loading && !d} />
+        <KpiCard label="Contact Rate"
+          value={loading && !d ? '—' : (Number(d?.contacts_today ?? 0) > 0 ? `${Number(d?.contact_rate_pct ?? 0)}%` : '—')}
+          sub={Number(d?.contacts_today ?? 0) > 0 ? 'of active book contacted today' : 'no contacts logged today'}
+          icon="call"
+          accent={Number(d?.contacts_today ?? 0) > 0 ? pctColour(Number(d?.contact_rate_pct ?? 0)) : 'var(--txt3)'}
+          loading={loading && !d} />
+        <KpiCard label="Cure Rate"
+          value={loading && !d ? '—' : (Number(d?.cured_accounts ?? 0) > 0 ? `${Number(d?.cure_rate_pct ?? 0)}%` : '—')}
+          sub={Number(d?.cured_accounts ?? 0) > 0 ? 'active accounts back to current' : 'no accounts back to current yet'}
+          icon="healing"
+          accent={Number(d?.cured_accounts ?? 0) > 0 ? pctColour(Number(d?.cure_rate_pct ?? 0)) : 'var(--txt3)'}
+          loading={loading && !d} />
         <KpiCard label="Overdue Promises" value={loading && !d ? '—' : fmtNum(Number(d?.overdue_promises ?? 0))}
           sub="PTPs past due, unresolved" icon="running_with_errors" accent={RED} loading={loading && !d} />
         <KpiCard label="Contacts Today" value={loading && !d ? '—' : fmtNum(Number(d?.contacts_today ?? 0))}
