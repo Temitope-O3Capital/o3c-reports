@@ -124,6 +124,34 @@ func escalateSevereToRecovery(ctx context.Context, db *core.DB, minDPD int) (int
 		                 AND v.dpd >= $1)`, minDPD); err != nil {
 		return created, err
 	}
+
+	// Close cases whose debt has cured. Nothing else in the system ever closes a case —
+	// the only other exit is a write-off approval — so an open case was effectively
+	// permanent. That is what made the sweep above one-way: it keys on "an open case
+	// exists", so a customer who paid off months ago could never return to collections,
+	// and their balance kept inflating every recovery figure. 558 open cases belong to
+	// customers with no delinquency at all.
+	//
+	// Legal cases are deliberately exempt. A matter under legal proceedings ends by
+	// judgment, settlement or write-off — not because today's delinquency feed stopped
+	// listing the customer, which it may do for reasons that have nothing to do with the
+	// debt being paid. 63 such cases stay open by this rule.
+	//
+	// Ordering against the sweep does not matter: the sweep now carries its own DPD
+	// guard, so a cured account cannot be swept out regardless of which runs first.
+	// Requires migration 258 (closed_reason).
+	if _, err := db.PG.ExecContext(ctx, `
+		UPDATE recovery_cases rc
+		   SET status        = 'closed',
+		       closed_at     = NOW(),
+		       updated_at    = NOW(),
+		       closed_reason = 'cured — no delinquency on the book'
+		 WHERE rc.status NOT IN ('closed','recovered','written_off','legal')
+		   AND rc.account_cif IS NOT NULL
+		   AND NOT EXISTS (SELECT 1 FROM app.collections_delinquent_unified v
+		                   WHERE v.cif = rc.account_cif)`); err != nil {
+		return created, err
+	}
 	return created, nil
 }
 
