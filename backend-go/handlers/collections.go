@@ -16,14 +16,16 @@ import (
 
 func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("collections"))
-	r.Get("/kpis", collectionsKPIs(db))
+	// /kpis, /by-mode, /monthly-trend and /log are removed. All four queried a
+	// "Collections Log" relation that does not exist in this database, and core/db.go
+	// swallows a missing-relation error and returns an empty result with HTTP 200 — so
+	// they answered every request with permanent zeros indistinguishable from real ones.
+	// Nothing in the frontend referenced them. Their handler functions are now
+	// unreferenced and should be deleted in a follow-up pass.
 	r.Get("/portfolio-kpis", collectionsPortfolioKPIs(db))
 	r.Get("/dpd-trend", collectionsDPDTrend(db))
 	r.Get("/by-agent", collectionsByAgent(db))
-	r.Get("/by-mode", collectionsByMode(db))
-	r.Get("/monthly-trend", collectionsMonthlyTrend(db))
 	r.Get("/roll-rate", collectionsRollRate(db))
-	r.Get("/log", collectionsLog(db))
 	r.Get("/promise-kpis", collectionsPromiseKPIs(db))
 	r.Get("/repayment-kpis", collectionsRepaymentKPIs(db))
 	r.Get("/writeoff-kpis", collectionsWriteoffKPIs(db))
@@ -1146,32 +1148,17 @@ func collectionsBatchPayment(db *core.DB) http.HandlerFunc {
 				continue
 			}
 
-			glRef := fmt.Sprintf("COL-BATCH-%d", payID)
-			if jErr := postJournalTx(ctx, tx, glEntry{
-				Date:          time.Now(),
-				Description:   fmt.Sprintf("Batch collection payment — CIF %s", cif),
-				Reference:     glRef,
-				DebitAccount:  "1001",
-				CreditAccount: "1100",
-				AmountKobo:    amtKobo,
-				SourceType:    "collections_payment",
-				SourceID:      payID,
-				PostedBy:      user.ID,
-			}); jErr != nil {
-				tx.Rollback() //nolint:errcheck
-				results = append(results, result{Row: rowNum, CIF: cif, Error: "GL post failed"})
-				failed++
-				continue
-			}
-			tx.ExecContext(ctx, `UPDATE collection_payments SET gl_reference = $1 WHERE id = $2`, glRef, payID) //nolint:errcheck
-
-			// Legacy parity: mirror to loan_repayments when the CIF maps to a booked
-			// loan (best-effort — never fail the payment over this).
-			if lr, lErr := db.PGQuery(ctx, `SELECT id FROM loan_applications WHERE applicant_cif = $1 AND status IN ('active','booked') ORDER BY created_at DESC LIMIT 1`, cif); lErr == nil && len(lr) > 0 {
-				tx.ExecContext(ctx, `INSERT INTO loan_repayments (application_id, amount_kobo, payment_date, payment_method, reference, received_by, created_at)
-					VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-					toInt64(lr[0]["id"]), amtKobo, payDate, channel, reference, user.ID) //nolint:errcheck
-			}
+			// NO GL POST HERE, and no loan_repayments mirror. Both used to happen in this
+			// transaction while the INSERT above omitted `status` — so the row took the
+			// column default 'pending_hop' and ALSO landed in the approval queue with a
+			// journal already behind it. Approving it then posted the same money a second
+			// time, via postCollectionPaymentGL in collectionsOpsApprovePayment. Eleven
+			// rows worth ₦106,393,556 are sitting in exactly that state today.
+			//
+			// The approval chain owns the ledger: collectionsOpsApprovePayment posts the
+			// journal once, at the final stage, inside its own transaction. A batch upload
+			// is not pre-approved — this endpoint carries no payment-approval gate — so it
+			// must not write financial records. It records the payment; HOP → COO decide.
 
 			if cErr := tx.Commit(); cErr != nil {
 				results = append(results, result{Row: rowNum, CIF: cif, Error: "commit failed"})

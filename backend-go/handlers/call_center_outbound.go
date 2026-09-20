@@ -1637,48 +1637,67 @@ func ccSyncQueueFromCRM(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// ccSyncCollections feeds overdue accounts into the queue as collections calls,
-// carrying real DPD, outstanding balance and product so the panel shows genuine
+// ccSyncCollections feeds the delinquency book into the dialler queue as collections
+// calls, carrying real DPD, outstanding balance and product so the panel shows genuine
 // collections context (not the empty ₦0/DPD 0 that marketing leads produce).
-// current_dr_balance is naira → stored ×100 as kobo. Deduped per-purpose so a
-// customer already queued for marketing can still appear under collections.
+//
+// Three faults fixed here:
+//
+//  1. SOURCE. It read app.accounts — the CARD table — despite being described as
+//     "populates the dialer queue from the collections book". Delinquent loans could
+//     therefore never be dialled at all. It now reads app.collections_delinquent_unified,
+//     which covers cards, core-banking loans and the uploaded loan book alike.
+//
+//  2. DEDUPE. The NOT EXISTS carried no status predicate, so a number queued once was
+//     never queued again — even after that attempt was closed and the customer fell
+//     into arrears afresh. It now only skips a number with an OPEN (pending) collections
+//     row, so a re-delinquent customer returns to the queue.
+//
+//  3. DNC. The suppression compared a normalised 10-digit number against the raw
+//     dnc_list value, so any stored number holding spaces or a +234 prefix silently
+//     failed to suppress. Both sides are normalised now. app.norm_phone returns ''
+//     rather than NULL, so the length guard is what stops blank matching blank.
+//
+// Identity comes from v_contact_identity (freshest phone per party) and party_id is
+// carried onto the queue row, so a dialled customer is the same person everywhere.
 func ccSyncCollections(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		res, err := db.PGExec(r.Context(), `
 			INSERT INTO call_center_contacts
-			  (customer_name, phone, cif, product_name, priority,
-			   outstanding_kobo, dpd, is_existing_customer, loan_product, next_payment_date,
+			  (customer_name, phone, cif, party_id, product_name, priority,
+			   outstanding_kobo, dpd, is_existing_customer, loan_product,
 			   status, purpose, source)
 			SELECT DISTINCT ON (norm_phone)
-			  COALESCE(clean_name,''), phone, cif, product_line,
-			  CASE WHEN days_overdue > 90 THEN 'High' WHEN days_overdue > 30 THEN 'Medium' ELSE 'Low' END,
-			  ROUND(COALESCE(current_dr_balance,0) * 100)::bigint,
-			  days_overdue, true, product_line, payment_due_date,
+			  COALESCE(clean_name,''), phone, cif, party_id, product_name,
+			  CASE WHEN dpd > 90 THEN 'High' WHEN dpd > 30 THEN 'Medium' ELSE 'Low' END,
+			  outstanding_kobo, dpd, true, product_name,
 			  'pending', 'collections', 'collections'
 			FROM (
-			  SELECT NULLIF(TRIM(c.full_name),'')                                  AS clean_name,
-			         c.phone                                                       AS phone,
-			         right(regexp_replace(COALESCE(c.phone,''),'\D','','g'),10)     AS norm_phone,
-			         a.cif                                                          AS cif,
-			         a.product_line                                                 AS product_line,
-			         a.days_overdue                                                 AS days_overdue,
-			         a.current_dr_balance                                           AS current_dr_balance,
-			         a.payment_due_date                                             AS payment_due_date
-			  FROM app.accounts a
-			  JOIN app.customers c ON c.cif = a.cif
-			  -- Only genuine collections targets: overdue AND still owing a positive
-			  -- balance (excludes stale/settled rows that keep an old days_overdue).
-			  WHERE a.days_overdue > 0 AND COALESCE(a.current_dr_balance,0) > 0
-			    AND COALESCE(c.phone,'') <> ''
+			  SELECT COALESCE(NULLIF(TRIM(v.full_name),''), NULLIF(TRIM(d.customer_name),'')) AS clean_name,
+			         COALESCE(NULLIF(v.phone,''), NULLIF(c.phone,''))                         AS phone,
+			         right(regexp_replace(COALESCE(COALESCE(NULLIF(v.phone,''), c.phone),''),'\D','','g'),10) AS norm_phone,
+			         d.cif                                                                    AS cif,
+			         d.party_id                                                               AS party_id,
+			         d.product_name                                                           AS product_name,
+			         d.dpd                                                                    AS dpd,
+			         d.outstanding_kobo                                                       AS outstanding_kobo
+			  FROM app.collections_delinquent_unified d
+			  LEFT JOIN app.v_contact_identity v ON v.party_id = d.party_id
+			  LEFT JOIN app.customers c          ON c.cif = d.cif
+			  WHERE d.dpd > 0 AND d.outstanding_kobo > 0
 			) x
 			WHERE length(norm_phone) = 10
-			  AND norm_phone NOT IN (SELECT phone FROM dnc_list WHERE phone IS NOT NULL)
+			  AND NOT EXISTS (
+			    SELECT 1 FROM dnc_list dn
+			    WHERE right(regexp_replace(COALESCE(dn.phone,''),'\D','','g'),10) = x.norm_phone
+			  )
 			  AND NOT EXISTS (
 			    SELECT 1 FROM call_center_contacts t
 			    WHERE right(regexp_replace(COALESCE(t.phone,''),'\D','','g'),10) = x.norm_phone
 			      AND COALESCE(t.purpose,'marketing') = 'collections'
+			      AND t.status = 'pending'
 			  )
-			ORDER BY norm_phone, days_overdue DESC`)
+			ORDER BY norm_phone, dpd DESC`)
 		if err != nil {
 			respondErr(w, 500, "Collections sync failed: "+err.Error())
 			return
