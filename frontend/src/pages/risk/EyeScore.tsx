@@ -15,7 +15,7 @@ interface EyeScoreRow {
   product_type: string
   score: number
   band: string
-  top_factor: string | null
+  reference: string
   dti_pct: number | null
   scored_at: string
 }
@@ -71,6 +71,8 @@ export default function EyeScore() {
   const [fProducts, setFProducts] = useState(new Set<string>())
   const [fBands,    setFBands]    = useState(new Set<string>())
   const [search,    setSearch]    = useState('')
+  const [sortKey,   setSortKey]   = useState('scored_at')
+  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('desc')
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -83,8 +85,18 @@ export default function EyeScore() {
     if (fProducts.size) p.set('product', [...fProducts].join(','))
     if (fBands.size)    p.set('band',    [...fBands].join(','))
     if (search)         p.set('search', search)
+    p.set('sort', sortKey)
+    p.set('dir', sortDir)
     return p.toString()
-  }, [dateFrom, dateTo, fProducts, fBands, search])
+  }, [dateFrom, dateTo, fProducts, fBands, search, sortKey, sortDir])
+
+  // The KPI cards take the page's window so they describe the same period as the table.
+  const kpiQS = useCallback(() => {
+    const p = new URLSearchParams()
+    if (dateFrom) p.set('date_from', dateFrom)
+    if (dateTo)   p.set('date_to', dateTo)
+    return p.toString()
+  }, [dateFrom, dateTo])
 
   const load = useCallback(async (off = 0) => {
     abortRef.current?.abort()
@@ -97,7 +109,9 @@ export default function EyeScore() {
           `/api/risk/eye-scores?${buildQS(off)}`,
           { signal: abortRef.current.signal },
         ),
-        apiFetch<{ data: EyeKPIs }>('/api/risk/eye-kpis'),
+        // The cards sit directly above a date-filtered table; fetching them with no
+        // params meant they described a different period from the rows beneath them.
+        apiFetch<{ data: EyeKPIs }>(`/api/risk/eye-kpis?${kpiQS()}`),
       ])
       setRows(scoreRes.data ?? [])
       setTotal(scoreRes.total ?? 0)
@@ -138,14 +152,10 @@ export default function EyeScore() {
       key: 'band', label: 'Band',
       render: r => <BandPill band={r.band} />,
     },
-    {
-      key: 'top_factor', label: 'Key Factor',
-      render: r => (
-        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontStyle: r.top_factor ? 'normal' : 'italic' }}>
-          {r.top_factor ?? 'N/A'}
-        </span>
-      ),
-    },
+    // "Key Factor" lived here, fed by `top_factor` — a field returned by the mock
+    // handlers and by nothing in the backend. It rendered an italic "N/A" on every row
+    // in production while looking populated in development. The real factor breakdown
+    // is the Phoenix Eye panel on the application, which "View Score" now opens.
     {
       key: 'dti_pct', label: 'DTI %', align: 'right',
       render: r => (
@@ -259,6 +269,11 @@ export default function EyeScore() {
           keyFn={r => r.id}
           loading={loading}
           skeletonRows={8}
+          // Sorting goes to the server, so a header click ranks the whole filtered set
+          // rather than reordering the 50 rows this page happens to be holding.
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSortChange={(k, d) => { setSortKey(k); setSortDir(d) }}
           emptyText={kpis?.origination_live === false ? 'No scored applications yet. Eye Score runs at application time. Scores appear here once applications are raised or synced from Phoenix. Live-book risk scores are on the Portfolio page.' : 'No score requests found'}
         />
 

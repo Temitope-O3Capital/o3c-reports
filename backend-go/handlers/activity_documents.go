@@ -22,6 +22,34 @@ import (
 	"github.com/o3c/workspace/core"
 )
 
+// leadDocumentDoor gates reading a pre-application document back. It mirrors the intent
+// of viewDoor in los.go — you must hold a page whose work actually involves customer
+// files — but reaches wider, because this store is anchored to leads and contacts rather
+// than to applications, so the front-office pages belong beside the credit ones. A
+// settlement clerk, payroll officer or BI analyst holds none of these.
+var leadDocumentDoor = core.RequirePages(
+	"los", "los_all", "los_view", "los_risk_review", "los_risk_head",
+	"credit_portfolio", "crm_contacts", "call_center", "care",
+	"collections", "recovery", "bd",
+)
+
+// safeContentType keeps a document from being served as something the browser will
+// EXECUTE. An uploaded .svg (or .html) fetched into a blob URL runs in the workspace's
+// own origin, so a file disguised as a payslip could act with the session of every
+// officer who opened it. Those types are handed back as opaque downloads instead.
+func safeContentType(name string) (contentType, disposition string) {
+	ext := strings.ToLower(filepath.Ext(name))
+	switch ext {
+	case ".svg", ".svgz", ".html", ".htm", ".xhtml", ".xml":
+		return "application/octet-stream", "attachment"
+	}
+	ct := mime.TypeByExtension(ext)
+	if ct == "" {
+		return "application/octet-stream", "attachment"
+	}
+	return ct, "inline"
+}
+
 // activityUploadDocument stores a document against a lead/contact/customer and records it on
 // the timeline. multipart form: file, doc_type, and any of lead_id / contact_id / cif / phone.
 func activityUploadDocument(db *core.DB) http.HandlerFunc {
@@ -174,12 +202,9 @@ func activityDocumentContent(db *core.DB) http.HandlerFunc {
 			return
 		}
 		defer f.Close() //nolint:errcheck
-		ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
-		if ct == "" {
-			ct = "application/octet-stream"
-		}
+		ct, disp := safeContentType(name)
 		w.Header().Set("Content-Type", ct)
-		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", name))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q", disp, name))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "private, max-age=300")
 		if st, serr := f.Stat(); serr == nil {

@@ -183,7 +183,12 @@ func RegisterActivities(r chi.Router, db *core.DB) {
 	r.Post("/activities", activityCreate(db))
 	// Lead/contact document uploads (pre-application file store).
 	r.Post("/activities/document", activityUploadDocument(db))
-	r.Get("/activities/documents/{doc_id}/content", activityDocumentContent(db))
+	// Reading one back is gated. These are KYC files — NINs, payslips, bank statements —
+	// addressed by a bare serial id, and this route sat on the plain authenticated router
+	// while its LOS twin sits behind viewDoor: any staff login could walk the ids and read
+	// every customer's documents. The gate is the set of pages whose holders legitimately
+	// work customer files; a settlement clerk or BI analyst holds none of them.
+	r.With(leadDocumentDoor).Get("/activities/documents/{doc_id}/content", activityDocumentContent(db))
 }
 
 // activityList returns activities for a person, matched by any anchor supplied as a query
