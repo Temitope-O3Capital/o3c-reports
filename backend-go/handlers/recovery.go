@@ -16,6 +16,14 @@ import (
 
 func RegisterRecovery(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("recovery"))
+
+	// READING recovery is open to the whole team — an agent must see the book they work.
+	// WRITING is not. Until now this router carried a single page gate, so any
+	// recovery_agent could set a solicitor, file a legal milestone, or CREATE A DEBT SALE
+	// that enters the money chain (Dr 1001 / Cr 1100 on approval). recovery_ops.go already
+	// draws this line with recovery_assign; recovery.go simply never did.
+	assign := core.RequirePages("recovery_assign")
+
 	r.Get("/kpis", recoveryKPIs(db))
 	r.Get("/by-method", recoveryByMethod(db))
 	r.Get("/by-channel", recoveryByChannel(db))
@@ -25,15 +33,17 @@ func RegisterRecovery(r chi.Router, db *core.DB) {
 	r.Get("/legal", recoveryLegal(db))
 	r.Get("/legal-kpis", recoveryLegalKPIs(db))
 	r.Get("/solicitors", recoverySolicitors(db))
-	r.Put("/cases/{id}/solicitor", recoverySetSolicitor(db))
 	r.Get("/cases/{id}/legal-milestones", recoveryLegalMilestones(db))
-	r.Post("/cases/{id}/legal-milestone", recoveryAddLegalMilestone(db))
 	r.Get("/debt-sales", recoveryDebtSales(db))
 	r.Get("/debt-sales/pending", recoveryDebtSalesPending(db))
-	r.Post("/debt-sales", recoveryCreateDebtSale(db))
-	r.Put("/debt-sales/{id}/approve", recoveryApproveDebtSale(db))
-	r.Put("/debt-sales/{id}/reject", recoveryRejectDebtSale(db))
-	r.Delete("/debt-sales/{id}", recoveryDeleteDebtSale(db))
+
+	// Supervisor-gated writes.
+	r.With(assign).Put("/cases/{id}/solicitor", recoverySetSolicitor(db))
+	r.With(assign).Post("/cases/{id}/legal-milestone", recoveryAddLegalMilestone(db))
+	r.With(assign).Post("/debt-sales", recoveryCreateDebtSale(db))
+	r.With(assign).Put("/debt-sales/{id}/approve", recoveryApproveDebtSale(db))
+	r.With(assign).Put("/debt-sales/{id}/reject", recoveryRejectDebtSale(db))
+	r.With(assign).Delete("/debt-sales/{id}", recoveryDeleteDebtSale(db))
 }
 
 // recoveryKPIs — the Overview headline, off the LIVE recovery book. This used to read
