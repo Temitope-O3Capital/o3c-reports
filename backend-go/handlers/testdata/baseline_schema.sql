@@ -13,7 +13,9 @@
 --   pg_dump --schema-only --no-owner --no-acl --no-comments -t app.accounts ...
 --
 -- with foreign keys stripped (tests do not need referential integrity, and the
--- referenced tables are created later by migrations). Regenerate it the same way
+-- referenced tables are created later by migrations), and with functional indexes
+-- removed: they call app.norm_phone, regexp_replace and app.gin_trgm_ops, which
+-- migrations create after this file loads. Regenerate it the same way
 -- if a baseline table gains a column the handlers read.
 --
 -- It is deliberately NOT a migration: adding a 000_ file would put it in the
@@ -640,7 +642,6 @@ CREATE INDEX idx_accounts_currency_foreign ON app.accounts USING btree (currency
 -- Name: idx_call_center_leads_phone10; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_call_center_leads_phone10 ON app.call_center_leads USING btree ("right"(regexp_replace(COALESCE(customer_phone, ''::text), '\D'::text, ''::text, 'g'::text), 10));
 
 
 --
@@ -668,7 +669,6 @@ CREATE INDEX idx_cc_contacts_lead ON app.call_center_contacts USING btree (lead_
 -- Name: idx_cc_contacts_normphone; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_contacts_normphone ON app.call_center_contacts USING btree (app.norm_phone(phone));
 
 
 --
@@ -773,14 +773,12 @@ CREATE INDEX idx_customers_fullname_trgm ON app.customers USING gin (full_name a
 -- Name: idx_customers_norm_phone; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_customers_norm_phone ON app.customers USING btree (app.norm_phone(phone));
 
 
 --
 -- Name: idx_customers_normphone; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_customers_normphone ON app.customers USING btree (app.norm_phone(phone));
 
 
 --
@@ -794,14 +792,12 @@ CREATE INDEX idx_customers_party_id ON app.customers USING btree (party_id);
 -- Name: idx_customers_phone10; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_customers_phone10 ON app.customers USING btree ("right"(regexp_replace(COALESCE(phone, ''::text), '\D'::text, ''::text, 'g'::text), 10));
 
 
 --
 -- Name: idx_customers_phone_norm_trgm; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_customers_phone_norm_trgm ON app.customers USING gin ("right"(regexp_replace(COALESCE(phone, ''::text), '\D'::text, ''::text, 'g'::text), 10) app.gin_trgm_ops);
 
 
 --
@@ -976,7 +972,6 @@ CREATE UNIQUE INDEX uq_customers_cif ON app.customers USING btree (cif) WHERE ((
 -- Name: idx_state_map_upper_raw; Type: INDEX; Schema: core; Owner: -
 --
 
-CREATE INDEX idx_state_map_upper_raw ON core.state_map USING btree (upper(raw_state));
 
 
 --
