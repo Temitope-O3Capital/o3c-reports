@@ -994,6 +994,21 @@ func recoveryOpsAddLegal(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Add legal proceeding failed")
 			return
 		}
+		if len(rows) == 0 {
+			respondErr(w, 500, "Insert returned no result")
+			return
+		}
+		// Move the CASE, not just the paperwork. recoveryLegal lists cases WHERE
+		// legal_stage IS NOT NULL and both dashboards filter status IN ('active','legal'),
+		// neither of which this handler set — so proceedings could be filed against a case
+		// that never appeared in the Legal tracker. Only escalates: a closed, recovered or
+		// written-off case is left alone.
+		db.PGExec(r.Context(), `
+			UPDATE recovery_cases
+			   SET legal_stage = $1, status = 'legal', updated_at = NOW()
+			 WHERE id = $2
+			   AND status NOT IN ('closed','recovered','written_off')`,
+			b.ProceedingType, id) //nolint:errcheck
 		cif := ""
 		if cifRows, _ := db.PGQuery(r.Context(), `SELECT account_cif FROM recovery_cases WHERE id = $1`, id); len(cifRows) > 0 {
 			cif = str(cifRows[0]["account_cif"])

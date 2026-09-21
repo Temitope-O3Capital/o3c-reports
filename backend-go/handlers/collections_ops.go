@@ -987,6 +987,12 @@ func collectionsOpsUpsertTarget(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Upsert failed")
 			return
 		}
+		// An empty RETURNING is not an error, so testing err alone left rows[0] to panic
+		// the handler on an index out of range.
+		if len(rows) == 0 {
+			respondErr(w, 500, "Upsert returned no result")
+			return
+		}
 		respond(w, rows[0], "pg")
 	}
 }
@@ -1086,9 +1092,14 @@ func openRecoveryCase(ctx context.Context, db *core.DB, cif, dpd string, outstan
 	}
 	caseRef := "RC-" + str(refRows[0]["ref"])
 	rows, err := db.PGQuery(ctx, `
+		-- 'active', not 'open'. Both recovery dashboards filter
+		-- status IN ('active','legal') while recoveryKPIs counts
+		-- NOT IN ('closed','recovered','written_off'), so a case opened as 'open'
+		-- counted in the Overview headline yet appeared in no agent's queue and no
+		-- supervisor's list: work nobody could see they had been given.
 		INSERT INTO recovery_cases
 		  (case_ref, cif_number, account_cif, outstanding_kobo, total_outstanding_kobo, source_assignment_id, dpd_at_handoff, status, opened_at, created_at, updated_at)
-		VALUES ($1,$2,$2,$3,$3,$4,$5,'open',NOW(),NOW(),NOW())
+		VALUES ($1,$2,$2,$3,$3,$4,$5,'active',NOW(),NOW(),NOW())
 		RETURNING id`,
 		caseRef, cif, outstanding, sourceAssignmentID, dpd)
 	if err != nil || len(rows) == 0 {
@@ -1145,7 +1156,7 @@ func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
 		if err = tx.QueryRowContext(ctx,
 			`INSERT INTO recovery_cases
 			   (case_ref, cif_number, account_cif, outstanding_kobo, total_outstanding_kobo, source_assignment_id, dpd_at_handoff, status, opened_at, created_at, updated_at)
-			 VALUES ($1,$2,$2,$3,$3,$4,$5,'open',NOW(),NOW(),NOW())
+			 VALUES ($1,$2,$2,$3,$3,$4,$5,'active',NOW(),NOW(),NOW())
 			 RETURNING id`,
 			caseRef, accountCIF, outstanding, id, dpd).Scan(&caseID); err != nil {
 			tx.Rollback() //nolint:errcheck
@@ -1884,8 +1895,11 @@ func collectionsOpsReturnWriteoff(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Return failed")
 			return
 		}
+		// Rejecting a write-off must put the case BACK IN FRONT OF SOMEONE. Setting it
+		// to 'open' did the opposite: both dashboards filter status IN ('active','legal'),
+		// so a rejected write-off vanished from the very queue it needed to return to.
 		if _, txErr = tx.ExecContext(ctx,
-			`UPDATE recovery_cases SET status='open', updated_at=NOW() WHERE id=$1`,
+			`UPDATE recovery_cases SET status='active', updated_at=NOW() WHERE id=$1`,
 			caseRows[0]["case_id"]); txErr != nil {
 			tx.Rollback() //nolint:errcheck
 			respondErr(w, 500, "Return failed")
@@ -2263,17 +2277,36 @@ func collectionsOpsBulkReassign(db *core.DB) http.HandlerFunc {
 			return
 		}
 		ctx := r.Context()
-		_, err := db.PG.ExecContext(ctx, `
+
+		// The target must be a real, active user. There is no FK on agent_user_id, so a
+		// mistyped id silently assigned a whole batch of accounts to nobody.
+		if chk, cErr := db.PGQuery(ctx,
+			`SELECT 1 FROM o3c_users WHERE id=$1 AND is_active AND deleted_at IS NULL`, b.AgentUserID); cErr != nil || len(chk) == 0 {
+			respondErr(w, 422, "agent_user_id is not an active user")
+			return
+		}
+
+		// status='active' is the guard this never had. Without it, ANY($2) would drag
+		// closed and sent_to_recovery rows back into an agent's queue — reviving work
+		// that Recovery already owns, or that was finished.
+		res, err := db.PG.ExecContext(ctx, `
 			UPDATE collection_assignments
 			SET agent_user_id = $1, updated_at = NOW()
-			WHERE id = ANY($2)`, b.AgentUserID, b.AssignmentIDs)
+			WHERE id = ANY($2) AND status = 'active'`, b.AgentUserID, b.AssignmentIDs)
 		if err != nil {
 			respondErr(w, 500, "Bulk reassign failed")
 			return
 		}
-		logCreditEvent(ctx, db, r, "collections", "assignment", fmt.Sprintf("%d", len(b.AssignmentIDs)), "", "bulk_reassigned",
-			fmt.Sprintf("Bulk reassigned %d accounts to agent %d", len(b.AssignmentIDs), b.AgentUserID),
-			nil, map[string]any{"agent_user_id": b.AgentUserID, "count": len(b.AssignmentIDs)})
+		// Report what actually moved, not what was asked for: the two differ whenever a
+		// selection contains a row that is no longer active, and the old response said
+		// every request succeeded in full.
+		updated := int64(0)
+		if res != nil {
+			updated, _ = res.RowsAffected()
+		}
+		logCreditEvent(ctx, db, r, "collections", "assignment", fmt.Sprintf("%d", updated), "", "bulk_reassigned",
+			fmt.Sprintf("Bulk reassigned %d of %d selected accounts to agent %d", updated, len(b.AssignmentIDs), b.AgentUserID),
+			nil, map[string]any{"agent_user_id": b.AgentUserID, "count": updated, "requested": len(b.AssignmentIDs)})
 		// Notify the agent the accounts were reassigned to (both channels).
 		go Notify(context.Background(), db, NotifPayload{
 			EventType: "collections_assigned",
@@ -2446,7 +2479,14 @@ func collectionsOpsBulkEscalateByCIF(db *core.DB) http.HandlerFunc {
 			if acc.CIF == "" {
 				continue
 			}
-			if dup, _ := db.PGQuery(ctx, `SELECT 1 FROM recovery_cases WHERE account_cif=$1 AND status='open' LIMIT 1`, acc.CIF); len(dup) > 0 {
+			// This guard tested status='open' while every creation path writes 'active'
+			// (and legal cases carry 'legal'), so it matched nothing and escalating a CIF
+			// already in recovery opened ANOTHER case. 487 customers currently hold two
+			// open cases each. Test the same set the rest of the module treats as open.
+			if dup, _ := db.PGQuery(ctx,
+				`SELECT 1 FROM recovery_cases
+				  WHERE account_cif=$1 AND status NOT IN ('closed','recovered','written_off') LIMIT 1`,
+				acc.CIF); len(dup) > 0 {
 				continue // already in recovery
 			}
 			// Close any active assignment so it leaves the collections queue.

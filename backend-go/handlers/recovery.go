@@ -509,6 +509,18 @@ func recoveryAddLegalMilestone(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Insert returned no result")
 			return
 		}
+		// Filing a proceeding must move the CASE, not just record the paperwork.
+		// recoveryLegal lists cases WHERE legal_stage IS NOT NULL, and both recovery
+		// dashboards filter status IN ('active','legal') — neither of which this handler
+		// ever set. So a case could have proceedings filed against it and still never
+		// appear in the Legal tracker. Only ever escalates: a closed, recovered or
+		// written-off case is left alone.
+		db.PGExec(r.Context(), `
+			UPDATE recovery_cases
+			   SET legal_stage = $1, status = 'legal', updated_at = NOW()
+			 WHERE id = $2
+			   AND status NOT IN ('closed','recovered','written_off')`,
+			b.MilestoneType, id) //nolint:errcheck
 		cif := ""
 		if cifRows, _ := db.PGQuery(r.Context(), `SELECT account_cif FROM recovery_cases WHERE id = $1`, id); len(cifRows) > 0 {
 			cif = str(cifRows[0]["account_cif"])

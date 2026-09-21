@@ -766,6 +766,12 @@ func collectionsWatchlistAdd(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Insert failed")
 			return
 		}
+		// A RETURNING that comes back empty is not an error, so testing err alone left
+		// rows[0] to panic the handler on an index out of range.
+		if len(rows) == 0 {
+			respondErr(w, 500, "Insert returned no result")
+			return
+		}
 		logCreditEvent(r.Context(), db, r, "collections", "watchlist", fmt.Sprint(rows[0]["id"]), b.AccountCIF, "watchlist_flagged",
 			fmt.Sprintf("Account added to watchlist — scenario: %s", b.Scenario), nil, map[string]any{"scenario": b.Scenario, "notes": b.Notes})
 		respond(w, rows[0], "pg")
