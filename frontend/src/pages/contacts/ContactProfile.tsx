@@ -226,16 +226,39 @@ function Badge({ label, colour, outline }: { label: string; colour: string; outl
 // Label above value, not a fixed 140px label column — the old two-column layout gave the
 // value ~120px inside a 300px card, so emails, addresses and employer names overflowed or
 // wrapped under a wide empty gap. Stacked + break-word renders cleanly at any card width.
-function InfoPair({ label, value, mono }: { label: string; value?: string | number | null; mono?: boolean }) {
+// `icon` gives the label a small glyph so a field-dense card reads by shape, not just text;
+// `copy` puts a copy-to-clipboard affordance next to reference numbers (phone, BVN, NIN)
+// that staff paste into other systems all day.
+function InfoPair({ label, value, mono, icon, copy }: { label: string; value?: React.ReactNode; mono?: boolean; icon?: string; copy?: boolean }) {
+  const [copied, setCopied] = useState(false)
   if (!value && value !== 0) return null
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-      <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: 0.3 }}>{label}</span>
-      <span style={{
-        fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.35, wordBreak: 'break-word',
-        fontFamily: mono ? 'var(--font-mono)' : undefined, fontWeight: mono ? FW.semibold : FW.medium,
-      }}>
-        {value}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+        {icon && <span className="material-symbols-rounded" style={{ fontSize: 13, color: 'var(--txt3)' }}>{icon}</span>}
+        {label}
+      </span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+        <span style={{
+          fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.35, wordBreak: 'break-word',
+          fontFamily: mono ? 'var(--font-mono)' : undefined, fontWeight: mono ? FW.semibold : FW.medium,
+        }}>
+          {value}
+        </span>
+        {copy && (
+          <button
+            onClick={() => { try { navigator.clipboard?.writeText(String(value)); setCopied(true); setTimeout(() => setCopied(false), 1200) } catch { /* clipboard unavailable */ } }}
+            title={`Copy ${label}`}
+            aria-label={`Copy ${label}`}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              width: 20, height: 20, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer',
+              color: copied ? GREEN : 'var(--txt3)', borderRadius: RADIUS.sm,
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{copied ? 'check' : 'content_copy'}</span>
+          </button>
+        )}
       </span>
     </div>
   )
@@ -954,11 +977,42 @@ const STEP_COLOUR: Record<string, string> = {
 // The customer's own status badges (Customer, Card Holder, Delinquent, In Recovery…),
 // rendered as pills inside the blue overview hero — only the ones this customer
 // actually has. Replaces the standalone horizontal lifecycle stepper.
-function HeroStatusBadges({ profile }: { profile: ContactProfileData }) {
+function HeroStatusBadges({ profile, identity }: { profile: ContactProfileData; identity: IdentityBlock | null }) {
   const active = LIFECYCLE_STEPS.filter(s => profile[s.key as keyof ContactProfileData] as boolean)
-  if (active.length === 0) return null
+  const pep = identity?.pep === true
+  // A core-banking customer who holds no card: 263 of these exist (migration 258
+  // gave every Udara customer a workspace profile). Cards, card transactions and
+  // the card ledger are all legitimately empty for them, and without this the
+  // profile reads as broken rather than as "this person banks with us, not on a
+  // card". Deposits and loans still show on their own tabs.
+  const coreOnly = !!identity?.linked && (profile.identifiers?.cifs?.length ?? 0) === 0
+  if (active.length === 0 && !pep && !coreOnly) return null
   return (
     <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 12 }}>
+      {/* A politically exposed person is a risk flag, not a detail row: it leads the
+          hero badges and stays visible on every tab, not just Overview. */}
+      {pep && (
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          padding: '3px 10px', borderRadius: RADIUS.xl,
+          background: 'rgba(255,255,255,0.12)', border: `1px solid ${RED}`,
+          fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff',
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 13, color: RED }}>gavel</span>
+          PEP
+        </span>
+      )}
+      {coreOnly && (
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          padding: '3px 10px', borderRadius: RADIUS.xl,
+          background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.4)',
+          fontSize: TEXT.xs, fontWeight: FW.semibold, color: '#fff',
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 13 }}>account_balance</span>
+          Core Banking Customer
+        </span>
+      )}
       {active.map(s => {
         const c = STEP_COLOUR[s.key]
         return (
@@ -1048,9 +1102,213 @@ function AllIdentifiersCard({ profile }: { profile: ContactProfileData }) {
   )
 }
 
+// Risk carries its own visual weight — a colour-coded left rail (same palette as the
+// hero's lifecycle badges: AMBER delinquent, RED in recovery, grey written off) plus
+// headline stat tiles for DPD and outstanding, so the one card collections/recovery
+// staff actually work from reads at a glance instead of as another wall of label/value
+// pairs identical to Identity or Employment.
+function RiskSnapshotCard({ profile }: { profile: ContactProfileData }) {
+  const c = profile.collections
+  const r = profile.recovery_case
+  if (!c && !r) return null
+
+  const severity = profile.is_written_off
+    ? { colour: STEP_COLOUR.is_written_off, label: 'Written Off', icon: 'do_not_disturb_on' }
+    : r
+      ? { colour: STEP_COLOUR.is_in_recovery, label: 'In Recovery', icon: 'gavel' }
+      : { colour: STEP_COLOUR.is_delinquent, label: 'Delinquent', icon: 'warning' }
+
+  const ptpOverdue = !!c?.ptp_date && new Date(c.ptp_date) < new Date()
+
+  return (
+    <SectionCard
+      title="Risk Snapshot"
+      style={{ borderLeft: `4px solid ${severity.colour}` }}
+      actions={
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px',
+          borderRadius: RADIUS.xl, fontSize: TEXT.xs, fontWeight: FW.bold, fontFamily: SORA,
+          background: `${severity.colour}18`, color: severity.colour, border: `1px solid ${severity.colour}40`,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{severity.icon}</span>
+          {severity.label}
+        </span>
+      }
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 14 }}>
+        {c && (
+          <>
+            <div style={{ padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)' }}>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, marginBottom: 3 }}>Days Past Due</div>
+              <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.extrabold, color: severity.colour, letterSpacing: -0.4 }}>
+                {c.dpd}<span style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt3)' }}>d</span>
+              </div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>Bucket {c.dpd_bucket}</div>
+            </div>
+            <div style={{ padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)' }}>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, marginBottom: 3 }}>Outstanding</div>
+              <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', letterSpacing: -0.3 }}>{fmtKoboExact(c.outstanding_kobo)}</div>
+            </div>
+          </>
+        )}
+        {r && (
+          <div style={{ padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)' }}>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, marginBottom: 3 }}>Recovered</div>
+            <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.extrabold, color: GREEN, letterSpacing: -0.3 }}>{fmtKoboExact(r.recovered_kobo)}</div>
+          </div>
+        )}
+      </div>
+
+      <InfoGrid>
+        {c && <InfoPair label="Collections Agent" icon="support_agent" value={c.agent_name ?? 'Unassigned'} />}
+        {c?.ptp_date && (
+          <InfoPair
+            label="Promise To Pay"
+            icon="event"
+            value={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {fmtDate(c.ptp_date)}
+                <span style={{
+                  fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 7px', borderRadius: RADIUS.xl,
+                  background: ptpOverdue ? `${RED}18` : `${GREEN}18`, color: ptpOverdue ? RED : GREEN,
+                }}>
+                  {ptpOverdue ? 'Overdue' : 'Upcoming'}
+                </span>
+              </span>
+            }
+          />
+        )}
+        {r && <InfoPair label="Recovery Case" icon="folder" value={r.case_ref} mono />}
+        {r && <InfoPair label="Recovery Status" icon="flag" value={r.status} />}
+        {r && <InfoPair label="Recovery Agent" icon="support_agent" value={r.agent_name ?? 'Unassigned'} />}
+        {r?.legal_stage && <InfoPair label="Legal Stage" icon="gavel" value={r.legal_stage} />}
+        {profile.last_payment && (
+          <InfoPair label="Last Payment" icon="payments" value={`${fmtNaira(profile.last_payment.amount)} · ${fmtDate(profile.last_payment.date)}`} />
+        )}
+      </InfoGrid>
+    </SectionCard>
+  )
+}
+
 // ── Tab content panels ────────────────────────────────────────────────────────
 
-function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOpenTab: (t: string) => void }) {
+// ── Identity / KYC (core banking) ─────────────────────────────────────────────
+//
+// Migration 258 carried the Udara360 customer master onto app.customers — NIN,
+// TIN, means of ID, next of kin, employment, the corporate registration details
+// and a PEP flag. /api/customer360/{key}/identity assembles the block; this page
+// only lays out what it is handed, so the grouping, the labels, the omit-if-empty
+// rule and any future masking all live in that one Go serialiser
+// (c360IdentityGroups) rather than being scattered through the JSX.
+//
+// The data is sparse by nature — NIN reaches 91 of 294 Udara customers,
+// occupation 63, TIN 9 — so the server sends only populated fields and drops a
+// whole group when none of its fields survived.
+
+interface IdentityField { key: string; label: string; value: string; mono?: boolean; sensitive?: boolean }
+interface IdentityGroup { key: string; title: string; icon: string; fields: IdentityField[] }
+interface IdentityBlock {
+  entity_type: 'individual' | 'corporate'
+  groups: IdentityGroup[]
+  field_count: number
+  /** true = flagged, false = checked and clear, null = the core-banking master has never seen this customer. */
+  pep: boolean | null
+  linked: boolean
+  source?: { system: string; label: string; cbs_customer_id: string; synced_at: string | null; party_id: number | null }
+}
+
+const IDENTITY_GROUP_COLOUR: Record<string, string> = {
+  documents: PURPLE, personal: BLUE, business: NAVY,
+  employment: AMBER, contact: GREEN, nok: BLUE,
+}
+
+// The provenance chip. This block is the core-banking record reached through the
+// party -> cbs_customer_id bridge; the rest of the profile comes from the card
+// feed, which never carries a NIN or a next of kin. Saying so is the point.
+function CoreBankingChip() {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '3px 10px', borderRadius: RADIUS.full,
+      background: `${NAVY}12`, border: `1px solid ${NAVY}2e`,
+      fontSize: TEXT.xs, fontWeight: FW.bold, color: NAVY, fontFamily: SORA,
+    }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 13 }}>account_balance</span>
+      Core Banking
+    </span>
+  )
+}
+
+function IdentityKycCard({ identity }: { identity: IdentityBlock | null }) {
+  if (!identity) return null
+  const flagged = identity.pep === true
+  // Render for anyone the core-banking master knows, even when it holds no KYC
+  // detail — for a Udara-only customer that absence is itself the answer. A
+  // card-only customer the master has never seen gets no card at all.
+  if (identity.field_count === 0 && !flagged && !identity.linked) return null
+
+  const src = identity.source
+  const subtitle = src?.cbs_customer_id
+    ? `From ${src.label} — customer ${src.cbs_customer_id}${src.synced_at ? ` · synced ${fmtDatetime(src.synced_at)}` : ''}`
+    : 'From the core banking customer master — not the card feed'
+
+  return (
+    <div style={{ gridColumn: '1 / -1' }}>
+      <SectionCard
+        title="Identity &amp; KYC"
+        subtitle={subtitle}
+        badge={identity.field_count || undefined}
+        actions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Badge label={identity.entity_type === 'corporate' ? 'Corporate' : 'Individual'} colour={identity.entity_type === 'corporate' ? NAVY : BLUE} outline />
+            {identity.pep === false && <Badge label="PEP Clear" colour="#6B7280" outline />}
+            <CoreBankingChip />
+          </div>
+        }
+      >
+        {/* PEP is a risk flag, not a row in a list — it leads the card. */}
+        {flagged && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 11, marginBottom: 16,
+            padding: '11px 14px', borderRadius: RADIUS.md,
+            background: `${RED}0f`, border: `1px solid ${RED}45`,
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 21, color: RED }}>gavel</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: RED, fontFamily: SORA }}>Politically Exposed Person</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Flagged on the core banking customer master — enhanced due diligence applies.</div>
+            </div>
+          </div>
+        )}
+
+        {identity.field_count === 0 && (
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+            The core banking record carries no identity or KYC detail for this customer yet.
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px 22px' }}>
+          {identity.groups.map(g => {
+            const colour = IDENTITY_GROUP_COLOUR[g.key] ?? NAVY
+            return (
+              <div key={g.key} style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 9 }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: 15, color: colour }}>{g.icon}</span>
+                  <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{g.title}</span>
+                </div>
+                <InfoGrid>
+                  {g.fields.map(f => <InfoPair key={f.key} label={f.label} value={f.value} mono={f.mono} />)}
+                </InfoGrid>
+              </div>
+            )
+          })}
+        </div>
+      </SectionCard>
+    </div>
+  )
+}
+
+function OverviewTab({ profile, identity, onOpenTab }: { profile: ContactProfileData; identity: IdentityBlock | null; onOpenTab: (t: string) => void }) {
   const s = profile.summary
   const txns = profile.transactions.slice(0, 5)
   return (
@@ -1076,36 +1334,37 @@ function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOp
         </div>
       )}
       <AllIdentifiersCard profile={profile} />
+      <IdentityKycCard identity={identity} />
 
       <SectionCard title="Identity &amp; Contact">
         <InfoGrid>
-          <InfoPair label="Full Name"      value={profile.name} />
-          <InfoPair label="Phone"          value={profile.phone} />
-          <InfoPair label="Email"          value={profile.email} />
-          <InfoPair label="Gender"         value={profile.gender} />
-          <InfoPair label="Date of Birth"  value={profile.date_of_birth ? fmtDate(profile.date_of_birth) : undefined} />
-          <InfoPair label="BVN"            value={profile.bvn} mono />
-          <InfoPair label="NIN"            value={profile.nin} mono />
+          <InfoPair label="Full Name"      icon="badge"        value={profile.name} />
+          <InfoPair label="Phone"          icon="call"         value={profile.phone} copy />
+          <InfoPair label="Email"          icon="mail"         value={profile.email} copy />
+          <InfoPair label="Gender"         icon="wc"           value={profile.gender} />
+          <InfoPair label="Date of Birth"  icon="cake"         value={profile.date_of_birth ? fmtDate(profile.date_of_birth) : undefined} />
+          <InfoPair label="BVN"            icon="fingerprint"  value={profile.bvn} mono copy />
+          <InfoPair label="NIN"            icon="badge"        value={profile.nin} mono copy />
         </InfoGrid>
       </SectionCard>
 
       <SectionCard title="Employment &amp; Address">
         <InfoGrid>
-          <InfoPair label="Employer"        value={profile.employer} />
-          <InfoPair label="Monthly Income"  value={profile.monthly_income_kobo != null ? fmtKoboExact(profile.monthly_income_kobo) : undefined} />
-          <InfoPair label="Address"         value={profile.full_address ?? profile.address} />
-          <InfoPair label="City"            value={profile.city} />
-          <InfoPair label="State"           value={profile.state} />
-          <InfoPair label="Country"         value={profile.country} />
+          <InfoPair label="Employer"        icon="work"          value={profile.employer} />
+          <InfoPair label="Monthly Income"  icon="payments"      value={profile.monthly_income_kobo != null ? fmtKoboExact(profile.monthly_income_kobo) : undefined} />
+          <InfoPair label="Address"         icon="home"          value={profile.full_address ?? profile.address} />
+          <InfoPair label="City"            icon="location_city" value={profile.city} />
+          <InfoPair label="State"           icon="map"           value={profile.state} />
+          <InfoPair label="Country"         icon="public"        value={profile.country} />
         </InfoGrid>
       </SectionCard>
 
       {profile.crm && (
         <SectionCard title="Sales Record">
           <InfoGrid>
-            <InfoPair label="Status"       value={profile.crm.status.replace(/_/g,' ')} />
-            <InfoPair label="Assigned To"  value={profile.crm.assigned_to} />
-            <InfoPair label="Since"        value={fmtDate(profile.crm.created_at)} />
+            <InfoPair label="Status"       icon="flag"          value={profile.crm.status.replace(/_/g,' ')} />
+            <InfoPair label="Assigned To"  icon="support_agent" value={profile.crm.assigned_to} />
+            <InfoPair label="Since"        icon="event"         value={fmtDate(profile.crm.created_at)} />
           </InfoGrid>
           {profile.crm.deals.length > 0 && (
             <div style={{ marginTop: 8 }}>
@@ -1124,32 +1383,7 @@ function OverviewTab({ profile, onOpenTab }: { profile: ContactProfileData; onOp
         </SectionCard>
       )}
 
-      {(profile.collections || profile.recovery_case) && (
-        <SectionCard title="Risk Snapshot">
-          <InfoGrid>
-            {profile.collections && (
-              <>
-                <InfoPair label="DPD" value={`${profile.collections.dpd}d (${profile.collections.dpd_bucket})`} />
-                <InfoPair label="Outstanding" value={fmtKoboExact(profile.collections.outstanding_kobo)} />
-                <InfoPair label="Collections Agent" value={profile.collections.agent_name ?? 'Unassigned'} />
-                {profile.collections.ptp_date && <InfoPair label="PTP Date" value={fmtDate(profile.collections.ptp_date)} />}
-              </>
-            )}
-            {profile.recovery_case && (
-              <>
-                <InfoPair label="Recovery Case" value={profile.recovery_case.case_ref} mono />
-                <InfoPair label="Recovery Status" value={profile.recovery_case.status} />
-                <InfoPair label="Recovery Agent" value={profile.recovery_case.agent_name ?? 'Unassigned'} />
-                <InfoPair label="Recovered"  value={fmtKoboExact(profile.recovery_case.recovered_kobo)} />
-                {profile.recovery_case.legal_stage && <InfoPair label="Legal Stage" value={profile.recovery_case.legal_stage} />}
-              </>
-            )}
-            {profile.last_payment && (
-              <InfoPair label="Last Payment" value={`${fmtNaira(profile.last_payment.amount)} · ${fmtDate(profile.last_payment.date)}`} />
-            )}
-          </InfoGrid>
-        </SectionCard>
-      )}
+      <RiskSnapshotCard profile={profile} />
 
       {txns.length > 0 && (
         <div style={{ gridColumn: '1 / -1' }}>
@@ -2139,6 +2373,20 @@ export default function ContactProfile() {
   // clicking a card on the Cards tab can set it and switch tabs in one go.
   const [cardCif, setCardCif]   = useState('')
 
+  // Identity / KYC from the core-banking customer master (migration 258). Fetched
+  // apart from the profile because it is a different source system and a different
+  // shape, and because a failure here must never take the page down — the block
+  // simply doesn't render.
+  const [identity, setIdentity] = useState<IdentityBlock | null>(null)
+  useEffect(() => {
+    if (!key) { setIdentity(null); return }
+    let live = true
+    apiFetch<{ data: IdentityBlock }>(`/api/customer360/${encodeURIComponent(key)}/identity`)
+      .then(r => { if (live) setIdentity((r as any)?.data ?? null) })
+      .catch(() => { if (live) setIdentity(null) })
+    return () => { live = false }
+  }, [key])
+
   const openCardTransactions = useCallback((cif: string) => {
     setCardCif(cif)
     setTab('transactions')
@@ -2266,7 +2514,7 @@ export default function ContactProfile() {
             ))}
           </div>
           {/* The customer's status badges live here on the blue overview */}
-          <HeroStatusBadges profile={profile} />
+          <HeroStatusBadges profile={profile} identity={identity} />
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
@@ -2294,7 +2542,7 @@ export default function ContactProfile() {
         <Tabs tabs={visibleTabs} active={tab} onChange={setTab} />
       </div>
 
-      {tab === 'overview'    && <OverviewTab    profile={profile} onOpenTab={setTab} />}
+      {tab === 'overview'    && <OverviewTab    profile={profile} identity={identity} onOpenTab={setTab} />}
       {tab === 'loans'       && <LoansTab       profile={profile} />}
       {tab === 'fixed_deposits' && <FixedDepositsTab profile={profile} />}
       {tab === 'cards'       && <CardsTab       profile={profile} onViewTransactions={openCardTransactions} />}
