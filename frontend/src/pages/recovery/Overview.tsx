@@ -21,7 +21,8 @@ interface RecoveryKPIs {
 
 interface MonthlyPoint {
   month: string
-  amount_kobo: number
+  card_kobo: number
+  loan_kobo: number
 }
 
 interface ChannelRow {
@@ -178,8 +179,7 @@ export default function RecoveryOverview() {
   useLiveData(() => load(true), { topics: ['recovery'] })
 
   const kpiLoading = loading && !kpis
-  const totalRecovered = trend.reduce((s, p) => s + (p.amount_kobo || 0), 0)
-  const peakKobo = trend.length ? Math.max(...trend.map(p => p.amount_kobo || 0)) : 0
+  const totalRecovered = trend.reduce((s, p) => s + (p.card_kobo || 0) + (p.loan_kobo || 0), 0)
 
   return (
     <Page
@@ -275,12 +275,14 @@ export default function RecoveryOverview() {
         </div>
       )}
 
-      {/* Monthly recovery trend — full-width labelled bar chart. Recovery amounts swing
-          from ~₦400M to ₦40bn+ month to month, so a bar-per-month with a value label on
-          each reads cleanly where an area chart collapsed into a single spike. */}
+      {/* Monthly recovery trend — Card vs Loan recovery as two bars per month. A single
+          blended bar was unreadable: one ~₦420M loan recovery flattened every ~₦8M
+          card-recovery month to a sliver. Splitting by product lets each read on its own.
+          Future-dated rows are excluded server-side and the spine is capped at the
+          current month, so the trend never shows "recovered" money in months yet to come. */}
       <SectionCard
         title="Monthly Recovery Trend"
-        subtitle={`Recovered per month · ${fmtKoboExact(totalRecovered)} over the selected range`}
+        subtitle={`Card vs loan recovery per month · ${fmtKoboExact(totalRecovered)} over the selected range`}
         padding={false}
       >
         <div style={{ padding: '20px 20px 14px' }}>
@@ -293,15 +295,13 @@ export default function RecoveryOverview() {
               data={trend}
               xKey="month"
               height={300}
-              legend={false}
+              legend
               valueFmt={(v) => fmtKoboExact(v)}
               axisFmt={(v) => fmtKobo(v)}
-              series={[{
-                key: 'amount_kobo',
-                name: 'Recovered',
-                color: GREEN,
-                colorFn: (p) => Number(p.amount_kobo) === peakKobo ? GREEN : 'rgba(22,163,74,0.55)',
-              }]}
+              series={[
+                { key: 'card_kobo', name: 'Card', color: GREEN },
+                { key: 'loan_kobo', name: 'Loan', color: NAVY },
+              ]}
             />
           )}
         </div>
