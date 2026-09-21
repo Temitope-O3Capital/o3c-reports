@@ -59,7 +59,7 @@ export default function CallsPanel({ cif }: { cif: string }) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                  {outbound ? 'Outbound' : 'Inbound'} call
+                  {outbound ? 'Outbound Call' : 'Inbound Call'}
                 </span>
                 {c.disposition && <Pill text={c.disposition} color={NAVY} />}
                 {c.outcome && <Pill text={c.outcome} color={c.outcome.toLowerCase().includes('connect') || c.outcome.toLowerCase().includes('answer') ? GREEN : AMBER} />}
@@ -78,9 +78,13 @@ export default function CallsPanel({ cif }: { cif: string }) {
   )
 }
 
+// Renders a stored value as it is stored. It used to be title-cased on the way out,
+// which re-cased the record itself on screen — "Promise to Pay" became "Promise To
+// Pay" — so the pill no longer touches the casing; only the underscores separating
+// a machine value are opened out into spaces.
 function Pill({ text, color }: { text: string; color: string }) {
   return (
-    <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.full, background: `${color}14`, color, textTransform: 'capitalize' }}>
+    <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 7px', borderRadius: RADIUS.full, background: `${color}14`, color }}>
       {text.replace(/_/g, ' ')}
     </span>
   )

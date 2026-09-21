@@ -83,6 +83,9 @@ func main() {
 	shutdownSig := make(chan os.Signal, 1)
 	signal.Notify(shutdownSig, syscall.SIGINT, syscall.SIGTERM)
 	handlers.RunBatchNightly(shutdownCtx, db)
+	// The 09:00 management and sales report emails. Lives in the service, not a desktop
+	// scheduled task, so it keeps sending when nobody is logged on to the server.
+	handlers.StartManagementReportScheduler(shutdownCtx, db)
 
 	// Resume any campaigns that were mid-dispatch when the pod last restarted.
 	handlers.ResumeInterruptedCampaigns(db)
@@ -195,6 +198,19 @@ func main() {
 	// schedule has come due: run the pivot live, render it to CSV/XLSX and email
 	// it to the recipients, then roll next_run_at forward.
 	go handlers.StartReportScheduleWorker(db)
+
+	// Pipeline freshness — every 15 min, compare the age of each inbound source's
+	// DATA against its expectation (app.v_pipeline_freshness, migration 238) and
+	// notify it_admin/admin when a source goes quiet, collapses in volume, or its
+	// ingest job stops running. Exists because the CCS feed died on 2026-09-08 and
+	// every existing signal — run status, task exit code, worker hub — stayed green
+	// for six days.
+	go handlers.StartPipelineMonitor(db)
+
+	// Merchant aliases — daily, map truncated merchant spellings (the feed cuts the
+	// name at ~21 characters) to their fuller form so rankings stop splitting one
+	// merchant across several rows. See migration 244.
+	go handlers.StartMerchantAliasRefresh(db)
 
 	// DB14: TTL enforcement — nightly cleanup of expired short-lived rows.
 	go func() {
@@ -386,15 +402,23 @@ func main() {
 	// Africa's Talking inbound webhook — no auth (AT posts here on every call event)
 	r.Post("/api/voice/at-inbound", handlers.VoiceATInbound(db))
 
-	// Voice — protected endpoints
+	// Voice — protected endpoints. The group is audited: these mutations decide who can
+	// place calls as whom, and until the September 2026 review they left no trace at all.
 	r.Group(func(r chi.Router) {
 		r.Use(core.AuthMiddleware)
+		r.Use(activityLogger(activityCh, auditCh))
 		// AT: browser capability token for agent WebRTC (inbound + outbound)
 		r.Get("/api/voice/at-token", handlers.VoiceATCapabilityToken(db))
 		// Telnyx (legacy SIP credential management)
 		r.Get("/api/voice/status", handlers.VoiceStatus(db))
 		r.Delete("/api/voice/disconnect", handlers.VoiceDisconnect(db))
-		r.Post("/api/voice/credentials", handlers.VoiceSetCredentials(db))
+		// Admin only. The request body names the user whose SIP credentials are written,
+		// so with only AuthMiddleware any logged-in account could repoint another agent's
+		// phone line at itself, or clear it and take them off the phones.
+		r.Group(func(r chi.Router) {
+			r.Use(core.RequirePages("admin"))
+			r.Post("/api/voice/credentials", handlers.VoiceSetCredentials(db))
+		})
 	})
 	r.Route("/api/mail", func(r chi.Router) {
 		handlers.RegisterMailPublic(r, db)
@@ -457,6 +481,9 @@ func main() {
 		r.Route("/api/admin", func(r chi.Router) {
 			handlers.RegisterAdmin(r, db)
 			r.Route("/workers", func(r chi.Router) { handlers.RegisterWorkers(r, db) })
+			r.Route("/pipeline", func(r chi.Router) { handlers.RegisterPipelineHealth(r, db) })
+			// Review of the merchant-name merges the daily job proposes (migration 244).
+			r.Route("/merchant-aliases", func(r chi.Router) { handlers.RegisterMerchantAliases(r, db) })
 			handlers.RegisterNotificationSettings(r, db)
 			handlers.RegisterEmailSenders(r, db)
 			handlers.RegisterTermiiAdmin(r, db) // Termii SMS status + test-send
@@ -574,7 +601,7 @@ func main() {
 			handlers.RegisterMobileApp(r, db)
 		})
 		r.Route("/api/blink-card", func(r chi.Router) {
-			handlers.RegisterBlinkCard(r, db)
+			handlers.RegisterBlink(r, db)
 		})
 		// Activity log — any authenticated user (not just admins)
 		handlers.RegisterActivityLog(r, db)
@@ -635,6 +662,9 @@ func main() {
 		r.Get("/api/search", handlers.GlobalSearch(db))
 		r.Route("/api/bi", func(r chi.Router) {
 			handlers.RegisterBI(r, db)
+		})
+		r.Route("/api/management-reports", func(r chi.Router) {
+			handlers.RegisterManagementReports(r, db)
 		})
 		// Customer Growth & Activity monitor — registrations, transaction activity
 		// and churn. Access is gated per-endpoint (management + operating teams).
@@ -812,6 +842,10 @@ func activityLogger(ch chan<- activityLogEntry, auditCh chan<- auditLogEntry) fu
 				"credit-portfolio", "fixed-deposit", "settlement", "uploads",
 				"reconciliation", "kpi", "batch", "collections-ops", "recovery-ops",
 				"approvals", "customer360", "customer-service", "risk",
+				// Call centre. Without these every call-centre audit row was written
+				// with an empty entity_type and so was invisible to the Audit Trail
+				// screen's filter — the actions were logged but could not be found.
+				"call-center", "helpdesk", "qa", "voice", "zoho",
 			} {
 				if strings.Contains(path, "/api/"+seg) {
 					page = seg

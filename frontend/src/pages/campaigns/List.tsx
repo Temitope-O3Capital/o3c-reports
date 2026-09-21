@@ -3,12 +3,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar, filterInputStyle,
-  Modal, ErrBanner, btnPrimary, btnSecondary, KpiCard, DateFilter,
+  Modal, ErrBanner, btnPrimary, btnSecondary, KpiCard,
   NameCell, ActionRow, StatusBadge,
 } from '../../components/UI'
 import type { TableCol, RowAction, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtNum, fmtDatetime, fmtPct, monthStart, today } from '../../lib/fmt'
+import { fmtNum, fmtDatetime, fmtPct } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -94,8 +94,6 @@ export default function CampaignsList() {
   const [fTypes,    setFTypes]    = useState(new Set<string>())
   const [fStatuses, setFStatuses] = useState(new Set<string>())
   const [showCreate, setShowCreate] = useState(false)
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(today())
   const [form, setForm]           = useState(BLANK)
   const [saving, setSaving]       = useState(false)
   const [actionErr, setActionErr] = useState<string | null>(null)
@@ -107,8 +105,6 @@ export default function CampaignsList() {
       const p = new URLSearchParams({ limit: '50', offset: '0' })
       if (fTypes.size)    p.set('type',   [...fTypes].join(','))
       if (fStatuses.size) p.set('status', [...fStatuses].join(','))
-      if (dateFrom)       p.set('from',   dateFrom)
-      if (dateTo)         p.set('to',     dateTo)
       const [res, ls, sum] = await Promise.all([
         apiFetch<{ total: number; campaigns: Campaign[] }>(`/api/campaigns?${p}`),
         apiFetch<ContactList[] | { data: ContactList[] }>('/api/contact-lists?limit=200'),
@@ -125,7 +121,7 @@ export default function CampaignsList() {
       if (s) setSummary({ active: s.active ?? 0, scheduled: s.scheduled ?? 0, completed: s.completed ?? 0, draft: s.draft ?? 0 })
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [fTypes, fStatuses, dateFrom, dateTo])
+  }, [fTypes, fStatuses])
 
   async function loadMore() {
     setLoadingMore(true)
@@ -134,8 +130,6 @@ export default function CampaignsList() {
       const p = new URLSearchParams({ limit: '50', offset: String((nextPage - 1) * 50) })
       if (fTypes.size)    p.set('type',   [...fTypes].join(','))
       if (fStatuses.size) p.set('status', [...fStatuses].join(','))
-      if (dateFrom)       p.set('from',   dateFrom)
-      if (dateTo)         p.set('to',     dateTo)
       const res = await apiFetch<{ total: number; campaigns: Campaign[] }>(`/api/campaigns?${p}`)
       const newCampaigns = Array.isArray(res?.campaigns) ? res.campaigns : []
       setCampaigns(prev => [...prev, ...newCampaigns])
@@ -233,7 +227,7 @@ export default function CampaignsList() {
     { key: '_actions', label: '', sortable: false,
       render: r => {
         const actions: RowAction[] = [
-          { icon: 'open_in_new', label: 'View report', onClick: () => navigate(`/campaigns/${r.id}/report`) },
+          { icon: 'open_in_new', label: 'View Report', onClick: () => navigate(`/campaigns/${r.id}/report`) },
           ...((canWrite && (r.status === 'draft' || r.status === 'scheduled'))
             ? [{ icon: 'play_arrow', label: 'Start', onClick: () => doAction(r.id, 'start') }]
             : []),
@@ -260,7 +254,6 @@ export default function CampaignsList() {
       skeletonKpis={4}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           {canWrite && (
             <button onClick={() => setShowCreate(true)} style={btnPrimary}>
               <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
@@ -292,7 +285,7 @@ export default function CampaignsList() {
               options: [
                 { value: 'email',    label: 'Email',         color: BLUE },
                 { value: 'sms',     label: 'SMS',           color: PURPLE },
-                { value: 'multi',   label: 'Multi-channel', color: GREEN },
+                { value: 'multi',   label: 'Multi-Channel', color: GREEN },
                 { value: 'whatsapp',label: 'WhatsApp',      color: WA_GREEN },
               ],
               selected: fTypes,
@@ -330,7 +323,7 @@ export default function CampaignsList() {
           <div style={{ padding: '12px', borderTop: '1px solid var(--bdr)', textAlign: 'center' }}>
             <button onClick={loadMore} disabled={loadingMore}
               style={{ padding: '7px 20px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: loadingMore ? 'default' : 'pointer', fontFamily: INTER }}>
-              {loadingMore ? 'Loading…' : `Load more (${fmtNum(total - campaigns.length)} remaining)`}
+              {loadingMore ? 'Loading…' : `Load More (${fmtNum(total - campaigns.length)} Remaining)`}
             </button>
           </div>
         )}
@@ -369,7 +362,7 @@ export default function CampaignsList() {
 
           {/* Description */}
           <div>
-            <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>DESCRIPTION <span style={{ fontWeight: 400, color: 'var(--txt3)' }}>(optional)</span></div>
+            <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>DESCRIPTION <span style={{ fontWeight: 400, color: 'var(--txt3)' }}>(Optional)</span></div>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -387,7 +380,7 @@ export default function CampaignsList() {
                 { value: 'email',    icon: 'mail',       label: 'Email' },
                 { value: 'sms',     icon: 'smartphone', label: 'SMS' },
                 { value: 'whatsapp',icon: 'chat',       label: 'WhatsApp' },
-                { value: 'multi',   icon: 'hub',        label: 'Multi-channel' },
+                { value: 'multi',   icon: 'hub',        label: 'Multi-Channel' },
               ] as const).map(ch => (
                 <button
                   key={ch.value}
@@ -450,14 +443,14 @@ export default function CampaignsList() {
               <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>CONTACT LIST</div>
               <select value={form.list_id} onChange={e => setForm(f => ({ ...f, list_id: e.target.value }))}
                 style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box', height: 36 }}>
-                <option value="">— Select a list —</option>
+                <option value="">— Select a List —</option>
                 {lists.map(l => (
                   <option key={l.id} value={l.id}>{l.name} ({fmtNum(Number(l.member_count ?? 0))})</option>
                 ))}
               </select>
             </div>
             <div>
-              <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>SCHEDULE <span style={{ fontWeight: 400 }}>(optional)</span></div>
+              <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', fontFamily: INTER, letterSpacing: 0.5, marginBottom: 5 }}>SCHEDULE <span style={{ fontWeight: 400 }}>(Optional)</span></div>
               <input
                 type="datetime-local"
                 value={form.scheduled_at}

@@ -133,7 +133,7 @@ function ArticleForm({ form, onChange }: {
             <option value="">— Select —</option>
             <option value="Draft">Draft</option>
             <option value="Pending Approval">Submit for Approval</option>
-            <option value="Live">Live (direct publish)</option>
+            <option value="Live">Live (Direct Publish)</option>
           </select>
         </div>
       </div>
@@ -402,7 +402,7 @@ export default function KnowledgeBase() {
         </div>
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>
-          No articles found
+          No Articles Found
         </div>
       ) : (
         <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden' }}>

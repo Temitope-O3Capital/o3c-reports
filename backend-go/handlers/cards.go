@@ -23,6 +23,21 @@ func RegisterCards(r chi.Router, db *core.DB) {
 	r.With(cards).Get("/issuance", cardListIssuance(db))
 	r.With(cards).Post("/issuance", cardCreateIssuance(db))
 	r.With(cards).Patch("/issuance/{id}/status", cardAdvanceIssuance(db))
+	// Who sold the card. Cards are not in CBS and the account feed carries no officer,
+	// so this is the only place the credit can come from.
+	//
+	// Read by management, BI and the sales floor as well as the cards team, so it is not
+	// gated on the cards page alone. Crediting is narrower: cards, BI, and heads and
+	// management (all of whom hold "executive"). Sales officers can see the credit but
+	// not assign it, so nobody can move cards onto their own target.
+	attrRead := core.RequirePages("cards", "reports", "executive", "sales")
+	attrWrite := core.RequirePages("cards", "reports", "executive")
+	r.With(attrRead).Get("/attribution", cardListAttribution(db))
+	r.With(attrRead).Get("/attribution/summary", cardAttributionSummary(db))
+	r.With(attrRead).Get("/attribution/coverage", cardAttributionCoverage(db))
+	r.With(attrRead).Get("/attribution/people", cardAttributionPeople(db))
+	r.With(attrWrite).Post("/attribution", cardSetAttribution(db))
+	r.With(attrWrite).Post("/attribution/bulk", cardBulkAttribution(db))
 	r.With(cards).Get("/disputes", cardListDisputes(db))
 	r.With(cards).Post("/disputes", cardCreateDispute(db))
 	r.With(cards).Patch("/disputes/{id}/status", cardAdvanceDispute(db))
@@ -47,24 +62,40 @@ func cardMyQueue(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		issuance, _ := db.PGQuery(ctx, `
+		// Issuance is scoped to the submitter (your own raised requests); disputes and
+		// credit reviews are a shared cards-ops pool (no per-agent owner column exists).
+		// A failed query must surface as an error, not be silently rendered as an empty
+		// queue — "0 open disputes" and "the disputes query errored" are very different.
+		issuance, err := db.PGQuery(ctx, `
 			SELECT id, cif_number, customer_name, card_type, status, submitted_by, created_at
 			FROM card_issuance_requests
 			WHERE submitted_by = $1
 			  AND status IN ('pending','doc_review','credit_check','risk_review')
 			ORDER BY created_at DESC`, user.ID)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 
-		disputes, _ := db.PGQuery(ctx, `
+		disputes, err := db.PGQuery(ctx, `
 			SELECT id, cif_number, customer_name, card_type, amount_kobo, dispute_type, notes, status, filed_at, resolved_at
 			FROM card_disputes
 			WHERE status NOT IN ('resolved','closed')
 			ORDER BY filed_at DESC`)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 
-		creditReviews, _ := db.PGQuery(ctx, `
+		creditReviews, err := db.PGQuery(ctx, `
 			SELECT id, cif_number, customer_name, card_type, current_limit_kobo, proposed_limit_kobo, utilization_pct, eye_score, status, created_at
 			FROM card_credit_limit_reviews
 			WHERE status = 'pending'
 			ORDER BY created_at DESC`)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 
 		if issuance == nil {
 			issuance = []core.Row{}
@@ -128,22 +159,58 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 			sources = append(sources, src)
 		}
 
-		// per-product counts for the 4 known products
-		for _, product := range []string{"PREP", "Amex Naira", "Amex USD", "Classic Accounts"} {
-			// When card_type filter is set, skip products that don't match
-			if cardType != "" && product != cardType {
+		// Per-product counts, driven by the catalogue rather than a literal.
+		//
+		// The old list was {"PREP","Amex Naira","Amex USD","Classic Accounts"}:
+		// two of them are is_active=false legacy names (Amex Naira 001, Amex USD
+		// 002) and six live products were missing entirely, so the KPI strip
+		// reported on a set that matched neither the catalogue nor the book.
+		// app.accounts.product_name holds the legacy system_name, so the count
+		// matches on that while the KPI key uses the canonical name.
+		prodRows, _ := db.PGQuery(ctx, `
+			SELECT product_name,
+			       COALESCE(NULLIF(system_name, ''), product_name) AS match_name
+			  FROM app.card_products
+			 WHERE is_active
+			 ORDER BY product_name`)
+		for _, p := range prodRows {
+			name, match := str(p["product_name"]), str(p["match_name"])
+			// The card_type filter arrives as whichever name the caller has.
+			if cardType != "" && cardType != name && cardType != match {
 				continue
 			}
-			var pf Filter
-			pf.Eq(" AND Product_Name=?", ` AND product_name=?`, product)
-			key := slugify(product)
 			val, src, err := db.DualScalar(ctx, "val",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, pf.PG()),
-				pf.Args()...)
+				`SELECT COUNT(*) AS val FROM app.accounts WHERE product_name = $1`, match)
 			if err == nil {
-				kpis[key] = val
+				kpis[slugify(name)] = val
 				sources = append(sources, src)
 			}
+		}
+
+		// The two axes, on the same filter as the KPIs above so the strip and the
+		// breakdowns always reconcile. family is the funding family from the
+		// catalogue (credit | prepaid | blink); activity is usage recency, which
+		// is orthogonal to card_state — 579 Expired cards transacted in the last
+		// 90 days and 1,796 Live ones did not.
+		if fam, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT COALESCE(product_category, 'unmatched') AS family, COUNT(*) AS count
+			  FROM app.card_book_full WHERE 1=1%s GROUP BY 1`, ctFilter.PG()),
+			ctFilter.Args()...); len(fam) > 0 {
+			byFamily := map[string]any{}
+			for _, f := range fam {
+				byFamily[str(f["family"])] = toInt64(f["count"])
+			}
+			kpis["by_family"] = byFamily
+		}
+		if act, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT activity_class, COUNT(*) AS count
+			  FROM app.card_book_full WHERE 1=1%s GROUP BY 1`, ctFilter.PG()),
+			ctFilter.Args()...); len(act) > 0 {
+			byActivity := map[string]any{}
+			for _, a := range act {
+				byActivity[str(a["activity_class"])] = toInt64(a["count"])
+			}
+			kpis["by_activity"] = byActivity
 		}
 
 		total := toFloat(kpis["total_issued"])
@@ -153,9 +220,12 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 			kpis["activation_rate"] = 0.0
 		}
 
-		// unique merchants (joined with transactions)
+		// unique merchants (joined with transactions) — honour the same date range as the
+		// rest of the strip, applied to the transaction date so the count reflects the
+		// selected period rather than all-time.
 		var mf Filter
 		mf.Eq(" AND p.Product_Name=?", ` AND p.product_name=?`, cardType)
+		mf.Date("t.Transaction_Date", ` t.txn_date`, from, to)
 		merchants, src, err := db.DualScalar(ctx, "val",
 			fmt.Sprintf(`SELECT COUNT(DISTINCT t.merchant_name) AS val
 			  FROM app.transactions t JOIN app.accounts p ON t.cif=p.cif
@@ -172,9 +242,17 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 
 func cardsByProduct(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Reports the catalogue's canonical name and funding family alongside the
+		// raw book name, so the caller can group by family without re-deriving it
+		// from the product string. Rows the catalogue does not know are labelled
+		// 'unmatched' rather than silently folded into a family.
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT product_name AS product_name, COUNT(*) AS count FROM app.accounts
-			 WHERE product_name IS NOT NULL GROUP BY product_name ORDER BY count DESC`)
+			`SELECT COALESCE(catalogue_product_name, product_name) AS product_name,
+			        COALESCE(product_category, 'unmatched')        AS category,
+			        COUNT(*)                                       AS count
+			 FROM app.card_book_full
+			 WHERE product_name IS NOT NULL
+			 GROUP BY 1, 2 ORDER BY count DESC`)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
@@ -185,8 +263,12 @@ func cardsByProduct(db *core.DB) http.HandlerFunc {
 
 func cardsByStatus(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// card_state, not the raw status column: status does not track expiry, so
+		// this chart used to show a book that was 87% dead as Open/Active. Same
+		// reasoning as the active/inactive KPIs above.
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT status AS status, COUNT(*) AS count FROM app.accounts GROUP BY status ORDER BY count DESC`)
+			`SELECT card_state AS status, COUNT(*) AS count
+			 FROM app.card_book_full GROUP BY card_state ORDER BY count DESC`)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
@@ -214,7 +296,11 @@ func cardsVolumeByType(db *core.DB) http.HandlerFunc {
 		f.Eq(" AND p.Product_Name=?", ` AND p.product_name=?`, cardType)
 
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT p.product_name AS product_name, COALESCE(SUM(t.amount),0) AS volume, COUNT(t.amount) AS txn_count
+			// volume is returned in KOBO (the frontend divides by 100). app.transactions.amount
+			// is NAIRA with decimals, so multiply by 100 — summing it straight in would report
+			// a figure 100x too small once the client divides. txn_count is COUNT(*), not
+			// COUNT(t.amount), so rows with a NULL amount are still counted.
+			fmt.Sprintf(`SELECT p.product_name AS product_name, ROUND(COALESCE(SUM(t.amount),0)*100)::bigint AS volume, COUNT(*) AS txn_count
 			  FROM app.accounts p JOIN app.transactions t ON p.cif=t.cif
 			  WHERE 1=1%s GROUP BY p.product_name ORDER BY volume DESC`, f.PG()),
 			f.Args()...)
@@ -235,9 +321,22 @@ func cardsCardholders(db *core.DB) http.HandlerFunc {
 		limit := qint(r, "limit", 50, 1, 200)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
+		// Filters read the two axes, not the raw status column.
+		//
+		// status now means card_state (Live / Expired / Terminated / …), which
+		// accounts for expiry; the raw column marked 16,215 expired cards as Open
+		// or Active. activity is the orthogonal usage axis (Active / Light /
+		// Dormant / Inactive / Never used), and family is the funding family from
+		// the catalogue. card_type still matches the product string, and accepts
+		// either the book's legacy name or the catalogue's canonical one.
+		activity := qstr(r, "activity")
+		family := qstr(r, "family")
+
 		var f Filter
-		f.Eq(" AND Status=?", ` AND a.status=?`, status)
-		f.Eq(" AND Product_Name=?", ` AND a.product_name=?`, cardType)
+		f.Eq(" AND Status=?", ` AND a.card_state=?`, status)
+		f.Eq(" AND Activity=?", ` AND a.activity_class=?`, activity)
+		f.Eq(" AND Family=?", ` AND a.product_category=?`, family)
+		f.Eq(" AND Product_Name=?", ` AND (a.product_name=? OR a.catalogue_product_name=?)`, cardType)
 		f.Date("Account_Created_Date", `a.opened_date`, from, to)
 
 		// Search joins the identity table so a query can match (and the row can show)
@@ -253,7 +352,7 @@ func cardsCardholders(db *core.DB) http.HandlerFunc {
 			}
 		}
 		total, _, _ := db.DualScalar(r.Context(), "val",
-			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts a
+			fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book_full a
 				LEFT JOIN app.customers c ON c.cif = a.cif
 				WHERE 1=1%s%s`, f.PG(), search),
 			append(append([]any{}, f.Args()...), searchArgs...)...)
@@ -261,11 +360,14 @@ func cardsCardholders(db *core.DB) http.HandlerFunc {
 		data, src, err := db.DualQuery(r.Context(),
 			fmt.Sprintf(`SELECT a.cif AS cif_number,
 				COALESCE(c.full_name,'') AS customer_name,
-				COALESCE(a.product_name,'') AS product_name,
-				COALESCE(a.status,'') AS status,
+				COALESCE(a.catalogue_product_name, a.product_name, '') AS product_name,
+				COALESCE(a.card_state,'') AS status,
+				COALESCE(a.activity_class,'') AS activity_class,
+				COALESCE(a.product_category,'unmatched') AS family,
+				a.last_txn_date,
 				COALESCE(COALESCE(a.card_product,a.card_program),'') AS card_product,
 				TO_CHAR(a.opened_date,'YYYY-MM-DD') AS created_at
-			FROM app.accounts a
+			FROM app.card_book_full a
 			LEFT JOIN app.customers c ON c.cif = a.cif
 			WHERE 1=1%s%s
 			ORDER BY a.opened_date DESC

@@ -288,18 +288,18 @@ export default function AgentDashboard() {
 
       {/* ── My Day ── */}
       <MyDaySection hint="accounts to work today">
-        <MyDayTile icon="phone_forwarded" count={fmtNum(untouched)} label="Not contacted today"
+        <MyDayTile icon="phone_forwarded" count={fmtNum(untouched)} label="Not Contacted Today"
           sub={untouched > 0 ? 'reach them before day-end' : 'whole queue touched'}
           color={AMBER} urgent={untouched > 0} onClick={() => navigate('/collections/queue?mine=1')} />
-        <MyDayTile icon="handshake" count={fmtNum(ptpsToChase)} label="PTPs to chase"
+        <MyDayTile icon="handshake" count={fmtNum(ptpsToChase)} label="PTPs to Chase"
           sub={promises.length
             ? (ptpsToChase > 0 ? `${ptpDueToday} due today · ${ptpOverdue} overdue` : 'no promises due')
             : (ptpsToChase > 0 ? 'promises not yet kept' : 'all promises kept')}
           color={RED} urgent={ptpsToChase > 0} onClick={() => navigate('/collections/promises')} />
-        <MyDayTile icon="payments" count={fmtKoboExact(myCollected)} label="Collected today"
+        <MyDayTile icon="payments" count={fmtKoboExact(myCollected)} label="Collected Today"
           sub={myPayments > 0 ? `${fmtNum(myPayments)} payment${myPayments !== 1 ? 's' : ''} logged` : 'no payments yet today'}
           color={GREEN} onClick={() => navigate('/collections/queue?mine=1')} />
-        <MyDayTile icon="warning" count={fmtKoboExact(myPortfolio)} label="Portfolio at risk"
+        <MyDayTile icon="warning" count={fmtKoboExact(myPortfolio)} label="Portfolio at Risk"
           sub="outstanding in your book" color={RED} onClick={() => navigate('/collections/portfolio')} />
       </MyDaySection>
 
@@ -320,7 +320,7 @@ export default function AgentDashboard() {
           keyFn={r => r.id}
           loading={loading}
           skeletonRows={8}
-          emptyText="No accounts in your queue"
+          emptyText="No Accounts in Your Queue"
           pageSize={20}
           searchKeys={['account_cif', 'dpd_bucket', 'current_stage']}
           searchPlaceholder="Search your accounts by CIF, DPD or stage…"

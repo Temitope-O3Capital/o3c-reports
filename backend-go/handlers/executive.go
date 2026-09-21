@@ -848,12 +848,19 @@ func execSalesHandler(db *core.DB) http.HandlerFunc {
 		// Cards issued in the window + the live credit-card book. Cards are a core O3
 		// product line, so the Sales/acquisition view shows them beside loans & deposits.
 		var cardsOpened, creditCardsOpened, creditBookKobo int64
+		// "Credit cards" comes from the catalogue, not from the product string.
+		// This used to match '%classic%' OR '%credit%', which meant the exec view
+		// and the Credit Portfolio page (which joins card_products.category)
+		// counted different populations under the same name — and it silently
+		// swept in anything merely named "Classic" while missing Business,
+		// Corporate, Platinum and Prestige, all of them credit products.
 		if rows, e := db.PGQuery(ctx, `
 			SELECT COUNT(*) AS all_cards,
-			       COUNT(*) FILTER (WHERE LOWER(COALESCE(product_name,'')) LIKE '%classic%'
-			                          OR LOWER(COALESCE(product_name,'')) LIKE '%credit%'
-			                          OR LOWER(COALESCE(card_product, card_program,'')) LIKE '%credit%') AS credit_cards
-			FROM app.accounts WHERE opened_date BETWEEN $1 AND $2`, d(cs), d(ce)); e == nil && len(rows) > 0 {
+			       COUNT(*) FILTER (WHERE p.category = 'credit') AS credit_cards
+			FROM app.accounts a
+			LEFT JOIN app.card_products p
+			       ON p.system_name = a.product_name OR p.product_name = a.product_name
+			WHERE a.opened_date BETWEEN $1 AND $2`, d(cs), d(ce)); e == nil && len(rows) > 0 {
 			cardsOpened = toInt64(rows[0]["all_cards"])
 			creditCardsOpened = toInt64(rows[0]["credit_cards"])
 		}
@@ -2042,7 +2049,13 @@ func executiveSummary(db *core.DB) http.HandlerFunc {
 
 		// ── Breakdowns ────────────────────────────────────────────────────────
 		topStates := qh(
-			`SELECT state AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers WHERE state IS NOT NULL AND state!='' GROUP BY state ORDER BY count DESC LIMIT 10`)
+			// Grouped on core.clean_state(), not the raw column: LAGOS/Lagos/LAGOS STATE
+			// were three separate rows in this top-10, and ABUJA/FCT/FCT ABUJA/
+			// Federal Capital Territory were four — so the chart was splitting single
+			// states across several bars and cutting real ones off at the limit.
+			// NULL from clean_state means foreign or unusable, which is excluded here
+			// exactly as the old state!='' did. See migration 237.
+			`SELECT core.clean_state(state) AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers WHERE core.clean_state(state) IS NOT NULL GROUP BY 1 ORDER BY count DESC LIMIT 10`)
 		productMix := qh(
 			`SELECT product_name AS "Product Name", COUNT(*) AS count FROM app.accounts WHERE product_name IS NOT NULL GROUP BY product_name ORDER BY count DESC`)
 		topAgents := qh(

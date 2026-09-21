@@ -215,7 +215,7 @@ export default function MailCompose() {
       <Page title="Compose" subtitle="Message sent">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[4], marginTop: 60 }}>
           <span className="material-symbols-rounded" style={{ fontSize: 52, color: '#10B981' }}>check_circle</span>
-          <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)' }}>Message sent</div>
+          <div style={{ fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)' }}>Message Sent</div>
           <div style={{ fontSize: TEXT.md, color: 'var(--txt3)' }}>Your email has been delivered successfully.</div>
           <div style={{ display: 'flex', gap: 10, marginTop: SP[2] }}>
             <button onClick={() => { setSent(false); setTo(''); setCc(''); setBcc(''); setSubject(''); setBody('<p></p>'); setActiveDraftId(null) }} style={btnSecondary}>

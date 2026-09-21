@@ -236,7 +236,7 @@ export function SurveyExperience({ survey, questions, answers, onChange, onSubmi
 
         <button onClick={handleSubmit} disabled={submitting}
           style={{ marginTop: 26, width: '100%', padding: '16px 0', borderRadius: 11, border: 'none', cursor: submitting ? 'wait' : 'pointer', background: NAVY, color: '#fff', fontSize: 14.5, fontWeight: 700, letterSpacing: '0.4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10, boxShadow: '0 8px 22px rgba(14,40,65,0.22)', opacity: submitting ? 0.75 : 1, transition: 'opacity 150ms' }}>
-          {submitting ? <><Pulse accent="#fff" small /> Submitting…</> : <>Submit my feedback <span className="material-symbols-rounded" style={{ fontSize: 18 }}>arrow_forward</span></>}
+          {submitting ? <><Pulse accent="#fff" small /> Submitting…</> : <>Submit My Feedback <span className="material-symbols-rounded" style={{ fontSize: 18 }}>arrow_forward</span></>}
         </button>
 
         {/* Signature / footer */}

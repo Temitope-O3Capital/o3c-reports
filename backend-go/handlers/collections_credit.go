@@ -48,10 +48,10 @@ type schedRow struct {
 	PaidPct    float64 `json:"paid_pct"`
 	// Days from today to the due date: positive = still to come, negative = past due,
 	// 0 = due today. Null-safe via DaysKnown, since cycle rows have no contractual date.
-	DaysToDue  int     `json:"days_to_due"`
-	DaysKnown  bool    `json:"days_known"`
-	Status     string  `json:"status"` // paid | partial | overdue | due | upcoming
-	Source     string  `json:"source"` // udara | derived | cycle
+	DaysToDue int    `json:"days_to_due"`
+	DaysKnown bool   `json:"days_known"`
+	Status    string `json:"status"` // paid | partial | overdue | due | upcoming
+	Source    string `json:"source"` // udara | derived | cycle
 }
 
 // facility is one credit line (a card or a loan) held by the customer.
@@ -657,12 +657,12 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 			"recovery_case":  recovery,
 			"accommodations": accommodations,
 			"customer": map[string]any{
-				"cif":         cif,
-				"customer_id": customerID,
-				"party_id":    partyID,
-				"name":        name,
-				"phone":       phone,
-				"email":       email,
+				"cif":            cif,
+				"customer_id":    customerID,
+				"party_id":       partyID,
+				"name":           name,
+				"phone":          phone,
+				"email":          email,
 				"bvn":            bvn,
 				"address":        address,
 				"address_line":   addr1,
@@ -674,7 +674,7 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 				"gender":         gender,
 				"account_status": acctStatus,
 				// Everyone else on the file an officer may need to reach.
-				"contacts": contactPoints,
+				"contacts":        contactPoints,
 				"cifs":            visibleCIFs,
 				"udara_customers": udaraCustomers,
 				"udara_accounts":  udaraAccounts,
@@ -745,6 +745,14 @@ func rollUpFacility(f *facility) {
 	f.PaidPct = cdPct(f.PaidK, f.ScheduledK)
 	if a := f.ExpectedK - f.PaidK; a > 0 {
 		f.ArrearsK = a
+	}
+	// A partially-paid instalment (Udara reports the status but not the split — see
+	// udaraSchedule) is summed into ExpectedK/PaidK as though nothing was paid, which
+	// can put ArrearsK above what the customer actually still owes. OutstandingK comes
+	// straight from the core-banking balance, so it is the true ceiling: arrears can
+	// never exceed the whole facility's remaining debt.
+	if f.OutstandingK > 0 && f.ArrearsK > f.OutstandingK {
+		f.ArrearsK = f.OutstandingK
 	}
 }
 

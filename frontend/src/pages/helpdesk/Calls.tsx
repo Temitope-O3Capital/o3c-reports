@@ -16,14 +16,18 @@ import QAEvaluation from './QAEvaluation'
 import { BAND_COLOR } from '../../lib/qa'
 import { toast } from 'sonner'
 import LogCallModal, { LogCallInitial, dispositionCopy } from '../../components/LogCallModal'
-import CallLogEditModal from '../../components/CallLogEditModal'
+import CallLogEditModal, { type EditableCall } from '../../components/CallLogEditModal'
 import CallReviewPanel from '../../components/CallReviewPanel'
 import { hasPage } from '../../hooks/useAuth'
+import { isCallCentreSupervisor } from '../../lib/roles'
 
-function myRole(): string { try { return String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '') } catch { return '' } }
-// Who may correct someone else's write-up. Mirrors the server rule; the server is
-// the one that enforces it — this only decides whether the control is offered.
-const CAN_SUPERVISE = /head|admin|super|manager|lead|supervisor/i.test(myRole())
+// Who may correct someone else's write-up. The server rule is
+// HasPage("call_center_stats") || CanSeeAllRows(), and isCallCentreSupervisor is the
+// single place that is mirrored. A role-name regex used to stand here, which matched
+// "manager" — a role the server then refused, so every Correct/Withdraw it offered
+// them came back a 403. The server is what enforces this; this only decides whether
+// the control is worth rendering.
+const CAN_SUPERVISE = isCallCentreSupervisor()
 // QA evaluation is a call-centre function and /api/qa is gated to `call_center` on the
 // server, so only offer the Evaluate control to a supervisor who actually holds that
 // page — otherwise a helpdesk-only head (care/finance/…) sees a button that 403s.
@@ -323,7 +327,10 @@ export default function Calls() {
 
   // QA evaluation modal (opened from a call's Evaluate action)
   const [evalCall, setEvalCall] = useState<CallLog | null>(null)
-  const [editCall, setEditCall] = useState<CallLog | null>(null)
+  // Held in the correction modal's own shape. The modal seeds its form from exactly
+  // this object, so it must carry real values or nothing at all — never a blank
+  // standing in for a field we did not load.
+  const [editCall, setEditCall] = useState<EditableCall | null>(null)
   // Bumped after a correction so the review panel refetches — a call just fixed
   // should leave the flagged list immediately, not on the next page load.
   const [reviewKey, setReviewKey] = useState(0)
@@ -566,13 +573,13 @@ export default function Calls() {
           // Open the full record of THIS call — every field plus exactly what the
           // agent logged (complaint, resolution, disposition, purpose, QA, recording).
           {
-            icon: 'info', label: 'View call details',
+            icon: 'info', label: 'View Call Details',
             onClick: () => setViewCall(r),
           },
-          // Log a report for this number — pre-fills the Log-a-Call form so the agent
+          // Log a call for this number — pre-fills the Log-a-Call form so the agent
           // just records the outcome/notes for that customer.
           {
-            icon: 'edit_note', label: 'Log a report',
+            icon: 'edit_note', label: 'Log a Call',
             onClick: () => openLog({
               name: r.customer_name || undefined,
               phone: r.phone || undefined,
@@ -583,7 +590,7 @@ export default function Calls() {
           },
           // Evaluators can score the call against the QA rubric.
           ...(CAN_EVALUATE ? [{
-            icon: 'grade', label: r.qa_evaluation_id ? 'Re-evaluate call (QA)' : 'Evaluate call (QA)',
+            icon: 'grade', label: r.qa_evaluation_id ? 'Re-Evaluate Call (QA)' : 'Evaluate Call (QA)',
             onClick: () => setEvalCall(r),
           }] : []),
           // Correct or withdraw the log. Offered on your own calls, and on any call
@@ -592,15 +599,20 @@ export default function Calls() {
           // with a write-up) — you still need to withdraw a spurious/duplicate
           // Zoho record or add a missing write-up.
           ...((r.agent_id === CURRENT_USER_ID || CAN_SUPERVISE) ? [{
-            icon: 'edit', label: 'Correct or withdraw this call',
-            onClick: () => setEditCall(r),
+            icon: 'edit', label: 'Correct or Withdraw This Call',
+            onClick: () => setEditCall({
+              id: r.id, agent_name: r.agent_name, customer_name: r.customer_name,
+              phone: r.phone, direction: r.direction, duration_seconds: r.duration_seconds,
+              disposition: r.disposition, purpose: r.purpose, notes: r.notes,
+              resolution: r.resolution,
+            }),
           }] : []),
           // Play the Zoho Voice recording in-app (streamed). Shown for a connected call
           // even without an attached recording — the player then offers "Fetch from Zoho"
           // to pull it on demand. Missed/0-sec calls (never recorded) get no button.
           ...((r.has_recording || (r.outcome === 'completed' && (r.duration_seconds ?? 0) > 0)) ? [{
             icon: r.has_recording ? 'play_circle' : 'cloud_sync',
-            label: r.has_recording ? 'Play recording' : 'Fetch recording from Zoho',
+            label: r.has_recording ? 'Play Recording' : 'Fetch Recording from Zoho',
             onClick: () => setPlayCall(r),
           }] : []),
           {
@@ -682,7 +694,7 @@ export default function Calls() {
               color: showAllLegs ? '#fff' : 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', whiteSpace: 'nowrap',
             }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{showAllLegs ? 'unfold_more' : 'unfold_less'}</span>
-            {showAllLegs ? 'Showing all attempts' : 'Duplicates collapsed'}
+            {showAllLegs ? 'Showing All Attempts' : 'Duplicates Collapsed'}
           </button>
         }>
         <ExpandableFilterBar
@@ -753,25 +765,32 @@ export default function Calls() {
       {CAN_SUPERVISE && (
         <CallReviewPanel
           reloadKey={reviewKey}
-          onEdit={id => {
-            const row = rows.find(r => r.id === id)
-            // The flagged call may not be on the page currently loaded, so fall
-            // back to the little the panel already knows rather than doing nothing.
-            setEditCall(row ?? ({ id, agent_name: '', customer_name: null, phone: '',
-              direction: 'outbound', duration_seconds: 0, disposition: null,
-              purpose: null, notes: null, resolution: null } as unknown as CallLog))
+          onEdit={c => {
+            // Prefer the fully-loaded row when the flagged call happens to be on the
+            // page in front of us; otherwise use the panel's own record of it. What it
+            // must never be is a stub of empty fields: the correction modal seeds its
+            // form from this object, and those blanks were then written back over the
+            // agent's notes, resolution and disposition.
+            const row = rows.find(r => r.id === c.id)
+            setEditCall(row ? {
+              id: row.id, agent_name: row.agent_name, customer_name: row.customer_name,
+              phone: row.phone, direction: row.direction, duration_seconds: row.duration_seconds,
+              disposition: row.disposition, purpose: row.purpose, notes: row.notes,
+              resolution: row.resolution,
+            } : {
+              id: c.id, agent_name: c.agent_name, customer_name: c.customer_name,
+              phone: c.customer_phone ?? undefined, direction: c.direction ?? 'outbound',
+              duration_seconds: c.duration_sec, disposition: c.disposition, notes: c.notes,
+              // The review feed carries no purpose or resolution, so they stay
+              // undefined — "not loaded", which the modal tells apart from "empty".
+            })
           }}
         />
       )}
 
       {editCall && (
         <CallLogEditModal
-          call={{
-            id: editCall.id, agent_name: editCall.agent_name, customer_name: editCall.customer_name,
-            phone: editCall.phone, direction: editCall.direction,
-            duration_seconds: editCall.duration_seconds, disposition: editCall.disposition,
-            purpose: editCall.purpose, notes: editCall.notes, resolution: editCall.resolution,
-          }}
+          call={editCall}
           onClose={() => setEditCall(null)}
           onSaved={() => { load(); loadStats(); setReviewKey(k => k + 1) }}
         />
@@ -837,7 +856,7 @@ function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
           {onEvaluate && (
             <button onClick={() => onEvaluate(call)}
               style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>grade</span>{call.qa_evaluation_id ? 'Re-evaluate (QA)' : 'Evaluate (QA)'}
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>grade</span>{call.qa_evaluation_id ? 'Re-Evaluate (QA)' : 'Evaluate (QA)'}
             </button>
           )}
           <button onClick={onClose}
@@ -873,7 +892,7 @@ function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
           <Field label="CIF">{call.customer_cif ? <span style={{ fontFamily: 'var(--font-mono)' }}>{call.customer_cif}</span> : '—'}</Field>
           <Field label="Duration">{fmtDuration(call.duration_seconds)}</Field>
           <Field label="When">{fmtDatetime(call.called_at)}</Field>
-          <Field label="Ticket type">{call.ticket_type || '—'}</Field>
+          <Field label="Ticket Type">{call.ticket_type || '—'}</Field>
           <Field label="Ticket">
             {call.ticket_id && call.ticket_ref ? (
               <span onClick={() => onOpenTicket(call.ticket_id as number)}
@@ -885,7 +904,7 @@ function CallDetailModal({ call, onClose, onEvaluate, onOpenTicket }: {
         {/* Call recording (Zoho Voice, streamed on demand) */}
         {call.has_recording && (
           <div>
-            <div style={secLbl}>Call recording</div>
+            <div style={secLbl}>Call Recording</div>
             <RecordingPlayer callId={call.id} autoPlay={false} />
           </div>
         )}
@@ -975,32 +994,32 @@ function AgentDetailModal({ agent, dateFrom, dateTo, onClose, onOpenTicket }: {
           </div>
 
           <div>
-            <div style={secLbl}>Call performance{dateFrom || dateTo ? ' · selected range' : ''}</div>
+            <div style={secLbl}>Call Performance{dateFrom || dateTo ? ' · Selected Range' : ''}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(104px, 1fr))', gap: SP[2] }}>
               <Stat label="Total"          value={num(c?.total).toLocaleString()} />
               <Stat label="Outbound"       value={num(c?.outbound).toLocaleString()} color={BLUE} />
               <Stat label="Inbound"        value={num(c?.inbound).toLocaleString()} color={NAVY} />
               <Stat label="Connected"      value={num(c?.connected).toLocaleString()} color={GREEN} />
-              <Stat label="Connect rate"   value={`${connectRate}%`} color={GREEN} />
-              <Stat label="Missed (in)"    value={num(c?.missed).toLocaleString()} color={RED} />
-              <Stat label="No answer (out)" value={num(c?.no_answer).toLocaleString()} color={AMBER} />
-              <Stat label="Talk time"      value={fmtDuration(num(c?.talk_time_sec))} color={PURPLE} />
+              <Stat label="Connect Rate"   value={`${connectRate}%`} color={GREEN} />
+              <Stat label="Missed (In)"    value={num(c?.missed).toLocaleString()} color={RED} />
+              <Stat label="No Answer (Out)" value={num(c?.no_answer).toLocaleString()} color={AMBER} />
+              <Stat label="Talk Time"      value={fmtDuration(num(c?.talk_time_sec))} color={PURPLE} />
             </div>
           </div>
 
           <div>
             <div style={secLbl}>Tickets & QA</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(104px, 1fr))', gap: SP[2] }}>
-              <Stat label="Open tickets" value={num(data.tickets.open).toLocaleString()} />
+              <Stat label="Open Tickets" value={num(data.tickets.open).toLocaleString()} />
               <Stat label="Resolved"     value={num(data.tickets.resolved).toLocaleString()} color={GREEN} />
-              <Stat label="QA avg"       value={data.qa.avg_score != null ? `${data.qa.avg_score}%` : '—'} />
-              <Stat label="QA pass"      value={data.qa.pass_rate != null ? `${data.qa.pass_rate}%` : '—'} />
+              <Stat label="QA Avg"       value={data.qa.avg_score != null ? `${data.qa.avg_score}%` : '—'} />
+              <Stat label="QA Pass"      value={data.qa.pass_rate != null ? `${data.qa.pass_rate}%` : '—'} />
               <Stat label="Evaluations"  value={num(data.qa.evaluations).toLocaleString()} />
             </div>
           </div>
 
           <div>
-            <div style={secLbl}>Recent calls</div>
+            <div style={secLbl}>Recent Calls</div>
             {data.recent_calls.length === 0 ? (
               <div style={{ color: 'var(--txt3)', fontSize: TEXT.sm, padding: '6px 0' }}>No calls in range.</div>
             ) : (
@@ -1008,7 +1027,7 @@ function AgentDetailModal({ agent, dateFrom, dateTo, onClose, onOpenTicket }: {
                 {data.recent_calls.map((rc, i) => {
                   const inbound = (rc.direction || '').toLowerCase() === 'inbound'
                   const answered = !['missed', 'no_answer', 'voicemail'].includes((rc.outcome || '').toLowerCase())
-                  const label = answered ? 'Done' : inbound ? 'Missed' : 'No answer'
+                  const label = answered ? 'Done' : inbound ? 'Missed' : 'No Answer'
                   const col = answered ? GREEN : inbound ? RED : 'var(--txt3)'
                   return (
                     <div key={rc.id} onClick={() => { if (rc.ticket_id) onOpenTicket(rc.ticket_id) }}
@@ -1020,11 +1039,12 @@ function AgentDetailModal({ agent, dateFrom, dateTo, onClose, onOpenTicket }: {
                       {/* Play the recording in-app (same streaming player as the log);
                           stop the row's ticket-open click from firing underneath it. */}
                       {rc.has_recording ? (
-                        <button title="Play recording" onClick={e => { e.stopPropagation(); setPlayRc(rc) }}
-                          style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: GREEN, cursor: 'pointer' }}>
+                        <button title="Play recording" aria-label={`Play the recording of the call with ${rc.customer || rc.phone || 'this customer'}`}
+                          onClick={e => { e.stopPropagation(); setPlayRc(rc) }}
+                          style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: GREEN, cursor: 'pointer' }}>
                           <span className="material-symbols-rounded" style={{ fontSize: 15 }}>play_circle</span>
                         </button>
-                      ) : <span style={{ width: 24, flexShrink: 0 }} />}
+                      ) : <span style={{ width: 28, flexShrink: 0 }} />}
                       <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', width: 74, textAlign: 'right' }}>{fmtDate(rc.started_at)}</span>
                     </div>
                   )

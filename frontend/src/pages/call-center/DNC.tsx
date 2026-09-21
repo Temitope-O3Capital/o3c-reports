@@ -1,14 +1,14 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useDebouncedValue } from '../../hooks/useDebounce'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar,
   ErrBanner, Modal, ConfirmModal, btnPrimary, btnDanger, KpiCard,
-  ActionRow,
+  ActionRow, EmptyState,
 } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDate, fmtNum } from '../../lib/fmt'
+import { fmtDate, fmtCount } from '../../lib/fmt'
 import { INTER, NAVY, NUM, GREEN, AMBER, RED, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -65,23 +65,49 @@ export default function CallCenterDNC() {
   // Search on the server (phone-normalized, plus reason/added-by) so it spans the whole
   // list, not just the loaded page. Debounced to one request per pause.
   const dq = useDebouncedValue(dncSearch, 300)
+  // The in-flight request. Without this a slower earlier response can land after a newer
+  // one and repaint the list with stale rows — type quickly in the search box and what
+  // you end up looking at is not necessarily the last thing you typed.
+  const reqRef = useRef<AbortController | null>(null)
   const load = useCallback(async (silent = false) => {
+    reqRef.current?.abort()
+    const ctrl = new AbortController()
+    reqRef.current = ctrl
     if (!silent) setLoading(true)
     setErr(null)
     const params = new URLSearchParams({ limit: '200' })
     if (dq.trim()) params.set('search', dq.trim())
     try {
-      const res = await apiFetch<{ data: DNCEntry[] }>(`/api/call-center/dnc?${params}`)
+      const res = await apiFetch<{ data: DNCEntry[] }>(`/api/call-center/dnc?${params}`, { signal: ctrl.signal })
+      if (ctrl.signal.aborted) return
       setRows(Array.isArray(res) ? res : (res?.data ?? []))
     } catch (e: any) {
+      // A superseded request is not an error the user should see.
+      if (ctrl.signal.aborted) return
       setErr(e.message ?? 'Failed to load DNC list')
     } finally {
-      setLoading(false)
+      if (!ctrl.signal.aborted) setLoading(false)
     }
   }, [dq])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => () => reqRef.current?.abort(), [])
   useLiveData(() => load(true))
+
+  // Reconcile the selection whenever the rows change. The search is served by the
+  // backend, so typing replaces `rows` wholesale — and a selection made before the search
+  // then pointed at ids no longer on screen. The bar still read "5 selected", the
+  // confirmation still promised 5, and the request posted an empty list: "0 number(s)
+  // removed" while every number stayed on the list. Keep only what is really selected.
+  useEffect(() => {
+    setSelectedIds(prev => {
+      if (prev.size === 0) return prev
+      const live = new Set<string | number>(rows.map(r => r.id))
+      const next = new Set<string | number>()
+      for (const id of prev) if (live.has(id)) next.add(id)
+      return next.size === prev.size ? prev : next
+    })
+  }, [rows])
 
   useEffect(() => {
     setKpiLoading(true)
@@ -109,14 +135,25 @@ export default function CallCenterDNC() {
     }
   }
 
+  // The numbers the confirmation promises and the request actually sends — derived once,
+  // from the rows on screen, so the two can never disagree.
+  const selectedPhones = useMemo(
+    () => rows.filter(r => selectedIds.has(r.id)).map(r => r.phone),
+    [rows, selectedIds],
+  )
+
   async function handleRemove() {
+    // Never post an empty list while claiming a count.
+    if (selectedPhones.length === 0) {
+      toast.error('Nothing to remove — that selection is no longer in the list.')
+      setSelectedIds(new Set())
+      setRemoveConfirm(false)
+      return
+    }
     setRemoveLoading(true)
     try {
-      const phones = rows
-        .filter(r => selectedIds.has(r.id))
-        .map(r => r.phone)
-      await apiPost('/api/call-center/dnc/bulk-remove', { phones })
-      toast.success(`${phones.length} number(s) removed from DNC`)
+      await apiPost('/api/call-center/dnc/bulk-remove', { phones: selectedPhones })
+      toast.success(`${fmtCount(selectedPhones.length)} number(s) removed from DNC`)
       setSelectedIds(new Set())
       setRemoveConfirm(false)
       load()
@@ -216,13 +253,16 @@ export default function CallCenterDNC() {
         </button>
       }
     >
-      <ErrBanner error={err} onRetry={load} />
+      {/* onRetry passes its click event straight into load(silent?), and a MouseEvent is
+          truthy — so Retry used to suppress the loading state and look like it did nothing. */}
+      <ErrBanner error={err} onRetry={() => load()} />
 
-      {/* KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: SP[5] }}>
-        <KpiCard label="Total DNC" value={kpis ? fmtNum(kpis.total_dnc) : '—'} icon="do_not_disturb_on" accent={NAVY} loading={kpiLoading} />
-        <KpiCard label="Added This Month" value={kpis ? fmtNum(kpis.added_this_month) : '—'} icon="add_circle" accent={AMBER} loading={kpiLoading} />
-        <KpiCard label="From Call Opt-outs" value={kpis ? fmtNum(kpis.from_calls) : '—'} icon="call" accent={RED} loading={kpiLoading} />
+      {/* KPI cards — auto-fit rather than a hard 3-up, which crushed at ~400px.
+          Matches Forwards. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 14, marginBottom: SP[5] }}>
+        <KpiCard label="Total DNC" value={kpis ? fmtCount(kpis.total_dnc) : '—'} icon="do_not_disturb_on" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Added This Month" value={kpis ? fmtCount(kpis.added_this_month) : '—'} icon="add_circle" accent={AMBER} loading={kpiLoading} />
+        <KpiCard label="From Call Opt-Outs" value={kpis ? fmtCount(kpis.from_calls) : '—'} icon="call" accent={RED} loading={kpiLoading} />
       </div>
 
       <SectionCard title="DNC Entries" badge={displayedDnc.length} padding={false}>
@@ -240,7 +280,15 @@ export default function CallCenterDNC() {
           rows={displayedDnc}
           keyFn={r => r.id}
           loading={loading}
-          emptyText="No DNC entries found"
+          emptyText={
+            <EmptyState
+              icon="do_not_disturb_on"
+              title="No DNC Entries Found"
+              description={dncSearch.trim()
+                ? 'No number on the list matches that search.'
+                : 'Numbers customers ask to be excluded from outbound calls show up here.'}
+            />
+          }
           selectable
           selectedIds={selectedIds}
           onSelect={setSelectedIds}
@@ -281,10 +329,11 @@ export default function CallCenterDNC() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <ErrBanner error={addErr} />
           <div>
-            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+            <label htmlFor="dnc-add-phone" style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
               Phone Number <span style={{ color: '#C00000' }}>*</span>
             </label>
             <input
+              id="dnc-add-phone"
               type="text"
               value={addPhone}
               onChange={e => setAddPhone(e.target.value)}
@@ -293,10 +342,11 @@ export default function CallCenterDNC() {
             />
           </div>
           <div>
-            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+            <label htmlFor="dnc-add-reason" style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
               Reason <span style={{ color: '#C00000' }}>*</span>
             </label>
             <input
+              id="dnc-add-reason"
               type="text"
               value={addReason}
               onChange={e => setAddReason(e.target.value)}
@@ -311,7 +361,7 @@ export default function CallCenterDNC() {
       <ConfirmModal
         open={removeConfirm}
         title="Remove from DNC"
-        body={`Remove ${selectedIds.size} number(s) from the DNC list? They will be eligible for outbound calls again.`}
+        body={`Remove ${fmtCount(selectedPhones.length)} number(s) from the DNC list? They will be eligible for outbound calls again.`}
         confirmLabel="Remove"
         danger
         loading={removeLoading}

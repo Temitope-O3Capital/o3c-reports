@@ -16,6 +16,8 @@ import (
 
 func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("collections"))
+	head := core.RequirePages("collections_assign")
+	payApprove := core.RequirePages("collections_payment_approve") // HOP/COO/CFO all hold this
 	r.Get("/kpis", collectionsKPIs(db))
 	r.Get("/portfolio-kpis", collectionsPortfolioKPIs(db))
 	r.Get("/dpd-trend", collectionsDPDTrend(db))
@@ -32,13 +34,15 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Get("/portfolio", collectionsPortfolioAccounts(db))
 	r.Get("/watchlist", collectionsWatchlistList(db))
 	r.Post("/watchlist", collectionsWatchlistAdd(db))
-	r.Put("/watchlist/{id}/resolve", collectionsWatchlistResolve(db))
+	r.With(head).Put("/watchlist/{id}/resolve", collectionsWatchlistResolve(db))
 
 	// Generate/refresh collection assignments from the unified delinquency book
 	r.Post("/generate-assignments", collectionsGenerateAssignments(db))
 
-	// Batch payment upload
-	r.Post("/payments/batch", collectionsBatchPayment(db))
+	// Batch payment upload — posts straight to the GL with no per-row approval
+	// step, so it needs the same elevated permission the single-payment approve
+	// path requires, not just base collections access.
+	r.With(payApprove).Post("/payments/batch", collectionsBatchPayment(db))
 
 	// Credit activity log
 	r.Get("/activity", creditActivityFeed(db))
@@ -381,8 +385,6 @@ func collectionsRollRate(db *core.DB) http.HandlerFunc {
 		from := r.URL.Query().Get("from")
 		to := r.URL.Query().Get("to")
 
-		_ = from
-		_ = to
 		// Current DPD distribution from the unified delinquency book (per CIF), so it
 		// reflects the live arrears snapshot regardless of assignment generation.
 		current, err := db.PGQuery(ctx, `
@@ -415,14 +417,16 @@ func collectionsRollRate(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Movement this month: accounts that changed dpd_bucket in the current calendar month.
-		// Proxied by comparing updated_at vs created_at bucket changes.
+		// Movement in the requested window (defaults to the current calendar month):
+		// accounts that changed dpd_bucket. Proxied by comparing updated_at vs
+		// created_at bucket changes.
 		cures, _ := db.PGQuery(ctx, `
 			SELECT COUNT(*) AS cured_count
 			FROM collection_assignments
 			WHERE dpd_bucket = '0'
-			  AND updated_at >= DATE_TRUNC('month', CURRENT_DATE)
-			  AND updated_at > created_at`)
+			  AND updated_at >= COALESCE(NULLIF($1, '')::date, DATE_TRUNC('month', CURRENT_DATE)::date)
+			  AND ($2 = '' OR updated_at::date <= $2::date)
+			  AND updated_at > created_at`, from, to)
 
 		respond(w, map[string]any{
 			"current_distribution": current,
@@ -697,7 +701,6 @@ func collectionsWriteoffKPIs(db *core.DB) http.HandlerFunc {
 	}
 }
 
-
 // ── Watchlist CRUD ────────────────────────────────────────────────────────────
 
 func collectionsWatchlistList(db *core.DB) http.HandlerFunc {
@@ -892,7 +895,10 @@ func creditActivityFeed(db *core.DB) http.HandlerFunc {
 		}
 
 		var total int
-		_ = db.PG.QueryRowContext(ctx, "SELECT COUNT(*) FROM credit_activity_log"+where, countArgs...).Scan(&total)
+		if cErr := db.PG.QueryRowContext(ctx, "SELECT COUNT(*) FROM credit_activity_log"+where, countArgs...).Scan(&total); cErr != nil {
+			respondErr(w, 500, "Count query failed: "+cErr.Error())
+			return
+		}
 
 		respond(w, map[string]any{"data": rows, "total": total, "page": page, "size": size}, "credit_activity_feed")
 	}
@@ -1156,20 +1162,27 @@ func collectionsBatchPayment(db *core.DB) http.HandlerFunc {
 				failed++
 				continue
 			}
-			tx.ExecContext(ctx, `UPDATE collection_payments SET gl_reference = $1 WHERE id = $2`, glRef, payID) //nolint:errcheck
-
-			// Legacy parity: mirror to loan_repayments when the CIF maps to a booked
-			// loan (best-effort — never fail the payment over this).
-			if lr, lErr := db.PGQuery(ctx, `SELECT id FROM loan_applications WHERE applicant_cif = $1 AND status IN ('active','booked') ORDER BY created_at DESC LIMIT 1`, cif); lErr == nil && len(lr) > 0 {
-				tx.ExecContext(ctx, `INSERT INTO loan_repayments (application_id, amount_kobo, payment_date, payment_method, reference, received_by, created_at)
-					VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-					toInt64(lr[0]["id"]), amtKobo, payDate, channel, reference, user.ID) //nolint:errcheck
+			if _, uErr := tx.ExecContext(ctx, `UPDATE collection_payments SET gl_reference = $1 WHERE id = $2`, glRef, payID); uErr != nil {
+				tx.Rollback() //nolint:errcheck
+				results = append(results, result{Row: rowNum, CIF: cif, Error: "gl_reference update failed"})
+				failed++
+				continue
 			}
 
 			if cErr := tx.Commit(); cErr != nil {
 				results = append(results, result{Row: rowNum, CIF: cif, Error: "commit failed"})
 				failed++
 				continue
+			}
+
+			// Legacy parity: mirror to loan_repayments when the CIF maps to a booked
+			// loan. Best-effort and deliberately run after the commit above, in its
+			// own connection, so a failure here can never poison and roll back the
+			// payment + GL entry that already committed successfully.
+			if lr, lErr := db.PGQuery(ctx, `SELECT id FROM loan_applications WHERE applicant_cif = $1 AND status IN ('active','booked') ORDER BY created_at DESC LIMIT 1`, cif); lErr == nil && len(lr) > 0 {
+				_, _ = db.PG.ExecContext(ctx, `INSERT INTO loan_repayments (application_id, amount_kobo, payment_date, payment_method, reference, received_by, created_at)
+					VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+					toInt64(lr[0]["id"]), amtKobo, payDate, channel, reference, user.ID)
 			}
 
 			results = append(results, result{Row: rowNum, CIF: cif, Success: true})

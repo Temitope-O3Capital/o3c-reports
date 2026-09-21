@@ -6,6 +6,7 @@ import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { hasPage } from '../../hooks/useAuth'
 import { fmtKoboExact, fmtKobo, fmtExact, fmtDate, fmtDatetime, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM } from '../../lib/design'
+import { RECOVERY_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
 import { toast } from 'sonner'
 
 const POLL_INTERVAL = 10_000
@@ -174,14 +175,13 @@ const STEP_TYPES: { value: string; label: string }[] = [
   { value: 'sms',         label: 'SMS' },
   { value: 'whatsapp',    label: 'WhatsApp' },
   { value: 'letter',      label: 'Letter' },
-  { value: 'field_visit', label: 'Field visit' },
-  { value: 'file',        label: 'File / document' },
+  { value: 'field_visit', label: 'Field Visit' },
+  { value: 'file',        label: 'File / Document' },
   { value: 'note',        label: 'Note' },
 ]
 
 const VISIT_TYPES    = ['Physical Visit', 'Phone Call', 'WhatsApp', 'Email', 'Legal Notice']
 const VISIT_OUTCOMES = ['Customer Met', 'Not Home', 'Promised to Pay', 'Refused to Pay', 'No Response', 'Other']
-const PAY_CHANNELS   = ['Bank Transfer', 'Cash', 'Cheque', 'TPA', 'Legal Settlement', 'Self-Cure']
 const LEGAL_TYPES    = ['Pre-Litigation Notice', 'Demand Letter', 'Court Filing', 'Judgment', 'Enforcement', 'Other']
 
 // ── Timeline activity entry ────────────────────────────────────────────────────
@@ -266,7 +266,7 @@ function LogVisitModal({ caseId, open, onClose, onDone }: {
         <div>
           <label style={labelStyle}>Outcome *</label>
           <select value={outcome} onChange={e => setOutcome(e.target.value)} style={{ ...fieldStyle, height: 36 }}>
-            <option value="">Select outcome…</option>
+            <option value="">Select Outcome…</option>
             {VISIT_OUTCOMES.map(o => <option key={o}>{o}</option>)}
           </select>
         </div>
@@ -376,7 +376,7 @@ function LogPaymentModal({ caseId, open, onClose, onDone }: {
           <div>
             <label style={labelStyle}>Channel</label>
             <select value={channel} onChange={e => setChannel(e.target.value)} style={{ ...fieldStyle, height: 36 }}>
-              {PAY_CHANNELS.map(c => <option key={c}>{c}</option>)}
+              {RECOVERY_PAYMENT_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
           </div>
           <div>
@@ -409,6 +409,7 @@ function LegalModal({ caseId, open, onClose, onDone }: {
   const [filingDate,  setFilingDate]  = useState('')
   const [hearingDate, setHearingDate] = useState('')
   const [notes,       setNotes]       = useState('')
+  const [confirm,     setConfirm]     = useState(false)
   const [saving,      setSaving]      = useState(false)
   const [err,         setErr]         = useState<string | null>(null)
 
@@ -421,9 +422,9 @@ function LegalModal({ caseId, open, onClose, onDone }: {
         filing_date: filingDate, next_hearing_date: hearingDate, notes,
       })
       toast.success('Legal milestone added')
-      setType(''); setCourt(''); setCaseNum(''); setFilingDate(''); setHearingDate(''); setNotes('')
+      setType(''); setCourt(''); setCaseNum(''); setFilingDate(''); setHearingDate(''); setNotes(''); setConfirm(false)
       onDone()
-    } catch (e: any) { setErr(e.message ?? 'Failed') } finally { setSaving(false) }
+    } catch (e: any) { setErr(e.message ?? 'Failed'); setConfirm(false) } finally { setSaving(false) }
   }
 
   return (
@@ -466,9 +467,15 @@ function LegalModal({ caseId, open, onClose, onDone }: {
             style={{ ...fieldStyle, resize: 'vertical' }} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Btn onClick={submit} loading={saving} disabled={!type || !filingDate}>Add Milestone</Btn>
+          <Btn onClick={() => setConfirm(true)} disabled={!type || !filingDate}>Add Milestone</Btn>
           <Btn onClick={onClose} outline>Cancel</Btn>
         </div>
+        <ConfirmModal
+          open={confirm} title="Add Legal Milestone"
+          body={`Log "${type}" against this case${court ? ` at ${court}` : ''}, filed ${filingDate}.`}
+          confirmLabel="Add Milestone" loading={saving}
+          onConfirm={submit} onClose={() => setConfirm(false)}
+        />
       </div>
     </Modal>
   )
@@ -507,7 +514,7 @@ function ReassignModal({ caseId, agents, open, onClose, onDone }: {
         <div>
           <label style={labelStyle}>Agent *</label>
           <select value={agentId} onChange={e => setAgentId(e.target.value)} style={{ ...fieldStyle, height: 36 }}>
-            <option value="">Select agent…</option>
+            <option value="">Select Agent…</option>
             {recoveryAgents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
           </select>
         </div>
@@ -539,7 +546,13 @@ function WriteOffModal({ caseId, outstanding, open, onClose, onDone }: {
   const [err,     setErr]     = useState<string | null>(null)
 
   async function doWriteOff() {
-    const kobo = amount ? Math.round(parseFloat(amount) * 100) : outstanding
+    const parsed = amount ? Math.round(parseFloat(amount) * 100) : outstanding
+    if (!(parsed > 0)) {
+      setErr('Amount must be greater than zero — leave the field blank to write off the full outstanding balance')
+      setConfirm(false)
+      return
+    }
+    const kobo = parsed
     setSaving(true); setErr(null)
     try {
       await apiPost(`/api/recovery-ops/cases/${caseId}/write-off`, { amount_kobo: kobo, reason })
@@ -549,7 +562,7 @@ function WriteOffModal({ caseId, outstanding, open, onClose, onDone }: {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Request Write-off" width={480}>
+    <Modal open={open} onClose={onClose} title="Request Write-Off" width={480}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <ErrBanner error={err} />
         <div style={{
@@ -572,11 +585,11 @@ function WriteOffModal({ caseId, outstanding, open, onClose, onDone }: {
             style={{ ...fieldStyle, resize: 'vertical' }} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Btn onClick={() => setConfirm(true)} disabled={!reason.trim()} danger>Submit Write-off</Btn>
+          <Btn onClick={() => setConfirm(true)} disabled={!reason.trim()} danger>Submit Write-Off</Btn>
           <Btn onClick={onClose} outline>Cancel</Btn>
         </div>
         <ConfirmModal
-          open={confirm} title="Submit Write-off Request"
+          open={confirm} title="Submit Write-Off Request"
           body={`Submit write-off for approval. Reason: "${reason.slice(0, 100)}${reason.length > 100 ? '…' : ''}"`}
           confirmLabel="Submit" danger loading={saving}
           onConfirm={doWriteOff} onClose={() => setConfirm(false)}

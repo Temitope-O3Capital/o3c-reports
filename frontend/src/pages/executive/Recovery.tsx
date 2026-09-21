@@ -105,7 +105,7 @@ export default function ExecRecovery() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: 14 }}>
         <KpiCard label="Open Cases" value={fmtNum(data.open_cases)} icon="gavel" accent={NAVY} />
         <KpiCard label="In Recovery" value={fmtKobo(data.open_outstanding_kobo)} icon="account_balance_wallet" accent={AMBER} />
-        <KpiCard label="Recovered (period)" value={fmtKobo(data.recovered_period_kobo)} icon="payments" accent={data.recovered_period_kobo > 0 ? GREEN : RED} />
+        <KpiCard label="Recovered (Period)" value={fmtKobo(data.recovered_period_kobo)} icon="payments" accent={data.recovered_period_kobo > 0 ? GREEN : RED} />
         <KpiCard label="Recovery Rate" value={fmtPct(data.recovery_rate_pct)} icon="target" accent={data.recovery_rate_pct >= 30 ? GREEN : AMBER} />
       </div>
 
@@ -141,7 +141,7 @@ export default function ExecRecovery() {
 
       {/* ── Where the open book sits ──────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: SP[3], marginBottom: 14 }}>
-        <SectionCard title="Open Book by Hand-off Age" subtitle={`${fmtNum(data.open_cases)} open cases by DPD at hand-off`}>
+        <SectionCard title="Open Book by Hand-Off Age" subtitle={`${fmtNum(data.open_cases)} open cases by DPD at hand-off`}>
           {data.handoff_ladder.length === 0 ? (
             <Note>No open recovery cases.</Note>
           ) : (
@@ -186,8 +186,8 @@ export default function ExecRecovery() {
               </div>
             ))}
             <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4], display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
-              <Stat label="Opened (period)" value={fmtNum(data.cases_opened_period)} sub="new cases" />
-              <Stat label="Closed (period)" value={fmtNum(data.cases_closed_period)} sub="resolved" tone={GREEN} />
+              <Stat label="Opened (Period)" value={fmtNum(data.cases_opened_period)} sub="new cases" />
+              <Stat label="Closed (Period)" value={fmtNum(data.cases_closed_period)} sub="resolved" tone={GREEN} />
             </div>
           </div>
         </SectionCard>
@@ -227,9 +227,9 @@ export default function ExecRecovery() {
           )}
         </SectionCard>
 
-        <SectionCard title="Write-off Position">
+        <SectionCard title="Write-Off Position">
           <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-            <Stat label="Written Off (book)" value={fmtKobo(data.written_off_book_kobo)} sub="cumulative across all cases" tone="#6B7280" />
+            <Stat label="Written Off (Book)" value={fmtKobo(data.written_off_book_kobo)} sub="cumulative across all cases" tone="#6B7280" />
             <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
               <Stat
                 label="Pending Approval"
@@ -239,7 +239,7 @@ export default function ExecRecovery() {
               />
             </div>
             <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: SP[4] }}>
-              <Stat label="Recovered All-time" value={fmtKobo(data.total_recovered_kobo)} sub={`${fmtNum(data.cases_total)} cases ever opened`} tone={GREEN} />
+              <Stat label="Recovered All-Time" value={fmtKobo(data.total_recovered_kobo)} sub={`${fmtNum(data.cases_total)} cases ever opened`} tone={GREEN} />
             </div>
             <Note>
               Recovery rate is the share of everything ever taken into recovery that has been recovered
@@ -258,7 +258,7 @@ export default function ExecRecovery() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
-                {['Agent', 'Open Cases', 'Open Book', 'Recovered (period)', 'Rate'].map(h => (
+                {['Agent', 'Open Cases', 'Open Book', 'Recovered (Period)', 'Rate'].map(h => (
                   <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Agent' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
                 ))}
               </tr>

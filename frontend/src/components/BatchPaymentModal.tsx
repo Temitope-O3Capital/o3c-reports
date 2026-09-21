@@ -153,7 +153,7 @@ export function BatchPaymentModal({ open, onClose, onSuccess }: Props) {
           {failedRows.length > 0 && (
             <div>
               <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: RED, marginBottom: 8 }}>
-                Failed rows
+                Failed Rows
               </div>
               <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {failedRows.map(r => (
@@ -185,7 +185,7 @@ export function BatchPaymentModal({ open, onClose, onSuccess }: Props) {
           {/* Format instructions */}
           <div style={{ padding: `${SP[3]} ${SP[4]}`, background: `${NAVY}06`, border: `1px solid ${NAVY}20`, borderRadius: RADIUS.md }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>Required CSV columns</span>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>Required CSV Columns</span>
               <button
                 onClick={downloadTemplate}
                 style={{
@@ -219,7 +219,7 @@ export function BatchPaymentModal({ open, onClose, onSuccess }: Props) {
           {/* File picker */}
           <div>
             <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>
-              Select CSV file
+              Select CSV File
             </label>
             <input
               ref={fileRef}

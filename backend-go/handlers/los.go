@@ -659,6 +659,7 @@ func losCreate(db *core.DB) http.HandlerFunc {
 		BVN                 string `json:"bvn"`
 		NIN                 string `json:"nin"`
 		DateOfBirth         string `json:"date_of_birth"`
+		Gender              string `json:"gender"`
 		Address             string `json:"address"`
 		JobTitle            string `json:"job_title"`
 		EmploymentType      string `json:"employment_type"`
@@ -702,13 +703,13 @@ func losCreate(db *core.DB) http.HandlerFunc {
 				purpose, employer, monthly_income_kobo,
 				bvn, nin, date_of_birth, residential_address,
 				job_title, employment_type, employment_start_date,
-				monthly_obligation_kobo, sector_code,
+				monthly_obligation_kobo, sector_code, gender,
 				status, stage, sales_officer_id, assigned_to_user_id,
 				created_at, updated_at
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
 				NULLIF($13,''), NULLIF($14,''), NULLIF($15,'')::date, NULLIF($16,''),
 				NULLIF($17,''), NULLIF($18,''), NULLIF($19,'')::date,
-				NULLIF($20,0)::bigint, NULLIF($21,''),
+				NULLIF($20,0)::bigint, NULLIF($21,''), NULLIF($23,''),
 				'draft','draft',$22,$22,NOW(),NOW())
 			RETURNING id, reference, status, stage`,
 			ref, b.ApplicantName, b.ApplicantCIF, b.ApplicantEmail, b.ApplicantPhone,
@@ -719,7 +720,7 @@ func losCreate(db *core.DB) http.HandlerFunc {
 			b.Purpose, b.Employer, b.MonthlyIncome,
 			b.BVN, b.NIN, b.DateOfBirth, b.Address,
 			b.JobTitle, b.EmploymentType, b.EmploymentStartDate,
-			b.MonthlyObligation, b.SectorCode, user.ID)
+			b.MonthlyObligation, b.SectorCode, user.ID, b.Gender)
 		if err != nil {
 			respondErr(w, 500, "Create failed")
 			return

@@ -5,19 +5,23 @@ import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties }
 import {
   Page, ErrBanner, Spinner, TblSearch, filterInputStyle, ConfirmModal, Modal, NameCell,
 } from '../../components/UI'
-import { apiFetch, apiPost } from '../../lib/api'
-import { fmtDatetime, fmtNum } from '../../lib/fmt'
+import { apiFetch, apiPost, apiPatch, apiBlob } from '../../lib/api'
+import { fmtDatetime, fmtCount } from '../../lib/fmt'
 import { GREEN, AMBER, RED, BLUE, PURPLE, NAVY, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
-import { CallLogForm, callOutcomeLabel, groupCallConversations } from '../../components/LogCallModal'
+import { CallLogForm, callOutcomeLabel, groupCallConversations, type CallConversation } from '../../components/LogCallModal'
 import LogActivityModal from '../../components/LogActivityModal'
+import HandoffActions, { HandoffStatusChip, type HandoffViewer } from '../../components/HandoffActions'
 import CallLogEditModal, { type EditableCall } from '../../components/CallLogEditModal'
 import { RecordingModal } from '../../components/RecordingPlayer'
 import { PRODUCT_LINES, PRODUCT_SUBS } from '../../lib/products'
+import { isCallCentreSupervisor } from '../../lib/roles'
 
 // Heads/supervisors distribute and (re)assign leads; agents only work their own book.
+// Answered once for the whole module in lib/roles — the regex this replaced matched on
+// the word "head", so md/coo/cfo/cmo fell through it and the COO got an agent's view.
 function isHeadRole(): boolean {
-  try { return /head|admin|super|manager|lead|supervisor/i.test(String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '')) } catch { return false }
+  return isCallCentreSupervisor()
 }
 
 // Which logged calls a user may correct: their own, or anyone's if they supervise.
@@ -126,7 +130,21 @@ const OUTCOME_COLOR: Record<string, string> = {
   voicemail:      'var(--chart-lbl)',
   dnc:            RED,
 }
- 
+
+// The dot has to agree with the label printed beside it, so both read the same thing:
+// the agent's disposition when there is one, else the labelled telephony outcome.
+// Keying OUTCOME_COLOR with last_outcome directly ('completed'/'missed') matched
+// nothing and painted every dot grey.
+function leadOutcomeColor(lead: Lead): string {
+  const l = leadOutcomeLabel(lead).toLowerCase()
+  if (l.includes('not interested') || l.includes('do not call') || l.includes('wrong number')) return OUTCOME_COLOR.not_interested
+  if (l.includes('interested') || l.includes('converted') || l.includes('resolved')) return OUTCOME_COLOR.interested
+  if (l.includes('callback') || l.includes('not ready') || l.includes('promise')) return OUTCOME_COLOR.callback
+  if (l.includes('no answer') || l.includes('missed') || l.includes('not connected') || l.includes('voicemail')) return OUTCOME_COLOR.no_answer
+  if (l.includes('connected') || l.includes('dropped')) return BLUE
+  return '#6B7280'
+}
+
 // ── Lead call panel ───────────────────────────────────────────────────────────
 // The Leads page used to carry its own four-field "Log Call" form (outcome,
 // callback, duration, notes) posting to /api/call-center/leads/{id}/disposition,
@@ -201,7 +219,7 @@ function EditLeadModal({ open, lead, onClose, onSaved }: {
   const lbl: React.CSSProperties = { display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 4 }
 
   return (
-    <Modal open={open} onClose={onClose} title="Edit lead" width={460}
+    <Modal open={open} onClose={onClose} title="Edit Lead" width={460}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
@@ -218,7 +236,7 @@ function EditLeadModal({ open, lead, onClose, onSaved }: {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div><label style={lbl}>State</label><input value={state} onChange={e => setState(e.target.value)} placeholder="e.g. Lagos" style={inp} /></div>
-          <div><label style={lbl}>CIF (if a customer)</label><input value={cif} onChange={e => setCif(e.target.value)} style={inp} /></div>
+          <div><label style={lbl}>CIF (If a Customer)</label><input value={cif} onChange={e => setCif(e.target.value)} style={inp} /></div>
         </div>
         <div><label style={lbl}>Address</label><input value={address} onChange={e => setAddress(e.target.value)} style={inp} /></div>
       </div>
@@ -226,8 +244,9 @@ function EditLeadModal({ open, lead, onClose, onSaved }: {
   )
 }
 
-// Hand a worked lead to Sales. Agents may forward leads assigned to them; the
-// backend enforces that. The forwarded lead is then trackable under Forwarded Leads.
+// Hand a worked lead to Sales. Only a supervisor may forward — the backend 403s an
+// agent (call_center_forwards.go), who signals interest by dispositioning the lead
+// "Interested" instead. The forwarded lead is then trackable under Forwarded Leads.
 function ForwardToSalesModal({ open, lead, onClose, onDone }: {
   open: boolean; lead: Lead; onClose: () => void; onDone: () => void
 }) {
@@ -272,7 +291,7 @@ function ForwardToSalesModal({ open, lead, onClose, onDone }: {
         <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
           Sales picks this up, claims it and works it to conversion. You can follow it under <strong>Forwarded to Sales</strong> until they convert or close it.
         </div>
-        <div><label style={lbl}>Product interest <span style={{ color: RED }}>*</span></label>
+        <div><label style={lbl}>Product Interest <span style={{ color: RED }}>*</span></label>
           <select value={product} onChange={e => setProduct(e.target.value)} style={inp} autoFocus>
             <option value="">Which product is this lead for?</option>
             {PRODUCT_LINES.map(pl => (
@@ -304,12 +323,33 @@ interface LeadActivity {
   id: number; type: string; subject: string | null; body: string | null; outcome: string | null
   actor_name: string | null; actor_team: string | null; target_team: string | null
   status: string | null; occurred_at: string
+  actor_user_id: number | null
+  // An activity that shadows a record elsewhere points at it: a follow-up at its
+  // crm_task, a document at the stored file. The status/due/owner of a task are read
+  // live off that task, so ticking it off in the CRM shows here too.
+  entity_type: string | null; entity_id: string | null
+  due_at: string | null; task_priority: string | null; assignee_name: string | null
 }
 
 const ACT_ICON: Record<string, string> = {
   handoff: 'swap_horiz', decision: 'gavel', note: 'sticky_note_2', document: 'description',
   stage_change: 'trending_up', task: 'task_alt', compliance_flag: 'flag',
+  handoff_update: 'assignment_turned_in',
 }
+
+// One lead history holds two different kinds of record. They are told apart three
+// ways, never by colour alone: shape (a call sits in a round medallion, an activity
+// in a rounded square), icon, and a word — so the distinction survives a mono
+// screen, a colour-blind reader, and a dark theme.
+type TimelineItem =
+  | { kind: 'call'; key: string; at: string | null; conv: CallConversation<LeadCall> }
+  | { kind: 'act';  key: string; at: string;        act: LeadActivity }
+
+type TimelineTab = 'all' | 'calls' | 'activity'
+
+// Activity types and team names arrive as snake_case codes ('stage_change',
+// 'customer_care'). They are labels, not data values, so they read as Title Case.
+const titleWords = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
 
 function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () => void; onLogged: () => void }) {
   const [editOpen, setEditOpen] = useState(false)
@@ -354,25 +394,81 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
   const [activities, setActivities] = useState<LeadActivity[]>([])
   const [actKey, setActKey] = useState(0)
   const [actOpen, setActOpen] = useState(false)
+  // Who is looking. The server sends it with the list so the timeline can tell whether
+  // THIS user is the team a hand-off is waiting on, without the frontend keeping its
+  // own copy of the role→team mapping to drift out of step with the backend's.
+  const [viewer, setViewer] = useState<HandoffViewer | null>(null)
   useEffect(() => {
     let cancelled = false
     const p = new URLSearchParams({ lead_id: String(lead.id) })
     if (lead.customer_phone) p.set('phone', lead.customer_phone)
-    apiFetch<{ data: LeadActivity[] }>(`/api/activities?${p.toString()}`)
-      .then(r => { if (!cancelled) setActivities(r?.data ?? []) })
+    apiFetch<{ data: LeadActivity[]; viewer?: HandoffViewer }>(`/api/activities?${p.toString()}`)
+      .then(r => { if (!cancelled) { setActivities(r?.data ?? []); setViewer(r?.viewer ?? null) } })
       .catch(() => { if (!cancelled) setActivities([]) })
     return () => { cancelled = true }
   }, [lead.id, lead.customer_phone, actKey])
+
+  // Open a collected document. The file is served to an authenticated session, so it
+  // is fetched as a blob rather than linked — and the tab is opened BEFORE the await,
+  // or the browser treats the later window.open as an unrequested popup and blocks it.
+  async function openDocument(docID: string) {
+    const tab = window.open('', '_blank', 'noopener')
+    try {
+      const blob = await apiBlob(`/api/activities/documents/${docID}/content`)
+      const url = URL.createObjectURL(blob)
+      if (tab) tab.location.href = url
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (e: any) {
+      tab?.close()
+      toast.error(e?.message || 'Could not open the document')
+    }
+  }
+
+  // Tick a follow-up off from the record it was raised on. The write lands on the task
+  // itself (crm_tasks), which is why the timeline shows it done straight after.
+  async function completeTask(activityID: number) {
+    try {
+      await apiPatch(`/api/activities/${activityID}/status`, { status: 'done' })
+      toast.success('Follow-up done')
+      setActKey(k => k + 1)
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not close the follow-up')
+    }
+  }
+
+  // One history, not two. A call and a note are both "what happened to this lead",
+  // and reading them in two separate lists meant reconstructing the order in your
+  // head — the note that explains a call sat in a different box. They merge into a
+  // single newest-first timeline (the order every other feed in the workspace uses,
+  // and the order /api/activities already returns), each entry carrying what it is.
+  const timeline = useMemo<TimelineItem[]>(() => {
+    const ms = (s: string | null) => (s ? new Date(s).getTime() : 0)
+    const items: TimelineItem[] = [
+      ...conversations.map(c => ({ kind: 'call' as const, key: `c${c.call.id}`, at: c.firstAt, conv: c })),
+      ...activities.map(a => ({ kind: 'act' as const, key: `a${a.id}`, at: a.occurred_at, act: a })),
+    ]
+    return items.sort((x, y) => ms(y.at) - ms(x.at))
+  }, [conversations, activities])
+  const [tab, setTab] = useState<TimelineTab>('all')
+  const shownItems = timeline.filter(i => tab === 'all' || (tab === 'calls' ? i.kind === 'call' : i.kind === 'act'))
+
+  // The two things an agent can record, as equals.
+  const actionBtn: CSSProperties = {
+    flex: 1, minHeight: 44, padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.md,
+    fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    transition: 'var(--transition-fast)',
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
       {/* Contact header */}
       <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--bdr)', background: 'var(--th-bg)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-          <div style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: nameless ? 'var(--txt3)' : 'var(--txt)' }}>{nameless ? 'Unnamed lead' : lead.customer_name}</div>
+          <div style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: nameless ? 'var(--txt3)' : 'var(--txt)' }}>{nameless ? 'Unnamed Lead' : lead.customer_name}</div>
           <button onClick={() => setEditOpen(true)} title="Edit lead details"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: RADIUS.md, border: `1px solid ${nameless ? AMBER : 'var(--bdr)'}`, background: nameless ? `${AMBER}12` : 'var(--card)', color: nameless ? AMBER : 'var(--txt2)', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>edit</span>{nameless ? 'Add name' : 'Edit'}
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>edit</span>{nameless ? 'Add Name' : 'Edit'}
           </button>
         </div>
         <EditLeadModal open={editOpen} lead={lead} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); onRefresh() }} />
@@ -414,7 +510,7 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
             )
             return (
               <span style={{ fontSize: TEXT.xs, background: `${AMBER}16`, color: AMBER, padding: '2px 9px', borderRadius: RADIUS['2xl'], fontWeight: FW.semibold }}>
-                Interested · awaiting supervisor forward
+                Interested · Awaiting Supervisor Forward
               </span>
             )
           })()}
@@ -444,24 +540,32 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
         )}
       </div>
 
-      {/* Log a call.
-          Collapsed by default once this lead has history: the common case on
-          reopening a lead is READING what happened, not writing a new call, and a
-          form sitting open invites a duplicate log. "Log another call" opens it. */}
+      {/* Record something on this lead. The two things an agent can record — a call
+          and everything that isn't a call — sit side by side as equals, so neither
+          is buried under the other's history. Logging a call expands the inline
+          form in place (one fewer click than a dialog); logging an activity opens
+          the shared modal.
+          The call form is collapsed by default once this lead has history: the
+          common case on reopening a lead is READING what happened, not writing a
+          new call, and a form sitting open invites a duplicate log. */}
       <div style={{ padding: `${SP[4]} ${SP[5]}` }}>
-        {logOpen ? (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: SP[3] }}>
-              <div style={{ flex: 1, fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Log Call
-              </div>
-              {calls.length > 0 && (
-                <button onClick={() => setLogOpen(false)}
-                  style={{ border: 'none', background: 'none', color: 'var(--txt2)', fontSize: TEXT.xs, cursor: 'pointer', fontFamily: INTER }}>
-                  Cancel
-                </button>
-              )}
-            </div>
+        <div style={{ display: 'flex', gap: SP[2] }}>
+          <button onClick={() => setLogOpen(o => !o)} aria-expanded={logOpen}
+            style={{ ...actionBtn, border: 'none', background: NAVY, color: '#fff',
+                     boxShadow: logOpen ? 'none' : '0 1px 2px rgba(14,40,65,0.20)',
+                     opacity: logOpen ? 0.92 : 1 }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>{logOpen ? 'expand_less' : 'add_call'}</span>
+            {logOpen ? 'Close Call Form' : calls.length > 0 ? 'Log Another Call' : 'Log Call'}
+          </button>
+          <button onClick={() => setActOpen(true)}
+            style={{ ...actionBtn, border: `1px solid ${NAVY}`, background: 'var(--card)', color: NAVY }}>
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>bolt</span>
+            Log Activity
+          </button>
+        </div>
+
+        {logOpen && (
+          <div style={{ marginTop: SP[3] }}>
             <LeadCallPanel
               lead={lead}
               onDone={(disposition) => {
@@ -480,83 +584,217 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
                 onLogged()
               }}
             />
-          </>
-        ) : (
-          <button onClick={() => setLogOpen(true)}
-            style={{ width: '100%', padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.md, border: `1px solid ${NAVY}`, background: 'var(--card)', color: NAVY, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: INTER }}>
-            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add_call</span>
-            Log another call
-          </button>
+          </div>
         )}
       </div>
 
-      {/* Call history — shows the call the agent just logged, in the same place */}
+      {/* History — the calls and the activity on one spine, newest first. The filter
+          is a lens on that one list, not a second feed: "Calls" answers "did we
+          reach them?" without pretending the notes happened somewhere else. */}
       <div style={{ padding: `0 ${SP[5]} ${SP[5]}` }}>
-        <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: SP[2] }}>
-          Call history{conversations.length ? ` (${conversations.length})` : ''}
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[3] }}>
+          <div style={{ flex: 1, fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            History{timeline.length ? ` (${timeline.length})` : ''}
+          </div>
+          {/* Only worth a filter once there is something of both kinds to separate. */}
+          {conversations.length > 0 && activities.length > 0 && (
+            <div role="tablist" aria-label="Filter history" style={{
+              display: 'inline-flex', gap: 2, padding: 2, background: 'var(--th-bg)',
+              border: '1px solid var(--bdr)', borderRadius: RADIUS.full,
+            }}>
+              {([['all', 'All', timeline.length], ['calls', 'Calls', conversations.length], ['activity', 'Activity', activities.length]] as [TimelineTab, string, number][])
+                .map(([v, label, n]) => {
+                  const on = tab === v
+                  return (
+                    <button key={v} role="tab" aria-selected={on} onClick={() => setTab(v)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px',
+                        borderRadius: RADIUS.full, border: 'none', cursor: 'pointer', fontFamily: INTER,
+                        fontSize: TEXT.xs, fontWeight: on ? FW.bold : FW.semibold,
+                        background: on ? 'var(--card)' : 'transparent',
+                        color: on ? 'var(--txt)' : 'var(--txt3)',
+                        boxShadow: on ? '0 1px 2px rgba(0,0,0,0.10)' : 'none',
+                        transition: 'var(--transition-fast)',
+                      }}>
+                      {label}<span style={{ ...NUM, fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{n}</span>
+                    </button>
+                  )
+                })}
+            </div>
+          )}
         </div>
-        {conversations.length === 0 ? (
-          <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', padding: '8px 0' }}>No calls logged yet.</div>
+
+        {shownItems.length === 0 ? (
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', padding: '8px 0' }}>
+            {tab === 'calls'    ? 'No calls logged yet.'
+           : tab === 'activity' ? 'No activity logged yet — notes, documents and hand-offs show here.'
+           : 'Nothing logged yet — calls, notes, documents and hand-offs all show here.'}
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {conversations.map(({ call: c, attempts, firstAt, notes, disposition }) => {
-              const inbound = (c.direction || '').toLowerCase() === 'inbound'
+            {shownItems.map((item, i) => {
+              const last = i === shownItems.length - 1
+              const isCall = item.kind === 'call'
+              const c = item.kind === 'call' ? item.conv.call : null
               // A dial that never connected is not a green tick. Empty means no
               // duration and no recording — nothing was said.
-              const connected = (c.duration_sec ?? 0) > 0 || !!c.recording_filename
-              const col = connected ? GREEN : RED
-              const dur = c.duration_sec ? `${Math.floor(c.duration_sec / 60)}m ${c.duration_sec % 60}s` : null
+              const connected = !!c && ((c.duration_sec ?? 0) > 0 || !!c.recording_filename)
+              const inbound   = (c?.direction || '').toLowerCase() === 'inbound'
+              const col   = isCall ? (connected ? GREEN : RED) : 'var(--accent)'
+              const tint  = isCall ? `${connected ? GREEN : RED}14` : 'var(--accent-soft)'
+              const tag: CSSProperties = { fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.4px', textTransform: 'uppercase', color: col }
+
               return (
-                <div key={c.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--bdr)' }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: 18, color: col, flexShrink: 0, marginTop: 1 }}>{inbound ? 'call_received' : 'call_made'}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{disposition || callOutcomeLabel(c.outcome, c.direction, c.duration_sec, !!c.recording_filename)}</span>
-                      {dur && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', ...NUM }}>{dur}</span>}
-                      {/* The legs that reached nothing are still counted, so an
-                          episode that took four dials to connect still says so. */}
-                      {attempts > 1 && (
-                        <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
-                          {attempts} attempts{connected ? ', last connected' : ''}
-                        </span>
-                      )}
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
-                        <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{firstAt ? fmtDatetime(firstAt) : ''}</span>
-                        {c.recording_filename && (
-                          <button
-                            title="Play the call recording"
-                            onClick={() => setPlayCallId(c.id)}
-                            style={{ display: 'inline-flex', alignItems: 'center', border: 'none', background: 'none', cursor: 'pointer', color: GREEN, padding: 2, borderRadius: RADIUS.sm }}
-                          >
-                            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>play_circle</span>
-                          </button>
-                        )}
-                        {canCorrectCall(c.agent_name) && (
-                          <button
-                            title="Correct or withdraw this call log"
-                            onClick={() => setEditCall({
-                              id: c.id,
-                              customer_name: lead.customer_name,
-                              phone: lead.customer_phone ?? undefined,
-                              direction: c.direction || 'outbound',
-                              duration_seconds: c.duration_sec,
-                              disposition: disposition || c.disposition || null,
-                              resolution: c.resolution,
-                              purpose: 'marketing',
-                              notes: notes ?? c.notes ?? null,
-                            })}
-                            style={{ display: 'inline-flex', alignItems: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt3)', padding: 2, borderRadius: RADIUS.sm }}
-                          >
-                            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>edit</span>
-                          </button>
-                        )}
-                      </span>
-                    </div>
-                    {notes && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2, lineHeight: 1.4 }}>{notes}</div>}
-                    <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 2 }}>
-                      {c.agent_name || 'Agent'}{c.recording_filename ? ' · recorded' : ''}
-                    </div>
+                <div key={item.key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 0' }}>
+                  {/* The spine: one continuous line through the medallions, so the
+                      record reads as a single sequence rather than two stacked lists. */}
+                  <div style={{ position: 'relative', width: 30, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
+                    {!last && <span aria-hidden="true" style={{ position: 'absolute', top: 32, bottom: -20, left: 14, width: 2, background: 'var(--bdr)' }} />}
+                    <span className="material-symbols-rounded" aria-hidden="true"
+                      style={{
+                        width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 17, color: col, background: tint, border: `1px solid ${tint}`,
+                        // Shape carries the distinction on its own — a call is round,
+                        // an activity is a rounded square — so it survives greyscale
+                        // and a colour-blind reader, not just the colour.
+                        borderRadius: isCall ? RADIUS.full : RADIUS.md, flexShrink: 0,
+                      }}>{isCall ? (inbound ? 'call_received' : 'call_made') : (ACT_ICON[item.act.type] ?? 'bolt')}</span>
                   </div>
+
+                  {item.kind === 'call' ? (() => {
+                    const { attempts, firstAt, notes, disposition } = item.conv
+                    const call = item.conv.call
+                    const dur = call.duration_sec ? `${Math.floor(call.duration_sec / 60)}m ${call.duration_sec % 60}s` : null
+                    return (
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{disposition || callOutcomeLabel(call.outcome, call.direction, call.duration_sec, !!call.recording_filename)}</span>
+                          {dur && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', ...NUM }}>{dur}</span>}
+                          {/* The legs that reached nothing are still counted, so an
+                              episode that took four dials to connect still says so. */}
+                          {attempts > 1 && (
+                            <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
+                              {attempts} attempts{connected ? ', last connected' : ''}
+                            </span>
+                          )}
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+                            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{firstAt ? fmtDatetime(firstAt) : ''}</span>
+                            {call.recording_filename && (
+                              <button
+                                title="Play the call recording"
+                                aria-label="Play the call recording"
+                                onClick={() => setPlayCallId(call.id)}
+                                style={{ display: 'inline-flex', alignItems: 'center', border: 'none', background: 'none', cursor: 'pointer', color: GREEN, padding: 2, borderRadius: RADIUS.sm }}
+                              >
+                                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>play_circle</span>
+                              </button>
+                            )}
+                            {canCorrectCall(call.agent_name) && (
+                              <button
+                                title="Correct or withdraw this call log"
+                                aria-label="Correct or withdraw this call log"
+                                onClick={() => setEditCall({
+                                  id: call.id,
+                                  customer_name: lead.customer_name,
+                                  phone: lead.customer_phone ?? undefined,
+                                  direction: call.direction || 'outbound',
+                                  duration_seconds: call.duration_sec,
+                                  disposition: disposition || call.disposition || null,
+                                  resolution: call.resolution,
+                                  purpose: 'marketing',
+                                  notes: notes ?? call.notes ?? null,
+                                })}
+                                style={{ display: 'inline-flex', alignItems: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt3)', padding: 2, borderRadius: RADIUS.sm }}
+                              >
+                                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>edit</span>
+                              </button>
+                            )}
+                          </span>
+                        </div>
+                        {notes && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>{notes}</div>}
+                        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={tag}>{inbound ? 'Inbound Call' : 'Call'}</span>
+                          <span>{call.agent_name || 'Agent'}{call.recording_filename ? ' · Recorded' : ''}</span>
+                        </div>
+                      </div>
+                    )
+                  })() : (() => {
+                    const a = item.act
+                    // Three activities carry a life of their own beyond the note: a
+                    // hand-off waiting on a team, a follow-up that is really a task, and
+                    // a document that is really a file. Each shows its own state and the
+                    // one action that moves it, here, where the agent already is.
+                    const isHandoff = a.type === 'handoff'
+                    const isTask    = a.entity_type === 'crm_task'
+                    const isDoc     = a.entity_type === 'lead_document' && !!a.entity_id
+                    const taskDone  = isTask && ['done', 'cancelled'].includes((a.status || '').toLowerCase())
+                    const overdue   = isTask && !taskDone && !!a.due_at && new Date(a.due_at) < new Date()
+                    const stateChip: CSSProperties = {
+                      fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 8px', borderRadius: RADIUS.full,
+                      textTransform: 'uppercase', letterSpacing: '0.3px',
+                    }
+                    return (
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                          <span style={{
+                            fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)',
+                            textDecoration: taskDone ? 'line-through' : 'none', opacity: taskDone ? 0.6 : 1,
+                          }}>
+                            {a.subject || titleWords(a.type)}
+                            {a.target_team ? ` → ${titleWords(a.target_team)}` : ''}
+                          </span>
+                          {isHandoff ? <HandoffStatusChip status={a.status} />
+                            : isTask ? (
+                              <span style={{
+                                ...stateChip,
+                                background: taskDone ? `${GREEN}14` : overdue ? `${RED}14` : 'var(--accent-soft)',
+                                color:      taskDone ? GREEN        : overdue ? RED        : 'var(--accent)',
+                              }}>{taskDone ? 'Done' : overdue ? 'Overdue' : 'Open'}</span>
+                            ) : a.status ? (
+                              <span style={{ ...stateChip, background: 'var(--accent-soft)', color: 'var(--accent)' }}>{titleWords(a.status)}</span>
+                            ) : null}
+                          {a.outcome && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'capitalize' }}>{a.outcome.replace(/_/g, ' ')}</span>}
+                          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>{fmtDatetime(a.occurred_at)}</span>
+                        </div>
+                        {a.body && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>{a.body}</div>}
+                        {isTask && a.due_at && (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 4, fontSize: TEXT.xs, color: overdue ? RED : 'var(--txt2)', fontWeight: overdue ? FW.semibold : FW.normal }}>
+                            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>event</span>
+                            Due {fmtDatetime(a.due_at)}
+                            {a.assignee_name ? ` · ${a.assignee_name}` : ''}
+                            {a.task_priority === 'urgent' && <span style={{ ...stateChip, background: `${RED}14`, color: RED }}>Urgent</span>}
+                          </div>
+                        )}
+                        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={tag}>{titleWords(a.type)}</span>
+                          <span>{a.actor_name || 'Staff'}{a.actor_team ? ` · ${titleWords(a.actor_team)}` : ''}</span>
+                        </div>
+                        {(isDoc || (isTask && !taskDone) || isHandoff) && (
+                          <div style={{ marginTop: 7, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {isDoc && (
+                              <button onClick={() => openDocument(a.entity_id!)}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', minHeight: 30, borderRadius: RADIUS.md, border: `1px solid ${NAVY}`, background: 'var(--card)', color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>
+                                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span> Open Document
+                              </button>
+                            )}
+                            {isTask && !taskDone && (
+                              <button onClick={() => completeTask(a.id)}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', minHeight: 30, borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>
+                                <span className="material-symbols-rounded" style={{ fontSize: 14 }}>task_alt</span> Mark Done
+                              </button>
+                            )}
+                            {isHandoff && (
+                              <HandoffActions
+                                handoff={{ id: a.id, status: a.status, target_team: a.target_team, actor_user_id: a.actor_user_id }}
+                                viewer={viewer}
+                                onDone={() => setActKey(k => k + 1)}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })}
@@ -564,48 +802,9 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
         )}
       </div>
 
-      {/* Activity — everything that isn't a phone call: notes, documents collected,
-          hand-offs to Sales/Risk/…, and decisions that came back. */}
-      <div style={{ padding: `0 ${SP[5]} ${SP[5]}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: SP[2] }}>
-          <div style={{ flex: 1, fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Activity{activities.length ? ` (${activities.length})` : ''}
-          </div>
-          <button onClick={() => setActOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: RADIUS.md, border: `1px solid ${NAVY}`, background: 'var(--card)', color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span> Log activity
-          </button>
-        </div>
-        {activities.length === 0 ? (
-          <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', padding: '4px 0' }}>No activity logged yet — notes, documents and hand-offs show here.</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {activities.map(a => (
-              <div key={a.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--bdr)' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 18, color: NAVY, flexShrink: 0, marginTop: 1 }}>{ACT_ICON[a.type] ?? 'bolt'}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                      {a.subject || a.type.replace(/_/g, ' ')}
-                      {a.target_team ? ` → ${a.target_team}` : ''}
-                    </span>
-                    {a.status && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: NAVY, background: `${NAVY}12`, padding: '1px 7px', borderRadius: RADIUS.full, textTransform: 'capitalize' }}>{a.status}</span>}
-                    {a.outcome && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'capitalize' }}>{a.outcome.replace(/_/g, ' ')}</span>}
-                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>{fmtDatetime(a.occurred_at)}</span>
-                  </div>
-                  {a.body && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2, lineHeight: 1.4 }}>{a.body}</div>}
-                  <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 2 }}>
-                    {a.actor_name || 'Staff'}{a.actor_team ? ` · ${a.actor_team.replace(/_/g, ' ')}` : ''}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       <LogActivityModal
         open={actOpen}
+        about={nameless ? (lead.customer_phone ?? 'Unnamed Lead') : lead.customer_name}
         anchor={{ lead_id: lead.id, cif: lead.customer_cif ?? undefined, phone: lead.customer_phone ?? undefined }}
         onClose={() => setActOpen(false)}
         onSaved={() => { setActOpen(false); setActKey(k => k + 1) }}
@@ -621,7 +820,7 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
 
       <RecordingModal
         callId={playCallId}
-        title="Call recording"
+        title="Call Recording"
         subtitle={lead.customer_name}
         onClose={() => setPlayCallId(null)}
       />
@@ -686,6 +885,7 @@ function ImportLeadsModal({ open, onClose, onDone, campaigns, onCampaignCreated 
   const [fileName, setFileName] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [discardConfirm, setDiscardConfirm] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const creatingCampaign = campaignId === NEW_CAMPAIGN
@@ -706,6 +906,14 @@ function ImportLeadsModal({ open, onClose, onDone, campaigns, onCampaignCreated 
   function reset() {
     setRaw(''); setFileName(''); setCampaignId(''); setNewCampaign(''); setErr(null)
     if (fileRef.current) fileRef.current.value = ''
+  }
+
+  // Escape or a mis-click beside the dialog used to bin a prepared upload — a 5,000-row
+  // file and the campaign it was going to — without a word. Ask when there is something
+  // to lose; an empty dialog still closes on the spot.
+  function requestClose() {
+    if (raw) { setDiscardConfirm(true); return }
+    reset(); onClose()
   }
 
   function downloadTemplate() {
@@ -767,10 +975,11 @@ function ImportLeadsModal({ open, onClose, onDone, campaigns, onCampaignCreated 
   }
 
   return (
-    <Modal open={open} onClose={() => { reset(); onClose() }} title="Upload Lead List" width={480}
+    <>
+    <Modal open={open} onClose={requestClose} title="Upload Lead List" width={480}
       footer={
         <>
-          <button onClick={() => { reset(); onClose() }} style={{ padding: '8px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={requestClose} style={{ padding: '8px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
           <button onClick={submit} disabled={saving || parsed.length === 0}
             style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: (saving || !parsed.length) ? 'not-allowed' : 'pointer', opacity: (saving || !parsed.length) ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 6 }}>
             {saving && <Spinner size={13} color="#fff" />}Upload{parsed.length ? ` ${parsed.length}` : ''}
@@ -785,9 +994,9 @@ function ImportLeadsModal({ open, onClose, onDone, campaigns, onCampaignCreated 
           <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Campaign</label>
           <select value={campaignId} onChange={e => setCampaignId(e.target.value)}
             style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' }}>
-            <option value="">No campaign</option>
+            <option value="">No Campaign</option>
             {campaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-            <option value={NEW_CAMPAIGN}>+ New campaign…</option>
+            <option value={NEW_CAMPAIGN}>+ New Campaign…</option>
           </select>
           {creatingCampaign && (
             <input value={newCampaign} onChange={e => setNewCampaign(e.target.value)} autoFocus
@@ -801,12 +1010,12 @@ function ImportLeadsModal({ open, onClose, onDone, campaigns, onCampaignCreated 
           <button type="button" onClick={downloadTemplate}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>download</span>
-            Download template
+            Download Template
           </button>
           <button type="button" onClick={() => fileRef.current?.click()}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
-            Upload CSV file
+            Upload CSV File
           </button>
           <input ref={fileRef} type="file" accept=".csv,.txt,text/csv,text/plain" onChange={onPickFile} style={{ display: 'none' }} />
         </div>
@@ -824,6 +1033,16 @@ function ImportLeadsModal({ open, onClose, onDone, campaigns, onCampaignCreated 
         </div>
       </div>
     </Modal>
+    <ConfirmModal
+      open={discardConfirm}
+      title="Discard This Upload?"
+      body={`${fileName || 'The list you prepared'} and the campaign you picked will be cleared, and the ${parsed.length} row(s) ready to go will not be uploaded.`}
+      confirmLabel="Discard"
+      danger
+      onConfirm={() => { setDiscardConfirm(false); reset(); onClose() }}
+      onClose={() => setDiscardConfirm(false)}
+    />
+    </>
   )
 }
 
@@ -865,7 +1084,7 @@ function AssignLeadsModal({ open, onClose, onDone, agents, campaigns, defaultCam
   const lbl: React.CSSProperties = { display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.03em' }
 
   return (
-    <Modal open={open} onClose={onClose} title="Assign leads to an agent" width={460}
+    <Modal open={open} onClose={onClose} title="Assign Leads to an Agent" width={460}
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
@@ -879,12 +1098,12 @@ function AssignLeadsModal({ open, onClose, onDone, agents, campaigns, defaultCam
         <div>
           <label style={lbl}>Agent</label>
           <select value={agentId} onChange={e => setAgentId(e.target.value)} style={fld}>
-            <option value="">Select an agent…</option>
+            <option value="">Select an Agent…</option>
             {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
           </select>
         </div>
         <div>
-          <label style={lbl}>How many</label>
+          <label style={lbl}>How Many</label>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             {ASSIGN_PRESETS.map(p => (
               <button key={p} onClick={() => setCount(p)} style={{
@@ -900,7 +1119,7 @@ function AssignLeadsModal({ open, onClose, onDone, agents, campaigns, defaultCam
           <div>
             <label style={lbl}>Campaign</label>
             <select value={campaignId} onChange={e => setCampaignId(e.target.value)} style={fld}>
-              <option value="">All campaigns</option>
+              <option value="">All Campaigns</option>
               {campaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
             </select>
           </div>
@@ -929,7 +1148,7 @@ interface TeamTotals { total: number; unassigned: number; pending: number; inter
 
 function presence(a: TeamAgent): { dot: string; label: string } {
   if (a.online && a.status === 'available') return { dot: GREEN, label: 'Online' }
-  if (a.status === 'break') return { dot: AMBER, label: 'On break' }
+  if (a.status === 'break') return { dot: AMBER, label: 'On Break' }
   return { dot: 'var(--txt3)', label: 'Offline' }
 }
 
@@ -937,12 +1156,15 @@ function TeamPanel({ campaignId }: { campaignId: string }) {
   const [agents, setAgents] = useState<TeamAgent[]>([])
   const [totals, setTotals] = useState<TeamTotals | null>(null)
   const [loading, setLoading] = useState(true)
+  // A failed fetch must not read "No agents on the team yet" — that is a claim about
+  // the floor, not about the request.
+  const [teamErr, setTeamErr] = useState<string | null>(null)
 
   const load = useCallback(() => {
     const p = campaignId ? `?campaign_id=${campaignId}` : ''
     apiFetch<{ agents: TeamAgent[]; totals: TeamTotals }>(`/api/call-center/leads/team${p}`)
-      .then(r => { setAgents(Array.isArray(r?.agents) ? r.agents : []); setTotals(r?.totals ?? null) })
-      .catch(() => {})
+      .then(r => { setAgents(Array.isArray(r?.agents) ? r.agents : []); setTotals(r?.totals ?? null); setTeamErr(null) })
+      .catch(e => setTeamErr(e.message ?? 'Failed to load the team'))
       .finally(() => setLoading(false))
   }, [campaignId])
 
@@ -955,7 +1177,7 @@ function TeamPanel({ campaignId }: { campaignId: string }) {
   const head: CSSProperties = { padding: '8px 10px', textAlign: 'right', fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.03em', position: 'sticky', top: 0, background: 'var(--card)' }
 
   const totalCards: { label: string; value: number; color: string }[] = totals ? [
-    { label: 'Total leads', value: totals.total,      color: 'var(--txt)' },
+    { label: 'Total Leads', value: totals.total,      color: 'var(--txt)' },
     { label: 'Unassigned',  value: totals.unassigned, color: RED },
     { label: 'Pending',     value: totals.pending,    color: '#6B7280' },
     { label: 'Interested',  value: totals.interested, color: '#0D9488' },
@@ -978,7 +1200,7 @@ function TeamPanel({ campaignId }: { campaignId: string }) {
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
           {totalCards.map(c => (
             <div key={c.label} style={{ flex: '1 1 90px', textAlign: 'center', background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: '8px 4px' }}>
-              <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.extrabold, color: c.color }}>{fmtNum(c.value)}</div>
+              <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.extrabold, color: c.color }}>{fmtCount(c.value)}</div>
               <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{c.label}</div>
             </div>
           ))}
@@ -987,11 +1209,12 @@ function TeamPanel({ campaignId }: { campaignId: string }) {
 
       {/* Per-agent workload */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
+        {teamErr && <div style={{ padding: '12px 20px 0' }}><ErrBanner error={teamErr} onRetry={load} /></div>}
         {loading && agents.length === 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
             <Spinner size={16} color={NAVY} /> Loading team…
           </div>
-        ) : agents.length === 0 ? (
+        ) : teamErr && agents.length === 0 ? null : agents.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt3)', fontSize: TEXT.base }}>No agents on the team yet.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1000,7 +1223,7 @@ function TeamPanel({ campaignId }: { campaignId: string }) {
                 <th style={{ ...head, textAlign: 'left' }}>Agent</th>
                 <th style={head}>Assigned</th>
                 <th style={head}>Pending</th>
-                <th style={head}>Called today</th>
+                <th style={head}>Called Today</th>
                 <th style={head}>Converted</th>
               </tr>
             </thead>
@@ -1018,13 +1241,13 @@ function TeamPanel({ campaignId }: { campaignId: string }) {
                         </div>
                       </div>
                     </td>
-                    <td style={col}>{fmtNum(a.assigned)}</td>
-                    <td style={{ ...col, color: a.pending ? 'var(--txt)' : 'var(--txt3)' }}>{fmtNum(a.pending)}</td>
+                    <td style={col}>{fmtCount(a.assigned)}</td>
+                    <td style={{ ...col, color: a.pending ? 'var(--txt)' : 'var(--txt3)' }}>{fmtCount(a.pending)}</td>
                     <td style={col}>
-                      <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: a.called_today ? FW.bold : FW.medium, color: a.called_today ? NAVY : 'var(--txt3)' }}>{fmtNum(a.called_today)}</div>
-                      {a.dials_today > 0 && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtNum(a.dials_today)} dial{a.dials_today === 1 ? '' : 's'}</div>}
+                      <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: a.called_today ? FW.bold : FW.medium, color: a.called_today ? NAVY : 'var(--txt3)' }}>{fmtCount(a.called_today)}</div>
+                      {a.dials_today > 0 && <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtCount(a.dials_today)} dial{a.dials_today === 1 ? '' : 's'}</div>}
                     </td>
-                    <td style={{ ...col, color: a.converted ? GREEN : 'var(--txt3)' }}>{fmtNum(a.converted)}</td>
+                    <td style={{ ...col, color: a.converted ? GREEN : 'var(--txt3)' }}>{fmtCount(a.converted)}</td>
                   </tr>
                 )
               })}
@@ -1098,7 +1321,12 @@ export default function CallCenterLeads() {
   const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
   // silent: a background refresh must not blank the list underneath the agent —
   // and must not remount the log form they are typing into.
+  // Overlapping loads are routine — live events on top of the 15s poll — so a slower
+  // earlier response must not land last and paint a stale page over the current one.
+  // Only the newest request may write to the view.
+  const loadSeq = useRef(0)
   const load = useCallback(async (refreshSelected?: number, silent = false): Promise<Lead[]> => {
+    const seq = ++loadSeq.current
     if (!silent) setLoading(true)
     setErr(null)
     const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) })
@@ -1110,6 +1338,7 @@ export default function CallCenterLeads() {
       // for safety in case of a stale build.
       const res = await apiFetch<{ data: Lead[]; total: number; summary?: LeadSummary } | Lead[]>(`/api/call-center/leads?${p}`)
       const fresh = Array.isArray(res) ? res : (res?.data ?? [])
+      if (seq !== loadSeq.current) return fresh // superseded — a newer load owns the view
       setLeads(fresh)
       setTotal(Array.isArray(res) ? fresh.length : (res?.total ?? fresh.length))
       // Real totals from the server. Fall back to per-page counts only if an older
@@ -1128,15 +1357,19 @@ export default function CallCenterLeads() {
         setSelected(prev => updated ?? prev)
       }
       return fresh
-    } catch (ex: any) { setErr(ex.message); return [] }
-    finally { setLoading(false) }
+    } catch (ex: any) {
+      if (seq !== loadSeq.current) return []
+      setErr(ex.message); return []
+    }
+    finally { if (seq === loadSeq.current) setLoading(false) }
   }, [campaignId, status, dq, offset])
 
-  // Auto-advance: after logging a call on a lead, move straight to the next lead in
-  // the list so an agent works top-to-bottom without hunting. When there's nothing
-  // after the current one, wrap back to the top and say so — that's the "you've been
-  // through the whole list" signal. If a status filter is on, worked leads drop out
-  // of the list on reload, so this walks down the shrinking pile until it's empty.
+  // Auto-advance: after logging a call on a lead, move straight to the next lead so an
+  // agent works top-to-bottom without hunting. Past the end of a page it steps onto the
+  // next one; only past the end of the LAST page has the agent been through the whole
+  // assigned book, and only then does it wrap to the top and say so. If a status filter
+  // is on, worked leads drop out on reload, so this walks down the shrinking pile.
+  const advanceToTop = useRef(false) // open the top of the page being stepped onto
   async function handleAdvanceLead() {
     const prev = selected
     const prevList = leads
@@ -1156,13 +1389,31 @@ export default function CallCenterLeads() {
       }
     }
     if (!next) {
-      // Reached the end. Wrap to the top so they can keep going, and tell them.
+      // The end of THIS page is not the end of the book: step onto the next page and
+      // open its first lead. Choosing only from the 100 rows in front of it looped an
+      // agent with 250 leads back to lead 1, and leads 101+ were never served at all.
+      if (offset + PAGE_SIZE < total) { advanceToTop.current = true; setOffset(offset + PAGE_SIZE); return }
+      // Genuinely through the whole book — wrap to the first page and say so.
+      if (offset > 0) {
+        advanceToTop.current = true
+        setOffset(0)
+        toast.success('Back to the top — you’ve been through this list once')
+        return
+      }
       next = fresh.find(l => l.id !== prev?.id) ?? null
       if (next) toast.success('Back to the top — you’ve been through this list once')
     }
     if (!next) { setSelected(null); return }  // list is empty / fully worked
     setSelected(next)
   }
+
+  // The page the auto-advance stepped onto is loaded by the offset change, so opening
+  // its first lead has to wait for that page to arrive.
+  useEffect(() => {
+    if (!advanceToTop.current || loading) return
+    advanceToTop.current = false
+    if (leads.length) setSelected(leads[0])
+  }, [leads, loading])
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(undefined, true), { topics: ['calls', 'crm', 'cc_leads'] })
@@ -1202,19 +1453,25 @@ export default function CallCenterLeads() {
     setOffset(0)
   }, [campaignId, status, dq])
 
+  // These feed the campaign and agent pickers. A failure used to be swallowed, so the
+  // picker came up empty and a supervisor read that as "no campaigns yet" rather than
+  // "this didn't load". One toast each is proportionate — both fetch once, on mount.
   const loadCampaigns = useCallback(() => {
     apiFetch<CCCampaign[]>('/api/call-center/campaigns')
-      .then(r => setCampaigns(Array.isArray(r) ? r : [])).catch(() => {})
+      .then(r => setCampaigns(Array.isArray(r) ? r : []))
+      .catch((e: any) => toast.error(e?.message || 'Could not load campaigns'))
   }, [])
 
   useEffect(() => {
     loadCampaigns()
     apiFetch<CCAgent[]>('/api/call-center/agents')
-      .then(r => setAgents(Array.isArray(r) ? r : [])).catch(() => {})
+      .then(r => setAgents(Array.isArray(r) ? r : []))
+      .catch((e: any) => toast.error(e?.message || 'Could not load agents'))
   }, [loadCampaigns])
 
+  // Silent: correcting a call mid-conversation must not blank the list to "Loading…".
   function handleRefresh() {
-    load(selected?.id)
+    load(selected?.id, true)
   }
 
   function toggleCheck(id: number, e: React.MouseEvent) {
@@ -1230,6 +1487,23 @@ export default function CallCenterLeads() {
     setCheckedIds(new Set())
     setAssignAgentId('')
   }
+
+  // Keyboard access to the list. The rows were <div onClick> only, so an agent working
+  // without a mouse could not reach a lead — and therefore could not log a call at all.
+  // Up/Down walk the rows, Enter opens one. Arrowing deliberately doesn't open: every
+  // open refetches that lead's call history and activity.
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([])
+  function onRowKey(e: React.KeyboardEvent, idx: number) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      rowRefs.current[idx + (e.key === 'ArrowDown' ? 1 : -1)]?.focus()
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      setSelected(leads[idx])
+    }
+  }
+  // Roving tabIndex — one tab stop for the whole list, landing on the open lead.
+  const rovingIdx = Math.max(0, leads.findIndex(l => l.id === selected?.id))
 
   async function handleAssign() {
     if (!assignAgentId || checkedIds.size === 0) return
@@ -1309,12 +1583,12 @@ export default function CallCenterLeads() {
             <button onClick={() => setImportOpen(true)} title="Upload a lead list"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
               <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>upload_file</span>
-              Upload leads
+              Upload Leads
             </button>
             <button onClick={() => setAssignOpen(true)} title="Assign a batch of leads to one agent"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: NAVY, color: '#fff', border: `1px solid ${NAVY}`, borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
               <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>assignment_ind</span>
-              Assign to agent
+              Assign to Agent
             </button>
           </div>
         ) : undefined
@@ -1330,7 +1604,7 @@ export default function CallCenterLeads() {
             <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: 10 }}>
               <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', flex: 1 }}>Marketing Leads</span>
               <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'var(--chip-bg)', color: 'var(--chip-txt)', padding: '1px 7px', borderRadius: RADIUS['2xl'] }}>
-                {fmtNum(total)}
+                {fmtCount(total)}
               </span>
               {/* Recall + Distribute — heads/supervisors only. Recall pulls a bad
                   distribution back to the pool; Distribute hands the pool out. */}
@@ -1415,6 +1689,10 @@ export default function CallCenterLeads() {
                 { value: 'no_answer',  label: 'No Answer',     color: RED },
                 { value: 'converted',  label: 'Converted',     color: GREEN },
                 { value: 'dnc',        label: 'DNC',           color: PURPLE },
+                // closed and invalid are set by the backend (a decline on our side, and
+                // a bad number) — without chips those leads could never be filtered to.
+                { value: 'closed',     label: 'Closed',        color: STATUS_COLOR.closed },
+                { value: 'invalid',    label: 'Invalid',       color: STATUS_COLOR.invalid },
               ].map(({ value, label, color }) => {
                 const on = status === value
                 return (
@@ -1450,7 +1728,7 @@ export default function CallCenterLeads() {
                 onChange={e => setAssignAgentId(e.target.value)}
                 style={{ flex: 1, padding: `${SP[1]} ${SP[2]}`, borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none', minWidth: 0 }}
               >
-                <option value="">Assign to…</option>
+                <option value="">Assign To…</option>
                 {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
               </select>
               <button
@@ -1476,26 +1754,33 @@ export default function CallCenterLeads() {
             </div>
           )}
 
-          {err && <div style={{ padding: '8px 14px' }}><ErrBanner error={err} onRetry={load} /></div>}
+          {/* onRetry is called with no argument on purpose: passing load straight in
+              handed the click event to it as `refreshSelected`. */}
+          {err && <div style={{ padding: '8px 14px' }}><ErrBanner error={err} onRetry={() => load()} /></div>}
 
-          {/* Lead list */}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          {/* Lead list — a listbox, so it can be worked from the keyboard */}
+          <div role="listbox" aria-label="Marketing leads" style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
                 <Spinner size={16} color={NAVY} /> Loading…
               </div>
-            ) : leads.length === 0 ? (
+            ) : err ? null : leads.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: TEXT.base }}>
                 No leads yet. Push contacts from a campaign report.
               </div>
-            ) : leads.map(lead => {
+            ) : leads.map((lead, idx) => {
               const isSelected = selected?.id === lead.id
               const isChecked  = checkedIds.has(lead.id)
-              const oc = OUTCOME_COLOR[lead.last_outcome ?? ''] ?? '#6B7280'
+              const oc = leadOutcomeColor(lead)
               return (
                 <div
                   key={lead.id}
+                  ref={el => { rowRefs.current[idx] = el }}
+                  role="option"
+                  aria-selected={isSelected}
+                  tabIndex={idx === rovingIdx ? 0 : -1}
                   onClick={() => setSelected(lead)}
+                  onKeyDown={e => onRowKey(e, idx)}
                   style={{
                     display: 'flex', alignItems: 'flex-start', gap: 0,
                     borderBottom: '1px solid var(--bdr)', cursor: 'pointer',
@@ -1533,7 +1818,7 @@ export default function CallCenterLeads() {
                           {' '}{lead.agent_name}
                         </span>
                       ) : (
-                        <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontStyle: 'italic' }}>unassigned</span>
+                        <StatusPill status="unassigned" />
                       )}
                     </div>
                     {(lead.last_outcome || lead.last_called_at) && (
@@ -1556,7 +1841,7 @@ export default function CallCenterLeads() {
           {total > PAGE_SIZE && (
             <div style={{ flexShrink: 0, borderTop: '1px solid var(--bdr)', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', ...NUM }}>
-                {fmtNum(offset + 1)}–{fmtNum(Math.min(offset + PAGE_SIZE, total))} of {fmtNum(total)}
+                {fmtCount(offset + 1)}–{fmtCount(Math.min(offset + PAGE_SIZE, total))} of {fmtCount(total)}
               </span>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
@@ -1577,7 +1862,7 @@ export default function CallCenterLeads() {
                 <button onClick={() => setSelected(null)}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start', margin: '8px 0 0 12px', padding: '4px 10px', border: '1px solid var(--bdr)', background: 'var(--card)', color: NAVY, borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
                   <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>groups</span>
-                  Back to team
+                  Back to Team
                 </button>
               )}
               <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
@@ -1623,7 +1908,7 @@ export default function CallCenterLeads() {
         }}>
           <input type="checkbox" checked={includeSelf} onChange={e => setIncludeSelf(e.target.checked)}
             style={{ marginTop: 1, accentColor: NAVY, cursor: 'pointer', flexShrink: 0 }} />
-          <span>Include me as a caller
+          <span>Include Me as a Caller
             <span style={{ display: 'block', fontSize: TEXT.xs, fontWeight: FW.medium, color: 'var(--txt3)' }}>
               I take an equal share of the leads to call myself
             </span>

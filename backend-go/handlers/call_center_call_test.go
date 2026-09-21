@@ -43,7 +43,9 @@ func TestLeadStatusFromCall(t *testing.T) {
 		{"converted", "completed", s("Converted"), "converted"},
 		{"callback", "completed", s("Callback Scheduled"), "callback"},
 		{"not interested still called", "completed", s("Not Interested"), "called"},
-		{"interested still called", "completed", s("Interested"), "called"},
+		// Interested has had its own status since it stopped hiding in "called"; this
+		// expectation had not followed, and failed on every run.
+		{"interested is its own status", "completed", s("Interested"), "interested"},
 		{"wrong number is invalid", "completed", s("Wrong Number"), "invalid"},
 		{"unreachable", "missed", s("Unreachable / No Answer"), "no_answer"},
 

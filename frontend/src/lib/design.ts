@@ -108,6 +108,9 @@ export type ThemeVars = React.CSSProperties & {
   '--chip-bg'?: string; '--chip-txt'?: string
   '--chart-grid'?: string; '--chart-lbl'?: string
   '--fp-bg'?: string; '--fp-bdr'?: string
+  // Interactive accent for selected state (active column, chosen value, primary action)
+  // that stays readable on both themes — O3 navy on light, a pale navy on dark.
+  '--accent'?: string; '--accent-soft'?: string; '--on-accent'?: string
   // Categorical series slots — assigned in fixed order, never cycled.
   '--sc-1'?: string; '--sc-2'?: string; '--sc-3'?: string
 }
@@ -137,6 +140,7 @@ export const LIGHT: ThemeVars = {
   '--chip-bg': '#EEF0F8', '--chip-txt': '#4A5270',
   '--chart-grid': '#E8EBF2', '--chart-lbl': '#9AA4B8',
   '--fp-bg': '#FFFFFF', '--fp-bdr': '#E8EBF2',
+  '--accent': '#0E2841', '--accent-soft': 'rgba(14,40,65,0.07)', '--on-accent': '#FFFFFF',
   '--sc-1': '#2563EB', '--sc-2': '#16A34A', '--sc-3': '#7C3AED',
 }
 
@@ -165,6 +169,7 @@ export const DARK: ThemeVars = {
   '--chip-bg': '#0F1A30', '--chip-txt': '#506898',
   '--chart-grid': '#0F1626', '--chart-lbl': '#242E44',
   '--fp-bg': '#0A0E1A', '--fp-bdr': '#121C30',
+  '--accent': '#A9C3E6', '--accent-soft': 'rgba(169,195,230,0.12)', '--on-accent': '#0E1722',
   '--sc-1': '#2563EB', '--sc-2': '#16A34A', '--sc-3': '#8B5CF6',
 }
 

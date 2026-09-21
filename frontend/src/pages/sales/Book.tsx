@@ -262,7 +262,7 @@ export default function SalesBook() {
             ))}
             {crossSell && (
               <span title="Single-product customer — cross-sell opportunity" style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '2px 7px', borderRadius: RADIUS['2xl'], background: `${GREEN}14`, color: GREEN, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 12 }}>trending_up</span>cross-sell
+                <span className="material-symbols-rounded" style={{ fontSize: 12 }}>trending_up</span>Cross-Sell
               </span>
             )}
           </div>
@@ -270,15 +270,15 @@ export default function SalesBook() {
       },
     },
     {
-      key: 'card_balance_kobo', label: 'Card bal.', sortable: true, align: 'right',
+      key: 'card_balance_kobo', label: 'Card Bal.', sortable: true, align: 'right',
       render: r => <span style={{ ...NUM, color: r.card_balance_kobo > 0 ? 'var(--txt)' : 'var(--txt3)' }}>{r.card_balance_kobo ? fmtKobo(r.card_balance_kobo) : '—'}</span>,
     },
     {
-      key: 'outstanding_kobo', label: 'Loans owed', sortable: true, align: 'right',
+      key: 'outstanding_kobo', label: 'Loans Owed', sortable: true, align: 'right',
       render: r => <span style={{ ...NUM, color: r.outstanding_kobo > 0 ? RED : 'var(--txt3)' }}>{r.outstanding_kobo ? fmtKobo(r.outstanding_kobo) : '—'}</span>,
     },
     {
-      key: 'fd_principal_kobo', label: 'FD principal', sortable: true, align: 'right',
+      key: 'fd_principal_kobo', label: 'FD Principal', sortable: true, align: 'right',
       render: r => <span style={{ ...NUM, color: r.fd_principal_kobo > 0 ? GREEN : 'var(--txt3)' }}>{r.fd_principal_kobo ? fmtKobo(r.fd_principal_kobo) : '—'}</span>,
     },
     {
@@ -302,7 +302,7 @@ export default function SalesBook() {
       render: (r: BookRow) => (
         <Button variant="ghost" size="xs" icon="note_add"
           onClick={e => { e.stopPropagation(); setAppFor({ cif: r.cif, name: r.full_name }) }}>
-          Raise app
+          Raise App
         </Button>
       ),
     } as TableCol<BookRow>,
@@ -326,7 +326,7 @@ export default function SalesBook() {
             setPartyReason('')
           }}
         >
-          Assign person
+          Assign Person
         </Button>
       ) : null,
     } as TableCol<BookRow>] : []),
@@ -356,7 +356,7 @@ export default function SalesBook() {
                 border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
               }}
             >
-              <option value="">All officers</option>
+              <option value="">All Officers</option>
               <option value="unassigned">Unassigned</option>
               {officers.map(o => (
                 <option key={o.id} value={o.id}>{o.full_name} ({o.book_size})</option>
@@ -378,7 +378,7 @@ export default function SalesBook() {
             }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>trending_up</span>
-            Cross-sell targets
+            Cross-Sell Targets
           </button>
           <input
             placeholder="Search name, CIF, phone…"
@@ -411,10 +411,10 @@ export default function SalesBook() {
         <KpiCard label="Acquired MTD" value={summary ? fmtNum(summary.acquired_mtd) : '—'}
           sub={summary ? `${fmtNum(summary.acquired_ytd)} YTD` : undefined}
           icon="person_add" accent={GREEN} loading={loading} />
-        <KpiCard label="In arrears" value={summary ? fmtNum(summary.customers_in_arrears) : '—'}
+        <KpiCard label="In Arrears" value={summary ? fmtNum(summary.customers_in_arrears) : '—'}
           sub="Customers with days past due"
           icon="warning" accent={summary && summary.customers_in_arrears > 0 ? RED : NAVY} loading={loading} />
-        <KpiCard label="FD maturing 30d" value={summary ? fmtNum(summary.fd_maturing_30d) : '—'}
+        <KpiCard label="FD Maturing 30d" value={summary ? fmtNum(summary.fd_maturing_30d) : '—'}
           sub="Cross-sell window"
           icon="event" accent={BLUE} loading={loading} />
       </div>
@@ -422,13 +422,13 @@ export default function SalesBook() {
       {/* Portfolio composition — the book's value across the three product lines, plus
           net position (deposits held minus credit outstanding). */}
       {summary && (
-        <SectionCard title="Portfolio composition" subtitle="Value across the three product lines" style={{ marginBottom: SP[4] }}>
+        <SectionCard title="Portfolio Composition" subtitle="Value across the three product lines" style={{ marginBottom: SP[4] }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
             {[
-              { label: 'Card balances', value: summary.card_balance_kobo, color: PURPLE, icon: 'credit_card' },
-              { label: 'Loans outstanding', value: summary.outstanding_kobo, color: NAVY, icon: 'account_balance_wallet' },
-              { label: 'FD principal', value: summary.fd_principal_kobo, color: AMBER, icon: 'savings' },
-              { label: 'Net position', value: summary.fd_principal_kobo - summary.outstanding_kobo, color: (summary.fd_principal_kobo - summary.outstanding_kobo) >= 0 ? GREEN : RED, icon: 'balance', net: true },
+              { label: 'Card Balances', value: summary.card_balance_kobo, color: PURPLE, icon: 'credit_card' },
+              { label: 'Loans Outstanding', value: summary.outstanding_kobo, color: NAVY, icon: 'account_balance_wallet' },
+              { label: 'FD Principal', value: summary.fd_principal_kobo, color: AMBER, icon: 'savings' },
+              { label: 'Net Position', value: summary.fd_principal_kobo - summary.outstanding_kobo, color: (summary.fd_principal_kobo - summary.outstanding_kobo) >= 0 ? GREEN : RED, icon: 'balance', net: true },
             ].map(m => (
               <div key={m.label} style={{ borderLeft: `3px solid ${m.color}`, paddingLeft: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
@@ -446,7 +446,7 @@ export default function SalesBook() {
       )}
 
       <SectionCard
-        title={officerFilter === 'unassigned' ? 'Unassigned customers' : 'Customers'}
+        title={officerFilter === 'unassigned' ? 'Unassigned Customers' : 'Customers'}
         subtitle={loading ? undefined : `${fmtNum(pageFrom)}–${fmtNum(pageTo)} of ${fmtNum(total)}`}
         padding={false}
       >
@@ -487,7 +487,7 @@ export default function SalesBook() {
       <Modal
         open={assignOpen}
         onClose={() => setAssignOpen(false)}
-        title={`Assign ${selected.size} customer${selected.size === 1 ? '' : 's'}`}
+        title={`Assign ${selected.size} Customer${selected.size === 1 ? '' : 's'}`}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Button variant="secondary" onClick={() => setAssignOpen(false)}>Cancel</Button>
@@ -499,15 +499,15 @@ export default function SalesBook() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Select
-            label="Account officer"
+            label="Account Officer"
             value={assignTo}
             onChange={e => setAssignTo(e.target.value)}
           >
-            <option value="">Choose an officer…</option>
+            <option value="">Choose an Officer…</option>
             {officers.filter(o => o.is_active).map(o => (
               <option key={o.id} value={o.id}>{o.full_name}, {o.book_size} customers</option>
             ))}
-            <option value="unassign">— Remove the current officer —</option>
+            <option value="unassign">— Remove the Current Officer —</option>
           </Select>
           <Input
             label="Reason"
@@ -522,12 +522,12 @@ export default function SalesBook() {
       <Modal
         open={!!partyRow}
         onClose={() => setPartyRow(null)}
-        title={`Assign ${partyRow?.full_name || 'this person'}`}
+        title={`Assign ${partyRow?.full_name || 'This Person'}`}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Button variant="secondary" onClick={() => setPartyRow(null)}>Cancel</Button>
             <Button variant="primary" loading={partyAssigning} disabled={!partyAssignTo} onClick={doAssignParty}>
-              Assign person
+              Assign Person
             </Button>
           </div>
         }
@@ -538,11 +538,11 @@ export default function SalesBook() {
             relationship stays on one desk, not just the row you clicked.
           </div>
           <Select
-            label="Account officer"
+            label="Account Officer"
             value={partyAssignTo}
             onChange={e => setPartyAssignTo(e.target.value)}
           >
-            <option value="">Choose an officer…</option>
+            <option value="">Choose an Officer…</option>
             {officers.filter(o => o.is_active).map(o => (
               <option key={o.id} value={o.id}>{o.full_name}, {o.book_size} customers</option>
             ))}

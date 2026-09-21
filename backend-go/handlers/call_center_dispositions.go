@@ -3,8 +3,10 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/o3c/workspace/core"
 )
@@ -188,28 +190,68 @@ func ccListDispositions() http.HandlerFunc {
 	}
 }
 
+// ccCallOutcome maps a disposition to the telephony outcome recorded on the call
+// ledger: did the phone actually reach a conversation?
+//
+// A queue call carries no duration and no recording — the agent just picks an outcome
+// — so the disposition is the only evidence there is. ccLogCall used to write
+// 'completed' for anything flagged Connected, which put "Call Dropped" (answered, then
+// dead within seconds, nothing discussed) into the connect count. callUnansweredExpr
+// in helpdesk.go then exempts source_system='call_center' rows from the sub-5-second
+// rule, so no downstream reader could correct it: the connect rate was inflated at the
+// point of writing and every surface inherited it.
+//
+// Nothing is lost by being honest here — the disposition and its label ride on the
+// same row, so "Call Dropped" is still exactly what the Call Log shows.
+func ccCallOutcome(d ccDisposition) string {
+	if !d.Connected {
+		// An outbound dial nobody picked up. 'no_answer' rather than 'missed' because
+		// the Call Log renders an unanswered OUTBOUND call "No Answer"
+		// (resultCategoryExpr); both sit inside callUnansweredExpr, so the connect
+		// count is identical either way.
+		return "no_answer"
+	}
+	if d.Code == "call_dropped" {
+		// Answered, then gone within seconds. The line connected; a conversation did
+		// not. The module's own connect test already discounts a 'completed' call
+		// under callConnectMinSec with no recording — a queue call has no duration to
+		// fail that test with, so counting it as a connect would let the MISSING
+		// measurement promote it. Counted the way a 3-second call is counted.
+		return "no_answer"
+	}
+	return "completed"
+}
+
 // ccApplyDisposition applies a disposition's consequences to a contact: where it moves
 // to, when it should ring back, and whether the number is suppressed outright.
 //
-// Errors are logged by the caller's error path rather than surfaced per-statement — the
-// call itself is already recorded in helpdesk_calls by that point, and losing the
-// follow-up state must not make the agent think the call went unlogged.
+// It changes ONLY what the disposition actually means to change. It used to rewrite
+// every field on every call, which destroyed work: status was reset to 'pending'
+// whenever a disposition carried none, silently reopening 'closed' and 'invalid'
+// contacts back into the dial pool; and callback_at was cleared on every disposition
+// that did not set one, so a "No Answer" on a later dial erased the call-back time the
+// customer had actually asked for.
+//
+// Errors are logged rather than returned: the call itself is already in helpdesk_calls
+// by this point, and failing the agent's request would tell them the call went unlogged
+// when it did not. They were previously discarded outright, which is how a failed cast
+// could lose a disposition's entire effect while the agent saw a 201.
 func ccApplyDisposition(ctx context.Context, db *core.DB, contactID string,
 	d ccDisposition, phone string, callbackAt *string, userID *int64) {
 
-	status := d.Status
-	if status == "" {
-		status = "pending"
-	}
-
 	// A callback with no time is still a callback — default it rather than dropping the
-	// promise on the floor, so it resurfaces tomorrow instead of never.
+	// promise on the floor, so it resurfaces tomorrow morning instead of never.
+	//
+	// Built as a real timestamp here. The previous default was the string
+	// 'tomorrow 09:00', which is not a timestamptz literal Postgres accepts, so the
+	// whole UPDATE failed — and with the error discarded, the status move, the call-back
+	// AND the DNC suppression were all lost behind a 201.
 	var cb any
 	if d.NeedsCallback {
 		if callbackAt != nil && *callbackAt != "" {
 			cb = *callbackAt
 		} else {
-			cb = "tomorrow 09:00"
+			cb = time.Now().AddDate(0, 0, 1).Format("2006-01-02") + " 09:00:00"
 		}
 	} else if d.Code == "not_ready" && callbackAt != nil && *callbackAt != "" {
 		// "Not Ready Yet" can carry an OPTIONAL try-again date without being a promised
@@ -218,22 +260,56 @@ func ccApplyDisposition(ctx context.Context, db *core.DB, contactID string,
 		cb = *callbackAt
 	}
 
-	db.PGExec(ctx, //nolint:errcheck
+	if _, err := db.PGExec(ctx,
 		`UPDATE call_center_contacts
 		    SET disposition_code = $1,
 		        last_disposition = $2,
-		        status           = $3,
-		        callback_at      = CASE WHEN $4::text IS NULL THEN NULL
-		                                ELSE $4::timestamptz END,
+		        -- Only a disposition that names a status moves the contact. One that
+		        -- names none ("No Answer", "Call Dropped") leaves it where it is, so a
+		        -- later dial can no longer reopen a contact an agent deliberately
+		        -- closed. The exception is a promised call-back: the customer asked to
+		        -- be rung back, and only a 'pending' row is ever served by the queue or
+		        -- alarmed by the reminder worker, so that one reopens the contact.
+		        status           = CASE WHEN NULLIF($3::text,'') IS NOT NULL THEN $3
+		                                WHEN $4::text IS NOT NULL             THEN 'pending'
+		                                ELSE status END,
+		        -- Set a new time when this disposition carries one; drop a now-meaningless
+		        -- one only when the contact is being closed out; otherwise leave the
+		        -- customer's existing promise alone.
+		        callback_at      = CASE WHEN $4::text IS NOT NULL THEN $4::timestamptz
+		                                WHEN $3::text IN ('closed','invalid') THEN NULL
+		                                ELSE callback_at END,
+		        -- Re-arm the reminder whenever a NEW call-back is scheduled. The worker
+		        -- fires only where callback_notified_at IS NULL, so leaving the old stamp
+		        -- in place meant the SECOND call-back on a contact never alerted anyone.
+		        callback_notified_at = CASE WHEN $4::text IS NOT NULL THEN NULL
+		                                    ELSE callback_notified_at END,
 		        updated_at       = NOW()
 		  WHERE id = $5`,
-		d.Code, d.Label, status, cb, contactID)
+		d.Code, d.Label, d.Status, cb, contactID); err != nil {
+		slog.Error("ccApplyDisposition: apply to contact",
+			"contact", contactID, "disposition", d.Code, "err", err)
+	}
 
-	if d.AddToDNC && strings.TrimSpace(phone) != "" {
-		db.PGExec(ctx, //nolint:errcheck
-			`INSERT INTO dnc_list (phone, reason, added_by)
-			 VALUES ($1, 'Agent disposition: Do Not Call', $2)
-			 ON CONFLICT (phone) DO NOTHING`, phone, userID)
+	if d.AddToDNC {
+		// Store the canonical form app.norm_phone() produces — the bare last 10 digits —
+		// and conflict on it, so the list holds one row per number instead of the same
+		// number in four shapes. length()==10 is the validity guard: norm_phone returns
+		// '' (not NULL) for anything it cannot parse, and a blank row on the DNC list
+		// would suppress every contact whose phone is blank.
+		if np := normalizePhone(phone); len(np) == 10 {
+			if _, err := db.PGExec(ctx,
+				`INSERT INTO dnc_list (phone, reason, added_by)
+				 VALUES ($1, 'Agent disposition: Do Not Call', $2)
+				 ON CONFLICT (phone) DO NOTHING`, np, userID); err != nil {
+				slog.Error("ccApplyDisposition: add to DNC",
+					"contact", contactID, "err", err)
+			}
+		} else {
+			// A do-not-call we cannot act on is a regulatory gap, not a no-op.
+			slog.Warn("ccApplyDisposition: do-not-call NOT suppressed — unusable phone",
+				"contact", contactID, "phone", phone)
+		}
 	}
 }
 

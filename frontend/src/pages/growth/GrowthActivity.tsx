@@ -160,7 +160,7 @@ export default function GrowthActivity() {
         background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)',
         borderRadius: RADIUS.xl, marginBottom: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
       }}>
-        <KPI label="New (month to date)" icon="person_add" color={NAVY}
+        <KPI label="New (Month to Date)" icon="person_add" color={NAVY}
           value={reg ? fmtNum(N(reg.this_month)) : '—'}
           foot={reg ? <Delta cur={N(reg.this_month)} prev={N(reg.last_month)} /> : undefined} />
         <KPI label={`Registered · ${months}mo`} icon="how_to_reg" color={BLUE}
@@ -178,7 +178,7 @@ export default function GrowthActivity() {
       {tx && (
         <>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '2px 2px 8px' }}>
-            <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>Monthly momentum</span>
+            <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>Monthly Momentum</span>
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>this month is still in progress — deltas compare against last month's full total</span>
           </div>
           <div style={{
@@ -203,12 +203,12 @@ export default function GrowthActivity() {
       {/* ── Registrations (windowed) ──────────────────────────────────────── */}
       <SectionCard title="Registrations" subtitle={`New card accounts onboarded per month · last ${months} months`} style={{ marginBottom: 14 }}>
         {trends.length === 0 ? (
-          <EmptyState icon="how_to_reg" title="No registrations in this window" description="No new accounts were onboarded in the selected period." />
+          <EmptyState icon="how_to_reg" title="No Registrations in This Window" description="No new accounts were onboarded in the selected period." />
         ) : (
           <EBar
             data={trends} xKey="month" height={230} leftMargin={0}
             valueFmt={(v) => `${fmtNum(v)} new`}
-            series={[{ key: 'new_accounts', name: 'New accounts', color: NAVY }]}
+            series={[{ key: 'new_accounts', name: 'New Accounts', color: NAVY }]}
           />
         )}
       </SectionCard>
@@ -228,7 +228,7 @@ export default function GrowthActivity() {
           </div>
         }>
         {trends.length === 0 ? (
-          <EmptyState icon="show_chart" title="No activity in this window" description="Churn and retention need at least one month of transaction activity." />
+          <EmptyState icon="show_chart" title="No Activity in This Window" description="Churn and retention need at least one month of transaction activity." />
         ) : (
         <EChart height={250} option={(t: ChartTokens) => ({
           grid: { top: 10, right: 44, bottom: 24, left: 8, containLabel: true },

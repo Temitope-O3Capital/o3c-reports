@@ -377,7 +377,7 @@ export default function Canned() {
           rows={displayed}
           keyFn={r => r.id}
           loading={loading}
-          emptyText="No canned responses yet"
+          emptyText="No Canned Responses Yet"
           pageSize={20}
         />
       </SectionCard>

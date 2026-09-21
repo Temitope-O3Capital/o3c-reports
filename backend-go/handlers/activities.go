@@ -181,6 +181,10 @@ func LogActivity(ctx context.Context, db *core.DB, a Activity) (int64, error) {
 func RegisterActivities(r chi.Router, db *core.DB) {
 	r.Get("/activities", activityList(db))
 	r.Post("/activities", activityCreate(db))
+	// Hand-offs: the inbox for the team that was handed something, and the lifecycle
+	// that lets them answer it (see activity_handoffs.go).
+	r.Get("/activities/handoffs", handoffList(db))
+	r.Patch("/activities/{id}/status", activitySetStatus(db))
 	// Lead/contact document uploads (pre-application file store).
 	r.Post("/activities/document", activityUploadDocument(db))
 	r.Get("/activities/documents/{doc_id}/content", activityDocumentContent(db))
@@ -226,12 +230,23 @@ func activityList(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// A task's status lives in crm_tasks, which is its system of record — the
+		// activity row is only its shadow. Reading the live status back (rather than
+		// the stamp written when the task was created) is why ticking a task off in
+		// the CRM shows as done on the lead's timeline instead of sitting open for ever.
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT a.id, a.type, a.direction, a.subject, a.body, a.outcome,
-			       a.actor_name, a.actor_team, a.target_team, a.status,
+			       a.actor_name, a.actor_team, a.actor_user_id, a.target_team,
+			       COALESCE(t.status, a.status) AS status,
 			       a.metadata, a.occurred_at, a.created_at,
-			       a.lead_id, a.contact_id, a.cif, a.application_id, a.ticket_id, a.call_id
+			       a.entity_type, a.entity_id, a.related_activity_id,
+			       a.lead_id, a.contact_id, a.cif, a.application_id, a.ticket_id, a.call_id,
+			       t.due_date AS due_at, t.priority AS task_priority, tu.full_name AS assignee_name
 			  FROM app.activities a
+			  LEFT JOIN crm_tasks t ON a.entity_type = 'crm_task'
+			                       AND a.entity_id ~ '^[0-9]+$'
+			                       AND t.id = a.entity_id::bigint
+			  LEFT JOIN o3c_users tu ON tu.id = t.assigned_to
 			 WHERE `+strings.Join(clauses, " OR ")+`
 			 ORDER BY a.occurred_at DESC
 			 LIMIT 200`, args...)
@@ -253,8 +268,16 @@ func activityList(db *core.DB) http.HandlerFunc {
 				}
 			}
 		}
+		// The viewer travels with the list so the timeline can tell whether THIS user is
+		// the team a hand-off is waiting on (and may answer it) without the frontend
+		// keeping its own copy of teamFromRole, which would drift the day a role changes.
+		u := core.UserFromCtx(r.Context())
+		viewer := map[string]any{"user_id": int64(0), "team": ""}
+		if u != nil {
+			viewer = map[string]any{"user_id": u.ID, "team": teamFromRole(u.Role)}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"data": rows}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"data": rows, "viewer": viewer}) //nolint:errcheck
 	}
 }
 
@@ -276,6 +299,9 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 		Status        string         `json:"status"`
 		Metadata      map[string]any `json:"metadata"`
 		OccurredAt    string         `json:"occurred_at"`
+		// type=task only: a follow-up is a real crm_task, so it carries a when.
+		DueAt    string `json:"due_at"`
+		Priority string `json:"priority"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		var b body
@@ -312,12 +338,74 @@ func activityCreate(db *core.DB) http.HandlerFunc {
 		if a.Type == "handoff" && strings.TrimSpace(a.Status) == "" {
 			a.Status = "open"
 		}
+
+		// A follow-up has a home of its own: crm_tasks. Writing a task-shaped ACTIVITY
+		// and stopping there was the old behaviour, and it produced a "task" with no
+		// owner and no due date that no task list, no due-soon worker and no reminder
+		// would ever see. Create the real task — owned by whoever raised it, due when
+		// they said — and let the activity be its shadow, entity-linked so the timeline
+		// reads the live status back instead of a copy that goes stale.
+		//
+		// It lives here rather than behind POST /api/crm/tasks because that route is
+		// gated on CRM page access, which the call-centre agent working the lead does
+		// not have; the follow-up is theirs, on their own lead. Same insert as
+		// createTask in crm.go, minus the deal/assignee options this path doesn't offer.
+		var taskID int64
+		if a.Type == "task" {
+			if u == nil {
+				respondErr(w, 401, "sign in first")
+				return
+			}
+			if strings.TrimSpace(a.Subject) == "" {
+				respondErr(w, 400, "a follow-up needs a title")
+				return
+			}
+			var linkedType *string
+			var linkedID *int64
+			if a.LeadID != nil && *a.LeadID > 0 {
+				lt := "lead"
+				linkedType, linkedID = &lt, a.LeadID
+			}
+			var due *string
+			if s := strings.TrimSpace(b.DueAt); s != "" {
+				due = &s
+			}
+			trows, terr := db.PGQuery(r.Context(), `
+				INSERT INTO crm_tasks
+				  (contact_id, title, description, due_date, priority, assigned_to, created_by, linked_type, linked_id)
+				VALUES ($1,$2,NULLIF($3,''),$4,COALESCE(NULLIF($5,''),'medium'),$6,$7,$8,$9)
+				RETURNING id`,
+				a.ContactID, strings.TrimSpace(a.Subject), a.Body, due, strings.ToLower(strings.TrimSpace(b.Priority)),
+				u.ID, u.ID, linkedType, linkedID)
+			if terr != nil {
+				respondErrLog(w, 500, "Could not create the follow-up", terr)
+				return
+			}
+			if len(trows) > 0 {
+				taskID = toInt64(trows[0]["id"])
+			}
+			a.Status = "open"
+			a.TargetUserID = &u.ID
+			a.EntityType, a.EntityID = "crm_task", strconv.FormatInt(taskID, 10)
+		}
+
 		id, err := LogActivity(r.Context(), db, a)
 		if err != nil {
 			respondErrLog(w, 500, "Could not log activity", err)
 			return
 		}
+		// A hand-off that nobody is told about is a note with extra steps. Tell the
+		// receiving team, and hand the count back so the sender sees whether it
+		// actually reached anyone rather than a success toast either way.
+		notified := 0
+		if a.Type == "handoff" && strings.TrimSpace(a.TargetTeam) != "" {
+			var actorID int64
+			if u != nil {
+				actorID = u.ID
+			}
+			notified = notifyHandoffRaised(context.WithoutCancel(r.Context()), db, a, actorID)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"id": id}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "notified": notified, "task_id": taskID}) //nolint:errcheck
 	}
 }

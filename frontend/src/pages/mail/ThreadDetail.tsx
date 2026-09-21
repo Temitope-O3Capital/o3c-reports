@@ -239,7 +239,7 @@ export default function MailThreadDetail() {
                 ) : (
                   <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', display: 'flex', alignItems: 'center', gap: 3 }}>
                     <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>mail</span>
-                    Not opened yet
+                    Not Opened Yet
                   </span>
                 )}
                 {replies.length > 0 && (
@@ -317,7 +317,7 @@ export default function MailThreadDetail() {
                 <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: BLUE, flexShrink: 0 }}>touch_app</span>
                   <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', minWidth: 90 }}>
-                    Link clicked{clickEvents.length > 1 ? ` (${i + 1})` : ''}
+                    Link Clicked{clickEvents.length > 1 ? ` (${i + 1})` : ''}
                   </span>
                   <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', ...NUM }}>{fmtDatetime(ev.occurred_at)}</span>
                 </div>

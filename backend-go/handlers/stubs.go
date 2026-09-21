@@ -114,54 +114,11 @@ func mobileAppSummary(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// RegisterBlinkCard — Blink Card product stats from Products/Accounts tables.
-func RegisterBlinkCard(r chi.Router, db *core.DB) {
-	access := core.RequirePages("blink_card")
-	r.With(access).Get("/summary", blinkCardSummary(db))
-}
-
-func blinkCardSummary(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-
-		// Card counts by status — scoped to the actual Blink product.
-		// The Blink product is catalogued as "PREP Temporary Virtual" (notes='Blink'),
-		// so match both the brand name and the product name. If nothing matches we return
-		// an empty breakdown (honest) rather than dumping ALL products mislabeled as Blink.
-		const blinkMS = `(Product_Name LIKE '%Blink%' OR Product_Name LIKE '%blink%' OR Product_Name LIKE '%PREP Temporary Virtual%')`
-		const blinkPG = `(product_name ILIKE '%blink%' OR product_name ILIKE '%PREP Temporary Virtual%')`
-		statusRows, src, err := db.DualQuery(ctx,
-			`SELECT status, COUNT(*) AS count
-			 FROM app.accounts
-			 WHERE `+blinkPG+`
-			 GROUP BY status
-			 ORDER BY count DESC`)
-		if err != nil {
-			respondErr(w, 500, "Blink card query failed")
-			return
-		}
-		if statusRows == nil {
-			statusRows = []core.Row{}
-		}
-
-		// Monthly issuance trend — Blink product only.
-		trend, tSrc, _ := db.DualQuery(ctx,
-			`SELECT
-			  TO_CHAR(DATE_TRUNC('month',opened_date),'Mon YYYY') AS month,
-			  DATE_TRUNC('month',opened_date) AS month_sort,
-			  COUNT(*) AS issued
-			FROM app.accounts
-			WHERE opened_date IS NOT NULL AND `+blinkPG+`
-			GROUP BY DATE_TRUNC('month',opened_date)
-			ORDER BY month_sort DESC
-			LIMIT 60`)
-		if trend == nil {
-			trend = []core.Row{}
-		}
-
-		respond(w, map[string]any{
-			"status_breakdown": statusRows,
-			"issuance_trend":   trend,
-		}, pickSource([]string{src, tSrc}))
-	}
-}
+// Blink Card moved to blink.go.
+//
+// The handler that lived here identified Blink cards with
+// `product_name ILIKE '%blink%' OR ILIKE '%PREP Temporary Virtual%'` against
+// app.accounts. No row in the book is literally named "Blink" — the product is
+// catalogued as 'PREP Temporary Virtual' (code 003) — so the page rested on a
+// string match that a rename would have silently emptied. Blink is now its own
+// category in app.card_products (migration 239) and RegisterBlink keys on that.

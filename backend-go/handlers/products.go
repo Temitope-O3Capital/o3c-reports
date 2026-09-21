@@ -18,9 +18,14 @@ const (
 )
 
 // canonicalSubs maps each canonical sub-code to its line.
+//
+// blink is a third card family, not a prepaid variant: the customer funds it in
+// foreign currency and is credited the naira equivalent, and the card is
+// temporary. See app.card_products.category (migration 239).
 var canonicalSubs = map[string]string{
 	"prepaid":       LineCards,
 	"credit_card":   LineCards,
+	"blink":         LineCards,
 	"salary_loan":   LineLoans,
 	"business_loan": LineLoans,
 	"fixed_deposit": LineFixedDeposit,
@@ -28,16 +33,19 @@ var canonicalSubs = map[string]string{
 
 // legacyAliases maps alternate/legacy codes to a canonical sub-code.
 var legacyAliases = map[string]string{
-	"personal_loan":       "business_loan",
-	"individual_loan":     "business_loan",
-	"card_limit_increase": "credit_card",
-	"cc":                  "credit_card",
-	"creditcard":          "credit_card",
-	"prepaid_card":        "prepaid",
-	"fd":                  "fixed_deposit",
+	"personal_loan":          "business_loan",
+	"individual_loan":        "business_loan",
+	"card_limit_increase":    "credit_card",
+	"cc":                     "credit_card",
+	"creditcard":             "credit_card",
+	"prepaid_card":           "prepaid",
+	"blink_card":             "blink",
+	"prep_temporary_virtual": "blink",
+	"fd":                     "fixed_deposit",
 }
 
 var (
+	reProdBlink   = regexp.MustCompile(`blink|prep.?temporary`)
 	reProdPrepaid = regexp.MustCompile(`prepaid`)
 	reProdCredit  = regexp.MustCompile(`credit.?card|\bcc\b`)
 	reProdSalary  = regexp.MustCompile(`salary`)
@@ -61,6 +69,11 @@ func NormalizeProductCode(raw string) string {
 		return a
 	}
 	switch {
+	// Blink is tested FIRST. The fallthrough at the bottom sends anything
+	// containing "card" to credit_card, so without this the literal string
+	// "Blink Card" classified as a credit card.
+	case reProdBlink.MatchString(k):
+		return "blink"
 	case reProdPrepaid.MatchString(k):
 		return "prepaid"
 	case reProdCredit.MatchString(k):

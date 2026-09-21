@@ -42,7 +42,14 @@ type pivotValue struct {
 	Label  string `json:"label,omitempty"` // display override; "" falls back to the auto-generated label
 }
 
+// pivotTopN keeps the N biggest groups by one measure (its index in Values).
+type pivotTopN struct {
+	Measure int `json:"measure"`
+	N       int `json:"n"`
+}
+
 type pivotRequest struct {
+	TopN       *pivotTopN        `json:"top_n,omitempty"`
 	DateFrom   string            `json:"date_from"`
 	DateTo     string            `json:"date_to"`
 	Filters    map[string]string `json:"filters"`
@@ -68,6 +75,10 @@ type pivotSpec struct {
 	Grains     map[string]string
 	DimLabels  map[string]string
 	Limit      int
+	TopN       *pivotTopN
+	// CountRecords also counts the matching records before grouping. Only the live
+	// preview shows that figure, so files and emails skip the extra scan.
+	CountRecords bool
 }
 
 // pivotDimOut / pivotMeasOut are the column descriptors returned alongside the
@@ -99,6 +110,10 @@ type pivotResult struct {
 	// into one line (e.g. "5,391 groups from 8,244 rows") instead of assuming one
 	// row per group.
 	RawCount int64
+	// GroupTotal is how many groups there were in all when the result was cut at the
+	// cap or narrowed by Top N, so the page can say exactly what was left out.
+	GroupTotal int64
+	TopN       bool
 }
 
 // pivotAggWhitelist maps an allowed aggregate to whether it needs a numeric column.
@@ -126,11 +141,16 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 	}
 
 	var (
-		selects []string
-		groupBy []string
-		dimsOut []pivotDimOut
-		seenDim = map[string]bool{}
-		roleOf  = map[string]string{}
+		selects    []string
+		groupBy    []string
+		dimsOut    []pivotDimOut
+		seenDim    = map[string]bool{}
+		roleOf     = map[string]string{}
+		rowExprs   []string // row-field group expressions, for ranking Top N
+		rowAliases []string
+		colExprs   []string
+		colAliases []string
+		measExprs  []string // each measure's aggregate SQL, by index
 	)
 	for _, k := range spec.Rows {
 		roleOf[k] = "row"
@@ -182,6 +202,11 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 		}
 		selects = append(selects, fmt.Sprintf("%s AS %q", expr, alias))
 		groupBy = append(groupBy, expr)
+		if roleOf[k] == "row" {
+			rowExprs, rowAliases = append(rowExprs, expr), append(rowAliases, alias)
+		} else {
+			colExprs, colAliases = append(colExprs, expr), append(colAliases, alias)
+		}
 		dimsOut = append(dimsOut, pivotDimOut{Key: alias, Label: label, Role: roleOf[k], Type: outType})
 	}
 
@@ -198,6 +223,7 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 				label = override
 			}
 			selects = append(selects, fmt.Sprintf("COUNT(*) AS %q", alias))
+			measExprs = append(measExprs, "COUNT(*)")
 			measOuts = append(measOuts, pivotMeasOut{Key: alias, Label: label, Agg: v.Agg, Type: "int"})
 			continue
 		}
@@ -208,12 +234,22 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 		if needNumeric && !exportNumeric(c.Type) {
 			return pivotResult{}, pivotUserError{fmt.Sprintf("%s can only sum/average a numeric field, not %q", v.Agg, c.Label)}
 		}
+		if (v.Agg == "min" || v.Agg == "max") && c.Type == colBool {
+			return pivotResult{}, pivotUserError{fmt.Sprintf("Min and Max aren't available for a yes/no field like %q. Use Count or Unique Count.", c.Label)}
+		}
+		if v.Agg == "sum" && c.Type == colPct {
+			return pivotResult{}, pivotUserError{fmt.Sprintf("Percentages can't be added up. Use Average, Min or Max of %q.", c.Label)}
+		}
 		var expr, outType string
 		switch v.Agg {
 		case "sum":
 			expr, outType = fmt.Sprintf("SUM((%s)::numeric)", c.Expr), string(c.Type)
 		case "avg":
+			// An average of whole numbers has decimals, so it is written as a decimal value.
 			expr, outType = fmt.Sprintf("ROUND(AVG((%s)::numeric), 2)", c.Expr), string(c.Type)
+			if c.Type == colInt {
+				outType = string(colMoney)
+			}
 		case "min":
 			expr, outType = fmt.Sprintf("MIN(%s)", c.Expr), string(c.Type)
 		case "max":
@@ -224,6 +260,7 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 			expr, outType = fmt.Sprintf("COUNT(%s)", c.Expr), "int"
 		}
 		selects = append(selects, fmt.Sprintf("%s AS %q", expr, alias))
+		measExprs = append(measExprs, expr)
 		label := aggLabel(v.Agg) + " " + c.Label
 		if override := strings.TrimSpace(v.Label); override != "" {
 			label = override
@@ -245,12 +282,14 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 	// when grouping is folding several underlying rows into one line — e.g. two
 	// calls to the same customer on the same day with the same outcome collapse
 	// into a single group, and without this a viewer has no way to notice.
+	whereSQL := ""
+	if len(where) > 0 {
+		whereSQL = "\nWHERE " + strings.Join(where, "\n  AND ")
+	}
+
 	var rawCount int64
-	if len(groupBy) > 0 {
-		cq := "SELECT COUNT(*) AS c FROM " + d.From
-		if len(where) > 0 {
-			cq += "\nWHERE " + strings.Join(where, "\n  AND ")
-		}
+	if spec.CountRecords && len(groupBy) > 0 {
+		cq := "SELECT COUNT(*) AS c FROM " + d.From + whereSQL
 		if crows, cerr := db.PGQuery(ctx, cq, args...); cerr == nil && len(crows) > 0 {
 			rawCount = toInt64(crows[0]["c"])
 		}
@@ -261,15 +300,55 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 		limit = spec.Limit
 	}
 
-	q := "SELECT " + strings.Join(selects, ",\n       ") + "\nFROM " + d.From
-	if len(where) > 0 {
-		q += "\nWHERE " + strings.Join(where, "\n  AND ")
-	}
+	base := "SELECT " + strings.Join(selects, ",\n       ") + "\nFROM " + d.From + whereSQL
 	if len(groupBy) > 0 {
-		q += "\nGROUP BY " + strings.Join(groupBy, ", ")
-		q += "\nORDER BY " + strings.Join(groupBy, ", ")
+		base += "\nGROUP BY " + strings.Join(groupBy, ", ")
 	}
-	q += fmt.Sprintf("\nLIMIT %d", limit+1)
+
+	// Top N keeps the N biggest groups by one measure, instead of the cap keeping
+	// whichever groups happen to sort first. With fields in both Rows and Columns the
+	// ranking is over the row groups, so every kept row keeps all of its columns.
+	rankExprs, rankAliases := rowExprs, rowAliases
+	if len(rankExprs) == 0 {
+		rankExprs, rankAliases = colExprs, colAliases
+	}
+	topN := spec.TopN != nil && spec.TopN.N > 0 && spec.TopN.Measure >= 0 &&
+		spec.TopN.Measure < len(measExprs) && len(rankExprs) > 0
+	var q string
+	switch {
+	case topN && len(rankExprs) == len(groupBy):
+		if spec.TopN.N < limit {
+			limit = spec.TopN.N
+		}
+		q = base + fmt.Sprintf("\nORDER BY %q DESC NULLS LAST, %s\nLIMIT %d",
+			measOuts[spec.TopN.Measure].Key, strings.Join(groupBy, ", "), limit)
+	case topN:
+		rankSel := make([]string, len(rankExprs))
+		join := make([]string, len(rankExprs))
+		for i, e := range rankExprs {
+			rankSel[i] = fmt.Sprintf("%s AS %q", e, rankAliases[i])
+			join[i] = fmt.Sprintf("g.%q IS NOT DISTINCT FROM t.%q", rankAliases[i], rankAliases[i])
+		}
+		colOrder := make([]string, len(colAliases))
+		for i, a := range colAliases {
+			colOrder[i] = fmt.Sprintf("g.%q", a)
+		}
+		top := "SELECT " + strings.Join(rankSel, ", ") +
+			// The group fields break ties, so the preview and the emailed file keep the same groups.
+			fmt.Sprintf(", ROW_NUMBER() OVER (ORDER BY %s DESC NULLS LAST, %s) AS rn", measExprs[spec.TopN.Measure], strings.Join(rankExprs, ", ")) +
+			"\nFROM " + d.From + whereSQL +
+			"\nGROUP BY " + strings.Join(rankExprs, ", ") +
+			fmt.Sprintf("\nORDER BY rn\nLIMIT %d", spec.TopN.N)
+		q = "SELECT g.* FROM (" + base + ") g\nJOIN (" + top + ") t ON " + strings.Join(join, " AND ") +
+			"\nORDER BY t.rn, " + strings.Join(colOrder, ", ") +
+			fmt.Sprintf("\nLIMIT %d", limit+1)
+	default:
+		q = base
+		if len(groupBy) > 0 {
+			q += "\nORDER BY " + strings.Join(groupBy, ", ")
+		}
+		q += fmt.Sprintf("\nLIMIT %d", limit+1)
+	}
 
 	rows, err := db.PGQuery(ctx, q, args...)
 	if err != nil {
@@ -280,6 +359,19 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 		rows = rows[:limit]
 		truncated = true
 	}
+	// How many groups there were in all, so a cut or a Top N can say what it left out.
+	var groupTotal int64
+	if (truncated || topN) && len(groupBy) > 0 {
+		over := groupBy
+		if topN {
+			over = rankExprs
+		}
+		gq := "SELECT COUNT(*) AS c FROM (SELECT 1 FROM " + d.From + whereSQL +
+			"\nGROUP BY " + strings.Join(over, ", ") + ") x"
+		if grows, gerr := db.PGQuery(ctx, gq, args...); gerr == nil && len(grows) > 0 {
+			groupTotal = toInt64(grows[0]["c"])
+		}
+	}
 	// Never hand back a nil slice — it serialises to `rows: null`, which the client's
 	// matrix builder iterates and crashes on (a "not iterable"/`.map` error on an empty
 	// result, which a column filter that matches nothing makes easy to hit).
@@ -287,7 +379,8 @@ func runPivot(ctx context.Context, db *core.DB, d exportDataset, spec pivotSpec)
 		rows = []core.Row{}
 	}
 
-	return pivotResult{Dims: dimsOut, Meas: measOuts, Rows: rows, Truncated: truncated, Cap: limit, RawCount: rawCount}, nil
+	return pivotResult{Dims: dimsOut, Meas: measOuts, Rows: rows, Truncated: truncated, Cap: limit,
+		RawCount: rawCount, GroupTotal: groupTotal, TopN: topN}, nil
 }
 
 func exportPivot(db *core.DB) http.HandlerFunc {
@@ -321,6 +414,7 @@ func exportPivot(db *core.DB) http.HandlerFunc {
 		res, err := runPivot(r.Context(), db, d, pivotSpec{
 			DateFrom: pr.DateFrom, DateTo: pr.DateTo, Filters: pr.Filters, ColFilters: pr.ColFilters,
 			Rows: pr.Rows, Cols: pr.Cols, Values: pr.Values, Grains: pr.Grains, DimLabels: pr.DimLabels, Limit: pr.Limit,
+			TopN: pr.TopN, CountRecords: true,
 		})
 		if err != nil {
 			var ue pivotUserError
@@ -340,6 +434,9 @@ func exportPivot(db *core.DB) http.HandlerFunc {
 			"truncated":  res.Truncated,
 			"group_cap":  res.Cap,
 			"raw_count":  res.RawCount,
+			// Set when the result was cut at the cap or narrowed by Top N.
+			"group_total":   res.GroupTotal,
+			"top_n_applied": res.TopN,
 		}, "pg")
 	}
 }

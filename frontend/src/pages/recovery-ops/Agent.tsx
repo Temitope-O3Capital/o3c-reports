@@ -160,7 +160,7 @@ function LogVisitModal({ caseItem, onClose, onSuccess }: { caseItem: Case | null
           </div>
         </div>
         <div>
-          <label style={fieldLabel}>Notes <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+          <label style={fieldLabel}>Notes <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span></label>
           <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="What happened on this visit?" style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
         </div>
       </div>
@@ -197,7 +197,7 @@ function WriteoffModal({ caseItem, onClose, onSuccess }: { caseItem: Case | null
     <Modal
       open={!!caseItem}
       onClose={onClose}
-      title={`Request Write-off: ${caseItem?.debtor_name ?? ''}`}
+      title={`Request Write-Off: ${caseItem?.debtor_name ?? ''}`}
       width={480}
       footer={<>
         <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--input-bdr)', background: 'transparent', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
@@ -211,7 +211,7 @@ function WriteoffModal({ caseItem, onClose, onSuccess }: { caseItem: Case | null
           </div>
         )}
         <div>
-          <label style={fieldLabel}>Write-off Amount (₦)</label>
+          <label style={fieldLabel}>Write-Off Amount (₦)</label>
           <input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" style={inputStyle} />
         </div>
         <div>
@@ -367,13 +367,13 @@ export default function RecoveryAgentDashboard() {
 
       {/* ── My Day ── */}
       <MyDaySection hint="cases to work today">
-        <MyDayTile icon="event_available" count={fmtNum(actionsDue)} label="Actions due"
+        <MyDayTile icon="event_available" count={fmtNum(actionsDue)} label="Actions Due"
           sub={actionsDue > 0 ? 'follow-ups scheduled by now' : 'nothing due'}
           color={AMBER} urgent={actionsDue > 0} onClick={() => navigate('/recovery/cases')} />
         <MyDayTile icon="priority_high" count={fmtNum(severe)} label="Severe (90+ DPD)"
           sub={severe > 0 ? 'escalate or push hard' : 'none at 90+ DPD'}
           color={severe > 0 ? RED : GREEN} urgent={severe > 0} onClick={() => navigate('/recovery/cases')} />
-        <MyDayTile icon="directions_walk" count={fmtNum(data.recent_visits.length)} label="Recent visits"
+        <MyDayTile icon="directions_walk" count={fmtNum(data.recent_visits.length)} label="Recent Visits"
           sub="field visits logged" color={BLUE} />
         <MyDayTile icon="payments" count={fmtKoboExact(data.amount_collected_mtd_kobo)} label="Collected MTD"
           sub="recovered this month" color={GREEN} />
@@ -396,7 +396,7 @@ export default function RecoveryAgentDashboard() {
           keyFn={r => r.id}
           onRowClick={r => navigate(`/recovery/cases/${r.id}`)}
           pageSize={10}
-          emptyText="No cases assigned"
+          emptyText="No Cases Assigned"
         />
       </SectionCard>
 
@@ -428,7 +428,7 @@ export default function RecoveryAgentDashboard() {
             cols={visitCols}
             rows={displayedVisits}
             keyFn={r => r.id}
-            emptyText="No visits recorded"
+            emptyText="No Visits Recorded"
           />
         </SectionCard>
       </div>

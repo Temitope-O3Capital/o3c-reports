@@ -29,6 +29,10 @@ import { fmtKobo } from './lib/fmt'
 import { ConfirmModal } from './components/UI'
 
 // ── Lazy imports ──────────────────────────────────────────────────────────────
+// The softphone carries the Telnyx WebRTC SDK — ~235 kB of the vendor bundle. Static,
+// it shipped to everyone the moment it was first mounted; lazy, it loads only for the
+// two call-centre roles that render it below.
+const CallWidget   = lazy(() => import('./components/CallWidget'))
 const CSATSurvey   = lazy(() => import('./pages/helpdesk/CSATSurvey'))
 const PublicSurvey   = lazy(() => import('./pages/feedback/PublicSurvey'))
 const Surveys        = lazy(() => import('./pages/feedback/Surveys'))
@@ -41,9 +45,13 @@ const ReportsMyDashboard = lazy(() => import('./pages/reports/MyDashboard'))
 const ReportsKPI      = lazy(() => import('./pages/reports/KPITracker'))
 const ReportsBehaviour = lazy(() => import('./pages/reports/Behaviour'))
 const ReportsUploads  = lazy(() => import('./pages/reports/Uploads'))
+const ReportsMerchantNames = lazy(() => import('./pages/reports/MerchantNames'))
 const SettlementImport = lazy(() => import('./pages/settlements/SettlementImport'))
 const GrowthActivity  = lazy(() => import('./pages/growth/GrowthActivity'))
 const ReportsBuilder  = lazy(() => import('./pages/reports/ReportBuilder'))
+const ReportsManagement = lazy(() => import('./pages/reports/ManagementReports'))
+const ReportsEditor = lazy(() => import('./pages/reports/ReportEditor'))
+const ReportsCardCredit = lazy(() => import('./pages/reports/CardAttribution'))
 const Statements    = lazy(() => import('./pages/statements/Statements'))
 const Login    = lazy(() => import('./pages/Login'))
 const Overview = lazy(() => import('./pages/Overview'))
@@ -78,6 +86,9 @@ const CampaignEditor         = lazy(() => import('./pages/campaigns/Editor'))
 
 // Approvals & Mail
 const ApprovalsPage  = lazy(() => import('./pages/Approvals'))
+// Cross-team hand-offs. Ungated like Approvals: the server scopes every row to the
+// viewer's own team, so there is nothing here a page permission would be protecting.
+const HandoffsPage   = lazy(() => import('./pages/Handoffs'))
 const MailOverview   = lazy(() => import('./pages/mail/Overview'))
 const MailInbox      = lazy(() => import('./pages/mail/Inbox'))
 const MailCompose    = lazy(() => import('./pages/mail/Compose'))
@@ -202,6 +213,7 @@ const AdminNotificationSettings  = lazy(() => import('./pages/admin/Notification
 const AdminIntegrations          = lazy(() => import('./pages/admin/Integrations'))
 const AdminAuditLog              = lazy(() => import('./pages/admin/AuditLog'))
 const AdminSyncStatus            = lazy(() => import('./pages/admin/SyncStatus'))
+const AdminDataFreshness         = lazy(() => import('./pages/admin/DataFreshness'))
 const AdminHelpdeskSettings      = lazy(() => import('./pages/admin/HelpdeskSettings'))
 const AdminWorkflowTemplates     = lazy(() => import('./pages/admin/WorkflowTemplates'))
 const AdminModules               = lazy(() => import('./pages/admin/Modules'))
@@ -328,13 +340,13 @@ function RequireAccess({ page, user, children }: { page: string | string[]; user
 }
 
 // ReportsHome resolves the "/reports" landing to a page the signed-in user can
-// actually open. BI and the department supervisors land on the Report Builder
-// (supervisors see only their own departments' data there); anyone holding only the
-// KPI dashboard lands on the KPI Tracker; anyone else who reached here falls back to
-// Growth.
+// actually open. The module opens on the KPI Tracker, its overview and the first item
+// in its menu, for everyone who holds it (BI, heads and management). The Report Builder
+// is a tool picked from the menu: only someone with the builder and no KPI Tracker
+// lands there. Anyone else who reached here falls back to Growth.
 function ReportsHome({ user }: { user: AuthUser }) {
-  if (hasPage('reports', user) || hasPage('report_builder', user)) return <Navigate to="/reports/builder" replace />
   if (hasPage('kpi_dashboard', user)) return <Navigate to="/reports/kpi" replace />
+  if (hasPage('reports', user) || hasPage('report_builder', user)) return <Navigate to="/reports/builder" replace />
   return <Navigate to="/growth" replace />
 }
 
@@ -938,6 +950,13 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
         <Toaster richColors position="top-right" />
         <AgentPresence enabled={role === 'call_center_agent' || role === 'call_center_head'} />
         <CallbackReminder enabled={role === 'call_center_agent' || role === 'call_center_head'} />
+        {/* The softphone. Nothing imported CallWidget, so the 'o3c:dial' event that Inbound's
+            "Call Back" button fires had no listener and the button did nothing. Mounted for
+            the same roles as the call-back reminder above; it takes the user rather than an
+            `enabled` flag, hence the conditional render. */}
+        {(role === 'call_center_agent' || role === 'call_center_head') && (
+          <Suspense fallback={null}><CallWidget user={user} /></Suspense>
+        )}
         {(() => {
           const careRole = ['call_center_agent', 'call_center_head', 'care_agent', 'care_head'].includes(role || '')
           return careRole ? (
@@ -989,6 +1008,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/settlements/interswitch/import"    element={<Navigate to="/reports/uploads/interswitch" replace />} />
 
                   <Route path="/approvals" element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
+                  <Route path="/handoffs"  element={<PageErrorBoundary><HandoffsPage /></PageErrorBoundary>} />
 
                   {/* Sales & BD */}
                   <Route path="/bd"             element={<RequireAccess page="bd" user={user}><PageErrorBoundary><BDOverview /></PageErrorBoundary></RequireAccess>} />
@@ -1075,7 +1095,12 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/call-center/forwards"           element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterForwards /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/dnc"                element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterDNC /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/call-center/performance"        element={<RequireAccess page="call_center_stats" user={user}><PageErrorBoundary><CallCenterPerformance /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/call-center/voice-spike"        element={<RequireAccess page="call_center_stats" user={user}><PageErrorBoundary><CallCenterVoiceSpike /></PageErrorBoundary></RequireAccess>} />
+                  {/* Developer spike, not product: it loads a third-party SDK from
+                      js.zohostatic.com and can place real outbound calls, and says "Not
+                      production UI" in its own header. call_center_stats is held by every head
+                      and most of management, so that gate left it open to the floor's leadership
+                      — restrict it to admin. The page itself re-checks (see VoiceSpike.tsx). */}
+                  <Route path="/call-center/voice-spike"        element={allRoles(user).includes('admin') ? <PageErrorBoundary><CallCenterVoiceSpike /></PageErrorBoundary> : <Navigate to={homeFor(user.role as string)} replace />} />
                   {/* Agent Matching is a modal in the Supervisor view, not a standalone route. */}
                   {/* Inbound is agent-level work (returning missed calls), not a head-only view */}
                   <Route path="/call-center/inbound"            element={<RequireAccess page="call_center" user={user}><PageErrorBoundary><CallCenterInbound /></PageErrorBoundary></RequireAccess>} />
@@ -1240,7 +1265,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
 
                   {/* Intelligence */}
                   <Route path="/reports/my-dashboard" element={<RequireAccess page="reports" user={user}><PageErrorBoundary><ReportsMyDashboard /></PageErrorBoundary></RequireAccess>} />
-                  {/* /reports resolves per-role (builder for BI, KPI for heads/mgmt);
+                  {/* /reports resolves per-role (KPI Tracker first, else the Report Builder);
                       the retired /bi/* URLs redirect to the builder. */}
                   <Route path="/reports"        element={<ReportsHome user={user} />} />
                   <Route path="/reports/kpi"    element={<RequireAccess page="kpi_dashboard" user={user}><PageErrorBoundary><ReportsKPI /></PageErrorBoundary></RequireAccess>} />
@@ -1249,7 +1274,15 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/reports/uploads/card-cycle" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><CardCycleImport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/uploads/interswitch" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><InterswitchImport /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/uploads/settlement" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><SettlementImport /></PageErrorBoundary></RequireAccess>} />
+                  {/* Reviewing the merchant-name merges the daily job proposes. Same audience
+                      as Data Management: judging whether two spellings are one business is
+                      product knowledge, not server administration. */}
+                  <Route path="/reports/merchant-names" element={<RequireAccess page="uploads" user={user}><PageErrorBoundary><ReportsMerchantNames /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/reports/builder" element={<RequireAccess page={['reports', 'report_builder']} user={user}><PageErrorBoundary><ReportsBuilder /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/management" element={<RequireAccess page={['reports', 'executive']} user={user}><PageErrorBoundary><ReportsManagement /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/management/new" element={<RequireAccess page={['reports', 'executive']} user={user}><PageErrorBoundary><ReportsEditor /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/management/:key" element={<RequireAccess page={['reports', 'executive']} user={user}><PageErrorBoundary><ReportsEditor /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/reports/card-credit" element={<RequireAccess page={['cards', 'reports', 'executive', 'sales']} user={user}><PageErrorBoundary><ReportsCardCredit /></PageErrorBoundary></RequireAccess>} />
                   {/* Growth & Activity — registrations / transactions / churn monitor. Open to
                       the operating teams plus BI and management (mirrors the backend gate). */}
                   <Route path="/growth" element={<RequireAccess page={['kpi_dashboard','reports','executive']} user={user}><PageErrorBoundary><GrowthActivity /></PageErrorBoundary></RequireAccess>} />
@@ -1274,6 +1307,10 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/admin/integrations"          element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminIntegrations /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/audit"                 element={<RequireAccess page="sync_status" user={user}><PageErrorBoundary><AdminAuditLog /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/sync"                  element={<RequireAccess page="sync_status" user={user}><PageErrorBoundary><AdminSyncStatus /></PageErrorBoundary></RequireAccess>} />
+                  {/* Same audience as the Sync hub: sync_status sits in the it_admin
+                      page bundle (core/auth.go), and the admin super-user bypasses
+                      page gating entirely. */}
+                  <Route path="/admin/data-freshness"        element={<RequireAccess page="sync_status" user={user}><PageErrorBoundary><AdminDataFreshness /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/helpdesk-settings"     element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminHelpdeskSettings /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/admin/workflow-templates"    element={<RequireAccess page="admin_users" user={user}><PageErrorBoundary><AdminWorkflowTemplates /></PageErrorBoundary></RequireAccess>} />
 

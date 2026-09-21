@@ -97,7 +97,7 @@ export function Drawer({ open, onClose, title, fullPagePath, children }: DrawerP
                 cursor: 'pointer', flexShrink: 0, padding: '4px 0',
               }}
             >
-              Open full page
+              Open Full Page
               <span className="material-symbols-rounded" style={{ fontSize: 16 }}>open_in_full</span>
             </button>
           )}

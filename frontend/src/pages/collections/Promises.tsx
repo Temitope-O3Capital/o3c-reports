@@ -241,7 +241,7 @@ export default function CollectionsPromises() {
           selectedIds={selectedIds}
           onSelect={setSelectedIds}
           bulkBar={bulkBar}
-          emptyText="No promises found"
+          emptyText="No Promises Found"
           skeletonRows={8}
           rowStyle={r => {
             const s = r.status

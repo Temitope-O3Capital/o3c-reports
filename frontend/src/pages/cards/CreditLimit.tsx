@@ -5,6 +5,7 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtPct, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { useCardProducts } from '../../lib/cardProducts'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -92,12 +93,25 @@ function ReviewActions({ review, onReload }: { review: CreditReview; onReload: (
 // ── New Credit Limit Review modal ─────────────────────────────────────────────
 
 function NewReviewModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  // Defaulted to 'Amex Naira', which is product 001 — renamed to O3 Green and
+  // is_active=false. Every review raised without touching the dropdown was filed
+  // against a retired product. Left blank instead, and set from the catalogue
+  // once it loads.
   const [form, setForm] = useState({
-    cif_number: '', customer_name: '', card_type: 'Amex Naira',
+    cif_number: '', customer_name: '', card_type: '',
     current_limit_kobo: '', proposed_limit_kobo: '',
     utilization_pct: '', eye_score: '', notes: '',
   })
   const [saving, setSaving] = useState(false)
+  // A limit review only makes sense against a credit product — prepaid and Blink
+  // cards have no limit to review.
+  const { products } = useCardProducts()
+  const creditProducts = products.filter(p => p.category === 'credit')
+  useEffect(() => {
+    if (!form.card_type && creditProducts.length > 0) {
+      setForm(f => (f.card_type ? f : { ...f, card_type: creditProducts[0].product_name }))
+    }
+  }, [creditProducts, form.card_type])
 
   async function submit() {
     if (!form.customer_name.trim()) { toast.error('Customer name required'); return }
@@ -145,23 +159,23 @@ function NewReviewModal({ onClose, onCreated }: { onClose: () => void; onCreated
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>CIF (optional)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>CIF (Optional)</label>
               <input value={form.cif_number} onChange={e => setForm(f => ({ ...f, cif_number: e.target.value }))} style={inputStyle} placeholder="CIF-00123" />
             </div>
             <div>
               <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Card Type</label>
               <select value={form.card_type} onChange={e => setForm(f => ({ ...f, card_type: e.target.value }))} style={inputStyle}>
-                {['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts'].map(t => <option key={t} value={t}>{t}</option>)}
+                {creditProducts.map(p => <option key={p.product_name} value={p.product_name}>{p.product_name}</option>)}
               </select>
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Current Limit (kobo)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Current Limit (Kobo)</label>
               <input type="number" value={form.current_limit_kobo} onChange={e => setForm(f => ({ ...f, current_limit_kobo: e.target.value }))} style={inputStyle} placeholder="e.g. 50000000" />
             </div>
             <div>
-              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Proposed Limit (kobo)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Proposed Limit (Kobo)</label>
               <input type="number" value={form.proposed_limit_kobo} onChange={e => setForm(f => ({ ...f, proposed_limit_kobo: e.target.value }))} style={inputStyle} placeholder="e.g. 75000000" />
             </div>
           </div>
@@ -223,6 +237,10 @@ export default function CardsCreditLimit() {
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['cards'] })
+
+  // Only credit products can have a limit reviewed, so the chips list those.
+  const { products } = useCardProducts()
+  const creditProducts = products.filter(p => p.category === 'credit')
 
   const cols: TableCol<CreditReview>[] = useMemo(() => [
     { key: 'customer_name', label: 'Customer',
@@ -318,7 +336,7 @@ export default function CardsCreditLimit() {
             {
               key: 'card_type',
               label: 'Card Type',
-              options: ['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts'].map(v => ({ value: v })),
+              options: creditProducts.map(p => ({ value: p.product_name })),
               selected: fCardTypes,
               onChange: setFCardTypes,
             },
@@ -333,7 +351,7 @@ export default function CardsCreditLimit() {
           rows={displayed}
           keyFn={r => r.id}
           loading={loading}
-          emptyText="No reviews submitted yet"
+          emptyText="No Reviews Submitted Yet"
           pageSize={20}
           selectable
           selectedIds={sel}

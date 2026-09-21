@@ -403,7 +403,7 @@ export default function Findings() {
                       <p style={{ margin: 0, fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.5 }}>{resp.response}</p>
                       {resp.action_plan && (
                         <p style={{ margin: '4px 0 0', fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.4 }}>
-                          <em>Action plan:</em> {resp.action_plan}
+                          <em>Action Plan:</em> {resp.action_plan}
                         </p>
                       )}
                     </div>
@@ -417,7 +417,7 @@ export default function Findings() {
 
       <ConfirmModal
         open={!!closeEntry}
-        title="Close finding?"
+        title="Close Finding?"
         body={`Mark "${closeEntry?.description?.slice(0, 60)}…" as closed? This confirms the finding has been resolved.`}
         confirmLabel="Close Finding"
         loading={closing}

@@ -146,7 +146,7 @@ export default function PayrollOverview() {
     { key: '_actions', label: '', sortable: false,
       render: r => {
         const actions: RowAction[] = [
-          { icon: 'open_in_new', label: 'View run', onClick: () => navigate(`/payroll/runs/${r.id}`) },
+          { icon: 'open_in_new', label: 'View Run', onClick: () => navigate(`/payroll/runs/${r.id}`) },
         ]
         return <ActionRow actions={actions} />
       },

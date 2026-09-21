@@ -6,17 +6,7 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
 import { fmtKoboExact, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, NUM } from '../../lib/design'
-
-// ── Tier vocabulary (mirrors the backend's 5 bands) ────────────────────────────
-type Tier = 'none' | 'minimal' | 'partial' | 'substantial' | 'cleared'
-const TIER_META: Record<Tier, { label: string; range: string; color: string }> = {
-  none:        { label: 'None',        range: '0% paid',    color: RED },
-  minimal:     { label: 'Minimal',     range: '1–24%',      color: '#E8590C' },
-  partial:     { label: 'Partial',     range: '25–74%',     color: AMBER },
-  substantial: { label: 'Substantial', range: '75–99%',     color: BLUE },
-  cleared:     { label: 'Cleared',     range: '100%',       color: GREEN },
-}
-const TIER_ORDER: Tier[] = ['none', 'minimal', 'partial', 'substantial', 'cleared']
+import { type Tier, TIER_META, TIER_ORDER, TierBadge, PctBar } from '../../components/TierBadge'
 
 interface TierRow {
   cif: string
@@ -38,27 +28,6 @@ interface TierSummary {
   outstanding_kobo: number
   paid_kobo: number
   delinquent: number
-}
-
-function TierBadge({ tier }: { tier: Tier }) {
-  const m = TIER_META[tier]
-  return (
-    <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 9px', borderRadius: RADIUS.full, background: `${m.color}18`, color: m.color, whiteSpace: 'nowrap' }}>
-      {m.label}
-    </span>
-  )
-}
-
-function PctBar({ pct, color }: { pct: number; color: string }) {
-  const w = Math.max(0, Math.min(100, pct))
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-      <div style={{ width: 60, height: 6, borderRadius: 3, background: 'var(--bg2)', overflow: 'hidden' }}>
-        <div style={{ width: `${w}%`, height: '100%', background: color }} />
-      </div>
-      <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, minWidth: 42, textAlign: 'right' }}>{pct}%</span>
-    </div>
-  )
 }
 
 export default function PaymentTiers() {
@@ -122,7 +91,7 @@ export default function PaymentTiers() {
     },
     { key: 'principal_kobo', label: 'Principal', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontSize: TEXT.sm }}>{fmtKoboExact(r.principal_kobo)}</span> },
     { key: 'paid_kobo', label: 'Repaid', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: r.paid_kobo > 0 ? GREEN : 'var(--txt3)' }}>{fmtKoboExact(r.paid_kobo)}</span> },
-    { key: 'pct_paid', label: '% Repaid', align: 'right', sortable: true, render: r => <PctBar pct={r.pct_paid} color={TIER_META[r.tier].color} /> },
+    { key: 'pct_paid', label: '% Repaid', align: 'right', sortable: true, render: r => <PctBar pct={r.pct_paid} tier={r.tier} /> },
     { key: 'outstanding_kobo', label: 'Outstanding', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKoboExact(r.outstanding_kobo)}</span> },
     { key: 'dpd', label: 'DPD', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: r.dpd > 90 ? RED : r.dpd > 0 ? AMBER : 'var(--txt3)' }}>{r.dpd}</span> },
     { key: 'tier', label: 'Tier', render: r => <TierBadge tier={r.tier} /> },
@@ -170,7 +139,7 @@ export default function PaymentTiers() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: `${SP[2]} ${SP[4]}`, borderBottom: '1px solid var(--bdr)' }}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.sm, color: 'var(--txt2)', cursor: 'pointer' }}>
             <input type="checkbox" checked={delinquentOnly} onChange={e => setDelinquentOnly(e.target.checked)} />
-            Delinquent only (DPD &gt; 0)
+            Delinquent Only (DPD &gt; 0)
           </label>
           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>
             Restructure is offered to delinquent Partial / Substantial payers.
@@ -181,7 +150,7 @@ export default function PaymentTiers() {
           keyFn={r => r.reference || r.cif}
           loading={loading} skeletonRows={12}
           onRowClick={r => navigate(`/customers/${encodeURIComponent(r.cif)}`)}
-          emptyText="No loans match"
+          emptyText="No Loans Match"
         />
       </SectionCard>
 
@@ -240,10 +209,10 @@ function RestructureModal({ row, onClose, onDone }: { row: TierRow | null; onClo
           Outstanding {fmtKoboExact(row.outstanding_kobo)} · {row.pct_paid}% repaid · DPD {row.dpd}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div><label style={lbl}>New tenor (months)</label><input value={tenor} onChange={e => setTenor(e.target.value)} inputMode="numeric" placeholder="e.g. 12" style={fld} /></div>
-          <div><label style={lbl}>New rate (% p.a.)</label><input value={rate} onChange={e => setRate(e.target.value)} inputMode="decimal" placeholder="e.g. 24" style={fld} /></div>
-          <div><label style={lbl}>New installment (₦)</label><input value={installment} onChange={e => setInstallment(e.target.value)} inputMode="decimal" placeholder="optional" style={fld} /></div>
-          <div><label style={lbl}>New maturity date</label><input type="date" value={maturity} onChange={e => setMaturity(e.target.value)} style={fld} /></div>
+          <div><label style={lbl}>New Tenor (Months)</label><input value={tenor} onChange={e => setTenor(e.target.value)} inputMode="numeric" placeholder="e.g. 12" style={fld} /></div>
+          <div><label style={lbl}>New Rate (% p.a.)</label><input value={rate} onChange={e => setRate(e.target.value)} inputMode="decimal" placeholder="e.g. 24" style={fld} /></div>
+          <div><label style={lbl}>New Installment (₦)</label><input value={installment} onChange={e => setInstallment(e.target.value)} inputMode="decimal" placeholder="optional" style={fld} /></div>
+          <div><label style={lbl}>New Maturity Date</label><input type="date" value={maturity} onChange={e => setMaturity(e.target.value)} style={fld} /></div>
         </div>
         <div>
           <label style={lbl}>Reason *</label>

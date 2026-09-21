@@ -243,10 +243,10 @@ export default function InterswitchImport() {
                   {stage === 'done' ? 'check_circle' : 'error'}
                 </span>
                 <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', fontFamily: INTER }}>
-                  {stage === 'done' ? 'Import complete' : 'Import failed'}
+                  {stage === 'done' ? 'Import Complete' : 'Import Failed'}
                 </span>
                 <button onClick={reset} style={{ padding: '6px 20px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'none', cursor: 'pointer', fontSize: TEXT.sm, fontFamily: INTER, color: 'var(--txt)' }}>
-                  Import more files
+                  Import More Files
                 </button>
               </div>
             )}
@@ -256,11 +256,11 @@ export default function InterswitchImport() {
           <SectionCard title="File Format" subtitle="Expected CCS Report 620 structure">
             <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
               {[
-                { icon: 'calendar_today',  label: 'Filename pattern',    value: 'EODTXN.YYYYMMDD.HHMMSS' },
-                { icon: 'business',        label: 'Source system',       value: 'Interswitch CCS: Report 620' },
-                { icon: 'account_balance', label: 'Branches supported',  value: '0001 (Default), 4009 (Sales Agency)' },
+                { icon: 'calendar_today',  label: 'Filename Pattern',    value: 'EODTXN.YYYYMMDD.HHMMSS' },
+                { icon: 'business',        label: 'Source System',       value: 'Interswitch CCS: Report 620' },
+                { icon: 'account_balance', label: 'Branches Supported',  value: '0001 (Default), 4009 (Sales Agency)' },
                 { icon: 'credit_card',     label: 'Products',            value: 'Classic · Platinum · Prestige · PREP · Business · Amex' },
-                { icon: 'swap_horiz',      label: 'Txn types',           value: 'Utility · Cash Advance · Purchase · Web Transfer' },
+                { icon: 'swap_horiz',      label: 'Txn Types',          value: 'Utility · Cash Advance · Purchase · Web Transfer' },
                 { icon: 'attach_money',    label: 'Currency',            value: 'NGN (amounts in Naira, stored as kobo)' },
               ].map(row => (
                 <div key={row.label} style={{ display: 'flex', gap: SP[3], alignItems: 'flex-start', padding: `${SP[2]} 0`, borderBottom: '1px solid var(--bdr)' }}>
@@ -280,7 +280,7 @@ export default function InterswitchImport() {
           {!result ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[3], padding: '48px 0', color: 'var(--txt3)' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 40 }}>inbox</span>
-              <span style={{ fontSize: TEXT.sm, fontFamily: INTER }}>No import results yet</span>
+              <span style={{ fontSize: TEXT.sm, fontFamily: INTER }}>No Import Results Yet</span>
             </div>
           ) : (
             <ResultPanel result={result} />

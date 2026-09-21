@@ -158,6 +158,10 @@ func cpCreateApplication(db *core.DB) http.HandlerFunc {
 			b.ApplicationType = "new"
 		}
 		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "unauthenticated")
+			return
+		}
 
 		nullStr := func(s string) any {
 			if s == "" {
@@ -296,6 +300,10 @@ func cpAddRepayment(db *core.DB) http.HandlerFunc {
 			b.PaymentStatus = "pending"
 		}
 		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "unauthenticated")
+			return
+		}
 		nullStr := func(s string) any {
 			if s == "" {
 				return nil
@@ -528,12 +536,21 @@ func cpSummary(db *core.DB) http.HandlerFunc {
 		}
 		s["approval_rate"] = approvalRate
 
-		// DPD / overdue count
-		overdueRows, _ := db.PGQuery(r.Context(), `
-			SELECT COUNT(DISTINCT application_id) AS overdue_loans
-			FROM loan_repayments
-			WHERE payment_status='overdue' OR dpd > 0`)
-		if len(overdueRows) > 0 {
+		// DPD / overdue count — from the real delinquency source. loan_repayments is a
+		// payments table with no status/dpd columns, so the previous query referenced
+		// columns that do not exist and errored on every call, silently dropping this
+		// tile. collections_delinquent_unified is CIF-grain and carries no application
+		// date/location, so only the type filter (source = 'card' | 'loan') carries over;
+		// the date/location filters on the rest of the summary cannot apply here.
+		overWhere := "dpd > 0"
+		var overArgs []any
+		if typ == "card" || typ == "loan" {
+			overWhere += " AND source = $1"
+			overArgs = append(overArgs, typ)
+		}
+		overdueRows, oerr := db.PGQuery(r.Context(),
+			"SELECT COUNT(*) AS overdue_loans FROM app.collections_delinquent_unified WHERE "+overWhere, overArgs...)
+		if oerr == nil && len(overdueRows) > 0 {
 			s["overdue_loans"] = overdueRows[0]["overdue_loans"]
 		}
 
@@ -574,7 +591,7 @@ func cpPipeline(db *core.DB) http.HandlerFunc {
 		}
 		_ = n
 
-		rows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 				status,
 				type,
@@ -583,6 +600,10 @@ func cpPipeline(db *core.DB) http.HandlerFunc {
 				COALESCE(SUM(disbursed_amount),0) AS total_disbursed
 			FROM credit_applications WHERE %s
 			GROUP BY status, type ORDER BY count DESC`, where), args...)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 
 		jsonRows(w, rows)
 	}
@@ -608,7 +629,7 @@ func cpByOfficer(db *core.DB) http.HandlerFunc {
 		}
 		_ = n
 
-		rows, _ := db.PGQuery(r.Context(), fmt.Sprintf(`
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 				account_officer,
 				COUNT(*)                                                        AS total,
@@ -618,6 +639,10 @@ func cpByOfficer(db *core.DB) http.HandlerFunc {
 				COALESCE(SUM(disbursed_amount) FILTER (WHERE disbursed_amount IS NOT NULL),0) AS total_disbursed
 			FROM credit_applications WHERE %s AND account_officer IS NOT NULL
 			GROUP BY account_officer ORDER BY total DESC`, where), args...)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 
 		jsonRows(w, rows)
 	}
@@ -625,7 +650,7 @@ func cpByOfficer(db *core.DB) http.HandlerFunc {
 
 func cpOverdue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, _ := db.PGQuery(r.Context(), `
+		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				a.id, a.customer_name, a.company, a.type, a.disbursed_amount,
 				a.account_officer, a.location, a.maturity_date,
@@ -635,6 +660,10 @@ func cpOverdue(db *core.DB) http.HandlerFunc {
 			JOIN loan_repayments r ON r.application_id = a.id
 			WHERE r.payment_status = 'overdue' OR r.dpd > 0
 			ORDER BY r.dpd DESC NULLS LAST, a.customer_name`)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 
 		jsonRows(w, rows)
 	}

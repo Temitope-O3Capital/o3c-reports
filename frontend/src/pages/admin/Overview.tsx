@@ -64,6 +64,13 @@ const MODULES: Module[] = [
     accent: '#6B7280',
   },
   {
+    icon: 'monitor_heart',
+    label: 'Data Freshness',
+    description: 'Whether each inbound source is still sending data, and how stale it is. Run status alone stays green through an outage.',
+    to: '/admin/data-freshness',
+    accent: '#DC2626',
+  },
+  {
     icon: 'integration_instructions',
     label: 'Integrations',
     description: 'Monitor connected services: SendGrid, MSSQL, Eye, NIBSS, WhatsApp, and more.',
@@ -211,7 +218,7 @@ function ActivityFeed({ activity, loading }: { activity: Activity[]; loading: bo
     )
   }
   if (activity.length === 0) {
-    return <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base, padding: '20px 0' }}>No recent activity</div>
+    return <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base, padding: '20px 0' }}>No Recent Activity</div>
   }
 
   return (
@@ -242,7 +249,7 @@ function ActivityFeed({ activity, loading }: { activity: Activity[]; loading: bo
         border: '1.5px solid var(--bdr)', background: 'transparent',
         fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, cursor: 'pointer', fontFamily: INTER,
       }}>
-        View full audit log
+        View Full Audit Log
       </button>
     </div>
   )

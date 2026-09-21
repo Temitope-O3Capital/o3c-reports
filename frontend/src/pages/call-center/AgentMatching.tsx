@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
-import { SectionCard, Spinner, ErrBanner } from '../../components/UI'
+import { SectionCard, Spinner, ErrBanner, ConfirmModal } from '../../components/UI'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtNum } from '../../lib/fmt'
+import { fmtCount } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -38,6 +38,19 @@ function MethodBadge({ method, matched }: { method: string; matched: boolean }) 
   )
 }
 
+// What the confirmation says before a re-link commits. Naming the agent AND the exact
+// number of calls is the whole point: mapping back-fills every historical call already
+// imported under that Zoho id, and there is no undo.
+function remapWarning(agent: ZAgent, userId: number, users: WUser[]): string {
+  const who   = agent.zoho_name || agent.zoho_email || agent.zoho_agent_id
+  const calls = `${fmtCount(agent.call_count)} call${agent.call_count === 1 ? '' : 's'}`
+  if (userId === 0) {
+    return `Clear the mapping for ${who}? ${calls} imported under this Zoho id will stop being attributed to a workspace user.`
+  }
+  const target = users.find(u => u.id === userId)
+  return `Attribute ${who} to ${target?.full_name ?? 'this user'}? This re-links ${calls} already imported under that Zoho id, including every historical call. There is no undo.`
+}
+
 // Rendered inside a modal from the Supervisor view (not a standalone page).
 export function AgentMatchingPanel() {
   const [agents, setAgents] = useState<ZAgent[]>([])
@@ -46,6 +59,9 @@ export function AgentMatchingPanel() {
   const [err, setErr] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   const [onlyUnmatched, setOnlyUnmatched] = useState(true)
+  // A staged re-link, waiting on an explicit confirmation. Nothing commits from the
+  // select's own onChange.
+  const [pending, setPending] = useState<{ agent: ZAgent; userId: number } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -66,13 +82,13 @@ export function AgentMatchingPanel() {
       const r = await apiPost<any>('/api/zoho/map-agent', { zoho_agent_id: zohoAgentID, o3c_user_id: o3cUserID })
       const res = (r?.data ?? r) as { calls_relinked: number; tickets_relinked: number }
       const parts = [
-        `${fmtNum(res.calls_relinked)} call${res.calls_relinked === 1 ? '' : 's'}`,
-        `${fmtNum(res.tickets_relinked)} ticket${res.tickets_relinked === 1 ? '' : 's'}`,
+        `${fmtCount(res.calls_relinked)} call${res.calls_relinked === 1 ? '' : 's'}`,
+        `${fmtCount(res.tickets_relinked)} ticket${res.tickets_relinked === 1 ? '' : 's'}`,
       ]
       toast.success(o3cUserID === 0 ? 'Mapping cleared' : `Mapped · ${parts.join(' + ')} re-linked`)
       await load()
     } catch (e: any) { toast.error(e?.message || 'Could not save mapping') }
-    finally { setSaving(null) }
+    finally { setSaving(null); setPending(null) }
   }
 
   const unmatchedCount = agents.filter(a => !a.o3c_user_id).length
@@ -88,11 +104,11 @@ export function AgentMatchingPanel() {
         <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP[3] }}>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
-              <strong style={{ color: unmatchedCount > 0 ? RED : GREEN }}>{fmtNum(unmatchedCount)}</strong> unmatched of {fmtNum(agents.length)} Zoho agent{agents.length === 1 ? '' : 's'} seen
+              <strong style={{ color: unmatchedCount > 0 ? RED : GREEN }}>{fmtCount(unmatchedCount)}</strong> unmatched of {fmtCount(agents.length)} Zoho agent{agents.length === 1 ? '' : 's'} seen
             </div>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt2)', cursor: 'pointer' }}>
               <input type="checkbox" checked={onlyUnmatched} onChange={e => setOnlyUnmatched(e.target.checked)} />
-              Show only unmatched
+              Show Only Unmatched
             </label>
           </div>
 
@@ -121,14 +137,22 @@ export function AgentMatchingPanel() {
                             <div style={{ fontWeight: FW.semibold, color: 'var(--txt)' }}>{a.zoho_name || '(no name)'}</div>
                             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{a.zoho_email || a.zoho_agent_id}</div>
                           </td>
-                          <td style={{ padding: '8px', textAlign: 'right', color: 'var(--txt2)' }}>{fmtNum(a.call_count)}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', color: 'var(--txt2)' }}>{fmtCount(a.call_count)}</td>
                           <td style={{ padding: '8px' }}><MethodBadge method={a.match_method} matched={matched} /></td>
                           <td style={{ padding: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <select
                                 value={a.o3c_user_id ?? 0}
                                 disabled={saving === a.zoho_agent_id}
-                                onChange={e => mapAgent(a.zoho_agent_id, Number(e.target.value))}
+                                aria-label={`Workspace user for ${a.zoho_name || a.zoho_agent_id}`}
+                                onChange={e => {
+                                  // Arrowing through a native select fires change on every
+                                  // option in most browsers. Committing here silently
+                                  // re-attributed thousands of calls per keypress — stage the
+                                  // choice and make the user confirm it instead.
+                                  const next = Number(e.target.value)
+                                  if (next !== (a.o3c_user_id ?? 0)) setPending({ agent: a, userId: next })
+                                }}
                                 style={{ flex: 1, maxWidth: 320, padding: '6px 8px', borderRadius: RADIUS.sm, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.sm }}>
                                 <option value={0}>— Unmatched —</option>
                                 {users.map(u => (
@@ -148,6 +172,17 @@ export function AgentMatchingPanel() {
           </SectionCard>
         </>
       )}
+
+      <ConfirmModal
+        open={!!pending}
+        title={pending?.userId === 0 ? 'Clear This Mapping' : 'Re-Link This Agent'}
+        body={pending ? remapWarning(pending.agent, pending.userId, users) : ''}
+        confirmLabel={pending?.userId === 0 ? 'Clear Mapping' : 'Re-Link Calls'}
+        danger
+        loading={saving !== null}
+        onConfirm={() => { if (pending) mapAgent(pending.agent.zoho_agent_id, pending.userId) }}
+        onClose={() => setPending(null)}
+      />
     </div>
   )
 }

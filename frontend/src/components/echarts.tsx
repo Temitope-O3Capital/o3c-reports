@@ -68,20 +68,26 @@ export function useChartTokens(ref: React.RefObject<HTMLElement>): ChartTokens {
   return tokens
 }
 
+// Tooltip titles, series names and values often come straight from data (a customer's
+// name, a free-text disposition), and ECharts renders the formatter's string as HTML,
+// so every interpolated piece is escaped before it goes in.
+const escapeHtml = (v: unknown) =>
+  String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+
 // The rounded "Rails" tooltip card, as an HTML string for ECharts' formatter.
 export function tipCard(t: ChartTokens, title: string | null, rows: { color: string; name?: string; value: string }[]) {
   const head = title
-    ? `<div style="font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:${t.txt3};padding-bottom:7px;margin-bottom:7px;border-bottom:1px solid ${t.bdr}">${title}</div>`
+    ? `<div style="font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:${t.txt3};padding-bottom:7px;margin-bottom:7px;border-bottom:1px solid ${t.bdr}">${escapeHtml(title)}</div>`
     : ''
   const body = rows
     .map((r) => {
       const nm = r.name
-        ? `<span style="font-size:12px;color:${t.txt2};flex:1;white-space:nowrap">${r.name}</span>`
+        ? `<span style="font-size:12px;color:${t.txt2};flex:1;white-space:nowrap">${escapeHtml(r.name)}</span>`
         : ''
       return `<div style="display:flex;align-items:center;gap:9px">
-        <span style="width:9px;height:9px;border-radius:3px;background:${r.color};flex-shrink:0"></span>
+        <span style="width:9px;height:9px;border-radius:3px;background:${escapeHtml(r.color)};flex-shrink:0"></span>
         ${nm}
-        <span style="font-size:13px;font-weight:700;color:${t.txt};font-variant-numeric:tabular-nums;margin-left:${r.name ? 'auto' : '0'}">${r.value}</span>
+        <span style="font-size:13px;font-weight:700;color:${t.txt};font-variant-numeric:tabular-nums;margin-left:${r.name ? 'auto' : '0'}">${escapeHtml(r.value)}</span>
       </div>`
     })
     .join('')

@@ -284,7 +284,7 @@ export default function VintageDetail() {
         <SectionCard title="PAR Trajectory">
           {parChartData.length === 0 ? (
             <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-              Not enough cohort age data yet
+              Not Enough Cohort Age Data Yet
             </div>
           ) : (
             <EArea
@@ -305,7 +305,7 @@ export default function VintageDetail() {
         <SectionCard title="DPD Distribution">
           {loading || !detail || (detail.dpd_buckets?.length ?? 0) === 0 ? (
             <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-              {loading ? 'Loading…' : 'No loans in this cohort'}
+              {loading ? 'Loading…' : 'No Loans in This Cohort'}
             </div>
           ) : (
             <EChart
@@ -359,7 +359,7 @@ export default function VintageDetail() {
                 {(loading || !detail) ? (
                   <tr><td colSpan={4} style={{ padding: '32px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>Loading…</td></tr>
                 ) : detail.sectors.length === 0 ? (
-                  <tr><td colSpan={4} style={{ padding: '32px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No data</td></tr>
+                  <tr><td colSpan={4} style={{ padding: '32px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No Data</td></tr>
                 ) : detail.sectors.map((r, i) => (
                   <tr key={i}
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
@@ -397,7 +397,7 @@ export default function VintageDetail() {
                 {(loading || !detail) ? (
                   <tr><td colSpan={4} style={{ padding: '32px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>Loading…</td></tr>
                 ) : detail.products.length === 0 ? (
-                  <tr><td colSpan={4} style={{ padding: '32px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No data</td></tr>
+                  <tr><td colSpan={4} style={{ padding: '32px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No Data</td></tr>
                 ) : detail.products.map((r, i) => {
                   const pct = Number(r.par30_pct)
                   const parColor = pct < 5 ? GREEN : pct <= 15 ? AMBER : RED
@@ -457,7 +457,7 @@ export default function VintageDetail() {
           loading={loading}
           skeletonRows={8}
           onRowClick={r => navigate(`/operations/risk/applications/${r.id}`)}
-          emptyText="No loans match the selected filter"
+          emptyText="No Loans Match the Selected Filter"
         />
       </SectionCard>
     </Page>

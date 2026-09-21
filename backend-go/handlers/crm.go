@@ -1210,6 +1210,27 @@ func createTask(db *core.DB) http.HandlerFunc {
 			return
 		}
 		created := rows[0]
+		// Shadow the task onto the activity stream of the record it concerns, so a
+		// follow-up raised from a lead shows on that lead's history. crm_tasks stays
+		// the system of record — the timeline reads status/owner/due date back through
+		// this row's entity link rather than trusting a copy that would go stale the
+		// moment someone ticked the task off in the CRM.
+		if user != nil {
+			var leadID *int64
+			if strings.EqualFold(deref(b.LinkedType), "lead") && b.LinkedID != nil && *b.LinkedID > 0 {
+				leadID = b.LinkedID
+			}
+			if leadID != nil || b.ContactID != nil {
+				aid, aname, ateam := actorOf(user)
+				logActivitySafe(r.Context(), db, Activity{
+					LeadID: leadID, ContactID: b.ContactID,
+					ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+					Type: "task", Subject: b.Title, Body: deref(b.Description),
+					Status: "open", TargetUserID: b.AssignedTo, Source: "crm_task",
+					EntityType: "crm_task", EntityID: fmt.Sprintf("%d", toInt64(created["id"])),
+				})
+			}
+		}
 		// Notify the assignee (if different from creator)
 		if b.AssignedTo != nil && *b.AssignedTo != user.ID {
 			go notifyTaskAssigned(context.Background(), db,

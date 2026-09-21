@@ -661,7 +661,7 @@ export default function Login({ onLogin }: LoginProps) {
                   <FloatingField
                     id="login-email"
                     name="username"
-                    label="Work email"
+                    label="Work Email"
                     type="email"
                     value={email}
                     onChange={setEmail}
@@ -717,24 +717,24 @@ export default function Login({ onLogin }: LoginProps) {
                     )}
                   </span>
                   <span style={{ fontSize: TEXT.base, color: 'var(--txt)', fontWeight: FW.medium, lineHeight: 1.4 }}>
-                    Keep me signed in for 30 days
+                    Keep Me Signed In for 30 Days
                   </span>
                 </label>
 
                 <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 11 }}>
                   {err && <ErrorMsg msg={err} />}
                   <PrimaryBtn loading={loading} delay={120}>
-                    <span>Sign in</span>
+                    <span>Sign In</span>
                     <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, fontVariationSettings: "'wght' 500" }}>east</span>
                   </PrimaryBtn>
                 </div>
 
                 <div style={{ textAlign: 'center', marginTop: 20, display: 'flex', flexDirection: 'column', gap: SP[2] }}>
                   <button type="button" className="o3-ghost" onClick={() => { setForgotMode(true); setForgotEmail(email); setForgotErr(''); setForgotDone(false) }}>
-                    Forgot your password?
+                    Forgot Your Password?
                   </button>
                   <button type="button" className="o3-ghost" onClick={() => { setRegMode(true); setRegEmail(email); setRegErr(''); setRegDone(false) }}>
-                    New here? Request access
+                    New Here? Request Access
                   </button>
                 </div>
               </form>
@@ -746,7 +746,7 @@ export default function Login({ onLogin }: LoginProps) {
             <>
               <div style={{ marginBottom: 28, animation: 'o3rise 300ms cubic-bezier(0.4,0,0.2,1) both' }}>
                 <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
-                  Reset your password
+                  Reset Your Password
                 </h1>
                 <p style={{ fontSize: TEXT.base, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
                   {forgotDone
@@ -759,7 +759,7 @@ export default function Login({ onLogin }: LoginProps) {
                 <form onSubmit={handleForgotPassword} noValidate>
                   <FloatingField
                     id="forgot-email"
-                    label="Work email"
+                    label="Work Email"
                     type="email"
                     value={forgotEmail}
                     onChange={setForgotEmail}
@@ -769,7 +769,7 @@ export default function Login({ onLogin }: LoginProps) {
                   <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 11 }}>
                     {forgotErr && <ErrorMsg msg={forgotErr} />}
                     <PrimaryBtn loading={forgotLoad}>
-                      <span>Send temporary password</span>
+                      <span>Send Temporary Password</span>
                     </PrimaryBtn>
                   </div>
                 </form>
@@ -777,7 +777,7 @@ export default function Login({ onLogin }: LoginProps) {
 
               <div style={{ textAlign: 'center', marginTop: 20 }}>
                 <button type="button" className="o3-ghost" onClick={() => { setForgotMode(false); setForgotDone(false); setForgotErr('') }}>
-                  Back to sign in
+                  Back to Sign In
                 </button>
               </div>
             </>
@@ -788,7 +788,7 @@ export default function Login({ onLogin }: LoginProps) {
             <>
               <div style={{ marginBottom: 28, animation: 'o3rise 300ms cubic-bezier(0.4,0,0.2,1) both' }}>
                 <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
-                  Request access
+                  Request Access
                 </h1>
                 <p style={{ fontSize: TEXT.base, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
                   {regDone
@@ -801,16 +801,16 @@ export default function Login({ onLogin }: LoginProps) {
                 <form onSubmit={handleRegister} noValidate>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>
-                      <FloatingField id="reg-first" label="First name" value={regFirst} onChange={setRegFirst} autoFocus />
-                      <FloatingField id="reg-last"  label="Last name"  value={regLast}  onChange={setRegLast} />
+                      <FloatingField id="reg-first" label="First Name" value={regFirst} onChange={setRegFirst} autoFocus />
+                      <FloatingField id="reg-last"  label="Last Name"  value={regLast}  onChange={setRegLast} />
                     </div>
-                    <FloatingField id="reg-email" label="Work email" type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" />
-                    <FloatingField id="reg-dept"  label="Department (optional)" value={regDept} onChange={setRegDept} />
+                    <FloatingField id="reg-email" label="Work Email" type="email" value={regEmail} onChange={setRegEmail} autoComplete="email" />
+                    <FloatingField id="reg-dept"  label="Department (Optional)" value={regDept} onChange={setRegDept} />
                   </div>
                   <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 11 }}>
                     {regErr && <ErrorMsg msg={regErr} />}
                     <PrimaryBtn loading={regLoad}>
-                      <span>Submit request</span>
+                      <span>Submit Request</span>
                     </PrimaryBtn>
                   </div>
                 </form>
@@ -818,7 +818,7 @@ export default function Login({ onLogin }: LoginProps) {
 
               <div style={{ textAlign: 'center', marginTop: 20 }}>
                 <button type="button" className="o3-ghost" onClick={() => { setRegMode(false); setRegDone(false); setRegErr('') }}>
-                  Back to sign in
+                  Back to Sign In
                 </button>
               </div>
             </>
@@ -840,7 +840,7 @@ export default function Login({ onLogin }: LoginProps) {
                   </span>
                 </div>
                 <h1 style={{ fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: txtPrimary, margin: '0 0 7px', letterSpacing: '-0.5px' }}>
-                  Verify your identity
+                  Verify Your Identity
                 </h1>
                 <p style={{ fontSize: TEXT.base, color: txtSecondary, margin: 0, lineHeight: 1.65 }}>
                   Enter the 6-digit code from your authenticator app.
@@ -875,7 +875,7 @@ export default function Login({ onLogin }: LoginProps) {
                     style={{ display: 'flex', alignItems: 'center', gap: 5 }}
                   >
                     <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>arrow_back</span>
-                    Back to sign in
+                    Back to Sign In
                   </button>
                 </div>
               </form>

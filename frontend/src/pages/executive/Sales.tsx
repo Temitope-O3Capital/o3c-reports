@@ -108,11 +108,11 @@ export default function ExecSales() {
       {pipeline && (
         <SectionCard title="Lead Pipeline" subtitle="Campaign → call centre → sales, tracked to conversion" style={{ marginBottom: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: SP[3], marginBottom: SP[4] }}>
-            <Stat label="Campaign leads" value={fmtNum(pipeline.campaign_leads)} />
+            <Stat label="Campaign Leads" value={fmtNum(pipeline.campaign_leads)} />
             <Stat label="Interested" value={fmtNum(pipeline.interested)} />
             <Stat label="Forwarded" value={fmtNum(pipeline.forwarded_total)} />
             <Stat label="Converted" value={fmtNum(pipeline.forwards?.converted ?? 0)} />
-            <Stat label="Forward → conv." value={`${pipeline.forward_conv_rate ?? 0}%`} />
+            <Stat label="Forward → Conv." value={`${pipeline.forward_conv_rate ?? 0}%`} />
           </div>
           {(() => {
             const max = Math.max(1, ...pipeline.funnel.map(s => s.count))

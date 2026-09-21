@@ -563,6 +563,8 @@ func ccUpload(db *core.DB) http.HandlerFunc {
 
 		hdr, txns, err := parseStatementText(string(data))
 		if err != nil {
+			recordUpload(ctx, db, r, "cc_statement", []string{header.Filename}, "", nil, 0, 1,
+				[]string{"parse error: " + err.Error()})
 			respondErr(w, 422, "parse error: "+err.Error())
 			return
 		}
@@ -575,10 +577,16 @@ func ccUpload(db *core.DB) http.HandlerFunc {
 
 		stmtID, err := saveCCStatement(ctx, db, hdr, txns, "upload", header.Filename, user.ID)
 		if err != nil {
+			recordUpload(ctx, db, r, "cc_statement", []string{header.Filename}, "",
+				map[string]any{"txn_count": len(txns)}, 0, 1, []string{"save failed: " + err.Error()})
+		}
+		if err != nil {
 			respondErr(w, 500, "save failed: "+err.Error())
 			return
 		}
 
+		recordUpload(ctx, db, r, "cc_statement", []string{header.Filename}, "",
+			map[string]any{"statement_id": stmtID, "txn_count": len(txns)}, 1, 0, nil)
 		respond(w, map[string]any{"id": stmtID, "txn_count": len(txns)}, "pg")
 	}
 }
@@ -645,6 +653,17 @@ func ccBulk(db *core.DB) http.HandlerFunc {
 			results = append(results, result{Filename: fh.Filename, ID: stmtID, TxnCount: len(txns), OK: true})
 			succeeded++
 		}
+
+		// One ledger row for the whole bulk upload, carrying per-file failures.
+		var bulkErrs []string
+		for _, res := range results {
+			if res.Error != "" {
+				bulkErrs = append(bulkErrs, res.Filename+": "+res.Error)
+			}
+		}
+		recordUpload(ctx, db, r, "cc_statement", uploadFileNames(files), "",
+			map[string]any{"total": len(files), "succeeded": succeeded, "failed": failed},
+			succeeded, failed, bulkErrs)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{

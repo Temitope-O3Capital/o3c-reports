@@ -479,7 +479,7 @@ func sendStatementToRecipient(ctx context.Context, db *core.DB, createdBy int64,
 	}
 	name := statementCustomerName(data.Account)
 	if b.Subject == "" {
-		b.Subject = fmt.Sprintf("Your O3 Cards statement: %s to %s", dateFrom, dateTo)
+		b.Subject = fmt.Sprintf("Your O3 Cards Statement: %s to %s", dateFrom, dateTo)
 	}
 	filename := sanitizeAttachmentName(fmt.Sprintf("statement_%s_%s_%s.pdf", b.CIF, dateFrom, dateTo))
 	htmlForPDF := buildStatementHTMLPreview(data, "")

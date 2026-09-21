@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, ErrBanner, Sk, FilterBar, filterInputStyle, DateFilter, NameCell } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtDate, monthStart, today } from '../../lib/fmt'
-import { RED, GREEN, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { RED, GREEN, AMBER, NAVY, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -45,7 +45,9 @@ function cycleLabel(cycleDate: string) {
 }
 
 function StatusPill({ date }: { date: string }) {
-  const past = new Date(date) < new Date()
+  // Compare calendar dates as strings (YYYY-MM-DD). `new Date('YYYY-MM-DD')` parses as
+  // UTC midnight, so in Lagos (UTC+1) a cycle ending today flipped to "Closed" ~01:00.
+  const past = date.slice(0, 10) < today()
   const s = past
     ? { bg: 'rgba(107,114,128,.1)', color: 'var(--chart-lbl)', label: 'Closed' }
     : { bg: 'rgba(22,163,74,.1)',   color: GREEN,     label: 'Open' }
@@ -56,13 +58,20 @@ function StatusPill({ date }: { date: string }) {
   )
 }
 
+// Three funding families, not two. This pill was binary — prepaid, else red for
+// credit — so a blink row would have been painted as a credit card, and a row
+// the catalogue does not know would have been too.
+const CAT_PILL: Record<string, { bg: string; color: string }> = {
+  prepaid: { bg: 'rgba(14,40,65,.08)',  color: NAVY },
+  credit:  { bg: 'rgba(192,0,0,.08)',   color: RED },
+  blink:   { bg: 'rgba(124,58,237,.10)', color: PURPLE },
+}
+
 function CatPill({ category }: { category: string }) {
-  const s = category === 'prepaid'
-    ? { bg: 'rgba(14,40,65,.08)',  color: NAVY }
-    : { bg: 'rgba(192,0,0,.08)',   color: RED }
+  const s = CAT_PILL[category] ?? { bg: 'var(--chip-bg)', color: 'var(--chip-txt)' }
   return (
     <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 8px', borderRadius: RADIUS.xl, background: s.bg, color: s.color, textTransform: 'capitalize' as const }}>
-      {category}
+      {category || 'unmatched'}
     </span>
   )
 }
@@ -74,10 +83,12 @@ function AccountPanel({ cycleDate, productCode }: { cycleDate: string; productCo
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [offset, setOffset] = useState(0)
+  const [err, setErr] = useState('')
   const PAGE = 100
 
   const load = useCallback(async (off = 0) => {
     setLoading(true)
+    setErr('')
     try {
       const res = await apiFetch<{ data: AccountRow[]; total: number }>(
         `/api/cards/cycle-data?cycle_date=${cycleDate}&product_code=${productCode}&limit=${PAGE}&offset=${off}`
@@ -85,6 +96,12 @@ function AccountPanel({ cycleDate, productCode }: { cycleDate: string; productCo
       setRows(res?.data ?? [])
       setTotal(res?.total ?? 0)
       setOffset(off)
+    } catch {
+      // Surface the failure instead of falling through to the "No Accounts" empty
+      // state, which reads as "this cycle has no accounts" — a very different thing.
+      setErr('Could not load accounts — please retry.')
+      setRows([])
+      setTotal(0)
     } finally {
       setLoading(false)
     }
@@ -93,7 +110,8 @@ function AccountPanel({ cycleDate, productCode }: { cycleDate: string; productCo
   useEffect(() => { load(0) }, [load])
 
   if (loading) return <div style={{ padding: SP[4], color: 'var(--txt2)', fontSize: TEXT.base }}>Loading accounts…</div>
-  if (!rows.length) return <div style={{ padding: SP[4], color: 'var(--txt2)', fontSize: TEXT.base }}>No accounts</div>
+  if (err) return <div style={{ padding: SP[4], color: RED, fontSize: TEXT.base }}>{err}</div>
+  if (!rows.length) return <div style={{ padding: SP[4], color: 'var(--txt2)', fontSize: TEXT.base }}>No Accounts</div>
 
   return (
     <div style={{ padding: '12px 16px', background: 'var(--bg)' }}>
@@ -198,7 +216,7 @@ export default function CardsBilling() {
             style={{ ...filterInputStyle, minWidth: 180 }}
           >
             {cycleDates.map(d => (
-              <option key={d} value={d}>Cycle ending {fmtDate(d)}</option>
+              <option key={d} value={d}>Cycle Ending {fmtDate(d)}</option>
             ))}
           </select>
         </div>
@@ -226,7 +244,7 @@ export default function CardsBilling() {
       )}
 
       {/* Products table */}
-      <SectionCard padding={false} title={selectedDate ? `Products · cycle ending ${fmtDate(selectedDate)}` : 'Products'}>
+      <SectionCard padding={false} title={selectedDate ? `Products · Cycle Ending ${fmtDate(selectedDate)}` : 'Products'}>
         {loading ? <Sk h={300} /> : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
             <thead>

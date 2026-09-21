@@ -57,14 +57,14 @@ export default function SalesTeams() {
       loading={loading && teams.length === 0}
       skeletonKpis={3}
       subtitle="Group officers under a head. A head sees and distributes only their team's leads; executives see everyone."
-      actions={manage ? <Button variant="primary" icon="group_add" onClick={() => setNewOpen(true)}>New team</Button> : undefined}>
+      actions={manage ? <Button variant="primary" icon="group_add" onClick={() => setNewOpen(true)}>New Team</Button> : undefined}>
       {error && <ErrBanner error={error} onRetry={load} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: SP[3], marginBottom: 16 }}>
         {[
           { label: 'Teams', value: teams.filter(t => t.is_active).length, color: NAVY },
-          { label: 'Officers assigned', value: totalMembers, color: GREEN },
-          { label: 'Unassigned officers', value: unteamed.length, color: unteamed.length ? AMBER : 'var(--txt3)' },
+          { label: 'Officers Assigned', value: totalMembers, color: GREEN },
+          { label: 'Unassigned Officers', value: unteamed.length, color: unteamed.length ? AMBER : 'var(--txt3)' },
         ].map(c => (
           <div key={c.label} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)', borderRadius: RADIUS.xl, padding: '14px 16px' }}>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>{c.label}</div>
@@ -76,7 +76,7 @@ export default function SalesTeams() {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}><Spinner size={28} /></div>
       ) : teams.length === 0 ? (
-        <SectionCard title="No teams yet">
+        <SectionCard title="No Teams Yet">
           <div style={{ color: 'var(--txt2)', fontSize: TEXT.base, lineHeight: 1.6 }}>
             No sales teams have been set up. Until a head is given a team, they see every lead
             (the safe fallback). {manage ? 'Create a team to scope a head to their own officers.' : 'Ask a manager to set up your team.'}
@@ -153,7 +153,7 @@ function TeamCard({ team, officers, teamOf, manage, onChanged }: {
           {manage ? (
             <select value={team.head_user_id ?? ''} onChange={e => setHead(e.target.value)}
               style={{ padding: '7px 10px', borderRadius: RADIUS.md, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.sm, minWidth: 200 }}>
-              <option value="">No head</option>
+              <option value="">No Head</option>
               {officers.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
             </select>
           ) : (
@@ -182,7 +182,7 @@ function TeamCard({ team, officers, teamOf, manage, onChanged }: {
             <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
               <select value={addId} onChange={e => setAddId(e.target.value)}
                 style={{ padding: '7px 10px', borderRadius: RADIUS.md, border: '1px solid var(--input-bdr)', background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.sm, minWidth: 220 }}>
-                <option value="">Add an officer…</option>
+                <option value="">Add an Officer…</option>
                 {candidates.map(o => {
                   const on = teamOf.get(o.id)
                   return <option key={o.id} value={o.id}>{o.full_name}{on ? ` (on ${on})` : ''}</option>
@@ -208,7 +208,7 @@ function NewTeamModal({ officers, onClose, onDone }: { officers: Officer[]; onCl
     catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
   }
   return (
-    <Modal open onClose={onClose} title="New sales team" width={440}
+    <Modal open onClose={onClose} title="New Sales Team" width={440}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -216,9 +216,9 @@ function NewTeamModal({ officers, onClose, onDone }: { officers: Officer[]; onCl
         </div>
       }>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <Input label="Team name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Lagos Retail Team" autoFocus />
-        <Select label="Head (optional)" value={head} onChange={e => setHead(e.target.value)}>
-          <option value="">Choose a head…</option>
+        <Input label="Team Name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Lagos Retail Team" autoFocus />
+        <Select label="Head (Optional)" value={head} onChange={e => setHead(e.target.value)}>
+          <option value="">Choose a Head…</option>
           {officers.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
         </Select>
         <p style={{ margin: 0, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5 }}>

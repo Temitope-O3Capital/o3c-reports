@@ -587,17 +587,37 @@ func c360TransactionAnalytics(db *core.DB) http.HandlerFunc {
 			out["totals"] = rows[0]
 		}
 
-		// Top merchants by spend (outflow only; a real merchant name, not a bank/ATM label).
+		// Top merchants — PURCHASE transactions only. The comment above this used to
+		// promise "a real merchant name, not a bank/ATM label", but the query never
+		// enforced it: merchant_name is a narrative field that holds a transfer
+		// narrative on transfers, the posting staff member on payments, and the ATM
+		// location on cash advances. See growth.go for the measured breakdown.
 		if rows, err := db.PGQuery(r.Context(), `
-			SELECT TRIM(merchant_name) AS merchant, COUNT(*) AS txns,
-			       COALESCE(SUM(ABS(amount)) FILTER (WHERE money_in = false), 0) AS spend
-			  FROM app.transactions
-			 WHERE cif IN `+c360PersonCIFs+`
-			   AND NULLIF(TRIM(merchant_name),'') IS NOT NULL
-			 GROUP BY TRIM(merchant_name)
+			SELECT app.clean_merchant(t.merchant_name) AS merchant, COUNT(*) AS txns,
+			       COALESCE(SUM(ABS(t.amount)) FILTER (WHERE t.money_in = false), 0) AS spend
+			  FROM app.transactions t
+			  JOIN app.card_txn_codes c ON c.code = t.txn_code AND c.category = 'purchase'
+			 WHERE t.cif IN `+c360PersonCIFs+`
+			   AND app.clean_merchant(t.merchant_name) IS NOT NULL
+			 GROUP BY 1
 			 ORDER BY spend DESC NULLS LAST
 			 LIMIT 8`, cif); err == nil {
 			out["top_merchants"] = rows
+		}
+
+		// Where this person withdraws cash — the ATM location carried on cash-advance
+		// rows.
+		if rows, err := db.PGQuery(r.Context(), `
+			SELECT TRIM(t.merchant_name) AS location, COUNT(*) AS txns,
+			       COALESCE(SUM(ABS(t.amount)), 0) AS amount
+			  FROM app.transactions t
+			  JOIN app.card_txn_codes c ON c.code = t.txn_code AND c.category = 'cash_advance'
+			 WHERE t.cif IN `+c360PersonCIFs+`
+			   AND NULLIF(TRIM(t.merchant_name),'') IS NOT NULL
+			 GROUP BY 1
+			 ORDER BY txns DESC
+			 LIMIT 6`, cif); err == nil {
+			out["top_atm_locations"] = rows
 		}
 
 		// Spending by category (MCC) — the frontend maps the code to a friendly name.
@@ -633,6 +653,53 @@ func c360TransactionAnalytics(db *core.DB) http.HandlerFunc {
 			 ORDER BY txns DESC
 			 LIMIT 6`, cif); err == nil {
 			out["by_city"] = rows
+		}
+
+		// Currency split — same reason as growth.go's by_currency: app.transactions
+		// had no currency until migration 233, so a person holding an Amex USD card
+		// had their dollars added to their naira. Reported, never converted (CCS
+		// posts USD in dollars). Resolved via app.resolve_currency because
+		// currency_code is NULL until the backfill.
+		//
+		// t.cif is qualified deliberately: app.accounts also has a cif column, and an
+		// unqualified reference after the join is ambiguous.
+		if rows, err := db.PGQuery(r.Context(), `
+			SELECT app.resolve_currency(t.currency_code, a.currency_code,
+			                            COALESCE(a.product_name, t.product_name)) AS currency_code,
+			       COUNT(*) AS txns,
+			       COALESCE(SUM(ABS(t.amount)) FILTER (WHERE t.money_in = false), 0) AS spend,
+			       COALESCE(SUM(ABS(t.amount)) FILTER (WHERE t.money_in = true), 0)  AS inflow
+			  FROM app.transactions t
+			  LEFT JOIN app.accounts a ON a.account_no = t.account_no AND t.account_no <> ''
+			 WHERE t.cif IN `+c360PersonCIFs+`
+			 GROUP BY 1 ORDER BY txns DESC`, cif); err == nil {
+			out["by_currency"] = rows
+		}
+
+		// What they actually did, as opposed to which rail settled it: the channel
+		// column only holds interswitch/collection/internal. card_txn_codes already
+		// classifies every code present in the ledger, so this is a join, not a
+		// migration.
+		if rows, err := db.PGQuery(r.Context(), `
+			SELECT CASE c.category
+			         WHEN 'cash_advance'  THEN 'ATM / cash'
+			         WHEN 'purchase'      THEN 'POS / purchase'
+			         WHEN 'transfer'      THEN 'Transfer'
+			         WHEN 'utility'       THEN 'Bill payment'
+			         WHEN 'payment'       THEN 'Repayment'
+			         WHEN 'fee'           THEN 'Fees'
+			         WHEN 'interest'      THEN 'Interest'
+			         WHEN 'penalty'       THEN 'Penalty'
+			         WHEN 'non_financial' THEN 'Non-financial'
+			         ELSE 'Other'
+			       END AS txn_type,
+			       COUNT(*) AS txns,
+			       COALESCE(SUM(ABS(t.amount)) FILTER (WHERE t.money_in = false), 0) AS spend
+			  FROM app.transactions t
+			  JOIN app.card_txn_codes c ON c.code = t.txn_code
+			 WHERE t.cif IN `+c360PersonCIFs+`
+			 GROUP BY 1 ORDER BY txns DESC`, cif); err == nil {
+			out["by_type"] = rows
 		}
 
 		// Cashflow, last 12 months.

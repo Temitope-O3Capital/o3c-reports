@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Modal, Spinner } from './UI'
 import { apiFetch, apiPost } from '../lib/api'
 import { NAVY, GREEN, AMBER, RED, BLUE, SORA, FW, RADIUS, SP, TEXT } from '../lib/design'
@@ -51,8 +51,13 @@ export interface CallCandidate {
 }
 
 // Purpose = which book the call belongs to. Kept in step with helpdesk/Calls.tsx.
+//
+// Support is 'support', not '': the server stamps queue call-backs purpose='support',
+// helpdesk/Calls.tsx keys its PURPOSE_META on 'support', and the maps below key both.
+// While this option's value was '' nothing matched a support call coming back in, so
+// opening the form from a call-back reminder rendered a blank Call Purpose.
 export const CALL_PURPOSES: { value: string; label: string }[] = [
-  { value: '',            label: 'Support / Service' },
+  { value: 'support',     label: 'Support / Service' },
   { value: 'marketing',   label: 'Marketing / Leads' },
   { value: 'sales',       label: 'Outbound Sales' },
   { value: 'collections', label: 'Collections' },
@@ -70,11 +75,11 @@ const PURPOSE_COPY: Record<string, {
   notesLabel: string; notesPh: string
   resLabel: string; resPh: string
 }> = {
-  '':          { label: 'Support / Service', accent: BLUE,  notesLabel: 'Customer complaint / summary', notesPh: 'What the customer called about…', resLabel: 'Agent response / resolution', resPh: 'What you did / how it was resolved…' },
-  support:     { label: 'Support / Service', accent: BLUE,  notesLabel: 'Customer complaint / summary', notesPh: 'What the customer called about…', resLabel: 'Agent response / resolution', resPh: 'What you did / how it was resolved…' },
-  marketing:   { label: 'Marketing / Leads', accent: AMBER, notesLabel: 'Pitch & customer interest',      notesPh: 'What you pitched · product interest · objections raised…', resLabel: 'Next step',            resPh: 'Agreed next step — send info, follow up, book a callback…' },
-  sales:       { label: 'Outbound Sales',    accent: NAVY,  notesLabel: 'Pitch & customer interest',      notesPh: 'What you pitched · product interest · objections raised…', resLabel: 'Next step',            resPh: 'Agreed next step — send info, follow up, book a callback…' },
-  collections: { label: 'Collections',       accent: RED,   notesLabel: 'Account discussion / reason unpaid', notesPh: 'The customer’s situation · reason for non-payment…', resLabel: 'Outcome & agreement', resPh: 'What was agreed — amount, date, dispute raised…' },
+  '':          { label: 'Support / Service', accent: BLUE,  notesLabel: 'Customer Complaint / Summary', notesPh: 'What the customer called about…', resLabel: 'Agent Response / Resolution', resPh: 'What you did / how it was resolved…' },
+  support:     { label: 'Support / Service', accent: BLUE,  notesLabel: 'Customer Complaint / Summary', notesPh: 'What the customer called about…', resLabel: 'Agent Response / Resolution', resPh: 'What you did / how it was resolved…' },
+  marketing:   { label: 'Marketing / Leads', accent: AMBER, notesLabel: 'Pitch & Customer Interest',      notesPh: 'What you pitched · product interest · objections raised…', resLabel: 'Next Step',            resPh: 'Agreed next step — send info, follow up, book a callback…' },
+  sales:       { label: 'Outbound Sales',    accent: NAVY,  notesLabel: 'Pitch & Customer Interest',      notesPh: 'What you pitched · product interest · objections raised…', resLabel: 'Next Step',            resPh: 'Agreed next step — send info, follow up, book a callback…' },
+  collections: { label: 'Collections',       accent: RED,   notesLabel: 'Account Discussion / Reason Unpaid', notesPh: 'The customer’s situation · reason for non-payment…', resLabel: 'Outcome & Agreement', resPh: 'What was agreed — amount, date, dispute raised…' },
 }
 export function purposeCopy(purpose: string) { return PURPOSE_COPY[purpose] ?? PURPOSE_COPY[''] }
 
@@ -85,20 +90,23 @@ export function purposeCopy(purpose: string) { return PURPOSE_COPY[purpose] ?? P
 // to the outcome the agent picked. Keyed by disposition LABEL (what the form stores).
 interface DispCopy { notesLabel: string; notesPh: string; resLabel: string; resPh: string; hideRes?: boolean }
 const DISPOSITION_COPY: Record<string, DispCopy> = {
-  'Interested':              { notesLabel: 'What interested them',        notesPh: 'Product/offer they liked · what they asked about…', resLabel: 'Next step',              resPh: 'Send details, book a demo, follow up on…' },
-  'Not Ready Yet':           { notesLabel: 'Why not now',                  notesPh: 'Their timing · what’s holding them back…',          resLabel: 'What to revisit',        resPh: 'What to raise when you circle back…' },
-  'Not Interested':          { notesLabel: 'Objection / reason',          notesPh: 'Why they declined · the main objection…',           resLabel: '', resPh: '', hideRes: true },
-  'Not Eligible':            { notesLabel: 'Why not eligible',            notesPh: 'Which criterion — age, employer, exposure…',        resLabel: '', resPh: '', hideRes: true },
-  'Converted':               { notesLabel: 'What won them over',          notesPh: 'Product taken · what closed it…',                   resLabel: 'Next / onboarding step', resPh: 'What happens next to onboard them…' },
-  'Callback Scheduled':      { notesLabel: 'What was discussed',          notesPh: 'Where the conversation got to…',                    resLabel: 'To cover on the callback', resPh: 'What to pick up when you call back…' },
-  'Promise to Pay':          { notesLabel: 'Reason unpaid / situation',   notesPh: 'The customer’s situation · why it lapsed…',         resLabel: 'Agreement',              resPh: 'What was agreed beyond the amount & date…' },
-  'Paid':                    { notesLabel: 'Payment details',             notesPh: 'Channel · reference · amount…',                     resLabel: '', resPh: '', hideRes: true },
-  'Dispute':                 { notesLabel: 'Dispute details',             notesPh: 'What the customer is disputing…',                   resLabel: 'Action to resolve',      resPh: 'What needs to happen to settle it…' },
-  'Resolved':                { notesLabel: 'Customer issue',              notesPh: 'What they called about…',                          resLabel: 'How it was resolved',    resPh: 'What you did to resolve it…' },
-  'Information Provided':     { notesLabel: 'What they asked',             notesPh: 'Their question…',                                  resLabel: 'Information given',       resPh: 'What you told them…' },
-  'Escalated':               { notesLabel: 'Customer issue',              notesPh: 'What they called about…',                          resLabel: 'Escalated to / why',     resPh: 'Who it went to and why…' },
-  'Complaint Logged':        { notesLabel: 'Complaint',                   notesPh: 'What the customer is unhappy about…',               resLabel: 'Action taken',           resPh: 'What you logged / the next step…' },
-  'Pending / Follow-up':     { notesLabel: 'Where it stands',             notesPh: 'What was discussed…',                              resLabel: 'Next step',              resPh: 'What to do next…' },
+  'Interested':              { notesLabel: 'What Interested Them',        notesPh: 'Product/offer they liked · what they asked about…', resLabel: 'Next Step',              resPh: 'Send details, book a demo, follow up on…' },
+  'Not Ready Yet':           { notesLabel: 'Why Not Now',                  notesPh: 'Their timing · what’s holding them back…',          resLabel: 'What to Revisit',        resPh: 'What to raise when you circle back…' },
+  'Not Interested':          { notesLabel: 'Objection / Reason',          notesPh: 'Why they declined · the main objection…',           resLabel: '', resPh: '', hideRes: true },
+  'Not Eligible':            { notesLabel: 'Why Not Eligible',            notesPh: 'Which criterion — age, employer, exposure…',        resLabel: '', resPh: '', hideRes: true },
+  'Converted':               { notesLabel: 'What Won Them Over',          notesPh: 'Product taken · what closed it…',                   resLabel: 'Next / Onboarding Step', resPh: 'What happens next to onboard them…' },
+  'Callback Scheduled':      { notesLabel: 'What Was Discussed',          notesPh: 'Where the conversation got to…',                    resLabel: 'To Cover on the Callback', resPh: 'What to pick up when you call back…' },
+  'Promise to Pay':          { notesLabel: 'Reason Unpaid / Situation',   notesPh: 'The customer’s situation · why it lapsed…',         resLabel: 'Agreement',              resPh: 'What was agreed beyond the amount & date…' },
+  'Paid':                    { notesLabel: 'Payment Details',             notesPh: 'Channel · reference · amount…',                     resLabel: '', resPh: '', hideRes: true },
+  'Dispute':                 { notesLabel: 'Dispute Details',             notesPh: 'What the customer is disputing…',                   resLabel: 'Action to Resolve',      resPh: 'What needs to happen to settle it…' },
+  'Issue Resolved':          { notesLabel: 'Customer Issue',              notesPh: 'What they called about…',                          resLabel: 'How It Was Resolved',    resPh: 'What you did to resolve it…' },
+  // Kept for calls stored before the label changed, so their write-up still reads
+  // with the right field names — see SUPPORT_DISPOSITIONS.
+  'Resolved':                { notesLabel: 'Customer Issue',              notesPh: 'What they called about…',                          resLabel: 'How It Was Resolved',    resPh: 'What you did to resolve it…' },
+  'Information Provided':     { notesLabel: 'What They Asked',             notesPh: 'Their question…',                                  resLabel: 'Information Given',       resPh: 'What you told them…' },
+  'Escalated':               { notesLabel: 'Customer Issue',              notesPh: 'What they called about…',                          resLabel: 'Escalated To / Why',     resPh: 'Who it went to and why…' },
+  'Complaint Logged':        { notesLabel: 'Complaint',                   notesPh: 'What the customer is unhappy about…',               resLabel: 'Action Taken',           resPh: 'What you logged / the next step…' },
+  'Pending / Follow-up':     { notesLabel: 'Where It Stands',             notesPh: 'What was discussed…',                              resLabel: 'Next Step',              resPh: 'What to do next…' },
   'Wrong Number':            { notesLabel: 'Note',                        notesPh: '(optional)',                                       resLabel: '', resPh: '', hideRes: true },
   'Call Dropped':            { notesLabel: 'Note',                        notesPh: 'Anything worth recording before it dropped…',       resLabel: '', resPh: '', hideRes: true },
   'Unreachable / No Answer': { notesLabel: 'Note',                        notesPh: '(optional)',                                       resLabel: '', resPh: '', hideRes: true },
@@ -116,8 +124,13 @@ export function dispositionCopy(disposition: string, purpose: string): DispCopy 
 
 // Disposition (business result) adapts to the call's purpose — a support call and a
 // collections call don't share outcomes, so the agent only ever sees the relevant few.
+//
+// "Issue Resolved", not "Resolved": the API classes the bare word "resolved" as a
+// telephony outcome rather than a business disposition, so logging it silently blanked
+// the field and correcting a call to it was rejected outright. Same meaning, and it is
+// a value the server actually stores.
 const SUPPORT_DISPOSITIONS = [
-  'Resolved', 'Closed', 'Information Provided', 'Escalated', 'Complaint Logged',
+  'Issue Resolved', 'Closed', 'Information Provided', 'Escalated', 'Complaint Logged',
   'Callback Scheduled', 'Pending / Follow-up', 'Unreachable / No Answer', 'Call Dropped',
 ]
 const DISPOSITIONS_BY_PURPOSE: Record<string, string[]> = {
@@ -144,6 +157,10 @@ const FOLLOWUP_DISPOSITIONS = new Set([
 ])
 // The one disposition that needs a time (a callback with no time is a broken promise).
 const CALLBACK_DISPOSITION = 'Callback Scheduled'
+
+// How long an unsent draft is worth bringing back. Past this the call it belonged to
+// is long over, and what returns is a stale write-up rather than a rescued one.
+const DRAFT_TTL_MS = 12 * 60 * 60_000
 
 function dispositionPriority(d: string): 'high' | 'medium' | 'low' {
   return d === 'Escalated' || d === 'Complaint Logged' ? 'high' : 'medium'
@@ -198,7 +215,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
   const inline = variant === 'inline'
   const [form, setForm] = useState({
     customer_name: '', phone: '', customer_cif: '', direction: 'Inbound',
-    outcome: 'completed', disposition: '', purpose: '', duration_seconds: '',
+    outcome: 'completed', disposition: '', purpose: 'support', duration_seconds: '',
     callback_at: '', ticket_type: '', notes: '', resolution: '',
   })
   const [custPicked, setCustPicked] = useState(false)
@@ -210,10 +227,20 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
   const [saving, setSaving] = useState(false)
   const [callScript, setCallScript] = useState<CallScript | null>(null)
   const [scriptExpanded, setScriptExpanded] = useState(false)
+  // A ticket already opened for THIS write-up. The ticket is created before the call
+  // is saved, so a save that fails (or hits the 30s timeout) and is retried must reuse
+  // it rather than run the whole SLA/assignment pipeline again and strand the first.
+  const ticketRefRef = useRef('')
 
   // Draft key — one per call context, so two agents (or two leads) never share a
   // draft and reopening the same lead restores that lead's own unsent notes.
-  const draftKey = `o3c_calldraft_${initial?.leadId ?? ''}_${initial?.cif ?? ''}_${initial?.phone ?? ''}`
+  //
+  // Null when the form is opened with no customer at all (the generic Log Call
+  // button): every such open shared ONE key, so an abandoned write-up came back up
+  // under the next customer the agent called.
+  const draftKey = (initial?.leadId || initial?.cif || initial?.phone)
+    ? `o3c_calldraft_${initial?.leadId ?? ''}_${initial?.cif ?? ''}_${initial?.phone ?? ''}`
+    : null
 
   // Seed the form when the context CHANGES — not on every re-render.
   //
@@ -232,17 +259,33 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
     const nm = initial?.name && initial.name !== 'Unknown' ? initial.name : ''
     const fresh = {
       customer_name: nm, phone: initial?.phone ?? '', customer_cif: initial?.cif ?? '',
-      direction: dir, outcome: 'completed', disposition: '', purpose: initial?.purpose ?? '',
+      direction: dir, outcome: 'completed', disposition: '', purpose: initial?.purpose || 'support',
       duration_seconds: '', callback_at: '', ticket_type: '', notes: '', resolution: '',
     }
     let restored = false
     try {
-      const saved = localStorage.getItem(draftKey)
+      const saved = draftKey ? localStorage.getItem(draftKey) : null
       if (saved) {
         const d = JSON.parse(saved)
-        // Only restore a draft with something actually in it; a blank one is noise.
-        if (d && (d.notes || d.resolution || d.disposition)) {
-          setForm({ ...fresh, ...d })
+        // Only restore a draft with something actually in it; a blank one is noise,
+        // and one left over from days ago is worse than none.
+        const recent = d?._savedAt && Date.now() - d._savedAt < DRAFT_TTL_MS
+        if (d && recent && (d.notes || d.resolution || d.disposition)) {
+          // Restore the WRITE-UP only. Identity always comes from the context the form
+          // was opened with — a draft's stored name, number and CIF overwriting the
+          // fresh ones is how one customer's notes reappeared under the next.
+          setForm({
+            ...fresh,
+            direction:        d.direction ?? fresh.direction,
+            outcome:          d.outcome ?? fresh.outcome,
+            purpose:          d.purpose ?? fresh.purpose,
+            disposition:      d.disposition ?? '',
+            duration_seconds: d.duration_seconds ?? '',
+            callback_at:      d.callback_at ?? '',
+            ticket_type:      d.ticket_type ?? '',
+            notes:            d.notes ?? '',
+            resolution:       d.resolution ?? '',
+          })
           restored = true
         }
       }
@@ -252,6 +295,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
     setCustPicked(false)
     setCustManual(!!(initial?.name || initial?.phone || initial?.cif))
     setCreateTicket(false)
+    ticketRefRef.current = ''
     setPtp({ amount: '', date: '' })
     setCallScript(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -261,11 +305,13 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
   // Persist the draft as it is typed. Debounced so a fast typist is not writing to
   // localStorage on every keystroke, and only for a form with real content.
   useEffect(() => {
-    if (!open) return
+    if (!open || !draftKey) return
     const t = setTimeout(() => {
       try {
         if (form.notes || form.resolution || form.disposition || form.duration_seconds) {
-          localStorage.setItem(draftKey, JSON.stringify(form))
+          // Stamped so a draft can expire; an unsent write-up is only worth restoring
+          // while the call it belongs to is still the one being made.
+          localStorage.setItem(draftKey, JSON.stringify({ ...form, _savedAt: Date.now() }))
         }
       } catch { /* storage full or blocked — the form still works */ }
     }, 400)
@@ -396,6 +442,10 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
   const noAnswerLabel = form.direction === 'Inbound' ? 'Missed' : 'No Answer'
 
   function resetAndClose() {
+    // Dismissing the form is abandoning the write-up, so the draft goes with it —
+    // keeping it is what brought a dead draft back under the next customer. An
+    // accidental refresh is NOT a dismiss, so that case still restores.
+    try { if (draftKey) localStorage.removeItem(draftKey) } catch { /* ignore */ }
     setCallScript(null)
     onClose()
   }
@@ -403,6 +453,11 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
   async function submit() {
     if (!form.phone.trim() && !form.customer_cif.trim() && !form.customer_name.trim()) {
       toast.error('Add a customer (search) or a phone number'); return
+    }
+    // The disposition drives the whole queue state machine — what happens to this
+    // customer next is decided by it — so it is required, not merely offered.
+    if (!form.disposition) {
+      toast.error('Pick the disposition — it decides what happens to this customer next'); return
     }
     if (createTicket && !form.ticket_type) {
       toast.error('Pick a ticket type to open a linked ticket'); return
@@ -423,8 +478,8 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
     try {
       // Optionally open a real follow-up ticket first (full pipeline: SLA, assignment,
       // first message) and link the call to it.
-      let ticketRef: string | undefined
-      if (createTicket) {
+      let ticketRef: string | undefined = ticketRefRef.current || undefined
+      if (createTicket && !ticketRef) {
         const tRes = await apiPost<{ ticket?: { ticket_ref?: string } }>('/api/helpdesk/tickets', {
           channel:        'phone',
           subject:        `${form.ticket_type} — ${form.customer_name || form.phone || 'caller'}`,
@@ -437,6 +492,9 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
           custom_fields:  { disposition: form.disposition || '', resolution: resolutionOut || '', source: 'call_log' },
         })
         ticketRef = tRes?.ticket?.ticket_ref
+        // Remembered for the length of this attempt, so pressing Log Call again after a
+        // failure links the ticket that already exists instead of opening a second one.
+        ticketRefRef.current = ticketRef ?? ''
       }
       await apiPost('/api/helpdesk/calls', {
         customer_name:    form.customer_name || undefined,
@@ -462,19 +520,23 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
         merge_call_id:    matchedCall?.id,
         callback_at:      (needsCallback || isNotReady) && form.callback_at ? form.callback_at : undefined,
       })
-      // A scheduled callback drops into the outbound queue for this number — but ONLY
-      // when the call isn't already advancing a lead. A lead call carries its own
-      // callback (syncLeadFromCall sets the lead's callback_at), so creating a queue
-      // contact here just duplicated it — every callback showed up twice, once on the
-      // lead and once as a stray "Support Call-back". And carry the call's purpose so a
-      // collections/marketing callback isn't mislabelled as support.
-      if (needsCallback && form.phone.trim() && !initial?.leadId && !initial?.contactId) {
+      // A date the agent picked only reaches the record when the call carries a lead or
+      // contact link — those are the only paths that read callback_at — so on a
+      // standalone call it was simply dropped. Schedule it as a queue call-back instead,
+      // for a promised callback AND for a "try again on" date. Skipped when a
+      // lead/contact already carries it: that is what made every lead callback show up
+      // twice, once on the lead and once as a stray "Support Call-back". The call's
+      // purpose rides along so a collections/marketing callback isn't filed as support.
+      const wantsCallback = (needsCallback || isNotReady) && !!form.callback_at
+      let callbackScheduled = wantsCallback && !!(initial?.leadId || initial?.contactId)
+      if (wantsCallback && !callbackScheduled && form.phone.trim()) {
         try {
           await apiPost('/api/call-center/queue/add-callback', {
             name: form.customer_name.trim(), phone: form.phone.trim(), cif: form.customer_cif.trim(),
             callback_at: form.callback_at, notes: form.notes.trim(), purpose: form.purpose || undefined,
           })
-        } catch { /* the call itself logged; surface only the primary result */ }
+          callbackScheduled = true
+        } catch { /* fall through to the warning below — the call itself is logged */ }
       }
       // A Promise to Pay is its own follow-up: re-surface the account on the promised
       // date (09:00) so someone confirms the payment landed. Same rule — skip when the
@@ -488,12 +550,18 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
           })
         } catch { /* the call itself logged; surface only the primary result */ }
       }
-      // Submitted successfully — the draft has served its purpose.
-      try { localStorage.removeItem(draftKey) } catch { /* ignore */ }
+      // Submitted successfully — the draft and this attempt's ticket have both served
+      // their purpose.
+      try { if (draftKey) localStorage.removeItem(draftKey) } catch { /* ignore */ }
+      ticketRefRef.current = ''
       toast.success(ticketRef ? `Call logged · ticket ${ticketRef} opened`
-        : needsCallback ? 'Call logged · callback scheduled'
+        : callbackScheduled ? 'Call logged · call-back scheduled'
         : isPTP && ptp.date ? 'Call logged · payment follow-up scheduled'
         : 'Call logged')
+      // A date the agent chose must never just vanish.
+      if (wantsCallback && !callbackScheduled) {
+        toast.warning('The call-back time was not scheduled — add a phone number and log it again')
+      }
       resetAndClose()
       // Hand the disposition back so a caller can react to it — e.g. the Leads page
       // keeps the agent on a "Call Dropped" lead to redial instead of auto-advancing.
@@ -527,7 +595,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
         {!inline && (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', padding: '4px 11px', borderRadius: RADIUS.full, background: `${copy.accent}14`, color: copy.accent, fontSize: TEXT.xs, fontWeight: FW.bold }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>category</span>
-            {copy.label} call
+            {copy.label} Call
           </div>
         )}
 
@@ -582,7 +650,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
               </div>
               <button type="button" onClick={() => setCustManual(false)}
                 style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, padding: 0, border: 'none', background: 'none', color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>search</span>Search for an existing customer instead
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>search</span>Search for an Existing Customer Instead
               </button>
             </div>
           ) : (
@@ -602,7 +670,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
             call. This is the one customer field worth keeping in the lead pane. */}
         {inline && !form.customer_name && (
           <div>
-            <label style={labelSt}>Caller name</label>
+            <label style={labelSt}>Caller Name</label>
             <input value={form.customer_name}
               onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))}
               placeholder="Add the name once you have it" style={inputSt} />
@@ -670,7 +738,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
             )}
             {!durSource && (
               <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 3 }}>
-                Auto-fills from Voice
+                Auto-fills from the phone system
               </div>
             )}
           </div>
@@ -683,15 +751,15 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
         <div style={{ display: 'grid', gridTemplateColumns: inline ? '1fr' : '1fr 1fr', gap: SP[3] }}>
           {!inline && (
           <div>
-            <label style={labelSt}>Call purpose / links to</label>
+            <label style={labelSt}>Call Purpose / Links To</label>
             <select value={form.purpose} onChange={e => setPurpose(e.target.value)} style={inputSt}>
               {CALL_PURPOSES.map(p => <option key={p.value || 'support'} value={p.value}>{p.label}</option>)}
             </select>
           </div>
           )}
           <div>
-            <label style={labelSt}>Disposition</label>
-            <select value={form.disposition} onChange={e => setDisposition(e.target.value)} style={inputSt}>
+            <label style={labelSt}>Disposition <span style={{ color: RED }} aria-hidden="true">*</span></label>
+            <select value={form.disposition} onChange={e => setDisposition(e.target.value)} required aria-required="true" style={inputSt}>
               <option value="">— Select —</option>
               {dispositions.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
@@ -701,7 +769,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
         {/* Callback time — only when the disposition is a scheduled callback */}
         {needsCallback && (
           <div style={{ padding: 12, background: `${AMBER}0d`, borderRadius: RADIUS.md, border: `1px solid ${AMBER}28` }}>
-            <label style={labelSt}>Call back at</label>
+            <label style={labelSt}>Call Back At</label>
             <input type="datetime-local" value={form.callback_at}
               onChange={e => setForm(f => ({ ...f, callback_at: e.target.value }))} style={inputSt} />
           </div>
@@ -712,7 +780,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
             knows when to circle back. */}
         {isNotReady && (
           <div style={{ padding: 12, background: '#6366F10d', borderRadius: RADIUS.md, border: '1px solid #6366F128' }}>
-            <label style={labelSt}>Try again on <span style={{ color: 'var(--txt3)', fontWeight: FW.medium }}>(optional)</span></label>
+            <label style={labelSt}>Try Again On <span style={{ color: 'var(--txt3)', fontWeight: FW.medium }}>(Optional)</span></label>
             <input type="datetime-local" value={form.callback_at}
               onChange={e => setForm(f => ({ ...f, callback_at: e.target.value }))} style={inputSt} />
           </div>
@@ -723,12 +791,12 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
         {isPTP && (
           <div style={{ padding: 12, background: `${RED}0d`, borderRadius: RADIUS.md, border: `1px solid ${RED}28`, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={labelSt}>Amount promised (₦)</label>
+              <label style={labelSt}>Amount Promised (₦)</label>
               <input type="number" min={0} value={ptp.amount}
                 onChange={e => setPtp(p => ({ ...p, amount: e.target.value }))} placeholder="e.g. 50000" style={inputSt} />
             </div>
             <div>
-              <label style={labelSt}>Promised by</label>
+              <label style={labelSt}>Promised By</label>
               <input type="date" value={ptp.date}
                 onChange={e => setPtp(p => ({ ...p, date: e.target.value }))} style={inputSt} />
             </div>
@@ -738,7 +806,7 @@ export function CallLogForm({ open, initial, onClose, onSaved, variant = 'modal'
         {/* Open a linked follow-up ticket (auto-checked for follow-up dispositions) */}
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: TEXT.sm, color: 'var(--txt)', cursor: 'pointer', userSelect: 'none' }}>
           <input type="checkbox" checked={createTicket} onChange={e => setCreateTicket(e.target.checked)} style={{ accentColor: NAVY, width: 15, height: 15 }} />
-          Open a linked follow-up ticket
+          Open a Linked Follow-Up Ticket
           {createTicket && !form.ticket_type && <span style={{ color: AMBER, fontSize: TEXT.xs }}>— pick a ticket type below</span>}
         </label>
 

@@ -16,6 +16,7 @@ import (
 
 func RegisterRecovery(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("recovery"))
+	assign := core.RequirePages("recovery_assign")
 	r.Get("/kpis", recoveryKPIs(db))
 	r.Get("/by-method", recoveryByMethod(db))
 	r.Get("/by-channel", recoveryByChannel(db))
@@ -33,7 +34,7 @@ func RegisterRecovery(r chi.Router, db *core.DB) {
 	r.Post("/debt-sales", recoveryCreateDebtSale(db))
 	r.Put("/debt-sales/{id}/approve", recoveryApproveDebtSale(db))
 	r.Put("/debt-sales/{id}/reject", recoveryRejectDebtSale(db))
-	r.Delete("/debt-sales/{id}", recoveryDeleteDebtSale(db))
+	r.With(assign).Delete("/debt-sales/{id}", recoveryDeleteDebtSale(db))
 }
 
 // recoveryKPIs — the Overview headline, off the LIVE recovery book. This used to read
@@ -128,16 +129,31 @@ func recoveryPaymentPeriod(from, to string) (string, []any) {
 	return where, args
 }
 
+// recoveryByMethod used to query a phantom "Recovery Master Sheet" table that no
+// migration ever created (silently always empty, like recoveryKPIs and recoveryCases
+// before their own fixes — see recoveryKPIs' doc comment). "Recovery Method" in that
+// old sheet is what recovery_payments now calls channel, so this mirrors
+// recoveryByChannel's grouping but reports totals/count rather than a period-relative
+// percentage split.
 func recoveryByMethod(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		data, src, err := db.DualQuery(r.Context(),
-			`SELECT "Recovery Method", COALESCE(SUM("Recovery Amount"),0) AS total, COUNT(*) AS count
-			 FROM "Recovery Master Sheet" GROUP BY "Recovery Method" ORDER BY total DESC`)
+		where, args := recoveryPaymentPeriod(qstr(r, "from"), qstr(r, "to"))
+		rows, err := db.PGQuery(r.Context(), `
+			SELECT COALESCE(NULLIF(TRIM(channel),''),'Unspecified') AS "Recovery Method",
+			       COALESCE(SUM(amount_kobo), 0) AS total,
+			       COUNT(*) AS count
+			FROM recovery_payments
+			WHERE status IN ('approved','posted')`+where+`
+			GROUP BY 1
+			ORDER BY total DESC`, args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
-		respond(w, data, src)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
 	}
 }
 
@@ -185,6 +201,9 @@ func recoveryMonthlyTrend(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// recoveryCases used to query a phantom "Recovery Master Sheet" table that no
+// migration ever created (silently always empty — see recoveryKPIs' doc comment for
+// the same bug already fixed there). Now built from recovery_cases, the real book.
 func recoveryCases(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dateFrom, err := validDate(r, "date_from")
@@ -199,22 +218,38 @@ func recoveryCases(db *core.DB) http.HandlerFunc {
 		}
 		limit := qint(r, "limit", 200, 1, 1000)
 
-		var f Filter
-		f.Date("r.[Recovery Date]", `r."Recovery Date"`, dateFrom, dateTo)
+		var extraWhere string
+		var args []any
+		n := 1
+		if dateFrom != "" {
+			extraWhere += fmt.Sprintf(" AND rc.opened_at::date >= $%d", n)
+			args = append(args, dateFrom)
+			n++
+		}
+		if dateTo != "" {
+			extraWhere += fmt.Sprintf(" AND rc.opened_at::date <= $%d", n)
+			args = append(args, dateTo)
+			n++
+		}
+		args = append(args, limit)
 
-		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT r."CIF Number", a.first_name AS "First Name", a.last_name AS "Last Name",
-			        r."Recovery Amount", r."Recovery Method", r."Legal Stage",
-			        r."Agent", r."Status", r."Recovery Date"
-			 FROM "Recovery Master Sheet" r
-			 LEFT JOIN app.customers a ON r."CIF Number"=a.cif
-			 WHERE 1=1%s ORDER BY r."Recovery Date" DESC LIMIT %d`, f.PG(), limit),
-			f.Args()...)
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			SELECT rc.account_cif AS "CIF Number", c.first_name AS "First Name", c.last_name AS "Last Name",
+			       rc.recovered_kobo AS "Recovery Amount", rc.legal_stage AS "Legal Stage",
+			       COALESCE(u.full_name,'Unassigned') AS "Agent", rc.status AS "Status", rc.opened_at AS "Recovery Date"
+			FROM recovery_cases rc
+			LEFT JOIN app.customers c ON c.cif = rc.account_cif
+			LEFT JOIN o3c_users u ON u.id = rc.assigned_agent_id
+			WHERE 1=1%s
+			ORDER BY rc.opened_at DESC LIMIT $%d`, extraWhere, n), args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
-		respond(w, data, src)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
 	}
 }
 
@@ -404,20 +439,52 @@ func recoverySetSolicitor(db *core.DB) http.HandlerFunc {
 }
 
 // recoveryLegalKPIs returns aggregate KPIs for cases in legal.
+// recoveryLegalKPIs used to LEFT JOIN recovery_cases straight to legal_proceedings,
+// which fans out to one row per proceeding per case — a case with 3 filed
+// proceedings had its recovered_kobo triple-counted in the sum and its case age
+// triple-counted in the average. Proceedings are pre-aggregated to one row per case
+// first so every case contributes exactly once.
+//
+// Takes the same optional from/to as recoveryLegal (filtered on rc.opened_at) so the
+// KPI strip and the case table below it always describe the same window — this used
+// to be unfiltered while the table defaulted to the current month, so the two could
+// disagree (KPIs showing the whole book, table showing next to nothing).
 func recoveryLegalKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.PGQuery(r.Context(), `
+		from := qstr(r, "from")
+		to := qstr(r, "to")
+		var extraWhere string
+		var args []any
+		n := 1
+		if from != "" {
+			extraWhere += fmt.Sprintf(" AND opened_at::date >= $%d", n)
+			args = append(args, from)
+			n++
+		}
+		if to != "" {
+			extraWhere += fmt.Sprintf(" AND opened_at::date <= $%d", n)
+			args = append(args, to)
+			n++
+		}
+		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
+			WITH cases AS (
+			    SELECT id, status, opened_at, closed_at, recovered_kobo
+			    FROM recovery_cases WHERE legal_stage IS NOT NULL%s
+			),
+			proceedings AS (
+			    SELECT case_id, BOOL_OR(outcome = 'won') AS won
+			    FROM legal_proceedings GROUP BY case_id
+			)
 			SELECT
-			    COUNT(DISTINCT rc.id) AS total_cases,
-			    COUNT(DISTINCT rc.id) FILTER (WHERE rc.status IN ('active','legal')) AS active,
-			    COUNT(*) FILTER (WHERE lp.outcome = 'won') AS won,
+			    COUNT(*) AS total_cases,
+			    COUNT(*) FILTER (WHERE rc.status IN ('active','legal')) AS active,
+			    COUNT(*) FILTER (WHERE COALESCE(lp.won, false)) AS won,
 			    ROUND(AVG(
 			        EXTRACT(DAY FROM COALESCE(rc.closed_at, NOW()) - rc.opened_at)
 			    ))::int AS avg_days,
 			    COALESCE(SUM(rc.recovered_kobo), 0) AS total_debt_recovered_kobo
-			FROM recovery_cases rc
-			LEFT JOIN legal_proceedings lp ON lp.case_id = rc.id
-			WHERE rc.legal_stage IS NOT NULL`)
+			FROM cases rc
+			LEFT JOIN proceedings lp ON lp.case_id = rc.id`, extraWhere), args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
@@ -584,6 +651,10 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "face_value_kobo must be greater than zero")
 			return
 		}
+		if body.SalePriceKobo < 0 {
+			respondErr(w, 422, "sale_price_kobo cannot be negative")
+			return
+		}
 		if body.SalePriceKobo > body.FaceValueKobo {
 			respondErr(w, 422, "sale_price_kobo cannot exceed face_value_kobo")
 			return
@@ -709,6 +780,12 @@ func recoveryApproveDebtSale(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, fmt.Sprintf("This approval stage requires the '%s' (%s) role", prog.required, prog.label))
 			return
 		}
+		// Self-approval prevention — the person who requested the sale can't sign any
+		// of its stages, mirroring recoveryOpsApprovePayment.
+		if toInt64(drows[0]["requested_by"]) == user.ID && user.Role != "admin" {
+			respondErr(w, 403, "Cannot approve a debt sale you requested")
+			return
+		}
 		salePrice := toInt64(drows[0]["sale_price_kobo"])
 		buyer := str(drows[0]["buyer_name"])
 		isFinal := prog.next == "approved"
@@ -826,7 +903,11 @@ func recoveryRejectDebtSale(db *core.DB) http.HandlerFunc {
 }
 
 // M3: recoveryDeleteDebtSale performs a soft delete so the sale record is
-// preserved for audit purposes.
+// preserved for audit purposes. Route-gated to recovery_assign (head-level) since
+// this removes a sale from every list, not just a status change. A sale that has
+// already reached 'approved' has a live GL entry against it (see
+// recoveryApproveDebtSale) — deleting the row would hide that entry's source record,
+// so approved sales must be reversed with a proper GL adjustment instead of deleted.
 //
 // Columns added by migration 073_debt_sales_soft_delete.sql
 func recoveryDeleteDebtSale(db *core.DB) http.HandlerFunc {
@@ -837,7 +918,19 @@ func recoveryDeleteDebtSale(db *core.DB) http.HandlerFunc {
 			return
 		}
 		user := core.UserFromCtx(r.Context())
-		if _, err := db.PGExec(r.Context(),
+		ctx := r.Context()
+
+		drows, derr := db.PGQuery(ctx, `SELECT status FROM debt_sales WHERE id=$1 AND deleted_at IS NULL`, id)
+		if derr != nil || len(drows) == 0 {
+			respondErr(w, 404, "Debt sale not found")
+			return
+		}
+		if str(drows[0]["status"]) == "approved" {
+			respondErr(w, 422, "An approved debt sale has a posted GL entry and cannot be deleted — reverse it with a GL adjustment instead")
+			return
+		}
+
+		if _, err := db.PGExec(ctx,
 			`UPDATE debt_sales SET deleted_at=NOW(), deleted_by=$1 WHERE id=$2 AND deleted_at IS NULL`,
 			user.ID, id); err != nil {
 			respondErr(w, 500, "Delete failed")

@@ -356,7 +356,7 @@ function AssistantPanel({ onClose }: { onClose: () => void }) {
         {showHistory && (
           <div style={sheet}>
             <div style={sheetHead}>Recent</div>
-            {convs.length === 0 && <div style={sheetEmpty}>Nothing yet</div>}
+            {convs.length === 0 && <div style={sheetEmpty}>Nothing Yet</div>}
             <div style={{ overflowY: 'auto', minHeight: 0 }}>
               {convs.slice(0, 30).map(c => (
                 <button key={c.id} onClick={() => void openConversation(c.id)} title={c.title}
@@ -376,7 +376,7 @@ function AssistantPanel({ onClose }: { onClose: () => void }) {
           {msgs.length === 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
               <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                Try one of these
+                Try One of These
               </div>
               {SUGGESTIONS.map(s => (
                 <button key={s} onClick={() => void send(s)} disabled={disabled} style={suggestion}

@@ -184,7 +184,7 @@ export default function DPARegister() {
                     <td style={{ ...td, fontWeight: FW.semibold, color: NAVY, maxWidth: 200 }}>
                       <div>{row.processing_name}</div>
                       {row.third_country_transfers && (
-                        <div style={{ fontSize: TEXT.xs, color: AMBER, fontWeight: FW.bold, marginTop: 2 }}>Third-country transfer</div>
+                        <div style={{ fontSize: TEXT.xs, color: AMBER, fontWeight: FW.bold, marginTop: 2 }}>Third-country Transfer</div>
                       )}
                     </td>
                     <td style={{ ...td, color: 'var(--txt2)', maxWidth: 200, fontSize: TEXT.sm }}>{row.purpose}</td>
@@ -246,7 +246,7 @@ export default function DPARegister() {
               </div>
             </div>
             <div>
-              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Data Categories (comma-separated)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>Data Categories (Comma-separated)</label>
               <input value={fCategories} onChange={e => setFCategories(e.target.value)} placeholder="identity, financial, contact" style={inp} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
@@ -276,7 +276,7 @@ export default function DPARegister() {
         <Modal open title={`Edit: ${selected.processing_name}`} onClose={() => setSelected(null)} width={420}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: 6 }}>
-              Legal basis: <strong>{BASIS_LABELS[selected.legal_basis]}</strong> · Last updated: {fmtDatetime(selected.updated_at)}
+              Legal Basis: <strong>{BASIS_LABELS[selected.legal_basis]}</strong> · Last Updated: {fmtDatetime(selected.updated_at)}
             </div>
             <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt2)', marginBottom: SP[1] }}>Change Status</div>
             {(['active', 'under_review', 'discontinued'] as const).map(s => (

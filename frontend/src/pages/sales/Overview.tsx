@@ -260,13 +260,13 @@ export default function SalesOverview() {
     },
     { key: 'book_size', label: 'Book', sortable: true, align: 'right',
       render: r => <span style={NUM}>{fmtNum(r.book_size)}</span> },
-    { key: 'acquired_period', label: 'New (period)', sortable: true, align: 'right',
+    { key: 'acquired_period', label: 'New (Period)', sortable: true, align: 'right',
       render: r => <span style={{ ...NUM, color: n(r.acquired_period) > 0 ? GREEN : 'var(--txt3)' }}>{fmtNum(r.acquired_period)}</span> },
     { key: 'converted_period', label: 'Converted', sortable: true, align: 'right',
       render: r => <span style={{ ...NUM, color: n(r.converted_period) > 0 ? GREEN : 'var(--txt3)' }}>{fmtNum(r.converted_period)}</span> },
-    { key: 'open_leads', label: 'Open leads', sortable: true, align: 'right',
+    { key: 'open_leads', label: 'Open Leads', sortable: true, align: 'right',
       render: r => <span style={NUM}>{fmtNum(r.open_leads)}</span> },
-    { key: 'conversion_rate_pct', label: 'Conv. rate', sortable: true, align: 'right',
+    { key: 'conversion_rate_pct', label: 'Conv. Rate', sortable: true, align: 'right',
       render: r => r.conversion_rate_pct == null
         ? <span style={{ color: 'var(--txt3)' }}>—</span>
         : <span style={NUM}>{fmtPct(r.conversion_rate_pct)}</span> },
@@ -274,7 +274,7 @@ export default function SalesOverview() {
       render: r => <span style={NUM}>{fmtKobo(r.pipeline_value_kobo)}</span> },
     { key: 'overdue_actions', label: 'Overdue', sortable: true, align: 'right',
       render: r => <span style={{ ...NUM, color: n(r.overdue_actions) > 0 ? RED : 'var(--txt3)' }}>{fmtNum(r.overdue_actions)}</span> },
-    { key: 'customers_in_arrears', label: 'In arrears', sortable: true, align: 'right',
+    { key: 'customers_in_arrears', label: 'In Arrears', sortable: true, align: 'right',
       render: r => <span style={{ ...NUM, color: n(r.customers_in_arrears) > 0 ? AMBER : 'var(--txt3)' }}>{fmtNum(r.customers_in_arrears)}</span> },
   ]
 
@@ -383,7 +383,7 @@ export default function SalesOverview() {
                 onClick={() => navigate('/sales/book?officer_id=unassigned')}
                 style={{ background: 'none', border: 'none', color: BLUE, cursor: 'pointer', padding: 0, font: 'inherit', fontWeight: FW.semibold }}
               >
-                Assign the book
+                Assign the Book
               </button>
             </Caveat>
           )}
@@ -396,7 +396,7 @@ export default function SalesOverview() {
                 onClick={() => navigate('/sales/book?officer_id=unassigned')}
                 style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', padding: 0, font: 'inherit', fontWeight: FW.semibold }}
               >
-                Assign them
+                Assign Them
               </button>
             </Caveat>
           )}
@@ -410,43 +410,43 @@ export default function SalesOverview() {
         </span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[4] }}>
-        <KpiCard label="New customers" value={summary ? fmtNum(summary.period_customers) : '—'}
+        <KpiCard label="New Customers" value={summary ? fmtNum(summary.period_customers) : '—'}
           sub={summary && summary.prev_period_customers > 0 ? `${fmtNum(summary.prev_period_customers)} prior period` : 'in selected period'}
           change={num(summary?.period_customers_change_pct)}
           icon="person_add" accent={GREEN} loading={loading} />
-        <KpiCard label="New leads" value={summary ? fmtNum(summary.period_leads) : '—'}
+        <KpiCard label="New Leads" value={summary ? fmtNum(summary.period_leads) : '—'}
           sub={summary && summary.prev_period_leads > 0 ? `${fmtNum(summary.prev_period_leads)} prior period` : 'in selected period'}
           change={num(summary?.period_leads_change_pct)}
           icon="filter_alt" accent={BLUE} loading={loading} />
         <KpiCard label="Converted" value={summary ? fmtNum(summary.period_converted) : '—'}
           sub={summary ? `${fmtNum(summary.customers)} total in book` : undefined}
           icon="verified" accent={PURPLE} loading={loading} />
-        <KpiCard label="Open pipeline" value={summary ? fmtKobo(summary.pipeline_value_kobo) : '—'}
+        <KpiCard label="Open Pipeline" value={summary ? fmtKobo(summary.pipeline_value_kobo) : '—'}
           sub={summary ? `${fmtNum(summary.open_leads)} open leads` : undefined}
           icon="trending_up" accent={NAVY} loading={loading} />
       </div>
 
       {/* Book-state metric band — always current, ignores the window */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 12, marginBottom: SP[4] }}>
-        <StatTile label="Total book" value={summary ? fmtNum(summary.customers) : '—'} icon="groups" tone={NAVY}
+        <StatTile label="Total Book" value={summary ? fmtNum(summary.customers) : '—'} icon="groups" tone={NAVY}
           onClick={() => navigate('/sales/book')} />
         <StatTile label="Unassigned" value={summary ? fmtNum(summary.unassigned) : '—'} icon="assignment_late"
           tone={n(summary?.unassigned) > 0 ? AMBER : GREEN} onClick={() => navigate('/sales/book?officer_id=unassigned')} />
-        <StatTile label="Open leads" value={summary ? fmtNum(summary.open_leads) : '—'} icon="hub" tone={BLUE}
-          sub={summary ? `${fmtNum(summary.qualified)} qualified` : undefined} onClick={() => navigate('/sales/leads')} />
-        <StatTile label="Overdue follow-ups" value={summary ? fmtNum(summary.overdue_actions) : '—'} icon="alarm"
+        <StatTile label="Open Leads" value={summary ? fmtNum(summary.open_leads) : '—'} icon="hub" tone={BLUE}
+          sub={summary ? `${fmtNum(summary.qualified)} interested` : undefined} onClick={() => navigate('/sales/leads')} />
+        <StatTile label="Overdue Follow-Ups" value={summary ? fmtNum(summary.overdue_actions) : '—'} icon="alarm"
           tone={n(summary?.overdue_actions) > 0 ? RED : GREEN} onClick={() => navigate('/sales/leads?due=1')} />
-        <StatTile label="Active officers" value={summary ? fmtNum(summary.officers) : '—'} icon="badge" tone={PURPLE}
+        <StatTile label="Active Officers" value={summary ? fmtNum(summary.officers) : '—'} icon="badge" tone={PURPLE}
           sub={summary?.avg_book_per_officer != null ? `${fmtNum(summary.avg_book_per_officer)} avg book` : undefined}
           onClick={() => navigate('/sales/supervisor')} />
-        <StatTile label="Total leads" value={summary ? fmtNum(summary.total_leads) : '—'} icon="contacts" tone={GREEN}
+        <StatTile label="Total Leads" value={summary ? fmtNum(summary.total_leads) : '—'} icon="contacts" tone={GREEN}
           onClick={() => navigate('/sales/leads')} />
       </div>
 
       {/* Acquisition trend (period-wired) + lead sources (period-wired) */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
         <SectionCard
-          title="Customer acquisition"
+          title="Customer Acquisition"
           subtitle={`New customers registered per month · ${windowLabel}`}
         >
           {loading ? <Sk h={260} /> : acq.length === 0 ? (
@@ -461,12 +461,12 @@ export default function SalesOverview() {
               legend={false}
               valueFmt={fmtNum}
               axisFmt={fmtNum}
-              series={[{ key: 'customers', name: 'New customers', color: NAVY }]}
+              series={[{ key: 'customers', name: 'New Customers', color: NAVY }]}
             />
           )}
         </SectionCard>
 
-        <SectionCard title="Lead sources" subtitle={`Where leads originate · ${windowLabel}`}>
+        <SectionCard title="Lead Sources" subtitle={`Where leads originate · ${windowLabel}`}>
           {loading ? <Sk h={260} /> : sources.length === 0 ? (
             <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm, padding: 12 }}>
               No leads created in this period
@@ -501,7 +501,7 @@ export default function SalesOverview() {
 
       {/* Pipeline by product + team targets (current state — not window-scoped) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: SP[4] }}>
-        <SectionCard title="Open pipeline by product" subtitle="Leads in play, by line — click to filter">
+        <SectionCard title="Open Pipeline by Product" subtitle="Leads in play, by line — click to filter">
           {!loading && PRODUCT_LINES.every(pl => (mix[pl.line]?.count ?? 0) === 0) && (mix.unclassified?.count ?? 0) > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 8, padding: `${SP[5]} ${SP[4]}`, minHeight: 150 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 30, color: 'var(--txt3)' }}>sell</span>
@@ -514,7 +514,7 @@ export default function SalesOverview() {
               </div>
               <button onClick={() => navigate('/sales/leads')}
                 style={{ marginTop: 4, fontSize: TEXT.sm, fontWeight: FW.semibold, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>
-                Open leads
+                Open Leads
               </button>
             </div>
           ) : (<>
@@ -540,17 +540,17 @@ export default function SalesOverview() {
           </>)}
         </SectionCard>
 
-        <SectionCard title="Team targets & commission" subtitle="This month, across all officers">
+        <SectionCard title="Team Targets & Commission" subtitle="This month, across all officers">
           {!loading && actuals.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 8, padding: `${SP[5]} ${SP[4]}`, minHeight: 150 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 30, color: 'var(--txt3)' }}>flag</span>
-              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>No targets set this month</div>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>No Targets Set This Month</div>
               <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', maxWidth: 320, lineHeight: 1.5 }}>
                 Attainment and commission appear once monthly targets are assigned to officers.
               </div>
               <button onClick={() => navigate('/sales/targets')}
                 style={{ marginTop: 4, fontSize: TEXT.sm, fontWeight: FW.semibold, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>
-                Set targets
+                Set Targets
               </button>
             </div>
           ) : (
@@ -574,7 +574,7 @@ export default function SalesOverview() {
                 )
               })}
               <div style={{ marginTop: 4, paddingTop: 10, borderTop: '1px solid var(--bdr)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Commission earned (team)</span>
+                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Commission Earned (Team)</span>
                 <span style={{ fontSize: TEXT.xl, fontWeight: FW.extrabold, color: GREEN, ...NUM }}>{fmtKobo(team.commission)}</span>
               </div>
             </div>
@@ -584,13 +584,13 @@ export default function SalesOverview() {
 
       {/* Team league table (period-wired) */}
       <SectionCard
-        title="Team performance"
+        title="Team Performance"
         subtitle={`Book, acquisition and pipeline by officer · ${windowLabel}`}
         badge={officers.length || undefined}
         actions={
           <button onClick={() => navigate('/sales/book')}
             style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
-            Open the book <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_forward</span>
+            Open the Book <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_forward</span>
           </button>
         }
       >
@@ -606,7 +606,7 @@ export default function SalesOverview() {
       </SectionCard>
 
       {/* Acquisition by office (Lagos / Abuja / …) — customer's office follows its officer */}
-      <SectionCard title="By office" subtitle={`Book and acquisition by branch · ${windowLabel}`}
+      <SectionCard title="By Office" subtitle={`Book and acquisition by branch · ${windowLabel}`}
         badge={byOffice.length || undefined}
         style={{ marginTop: 14 }}>
         {loading ? <Sk h={120} /> : byOffice.length === 0 ? (
@@ -620,7 +620,7 @@ export default function SalesOverview() {
             </div>
             <button onClick={() => navigate('/admin/users')}
               style={{ marginTop: 4, fontSize: TEXT.sm, fontWeight: FW.semibold, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>
-              Manage staff offices
+              Manage Staff Offices
             </button>
           </div>
         ) : (
@@ -664,43 +664,43 @@ export default function SalesOverview() {
 
       {/* What needs attention + book health */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
-        <SectionCard title="Needs attention" subtitle="Book gaps and leads that have stopped moving">
+        <SectionCard title="Needs Attention" subtitle="Book gaps and leads that have stopped moving">
           {loading ? <Sk h={200} /> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <AttnBlock
-                label="Unassigned customers" tone={AMBER} icon="assignment_late"
+                label="Unassigned Customers" tone={AMBER} icon="assignment_late"
                 count={attn?.unassigned_book_total ?? 0}
                 hint="Customers with no account officer"
                 onClick={() => navigate('/sales/book?officer_id=unassigned')}
               />
               <AttnBlock
-                label="Unowned leads" tone={RED} icon="person_off"
+                label="Unowned Leads" tone={RED} icon="person_off"
                 count={attn?.unowned_leads_total ?? attn?.unowned_leads?.length ?? 0}
                 hint="Nobody can work these until they are assigned"
                 onClick={() => navigate('/sales/leads?owner_id=unassigned')}
               />
               <AttnBlock
-                label="Overdue follow-ups" tone={RED} icon="alarm"
+                label="Overdue Follow-Ups" tone={RED} icon="alarm"
                 count={attn?.overdue_actions_total ?? attn?.overdue_actions?.length ?? 0}
                 hint="The next action date has passed"
                 onClick={() => navigate('/sales/leads?due=1')}
               />
               <AttnBlock
-                label="Stalled leads" tone={BLUE} icon="pause_circle"
+                label="Stalled Leads" tone={BLUE} icon="pause_circle"
                 count={attn?.stalled_leads_total ?? attn?.stalled_leads?.length ?? 0}
-                hint="Contacted or qualified, untouched for 14 days"
+                hint="Contacted or interested, untouched for 14 days"
                 onClick={() => navigate('/sales/leads?stalled=1')}
               />
             </div>
           )}
         </SectionCard>
 
-        <SectionCard title="Book health"
+        <SectionCard title="Book Health"
           subtitle="Freshness of the customer feed behind these numbers"
           actions={
             <button onClick={() => navigate('/admin/workers')}
               style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Sync hub <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_forward</span>
+              Sync Hub <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_forward</span>
             </button>
           }>
           {loading ? <Sk h={200} /> : (
@@ -712,7 +712,7 @@ export default function SalesOverview() {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                    {!feed ? 'Feed has never run' : feed.status === 'ok' ? 'Feed healthy' : `Feed status: ${feed.status}`}
+                    {!feed ? 'Feed Has Never Run' : feed.status === 'ok' ? 'Feed Healthy' : `Feed Status: ${feed.status}`}
                   </div>
                   <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                     {feed ? `Last run ${relTime(feed.finished_at ?? feed.started_at)} · ${fmtDatetime(feed.finished_at ?? feed.started_at)}` : 'New customers arrive in the 15-minute cust_file drops'}
@@ -724,16 +724,16 @@ export default function SalesOverview() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
                   <MiniStat label="Added" value={fmtNum(feed.customers_inserted)} tone={GREEN} />
                   <MiniStat label="Updated" value={fmtNum(feed.customers_updated)} tone={BLUE} />
-                  <MiniStat label="Files failed" value={fmtNum(feed.files_failed)} tone={n(feed.files_failed) > 0 ? RED : 'var(--txt3)'} />
+                  <MiniStat label="Files Failed" value={fmtNum(feed.files_failed)} tone={n(feed.files_failed) > 0 ? RED : 'var(--txt3)'} />
                 </div>
               )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 4 }}>
-                <Row label="Total customers in book" value={fmtNum(summary?.customers)} />
-                <Row label="New, awaiting an officer (since 1 Aug)" value={fmtNum(attn?.unassigned_customers_total)} tone={n(attn?.unassigned_customers_total) > 0 ? AMBER : GREEN} />
-                <Row label="Missing an account officer (whole book)" value={fmtNum(summary?.unassigned)} tone={n(summary?.unassigned) > 0 ? AMBER : GREEN} />
+                <Row label="Total Customers in Book" value={fmtNum(summary?.customers)} />
+                <Row label="New, Awaiting an Officer (Since 1 Aug)" value={fmtNum(attn?.unassigned_customers_total)} tone={n(attn?.unassigned_customers_total) > 0 ? AMBER : GREEN} />
+                <Row label="Missing an Account Officer (Whole Book)" value={fmtNum(summary?.unassigned)} tone={n(summary?.unassigned) > 0 ? AMBER : GREEN} />
                 {n(summary?.undated) > 0 && (
-                  <Row label="No registration date on record" value={fmtNum(summary?.undated)} tone={AMBER} />
+                  <Row label="No Registration Date on Record" value={fmtNum(summary?.undated)} tone={AMBER} />
                 )}
               </div>
             </div>
@@ -744,14 +744,14 @@ export default function SalesOverview() {
       {/* Recently acquired, unassigned — the concrete worklist with assignment */}
       {!loading && unassignedRows.length > 0 && (
         <SectionCard
-          title="Recently acquired, unassigned"
+          title="Recently Acquired, Unassigned"
           subtitle={`${fmtNum(unassignedTotal)} customers waiting for an account officer${unassignedRows.length < unassignedTotal ? ` · showing the ${unassignedRows.length} newest` : ''}`}
           badge={unassignedTotal}
           style={{ marginTop: 14 }}
           actions={
             <button onClick={() => navigate('/sales/book?officer_id=unassigned')}
               style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Full book <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_forward</span>
+              Full Book <span className="material-symbols-rounded" style={{ fontSize: 14 }}>arrow_forward</span>
             </button>
           }
         >
@@ -770,7 +770,7 @@ export default function SalesOverview() {
                   onClick={() => setAssignFor({ cifs: [...selected].map(String), label: `${selected.size} customers` })}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 15 }}>person_add</span>
-                  Assign {selected.size} to a rep
+                  Assign {selected.size} to a Rep
                 </button>
               </div>
             ) : undefined}
@@ -834,7 +834,7 @@ function AssignModal({ cifs, label, onClose, onDone }: {
   const lbl: React.CSSProperties = { display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }
 
   return (
-    <Modal open onClose={onClose} title="Assign to a sales rep" width={460}
+    <Modal open onClose={onClose} title="Assign to a Sales Rep" width={460}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
@@ -848,9 +848,9 @@ function AssignModal({ cifs, label, onClose, onDone }: {
           {cifs.length > 1 && <span> ({fmtNum(cifs.length)} customers)</span>} to the selected rep. This sets them as the account officer for the customer’s whole book.
         </div>
         <div>
-          <label style={lbl}>Sales rep</label>
+          <label style={lbl}>Sales Rep</label>
           <select value={officer} onChange={e => setOfficer(e.target.value)} style={inp}>
-            <option value="">— Select rep —</option>
+            <option value="">— Select Rep —</option>
             {officers.map(o => (
               <option key={o.id} value={o.id}>
                 {o.full_name}{o.book_size > 0 ? ` · ${fmtNum(o.book_size)} on book` : ''}
@@ -859,7 +859,7 @@ function AssignModal({ cifs, label, onClose, onDone }: {
           </select>
         </div>
         <div>
-          <label style={lbl}>Reason <span style={{ color: 'var(--txt3)', fontWeight: FW.normal }}>(optional)</span></label>
+          <label style={lbl}>Reason <span style={{ color: 'var(--txt3)', fontWeight: FW.normal }}>(Optional)</span></label>
           <input value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. territory reassignment" style={inp} />
         </div>
       </div>

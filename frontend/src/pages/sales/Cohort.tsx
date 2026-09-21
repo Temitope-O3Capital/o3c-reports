@@ -144,7 +144,7 @@ export default function SalesCohort() {
           {isHead && (
             <select value={officer} onChange={e => setOfficer(e.target.value)}
               style={{ ...filterInputStyle, height: 34, minWidth: 160 }}>
-              <option value="">All officers</option>
+              <option value="">All Officers</option>
               {officers.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
             </select>
           )}
@@ -189,9 +189,9 @@ export default function SalesCohort() {
           {reg > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, fontSize: TEXT.sm }}>
               {[
-                { label: 'Card issue rate',  val: issued / reg * 100 },
-                { label: 'Active rate',      val: active / reg * 100 },
-                { label: 'Transacting rate', val: trans  / reg * 100 },
+                { label: 'Card Issue Rate',  val: issued / reg * 100 },
+                { label: 'Active Rate',      val: active / reg * 100 },
+                { label: 'Transacting Rate', val: trans  / reg * 100 },
               ].map(({ label, val }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--txt2)' }}>
                   <span>{label}</span>
@@ -313,7 +313,7 @@ export default function SalesCohort() {
                           display: 'flex', alignItems: 'center', gap: 4,
                         }}
                       >
-                        Drill in
+                        Drill In
                         <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm }}>chevron_right</span>
                       </button>
                     </td>
@@ -327,7 +327,7 @@ export default function SalesCohort() {
         {/* Legend */}
         <div style={{ padding: '12px 18px', borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>
-            Retention rate:
+            Retention Rate:
           </span>
           {[
               { label: '≥ 80%', bg: 'rgba(22,163,74,.12)',  color: GREEN },
@@ -341,7 +341,7 @@ export default function SalesCohort() {
             </div>
           ))}
           <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>
-            Click any cell or "Drill in" to see cohort details
+            Click any cell or "Drill In" to see cohort details
           </span>
         </div>
       </SectionCard>

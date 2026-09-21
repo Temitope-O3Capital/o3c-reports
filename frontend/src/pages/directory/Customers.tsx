@@ -186,7 +186,7 @@ export default function CustomerDirectory() {
         <KpiCard label="Customers"        value={fmtNum(summary?.total ?? 0)}                                    icon="groups"        accent={NAVY}    loading={!summary} />
         <KpiCard label="Active (90d)"     value={fmtNum(summary?.active ?? 0)}                                   icon="bolt"          accent={GREEN}   sub={pctLabel(summary?.active, summary?.total)}                              loading={!summary} />
         <KpiCard label="Dormant (>1yr)"   value={fmtNum(summary?.dormant ?? 0)}                                  icon="bedtime"       accent="#B45309" sub={pctLabel(summary?.dormant, summary?.total)}                             loading={!summary} />
-        <KpiCard label="Never transacted" value={fmtNum(summary?.never_active ?? 0)}                             icon="do_not_disturb_on" accent="#6B7280" sub={pctLabel(summary?.never_active, summary?.total)}                        loading={!summary} />
+        <KpiCard label="Never Transacted" value={fmtNum(summary?.never_active ?? 0)}                             icon="do_not_disturb_on" accent="#6B7280" sub={pctLabel(summary?.never_active, summary?.total)}                        loading={!summary} />
         <KpiCard label="With Email"       value={fmtNum(summary?.with_email ?? 0)}                               icon="mail"          accent={BLUE}    sub={pctLabel(summary?.with_email, summary?.total)}                          loading={!summary} />
       </div>
 
@@ -228,8 +228,8 @@ export default function CustomerDirectory() {
             {
               key: 'contact', label: 'Contact',
               options: [
-                { value: 'email', label: 'Has email', color: BLUE },
-                { value: 'phone', label: 'Has phone', color: PURPLE },
+                { value: 'email', label: 'Has Email', color: BLUE },
+                { value: 'phone', label: 'Has Phone', color: PURPLE },
               ],
               selected: fContact, onChange: set(setFContact),
             },
@@ -265,7 +265,7 @@ export default function CustomerDirectory() {
                   <td colSpan={6} style={{ ...TD, padding: 0 }}>
                     <EmptyState
                       icon="person_search"
-                      title="No customers found"
+                      title="No Customers Found"
                       description="No one matches these filters. Try clearing them."
                     />
                   </td>

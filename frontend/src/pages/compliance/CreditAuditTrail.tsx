@@ -376,7 +376,7 @@ export default function CreditAuditTrail() {
         <KpiCard label="Total Events"      value={loading ? '—' : total.toLocaleString('en-NG')} icon="history"       accent={NAVY}  loading={loading} />
         <KpiCard label="Unique Actors"     value={loading ? '—' : uniqueActors}                  icon="people"        accent={BLUE}  loading={loading} />
         <KpiCard label="Accounts Touched"  value={loading ? '—' : accountsTouched}               icon="account_balance" accent={AMBER} loading={loading} />
-        <KpiCard label="Write-off Events"  value={loading ? '—' : writeoffEvents}                icon="remove_circle" accent={RED}   loading={loading} />
+        <KpiCard label="Write-Off Events"  value={loading ? '—' : writeoffEvents}                icon="remove_circle" accent={RED}   loading={loading} />
       </div>
 
       <SectionCard padding={false}>
@@ -438,13 +438,13 @@ export default function CreditAuditTrail() {
 
           {/* Action select */}
           <select value={filterAction} onChange={e => setFilterAction(e.target.value)} style={{ ...filterInputStyle, minWidth: 160 }}>
-            <option value="">All actions</option>
+            <option value="">All Actions</option>
             {Object.entries(ACTION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
 
           {/* Entity type select */}
           <select value={filterEntity} onChange={e => setFilterEntity(e.target.value)} style={{ ...filterInputStyle, minWidth: 140 }}>
-            <option value="">All entity types</option>
+            <option value="">All Entity Types</option>
             {[...new Set(data.map(e => e.entity_type).filter(Boolean))].sort().map(et => (
               <option key={et} value={et}>{et}</option>
             ))}
@@ -475,7 +475,7 @@ export default function CreditAuditTrail() {
                 borderRadius: RADIUS.sm, padding: '5px 10px', cursor: 'pointer',
               }}
             >
-              Clear all
+              Clear All
             </button>
           )}
 

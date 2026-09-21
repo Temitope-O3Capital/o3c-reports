@@ -442,7 +442,7 @@ export default function RiskAppReview() {
           selectable
           selectedIds={selected}
           onSelect={setSelected}
-          emptyText={kpis?.origination_live === false ? 'No applications yet. Applications raised in the workspace or synced from Phoenix will appear here for review.' : view === 'pending' ? 'No pending applications' : 'No applications found'}
+          emptyText={kpis?.origination_live === false ? 'No applications yet. Applications raised in the workspace or synced from Phoenix will appear here for review.' : view === 'pending' ? 'No Pending Applications' : 'No Applications Found'}
         />
 
         {pages > 1 && (

@@ -127,13 +127,13 @@ export default function Segments() {
       <ErrBanner error={err} onRetry={() => load()} />
 
       <SectionCard
-        title="Saved segments" badge={segments.length}
+        title="Saved Segments" badge={segments.length}
         subtitle="A segment stores its filters so you can refresh its contact list any time"
       >
         {loading ? (
           <div style={{ padding: 30, display: 'flex', justifyContent: 'center' }}><Spinner /></div>
         ) : segments.length === 0 ? (
-          <EmptyState icon="groups" title="No segments yet"
+          <EmptyState icon="groups" title="No Segments Yet"
             description="Create a segment to define a reusable audience you can refresh into a contact list."
             action={{ label: 'New Segment', onClick: () => setBuilder({ open: true, editing: null }), icon: 'add' }} />
         ) : (
@@ -167,7 +167,7 @@ export default function Segments() {
                   <button onClick={() => refreshSegment(s)} disabled={refreshing === s.id}
                     style={{ ...miniBtn, background: NAVY, color: '#fff', border: 'none', opacity: refreshing === s.id ? 0.6 : 1 }}>
                     <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{refreshing === s.id ? 'progress_activity' : 'refresh'}</span>
-                    {refreshing === s.id ? 'Refreshing…' : (s.last_list_id ? 'Refresh' : 'Build list')}
+                    {refreshing === s.id ? 'Refreshing…' : (s.last_list_id ? 'Refresh' : 'Build List')}
                   </button>
                   {s.last_list_id && (
                     <button onClick={() => navigate('/campaigns/lists')} style={{ ...miniBtn, background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)' }}>
@@ -193,7 +193,7 @@ export default function Segments() {
         />
       )}
 
-      <ConfirmModal open={!!deleteTarget} title="Delete segment"
+      <ConfirmModal open={!!deleteTarget} title="Delete Segment"
         body={`Delete "${deleteTarget?.name}"? The generated contact list is kept.`}
         onConfirm={doDelete} onClose={() => setDeleteTarget(null)} />
     </Page>
@@ -240,12 +240,12 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
   }
 
   return (
-    <Modal open onClose={onClose} title={editing ? 'Edit segment' : 'New segment'} width={620}
+    <Modal open onClose={onClose} title={editing ? 'Edit Segment' : 'New Segment'} width={620}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
           <button onClick={handlePreview} disabled={previewing || !hasAnyFilter} style={{ ...btnSecondary, opacity: !hasAnyFilter ? 0.5 : 1 }}>
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{previewing ? 'progress_activity' : 'search'}</span>
-            {previewing ? 'Counting…' : 'Preview count'}
+            {previewing ? 'Counting…' : 'Preview Count'}
           </button>
           {preview !== null && (
             <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: preview === 0 ? RED : preview > 5000 ? AMBER : GREEN }}>
@@ -253,15 +253,15 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
             </span>
           )}
           <button onClick={save} disabled={saving || !name.trim()} style={{ ...btnPrimary, marginLeft: 'auto', opacity: saving || !name.trim() ? 0.6 : 1 }}>
-            {saving ? 'Saving…' : editing ? 'Save changes' : 'Create segment'}
+            {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Segment'}
           </button>
         </div>
       }>
       {err && <ErrBanner error={err} />}
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-          <div><label style={lbl}>Segment name</label><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. DPD 30–90 Salary Loans" style={inputStyle} /></div>
-          <div><label style={lbl}>Description (optional)</label><input value={description} onChange={e => setDescription(e.target.value)} placeholder="What this audience is for" style={inputStyle} /></div>
+          <div><label style={lbl}>Segment Name</label><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. DPD 30–90 Salary Loans" style={inputStyle} /></div>
+          <div><label style={lbl}>Description (Optional)</label><input value={description} onChange={e => setDescription(e.target.value)} placeholder="What this audience is for" style={inputStyle} /></div>
         </div>
 
         <div style={{ height: 1, background: 'var(--bdr)' }} />
@@ -269,17 +269,17 @@ function SegmentBuilder({ editing, onClose, onSaved }: { editing: SavedSegment |
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
           <div><label style={lbl}>Product Type</label>
             <select value={criteria.product_type} onChange={e => update('product_type', e.target.value)} style={selectStyle}>
-              <option value="">Any product</option>{PRODUCT_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
+              <option value="">Any Product</option>{PRODUCT_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
             </select></div>
           <div><label style={lbl}>Stage</label>
             <select value={criteria.stage} onChange={e => update('stage', e.target.value)} style={selectStyle}>
-              <option value="">Any stage</option>{STAGES.map(s => <option key={s} value={s}>{s.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+              <option value="">Any Stage</option>{STAGES.map(s => <option key={s} value={s}>{s.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
             </select></div>
           <div><label style={lbl}>Status</label>
             <select value={criteria.status} onChange={e => update('status', e.target.value)} style={selectStyle}>
-              <option value="">Any status</option>{STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+              <option value="">Any Status</option>{STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
             </select></div>
-          <div><label style={lbl}>Employer (contains)</label><input value={criteria.employer} onChange={e => update('employer', e.target.value)} placeholder="e.g. NNPC, Dangote…" style={inputStyle} /></div>
+          <div><label style={lbl}>Employer (Contains)</label><input value={criteria.employer} onChange={e => update('employer', e.target.value)} placeholder="e.g. NNPC, Dangote…" style={inputStyle} /></div>
           <div><label style={lbl}>DPD Min</label><input type="number" min="0" value={criteria.dpd_min} onChange={e => update('dpd_min', e.target.value)} placeholder="e.g. 30" style={inputStyle} /></div>
           <div><label style={lbl}>DPD Max</label><input type="number" min="0" value={criteria.dpd_max} onChange={e => update('dpd_max', e.target.value)} placeholder="e.g. 90" style={inputStyle} /></div>
           <div><label style={lbl}>Outstanding Min (₦)</label><input type="number" min="0" value={criteria.outstanding_min} onChange={e => update('outstanding_min', e.target.value)} placeholder="e.g. 50000" style={inputStyle} /></div>

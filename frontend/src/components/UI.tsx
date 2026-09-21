@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef, useId, isValidElement, cloneElement } from 'react'
 import type { ReactNode, CSSProperties, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { NAVY, RED, GREEN, INTER, SORA, NUM, TEXT, FW, SP, RADIUS, SHADOW, TRANSITION } from '../lib/design'
 import { today, monthStart, yearStart, fmtDate } from '../lib/fmt'
@@ -545,7 +545,7 @@ function SrchIco() {
 // Matches the C360 bar look: var(--card) bg, var(--bdr) border → #0EA5E9 on focus
 
 export function SearchInput({
-  value, onChange, onClear, onSearch, placeholder = 'Search…', minWidth = 220, style,
+  value, onChange, onClear, onSearch, placeholder = 'Search…', minWidth = 220, style, ariaLabel,
 }: {
   value: string
   onChange: (v: string) => void
@@ -554,6 +554,10 @@ export function SearchInput({
   placeholder?: string
   minWidth?: number | string
   style?: CSSProperties
+  // Accessible name. The visible label for this control is the magnifier icon, so
+  // without this a screen reader announces only "edit text". Defaults to the
+  // placeholder, which every caller already writes.
+  ariaLabel?: string
 }) {
   const [focused, setFocused] = useState(false)
   const handleClear = onClear ?? (() => onChange(''))
@@ -576,6 +580,7 @@ export function SearchInput({
         onBlur={() => setFocused(false)}
         onKeyDown={onSearch ? e => { if (e.key === 'Enter') onSearch() } : undefined}
         placeholder={placeholder}
+        aria-label={ariaLabel ?? placeholder}
         style={{
           border: 'none', background: 'transparent', outline: 'none', boxShadow: 'none',
           flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--txt)',
@@ -583,11 +588,11 @@ export function SearchInput({
         }}
       />
       {value && (
-        <button onClick={handleClear} style={{
+        <button type="button" onClick={handleClear} aria-label="Clear Search" style={{
           border: 'none', background: 'none', cursor: 'pointer', padding: 0,
           display: 'flex', color: 'var(--txt3)', flexShrink: 0,
         }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>close</span>
+          <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 15 }}>close</span>
         </button>
       )}
     </div>
@@ -718,9 +723,9 @@ export function ExpandableFilterBar({
                       )}
                       <div style={isLong ? { maxHeight: 208, overflowY: 'auto', paddingRight: 6, marginRight: -6 } : undefined}>
                         {group.options.length === 0 ? (
-                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>None available</span>
+                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>None Available</span>
                         ) : visible.length === 0 ? (
-                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No matches</span>
+                          <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No Matches</span>
                         ) : visible.map(opt => {
                           const label = opt.label ?? opt.value
                           const checked = group.selected.has(opt.value)
@@ -797,7 +802,7 @@ export function ExpandableFilterBar({
                 border: 'none', background: RED, color: '#fff',
                 cursor: 'pointer', fontFamily: "var(--font-sans)",
               }}
-            >{onApply ? `Apply · ${resultCount} results` : `Done · ${resultCount}`}</button>
+            >{onApply ? `Apply · ${resultCount} Results` : `Done · ${resultCount}`}</button>
           </div>
         </div>
       )}
@@ -843,7 +848,7 @@ export function ExpandableFilterBar({
               fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0,
               fontFamily: "var(--font-sans)",
             }}
-          >Clear all</button>
+          >Clear All</button>
         </div>
       )}
     </>
@@ -853,13 +858,15 @@ export function ExpandableFilterBar({
 // ── Table toolbar search (fixed-width variant; same visual as SearchInput) ────
 
 export function TblSearch({
-  value, onChange, placeholder = 'Search…', width = 160, style,
+  value, onChange, placeholder = 'Search…', width = 160, style, ariaLabel,
 }: {
   value: string
   onChange: (v: string) => void
   placeholder?: string
   width?: number
   style?: CSSProperties
+  // See SearchInput — the icon is the only visible label, so name the control.
+  ariaLabel?: string
 }) {
   const [focused, setFocused] = useState(false)
   return (
@@ -879,6 +886,7 @@ export function TblSearch({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         placeholder={placeholder}
+        aria-label={ariaLabel ?? placeholder}
         style={{
           border: 'none', outline: 'none', background: 'none',
           fontFamily: "var(--font-sans)",
@@ -918,7 +926,9 @@ interface DataTableProps<T> {
   selectedIds?: Set<string | number>
   onSelect?: (ids: Set<string | number>) => void
   bulkBar?: ReactNode
-  emptyText?: string
+  // Accepts a node as well as a string, so a caller can drop in an <EmptyState />
+  // instead of a bare line of text. Existing string callers are unaffected.
+  emptyText?: ReactNode
   loading?: boolean
   skeletonRows?: number
   rowStyle?: (row: T, idx: number) => CSSProperties | undefined
@@ -994,7 +1004,7 @@ function _toggleFSet(prev: Record<string, Set<string>>, key: string, val: string
 export function DataTable<T extends Record<string, any>>({
   cols, rows, keyFn, onRowClick,
   selectable, selectedIds: extSel, onSelect,
-  bulkBar, emptyText = 'No records found', loading, skeletonRows = 8, rowStyle,
+  bulkBar, emptyText = 'No Records Found', loading, skeletonRows = 8, rowStyle,
   searchKeys, searchPlaceholder = 'Search…', pageSize, filters, focusId,
 }: DataTableProps<T>) {
   const focusRef = useRef<HTMLTableRowElement | null>(null)
@@ -1164,7 +1174,7 @@ export function DataTable<T extends Record<string, any>>({
                     letterSpacing: '0.06em', color: 'var(--txt3)', marginBottom: 12, fontFamily: INTER,
                   }}>{f.label}</div>
                   {opts.length === 0
-                    ? <span style={{ fontSize: 12, color: 'var(--txt3)' }}>No values</span>
+                    ? <span style={{ fontSize: 12, color: 'var(--txt3)' }}>No Values</span>
                     : opts.map(val => {
                       const display = f.getLabel
                         ? f.getLabel(val)
@@ -1216,7 +1226,7 @@ export function DataTable<T extends Record<string, any>>({
               fontSize: 12, fontWeight: 600,
               border: 'none', background: RED, color: '#fff',
               cursor: 'pointer', fontFamily: SORA,
-            }}>Done · {filtered.length} results</button>
+            }}>Done · {filtered.length} Results</button>
           </div>
         </div>
       )}
@@ -1241,11 +1251,17 @@ export function DataTable<T extends Record<string, any>>({
                   color: chip?.txt ?? 'var(--chip-txt)',
                 }}>
                   {display}
-                  <span
-                    className="material-symbols-rounded"
-                    style={{ fontSize: 12, cursor: 'pointer' }}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${display} filter`}
                     onClick={() => setActiveFilters(p => _toggleFSet(p, f.key, val))}
-                  >close</span>
+                    style={{
+                      display: 'flex', alignItems: 'center', padding: 0, margin: 0,
+                      border: 'none', background: 'none', color: 'inherit', cursor: 'pointer',
+                    }}
+                  >
+                    <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 12 }}>close</span>
+                  </button>
                 </span>
               )
             })
@@ -1253,7 +1269,7 @@ export function DataTable<T extends Record<string, any>>({
           <button onClick={resetFilters} style={{
             marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer',
             fontSize: 11.5, fontWeight: 600, color: 'var(--txt3)', padding: 0, fontFamily: SORA,
-          }}>Clear all</button>
+          }}>Clear All</button>
         </div>
       )}
 
@@ -1281,9 +1297,10 @@ export function DataTable<T extends Record<string, any>>({
           <thead>
             <tr style={{ background: 'var(--th-bg)' }}>
               {selectable && (
-                <th style={{ ...thBase, width: 40 }}>
+                <th scope="col" style={{ ...thBase, width: 40 }}>
                   <input
                     type="checkbox"
+                    aria-label="Select All Rows"
                     checked={rows.length > 0 && selectedIds.size === rows.length}
                     ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < rows.length }}
                     onChange={toggleAll}
@@ -1291,26 +1308,47 @@ export function DataTable<T extends Record<string, any>>({
                   />
                 </th>
               )}
-              {cols.map(col => (
-                <th
-                  key={col.key}
-                  onClick={col.sortable !== false && !loading ? () => toggleSort(col.key) : undefined}
-                  style={{
-                    ...thBase, width: col.width, textAlign: col.align ?? 'left',
-                    cursor: col.sortable !== false ? 'pointer' : 'default',
-                    color: sortKey === col.key ? 'var(--txt)' : 'var(--txt2)',
-                  }}
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    {col.label}
-                    {col.sortable !== false && (
-                      <span style={{ color: RED, opacity: sortKey === col.key ? 1 : 0.3, fontSize: 11 }}>
-                        {sortKey === col.key ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                      </span>
+              {/* A sortable header is a real <button> inside the <th>, with aria-sort on the
+                  cell — the pattern the Report Builder's TableView already uses. A <th onClick>
+                  is unreachable by keyboard and announces nothing about the sort state. */}
+              {cols.map(col => {
+                const sortable = col.sortable !== false
+                const active   = sortKey === col.key
+                return (
+                  <th
+                    key={col.key}
+                    scope="col"
+                    aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
+                    style={{
+                      ...thBase, width: col.width, textAlign: col.align ?? 'left',
+                      color: active ? 'var(--txt)' : 'var(--txt2)',
+                    }}
+                  >
+                    {sortable ? (
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => toggleSort(col.key)}
+                        title={col.label ? `Sort by ${col.label}` : 'Sort'}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
+                          padding: 0, margin: 0, border: 'none', background: 'none',
+                          font: 'inherit', color: 'inherit', letterSpacing: 'inherit',
+                          textTransform: 'inherit', textAlign: 'inherit',
+                          cursor: loading ? 'default' : 'pointer',
+                        }}
+                      >
+                        {col.label}
+                        <span aria-hidden="true" style={{ color: RED, opacity: active ? 1 : 0.3, fontSize: 11 }}>
+                          {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                        </span>
+                      </button>
+                    ) : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{col.label}</span>
                     )}
-                  </span>
-                </th>
-              ))}
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>
@@ -1403,6 +1441,7 @@ interface ConfirmModalProps {
 
 export function ConfirmModal({ open, title, body, confirmLabel = 'Confirm', danger, loading, onConfirm, onClose, children }: ConfirmModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   // See Modal: onClose is usually an inline arrow, so keep it in a ref rather than as
   // an effect dependency — otherwise every keystroke in a child field re-ran the focus
   // effect and yanked focus back to the first control.
@@ -1414,6 +1453,19 @@ export function ConfirmModal({ open, title, body, confirmLabel = 'Confirm', dang
     const el = dialogRef.current
     if (!el) return
     el.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus()
+  }, [open])
+
+  // Hand focus back to whatever opened the dialog, the way builder/Popover.tsx does.
+  // Without it a keyboard user is dropped at the top of the document on every close.
+  // Only restore when focus was lost with the dialog — if a click moved focus somewhere
+  // else on the page, that is where the user wants to be.
+  useEffect(() => {
+    if (!open) return
+    const opener = document.activeElement as HTMLElement | null
+    return () => {
+      const active = document.activeElement
+      if (opener?.isConnected && (!active || active === document.body)) opener.focus()
+    }
   }, [open])
 
   useEffect(() => {
@@ -1440,8 +1492,8 @@ export function ConfirmModal({ open, title, body, confirmLabel = 'Confirm', dang
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div ref={dialogRef} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-        <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{title}</h3>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+        <h3 id={titleId} style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{title}</h3>
         {body && <p style={{ margin: '0 0 16px', fontSize: 13.5, color: 'var(--txt2)', lineHeight: 1.55 }}>{body}</p>}
         {children && <div style={{ marginBottom: 16 }}>{children}</div>}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
@@ -1472,6 +1524,7 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, width = 520, maxHeight, children, footer }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   // Keep the latest onClose without making it a dependency of the effects below.
   // onClose is almost always an inline arrow (`() => setOpen(false)`), so it gets a
   // fresh identity on every parent re-render — including every keystroke in a field.
@@ -1490,6 +1543,16 @@ export function Modal({ open, onClose, title, width = 520, maxHeight, children, 
     const firstField = el.querySelector<HTMLElement>('input:not([type="hidden"]), select, textarea')
     const first = el.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
     ;(firstField ?? first)?.focus()
+  }, [open])
+
+  // Hand focus back to whatever opened the dialog (see ConfirmModal above).
+  useEffect(() => {
+    if (!open) return
+    const opener = document.activeElement as HTMLElement | null
+    return () => {
+      const active = document.activeElement
+      if (opener?.isConnected && (!active || active === document.body)) opener.focus()
+    }
   }, [open])
 
   // Escape-to-close + tab focus trap. Recomputes the focusable set on each keypress
@@ -1518,11 +1581,11 @@ export function Modal({ open, onClose, title, width = 520, maxHeight, children, 
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div ref={dialogRef} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden', width: '100%', maxWidth: width, maxHeight: maxHeight ? `min(${maxHeight}, calc(100vh - 48px))` : 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: 14, overflow: 'hidden', width: '100%', maxWidth: width, maxHeight: maxHeight ? `min(${maxHeight}, calc(100vh - 48px))` : 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{title}</h3>
-          <button onClick={onClose} style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', borderRadius: 6, color: 'var(--txt2)' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>close</span>
+          <h3 id={titleId} style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{title}</h3>
+          <button type="button" onClick={onClose} aria-label="Close Dialog" style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', borderRadius: 6, color: 'var(--txt2)' }}>
+            <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 18 }}>close</span>
           </button>
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>{children}</div>
@@ -1569,21 +1632,21 @@ function _dfLastQuarter(): [string, string] {
 }
 
 const DF_PRESET_GROUPS: { label: string; get: () => [string, string] }[][] = [
-  [{ label: 'All time', get: () => ['', ''] }],
+  [{ label: 'All Time', get: () => ['', ''] }],
   [
     { label: 'Today',        get: () => { const t = today(); return [t, t] } },
-    { label: 'Last 7 days',  get: () => [_dfRelDay(-6), today()] },
-    { label: 'Last 30 days', get: () => [_dfRelDay(-29), today()] },
-    { label: 'Last 90 days', get: () => [_dfRelDay(-89), today()] },
+    { label: 'Last 7 Days',  get: () => [_dfRelDay(-6), today()] },
+    { label: 'Last 30 Days', get: () => [_dfRelDay(-29), today()] },
+    { label: 'Last 90 Days', get: () => [_dfRelDay(-89), today()] },
   ],
   [
-    { label: 'This week', get: () => {
+    { label: 'This Week', get: () => {
       const d = new Date(), dow = d.getDay()
       const mon = new Date(d); mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1))
       return [_dfIso(mon.getFullYear(), mon.getMonth() + 1, mon.getDate()), today()]
     }},
-    { label: 'This month',   get: () => [monthStart(), today()] },
-    { label: 'Last month',   get: () => {
+    { label: 'This Month',   get: () => [monthStart(), today()] },
+    { label: 'Last Month',   get: () => {
       const d = new Date()
       const pm = d.getMonth() === 0 ? 12 : d.getMonth()
       const py = d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear()
@@ -1591,9 +1654,9 @@ const DF_PRESET_GROUPS: { label: string; get: () => [string, string] }[][] = [
     }},
   ],
   [
-    { label: 'This quarter', get: _dfThisQuarter },
-    { label: 'Last quarter', get: _dfLastQuarter },
-    { label: 'This year',    get: () => [yearStart(), today()] },
+    { label: 'This Quarter', get: _dfThisQuarter },
+    { label: 'Last Quarter', get: _dfLastQuarter },
+    { label: 'This Year',    get: () => [yearStart(), today()] },
   ],
 ]
 
@@ -1739,7 +1802,7 @@ export function DateFilter({ from, to, onChange, align = 'left' }: {
   const month2 = _dfNextYM(viewYM)
 
   const btnLabel = !from && !to
-    ? 'All time'
+    ? 'All Time'
     : from === to
       ? fmtDate(from)
       : `${fmtDate(from)} – ${fmtDate(to)}`
@@ -1929,6 +1992,14 @@ export function Button({ variant = 'primary', size = 'md', icon, iconRight, load
 
 // ── Form field wrapper ────────────────────────────────────────────────────────
 
+// describedByFor builds the id list that links a control to its hint/error text.
+// Field and the Input/Select/Textarea wrappers derive it the same way from the control
+// id, so the ids always line up.
+function describedByFor(controlId: string, hint?: string, error?: string): string | undefined {
+  const ids = [error ? `${controlId}-err` : '', hint ? `${controlId}-hint` : ''].filter(Boolean)
+  return ids.length ? ids.join(' ') : undefined
+}
+
 interface FieldProps {
   label?: string
   hint?: string
@@ -1936,23 +2007,41 @@ interface FieldProps {
   required?: boolean
   children: ReactNode
   style?: CSSProperties
+  // Id of the control this field labels. Input/Select/Textarea pass their own. When no
+  // caller supplies one, Field generates an id and wires it onto a single element child,
+  // so a plain `<Field label="X"><input /></Field>` comes out labelled with no change at
+  // the call site — which is most of the forms in the product.
+  htmlFor?: string
 }
 
-export function Field({ label, hint, error, required, children, style }: FieldProps) {
+export function Field({ label, hint, error, required, children, style, htmlFor }: FieldProps) {
+  const uid = useId()
+  const controlId = htmlFor ?? `${uid}field`
+  const describedBy = describedByFor(controlId, hint, error)
+  // Only adopt the child when the caller did not name its own control — otherwise the id
+  // would land on both the real control and whatever wrapper element was passed here.
+  const childProps: any = (isValidElement(children) ? (children as any).props : null) ?? {}
+  const body = (!htmlFor && isValidElement(children) && childProps.id === undefined)
+    ? cloneElement(children as any, {
+        id: controlId,
+        'aria-describedby': childProps['aria-describedby'] ?? describedBy,
+        'aria-invalid': childProps['aria-invalid'] ?? (error ? true : undefined),
+      })
+    : children
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1], ...style }}>
       {label && (
-        <label style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)', lineHeight: 'var(--lh-snug)' }}>
+        <label htmlFor={controlId} style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)', lineHeight: 'var(--lh-snug)' }}>
           {label}
           {required && <span style={{ color: RED, marginLeft: SP[1] }}>*</span>}
         </label>
       )}
-      {children}
+      {body}
       {error
-        ? <span style={{ fontSize: TEXT.xs, color: RED, display: 'flex', alignItems: 'center', gap: SP[1] }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 12 }}>error</span>{error}
+        ? <span id={`${controlId}-err`} style={{ fontSize: TEXT.xs, color: RED, display: 'flex', alignItems: 'center', gap: SP[1] }}>
+            <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 12 }}>error</span>{error}
           </span>
-        : hint && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 'var(--lh-base)' }}>{hint}</span>
+        : hint && <span id={`${controlId}-hint`} style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 'var(--lh-base)' }}>{hint}</span>
       }
     </div>
   )
@@ -1979,10 +2068,12 @@ const INPUT_BASE: CSSProperties = {
 }
 const INPUT_ERROR: CSSProperties = { borderColor: RED }
 
-export function Input({ label, hint, error, prefix, suffix, wrapStyle, style, ...rest }: InputProps) {
+export function Input({ label, hint, error, prefix, suffix, wrapStyle, style, id, ...rest }: InputProps) {
   const hasIcon = prefix || suffix
+  const uid = useId()
+  const inputId = id ?? `${uid}input`
   return (
-    <Field label={label} hint={hint} error={error} required={rest.required} style={wrapStyle}>
+    <Field label={label} hint={hint} error={error} required={rest.required} style={wrapStyle} htmlFor={inputId}>
       <div style={{ position: 'relative' }}>
         {prefix && (
           <span className="material-symbols-rounded" style={{
@@ -1991,6 +2082,9 @@ export function Input({ label, hint, error, prefix, suffix, wrapStyle, style, ..
           }}>{prefix}</span>
         )}
         <input
+          id={inputId}
+          aria-describedby={describedByFor(inputId, hint, error)}
+          aria-invalid={error ? true : undefined}
           style={{
             ...INPUT_BASE,
             ...(error ? INPUT_ERROR : {}),
@@ -2020,11 +2114,16 @@ interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
   children: ReactNode
 }
 
-export function Select({ label, hint, error, wrapStyle, style, children, ...rest }: SelectFieldProps) {
+export function Select({ label, hint, error, wrapStyle, style, children, id, ...rest }: SelectFieldProps) {
+  const uid = useId()
+  const selectId = id ?? `${uid}select`
   return (
-    <Field label={label} hint={hint} error={error} required={rest.required} style={wrapStyle}>
+    <Field label={label} hint={hint} error={error} required={rest.required} style={wrapStyle} htmlFor={selectId}>
       <div style={{ position: 'relative' }}>
         <select
+          id={selectId}
+          aria-describedby={describedByFor(selectId, hint, error)}
+          aria-invalid={error ? true : undefined}
           style={{
             ...INPUT_BASE,
             paddingRight: SP[8],
@@ -2054,10 +2153,15 @@ interface TextareaFieldProps extends TextareaHTMLAttributes<HTMLTextAreaElement>
   wrapStyle?: CSSProperties
 }
 
-export function Textarea({ label, hint, error, wrapStyle, style, ...rest }: TextareaFieldProps) {
+export function Textarea({ label, hint, error, wrapStyle, style, id, ...rest }: TextareaFieldProps) {
+  const uid = useId()
+  const taId = id ?? `${uid}textarea`
   return (
-    <Field label={label} hint={hint} error={error} required={rest.required} style={wrapStyle}>
+    <Field label={label} hint={hint} error={error} required={rest.required} style={wrapStyle} htmlFor={taId}>
       <textarea
+        id={taId}
+        aria-describedby={describedByFor(taId, hint, error)}
+        aria-invalid={error ? true : undefined}
         style={{
           ...INPUT_BASE,
           resize: 'vertical',

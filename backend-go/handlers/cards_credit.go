@@ -97,7 +97,7 @@ func ccKPIs(db *core.DB) http.HandlerFunc {
 // ccUtilizationDist — per-account utilization buckets at the latest cycle.
 func ccUtilizationDist(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, _ := db.PGQuery(r.Context(), `
+		rows, err := db.PGQuery(r.Context(), `
 			WITH acct AS (
 				SELECT CASE
 					WHEN d.credit_limit_kobo <= 0 THEN 'No limit'
@@ -117,6 +117,10 @@ func ccUtilizationDist(db *core.DB) http.HandlerFunc {
 			ORDER BY CASE bucket
 				WHEN '0–30%' THEN 1 WHEN '30–50%' THEN 2 WHEN '50–80%' THEN 3
 				WHEN '80–100%' THEN 4 WHEN 'Over limit' THEN 5 ELSE 6 END`)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -127,7 +131,7 @@ func ccUtilizationDist(db *core.DB) http.HandlerFunc {
 // ccInterestTrend — interest income per cycle (last 12 cycles).
 func ccInterestTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, _ := db.PGQuery(r.Context(), `
+		rows, err := db.PGQuery(r.Context(), `
 			SELECT TO_CHAR(d.cycle_date,'YYYY-MM-DD') AS cycle_date,
 				COALESCE(SUM(d.total_interest_kobo),0)::bigint AS interest_kobo,
 				COALESCE(SUM(d.fees_kobo),0)::bigint           AS fees_kobo
@@ -136,6 +140,10 @@ func ccInterestTrend(db *core.DB) http.HandlerFunc {
 			GROUP BY d.cycle_date
 			ORDER BY d.cycle_date DESC
 			LIMIT 12`)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 		// return chronological
 		for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 			rows[i], rows[j] = rows[j], rows[i]
@@ -150,7 +158,7 @@ func ccInterestTrend(db *core.DB) http.HandlerFunc {
 // ccReceivablesTrend — outstanding vs overdue per cycle (last 12 cycles).
 func ccReceivablesTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, _ := db.PGQuery(r.Context(), `
+		rows, err := db.PGQuery(r.Context(), `
 			SELECT TO_CHAR(d.cycle_date,'YYYY-MM-DD') AS cycle_date,
 				COALESCE(SUM(d.outstanding_balance_kobo),0)::bigint AS outstanding_kobo,
 				COALESCE(SUM(d.overdue_amount_kobo),0)::bigint      AS overdue_kobo
@@ -159,6 +167,10 @@ func ccReceivablesTrend(db *core.DB) http.HandlerFunc {
 			GROUP BY d.cycle_date
 			ORDER BY d.cycle_date DESC
 			LIMIT 12`)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 		for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 			rows[i], rows[j] = rows[j], rows[i]
 		}
@@ -172,7 +184,7 @@ func ccReceivablesTrend(db *core.DB) http.HandlerFunc {
 // ccByProduct — revolving portfolio split by credit-card product at latest cycle.
 func ccByProduct(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, _ := db.PGQuery(r.Context(), `
+		rows, err := db.PGQuery(r.Context(), `
 			SELECT COALESCE(NULLIF(p.product_name,''), d.product_code) AS product,
 				COUNT(*)                                            AS accounts,
 				COALESCE(SUM(d.outstanding_balance_kobo),0)::bigint AS outstanding_kobo,
@@ -188,6 +200,10 @@ func ccByProduct(db *core.DB) http.HandlerFunc {
 			WHERE d.cycle_date = `+ccLatestCycle+`
 			GROUP BY 1
 			ORDER BY outstanding_kobo DESC`)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -232,7 +248,7 @@ func ccAtRisk(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		rows, _ := db.PGQuery(r.Context(), `
+		rows, err := db.PGQuery(r.Context(), `
 			SELECT d.account_number, d.cif,
 				TRIM(CONCAT(a.first_name, ' ', a.last_name)) AS customer_name,
 				COALESCE(NULLIF(p.product_name,''), d.product_code) AS product,
@@ -250,6 +266,10 @@ func ccAtRisk(db *core.DB) http.HandlerFunc {
 			ORDER BY d.overdue_amount_kobo DESC,
 			         (CASE WHEN d.credit_limit_kobo > 0 THEN d.outstanding_balance_kobo::numeric / d.credit_limit_kobo ELSE 0 END) DESC
 			LIMIT $1 OFFSET $2`, limit, offset)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 		if rows == nil {
 			rows = []core.Row{}
 		}
@@ -268,7 +288,7 @@ func ccAccounts(db *core.DB) http.HandlerFunc {
 		if onlyOverdue {
 			overdueClause = " AND d.overdue_amount_kobo > 0"
 		}
-		rows, _ := db.PGQuery(r.Context(), `
+		rows, err := db.PGQuery(r.Context(), `
 			SELECT d.account_number, d.cif, p.product_name,
 				d.outstanding_balance_kobo, d.credit_limit_kobo, d.overdue_amount_kobo,
 				d.minimum_payment_kobo, d.total_interest_kobo,
@@ -281,6 +301,10 @@ func ccAccounts(db *core.DB) http.HandlerFunc {
 			  AND ($1 = '%%' OR d.account_number ILIKE $1 OR d.cif ILIKE $1)`+overdueClause+`
 			ORDER BY d.outstanding_balance_kobo DESC
 			LIMIT $2 OFFSET $3`, q, limit, offset)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 		if rows == nil {
 			rows = []core.Row{}
 		}

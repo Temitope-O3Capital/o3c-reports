@@ -3,22 +3,19 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
-  Page, Tabs, KpiCard, SectionCard, DataTable, ExpandableFilterBar,
-  ErrBanner, ConfirmModal, DateFilter, NameCell, ActionRow, Modal, Spinner,
+  Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar,
+  ErrBanner, ConfirmModal, DateFilter, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { LiveBadge } from '../../components/MyWorkspace'
-import { apiFetch, apiPost, apiPut } from '../../lib/api'
+import { apiFetch, apiPut } from '../../lib/api'
 import { useFocusParam } from '../../hooks/useFocusParam'
-import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
+import { fmtKoboExact, fmtNum, today, monthStart } from '../../lib/fmt'
 import { RED, DARKRED, GREEN, AMBER, NAVY, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
-// Two distinct write-off flows, unified onto one page as tabs:
-//   • Approvals — recovery-originated write-offs a head approves/returns (was Write-off Queue).
-//   • Requests  — collections-initiated write-off requests, raised here via a modal and
-//                 approved/rejected by a head (was Write-off Requests).
-// The two live in separate tables (recovery_write_off_approvals vs collections_writeoff_requests)
-// with separate endpoints, so they stay separate panes rather than one merged table.
+// A write-off is raised from the recovery case, then travels the HOP → COO → CFO
+// chain (recovery_write_off_approvals). This page is that one queue: it shows every
+// write-off with its stage/status and lets the current approver act on it.
 
 function getUser(): { role?: string } {
   try { return JSON.parse(localStorage.getItem('o3c_user') ?? '{}') }
@@ -86,7 +83,7 @@ function StageBadge({ row, mine }: { row: WriteoffRow; mine: boolean }) {
   )
 }
 
-function ApprovalsPane({ onCount }: { onCount: (n: number) => void }) {
+function ApprovalsPane() {
   const [rows, setRows]       = useState<WriteoffRow[]>([])
   const [kpis, setKpis]       = useState<WriteoffKPIs | null>(null)
   const [loading, setLoading] = useState(true)
@@ -123,13 +120,13 @@ function ApprovalsPane({ onCount }: { onCount: (n: number) => void }) {
         apiFetch<{ data: WriteoffKPIs }>('/api/collections/writeoff-kpis'),
       ])
       const list = res.data ?? []
-      setRows(list); setKpis(kpiRes.data); onCount(statusTab === 'pending' ? list.length : list.filter(x => x.status !== 'approved' && x.status !== 'rejected').length)
+      setRows(list); setKpis(kpiRes.data)
     } catch (e: any) {
       setError(e.message ?? 'Failed to load write-off queue')
     } finally {
       setLoading(false)
     }
-  }, [fDpdRangeKey, dateFrom, dateTo, statusTab, onCount])
+  }, [fDpdRangeKey, dateFrom, dateTo, statusTab])
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['writeoffs', 'collections'] })
@@ -172,7 +169,7 @@ function ApprovalsPane({ onCount }: { onCount: (n: number) => void }) {
 
   const cols: TableCol<WriteoffRow>[] = [
     { key: 'account_cif', label: 'Customer', render: r => <NameCell name={r.customer_name ?? r.account_cif} sub={r.customer_name ? r.account_cif : null} /> },
-    { key: 'amount_kobo', label: 'Write-off ₦', align: 'right', render: r => <span style={{ ...NUM, fontWeight: 700, color: RED }}>{fmtKoboExact(r.amount_kobo)}</span> },
+    { key: 'amount_kobo', label: 'Write-Off ₦', align: 'right', render: r => <span style={{ ...NUM, fontWeight: 700, color: RED }}>{fmtKoboExact(r.amount_kobo)}</span> },
     { key: 'outstanding_kobo', label: 'Outstanding ₦', align: 'right', render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtKoboExact(r.outstanding_kobo)}</span> },
     { key: 'stage_label', label: 'Approval Stage', render: r => <StageBadge row={r} mine={canApproveRow(r)} /> },
     { key: 'dpd', label: 'DPD', align: 'center', render: r => <DpdBadge dpd={r.dpd} /> },
@@ -183,10 +180,10 @@ function ApprovalsPane({ onCount }: { onCount: (n: number) => void }) {
         <ActionRow actions={[
           // Review the debtor's full picture (balances, history, recovery activity) before
           // signing — Customer 360 is reachable by every approver (HOP/COO/CFO).
-          { icon: 'person_search', label: 'Review debtor (Customer 360)', onClick: () => navigate(`/customers/${r.account_cif}`) },
+          { icon: 'person_search', label: 'Review Debtor (Customer 360)', onClick: () => navigate(`/customers/${r.account_cif}`) },
           ...(canApproveRow(r) ? [
-            { icon: 'check_circle', label: r.required_role === 'cfo' ? 'Approve & post write-off' : 'Approve — send to next approver', onClick: () => setModal({ type: 'approve', row: r }), danger: true },
-            { icon: 'cancel',       label: 'Reject write-off', onClick: () => setModal({ type: 'reject', row: r }) },
+            { icon: 'check_circle', label: r.required_role === 'cfo' ? 'Approve & Post Write-off' : 'Approve — Send to Next Approver', onClick: () => setModal({ type: 'approve', row: r }), danger: true },
+            { icon: 'cancel',       label: 'Reject Write-Off',onClick: () => setModal({ type: 'reject', row: r }) },
           ] : []),
         ]} />
       ),
@@ -221,7 +218,7 @@ function ApprovalsPane({ onCount }: { onCount: (n: number) => void }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
-        <KpiCard label="Total Write-offs" value={kpis ? fmtNum(kpis.total) : '—'} icon="delete_forever" accent={RED} loading={kpiLoading} />
+        <KpiCard label="Total Write-Offs" value={kpis ? fmtNum(kpis.total) : '—'} icon="delete_forever" accent={RED} loading={kpiLoading} />
         <KpiCard label="Total Amount NGN" value={kpis ? fmtKoboExact(kpis.amount_kobo) : '—'} icon="account_balance" accent={NAVY} loading={kpiLoading} />
         <KpiCard label="Recovery Rate %" value={kpis ? `${Number(kpis.recovery_rate_pct).toFixed(1)}%` : '—'} icon="trending_up" accent={GREEN} loading={kpiLoading} />
         <KpiCard label="Pending Approval" value={kpis ? fmtNum(kpis.pending) : '—'} icon="pending_actions" accent={AMBER} loading={kpiLoading} />
@@ -234,7 +231,7 @@ function ApprovalsPane({ onCount }: { onCount: (n: number) => void }) {
         </p>
       </div>
 
-      <SectionCard title="Recovery-originated write-offs" badge={rows.length} padding={false}>
+      <SectionCard title="Recovery-originated Write-Offs" badge={rows.length} padding={false}>
         <ExpandableFilterBar
           search={search} onSearch={setSearch} groups={groups} onReset={resetFilters} onApply={load}
           resultCount={displayed.length} totalCount={rows.length}
@@ -242,7 +239,7 @@ function ApprovalsPane({ onCount }: { onCount: (n: number) => void }) {
         />
         <DataTable
           cols={cols} rows={displayed} keyFn={r => r.id} loading={loading} pageSize={20}
-          focusId={focus} emptyText="No write-offs awaiting approval" skeletonRows={8}
+          focusId={focus} emptyText="No Write-offs Awaiting Approval" skeletonRows={8}
         />
       </SectionCard>
 
@@ -256,312 +253,7 @@ function ApprovalsPane({ onCount }: { onCount: (n: number) => void }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-//  REQUESTS PANE — collections-initiated write-off requests (raise via modal / review)
-// ════════════════════════════════════════════════════════════════════════════════
-
-interface WriteoffRequest {
-  id: number
-  account_cif: string
-  writeoff_type: string
-  reason: string
-  reason_notes: string | null
-  amount_kobo: number | null
-  percentage: number | null
-  outstanding_kobo: number | null
-  status: string
-  review_notes: string | null
-  reviewed_at: string | null
-  created_at: string
-  requested_by_name: string | null
-  reviewed_by_name: string | null
-}
-
-const WRITEOFF_TYPES = [
-  { value: 'full',           label: 'Full Write-off',  desc: '100% of outstanding' },
-  { value: 'partial_amount', label: 'Partial Amount',  desc: 'Specific NGN amount' },
-  { value: 'percentage',     label: 'Percentage',      desc: '% of outstanding' },
-  { value: 'principal_only', label: 'Principal Only',  desc: 'Write off principal, not interest' },
-  { value: 'interest_only',  label: 'Interest Only',   desc: 'Write off interest, keep principal' },
-]
-const REASONS = [
-  { value: 'bad_debt', label: 'Bad Debt' }, { value: 'deceased', label: 'Customer Deceased' },
-  { value: 'fraud', label: 'Fraud / Identity Theft' }, { value: 'natural_disaster', label: 'Natural Disaster' },
-  { value: 'regulatory', label: 'Regulatory Directive' }, { value: 'other', label: 'Other' },
-]
-type StatusFilter = 'pending' | 'approved' | 'rejected'
-const statusColor = (s: string) => s === 'approved' ? GREEN : s === 'rejected' ? RED : AMBER
-const typeLabel   = (v: string) => WRITEOFF_TYPES.find(t => t.value === v)?.label ?? v
-const reasonLabel = (v: string) => REASONS.find(r => r.value === v)?.label ?? v
-
-function ReqStatusPill({ status }: { status: string }) {
-  const color = statusColor(status)
-  return <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'], background: `${color}18`, color, textTransform: 'capitalize' }}>{status}</span>
-}
-
-const reqInput: React.CSSProperties = { width: '100%', padding: '8px 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }
-const reqLabel: React.CSSProperties = { display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }
-
-function CreateRequestModal({ open, onClose, onSuccess }: { open: boolean; onClose: () => void; onSuccess: () => void }) {
-  const [cif, setCif] = useState('')
-  const [woType, setWoType] = useState('full')
-  const [reason, setReason] = useState('bad_debt')
-  const [reasonNotes, setReasonNotes] = useState('')
-  const [amountNaira, setAmountNaira] = useState('')
-  const [pct, setPct] = useState('')
-  const [outstanding, setOutstanding] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  function reset() { setCif(''); setWoType('full'); setReason('bad_debt'); setReasonNotes(''); setAmountNaira(''); setPct(''); setOutstanding('') }
-
-  async function handleSave() {
-    if (!cif.trim()) { toast.error('CIF is required'); return }
-    setSaving(true)
-    try {
-      const body: Record<string, any> = {
-        account_cif: cif.trim(), writeoff_type: woType, reason, reason_notes: reasonNotes,
-        outstanding_kobo: outstanding ? Math.round(parseFloat(outstanding) * 100) : 0,
-      }
-      if (woType === 'partial_amount' || woType === 'principal_only' || woType === 'interest_only') {
-        const n = parseFloat(amountNaira)
-        if (!n || n <= 0) { toast.error('Enter a valid amount'); setSaving(false); return }
-        body.amount_kobo = Math.round(n * 100)
-      }
-      if (woType === 'percentage') {
-        const p = parseFloat(pct)
-        if (!p || p <= 0 || p > 100) { toast.error('Enter a valid percentage (1–100)'); setSaving(false); return }
-        body.percentage = p
-      }
-      await apiPost('/api/collections-ops/writeoff-requests', body)
-      toast.success('Write-off request submitted')
-      reset(); onSuccess()
-    } catch (e: any) { toast.error(e.message) }
-    finally { setSaving(false) }
-  }
-
-  return (
-    <Modal open={open} onClose={() => { reset(); onClose() }} title="Request Write-off" width={520}
-      footer={
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={handleSave} disabled={saving}
-            style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {saving && <Spinner size={13} color="#fff" />}
-            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>send</span>
-            Submit Request
-          </button>
-          <button onClick={() => { reset(); onClose() }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
-        </div>
-      }>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div>
-          <label style={reqLabel}>Account CIF</label>
-          <input type="text" value={cif} onChange={e => setCif(e.target.value)} placeholder="e.g. CIF-001234" style={reqInput} autoFocus />
-        </div>
-        <div>
-          <label style={reqLabel}>Write-off Type</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {WRITEOFF_TYPES.map(t => (
-              <label key={t.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', padding: '8px 12px', borderRadius: RADIUS.md, border: `1.5px solid ${woType === t.value ? RED : 'var(--bdr)'}`, background: woType === t.value ? `${RED}08` : 'var(--card)' }}>
-                <input type="radio" checked={woType === t.value} onChange={() => setWoType(t.value)} style={{ marginTop: 2, accentColor: RED }} />
-                <div>
-                  <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: woType === t.value ? RED : 'var(--txt)' }}>{t.label}</div>
-                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{t.desc}</div>
-                </div>
-              </label>
-            ))}
-          </div>
-        </div>
-        {(woType === 'partial_amount' || woType === 'principal_only' || woType === 'interest_only') && (
-          <div>
-            <label style={reqLabel}>Amount (₦)</label>
-            <input type="number" min="0" step="0.01" placeholder="0.00" value={amountNaira} onChange={e => setAmountNaira(e.target.value)} style={{ ...reqInput, fontWeight: FW.bold }} />
-          </div>
-        )}
-        {woType === 'percentage' && (
-          <div>
-            <label style={reqLabel}>Percentage (%)</label>
-            <input type="number" min="0.01" max="100" step="0.01" placeholder="e.g. 50" value={pct} onChange={e => setPct(e.target.value)} style={reqInput} />
-          </div>
-        )}
-        <div>
-          <label style={reqLabel}>Outstanding Balance (₦) <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
-          <input type="number" min="0" step="0.01" placeholder="Current outstanding amount" value={outstanding} onChange={e => setOutstanding(e.target.value)} style={reqInput} />
-        </div>
-        <div>
-          <label style={reqLabel}>Reason</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-            {REASONS.map(r => (
-              <button key={r.value} onClick={() => setReason(r.value)}
-                style={{ padding: '5px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', border: `1.5px solid ${reason === r.value ? NAVY : 'var(--bdr)'}`, background: reason === r.value ? NAVY : 'var(--card)', color: reason === r.value ? '#fff' : 'var(--txt)' }}>
-                {r.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <label style={reqLabel}>Supporting Notes <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
-          <textarea value={reasonNotes} onChange={e => setReasonNotes(e.target.value)} rows={3} placeholder="Provide any additional context for the reviewer…" style={{ ...reqInput, resize: 'vertical' }} />
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-function ReviewRequestModal({ request, onClose, onSuccess }: { request: WriteoffRequest | null; onClose: () => void; onSuccess: () => void }) {
-  const [action, setAction] = useState<'approve' | 'reject'>('approve')
-  const [notes, setNotes]   = useState('')
-  const [saving, setSaving] = useState(false)
-
-  async function handleReview() {
-    if (!request) return
-    setSaving(true)
-    try {
-      if (action === 'approve') { await apiPut(`/api/collections-ops/writeoff-requests/${request.id}/approve`, { review_notes: notes }); toast.success('Write-off request approved. GL entry posted') }
-      else { await apiPut(`/api/collections-ops/writeoff-requests/${request.id}/reject`, { review_notes: notes }); toast.success('Write-off request rejected') }
-      setNotes(''); onSuccess()
-    } catch (e: any) { toast.error(e.message) }
-    finally { setSaving(false) }
-  }
-
-  return (
-    <Modal open={request !== null} onClose={() => { setNotes(''); onClose() }} title={`Review Write-off: ${request?.account_cif ?? ''}`} width={460}
-      footer={
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={handleReview} disabled={saving}
-            style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: action === 'approve' ? GREEN : RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {saving && <Spinner size={13} color="#fff" />}
-            {action === 'approve' ? 'Approve' : 'Reject'}
-          </button>
-          <button onClick={() => { setNotes(''); onClose() }} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
-        </div>
-      }>
-      {request && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ background: 'var(--canvas)', borderRadius: RADIUS.md, padding: `${SP[3]} ${SP[4]}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {[
-              ['Type', typeLabel(request.writeoff_type)],
-              ['Reason', reasonLabel(request.reason)],
-              ['Outstanding', request.outstanding_kobo ? fmtKoboExact(request.outstanding_kobo) : '—'],
-              ...(request.writeoff_type === 'partial_amount' || request.writeoff_type === 'principal_only' || request.writeoff_type === 'interest_only' ? [['Amount', request.amount_kobo ? fmtKoboExact(request.amount_kobo) : '—']] : []),
-              ...(request.writeoff_type === 'percentage' ? [['Percentage', `${request.percentage}%`]] : []),
-              ['Requested By', request.requested_by_name ?? '—'],
-              ['Submitted', fmtDate(request.created_at)],
-            ].map(([k, v]) => (
-              <div key={k} style={{ display: 'flex', gap: 8 }}>
-                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', minWidth: 110 }}>{k}</span>
-                <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>{v}</span>
-              </div>
-            ))}
-            {request.reason_notes && (
-              <div style={{ marginTop: 4, padding: `${SP[2]} ${SP[3]}`, background: 'var(--card)', borderRadius: RADIUS.md, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{request.reason_notes}</div>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 7 }}>
-            {(['approve', 'reject'] as const).map(a => (
-              <button key={a} onClick={() => setAction(a)}
-                style={{ flex: 1, padding: '8px', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', border: `1.5px solid ${action === a ? (a === 'approve' ? GREEN : RED) : 'var(--bdr)'}`, background: action === a ? (a === 'approve' ? GREEN : RED) : 'var(--card)', color: action === a ? '#fff' : 'var(--txt)' }}>
-                {a === 'approve' ? 'Approve' : 'Reject'}
-              </button>
-            ))}
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>Review Notes <span style={{ fontWeight: 400, color: 'var(--txt3)' }}>(optional)</span></label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Notes for requester…" style={{ ...reqInput, resize: 'vertical' }} />
-          </div>
-        </div>
-      )}
-    </Modal>
-  )
-}
-
-function RequestsPane({ onCount }: { onCount: (n: number) => void }) {
-  const [rows, setRows]           = useState<WriteoffRequest[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [error, setError]         = useState<string | null>(null)
-  const [statusTab, setStatusTab] = useState<StatusFilter>('pending')
-  const [createOpen, setCreateOpen] = useState(false)
-  const [reviewing, setReviewing] = useState<WriteoffRequest | null>(null)
-
-  const user   = getUser()
-  const canAct = user.role === 'collections_head' || user.role === 'admin'
-
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true)
-    setError(null)
-    try {
-      const res = await apiFetch<{ data: WriteoffRequest[] }>(`/api/collections-ops/writeoff-requests?status=${statusTab}`)
-      const list = res.data ?? []
-      setRows(list)
-      if (statusTab === 'pending') onCount(list.length)
-    } catch (e: any) { setError(e.message) }
-    finally { setLoading(false) }
-  }, [statusTab, onCount])
-
-  useEffect(() => { load() }, [load])
-  useLiveData(() => load(true), { topics: ['collections', 'loans'] })
-
-  const STATUS_TABS: { key: StatusFilter; label: string }[] = [
-    { key: 'pending', label: 'Pending' }, { key: 'approved', label: 'Approved' }, { key: 'rejected', label: 'Rejected' },
-  ]
-
-  const cols: TableCol<WriteoffRequest>[] = [
-    { key: 'account_cif', label: 'Account', render: r => <NameCell name={r.account_cif} sub={r.requested_by_name ?? undefined} /> },
-    { key: 'writeoff_type', label: 'Type', render: r => <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY }}>{typeLabel(r.writeoff_type)}</span> },
-    { key: 'reason', label: 'Reason', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{reasonLabel(r.reason)}</span> },
-    { key: 'outstanding_kobo', label: 'Outstanding', align: 'right', render: r => <span style={{ ...NUM, color: RED }}>{r.outstanding_kobo ? fmtKoboExact(r.outstanding_kobo) : '—'}</span> },
-    { key: 'amount_kobo', label: 'Write-off Amount', align: 'right', render: r => {
-      if (r.writeoff_type === 'full') return <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Full</span>
-      if (r.writeoff_type === 'percentage') return <span style={NUM}>{r.percentage}%</span>
-      return <span style={NUM}>{r.amount_kobo ? fmtKoboExact(r.amount_kobo) : '—'}</span>
-    } },
-    { key: 'status', label: 'Status', render: r => <ReqStatusPill status={r.status} /> },
-    { key: 'created_at', label: 'Submitted', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.created_at)}</span> },
-    ...(canAct && statusTab === 'pending' ? [{
-      key: '_actions', label: '', sortable: false,
-      render: (r: WriteoffRequest) => (
-        <button onClick={e => { e.stopPropagation(); setReviewing(r) }}
-          style={{ padding: '4px 11px', borderRadius: RADIUS.sm, cursor: 'pointer', border: `1.5px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, whiteSpace: 'nowrap' }}>
-          Review
-        </button>
-      ),
-    } as TableCol<WriteoffRequest>] : []),
-  ]
-
-  return (
-    <>
-      <ErrBanner error={error} onRetry={load} />
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: SP[3] }}>
-        <button onClick={() => setCreateOpen(true)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
-          Request Write-off
-        </button>
-      </div>
-
-      <SectionCard badge={rows.length} padding={false}>
-        <div style={{ display: 'flex', gap: 2, padding: '8px 16px', borderBottom: '1px solid var(--bdr)' }}>
-          {STATUS_TABS.map(t => (
-            <button key={t.key} onClick={() => setStatusTab(t.key)}
-              style={{ padding: '5px 16px', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: 'inherit', fontSize: TEXT.sm, fontWeight: statusTab === t.key ? FW.semibold : FW.normal, border: statusTab === t.key ? `1.5px solid ${NAVY}` : '1.5px solid transparent', background: statusTab === t.key ? NAVY : 'transparent', color: statusTab === t.key ? '#fff' : 'var(--txt2)' }}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <DataTable
-          key={statusTab} cols={cols} rows={rows} keyFn={r => r.id} loading={loading} skeletonRows={6} pageSize={20}
-          searchKeys={['account_cif', 'writeoff_type', 'reason']} searchPlaceholder="Search CIF, type, reason…"
-          emptyText={`No ${statusTab} write-off requests`}
-        />
-      </SectionCard>
-
-      <CreateRequestModal open={createOpen} onClose={() => setCreateOpen(false)} onSuccess={() => { setCreateOpen(false); load() }} />
-      <ReviewRequestModal request={reviewing} onClose={() => setReviewing(null)} onSuccess={() => { setReviewing(null); load() }} />
-    </>
-  )
-}
-
-// ════════════════════════════════════════════════════════════════════════════════
-//  PAGE — tabs over the two panes
+//  PAGE
 // ════════════════════════════════════════════════════════════════════════════════
 
 // One unified Write-offs workflow. The old two-tab split (Approvals vs Requests) is
@@ -570,14 +262,13 @@ function RequestsPane({ onCount }: { onCount: (n: number) => void }) {
 // HOP → COO → CFO chain. This page is that one queue: raise happens on the case; here you
 // see every write-off with its stage/status and act when it's your turn.
 export default function CollectionsWriteoffs() {
-  const [, setCount] = useState<number>(0)
   return (
     <Page
-      title="Write-offs"
+      title="Write-Offs"
       subtitle="Every write-off request and its HOP → COO → CFO approval, in one place"
       actions={<LiveBadge />}
     >
-      <ApprovalsPane onCount={setCount} />
+      <ApprovalsPane />
     </Page>
   )
 }

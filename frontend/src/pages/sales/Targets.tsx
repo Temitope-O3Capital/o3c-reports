@@ -381,7 +381,7 @@ export default function SalesTargets() {
       {!canEdit && myRow && (
         <div style={{ background: 'var(--card)', border: `1px solid ${BLUE}33`, borderLeft: `3px solid ${BLUE}`, borderRadius: RADIUS.xl, padding: '16px 18px', marginBottom: SP[5] }}>
           <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 10 }}>
-            My target: {period}
+            My Target: {period}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <div>
@@ -416,7 +416,7 @@ export default function SalesTargets() {
             </div>
           </div>
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--bdr)', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Commission earned this month</span>
+            <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Commission Earned This Month</span>
             <span style={{ fontSize: TEXT.xl, fontWeight: FW.extrabold, color: GREEN, ...NUM }}>{fmtNaira(Number(myRow.commission_kobo ?? 0))}</span>
           </div>
         </div>
@@ -493,14 +493,14 @@ export default function SalesTargets() {
             <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Officer</label>
             <select value={fUserId} onChange={e => setFUserId(e.target.value)}
               style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
-              <option value="">— Select officer —</option>
+              <option value="">— Select Officer —</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
             </select>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             {[
-              { label: 'From month', value: fFrom, set: setFFrom },
-              { label: 'To month',   value: fTo,   set: setFTo },
+              { label: 'From Month', value: fFrom, set: setFFrom },
+              { label: 'To Month',   value: fTo,   set: setFTo },
             ].map(({ label, value, set }) => (
               <div key={label} style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>{label}</label>

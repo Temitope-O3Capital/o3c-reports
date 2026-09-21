@@ -257,6 +257,17 @@ func raiseSalesAppFromLead(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// A submitted application moves the lead to application_submitted (never
+		// backwards, never out of approved/converted/disqualified). A draft is not a
+		// submission; it advances the lead when submitSalesAppDraft pushes it.
+		if !req.Draft {
+			if _, err := advanceLeadOnApplication(ctx, tx, leadID, user.ID,
+				fmt.Sprintf("Application %s submitted", ref)); err != nil {
+				respondErr(w, 500, "Could not advance the lead: "+err.Error())
+				return
+			}
+		}
+
 		if err := tx.Commit(); err != nil {
 			respondErr(w, 500, "Commit failed")
 			return
@@ -859,12 +870,14 @@ func submitSalesAppDraft(db *core.DB) http.HandlerFunc {
 
 		var appID, amount int64
 		var product, cif, name, ref string
+		var sourceLead sql.NullInt64
 		if err := db.PG.QueryRowContext(r.Context(), `
 			SELECT id, product_type, COALESCE(amount_requested_kobo,0),
-			       COALESCE(applicant_cif,''), COALESCE(applicant_name,''), reference
+			       COALESCE(applicant_cif,''), COALESCE(applicant_name,''), reference,
+			       source_lead_id
 			  FROM loan_applications
 			 WHERE id = $1 AND status = 'draft'`+scope, args...).
-			Scan(&appID, &product, &amount, &cif, &name, &ref); err != nil {
+			Scan(&appID, &product, &amount, &cif, &name, &ref, &sourceLead); err != nil {
 			respondErr(w, 404, "No draft you can submit with that id")
 			return
 		}
@@ -899,6 +912,14 @@ func submitSalesAppDraft(db *core.DB) http.HandlerFunc {
 			appID, routedStage, user.ID, "Submitted from draft by Sales"); err != nil {
 			respondErr(w, 500, "Could not record the event: "+err.Error())
 			return
+		}
+		// A draft raised from a lead advances that lead now that it is actually submitted.
+		if sourceLead.Valid {
+			if _, err := advanceLeadOnApplication(r.Context(), tx, sourceLead.Int64, user.ID,
+				fmt.Sprintf("Application %s submitted", ref)); err != nil && err != sql.ErrNoRows {
+				respondErr(w, 500, "Could not advance the lead: "+err.Error())
+				return
+			}
 		}
 		if err := tx.Commit(); err != nil {
 			respondErr(w, 500, "Commit failed")

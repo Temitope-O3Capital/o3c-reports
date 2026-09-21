@@ -212,7 +212,7 @@ export default function AdminIntegrations() {
         actions={
           <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
             style={{ padding: '6px 10px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}>
-            <option value="">All types</option>
+            <option value="">All Types</option>
             {types.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         }

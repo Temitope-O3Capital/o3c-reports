@@ -236,7 +236,7 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
     case 'image':
       return <><PPField label="Upload Image">
         <label style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 12px', background: '#F8FAFC', borderRadius: 7, border: '1.5px dashed rgba(0,0,0,0.15)', cursor: 'pointer', fontSize: 12, color: '#475569' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>upload</span>Choose file
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>upload</span>Choose File
           <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
             const file = e.target.files?.[0]; if (!file) return
             const fd = new FormData(); fd.append('image', file)
@@ -244,12 +244,12 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
             catch (err: any) { alert(err?.message || 'Upload failed') }
           }} />
         </label></PPField>
-        <PPField label="Or paste URL"><PPInp value={block.src || ''} placeholder="https://…" onChange={e => onUpdate({ src: e.target.value })} /></PPField>
+        <PPField label="Or Paste URL"><PPInp value={block.src || ''} placeholder="https://…" onChange={e => onUpdate({ src: e.target.value })} /></PPField>
         <PPField label="Alt Text"><PPInp value={block.alt || ''} onChange={e => onUpdate({ alt: e.target.value })} /></PPField>
         <PPField label="Click Link"><PPInp value={block.link || ''} placeholder="https://…" onChange={e => onUpdate({ link: e.target.value })} /></PPField>
-        <PPField label="Width"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.fullWidth !== false} onChange={e => onUpdate({ fullWidth: e.target.checked })} />Full width (edge to edge)</label></PPField>
+        <PPField label="Width"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.fullWidth !== false} onChange={e => onUpdate({ fullWidth: e.target.checked })} />Full Width (Edge to Edge)</label></PPField>
         {block.fullWidth === false && <SegBtn label="Alignment" opts={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} value={(block.align as string) || 'center'} onPick={v => onUpdate({ align: v })} />}
-        <PPField label="Rounded Corners"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={!!block.rounded} onChange={e => onUpdate({ rounded: e.target.checked })} />Apply 8px radius</label></PPField></>
+        <PPField label="Rounded Corners"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={!!block.rounded} onChange={e => onUpdate({ rounded: e.target.checked })} />Apply 8px Radius</label></PPField></>
     case 'button':
       return <><PPField label="Label"><PPInp value={block.text || ''} onChange={e => onUpdate({ text: e.target.value })} /></PPField>
         <PPField label="Link URL"><PPInp value={block.url || ''} placeholder="{{cta_url}}" onChange={e => onUpdate({ url: e.target.value })} /></PPField>
@@ -257,7 +257,7 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
         <ColorField label="Text Color" value={block.textColor} def="#ffffff" onPick={v => onUpdate({ textColor: v })} />
         <SegBtn label="Alignment" opts={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} value={(block.align as string) || 'center'} onPick={v => onUpdate({ align: v })} />
         <SegBtn label="Size" opts={[['sm', 'Small'], ['md', 'Normal'], ['lg', 'Large']]} value={(block.size as string) || 'md'} onPick={v => onUpdate({ size: v })} />
-        <PPField label="Shape"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.rounded !== false} onChange={e => onUpdate({ rounded: e.target.checked })} />Rounded corners</label></PPField></>
+        <PPField label="Shape"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.rounded !== false} onChange={e => onUpdate({ rounded: e.target.checked })} />Rounded Corners</label></PPField></>
     case 'divider':
       return <><ColorField label="Line Color" value={block.color} def="#E5E7EB" onPick={v => onUpdate({ color: v })} />
         <div style={{ display: 'flex', gap: 10 }}>
@@ -278,7 +278,7 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
         <PPField label="Right HTML"><textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...fi, fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }} rows={4} value={block.rightHtml || ''} onChange={e => onUpdate({ rightHtml: e.target.value })} /></PPField></>
     case 'footer':
       return <><PPField label="Footer Text"><textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...fi, resize: 'vertical', fontSize: 12 }} rows={3} value={block.text || ''} onChange={e => onUpdate({ text: e.target.value })} /></PPField>
-        <PPField label="Unsubscribe"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.unsubscribe !== false} onChange={e => onUpdate({ unsubscribe: e.target.checked })} />Include unsubscribe link</label></PPField></>
+        <PPField label="Unsubscribe"><label style={{ display: 'flex', gap: 8, fontSize: 12, cursor: 'pointer', alignItems: 'center' }}><input type="checkbox" checked={block.unsubscribe !== false} onChange={e => onUpdate({ unsubscribe: e.target.checked })} />Include Unsubscribe Link</label></PPField></>
     case 'callout':
       return <><PPField label="Theme">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
@@ -289,7 +289,7 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
             )
           })}
         </div></PPField>
-        <PPField label="Icon (emoji)"><PPInp value={block.icon || ''} placeholder="⚠️" onChange={e => onUpdate({ icon: e.target.value })} /></PPField>
+        <PPField label="Icon (Emoji)"><PPInp value={block.icon || ''} placeholder="⚠️" onChange={e => onUpdate({ icon: e.target.value })} /></PPField>
         <PPField label="Title"><PPInp value={block.title || ''} onChange={e => onUpdate({ title: e.target.value })} /></PPField>
         <PPField label="Body"><textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" style={{ ...fi, resize: 'vertical', fontSize: 12, lineHeight: 1.6 }} rows={3} value={block.body || ''} onChange={e => onUpdate({ body: e.target.value })} /></PPField></>
     case 'stats': {
@@ -298,7 +298,7 @@ function PropsPanel({ block, onUpdate }: { block: EmailBlock | null; onUpdate: (
         <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
           {[2, 3].map(n => { const on = sc.length === n; return (
             <button key={n} type="button" onClick={() => { const next = [...sc]; while (next.length < n) next.push({ value: '—', label: 'Metric', color: NAVY }); onUpdate({ cols: next.slice(0, n) }) }}
-              style={{ flex: 1, padding: '6px 0', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${on ? BLUE : 'rgba(0,0,0,0.13)'}`, background: on ? `${BLUE}12` : 'transparent', color: on ? BLUE : '#64748b' }}>{n} cols</button>
+              style={{ flex: 1, padding: '6px 0', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${on ? BLUE : 'rgba(0,0,0,0.13)'}`, background: on ? `${BLUE}12` : 'transparent', color: on ? BLUE : '#64748b' }}>{n} Cols</button>
           )})}
         </div></PPField>
         {sc.map((col, i) => (
@@ -526,7 +526,7 @@ function PreviewModal({ html, subject, onClose }: { html: string; subject: strin
           <button onClick={() => setSample(s => !s)} title="Fill merge tags with sample data"
             style={{ padding: '5px 14px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.22)', background: sample ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.08)', color: sample ? NAVY : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
             <span className="material-symbols-rounded" style={{ fontSize: 13 }}>{sample ? 'toggle_on' : 'toggle_off'}</span>
-            Sample data
+            Sample Data
           </button>
           <button onClick={() => { navigator.clipboard.writeText(html); setCopied(true); setTimeout(() => setCopied(false), 2200) }}
             style={{ padding: '5px 14px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.22)', background: 'rgba(255,255,255,0.08)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -742,7 +742,7 @@ export default function EmailBlockEditor({ value, onChange, previewSubject = '',
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b', cursor: 'pointer' }} title="Remove the centered card so the email + hero images fill the full width">
             <input type="checkbox" checked={!!settings.fullBleed} onChange={e => setSettings(s => ({ ...s, fullBleed: e.target.checked }))} />
-            Full width
+            Full Width
           </label>
         </div>
         {/* Preheader / preview text */}
@@ -791,10 +791,10 @@ export default function EmailBlockEditor({ value, onChange, previewSubject = '',
             {blocks.length === 0 ? (
               <div style={{ padding: 60, textAlign: 'center' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 52, color: '#E2E8F0', display: 'block', marginBottom: 16 }}>email</span>
-                <p style={{ fontSize: 14, color: '#94a3b8', marginBottom: 20 }}>Your canvas is empty</p>
+                <p style={{ fontSize: 14, color: '#94a3b8', marginBottom: 20 }}>Your Canvas Is Empty</p>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                   <button type="button" onClick={() => setShowTemplates(true)} style={{ padding: '9px 20px', borderRadius: 7, border: 'none', background: NAVY, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Choose Template</button>
-                  <button type="button" onClick={() => addBlock('header', null)} style={{ padding: '9px 20px', borderRadius: 7, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13 }}>Start from scratch</button>
+                  <button type="button" onClick={() => addBlock('header', null)} style={{ padding: '9px 20px', borderRadius: 7, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13 }}>Start from Scratch</button>
                 </div>
               </div>
             ) : (

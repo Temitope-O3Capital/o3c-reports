@@ -1,5 +1,5 @@
 import { useLiveData } from '../../hooks/useRealtime'
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -128,7 +128,7 @@ function ReviewModal({ payment, onClose, onSuccess }: {
             <button onClick={() => navigate(`/customers/${payment.account_cif}`)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: RADIUS.md, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 14 }}>person_search</span>
-              Review debtor (Customer 360)
+              Review Debtor (Customer 360)
             </button>
           </div>
 
@@ -186,13 +186,17 @@ export default function CollectionPaymentApprovals() {
   }, [statusTab])
 
   useEffect(() => { load() }, [load])
-  useLiveData(() => load(true), { topics: ['collection_payments', 'collections'] })
+  useLiveData(() => load(true), { topics: ['collections'] })
 
-  // Deep-link from a notification: open the Review modal on the exact payment.
+  // Deep-link from a notification: open the Review modal on the exact payment, once.
+  // `focus` stays in the URL after the modal opens, and rows gets a new reference on
+  // every live-data poll — without this guard the effect would reopen the modal on
+  // the next tick even after the reviewer cancelled out of it.
+  const openedFocusRef = useRef<string | null>(null)
   useEffect(() => {
-    if (focus && rows.length) {
+    if (focus && focus !== openedFocusRef.current && rows.length) {
       const r = rows.find(x => String(x.id) === String(focus))
-      if (r) setReviewing(r)
+      if (r) { setReviewing(r); openedFocusRef.current = focus }
     }
   }, [focus, rows])
 
@@ -268,7 +272,7 @@ export default function CollectionPaymentApprovals() {
           placeholder="Search CIF, name, reference…"
         />
         <DataTable cols={cols} rows={displayed} keyFn={r => r.id} loading={loading} skeletonRows={6} pageSize={20}
-          focusId={focus} emptyText="No collection payments pending approval" />
+          focusId={focus} emptyText="No Collection Payments Pending Approval" />
       </SectionCard>
 
       <ReviewModal payment={reviewing} onClose={() => setReviewing(null)} onSuccess={() => { setReviewing(null); load() }} />

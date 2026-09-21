@@ -249,7 +249,7 @@ func collectionsOpsAssign(db *core.DB) http.HandlerFunc {
 
 		sendNotification(ctx, db, b.AgentID, "collections_assigned", //nolint:errcheck
 			"Collection Case Assigned",
-			fmt.Sprintf("A collection account has been assigned to you"),
+			"A collection account has been assigned to you",
 			"collection_assignment", id)
 
 		respondOK(w, "Assigned successfully")
@@ -293,7 +293,7 @@ func reconcileCollectionPayment(ctx context.Context, db *core.DB, payID int64, r
 		return false
 	}
 	res, err := db.PGExec(ctx, `
-		UPDATE collection_payments cp
+		UPDATE app.collection_payments cp
 		SET reconciled = true, reconciled_at = NOW(),
 		    paystack_reference = (SELECT pt.reference FROM paystack_transactions pt
 		                          WHERE lower(pt.reference) = lower($2) AND pt.status = 'success' LIMIT 1)
@@ -313,7 +313,7 @@ func collectionsOpsReconcilePayments(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		res, err := db.PGExec(ctx, `
-			UPDATE collection_payments cp
+			UPDATE app.collection_payments cp
 			SET reconciled = true, reconciled_at = NOW(), paystack_reference = pt.reference
 			FROM paystack_transactions pt
 			WHERE cp.reconciled = false
@@ -347,7 +347,7 @@ func collectionsOpsGetPayments(db *core.DB) http.HandlerFunc {
 			SELECT cp.id, cp.amount_kobo, cp.payment_date, cp.channel AS payment_method,
 			       cp.reference, cp.created_at, cp.reconciled, cp.paystack_reference,
 			       u.full_name AS received_by_name
-			FROM collection_payments cp
+			FROM app.collection_payments cp
 			LEFT JOIN o3c_users u ON u.id = cp.received_by
 			WHERE cp.account_cif = $1
 			ORDER BY cp.payment_date DESC, cp.id DESC
@@ -377,7 +377,7 @@ func collectionsOpsPaymentsByCIF(db *core.DB) http.HandlerFunc {
 			SELECT cp.id, cp.amount_kobo, cp.payment_date, cp.channel AS payment_method,
 			       cp.channel, cp.reference, cp.created_at, cp.reconciled, cp.status,
 			       cp.paystack_reference, u.full_name AS received_by_name
-			FROM collection_payments cp
+			FROM app.collection_payments cp
 			LEFT JOIN o3c_users u ON u.id = cp.received_by
 			WHERE cp.account_cif = $1
 			ORDER BY cp.payment_date DESC, cp.id DESC
@@ -450,7 +450,7 @@ func collectionsOpsLogPayment(db *core.DB) http.HandlerFunc {
 		// and loan-book parity happen ONLY at final approval — see postCollectionPaymentGL.
 		var payID int64
 		err = tx.QueryRowContext(ctx,
-			`INSERT INTO collection_payments
+			`INSERT INTO app.collection_payments
 			 (assignment_id, account_cif, amount_kobo, payment_date, channel, reference, received_by, status)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
 			id, cif, b.AmountKobo, b.PaymentDate, b.Channel, b.Reference, user.ID, writeOffChainStart,
@@ -504,7 +504,7 @@ func postCollectionPaymentGL(ctx context.Context, tx *sql.Tx, payID int64, cif, 
 	}); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE collection_payments SET gl_reference=$1 WHERE id=$2`, glRef, payID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE app.collection_payments SET gl_reference=$1 WHERE id=$2`, glRef, payID); err != nil {
 		return err
 	}
 	// Legacy parity: mirror into loan_repayments when the CIF maps to a booked loan.
@@ -761,8 +761,8 @@ func collectionsOpsPromise(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.PromiseDate == "" || b.AmountKobo == 0 {
-			respondErr(w, 422, "promise_date and amount_kobo are required")
+		if b.PromiseDate == "" || b.AmountKobo <= 0 {
+			respondErr(w, 422, "promise_date and a positive amount_kobo are required")
 			return
 		}
 
@@ -1010,7 +1010,7 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 				  AND actual_date = CURRENT_DATE`},
 			{"collected_today_kobo", `
 				SELECT COALESCE(SUM(amount_kobo), 0) AS val
-				FROM collection_payments
+				FROM app.collection_payments
 				WHERE payment_date = CURRENT_DATE`},
 			{"contacts_today", `
 				SELECT COUNT(*) AS val FROM collection_contacts
@@ -1027,10 +1027,10 @@ func collectionsOpsDashboard(db *core.DB) http.HandlerFunc {
 				FROM collection_promises
 				WHERE is_kept IS NOT NULL
 				  AND DATE_TRUNC('month', actual_date) = DATE_TRUNC('month', CURRENT_DATE)`},
-			// Contact Rate: contacts logged today / total assigned active accounts
+			// Contact Rate: distinct accounts contacted today / total assigned active accounts
 			{"contact_rate_pct", `
 				SELECT CASE WHEN (SELECT COUNT(*) FROM collection_assignments WHERE status = 'active') = 0 THEN 0
-				            ELSE ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM collection_assignments WHERE status = 'active'), 1)
+				            ELSE ROUND(100.0 * COUNT(DISTINCT cif_number) / (SELECT COUNT(*) FROM collection_assignments WHERE status = 'active'), 1)
 				       END AS val
 				FROM collection_contacts
 				WHERE created_at::date = CURRENT_DATE`},
@@ -1104,10 +1104,7 @@ func collectionsOpsSendToRecovery(db *core.DB) http.HandlerFunc {
 		}
 		a := rows[0]
 		accountCIF := str(a["account_cif"])
-		outstanding := int64(0)
-		if v, ok := a["outstanding_kobo"].(int64); ok {
-			outstanding = v
-		}
+		outstanding := toInt64(a["outstanding_kobo"])
 		dpd := str(a["dpd_bucket"])
 
 		// Generate case ref (NEXTVAL is non-transactional by design)
@@ -1205,7 +1202,7 @@ func collectionsOpsAgentDashboard(db *core.DB) http.HandlerFunc {
 				SELECT received_by AS agent_user_id,
 				       COUNT(*)             AS cnt,
 				       SUM(amount_kobo)     AS kobo
-				FROM collection_payments
+				FROM app.collection_payments
 				WHERE payment_date = CURRENT_DATE
 				GROUP BY received_by
 			)
@@ -1362,15 +1359,6 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// Guard: reject if an active plan already exists for this account.
-		existing, _ := db.PGQuery(ctx,
-			`SELECT id FROM repayment_plans WHERE account_cif=$1 AND status='Active' LIMIT 1`,
-			b.AccountCIF)
-		if len(existing) > 0 {
-			respondErr(w, 409, "An active repayment plan already exists for this account")
-			return
-		}
-
 		total := int64(0)
 		for _, i := range instalments {
 			total += i.AmountKobo
@@ -1390,6 +1378,25 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Plan creation failed")
 			return
 		}
+		defer tx.Rollback() //nolint:errcheck
+
+		// Guard: reject if an active plan already exists for this account. Checked
+		// inside the transaction against the uq_repayment_plans_active_cif partial
+		// unique index, which is the actual race-proof backstop — two concurrent
+		// requests for the same CIF can both pass this SELECT, but only one INSERT
+		// below can win; the loser gets the unique-violation branch just after it.
+		existing, _ := tx.QueryContext(ctx,
+			`SELECT id FROM repayment_plans WHERE account_cif=$1 AND status='Active' LIMIT 1`,
+			b.AccountCIF)
+		hasExisting := existing != nil && existing.Next()
+		if existing != nil {
+			existing.Close()
+		}
+		if hasExisting {
+			respondErr(w, 409, "An active repayment plan already exists for this account")
+			return
+		}
+
 		var planID any
 		if err = tx.QueryRowContext(ctx,
 			`INSERT INTO repayment_plans
@@ -1397,7 +1404,10 @@ func collectionsOpsCreatePlan(db *core.DB) http.HandlerFunc {
 			 VALUES ($1,$2,$3,$4,$5,$6::date,$7) RETURNING id`,
 			b.AccountCIF, ns(b.CustomerName), user.ID, total, len(instalments), instalments[0].DueDate, ns(b.Notes),
 		).Scan(&planID); err != nil {
-			tx.Rollback() //nolint:errcheck
+			if mrPgCode(err) == "23505" {
+				respondErr(w, 409, "An active repayment plan already exists for this account")
+				return
+			}
 			respondErr(w, 500, "Plan creation failed")
 			return
 		}
@@ -1901,34 +1911,48 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Transaction failed")
 			return
 		}
+		defer tx.Rollback() //nolint:errcheck
 
-		// Fetch pending rows first so we have amount_kobo for each GL entry.
-		pendingRows, err := db.PGQuery(ctx,
+		// Lock candidate rows inside the transaction (TOCTOU guard, same as the
+		// single-row approver) so a concurrent approve/reject on the same ids can't
+		// race this one into posting the same write-off to the GL twice.
+		lockRows, err := tx.QueryContext(ctx,
 			`SELECT id, amount_kobo, case_id FROM recovery_write_off_approvals
-			 WHERE id = ANY($1) AND status='pending'`, b.IDs)
+			 WHERE id = ANY($1) AND status='pending' FOR UPDATE`, b.IDs)
 		if err != nil {
-			tx.Rollback() //nolint:errcheck
 			respondErrLog(w, 500, "Query failed", err)
 			return
 		}
+		type pendingRow struct {
+			id, amountKobo, caseID int64
+		}
+		var pendingRows []pendingRow
+		for lockRows.Next() {
+			var pr pendingRow
+			if err = lockRows.Scan(&pr.id, &pr.amountKobo, &pr.caseID); err != nil {
+				lockRows.Close()
+				respondErrLog(w, 500, "Scan failed", err)
+				return
+			}
+			pendingRows = append(pendingRows, pr)
+		}
+		lockRows.Close()
 
 		if len(pendingRows) == 0 {
-			tx.Rollback() //nolint:errcheck
 			respond(w, map[string]any{"approved": 0}, "json")
 			return
 		}
 
-		// Approve all pending rows in one statement.
+		// Approve all locked-pending rows in one statement.
 		pendingIDs := make([]int64, len(pendingRows))
 		for i, row := range pendingRows {
-			pendingIDs[i] = toInt64(row["id"])
+			pendingIDs[i] = row.id
 		}
 		if _, err = tx.ExecContext(ctx,
 			`UPDATE recovery_write_off_approvals
 			 SET status='approved', approved_by=$1, approved_at=NOW()
-			 WHERE id = ANY($2)`,
+			 WHERE id = ANY($2) AND status='pending'`,
 			user.ID, pendingIDs); err != nil {
-			tx.Rollback() //nolint:errcheck
 			respondErr(w, 500, "Update failed")
 			return
 		}
@@ -1936,11 +1960,10 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 		// Close each underlying recovery case so written-off loans stop resurfacing
 		// (previously only GL was posted; the case stayed open).
 		for _, row := range pendingRows {
-			if cid := toInt64(row["case_id"]); cid > 0 {
+			if row.caseID > 0 {
 				if _, err = tx.ExecContext(ctx,
 					`UPDATE recovery_cases SET status='written_off', write_off_status='approved', write_off_amount_kobo=$1, closed_at=NOW(), updated_at=NOW() WHERE id=$2`,
-					toInt64(row["amount_kobo"]), cid); err != nil {
-					tx.Rollback() //nolint:errcheck
+					row.amountKobo, row.caseID); err != nil {
 					respondErr(w, 500, "Failed to close recovery case")
 					return
 				}
@@ -1949,24 +1972,20 @@ func collectionsOpsBulkApproveWriteoff(db *core.DB) http.HandlerFunc {
 
 		// Post a GL entry for each approved write-off.
 		for _, row := range pendingRows {
-			amountKobo := toInt64(row["amount_kobo"])
-			woID := toInt64(row["id"])
-			caseID := toInt64(row["case_id"])
-			if amountKobo <= 0 {
+			if row.amountKobo <= 0 {
 				continue
 			}
 			if glErr := postJournalTx(ctx, tx, glEntry{
 				Date:          time.Now(),
-				Description:   fmt.Sprintf("Loan write-off approved — case #%d", caseID),
-				Reference:     fmt.Sprintf("WO-%d", woID),
+				Description:   fmt.Sprintf("Loan write-off approved — case #%d", row.caseID),
+				Reference:     fmt.Sprintf("WO-%d", row.id),
 				DebitAccount:  "5200", // Loan Loss Provision
 				CreditAccount: "1100", // Loan Receivable
-				AmountKobo:    amountKobo,
+				AmountKobo:    row.amountKobo,
 				SourceType:    "write_off_approval",
-				SourceID:      woID,
+				SourceID:      row.id,
 				PostedBy:      user.ID,
 			}); glErr != nil {
-				tx.Rollback() //nolint:errcheck
 				respondErr(w, 500, "GL entry failed")
 				return
 			}
@@ -2038,9 +2057,8 @@ func collectionsOpsCreateWriteoffRequest(db *core.DB) http.HandlerFunc {
 			ORDER BY created_at DESC LIMIT 1`, b.AccountCIF)
 		var loanID *int64
 		if len(loanRows) > 0 {
-			if v, ok := loanRows[0]["id"].(int64); ok {
-				loanID = &v
-			}
+			v := toInt64(loanRows[0]["id"])
+			loanID = &v
 		}
 
 		rows, err := db.PGQuery(r.Context(), `
@@ -2123,10 +2141,10 @@ func collectionsOpsApproveWriteoffRequest(db *core.DB) http.HandlerFunc {
 		}
 
 		// Determine write-off amount in kobo
-		writeoffType, _ := wr["writeoff_type"].(string)
-		outstandingKobo, _ := wr["outstanding_kobo"].(int64)
-		amtKobo, _ := wr["amount_kobo"].(int64)
-		pct, _ := wr["percentage"].(float64)
+		writeoffType := str(wr["writeoff_type"])
+		outstandingKobo := toInt64(wr["outstanding_kobo"])
+		amtKobo := toInt64(wr["amount_kobo"])
+		pct := toFloat64(wr["percentage"])
 
 		var glAmountKobo int64
 		switch writeoffType {

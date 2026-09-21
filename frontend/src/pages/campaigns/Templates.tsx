@@ -175,7 +175,7 @@ export default function CampaignTemplates() {
       </div>
 
       {/* Your templates */}
-      <SectionCard title="Your templates" badge={displayed.length}>
+      <SectionCard title="Your Templates" badge={displayed.length}>
         {loading ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
             {Array.from({ length: 6 }).map((_, i) => <div key={i} style={{ height: 120, background: 'var(--bg)', border: '1px solid var(--bdr)', borderRadius: 12 }} />)}
@@ -215,7 +215,7 @@ export default function CampaignTemplates() {
       {/* Starter gallery */}
       {canWrite && (
         <div style={{ marginTop: 16 }}>
-          <SectionCard title="Start from a starter" subtitle="Prebuilt templates you can edit and save as your own">
+          <SectionCard title="Start from a Starter" subtitle="Prebuilt templates you can edit and save as your own">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
               {starters.map(s => (
                 <div key={s.id} style={cardStyle}>
@@ -227,7 +227,7 @@ export default function CampaignTemplates() {
                   <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', lineHeight: 1.5, height: 40, overflow: 'hidden' }}>{s.description}</div>
                   <div style={{ display: 'flex', gap: 6, marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--bdr)' }}>
                     <button onClick={() => setPreview(s)} style={{ ...miniBtn, background: 'var(--card)', color: 'var(--txt2)', border: '1px solid var(--bdr)' }}>Preview</button>
-                    <button onClick={() => useStarter(s)} style={{ ...miniBtn, background: NAVY, color: '#fff', border: 'none', marginLeft: 'auto' }}>Use starter</button>
+                    <button onClick={() => useStarter(s)} style={{ ...miniBtn, background: NAVY, color: '#fff', border: 'none', marginLeft: 'auto' }}>Use Starter</button>
                   </div>
                 </div>
               ))}
@@ -237,7 +237,7 @@ export default function CampaignTemplates() {
       )}
 
       {/* Channel picker modal */}
-      <Modal open={pickChannel} onClose={() => setPickChannel(false)} title="New template: choose a channel" width={460}>
+      <Modal open={pickChannel} onClose={() => setPickChannel(false)} title="New Template: Choose a Channel" width={460}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
           {(['email', 'sms', 'whatsapp'] as Channel[]).map(ch => {
             const m = CHANNEL_META[ch]
@@ -263,7 +263,7 @@ export default function CampaignTemplates() {
               <button onClick={() => { const p = preview as Template; setPreview(null); navigate(`/campaigns/templates/${p.id}/edit`) }} style={{ ...btnPrimary, marginLeft: 'auto' }}>Edit</button>
             )}
             {preview && !('id' in preview) && canWrite && (
-              <button onClick={() => { const s = preview as StarterTemplate; setPreview(null); useStarter(s) }} style={{ ...btnPrimary, marginLeft: 'auto' }}>Use starter</button>
+              <button onClick={() => { const s = preview as StarterTemplate; setPreview(null); useStarter(s) }} style={{ ...btnPrimary, marginLeft: 'auto' }}>Use Starter</button>
             )}
           </div>
         }>

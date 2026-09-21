@@ -369,7 +369,7 @@ function Toolbar({ editor, compact }: { editor: Editor | null; compact: boolean 
           and Gmail put it, and it keeps the resting toolbar from growing a third row. */}
       {editor.isActive('image') && (
         <div style={{ ...rowStyle, borderTop: '1px solid var(--bdr)', gap: 6 }}>
-          <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontWeight: FW.semibold, marginRight: 2 }}>Image width</span>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontWeight: FW.semibold, marginRight: 2 }}>Image Width</span>
           {[25, 50, 75, 100].map(p => (
             <WidthBtn key={p} label={`${p}%`}
               active={editor.getAttributes('image').widthPct === p}
@@ -499,7 +499,7 @@ function ImageButton({ editor }: { editor: Editor }) {
           boxShadow: '0 8px 24px rgba(0,0,0,.16)', padding: 8, width: 236,
           display: 'flex', flexDirection: 'column', gap: 6,
         }}>
-          <MenuRow icon="upload" label={busy ? 'Reading…' : 'Upload from computer'} onClick={() => fileRef.current?.click()} />
+          <MenuRow icon="upload" label={busy ? 'Reading…' : 'Upload from Computer'} onClick={() => fileRef.current?.click()} />
           <MenuRow icon="link" label="By URL" onClick={byUrl} />
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5, paddingTop: 2 }}>
             {note ?? `PNG, JPG, GIF or SVG up to ${MAX_INLINE_IMAGE_BYTES / 1024} KB. Animated GIFs keep their animation.`}

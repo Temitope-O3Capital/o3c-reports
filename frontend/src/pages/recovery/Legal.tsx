@@ -360,11 +360,14 @@ export default function RecoveryLegal() {
 
   useEffect(() => {
     setKpiLoading(true)
-    apiFetch<{ data: LegalKPIs }>('/api/recovery/legal-kpis')
+    const params = new URLSearchParams()
+    if (dateFrom) params.set('from', dateFrom)
+    if (dateTo)   params.set('to',   dateTo)
+    apiFetch<{ data: LegalKPIs }>(`/api/recovery/legal-kpis?${params}`)
       .then(r => setKpis(r.data))
       .catch(() => {})
       .finally(() => setKpiLoading(false))
-  }, [])
+  }, [dateFrom, dateTo])
 
   // Known solicitors for the assign modal's pick-or-type list.
   useEffect(() => {

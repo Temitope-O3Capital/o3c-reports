@@ -48,7 +48,7 @@ export default function ScheduleCallbackModal({ open, onClose, onSaved, initial 
   const lbl: React.CSSProperties = { display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.03em' }
 
   return (
-    <Modal open={open} onClose={onClose} title="Schedule a callback" width={480}
+    <Modal open={open} onClose={onClose} title="Schedule a Callback" width={480}
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
@@ -59,7 +59,7 @@ export default function ScheduleCallbackModal({ open, onClose, onSaved, initial 
       }>
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
         <div>
-          <label style={lbl}>Find customer</label>
+          <label style={lbl}>Find Customer</label>
           <CustomerSearch autoFocus placeholder="Search name, CIF or phone…"
             onPick={c => { setName(cleanName(c.name)); setPhone(c.phone ?? ''); setCif(c.cif ?? '') }} />
         </div>
@@ -68,7 +68,7 @@ export default function ScheduleCallbackModal({ open, onClose, onSaved, initial 
           <div><label style={lbl}>Phone</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="080…" style={fld} /></div>
         </div>
         <div>
-          <label style={lbl}>Call back at <span style={{ textTransform: 'none', color: 'var(--txt3)', fontWeight: FW.normal }}>(leave blank for ASAP)</span></label>
+          <label style={lbl}>Call Back At <span style={{ textTransform: 'none', color: 'var(--txt3)', fontWeight: FW.normal }}>(leave blank for ASAP)</span></label>
           <input type="datetime-local" value={when} onChange={e => setWhen(e.target.value)} style={fld} />
         </div>
         <div>

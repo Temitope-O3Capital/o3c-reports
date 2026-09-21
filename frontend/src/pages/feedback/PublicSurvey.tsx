@@ -111,7 +111,7 @@ export default function PublicSurvey() {
         <div style={{ height: 6, background: NAVY }} />
         <div style={{ padding: '44px 34px', textAlign: 'center' }}>
           <IconCircle bg="#FEE2E2" fg="#DC2626" icon="link_off" />
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: NAVY, margin: '18px 0 8px' }}>Survey unavailable</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: NAVY, margin: '18px 0 8px' }}>Survey Unavailable</h2>
           <p style={{ color: MUTE, fontSize: 14.5, margin: 0, lineHeight: 1.6 }}>{error}</p>
         </div>
       </div>

@@ -40,8 +40,8 @@ function TypeTag({ type }: { type: string }) {
 function MatchBasis({ cif, phone, email }: { cif: number; phone: number; email: number }) {
   const chips = [
     { n: cif, label: 'CIF', color: GREEN },
-    { n: phone, label: 'phone', color: BLUE },
-    { n: email, label: 'email', color: AMBER },
+    { n: phone, label: 'Phone', color: BLUE },
+    { n: email, label: 'Email', color: AMBER },
   ].filter(c => c.n > 0)
   if (chips.length === 0) return <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>—</span>
   return (
@@ -117,7 +117,7 @@ export default function Attribution() {
         <ConvBar value={r.conversions} max={r.contacts_reached} />
       </div>
     )},
-    { key: 'matched_cif', label: 'Matched by', render: r => <MatchBasis cif={r.matched_cif} phone={r.matched_phone} email={r.matched_email} /> },
+    { key: 'matched_cif', label: 'Matched By', render: r => <MatchBasis cif={r.matched_cif} phone={r.matched_phone} email={r.matched_email} /> },
     { key: 'attributed_disbursement_kobo', label: 'Attributed ₦', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{fmtKobo(r.attributed_disbursement_kobo)}</span> },
   ]
 

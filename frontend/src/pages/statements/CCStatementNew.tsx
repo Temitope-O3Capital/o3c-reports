@@ -163,7 +163,7 @@ function PreviewTxns({ txns, openingBalance }: { txns: ParsedTxn[]; openingBalan
                 <td style={{ padding: '7px 10px', fontFamily: 'DM Mono, monospace', fontSize: TEXT.xs, color: 'var(--txt2)' }}>{t.CardPAN || '—'}</td>
                 <td style={{ padding: '7px 10px', color: t.IsFinanceCharge ? AMBER : 'var(--txt)', fontWeight: t.IsFinanceCharge ? FW.semibold : undefined }}>
                   {t.Description}
-                  {t.IsFinanceCharge && <span style={{ marginLeft: 6, fontSize: TEXT.xs, background: '#FEF3C7', color: AMBER, borderRadius: RADIUS.xs, padding: '1px 5px' }}>charge</span>}
+                  {t.IsFinanceCharge && <span style={{ marginLeft: 6, fontSize: TEXT.xs, background: '#FEF3C7', color: AMBER, borderRadius: RADIUS.xs, padding: '1px 5px' }}>Charge</span>}
                 </td>
                 <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'DM Mono, monospace', color: t.DebitKobo > 0 ? (t.IsFinanceCharge ? AMBER : RED) : 'var(--txt3)' }}>{t.DebitKobo > 0 ? fmtKobo(t.DebitKobo) : '—'}</td>
                 <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'DM Mono, monospace', color: t.CreditKobo > 0 ? GREEN : 'var(--txt3)' }}>{t.CreditKobo > 0 ? fmtKobo(t.CreditKobo) : '—'}</td>
@@ -241,7 +241,7 @@ function SingleUploadTab() {
             </div>
             <div style={{ display: 'flex', gap: SP[2] }}>
               <Button variant="secondary" onClick={() => { setFile(null); setPreview(null) }}>
-                Change file
+                Change File
               </Button>
               <Button variant="danger" onClick={save} loading={saving}>
                 {saving ? 'Saving…' : 'Confirm & Save'}
@@ -318,7 +318,7 @@ function BulkUploadTab() {
               <div style={{ marginTop: 14, display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
                 <Button variant="secondary" onClick={() => setFiles([])}>Clear</Button>
                 <Button variant="danger" onClick={upload} loading={uploading}>
-                  {uploading ? `Uploading ${files.length} files…` : `Upload ${files.length} files`}
+                  {uploading ? `Uploading ${files.length} Files…` : `Upload ${files.length} Files`}
                 </Button>
               </div>
             </div>
@@ -341,7 +341,7 @@ function BulkUploadTab() {
               </div>
             )}
             <Button variant="secondary" onClick={() => { setFiles([]); setResults(null) }} style={{ marginLeft: 'auto' }}>
-              Upload more
+              Upload More
             </Button>
           </div>
 

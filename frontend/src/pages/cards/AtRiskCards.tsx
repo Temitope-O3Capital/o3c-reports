@@ -28,8 +28,8 @@ interface RiskAccount {
 
 type Filter = 'all' | 'over_limit' | 'overdue'
 const FILTERS: { id: Filter; label: string }[] = [
-  { id: 'all', label: 'All at-risk' },
-  { id: 'over_limit', label: 'Over limit' },
+  { id: 'all', label: 'All At-Risk' },
+  { id: 'over_limit', label: 'Over Limit' },
   { id: 'overdue', label: 'Overdue' },
 ]
 
@@ -94,7 +94,7 @@ export default function AtRiskCards() {
         {loading && !rows.length ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner size={28} /></div>
         ) : rows.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 48, color: 'var(--txt3)', fontSize: TEXT.base, fontFamily: INTER }}>No at-risk accounts for this filter</div>
+          <div style={{ textAlign: 'center', padding: 48, color: 'var(--txt3)', fontSize: TEXT.base, fontFamily: INTER }}>No At-Risk Accounts for This Filter</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -111,10 +111,10 @@ export default function AtRiskCards() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => {
-                  const util = Number(r.utilization_pct)
+                {rows.map(r => {
+                  const util = Number(r.utilization_pct) || 0
                   return (
-                    <tr key={i}
+                    <tr key={r.account_number}
                       onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)'}
                       onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}>
                       <td style={TD}>
@@ -131,7 +131,7 @@ export default function AtRiskCards() {
                       <td style={{ ...TD, ...NUM, textAlign: 'right', color: 'var(--txt2)' }}>{fmtKoboExact(r.minimum_payment_kobo)}</td>
                       <td style={{ ...TD }}>
                         <div style={{ display: 'flex', gap: 5 }}>
-                          {r.over_limit && <Chip label="Over limit" color={AMBER} />}
+                          {r.over_limit && <Chip label="Over Limit" color={AMBER} />}
                           {r.overdue && <Chip label="Overdue" color={RED} />}
                         </div>
                       </td>

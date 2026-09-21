@@ -319,7 +319,7 @@ export default function CollectionsPortfolio() {
             <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{r.last_call_at ? fmtDate(r.last_call_at) : ''}{r.last_call_disposition ? ` · ${r.last_call_disposition}` : ''}</div>
           </div>
         )
-        : <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No calls</span>,
+        : <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No Calls</span>,
     },
     {
       key: 'reference', label: '', sortable: false,
@@ -375,7 +375,7 @@ export default function CollectionsPortfolio() {
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>These are worked by the Recovery team. Filter to see them here, or open the Recovery workspace.</div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-            <button onClick={() => setFBook(new Set(['recovery']))} style={{ padding: '5px 12px', borderRadius: RADIUS.md, cursor: 'pointer', border: `1.5px solid ${RED}40`, background: 'transparent', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold }}>Filter to recovery</button>
+            <button onClick={() => setFBook(new Set(['recovery']))} style={{ padding: '5px 12px', borderRadius: RADIUS.md, cursor: 'pointer', border: `1.5px solid ${RED}40`, background: 'transparent', color: RED, fontSize: TEXT.xs, fontWeight: FW.semibold }}>Filter to Recovery</button>
             <button onClick={() => navigate('/recovery/overview')} style={{ padding: '5px 12px', borderRadius: RADIUS.md, cursor: 'pointer', border: 'none', background: RED, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold }}>Open Recovery</button>
           </div>
         </div>
@@ -390,8 +390,8 @@ export default function CollectionsPortfolio() {
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Show</span>
             <div style={{ display: 'flex', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, overflow: 'hidden' }}>
               {([
-                ['owing', 'Owing now', 'Facilities carrying a balance — the collections work list'],
-                ['all',   'Whole book', 'Every card and loan, including settled and closed facilities'],
+                ['owing', 'Owing Now','Facilities carrying a balance — the collections work list'],
+                ['all',   'Whole Book','Every card and loan, including settled and closed facilities'],
               ] as const).map(([k, label, title]) => (
                 <button
                   key={k}
@@ -423,8 +423,8 @@ export default function CollectionsPortfolio() {
               { value: 'loans', label: 'Loans', count: loanCount, color: NAVY },
             ], selected: fProduct, onChange: setFProduct },
             { key: 'source', label: 'Source', options: [
-              { value: 'ccs',      label: 'CCS (cards)',   count: ccsCount,      color: BLUE },
-              { value: 'udara',    label: 'Udara (loans)', count: udaraCount,    color: GREEN },
+              { value: 'ccs',      label: 'CCS (Cards)',   count: ccsCount,      color: BLUE },
+              { value: 'udara',    label: 'Udara (Loans)', count: udaraCount,    color: GREEN },
               { value: 'uploaded', label: 'Uploaded',      count: uploadedCount, color: AMBER },
             ], selected: fSource, onChange: setFSource },
             { key: 'dpd',   label: 'DPD Bucket', options: dpdOptions,   selected: fDpd,   onChange: setFDpd },
@@ -442,7 +442,7 @@ export default function CollectionsPortfolio() {
           loading={loading}
           skeletonRows={10}
           pageSize={25}
-          emptyText="No accounts found"
+          emptyText="No Accounts Found"
           onRowClick={r => navigate(`/collections/accounts/${r.applicant_cif}`)}
           selectable={isHead}
           selectedIds={checkedIds}
@@ -452,10 +452,10 @@ export default function CollectionsPortfolio() {
               <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{checkedIds.size} selected</span>
               <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
                 <button onClick={() => setBulkModal('assign')} disabled={bulkSaving} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: RADIUS.md, border: `1.5px solid ${NAVY}40`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: bulkSaving ? 'wait' : 'pointer' }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>person_add</span>Assign to officer
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>person_add</span>Assign to Officer
                 </button>
                 <button onClick={handleBulkEscalate} disabled={bulkSaving} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: RADIUS.md, border: `1.5px solid ${RED}40`, background: `${RED}08`, color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: bulkSaving ? 'wait' : 'pointer' }}>
-                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>gavel</span>Escalate to recovery
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>gavel</span>Escalate to Recovery
                 </button>
               </div>
             </div>
@@ -467,7 +467,7 @@ export default function CollectionsPortfolio() {
       <Modal
         open={bulkModal === 'assign'}
         onClose={() => setBulkModal(null)}
-        title={`Assign ${selectedAccounts().length} customer(s) to an officer`}
+        title={`Assign ${selectedAccounts().length} Customer(s) to an Officer`}
         width={440}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -481,7 +481,7 @@ export default function CollectionsPortfolio() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
           <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.03em' }}>Collections Officer</label>
           <select value={bulkAgentId} onChange={e => setBulkAgentId(e.target.value)} style={{ width: '100%', height: 40, padding: '0 11px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)' }}>
-            <option value="">Select an officer…</option>
+            <option value="">Select an Officer…</option>
             {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
           </select>
           <p style={{ fontSize: TEXT.xs, color: 'var(--txt3)', margin: 0 }}>

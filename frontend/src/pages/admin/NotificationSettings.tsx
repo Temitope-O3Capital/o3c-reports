@@ -17,7 +17,7 @@ interface NotifRow {
 }
 
 const CHANNELS: { key: string; label: string }[] = [
-  { key: 'in_app',   label: 'In-app' },
+  { key: 'in_app',   label: 'In-App' },
   { key: 'email',    label: 'Email' },
   { key: 'sms',      label: 'SMS' },
   { key: 'whatsapp', label: 'WhatsApp' },

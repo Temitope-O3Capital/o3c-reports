@@ -261,7 +261,7 @@ export default function Watchlist() {
 
       <ConfirmModal
         open={!!deactivateEntry}
-        title="Deactivate watchlist entry?"
+        title="Deactivate Watchlist Entry?"
         body={`Remove "${deactivateEntry?.entity_name}" from the active watchlist? You can reactivate it later.`}
         confirmLabel="Deactivate"
         danger

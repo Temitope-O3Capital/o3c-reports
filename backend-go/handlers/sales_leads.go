@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -16,23 +17,78 @@ import (
 //
 // Leads reach Sales from Business Development, from campaigns, from the call centre,
 // and from officers profiling a walk-in or referral themselves. They live in
-// crm_contacts and move new → contacted → qualified → converted, or leave via
-// disqualified. Every move is recorded in crm_lead_events, so "how long did this sit in
-// Qualified?" and "who had it before me?" are answerable.
+// crm_contacts and move
+//
+//	new → contacted → qualified → handed_to_sales → documents_requested
+//	    → application_submitted → approved → converted
+//
+// or leave via disqualified from any open stage. Every move is recorded in
+// crm_lead_events, so "how long did this sit in Qualified?" and "who had it before me?"
+// are answerable, and crm_contacts.stage_changed_at says when the lead entered the stage
+// it is in now.
 //
 // Conversion is the hinge between this file and sales_book.go: when a lead becomes a
 // customer, the officer who worked it becomes that customer's account officer.
 
-// leadStages is the permitted set, matching the CHECK constraint in migration 128.
+// leadStages is the permitted set, matching crm_contacts_lead_stage_chk (migration 246).
 var leadStages = map[string]bool{
 	"new": true, "contacted": true, "qualified": true,
+	"handed_to_sales": true, "documents_requested": true,
+	"application_submitted": true, "approved": true,
 	"converted": true, "disqualified": true,
 }
 
 // leadStageOrder gates forward movement. Conversion and disqualification are handled by
 // their own endpoints, which do more than move a stage.
 var leadStageOrder = map[string]int{
-	"new": 0, "contacted": 1, "qualified": 2, "converted": 3, "disqualified": 3,
+	"new": 0, "contacted": 1, "qualified": 2,
+	"handed_to_sales": 3, "documents_requested": 4, "application_submitted": 5, "approved": 6,
+	"converted": 7, "disqualified": 7,
+}
+
+// openLeadStagesSQL is every stage a lead can still be worked in (anything but converted
+// or disqualified), as a SQL IN-list. workedLeadStagesSQL is the same minus 'new': the
+// stages where someone has touched the lead, which is what the "stalled" worklists
+// count. Kept here so a stage added later cannot be silently left out of one query.
+const (
+	openLeadStagesSQL   = `'new','contacted','qualified','handed_to_sales','documents_requested','application_submitted','approved'`
+	workedLeadStagesSQL = `'contacted','qualified','handed_to_sales','documents_requested','application_submitted','approved'`
+)
+
+// isOpenLeadStage reports whether a lead in this stage can still be worked.
+func isOpenLeadStage(s string) bool {
+	return leadStages[s] && s != "converted" && s != "disqualified"
+}
+
+// advanceLeadOnApplication moves a lead to 'application_submitted' when an application
+// is submitted from it, if the lead is still in an earlier open stage. A lead that is
+// already application_submitted, approved, converted or disqualified is never moved.
+// Runs inside the caller's transaction and records the move in crm_lead_events.
+func advanceLeadOnApplication(ctx context.Context, tx *sql.Tx, leadID int64, actor any, note string) (moved bool, err error) {
+	const to = "application_submitted"
+	var current string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT lead_stage FROM app.crm_contacts WHERE id = $1 FOR UPDATE`, leadID).Scan(&current); err != nil {
+		return false, err
+	}
+	if !isOpenLeadStage(current) || leadStageOrder[current] >= leadStageOrder[to] {
+		return false, nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE app.crm_contacts
+		   SET lead_stage = $2, stage_changed_at = NOW(),
+		       qualified_at = COALESCE(qualified_at, NOW()),
+		       last_activity_at = NOW(), updated_at = NOW()
+		 WHERE id = $1`, leadID, to); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO crm_lead_events (contact_id, event, from_stage, to_stage, note, created_by)
+		VALUES ($1,'stage_change',$2,$3,$4,$5)`,
+		leadID, current, to, nullIfEmpty(note), actor); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func RegisterSalesLeads(r chi.Router, db *core.DB) {
@@ -45,6 +101,9 @@ func RegisterSalesLeads(r chi.Router, db *core.DB) {
 	r.With(access).Get("/leads/{id}", getLead(db))
 	r.With(access).Patch("/leads/{id}", updateLead(db))
 	r.With(access).Post("/leads/{id}/stage", moveLeadStage(db))
+	// Logging what happened on a lead is how it moves forward: record "Documents
+	// requested" and the lead is at Documents requested, with the entry on its timeline.
+	r.With(access).Post("/leads/{id}/activity", logLeadActivity(db))
 	r.With(access).Post("/leads/{id}/claim", claimLead(db))
 	r.With(access).Post("/leads/{id}/convert", convertLead(db))
 	r.With(access).Post("/leads/{id}/disqualify", disqualifyLead(db))
@@ -366,11 +425,11 @@ func listLeads(db *core.DB) http.HandlerFunc {
 		if qstr(r, "due") == "1" {
 			where = append(where, "c.next_action_at IS NOT NULL AND c.next_action_at <= NOW()")
 		}
-		// stalled=1 mirrors the overview's "stalled leads" worklist: contacted or
-		// qualified, but untouched for a fortnight — so that attention tile deep-links
-		// to exactly the rows it counts.
+		// stalled=1 mirrors the overview's "stalled leads" worklist: contacted or any
+		// later open stage, but untouched for a fortnight — so that attention tile
+		// deep-links to exactly the rows it counts.
 		if qstr(r, "stalled") == "1" {
-			where = append(where, "c.lead_stage IN ('contacted','qualified') AND COALESCE(c.last_activity_at, c.updated_at) < NOW() - INTERVAL '14 days'")
+			where = append(where, "c.lead_stage IN ("+workedLeadStagesSQL+") AND COALESCE(c.last_activity_at, c.updated_at) < NOW() - INTERVAL '14 days'")
 		}
 
 		cond := strings.Join(where, " AND ")
@@ -393,6 +452,16 @@ func listLeads(db *core.DB) http.HandlerFunc {
 			       c.next_action_at, c.last_activity_at,
 			       c.qualified_at, c.created_at, c.updated_at,
 			       c.already_customer, c.matched_customer_cif,
+			       c.converted_cif,
+			       -- The CIF to open in Customer 360, only when that customer exists: a
+			       -- converted lead's CIF, or the customer an existing-customer lead matched.
+			       CASE WHEN NULLIF(c.converted_cif, '') IS NOT NULL
+			                 AND EXISTS (SELECT 1 FROM customers cu WHERE cu.cif = c.converted_cif)
+			            THEN c.converted_cif
+			            WHEN COALESCE(c.already_customer, false) AND NULLIF(c.matched_customer_cif, '') IS NOT NULL
+			                 AND EXISTS (SELECT 1 FROM customers cu WHERE cu.cif = c.matched_customer_cif)
+			            THEN c.matched_customer_cif
+			       END AS customer360_cif,
 			       u.full_name AS owner_name,
 			       e.name      AS employer_name
 			  FROM crm_contacts c
@@ -693,6 +762,7 @@ func claimLead(db *core.DB) http.HandlerFunc {
 			UPDATE crm_contacts
 			   SET lead_owner_id    = $2,
 			       lead_stage       = CASE WHEN lead_stage IN ('new','contacted') THEN 'qualified' ELSE lead_stage END,
+			       stage_changed_at = CASE WHEN lead_stage IN ('new','contacted') THEN NOW() ELSE stage_changed_at END,
 			       last_activity_at = NOW(), updated_at = NOW()
 			 WHERE id = $1`, id, user.ID); err != nil {
 			respondErr(w, 500, "Could not claim the lead")
@@ -754,10 +824,150 @@ type stageReq struct {
 	Note  string `json:"note"`
 }
 
-// moveLeadStage advances a lead through new → contacted → qualified.
+// moveLeadStage advances an open lead to any later stage in leadStageOrder, up to
+// 'approved' (skipping ahead is allowed).
 //
-// It refuses to move backwards and refuses to reach 'converted' or 'disqualified',
-// which have their own endpoints because they do more than change a label.
+// It refuses to move backwards, refuses to move a converted or disqualified lead, and
+// refuses to reach 'converted' or 'disqualified', which have their own endpoints
+// because they do more than change a label.
+// leadActivityStage names the activities that move a lead forward, and the stage each
+// moves it to. Logging one of these on a lead that has not reached that stage is how the
+// lead gets there (agreed 14 Sept 2026); the entry lands on the lead's activity timeline
+// through the crm_lead_events trigger, titled from the kind ("Documents Requested").
+var leadActivityStage = map[string]string{
+	"interested":            "qualified",
+	"handed_to_sales":       "handed_to_sales",
+	"documents_requested":   "documents_requested",
+	"application_submitted": "application_submitted",
+	"approved":              "approved",
+}
+
+// leadActivityLabel is every kind that can be logged, forward-moving or record-only.
+var leadActivityLabel = map[string]string{
+	"interested": "Interested", "handed_to_sales": "Handed to sales",
+	"documents_requested": "Documents requested", "application_submitted": "Application submitted",
+	"approved": "Approved",
+	"call": "Call", "meeting": "Meeting", "email": "Email", "note": "Note",
+}
+
+// leadStageShown is how a stored stage reads to people. 'qualified' is shown as
+// Interested: only a lead who said they are interested reaches it.
+var leadStageShown = map[string]string{
+	"new": "New", "contacted": "Contacted", "qualified": "Interested",
+	"handed_to_sales": "Handed to sales", "documents_requested": "Documents requested",
+	"application_submitted": "Application submitted", "approved": "Approved",
+	"converted": "Converted", "disqualified": "Disqualified",
+}
+
+// logLeadActivity records what happened on a lead. A forward kind moves the lead to its
+// stage (forward only, owner rules as for moving a stage); a record-only kind — call,
+// meeting, email, note — goes on the timeline and leaves the stage alone.
+func logLeadActivity(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Kind string `json:"kind"`
+			Note string `json:"note"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		kind := strings.ToLower(strings.TrimSpace(req.Kind))
+		label, known := leadActivityLabel[kind]
+		if !known {
+			respondErr(w, 400, "Unknown activity. Choose one of: interested, handed_to_sales, documents_requested, application_submitted, approved, call, meeting, email, note.")
+			return
+		}
+		note := strings.TrimSpace(req.Note)
+		if len([]rune(note)) > 2000 {
+			respondErr(w, 422, "Keep the note to 2,000 characters or fewer.")
+			return
+		}
+
+		var contactID int64
+		var current string
+		var owner sql.NullInt64
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT id, lead_stage, lead_owner_id FROM crm_contacts WHERE id = $1`, chi.URLParam(r, "id")).
+			Scan(&contactID, &current, &owner); err != nil {
+			respondErr(w, 404, "Lead not found")
+			return
+		}
+		u := core.UserFromCtx(r.Context())
+		if !canWorkLead(u, owner) {
+			respondErr(w, 403, "You can only log activity on a lead you own")
+			return
+		}
+		var actor sql.NullInt64
+		if u != nil && u.ID != 0 {
+			actor = sql.NullInt64{Int64: u.ID, Valid: true}
+		}
+
+		stage, moves := leadActivityStage[kind]
+		if !moves {
+			aid, aname, ateam := actorOf(u)
+			cid := contactID
+			id, err := LogActivity(r.Context(), db, Activity{
+				ContactID: &cid, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+				Type: kind, Subject: label, Body: note, Source: "manual",
+				EntityType: "crm_contact", EntityID: fmt.Sprintf("%d", contactID),
+			})
+			if err != nil {
+				respondErrLog(w, 500, "Could not log activity", err)
+				return
+			}
+			db.PGExec(r.Context(), `UPDATE crm_contacts SET last_activity_at = NOW(), updated_at = NOW() WHERE id = $1`, contactID) //nolint:errcheck
+			respond(w, map[string]any{"ok": true, "moved": false, "activity_id": id}, "pg")
+			return
+		}
+
+		if current == "converted" {
+			respondErr(w, 409, "This lead has already converted, so it cannot move to "+label+".")
+			return
+		}
+		if !isOpenLeadStage(current) {
+			respondErr(w, 409, fmt.Sprintf("A %s lead cannot move forward.", strings.ToLower(leadStageShown[current])))
+			return
+		}
+		if leadStageOrder[stage] <= leadStageOrder[current] {
+			respondErr(w, 409, fmt.Sprintf("This lead is already at %s, so it cannot move to %s.", leadStageShown[current], label))
+			return
+		}
+
+		tx, err := db.PG.BeginTx(r.Context(), nil)
+		if err != nil {
+			respondErr(w, 500, "Could not start transaction")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+		if _, err := tx.ExecContext(r.Context(), `
+			UPDATE crm_contacts
+			   SET lead_stage = $2,
+			       stage_changed_at = NOW(),
+			       qualified_at = CASE WHEN qualified_at IS NULL THEN NOW() ELSE qualified_at END,
+			       last_activity_at = NOW(),
+			       updated_at = NOW()
+			 WHERE id = $1`, contactID, stage); err != nil {
+			respondErr(w, 500, "Update failed")
+			return
+		}
+		// event carries the kind, so the timeline entry the trigger writes reads as what
+		// happened ("Documents Requested") rather than a generic "Stage Change".
+		if _, err := tx.ExecContext(r.Context(), `
+			INSERT INTO crm_lead_events (contact_id, event, from_stage, to_stage, note, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			contactID, kind, current, stage, nullIfEmpty(note), actor); err != nil {
+			respondErr(w, 500, "Could not record lead event")
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+		respond(w, map[string]any{"ok": true, "moved": true, "from": current, "to": stage}, "pg")
+	}
+}
+
 func moveLeadStage(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req stageReq
@@ -795,6 +1005,10 @@ func moveLeadStage(db *core.DB) http.HandlerFunc {
 			respondErr(w, 409, "This lead has already converted")
 			return
 		}
+		if !isOpenLeadStage(current) {
+			respondErr(w, 409, fmt.Sprintf("A %s lead cannot be advanced", current))
+			return
+		}
 		if leadStageOrder[req.Stage] < leadStageOrder[current] {
 			respondErr(w, 400, fmt.Sprintf("Cannot move a lead back from %s to %s", current, req.Stage))
 			return
@@ -819,11 +1033,14 @@ func moveLeadStage(db *core.DB) http.HandlerFunc {
 		if _, err := tx.ExecContext(r.Context(), `
 			UPDATE crm_contacts
 			   SET lead_stage = $2,
-			       qualified_at = CASE WHEN $2 = 'qualified' AND qualified_at IS NULL
+			       stage_changed_at = NOW(),
+			       qualified_at = CASE WHEN $3 AND qualified_at IS NULL
 			                           THEN NOW() ELSE qualified_at END,
 			       last_activity_at = NOW(),
 			       updated_at = NOW()
-			 WHERE id = $1`, id, req.Stage); err != nil {
+			 WHERE id = $1`, id, req.Stage,
+			// Skipping past qualified still means the lead was qualified.
+			leadStageOrder[req.Stage] >= leadStageOrder["qualified"]); err != nil {
 			respondErr(w, 500, "Update failed")
 			return
 		}
@@ -914,6 +1131,7 @@ func convertLead(db *core.DB) http.HandlerFunc {
 		if _, err := tx.ExecContext(r.Context(), `
 			UPDATE crm_contacts
 			   SET lead_stage = 'converted', status = 'customer',
+			       stage_changed_at = NOW(),
 			       converted_at = NOW(), converted_cif = $2,
 			       cif_number = COALESCE(NULLIF(cif_number,''), $2),
 			       account_manager_id = COALESCE(account_manager_id, lead_owner_id),
@@ -1025,6 +1243,7 @@ func disqualifyLead(db *core.DB) http.HandlerFunc {
 		if _, err := tx.ExecContext(r.Context(), `
 			UPDATE crm_contacts
 			   SET lead_stage = 'disqualified', disqualified_at = NOW(),
+			       stage_changed_at = CASE WHEN lead_stage <> 'disqualified' THEN NOW() ELSE stage_changed_at END,
 			       disqualify_reason = $2, next_action_at = NULL,
 			       last_activity_at = NOW(), updated_at = NOW()
 			 WHERE id = $1`, id, req.Reason); err != nil {

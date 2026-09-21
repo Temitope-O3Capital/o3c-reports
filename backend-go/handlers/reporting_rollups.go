@@ -82,7 +82,10 @@ func batchRebuildReportingRollups(ctx context.Context, db *core.DB) error {
 	}
 
 	errStr := ""
-	phase := "idle"
+	// "idle" matches no case in WorkerBeat, so the success path wrote nothing at all:
+	// the hub showed reporting_rollups stuck at status='running' with runs_total=0 and
+	// last_ok_at NULL forever, making a healthy job look broken.
+	phase := "ok"
 	if firstErr != nil {
 		errStr = firstErr.Error()
 		phase = "error"

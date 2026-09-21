@@ -97,15 +97,15 @@ export default function CareDashboard() {
 
       {/* ── My Day ── */}
       <MyDaySection hint="mail that needs you now">
-        <MyDayTile icon="mark_email_unread" count={fmtNum(d.awaiting_reply)} label="Awaiting reply"
+        <MyDayTile icon="mark_email_unread" count={fmtNum(d.awaiting_reply)} label="Awaiting Reply"
           sub={d.awaiting_reply > 0 ? 'customers waiting on us' : 'all replied'}
           color={AMBER} urgent={d.awaiting_reply > 0} onClick={() => navigate('/care/inbox')} />
-        <MyDayTile icon="warning" count={fmtNum(d.sla_at_risk)} label="SLA at risk"
+        <MyDayTile icon="warning" count={fmtNum(d.sla_at_risk)} label="SLA at Risk"
           sub={d.sla_at_risk > 0 ? 'due ≤ 2h or overdue' : 'all within SLA'}
           color={d.sla_at_risk > 0 ? RED : GREEN} urgent={d.sla_at_risk > 0} onClick={() => navigate('/care/inbox')} />
         <MyDayTile icon="person_off" count={fmtNum(d.unassigned)} label="Unassigned"
           sub="grab one to own it" color={PURPLE} urgent={d.unassigned > 0} onClick={() => navigate('/care/inbox')} />
-        <MyDayTile icon="check_circle" count={fmtNum(d.resolved_today)} label="Resolved today"
+        <MyDayTile icon="check_circle" count={fmtNum(d.resolved_today)} label="Resolved Today"
           sub="closed by the desk today" color={BLUE} />
       </MyDaySection>
 

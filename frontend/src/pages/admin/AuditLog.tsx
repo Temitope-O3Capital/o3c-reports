@@ -71,7 +71,7 @@ export default function AdminAuditLog() {
     { key: '_actions', label: '', sortable: false,
       render: r => {
         const actions: RowAction[] = [
-          { icon: 'open_in_new', label: 'View details', onClick: () => setViewEntry(r) },
+          { icon: 'open_in_new', label: 'View Details', onClick: () => setViewEntry(r) },
         ]
         return <ActionRow actions={actions} />
       },
@@ -129,7 +129,7 @@ export default function AdminAuditLog() {
             value={pageFilter} onChange={e => setPageFilter(e.target.value)}
             style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}
           >
-            <option value="">All modules</option>
+            <option value="">All Modules</option>
             {pages.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
           <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
@@ -137,7 +137,7 @@ export default function AdminAuditLog() {
           </span>
         </div>
 
-        <DataTable cols={cols} rows={displayed} keyFn={r => r.id} loading={loading} emptyText="No activity found" pageSize={20} />
+        <DataTable cols={cols} rows={displayed} keyFn={r => r.id} loading={loading} emptyText="No Activity Found" pageSize={20} />
       </SectionCard>
 
       <Modal open={!!viewEntry} onClose={() => setViewEntry(null)} title="Audit Entry" width={480}>

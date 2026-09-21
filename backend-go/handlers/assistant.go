@@ -596,7 +596,7 @@ func assistantTools() []assistantTool {
 				rows, err := db.PGQuery(ctx, `
 					SELECT COALESCE(NULLIF(usr.full_name,''),'unassigned pool') AS owner,
 					       COUNT(*)                                             AS leads_owned,
-					       COUNT(*) FILTER (WHERE c.lead_stage IN ('contacted','qualified')) AS working_now
+					       COUNT(*) FILTER (WHERE c.lead_stage IN (`+workedLeadStagesSQL+`)) AS working_now
 					FROM crm_contacts c
 					LEFT JOIN o3c_users usr ON usr.id = c.lead_owner_id AND usr.deleted_at IS NULL
 					WHERE `+cond+`
@@ -607,7 +607,7 @@ func assistantTools() []assistantTool {
 				return map[string]any{
 					"by_owner": rows,
 					"note": "Leads with no owner appear as 'unassigned pool'. leads_owned is the officer's whole book; " +
-						"working_now is only those at contacted or qualified stage, which is always a smaller number. " +
+						"working_now is only those contacted or further along (qualified, handed to sales, documents requested, application submitted, approved), which is always a smaller number. " +
 						"Do not describe leads_owned as being worked. Quote the rows as given; never add them up yourself.",
 				}, nil
 			},

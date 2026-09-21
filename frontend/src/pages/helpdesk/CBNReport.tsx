@@ -125,7 +125,7 @@ export default function CBNReport() {
             <KpiCard label="Total Complaints" value={fmtNum(data.total_complaints)} icon="inbox" accent={NAVY} />
             <KpiCard label="Resolved" value={fmtNum(data.resolved)} icon="check_circle" accent={GREEN} />
             <KpiCard label="Resolution Rate" value={`${resolutionRate.toFixed(1)}%`} icon="percent" accent={resolutionRate >= 80 ? GREEN : resolutionRate >= 60 ? AMBER : RED} />
-            <KpiCard label="Avg Resolution (hrs)" value={data.avg_resolution_hours != null ? fmtNum(data.avg_resolution_hours) : '—'} icon="schedule" accent={AMBER} />
+            <KpiCard label="Avg Resolution (Hrs)" value={data.avg_resolution_hours != null ? fmtNum(data.avg_resolution_hours) : '—'} icon="schedule" accent={AMBER} />
             <KpiCard label="Past SLA" value={fmtNum(data.past_sla)} icon="alarm" accent={RED} />
           </div>
 
@@ -144,7 +144,7 @@ export default function CBNReport() {
                 </thead>
                 <tbody>
                   {data.by_type.length === 0 ? (
-                    <tr><td colSpan={4} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No complaint data</td></tr>
+                    <tr><td colSpan={4} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No Complaint Data</td></tr>
                   ) : data.by_type.map((row, i) => {
                     const rate = row.total > 0 ? (row.resolved / row.total) * 100 : 0
                     return (
@@ -176,7 +176,7 @@ export default function CBNReport() {
                 </thead>
                 <tbody>
                   {data.by_channel.length === 0 ? (
-                    <tr><td colSpan={3} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No channel data</td></tr>
+                    <tr><td colSpan={3} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No Channel Data</td></tr>
                   ) : data.by_channel.map((row, i) => {
                     const pct = channelTotal > 0 ? row.n / channelTotal : 0
                     return (

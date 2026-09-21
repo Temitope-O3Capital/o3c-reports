@@ -26,7 +26,7 @@ const BANDS = [
   { key: 'active',       label: 'Active (≤90d)',   color: GREEN },
   { key: 'lapsing',      label: 'Lapsing (90–365d)', color: AMBER },
   { key: 'dormant',      label: 'Dormant (>1yr)',  color: RED },
-  { key: 'never_active', label: 'Never transacted', color: '#94A3B8' },
+  { key: 'never_active', label: 'Never Transacted', color: '#94A3B8' },
 ] as const
 
 export default function ExecGrowth() {
@@ -119,7 +119,7 @@ export default function ExecGrowth() {
           <ECombo
             data={data.trend} xKey="month" height={240} rightAxis
             valueFmt={fmtNum} axisFmt={fmtNum} rightFmt={fmtNum}
-            areas={[{ key: 'new_accounts', name: 'New accounts', color: NAVY }]}
+            areas={[{ key: 'new_accounts', name: 'New Accounts', color: NAVY }]}
             lines={[{ key: 'active_customers', name: 'Active', color: GREEN }]}
           />
         </SectionCard>
@@ -149,7 +149,7 @@ export default function ExecGrowth() {
 
       {/* Portfolio-wide spending & behaviour — where the book spends, on what, how, where. */}
       <div style={{ marginTop: 14 }}>
-        <SpendingBehaviour title="Customer spending & behaviour" subtitle="Where the book spends, on what and how · last 12 months" />
+        <SpendingBehaviour title="Customer Spending & Behaviour" subtitle="Where the book spends, on what and how · last 12 months" />
       </div>
     </Page>
   )

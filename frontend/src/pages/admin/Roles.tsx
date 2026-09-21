@@ -309,8 +309,8 @@ export default function AdminRoles() {
     { key: '_actions', label: '', sortable: false,
       render: r => {
         const actions: RowAction[] = [
-          { icon: 'edit', label: 'Edit permissions', onClick: () => setEditing(r) },
-          { icon: 'group', label: 'View users', onClick: () => navigate('/admin/users') },
+          { icon: 'edit', label: 'Edit Permissions', onClick: () => setEditing(r) },
+          { icon: 'group', label: 'View Users', onClick: () => navigate('/admin/users') },
         ]
         return <ActionRow actions={actions} />
       },
@@ -353,7 +353,7 @@ export default function AdminRoles() {
           rows={displayed}
           keyFn={r => r.name}
           loading={loading}
-          emptyText="No roles found"
+          emptyText="No Roles Found"
           onRowClick={r => setEditing(r)}
           pageSize={20}
         />

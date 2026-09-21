@@ -27,10 +27,15 @@ const salesOfficerPredicate = `
 // crmLeadStageCase maps the stored lead_stage vocabulary onto the five display
 // stages the sales UI colours (Prospect/Qualified/Proposal/Negotiation/Won). Shared
 // by the officer dashboard and the supervisor funnel so both read the same way.
+// The post-qualification stages fold in by how far the deal has got: handed to sales
+// is still Qualified, documents requested is Proposal, and a submitted or approved
+// application is Negotiation (everything short of Won).
 const crmLeadStageCase = `CASE lower(COALESCE(lead_stage,'new'))
 	WHEN 'new' THEN 'Prospect' WHEN 'contacted' THEN 'Prospect'
-	WHEN 'qualified' THEN 'Qualified' WHEN 'proposal' THEN 'Proposal'
+	WHEN 'qualified' THEN 'Qualified' WHEN 'handed_to_sales' THEN 'Qualified'
+	WHEN 'proposal' THEN 'Proposal' WHEN 'documents_requested' THEN 'Proposal'
 	WHEN 'negotiation' THEN 'Negotiation'
+	WHEN 'application_submitted' THEN 'Negotiation' WHEN 'approved' THEN 'Negotiation'
 	WHEN 'converted' THEN 'Won' WHEN 'won' THEN 'Won'
 	ELSE initcap(COALESCE(lead_stage,'Prospect')) END`
 
@@ -145,7 +150,7 @@ func salesSupervisor(db *core.DB) http.HandlerFunc {
 			SELECT u.id, u.full_name, u.role, u.is_active,
 			  COUNT(c.id) FILTER (WHERE c.status='lead')                                          AS open_leads,
 			  COUNT(c.id) FILTER (WHERE c.status='lead' AND c.next_action_at::date < CURRENT_DATE) AS overdue,
-			  COUNT(c.id) FILTER (WHERE c.status='lead' AND c.lead_stage IN ('contacted','qualified')
+			  COUNT(c.id) FILTER (WHERE c.status='lead' AND c.lead_stage IN (`+workedLeadStagesSQL+`)
 			                      AND (c.last_activity_at IS NULL
 			                           OR c.last_activity_at < NOW()-INTERVAL '14 days'))          AS stalled,
 			  COUNT(c.id) FILTER (WHERE c.status='customer'
@@ -386,7 +391,7 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			SELECT
 			  COUNT(*) FILTER (WHERE next_action_at::date = CURRENT_DATE)                       AS followups_due,
 			  COUNT(*) FILTER (WHERE next_action_at::date < CURRENT_DATE)                       AS followups_overdue,
-			  COUNT(*) FILTER (WHERE lead_stage IN ('contacted','qualified')
+			  COUNT(*) FILTER (WHERE lead_stage IN (`+workedLeadStagesSQL+`)
 			                   AND (last_activity_at IS NULL
 			                        OR last_activity_at < NOW() - INTERVAL '14 days'))          AS stalled_leads
 			FROM crm_contacts
@@ -747,8 +752,12 @@ func salesAccountsTrend(db *core.DB) http.HandlerFunc {
 func salesByState(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT state AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers
-			 WHERE state IS NOT NULL AND state!='' GROUP BY state ORDER BY count DESC`)
+			// core.clean_state() collapses the spelling variants that used to split a
+			// single state across several rows (LAGOS/Lagos/LAGOS STATE; four
+			// spellings of Abuja). NULL = foreign or unusable, excluded as before.
+			// See migration 237.
+			`SELECT core.clean_state(state) AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers
+			 WHERE core.clean_state(state) IS NOT NULL GROUP BY 1 ORDER BY count DESC`)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
@@ -760,8 +769,11 @@ func salesByState(db *core.DB) http.HandlerFunc {
 func salesByCity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT city AS "City", state AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers
-			 WHERE city IS NOT NULL AND city!='' GROUP BY city,state ORDER BY count DESC LIMIT 20`)
+			// The state half is normalised (migration 237); city is left raw
+			// deliberately — there is no city_map, and 662 distinct city spellings are
+			// a separate cleanup from the 37-value state problem.
+			`SELECT city AS "City", core.clean_state(state) AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers
+			 WHERE city IS NOT NULL AND city!='' GROUP BY 1,2 ORDER BY count DESC LIMIT 20`)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return

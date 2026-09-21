@@ -203,6 +203,6 @@ export default function CreditCardPortfolio() {
   )
 }
 
-function Empty({ text = 'No data' }: { text?: string }) {
+function Empty({ text = 'No Data' }: { text?: string }) {
   return <div style={{ textAlign: 'center', padding: 32, color: 'var(--txt3)', fontSize: TEXT.base, fontFamily: INTER }}>{text}</div>
 }

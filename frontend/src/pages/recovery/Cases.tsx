@@ -1,5 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Page, ExpandableFilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
@@ -14,6 +14,7 @@ import { RED, DARKRED, NAVY, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP, RADI
 import { toast } from 'sonner'
 import { RepaymentPatternMini } from '../../components/RepaymentPatternMini'
 import { TierBadge, tierFromPct } from '../../components/TierBadge'
+import { RECOVERY_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
 
 // Marks a case bulk-loaded from an uploaded spreadsheet (data_source='manual'),
 // so it reads as distinct from the Udara core-banking feed.
@@ -196,7 +197,7 @@ function AssignAgentTab({ caseId, agents, onDone }: {
         <label style={labelStyle}>Agent</label>
         <select value={agentId} onChange={e => setAgentId(e.target.value)}
           style={{ ...filterInputStyle, height: 36, width: '100%' }}>
-          <option value="">Select agent…</option>
+          <option value="">Select Agent…</option>
           {recoveryAgents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
         </select>
       </div>
@@ -256,7 +257,7 @@ function FieldVisitTab({ caseId, onDone }: { caseId: number; onDone: () => void 
         <label style={labelStyle}>Outcome</label>
         <select value={outcome} onChange={e => setOutcome(e.target.value)}
           style={{ ...filterInputStyle, height: 36, width: '100%' }}>
-          <option value="">Select outcome…</option>
+          <option value="">Select Outcome…</option>
           {VISIT_OUTCOMES.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       </div>
@@ -284,6 +285,7 @@ function AddLegalTab({ caseId, onDone }: { caseId: number; onDone: () => void })
   const [filingDate,      setFilingDate]      = useState('')
   const [nextHearingDate, setNextHearingDate] = useState('')
   const [notes,           setNotes]           = useState('')
+  const [confirm,         setConfirm]         = useState(false)
   const [saving,          setSaving]          = useState(false)
   const [err,             setErr]             = useState<string | null>(null)
 
@@ -298,10 +300,11 @@ function AddLegalTab({ caseId, onDone }: { caseId: number; onDone: () => void })
       })
       toast.success('Legal filing added')
       setProceedingType(''); setCourtName(''); setCaseNumber('')
-      setFilingDate(''); setNextHearingDate(''); setNotes('')
+      setFilingDate(''); setNextHearingDate(''); setNotes(''); setConfirm(false)
       onDone()
     } catch (e: any) {
       setErr(e.message ?? 'Failed to add legal filing')
+      setConfirm(false)
     } finally { setSaving(false) }
   }
 
@@ -312,7 +315,7 @@ function AddLegalTab({ caseId, onDone }: { caseId: number; onDone: () => void })
         <label style={labelStyle}>Proceeding Type</label>
         <select value={proceedingType} onChange={e => setProceedingType(e.target.value)}
           style={{ ...filterInputStyle, height: 36, width: '100%' }}>
-          <option value="">Select type…</option>
+          <option value="">Select Type…</option>
           {PROCEEDING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
       </div>
@@ -345,14 +348,18 @@ function AddLegalTab({ caseId, onDone }: { caseId: number; onDone: () => void })
         <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
           placeholder="Additional notes…" style={{ ...fieldStyle, resize: 'vertical' }} />
       </div>
-      <Btn onClick={submit} loading={saving} disabled={!proceedingType || !filingDate}>Add Legal Filing</Btn>
+      <Btn onClick={() => setConfirm(true)} disabled={!proceedingType || !filingDate}>Add Legal Filing</Btn>
+      <ConfirmModal
+        open={confirm} title="Add Legal Filing"
+        body={`Log "${proceedingType}" against this case${courtName ? ` at ${courtName}` : ''}, filed ${filingDate}.`}
+        confirmLabel="Add Filing" loading={saving}
+        onConfirm={submit} onClose={() => setConfirm(false)}
+      />
     </div>
   )
 }
 
 // ── Record Payment tab ────────────────────────────────────────────────────────
-
-const PAYMENT_CHANNELS = ['Bank Transfer', 'Cash', 'Cheque', 'TPA', 'Legal Settlement', 'Self-Cure']
 
 function RecordPaymentTab({ caseId, onDone }: { caseId: number; onDone: () => void }) {
   const [amountNaira,  setAmountNaira]  = useState('')
@@ -390,7 +397,7 @@ function RecordPaymentTab({ caseId, onDone }: { caseId: number; onDone: () => vo
           <label style={labelStyle}>Channel</label>
           <select value={channel} onChange={e => setChannel(e.target.value)}
             style={{ ...filterInputStyle, height: 36, width: '100%' }}>
-            {PAYMENT_CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
+            {RECOVERY_PAYMENT_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         </div>
         <div>
@@ -422,7 +429,13 @@ function WriteOffTab({ caseId, outstanding, onDone }: { caseId: number; outstand
   const [err,         setErr]         = useState<string | null>(null)
 
   async function doWriteOff() {
-    const kobo = amountNaira ? Math.round(parseFloat(amountNaira) * 100) : outstanding
+    const parsed = amountNaira ? Math.round(parseFloat(amountNaira) * 100) : outstanding
+    if (!(parsed > 0)) {
+      setErr('Amount must be greater than zero — leave the field blank to write off the full outstanding balance')
+      setConfirm(false)
+      return
+    }
+    const kobo = parsed
     setSaving(true); setErr(null)
     try {
       await apiPost(`/api/recovery-ops/cases/${caseId}/write-off`, { amount_kobo: kobo, reason })
@@ -455,9 +468,9 @@ function WriteOffTab({ caseId, outstanding, onDone }: { caseId: number; outstand
           placeholder="Explain why this account should be written off…"
           style={{ ...fieldStyle, resize: 'vertical' }} />
       </div>
-      <Btn onClick={() => setConfirm(true)} disabled={!reason.trim()} danger>Submit Write-off</Btn>
+      <Btn onClick={() => setConfirm(true)} disabled={!reason.trim()} danger>Submit Write-Off</Btn>
       <ConfirmModal
-        open={confirm} title="Submit Write-off Request"
+        open={confirm} title="Submit Write-Off Request"
         body={`Submit write-off for approval. Reason: "${reason.slice(0, 100)}${reason.length > 100 ? '…' : ''}"`}
         confirmLabel="Submit" danger loading={saving}
         onConfirm={doWriteOff} onClose={() => setConfirm(false)}
@@ -546,7 +559,7 @@ const ACTION_TABS = [
   { key: 'visit',    label: 'Log Visit' },
   { key: 'legal',    label: 'Legal Filing' },
   { key: 'payment',  label: 'Record Payment' },
-  { key: 'writeoff', label: 'Write-off' },
+  { key: 'writeoff', label: 'Write-Off' },
 ]
 
 function DetailPanel({ rc, agents, onAction, canAssign }: {
@@ -612,7 +625,7 @@ function DetailPanel({ rc, agents, onAction, canAssign }: {
         )}
         <LV label="Recovery Agent" value={rc.agent_name ?? <span style={{ color: RED }}>Unassigned</span>} />
         {rc.product_type !== 'loan' && (
-          <LV label="Collections Agent" value={rc.collections_agent_name ?? <span style={{ color: 'var(--txt3)' }}>No collections agent</span>} />
+          <LV label="Collections Agent" value={rc.collections_agent_name ?? <span style={{ color: 'var(--txt3)' }}>No Collections Agent</span>} />
         )}
         {rc.product_type === 'loan' && (
           <>
@@ -723,7 +736,7 @@ function ReassignModal({ open, onClose, selectedIds, agents, onDone }: {
           <label style={labelStyle}>Agent</label>
           <select value={agentId} onChange={e => setAgentId(e.target.value)}
             style={{ ...filterInputStyle, height: 36, width: '100%' }}>
-            <option value="">Select agent…</option>
+            <option value="">Select Agent…</option>
             {recoveryAgents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
           </select>
         </div>
@@ -778,6 +791,8 @@ export default function RecoveryCases() {
   const fStatusKey = [...fStatus].sort().join(',')
   // A single selection filters to that product; selecting both (or none) = all.
   const fProductKey = fProduct.size === 1 ? [...fProduct][0] : ''
+  const filterKey = `${fStatusKey}|${fProductKey}|${dq}`
+  const prevFilterKeyRef = useRef(filterKey)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -803,11 +818,19 @@ export default function RecoveryCases() {
     } catch { /* non-fatal: assign dropdown just stays empty */ }
   }, [fStatusKey, fProductKey, dq, page])
 
-  useEffect(() => { load() }, [load])
+  // A filter/search change should reset to page 1 rather than fetch the new filter at
+  // whatever page the user was on. This used to be two separate effects — one firing
+  // load() on every `load` identity change, another resetting page — which raced: the
+  // filter-change fetch ran once at the stale page and again a tick later at page 1.
+  // Skipping the fetch on the pass that only resets the page collapses that into one.
+  useEffect(() => {
+    if (prevFilterKeyRef.current !== filterKey) {
+      prevFilterKeyRef.current = filterKey
+      if (page !== 1) { setPage(1); return }
+    }
+    load()
+  }, [load, filterKey, page])
   useLiveData(() => load(true), { topics: ['recovery'] })
-
-  // Changing a filter or the search resets to the first page of the (new) queue.
-  useEffect(() => { setPage(1) }, [fStatusKey, fProductKey, dq])
 
   // Head-only: seed recovery cases from the severe delinquency book. Recovery's
   // analogue of Collections' "Generate Assignments" — without it the module stays
@@ -1038,12 +1061,16 @@ export default function RecoveryCases() {
                       {(() => {
                         const isLoan = rc.product_type === 'loan'
                         const loc = isLoan ? Number(rc.loan_amount_kobo ?? 0) : Math.round(Number(rc.credit_limit ?? 0) * 100)
-                        const minRep = isLoan ? rc.outstanding_kobo : Math.round(Number(rc.min_payment ?? 0) * 100)
+                        // "Min Rep" (minimum repayment) is a card-only concept — a loan case
+                        // carries no equivalent per-instalment figure, so it used to show the
+                        // full outstanding balance under that label, reading as a minimum-due
+                        // figure when it was actually the whole debt.
+                        const minRepKobo = isLoan ? null : Math.round(Number(rc.min_payment ?? 0) * 100)
                         const pctRec = rc.outstanding_kobo > 0 ? Math.round((rc.recovered_kobo / rc.outstanding_kobo) * 100) : 0
                         return (
                           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 12px', marginBottom: 4 }}>
                             <Term label={isLoan ? 'Principal' : 'LOC'} value={fmtKoboExact(loc)} />
-                            <Term label="Min Rep" value={fmtKoboExact(minRep)} />
+                            {minRepKobo != null && <Term label="Min Rep" value={fmtKoboExact(minRepKobo)} />}
                             <Term label="Recovered" value={`${fmtKoboExact(rc.recovered_kobo)} · ${pctRec}%`} valueColor={rc.recovered_kobo > 0 ? GREEN : undefined} />
                             <TierBadge tier={tierFromPct(pctRec)} />
                           </div>
@@ -1064,7 +1091,7 @@ export default function RecoveryCases() {
                       )}
                       {rc.last_payment_amount != null && (
                         <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>
-                          Last paid <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtExact(rc.last_payment_amount)}</span>
+                          Last Paid <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtExact(rc.last_payment_amount)}</span>
                           {rc.last_payment_date ? ` · ${fmtDate(rc.last_payment_date)}` : ''}
                         </div>
                       )}

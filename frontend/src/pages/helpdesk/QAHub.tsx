@@ -52,14 +52,14 @@ function Dashboard() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: SP[4] }}>
         <SectionCard title="Average QA Score" subtitle="Trend over the selected range">
-          {trend.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No evaluations in range</div> : (
+          {trend.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No Evaluations in Range</div> : (
             <EArea
               data={trend}
               xKey="day"
               height={200}
               endLabel
               valueFmt={(v) => `${v}%`}
-              series={[{ key: 'score', name: 'Avg score', color: NAVY }]}
+              series={[{ key: 'score', name: 'Avg Score', color: NAVY }]}
             />
           )}
         </SectionCard>
@@ -91,7 +91,7 @@ function Dashboard() {
             ))}</tr></thead>
             <tbody>
               {(d?.by_agent ?? []).length === 0 ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No evaluations yet</td></tr>
+                <tr><td colSpan={5} style={{ textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No Evaluations Yet</td></tr>
               ) : (d?.by_agent ?? []).map((a: any) => {
                 const avg = num(a.avg_score)
                 return (
@@ -126,7 +126,7 @@ function EvalDetail({ id, config, onClose }: { id: number; config: QAConfig | nu
             <span style={{ ...NUM, fontSize: 30, fontWeight: FW.extrabold, color: scoreColor(num(e.total_score)) }}>{num(e.total_score)}%</span>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <Pill text={e.rating_band} color={scoreColor(num(e.total_score))} />
-              <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: e.passed ? GREEN : RED }}>{e.passed ? 'PASS' : 'FAIL'}{e.critical_error ? ' · Critical error' : ''}</span>
+              <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: e.passed ? GREEN : RED }}>{e.passed ? 'PASS' : 'FAIL'}{e.critical_error ? ' · Critical Error' : ''}</span>
             </div>
             <div style={{ marginLeft: 'auto', textAlign: 'right', fontSize: TEXT.xs, color: 'var(--txt2)' }}>
               <div><b>{e.agent_name || '—'}</b></div>
@@ -152,7 +152,7 @@ function EvalDetail({ id, config, onClose }: { id: number; config: QAConfig | nu
           {(e.strengths || e.improvements || e.coaching_notes) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: `${AMBER}08`, border: `1px solid ${AMBER}30`, borderRadius: RADIUS.md, fontSize: TEXT.sm }}>
               {e.strengths && <div><b style={{ color: GREEN }}>Strengths:</b> {e.strengths}</div>}
-              {e.improvements && <div><b style={{ color: AMBER }}>Areas for improvement:</b> {e.improvements}</div>}
+              {e.improvements && <div><b style={{ color: AMBER }}>Areas for Improvement:</b> {e.improvements}</div>}
               {e.coaching_notes && <div><b style={{ color: NAVY }}>Coaching:</b> {e.coaching_notes}</div>}
             </div>
           )}
@@ -179,7 +179,7 @@ function Evaluations({ config }: { config: QAConfig | null }) {
     <SectionCard title="Evaluations" badge={rows.length} padding={false}
       actions={
         <select value={result} onChange={e => setResult(e.target.value)} style={{ height: 32, padding: '0 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, background: 'var(--input-bg)', color: 'var(--txt)', cursor: 'pointer' }}>
-          <option value="">All results</option><option value="pass">Passed</option><option value="fail">Failed</option>
+          <option value="">All Results</option><option value="pass">Passed</option><option value="fail">Failed</option>
         </select>
       }>
       <div style={{ overflowX: 'auto' }}>
@@ -189,7 +189,7 @@ function Evaluations({ config }: { config: QAConfig | null }) {
           ))}</tr></thead>
           <tbody>
             {loading ? <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40 }}><Spinner size={18} /></td></tr>
-              : rows.length === 0 ? <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No evaluations yet</td></tr>
+              : rows.length === 0 ? <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No Evaluations Yet</td></tr>
               : rows.map(r => (
                 <tr key={r.id} onClick={() => setOpenId(r.id)} style={{ cursor: 'pointer' }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hvr)')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
@@ -239,7 +239,7 @@ function Coaching() {
         </div>
       }>
       {loading ? <div style={{ display: 'flex', justifyContent: 'center', padding: 30 }}><Spinner size={20} /></div>
-        : rows.length === 0 ? <div style={{ textAlign: 'center', padding: 34, color: 'var(--txt2)' }}>Nothing {status === 'open' ? 'open' : 'completed'}</div> : (
+        : rows.length === 0 ? <div style={{ textAlign: 'center', padding: 34, color: 'var(--txt2)' }}>Nothing {status === 'open' ? 'Open' : 'Completed'}</div> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {rows.map(r => (
               <div key={r.id} style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: '11px 14px', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
@@ -257,7 +257,7 @@ function Coaching() {
                 <button onClick={() => toggle(r.id, r.coaching_status !== 'done')}
                   style={{ flexShrink: 0, fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '5px 12px', borderRadius: RADIUS.md, cursor: 'pointer', fontFamily: SORA,
                     border: `1px solid ${r.coaching_status === 'done' ? 'var(--bdr)' : GREEN + '50'}`, background: r.coaching_status === 'done' ? 'var(--card)' : `${GREEN}12`, color: r.coaching_status === 'done' ? 'var(--txt2)' : GREEN }}>
-                  {r.coaching_status === 'done' ? 'Reopen' : 'Mark done'}
+                  {r.coaching_status === 'done' ? 'Reopen' : 'Mark Done'}
                 </button>
               </div>
             ))}
@@ -300,19 +300,19 @@ function Settings({ config, onSaved }: { config: QAConfig | null; onSaved: () =>
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-      <SectionCard title="Pass rule">
+      <SectionCard title="Pass Rule">
         <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: TEXT.sm, color: 'var(--txt)' }}>
-            Pass threshold <input type="number" min={0} max={100} value={pass} onChange={e => setPass(Number(e.target.value))} style={inp} /> %
+            Pass Threshold <input type="number" min={0} max={100} value={pass} onChange={e => setPass(Number(e.target.value))} style={inp} /> %
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: TEXT.sm, color: 'var(--txt)', cursor: 'pointer' }}>
             <input type="checkbox" checked={autoFail} onChange={e => setAutoFail(e.target.checked)} style={{ accentColor: RED, width: 16, height: 16 }} />
-            A critical error auto-fails the evaluation
+            A Critical Error Auto-Fails the Evaluation
           </label>
         </div>
       </SectionCard>
 
-      <SectionCard title="Section weights & parameter points"
+      <SectionCard title="Section Weights & Parameter Points"
         subtitle={`Section weights should total 100%, currently ${totalWeight}%`}
         actions={totalWeight !== 100 ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: AMBER }}>{totalWeight}% (not 100)</span> : <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: GREEN }}>✓ 100%</span>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -326,7 +326,7 @@ function Settings({ config, onSaved }: { config: QAConfig | null; onSaved: () =>
                 {sec.params.map((p, i) => (
                   <div key={p.param_key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < sec.params.length - 1 ? '1px solid var(--bdr)' : 'none' }}>
                     <span style={{ flex: 1, fontSize: TEXT.sm, color: 'var(--txt)' }}>{p.param_label}</span>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt3)' }}>points <input type="number" min={1} value={p.max_points} onChange={e => setPoints(p.param_key, Number(e.target.value))} style={{ ...inp, width: 54 }} /></label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt3)' }}>Points <input type="number" min={1} value={p.max_points} onChange={e => setPoints(p.param_key, Number(e.target.value))} style={{ ...inp, width: 54 }} /></label>
                   </div>
                 ))}
               </div>
@@ -380,7 +380,7 @@ function MonthlyReport() {
           </div>
       }>
       {loading ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={22} /></div>
-        : evals === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No evaluations in {month}</div> : (
+        : evals === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No Evaluations in {month}</div> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[3] }}>
               {kpi('Evaluations', evals.toLocaleString(), NAVY)}

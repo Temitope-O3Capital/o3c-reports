@@ -23,8 +23,32 @@ import (
 // time, so the tracker is always accurate without coupling every sales action.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ccIsSupervisor is the ONE definition of "call-centre supervisor" for the whole
+// module. Three contradictory versions had accumulated across these files — a page
+// check, a role check, and a hand-rolled map containing roles (cfo, head_it,
+// management) that core.managementRoles does not know — so a cfo could bulk-assign
+// leads and was then refused by distribute, on the same screen.
+//
+// The definition: the executive/management tier, the call-centre head, or anyone
+// holding the call_center_stats page (how oversight is granted without a role
+// change). EVERY role the user holds is considered, not just the primary one —
+// the page gate iterates AllRoles (core.RequirePages), so a check reading only
+// u.Role disagreed with the gate that had just let them through the door.
+// Mirrored in the frontend as isCallCentreSupervisor().
 func ccIsSupervisor(u *core.Claims) bool {
-	return u != nil && (u.Role == "call_center_head" || core.IsManagement(u.Role))
+	if u == nil {
+		return false
+	}
+	// HasPage covers the admin super-user and both role- and user-granted pages.
+	if u.HasPage("call_center_stats") {
+		return true
+	}
+	for _, role := range u.AllRoles() {
+		if role == "call_center_head" || core.IsManagement(role) {
+			return true
+		}
+	}
+	return false
 }
 
 // forwardLeadToSales hands a worked call-centre lead to the Sales pipeline and
@@ -61,20 +85,28 @@ func forwardLeadToSales(db *core.DB) http.HandlerFunc {
 		}
 		lead := rows[0]
 
-		// Only supervisors / heads / management forward leads to Sales. Agents surface
-		// interest by dispositioning a lead "Interested"; the supervisor reviews the
-		// interested pile and forwards. (Both can still TRACK the outcome.)
-		if !ccIsSupervisor(user) {
-			respondErr(w, 403, "Only a call-centre supervisor can forward leads to Sales")
+		// An agent forwards a lead assigned to HER; a supervisor / head / management
+		// forwards any lead. The route comment has always read "agents: own leads"
+		// while the code refused everyone but supervisors, so the button the Leads
+		// page shows an agent 403'd every time she pressed it.
+		sup := ccIsSupervisor(user)
+		if !sup && toInt64(lead["assigned_to"]) != user.ID {
+			respondErr(w, 403, "You can only forward a lead assigned to you")
 			return
 		}
 
 		// Stage gate: only a lead an agent has actually warmed up belongs in Sales.
 		// Forwarding a 'pending' / 'no_answer' / 'dnc' lead would flood Sales with cold
-		// rows nobody qualified. 'interested' is the warm signal; 'callback' is a live
-		// conversation mid-flight that's fair to hand over too. Everything else is refused.
+		// rows nobody qualified.
+		//
+		// 'interested' is the ONLY warm signal. This used to accept 'callback' as well
+		// while telling the agent "Only a lead marked Interested can be forwarded" —
+		// the code and its own error message disagreed. The qualification rule agreed
+		// with the business on 14 Sept 2026 (see crmStageForCall) settles it: a callback
+		// is not interest, because the person could not talk. So the message was right
+		// and the condition was wrong.
 		leadStatus := strings.ToLower(strings.TrimSpace(str(lead["status"])))
-		if leadStatus != "interested" && leadStatus != "callback" {
+		if leadStatus != "interested" {
 			respondErr(w, 422, "Only a lead marked Interested can be forwarded to Sales")
 			return
 		}
@@ -96,12 +128,21 @@ func forwardLeadToSales(db *core.DB) http.HandlerFunc {
 		if v := toInt64(lead["marketing_campaign_id"]); v != 0 {
 			mktCampaign = v
 		}
+		// Same treatment for the call-centre campaign. Passing toInt64 straight into the
+		// insert stored 0 — not NULL — for a lead that belongs to no campaign, and 0 is
+		// not a campaign id, so the LEFT JOIN on call_center_campaigns below never
+		// matched and the tracker showed a blank campaign for every non-campaign lead.
+		var ccCampaign any
+		if v := toInt64(lead["campaign_id"]); v != 0 {
+			ccCampaign = v
+		}
 
 		// Move the CRM contact into the sales pipeline (forward-only), stamp source
 		// + lineage + the product the agent surfaced.
 		if _, err := db.PGExec(ctx, `
 			UPDATE crm_contacts
 			   SET lead_stage        = CASE WHEN lead_stage IN ('new','contacted') THEN 'qualified' ELSE lead_stage END,
+			       stage_changed_at  = CASE WHEN lead_stage IN ('new','contacted') THEN NOW() ELSE stage_changed_at END,
 			       lead_source       = COALESCE(NULLIF(lead_source,''), 'call_centre'),
 			       source            = COALESCE(NULLIF(source,''), 'call_centre'),
 			       product_interest  = COALESCE(NULLIF($2,''), product_interest),
@@ -113,10 +154,12 @@ func forwardLeadToSales(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Optional supervisor pre-assignment of a sales owner.
+		// Optional supervisor pre-assignment of a sales owner — supervisors only, now
+		// that agents can forward: choosing who in Sales owns the deal is the
+		// supervisor's call, not the forwarding agent's.
 		status := "forwarded"
 		var salesOwner any
-		if b.SalesOwnerID != nil && *b.SalesOwnerID > 0 {
+		if sup && b.SalesOwnerID != nil && *b.SalesOwnerID > 0 {
 			status = "assigned"
 			salesOwner = *b.SalesOwnerID
 			db.PGExec(ctx, //nolint:errcheck
@@ -148,10 +191,13 @@ func forwardLeadToSales(db *core.DB) http.HandlerFunc {
 			              updated_at       = NOW()
 			RETURNING id`,
 			leadID, contactID, user.ID, str(lead["customer_name"]), str(lead["customer_phone"]),
-			cif, toInt64(lead["campaign_id"]), mktCampaign, strings.TrimSpace(b.ProductInterest),
+			cif, ccCampaign, mktCampaign, strings.TrimSpace(b.ProductInterest),
 			strings.TrimSpace(b.Notes), status, salesOwner)
-		if err != nil {
-			respondErr(w, 500, "Could not record the hand-off")
+		// len(ins) is load-bearing, not defensive noise: PGQuery returns an EMPTY slice
+		// with a nil error when the table is missing, so `ins[0]` below panicked the
+		// request rather than returning an error the agent could act on.
+		if err != nil || len(ins) == 0 {
+			respondErrLog(w, 500, "Could not record the hand-off", err)
 			return
 		}
 
@@ -292,7 +338,8 @@ const forwardStatusExpr = `
 	  WHEN c.lead_stage = 'converted'    THEN 'converted'
 	  WHEN c.lead_stage = 'disqualified' THEN 'rejected'
 	  WHEN f.status = 'assigned'         THEN 'assigned'
-	  WHEN c.lead_stage = 'qualified'    THEN 'with_sales'
+	  WHEN c.lead_stage IN ('qualified','handed_to_sales','documents_requested',
+	                        'application_submitted','approved') THEN 'with_sales'
 	  ELSE COALESCE(f.status, 'forwarded')
 	END`
 

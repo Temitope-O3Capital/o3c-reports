@@ -367,13 +367,13 @@ func overviewAttention(db *core.DB) http.HandlerFunc {
 			`SELECT COUNT(*) FROM crm_contacts
 			  WHERE lead_owner_id IS NULL AND lead_stage NOT IN ('converted','disqualified')`)
 
-		// Stalled: qualified but untouched for a fortnight.
+		// Stalled: contacted or further along (but still open), untouched for a fortnight.
 		if rows, err := db.PGQuery(r.Context(), `
 			SELECT c.id, c.first_name, c.last_name, c.lead_stage,
 			       c.last_activity_at, u.full_name AS owner_name
 			  FROM crm_contacts c
 			  LEFT JOIN o3c_users u ON u.id = c.lead_owner_id
-			 WHERE c.lead_stage IN ('contacted','qualified')
+			 WHERE c.lead_stage IN (`+workedLeadStagesSQL+`)
 			   AND COALESCE(c.last_activity_at, c.updated_at) < NOW() - INTERVAL '14 days'
 			 ORDER BY COALESCE(c.last_activity_at, c.updated_at)
 			 LIMIT 25`); err == nil {
@@ -381,7 +381,7 @@ func overviewAttention(db *core.DB) http.HandlerFunc {
 		}
 		out["stalled_leads_total"] = scalar(
 			`SELECT COUNT(*) FROM crm_contacts
-			  WHERE lead_stage IN ('contacted','qualified')
+			  WHERE lead_stage IN (`+workedLeadStagesSQL+`)
 			    AND COALESCE(last_activity_at, updated_at) < NOW() - INTERVAL '14 days'`)
 
 		// How fresh is the customer book? A team lead reading acquisition numbers needs

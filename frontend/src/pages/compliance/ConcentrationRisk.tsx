@@ -116,7 +116,7 @@ export default function ConcentrationRisk() {
                           <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, padding: '2px 8px', borderRadius: RADIUS.md,
                             background: breached ? `${RED}15` : `${GREEN}18`,
                             color: breached ? RED : GREEN }}>
-                            {breached ? 'Breached' : 'Within limit'}
+                            {breached ? 'Breached' : 'Within Limit'}
                           </span>
                         </td>
                       </tr>

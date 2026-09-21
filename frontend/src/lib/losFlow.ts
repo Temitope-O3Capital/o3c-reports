@@ -43,14 +43,14 @@ const C = {
 
 // Ordered pipeline. `forwardPage` values are the authoritative gate keys.
 export const STAGE_FLOW: StageMeta[] = [
-  { key: 'draft',               label: 'Draft',               short: 'Draft',      owner: 'Sales Officer',  forward: 'submitted',           forwardPage: 'los',                 action: 'Submit application',        group: 'origination', ...C.grey },
-  { key: 'submitted',           label: 'Submitted',           short: 'Submitted',  owner: 'Sales Officer',  forward: 'document_collection', forwardPage: 'los',                 action: 'Begin document collection', group: 'origination', ...C.blue },
-  { key: 'document_collection', label: 'Document Collection', short: 'Documents',  owner: 'Risk Officer',   forward: 'risk_review',         forwardPage: 'los_risk_review',     action: 'Send to risk review',       group: 'origination', ...C.blue },
-  { key: 'risk_review',         label: 'Risk Review',         short: 'Risk',       owner: 'Risk Officer',   forward: 'risk_head_review',    forwardPage: 'los_risk_review',     action: 'Recommend to risk head',    group: 'risk',        ...C.amber },
-  { key: 'risk_head_review',    label: 'Risk Head Review',    short: 'Risk Head',  owner: 'Risk Head',      forward: 'pending_conditions',  forwardPage: 'los_risk_head',       action: 'Approve (credit)',          group: 'risk',        ...C.amber },
-  { key: 'pending_conditions',  label: 'Pending Conditions',  short: 'Conditions', owner: 'Finance Officer',forward: 'finance_approval',    forwardPage: 'los_finance',         action: 'Clear conditions → Finance',group: 'finance',     ...C.purple },
-  { key: 'finance_approval',    label: 'Finance Approval',    short: 'Finance',    owner: 'Finance Head',   forward: 'booking',             forwardPage: 'los_finance_approve', action: 'Approve disbursement',      group: 'finance',     ...C.purple },
-  { key: 'booking',             label: 'Booking',             short: 'Booking',    owner: 'Card Ops',       forward: 'active',              forwardPage: 'los_booking',         action: 'Book & disburse',           group: 'ops',         ...C.navy },
+  { key: 'draft',               label: 'Draft',               short: 'Draft',      owner: 'Sales Officer',  forward: 'submitted',           forwardPage: 'los',                 action: 'Submit Application', group: 'origination', ...C.grey },
+  { key: 'submitted',           label: 'Submitted',           short: 'Submitted',  owner: 'Sales Officer',  forward: 'document_collection', forwardPage: 'los',                 action: 'Begin Document Collection', group: 'origination', ...C.blue },
+  { key: 'document_collection', label: 'Document Collection', short: 'Documents',  owner: 'Risk Officer',   forward: 'risk_review',         forwardPage: 'los_risk_review',     action: 'Send to Risk Review',group: 'origination', ...C.blue },
+  { key: 'risk_review',         label: 'Risk Review',         short: 'Risk',       owner: 'Risk Officer',   forward: 'risk_head_review',    forwardPage: 'los_risk_review',     action: 'Recommend to Risk Head',group: 'risk',        ...C.amber },
+  { key: 'risk_head_review',    label: 'Risk Head Review',    short: 'Risk Head',  owner: 'Risk Head',      forward: 'pending_conditions',  forwardPage: 'los_risk_head',       action: 'Approve (Credit)',group: 'risk',        ...C.amber },
+  { key: 'pending_conditions',  label: 'Pending Conditions',  short: 'Conditions', owner: 'Finance Officer',forward: 'finance_approval',    forwardPage: 'los_finance',         action: 'Clear Conditions → Finance',group: 'finance',     ...C.purple },
+  { key: 'finance_approval',    label: 'Finance Approval',    short: 'Finance',    owner: 'Finance Head',   forward: 'booking',             forwardPage: 'los_finance_approve', action: 'Approve Disbursement',group: 'finance',     ...C.purple },
+  { key: 'booking',             label: 'Booking',             short: 'Booking',    owner: 'Card Ops',       forward: 'active',              forwardPage: 'los_booking',         action: 'Book & Disburse', group: 'ops',         ...C.navy },
   { key: 'active',              label: 'Active',              short: 'Active',     owner: '—',              forward: null,                  forwardPage: null,                  action: null,                        group: 'terminal',    ...C.green },
   { key: 'declined',            label: 'Declined',            short: 'Declined',   owner: '—',              forward: null,                  forwardPage: null,                  action: null,                        group: 'terminal',    ...C.red },
 ]
@@ -104,12 +104,12 @@ export function myActionableStages(): StageMeta[] {
 
 // A short heading describing the caller's approval role, e.g. "Finance approvals".
 export function inboxRoleLabel(): string {
-  if (hasPage('los_all')) return 'All approvals'
+  if (hasPage('los_all')) return 'All Approvals'
   const groups = new Set(myActionableStages().map(s => s.group))
-  if (groups.has('finance')) return 'Finance approvals'
-  if (groups.has('ops')) return 'Booking & disbursement'
-  if (groups.has('risk')) return 'Risk approvals'
-  if (groups.has('origination')) return 'My applications'
+  if (groups.has('finance')) return 'Finance Approvals'
+  if (groups.has('ops')) return 'Booking & Disbursement'
+  if (groups.has('risk')) return 'Risk Approvals'
+  if (groups.has('origination')) return 'My Applications'
   return 'Approvals'
 }
 
@@ -120,11 +120,11 @@ export type LosDecision = 'approve' | 'decline' | 'refer' | 'pending' | ''
 
 export function decisionMeta(d?: string | null): { label: string; txt: string; bg: string; icon: string } {
   switch ((d ?? '').toLowerCase()) {
-    case 'approve': return { label: 'Recommend approve', ...C.green, icon: 'thumb_up' }
-    case 'decline': return { label: 'Recommend decline', ...C.red, icon: 'thumb_down' }
-    case 'refer':   return { label: 'Refer to analyst',  ...C.amber, icon: 'help' }
-    case 'pending': return { label: 'Decision pending',  ...C.grey, icon: 'hourglass_empty' }
-    default:        return { label: 'No decision yet',   ...C.grey, icon: 'remove' }
+    case 'approve': return { label: 'Recommend Approve', ...C.green, icon: 'thumb_up' }
+    case 'decline': return { label: 'Recommend Decline', ...C.red, icon: 'thumb_down' }
+    case 'refer':   return { label: 'Refer to Analyst',  ...C.amber, icon: 'help' }
+    case 'pending': return { label: 'Decision Pending',  ...C.grey, icon: 'hourglass_empty' }
+    default:        return { label: 'No Decision Yet',   ...C.grey, icon: 'remove' }
   }
 }
 
@@ -132,11 +132,11 @@ export function decisionMeta(d?: string | null): { label: string; txt: string; b
 // is live from Phoenix, still in flight, or absent.
 export function syncStateMeta(s?: string | null): { label: string; txt: string; bg: string } | null {
   switch ((s ?? '').toLowerCase()) {
-    case 'decided':      return { label: 'Phoenix decided', ...C.green }
+    case 'decided':      return { label: 'Phoenix Decided', ...C.green }
     case 'sent':         return { label: 'Awaiting Phoenix', ...C.blue }
     case 'pending':      return { label: 'Queued for Phoenix', ...C.grey }
-    case 'failed':       return { label: 'Phoenix sync failed', ...C.red }
-    case 'not_required': return { label: 'Phoenix-originated', ...C.purple }
+    case 'failed':       return { label: 'Phoenix Sync Failed', ...C.red }
+    case 'not_required': return { label: 'Phoenix-Originated', ...C.purple }
     default:             return null
   }
 }

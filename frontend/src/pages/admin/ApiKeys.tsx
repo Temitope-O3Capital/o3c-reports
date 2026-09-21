@@ -247,12 +247,12 @@ export default function AdminApiKeys() {
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
           <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
             style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}>
-            <option value="">All categories</option>
+            <option value="">All Categories</option>
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} keys</span>
         </div>
-        <DataTable cols={COLS} rows={displayed} keyFn={r => r.key_name} loading={loading} emptyText="No API keys configured" pageSize={20} />
+        <DataTable cols={COLS} rows={displayed} keyFn={r => r.key_name} loading={loading} emptyText="No API Keys Configured" pageSize={20} />
       </SectionCard>
 
       {editing && <EditModal apiKey={editing} onClose={() => setEditing(null)} onSaved={load} />}

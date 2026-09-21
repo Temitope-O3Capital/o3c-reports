@@ -45,7 +45,7 @@ interface RunDetail {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const SOURCES = [
-  { value: 'interswitch', label: 'Interswitch EOD', counterparty: 'sage_ledger', cpLabel: 'Sage ledger' },
+  { value: 'interswitch', label: 'Interswitch EOD', counterparty: 'sage_ledger', cpLabel: 'Sage Ledger' },
 ]
 
 function rateColor(pct: number) {
@@ -86,9 +86,9 @@ function TierBar({ tiers, total }: { tiers: TierRow[]; total: number }) {
 const BLUEISH = '#2563EB'
 
 const REASON_LABEL: Record<string, string> = {
-  no_candidate:    'No ledger match',
-  ambiguous:       'Ambiguous — several candidates',
-  amount_mismatch: 'Amount differs',
+  no_candidate:    'No Ledger Match',
+  ambiguous:       'Ambiguous — Several Candidates',
+  amount_mismatch: 'Amount Differs',
 }
 
 const tdBase: React.CSSProperties = {
@@ -192,22 +192,22 @@ export default function ReconWorkbench() {
       subtitle="Reconcile a settlement source against the ledger, then work what didn't match"
       loading={loading && runs.length === 0}
       skeletonKpis={4}
-      actions={<Button icon="play_arrow" onClick={() => setRunOpen(true)}>Run reconciliation</Button>}
+      actions={<Button icon="play_arrow" onClick={() => setRunOpen(true)}>Run Reconciliation</Button>}
     >
       <ErrBanner error={error} onRetry={loadRuns} />
 
       {run && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[6] }}>
-          <KpiCard label="Source rows" value={fmtNum(run.source_n)} sub={fmtKobo(run.source_value_kobo)} icon="table_rows" accent={NAVY} />
+          <KpiCard label="Source Rows" value={fmtNum(run.source_n)} sub={fmtKobo(run.source_value_kobo)} icon="table_rows" accent={NAVY} />
           <KpiCard label="Matched" value={`${rate.toFixed(1)}%`} sub={`${fmtNum(run.matched_n)} · ${fmtKobo(run.matched_value_kobo)}`} icon="check_circle" accent={rateColor(rate)} />
           <KpiCard label="Exceptions" value={fmtNum(run.unmatched_n)} sub={fmtKobo(run.unmatched_value_kobo)} icon="report" accent={RED} />
-          <KpiCard label="Sign-off" value={run.signed_off_at ? 'Signed' : 'Pending'} sub={run.signed_off_at ? `${run.signed_off_by_name} · ${fmtDate(run.signed_off_at)}` : 'Not yet reviewed'} icon="task_alt" accent={run.signed_off_at ? GREEN : AMBER} />
+          <KpiCard label="Sign-Off" value={run.signed_off_at ? 'Signed' : 'Pending'} sub={run.signed_off_at ? `${run.signed_off_by_name} · ${fmtDate(run.signed_off_at)}` : 'Not yet reviewed'} icon="task_alt" accent={run.signed_off_at ? GREEN : AMBER} />
         </div>
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 1fr', gap: SP[4], marginBottom: SP[6] }}>
         <SectionCard
-          title="How the match was made"
+          title="How the Match Was Made"
           subtitle="Every pairing records the rule and confidence that produced it"
         >
           {!detail ? (
@@ -215,23 +215,23 @@ export default function ReconWorkbench() {
               {loading ? <Spinner /> : 'Select a run to see its breakdown.'}
             </div>
           ) : detail.tiers.length === 0 ? (
-            <EmptyState icon="rule" title="No matches" description="This run paired nothing — check the period has source data." />
+            <EmptyState icon="rule" title="No Matches" description="This run paired nothing — check the period has source data." />
           ) : (
             <TierBar tiers={detail.tiers} total={Number(run?.matched_n ?? 0)} />
           )}
         </SectionCard>
 
         <SectionCard
-          title="What didn't match"
+          title="What Didn't Match"
           subtitle="Classified so each reason gets the right investigation"
           actions={
             run && !run.signed_off_at && run.status === 'ok'
-              ? <Button variant="secondary" size="sm" icon="task_alt" onClick={() => setSignOpen(true)}>Sign off</Button>
+              ? <Button variant="secondary" size="sm" icon="task_alt" onClick={() => setSignOpen(true)}>Sign Off</Button>
               : undefined
           }
         >
           {!detail || detail.exceptions.length === 0 ? (
-            <EmptyState icon="check_circle" title="Nothing outstanding" description="No exceptions were raised for this run." />
+            <EmptyState icon="check_circle" title="Nothing Outstanding" description="No exceptions were raised for this run." />
           ) : (
             <div>
               {detail.exceptions.map(x => (
@@ -253,7 +253,7 @@ export default function ReconWorkbench() {
               <div style={{ marginTop: SP[3] }}>
                 <Button variant="secondary" size="sm" icon="open_in_new"
                   onClick={() => { window.location.href = `/settlements/exceptions?run_id=${run?.id}` }}>
-                  Work these exceptions
+                  Work These Exceptions
                 </Button>
               </div>
             </div>
@@ -265,9 +265,9 @@ export default function ReconWorkbench() {
         {loading && !runs.length ? (
           <div style={{ padding: SP[5] }}><Spinner /></div>
         ) : runs.length === 0 ? (
-          <EmptyState icon="rule_folder" title="No reconciliations yet"
+          <EmptyState icon="rule_folder" title="No Reconciliations Yet"
             description="Run one to match a settlement source against the ledger."
-            action={{ label: 'Run reconciliation', icon: 'play_arrow', onClick: () => setRunOpen(true) }} />
+            action={{ label: 'Run Reconciliation', icon: 'play_arrow', onClick: () => setRunOpen(true) }} />
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -280,7 +280,7 @@ export default function ReconWorkbench() {
                   <th style={{ ...thBase, textAlign: 'right' }}>Matched</th>
                   <th style={{ ...thBase, textAlign: 'right' }}>Exceptions</th>
                   <th style={thBase}>Status</th>
-                  <th style={thBase}>Sign-off</th>
+                  <th style={thBase}>Sign-Off</th>
                   <th style={thBase}>Ran</th>
                 </tr>
               </thead>
@@ -332,7 +332,7 @@ export default function ReconWorkbench() {
       </SectionCard>
 
       {/* Run modal */}
-      <Modal open={runOpen} onClose={() => setRunOpen(false)} title="Run reconciliation" width={480}
+      <Modal open={runOpen} onClose={() => setRunOpen(false)} title="Run Reconciliation" width={480}
         footer={
           <>
             <Button variant="secondary" onClick={() => setRunOpen(false)} disabled={running}>Cancel</Button>
@@ -345,11 +345,11 @@ export default function ReconWorkbench() {
           </Select>
         </Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
-          <Field label="Period from">
+          <Field label="Period From">
             <input type="date" value={periodFrom} onChange={e => setPeriodFrom(e.target.value)}
               style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)' }} />
           </Field>
-          <Field label="Period to">
+          <Field label="Period To">
             <input type="date" value={periodTo} onChange={e => setPeriodTo(e.target.value)}
               style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)' }} />
           </Field>
@@ -361,18 +361,18 @@ export default function ReconWorkbench() {
       </Modal>
 
       {/* Sign-off modal */}
-      <Modal open={signOpen} onClose={() => setSignOpen(false)} title="Sign off this reconciliation" width={480}
+      <Modal open={signOpen} onClose={() => setSignOpen(false)} title="Sign Off This Reconciliation" width={480}
         footer={
           <>
             <Button variant="secondary" onClick={() => setSignOpen(false)} disabled={signing}>Cancel</Button>
-            <Button icon="task_alt" onClick={signOff} loading={signing}>Sign off</Button>
+            <Button icon="task_alt" onClick={signOff} loading={signing}>Sign Off</Button>
           </>
         }>
         <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginBottom: SP[3] }}>
           You are recording that this position has been reviewed. {run ? fmtNum(run.unmatched_n) : 0} exception(s)
           worth {run ? fmtKobo(run.unmatched_value_kobo) : '—'} remain outstanding.
         </p>
-        <Field label="Note (optional)">
+        <Field label="Note (Optional)">
           <textarea value={signNote} onChange={e => setSignNote(e.target.value)} rows={3}
             style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontFamily: 'inherit' }} />
         </Field>

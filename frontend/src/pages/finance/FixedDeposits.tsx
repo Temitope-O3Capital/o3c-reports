@@ -100,7 +100,7 @@ const ACCRUAL_COLS: TableCol<AccrualRow>[] = [
   { key: 'maturity_date', label: 'Matures', render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.maturity_date)}</span> },
   { key: 'tenor_days', label: 'Tenor', align: 'right', render: r => <span style={NUM}>{r.tenor_days != null ? `${fmtNum(r.tenor_days)}d` : '—'}</span> },
   { key: 'days_elapsed', label: 'Elapsed', align: 'right', render: r => <span style={NUM}>{r.days_elapsed != null ? `${fmtNum(r.days_elapsed)}d` : '—'}</span> },
-  { key: 'daily_interest_kobo', label: 'Daily interest', align: 'right', render: r => <span style={{ ...NUM, color: AMBER }}>{fmtKoboExact(r.daily_interest_kobo)}</span> },
+  { key: 'daily_interest_kobo', label: 'Daily Interest', align: 'right', render: r => <span style={{ ...NUM, color: AMBER }}>{fmtKoboExact(r.daily_interest_kobo)}</span> },
   { key: 'accrued_interest_kobo', label: 'Accrued', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold, color: BLUE }}>{fmtKoboExact(r.accrued_interest_kobo)}</span> },
 ]
 
@@ -108,8 +108,8 @@ const PRODUCT_COLS: TableCol<ProductRow>[] = [
   { key: 'product', label: 'Product', render: r => <span style={{ fontWeight: FW.medium }}>{r.product || '—'}</span> },
   { key: 'count', label: 'Deposits', align: 'right', sortable: true, render: r => <span style={NUM}>{fmtNum(r.count)}</span> },
   { key: 'principal_kobo', label: 'Principal', align: 'right', sortable: true, render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKoboExact(r.principal_kobo)}</span> },
-  { key: 'avg_rate', label: 'Avg rate', align: 'right', render: r => <span style={NUM}>{fmtPct(r.avg_rate)}</span> },
-  { key: 'annual_interest_kobo', label: 'Annual interest', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: AMBER }}>{fmtKoboExact(r.annual_interest_kobo)}</span> },
+  { key: 'avg_rate', label: 'Avg Rate', align: 'right', render: r => <span style={NUM}>{fmtPct(r.avg_rate)}</span> },
+  { key: 'annual_interest_kobo', label: 'Annual Interest', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: AMBER }}>{fmtKoboExact(r.annual_interest_kobo)}</span> },
 ]
 
 type TabKey = 'overview' | 'register' | 'accrual'
@@ -229,26 +229,26 @@ export default function FixedDeposits() {
       {tab === 'overview' && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
-            <SectionCard title="Maturity ladder" subtitle="Active principal by days to maturity">
+            <SectionCard title="Maturity Ladder" subtitle="Active principal by days to maturity">
               {ladder.length === 0
-                ? <EmptyState icon="event" title={loading ? 'Loading…' : 'No maturity data'} />
+                ? <EmptyState icon="event" title={loading ? 'Loading…' : 'No Maturity Data'} />
                 : <EBar<LadderBucket> data={ladder} xKey="bucket" series={[{ key: 'principal_kobo', name: 'Principal', color: NAVY }]} height={240} valueFmt={koboFmt} axisFmt={koboFmt} legend={false} />}
             </SectionCard>
 
-            <SectionCard title="Tenor distribution" subtitle="Active principal by original tenor">
+            <SectionCard title="Tenor Distribution" subtitle="Active principal by original tenor">
               {tenor.length === 0
-                ? <EmptyState icon="bar_chart" title={loading ? 'Loading…' : 'No tenor data'} />
+                ? <EmptyState icon="bar_chart" title={loading ? 'Loading…' : 'No Tenor Data'} />
                 : <EBar<TenorBucket> data={tenor} xKey="bucket" series={[{ key: 'principal_kobo', name: 'Principal', color: BLUE }]} height={240} valueFmt={koboFmt} axisFmt={koboFmt} legend={false} />}
             </SectionCard>
           </div>
 
           {trend.length > 0 && (
-            <SectionCard title="Book size over time" subtitle="Daily CBS portfolio snapshot (last 90 days)" style={{ marginBottom: SP[5] }}>
+            <SectionCard title="Book Size Over Time" subtitle="Daily CBS portfolio snapshot (last 90 days)" style={{ marginBottom: SP[5] }}>
               <EArea<TrendPoint> data={trend} xKey="date" series={[{ key: 'principal_kobo', name: 'Principal', color: GREEN }]} height={240} valueFmt={koboFmt} axisFmt={koboFmt} xTickSize={10} />
             </SectionCard>
           )}
 
-          <SectionCard title="Book by product" subtitle="Active deposits split by FD product" padding={false}>
+          <SectionCard title="Book by Product" subtitle="Active deposits split by FD product" padding={false}>
             <DataTable cols={PRODUCT_COLS} rows={byProduct} keyFn={(r, i) => r.product ?? i} loading={loading} emptyText="No products in the deposit book" pageSize={10} />
           </SectionCard>
         </>
@@ -257,7 +257,7 @@ export default function FixedDeposits() {
       {/* ── Register ───────────────────────────────────────────────────────── */}
       {tab === 'register' && (
         <SectionCard
-          title="Deposit register"
+          title="Deposit Register"
           subtitle="Live CBS fixed-deposit records"
           padding={false}
           actions={
@@ -284,7 +284,7 @@ export default function FixedDeposits() {
 
       {/* ── Accrual ────────────────────────────────────────────────────────── */}
       {tab === 'accrual' && (
-        <SectionCard title="Interest accrual" subtitle="Per-deposit daily interest, highest accrued first" padding={false}>
+        <SectionCard title="Interest Accrual" subtitle="Per-deposit daily interest, highest accrued first" padding={false}>
           <DataTable
             cols={ACCRUAL_COLS}
             rows={accrual}

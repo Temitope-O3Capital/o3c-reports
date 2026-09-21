@@ -43,10 +43,10 @@ interface Props {
 // Amount label reads naturally per product.
 function amountLabel(code: string): string {
   switch (code) {
-    case 'credit_card':   return 'Requested credit limit (₦)'
-    case 'prepaid':       return 'Initial load (₦)'
+    case 'credit_card':   return 'Requested Credit Limit (₦)'
+    case 'prepaid':       return 'Initial Load (₦)'
     case 'fixed_deposit': return 'Principal (₦)'
-    default:              return 'Amount requested (₦)'
+    default:              return 'Amount Requested (₦)'
   }
 }
 
@@ -141,11 +141,11 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={title ?? (leadId ? 'Raise application from lead' : draft ? 'Resume application' : 'New application')} width={560}
+    <Modal open={open} onClose={onClose} title={title ?? (leadId ? 'Raise Application from Lead' : draft ? 'Resume Application' : 'New Application')} width={560}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="secondary" loading={busy} onClick={saveDraft}>Save draft</Button>
+          <Button variant="secondary" loading={busy} onClick={saveDraft}>Save Draft</Button>
           <Button variant="primary" loading={busy} onClick={submit}>Submit</Button>
         </div>
       }
@@ -170,21 +170,21 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
         </div>
         {/* Fixed once the application exists: the draft update does not change it, so
             an editable box here would promise something the save never does. */}
-        <Input label={draft ? 'Customer CIF (fixed on this application)' : leadId ? 'Customer CIF (optional)' : 'Customer CIF'}
+        <Input label={draft ? 'Customer CIF (Fixed on This Application)' : leadId ? 'Customer CIF (Optional)' : 'Customer CIF'}
           value={draft && !cif ? 'none yet — links once the customer exists' : cif}
           onChange={e => setCif(e.target.value)} disabled={!!draft}
           placeholder={leadId ? 'blank = prospect, links later' : 'e.g. 21013'} />
-        <Input label="Customer name (optional)" value={name} onChange={e => setName(e.target.value)} />
+        <Input label="Customer Name (Optional)" value={name} onChange={e => setName(e.target.value)} />
         <Input label={amountLabel(product)} type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
         {showTenor && (
-          <Input label={line === 'fixed_deposit' ? 'Term (months)' : 'Tenor (months)'} type="number" value={tenor} onChange={e => setTenor(e.target.value)} placeholder="0" />
+          <Input label={line === 'fixed_deposit' ? 'Term (Months)' : 'Tenor (Months)'} type="number" value={tenor} onChange={e => setTenor(e.target.value)} placeholder="0" />
         )}
         {showEmployer && <>
           <Input label="Employer" value={employer} onChange={e => setEmployer(e.target.value)} />
-          <Input label="Monthly income (₦)" type="number" value={income} onChange={e => setIncome(e.target.value)} placeholder="0.00" />
+          <Input label="Monthly Income (₦)" type="number" value={income} onChange={e => setIncome(e.target.value)} placeholder="0.00" />
         </>}
         <div style={{ gridColumn: '1 / -1' }}>
-          <Input label="Purpose / note (optional)" value={purpose} onChange={e => setPurpose(e.target.value)} />
+          <Input label="Purpose / Note (Optional)" value={purpose} onChange={e => setPurpose(e.target.value)} />
         </div>
       </div>
       <div style={{ marginTop: 12, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, background: `${NAVY}0A`, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5 }}>
@@ -198,7 +198,7 @@ export default function NewApplicationModal({ open, onClose, onSaved, draft, pre
         {' '}{leadId
           ? 'Raised from this lead — no CIF yet is fine, it lands provisional and links to the customer once they exist.'
           : 'The customer must be on your book.'}
-        {' '}<strong style={{ color: 'var(--txt2)', fontWeight: FW.semibold }}>Save draft</strong> keeps it private until you submit.
+        {' '}<strong style={{ color: 'var(--txt2)', fontWeight: FW.semibold }}>Save Draft</strong> keeps it private until you submit.
       </div>
     </Modal>
   )

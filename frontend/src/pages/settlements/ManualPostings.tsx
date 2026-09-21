@@ -220,7 +220,7 @@ function NewPostingModal({ open, onClose, onSuccess }: { open: boolean; onClose:
             </select>
           </div>
           <div>
-            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Amount NGN (naira) *</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Amount NGN (Naira) *</label>
             <input type="number" value={amountNaira} onChange={e => setAmountNaira(e.target.value)}
               placeholder="0.00" min={0} step="0.01" style={inputStyle} />
           </div>
@@ -240,7 +240,7 @@ function NewPostingModal({ open, onClose, onSuccess }: { open: boolean; onClose:
         </div>
 
         <div>
-          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Supporting Document (optional)</label>
+          <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Supporting Document (Optional)</label>
           <input type="file" style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }} />
           <p style={{ margin: '4px 0 0', fontSize: TEXT.xs, color: 'var(--txt3)' }}>File upload not yet implemented</p>
         </div>
@@ -316,12 +316,12 @@ function DetailModal({ posting, onClose }: { posting: ManualPosting | null; onCl
         <Row label="Account" value={<span style={NUM}>{posting.account}</span>} />
         <Row label="Description" value={posting.description} />
         <Row label="Workflow" value={posting.workflow_template_name ?? '—'} />
-        <Row label="Initiated by" value={posting.initiated_by} />
-        <Row label="Raised on" value={fmtDate(posting.created_at)} />
+        <Row label="Initiated By" value={posting.initiated_by} />
+        <Row label="Raised On" value={fmtDate(posting.created_at)} />
 
-        {posting.approved_by && <Row label="Approved by" value={`${posting.approved_by} on ${fmtDate(posting.approved_at)}`} />}
-        {posting.posted_by && <Row label="Posted by" value={`${posting.posted_by} on ${fmtDate(posting.posted_at)}`} />}
-        {posting.rejected_by && <Row label="Rejected by" value={`${posting.rejected_by} on ${fmtDate(posting.rejected_at)}`} />}
+        {posting.approved_by && <Row label="Approved By" value={`${posting.approved_by} on ${fmtDate(posting.approved_at)}`} />}
+        {posting.posted_by && <Row label="Posted By" value={`${posting.posted_by} on ${fmtDate(posting.posted_at)}`} />}
+        {posting.rejected_by && <Row label="Rejected By" value={`${posting.rejected_by} on ${fmtDate(posting.rejected_at)}`} />}
         {posting.rejection_reason && (
           <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 7, background: 'rgba(192,0,0,0.06)', border: '1px solid rgba(192,0,0,0.12)' }}>
             <p style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: RED, margin: '0 0 3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reason for {posting.stage}</p>
@@ -332,8 +332,8 @@ function DetailModal({ posting, onClose }: { posting: ManualPosting | null; onCl
         {/* Roles */}
         <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'var(--th-bg)' }}>
           {[
-            { label: 'Approver roles', roles: posting.approver_roles ?? [], color: NAVY },
-            { label: 'Poster roles',   roles: posting.poster_roles ?? [],   color: GREEN },
+            { label: 'Approver Roles', roles: posting.approver_roles ?? [], color: NAVY },
+            { label: 'Poster Roles',   roles: posting.poster_roles ?? [],   color: GREEN },
           ].map(row => (
             <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 5 }}>
               <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: row.color, width: 90, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 2 }}>{row.label}</span>
@@ -472,7 +472,7 @@ export default function ManualPostings() {
       render: r => <NameCell name={r.description || '—'} sub={r.ref} avatar={false} />,
     },
     {
-      key: 'initiated_by', label: 'Raised by',
+      key: 'initiated_by', label: 'Raised By',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.initiated_by}</span>,
     },
     {
@@ -507,7 +507,7 @@ export default function ManualPostings() {
 
   // Stage filter options
   const STAGE_OPTIONS = [
-    { value: '',                label: 'All stages' },
+    { value: '',                label: 'All Stages' },
     { value: 'pending_approval',label: 'Pending Approval' },
     { value: 'approved',        label: 'Approved — Pending Posting' },
     { value: 'posted',          label: 'Posted' },

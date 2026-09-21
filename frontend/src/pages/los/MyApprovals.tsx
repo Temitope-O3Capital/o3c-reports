@@ -137,13 +137,13 @@ export default function MyApprovals() {
       <ErrBanner error={err} onRetry={() => load()} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <KpiCard label="Waiting on you"      value={waiting}    icon="inbox"        accent={NAVY}  loading={loading} />
-        <KpiCard label="Oldest (days)"       value={oldest}     icon="schedule"     accent={oldest > 3 ? RED : AMBER} loading={loading} />
-        <KpiCard label="Recommend approve"   value={recApprove} icon="thumb_up"     accent={GREEN} loading={loading} />
+        <KpiCard label="Waiting on You"      value={waiting}    icon="inbox"        accent={NAVY}  loading={loading} />
+        <KpiCard label="Oldest (Days)"       value={oldest}     icon="schedule"     accent={oldest > 3 ? RED : AMBER} loading={loading} />
+        <KpiCard label="Recommend Approve"   value={recApprove} icon="thumb_up"     accent={GREEN} loading={loading} />
         <KpiCard label="Flagged by Phoenix"  value={flagged}    icon="flag"         accent={RED}   loading={loading} />
       </div>
 
-      <SectionCard title="Awaiting your decision" badge={rows.length} padding={false}>
+      <SectionCard title="Awaiting Your Decision" badge={rows.length} padding={false}>
         <DataTable
           cols={cols}
           rows={rows}

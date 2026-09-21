@@ -165,7 +165,7 @@ function CreateDealModal({
             onChange={e => setContactId(e.target.value)}
             style={{ ...filterInputStyle, width: '100%', height: 38 }}
           >
-            <option value="">— Select contact —</option>
+            <option value="">— Select Contact —</option>
             {contacts.map(c => (
               <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>
             ))}
@@ -179,7 +179,7 @@ function CreateDealModal({
               onChange={e => setStageId(e.target.value)}
               style={{ ...filterInputStyle, width: '100%', height: 38 }}
             >
-              <option value="">— Select stage —</option>
+              <option value="">— Select Stage —</option>
               {stages.filter(s => !s.is_won && !s.is_lost).map(s => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
@@ -192,7 +192,7 @@ function CreateDealModal({
               onChange={e => setProduct(e.target.value)}
               style={{ ...filterInputStyle, width: '100%', boxSizing: 'border-box' as const, height: 38 }}
             >
-              <option value="">— Select product —</option>
+              <option value="">— Select Product —</option>
               {PRODUCT_LINES.map(pl => (
                 <optgroup key={pl.line} label={pl.label}>
                   {PRODUCT_SUBS.filter(s => s.line === pl.line).map(s => (
@@ -665,7 +665,7 @@ export default function CRMPipeline() {
               <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Stage</label>
               <select value={editStageId} onChange={e => setEditStageId(e.target.value)}
                 style={{ ...filterInputStyle, width: '100%', height: 38 }}>
-                <option value="">— Select stage —</option>
+                <option value="">— Select Stage —</option>
                 {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
@@ -718,7 +718,7 @@ export default function CRMPipeline() {
       </Modal>
 
       {/* Bulk-assign modal */}
-      <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title={`Assign ${bulkSel.size} deal${bulkSel.size > 1 ? 's' : ''}`} width={420}
+      <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title={`Assign ${bulkSel.size} Deal${bulkSel.size > 1 ? 's' : ''}`} width={420}
         footer={
           <>
             <button onClick={() => setAssignOpen(false)} style={btnSecondary}>Cancel</button>
@@ -733,7 +733,7 @@ export default function CRMPipeline() {
           <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 4 }}>Owner</label>
           <select value={assignTo} onChange={e => setAssignTo(e.target.value)}
             style={{ ...filterInputStyle, width: '100%', height: 38 }}>
-            <option value="">— Select owner —</option>
+            <option value="">— Select Owner —</option>
             {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
           </select>
         </div>

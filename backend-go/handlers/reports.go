@@ -734,7 +734,7 @@ func reportSalesPipeline(db *core.DB) http.HandlerFunc {
 			SELECT u.full_name AS officer_name,
 			       COUNT(*)                                            AS owned,
 			       COUNT(*) FILTER (WHERE c.lead_stage = 'converted')  AS converted,
-			       COUNT(*) FILTER (WHERE c.lead_stage IN ('new','contacted','qualified')) AS open_leads
+			       COUNT(*) FILTER (WHERE c.lead_stage IN (`+openLeadStagesSQL+`)) AS open_leads
 			  FROM app.crm_contacts c
 			  JOIN o3c_users u ON u.id = c.lead_owner_id
 			 WHERE COALESCE(c.already_customer,false) = false

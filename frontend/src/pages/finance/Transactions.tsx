@@ -161,7 +161,7 @@ export default function FinanceTransactions() {
         <KpiCard label="Net Position (MTD)" value={kpis ? fmt(kpis.net_position_ngn) : '—'} icon="account_balance_wallet" accent={(kpis?.net_position_ngn ?? 0) >= 0 ? GREEN : RED} loading={kpiLoading} />
       </div>
 
-      <SectionCard title="Movement ledger" badge={total} padding={false}>
+      <SectionCard title="Movement Ledger" badge={total} padding={false}>
         <ExpandableFilterBar
           search={search}
           onSearch={setSearch}
@@ -169,8 +169,8 @@ export default function FinanceTransactions() {
             {
               key: 'direction', label: 'Direction',
               options: [
-                { value: 'credit', label: 'Credit (in)', color: '#16A34A' },
-                { value: 'debit', label: 'Debit (out)', color: '#C00000' },
+                { value: 'credit', label: 'Credit (In)', color: '#16A34A' },
+                { value: 'debit', label: 'Debit (Out)', color: '#C00000' },
               ],
               selected: fDir,
               onChange: setFDir,

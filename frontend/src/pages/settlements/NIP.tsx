@@ -177,7 +177,7 @@ function NipKpis({ rows }: { rows: NIPRow[] }) {
               </div>
             ))}
             <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Delta (at risk)</span>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Delta (At Risk)</span>
               <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: deltaColor }}>{delta === 0 ? '₦0.00' : fmtKoboExact(delta)}</span>
             </div>
           </div>
@@ -200,10 +200,10 @@ function NipKpis({ rows }: { rows: NIPRow[] }) {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               {[
-                { label: 'Today (< 1 day)', count: aging.same, color: AMBER },
-                { label: '1–2 days', count: aging.d1, color: AMBER },
-                { label: '2–7 days', count: aging.d2_7, color: RED },
-                { label: '> 7 days (stale)', count: aging.gt7, color: RED },
+                { label: 'Today (< 1 Day)', count: aging.same, color: AMBER },
+                { label: '1–2 Days', count: aging.d1, color: AMBER },
+                { label: '2–7 Days', count: aging.d2_7, color: RED },
+                { label: '> 7 Days (Stale)', count: aging.gt7, color: RED },
               ].map(b => b.count > 0 && (
                 <div key={b.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--bdr)' }}>
                   <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{b.label}</span>

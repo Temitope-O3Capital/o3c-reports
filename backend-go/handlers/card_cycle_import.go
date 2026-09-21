@@ -108,16 +108,19 @@ func parseCycleReport(r io.Reader, kind string, into map[string]*cycleRow, prodN
 			continue
 		}
 		f := strings.Fields(line)
-		// data row: Apnum CIF Account Currency <amounts...>. CIF and account are always
-		// numeric — this also rejects malformed/footer lines (e.g. a stray "0000000`").
-		if len(f) < 5 || !reProdCode.MatchString(f[0]) || !reCurrency.MatchString(f[3]) ||
+		// data row: Apnum CIF Account Currency <amounts...>. Apnum, CIF and account are
+		// all numeric — this also rejects malformed/footer lines (e.g. a stray "0000000`").
+		// The Apnum (f[0]) is matched as any-width digits, not 1–3: capping it at 3 dropped
+		// every account once the core-banking sequence reached four digits.
+		if len(f) < 5 || !reDigits.MatchString(f[0]) || !reCurrency.MatchString(f[3]) ||
 			!reDigits.MatchString(f[1]) || !reDigits.MatchString(f[2]) {
 			continue
 		}
-		prod := f[0]
-		if curProduct != "" {
-			prod = curProduct
-		}
+		// Product context comes from the "Account Product [code]:" header, never f[0]:
+		// f[0] is the Apnum, and using it fabricated a bogus product code (then truncated
+		// to 3 chars) that matched no catalogue row. An account seen before any header is
+		// left product-less rather than mislabelled.
+		prod := curProduct
 		acct := f[2]
 		row := into[acct]
 		if row == nil {
@@ -169,6 +172,7 @@ func cardCycleImport(db *core.DB) http.HandlerFunc {
 		var cycleDate time.Time
 		kindsSeen := map[string]int{}
 		var errs []string
+		var dateMismatch bool
 
 		// gather every uploaded file across all form fields
 		var files []*multipart.FileHeader
@@ -221,13 +225,34 @@ func cardCycleImport(db *core.DB) http.HandlerFunc {
 			if perr != nil {
 				errs = append(errs, fmt.Sprintf("%s: %v", fh.Filename, perr))
 			}
-			if cycleDate.IsZero() && !cd.IsZero() {
-				cycleDate = cd
+			if !cd.IsZero() {
+				if cycleDate.IsZero() {
+					cycleDate = cd
+				} else if !cd.Equal(cycleDate) {
+					// Every report in one upload must be the same cycle. Merging (say) a
+					// January bal report with a February chg report under one date corrupts
+					// the cycle; reject the batch rather than silently pick the first date.
+					errs = append(errs, fmt.Sprintf("%s: statement date %s does not match the batch date %s",
+						fh.Filename, cd.Format("2006-01-02"), cycleDate.Format("2006-01-02")))
+					dateMismatch = true
+				}
 			}
 			kindsSeen[kind] += parsed
 		}
 
+		if dateMismatch {
+			recordUpload(r.Context(), db, r, "card_cycle", uploadFileNames(files), "",
+				map[string]any{"reports": kindsSeen}, 0, len(errs), errs)
+			respondErr(w, 400, "the uploaded reports are for different cycle dates — upload one cycle at a time")
+			return
+		}
+
 		if cycleDate.IsZero() {
+			// Recorded: this is an upload that was attempted and rejected, which is
+			// exactly what the ledger exists to make visible.
+			recordUpload(r.Context(), db, r, "card_cycle", uploadFileNames(files), "",
+				map[string]any{"reports": kindsSeen}, 0, 1,
+				append(errs, "could not determine statement/cycle date from any report"))
 			respondErr(w, 400, "could not determine statement/cycle date from any report")
 			return
 		}
@@ -240,6 +265,10 @@ func cardCycleImport(db *core.DB) http.HandlerFunc {
 			if len(pc) > 3 {
 				pc = pc[:3]
 			}
+			// Only overwrite a column group when THIS import actually carried that report
+			// ($21..$24 = seenBal/seenChg/seenInt/seenLoc); otherwise keep the stored value.
+			// Without this, re-uploading a single corrected report reset the other three
+			// reports' columns to 0 for every account in it — unrecoverable data loss.
 			_, err := db.PGExec(ctx, `
 				INSERT INTO card_cycle_data
 					(cycle_date, product_code, cif, account_number, currency,
@@ -250,21 +279,27 @@ func cardCycleImport(db *core.DB) http.HandlerFunc {
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 				ON CONFLICT (cycle_date, account_number) DO UPDATE SET
 					product_code=EXCLUDED.product_code, cif=EXCLUDED.cif, currency=EXCLUDED.currency,
-					billed_balance_kobo=EXCLUDED.billed_balance_kobo,
-					current_balance_kobo=EXCLUDED.current_balance_kobo,
-					outstanding_balance_kobo=EXCLUDED.outstanding_balance_kobo,
-					overdue_amount_kobo=EXCLUDED.overdue_amount_kobo,
-					minimum_payment_kobo=EXCLUDED.minimum_payment_kobo,
-					total_payment_kobo=EXCLUDED.total_payment_kobo,
-					fees_kobo=EXCLUDED.fees_kobo, interest_charged_kobo=EXCLUDED.interest_charged_kobo,
-					penalty_kobo=EXCLUDED.penalty_kobo, purchase_amount_kobo=EXCLUDED.purchase_amount_kobo,
-					cash_advance_kobo=EXCLUDED.cash_advance_kobo, total_interest_kobo=EXCLUDED.total_interest_kobo,
-					credit_limit_kobo=EXCLUDED.credit_limit_kobo, loc_change_kobo=EXCLUDED.loc_change_kobo,
-					temp_loc_kobo=EXCLUDED.temp_loc_kobo, imported_at=NOW()`,
+					billed_balance_kobo      = CASE WHEN $21 THEN EXCLUDED.billed_balance_kobo      ELSE card_cycle_data.billed_balance_kobo      END,
+					current_balance_kobo     = CASE WHEN $21 THEN EXCLUDED.current_balance_kobo     ELSE card_cycle_data.current_balance_kobo     END,
+					outstanding_balance_kobo = CASE WHEN $21 THEN EXCLUDED.outstanding_balance_kobo ELSE card_cycle_data.outstanding_balance_kobo END,
+					overdue_amount_kobo      = CASE WHEN $21 THEN EXCLUDED.overdue_amount_kobo      ELSE card_cycle_data.overdue_amount_kobo      END,
+					minimum_payment_kobo     = CASE WHEN $21 THEN EXCLUDED.minimum_payment_kobo     ELSE card_cycle_data.minimum_payment_kobo     END,
+					total_payment_kobo       = CASE WHEN $21 THEN EXCLUDED.total_payment_kobo       ELSE card_cycle_data.total_payment_kobo       END,
+					fees_kobo                = CASE WHEN $22 THEN EXCLUDED.fees_kobo                ELSE card_cycle_data.fees_kobo                END,
+					interest_charged_kobo    = CASE WHEN $22 THEN EXCLUDED.interest_charged_kobo    ELSE card_cycle_data.interest_charged_kobo    END,
+					penalty_kobo             = CASE WHEN $22 THEN EXCLUDED.penalty_kobo             ELSE card_cycle_data.penalty_kobo             END,
+					purchase_amount_kobo     = CASE WHEN $22 THEN EXCLUDED.purchase_amount_kobo     ELSE card_cycle_data.purchase_amount_kobo     END,
+					cash_advance_kobo        = CASE WHEN $22 THEN EXCLUDED.cash_advance_kobo        ELSE card_cycle_data.cash_advance_kobo        END,
+					total_interest_kobo      = CASE WHEN $23 THEN EXCLUDED.total_interest_kobo      ELSE card_cycle_data.total_interest_kobo      END,
+					credit_limit_kobo        = CASE WHEN $24 THEN EXCLUDED.credit_limit_kobo        ELSE card_cycle_data.credit_limit_kobo        END,
+					loc_change_kobo          = CASE WHEN $24 THEN EXCLUDED.loc_change_kobo          ELSE card_cycle_data.loc_change_kobo          END,
+					temp_loc_kobo            = CASE WHEN $24 THEN EXCLUDED.temp_loc_kobo            ELSE card_cycle_data.temp_loc_kobo            END,
+					imported_at=NOW()`,
 				cycleDate.Format("2006-01-02"), pc, row.CIF, row.AccountNo, row.Currency,
 				row.Billed, row.Current, row.Outstanding, row.Overdue, row.MinPymt, row.TotalPymt,
 				row.Fees, row.Interest, row.Penalty, row.Purchase, row.CashAdv,
-				row.TotalInterest, row.CreditLimit, row.LocChange, row.TempLoc)
+				row.TotalInterest, row.CreditLimit, row.LocChange, row.TempLoc,
+				row.seenBal, row.seenChg, row.seenInt, row.seenLoc)
 			if err != nil {
 				errs = append(errs, fmt.Sprintf("acct %s: %v", row.AccountNo, err))
 				continue
@@ -296,6 +331,10 @@ func cardCycleImport(db *core.DB) http.HandlerFunc {
 				}
 			}
 		}
+
+		recordUpload(ctx, db, r, "card_cycle", uploadFileNames(files), cycleDate.Format("2006-01-02"),
+			map[string]any{"accounts_merged": len(merged), "rows_upserted": inserted, "reports": kindsSeen},
+			inserted, len(errs), errs)
 
 		_ = user
 		respond(w, map[string]any{

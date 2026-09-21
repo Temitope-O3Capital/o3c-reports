@@ -120,13 +120,13 @@ export default function ComplianceMyDashboard() {
 
       {/* ── My Day ── */}
       <MyDaySection hint="compliance work that can't slip">
-        <MyDayTile icon="error" count={fmtNum(findingsOverdue)} label="Overdue findings"
+        <MyDayTile icon="error" count={fmtNum(findingsOverdue)} label="Overdue Findings"
           sub={findingsOverdue > 0 ? 'past remediation date' : 'no findings overdue'}
           color={findingsOverdue > 0 ? RED : GREEN} urgent={findingsOverdue > 0} onClick={() => navigate('/compliance/findings')} />
-        <MyDayTile icon="checklist" count={fmtNum(checklistsDue)} label="Checklists due"
+        <MyDayTile icon="checklist" count={fmtNum(checklistsDue)} label="Checklists Due"
           sub={checklistsOverdue > 0 ? `${fmtNum(checklistsOverdue)} overdue` : 'assigned to you'}
           color={AMBER} urgent={checklistsOverdue > 0} onClick={() => navigate('/compliance/checklists')} />
-        <MyDayTile icon="gavel" count={fmtNum(regOpen)} label="Regulatory deadlines"
+        <MyDayTile icon="gavel" count={fmtNum(regOpen)} label="Regulatory Deadlines"
           sub={regOverdue > 0 ? `${fmtNum(regOverdue)} overdue` : 'reports you own'}
           color={PURPLE} urgent={regOverdue > 0} onClick={() => navigate('/compliance/regulatory')} />
       </MyDaySection>
@@ -139,7 +139,7 @@ export default function ComplianceMyDashboard() {
           keyFn={r => r.finding_ref}
           onRowClick={() => navigate('/compliance/findings')}
           pageSize={8}
-          emptyText="No findings assigned to you"
+          emptyText="No Findings Assigned to You"
         />
       </SectionCard>
 
@@ -151,7 +151,7 @@ export default function ComplianceMyDashboard() {
           keyFn={r => `${r.report_name}-${r.due_date ?? ''}`}
           onRowClick={() => navigate('/compliance/regulatory')}
           pageSize={8}
-          emptyText="No regulatory reports assigned to you"
+          emptyText="No Regulatory Reports Assigned to You"
         />
       </SectionCard>
     </Page>

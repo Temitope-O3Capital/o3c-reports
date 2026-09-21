@@ -425,13 +425,16 @@ func losRecordConsent(db *core.DB) http.HandlerFunc {
 		if channel == "" {
 			channel = "phone"
 		}
+		// Phoenix takes {tenant_id, consent_type, granted} and ignores every other
+		// field (PortalCreateConsentRecordInput in portal_handlers.go); tenant_id is
+		// injected by phoenixCall. Sending "purpose" instead of "consent_type" meant
+		// consent_type arrived empty, which RecordConsent rejects outright — every
+		// call 422'd and no consent was ever recorded. "NDPA" is the type Phoenix
+		// uses throughout, and the one the read-back below looks for, so writing
+		// anything else would store a record our own ledger cannot see.
 		payload := map[string]any{
-			"purpose": "CREDIT_ASSESSMENT",
-			"channel": channel,
-			"granted": true,
-		}
-		if v := strings.TrimSpace(b.Note); v != "" {
-			payload["note"] = v
+			"consent_type": "NDPA",
+			"granted":      true,
 		}
 		raw, err := phoenixCall(r.Context(), http.MethodPost,
 			"/portal/customers/"+c.CustomerID+"/consent-records", payload)
@@ -439,9 +442,14 @@ func losRecordConsent(db *core.DB) http.HandlerFunc {
 			respondPhoenixErr(w, r, err, "record consent")
 			return
 		}
+		// Channel and note are workspace facts Phoenix has no field for, so they are
+		// kept here rather than dropped on the floor.
 		user := core.UserFromCtx(r.Context())
-		phoenixLogWorkspaceAction(r.Context(), db, id, user.ID, "consent.recorded",
-			"Consent captured over "+channel)
+		logNote := "Consent captured over " + channel
+		if v := strings.TrimSpace(b.Note); v != "" {
+			logNote += " — " + v
+		}
+		phoenixLogWorkspaceAction(r.Context(), db, id, user.ID, "consent.recorded", logNote)
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"data":`)) //nolint:errcheck
 		w.Write(raw)                //nolint:errcheck

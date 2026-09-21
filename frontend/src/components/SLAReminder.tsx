@@ -65,7 +65,7 @@ export default function SLAReminder({ enabled, offset = 0 }: { enabled: boolean;
 
   const breached = cb.sla_breached || cb.seconds_left <= 0
   const accent = breached ? RED : AMBER
-  const title = breached ? 'SLA breached' : 'SLA due soon'
+  const title = breached ? 'SLA Breached' : 'SLA Due Soon'
 
   function openTicket() {
     dismiss(cb.id)
@@ -113,7 +113,7 @@ export default function SLAReminder({ enabled, offset = 0 }: { enabled: boolean;
             border: 'none', background: GREEN, color: '#fff', cursor: 'pointer',
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>open_in_new</span> Open ticket
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>open_in_new</span> Open Ticket
         </button>
         <button onClick={goToCare}
           style={{

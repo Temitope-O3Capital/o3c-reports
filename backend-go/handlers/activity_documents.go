@@ -128,7 +128,10 @@ func activityUploadDocument(db *core.DB) http.HandlerFunc {
 		logActivitySafe(r.Context(), db, Activity{
 			LeadID: leadID, ContactID: contactID, CIF: cif, Phone: phone,
 			ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
-			Type: "document", Subject: "Document collected — " + docType, Source: "lead_document",
+			// The note typed alongside the file used to be dropped on the floor here:
+			// the modal collected it, never sent it, and still said "uploaded".
+			Type: "document", Subject: "Document collected — " + docType,
+			Body: strings.TrimSpace(r.FormValue("note")), Source: "lead_document",
 			EntityType: "lead_document", EntityID: strconv.FormatInt(docID, 10),
 			Metadata: map[string]any{"doc_type": docType, "file_name": filename, "file_url": fileURL},
 		})

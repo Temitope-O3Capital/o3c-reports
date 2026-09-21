@@ -25,13 +25,13 @@ interface Meta {
 }
 
 const QTYPES: { value: QType; label: string; icon: string }[] = [
-  { value: 'section', label: 'Section header', icon: 'title' },
-  { value: 'rating', label: 'Rating scale', icon: 'linear_scale' },
+  { value: 'section', label: 'Section Header', icon: 'title' },
+  { value: 'rating', label: 'Rating Scale', icon: 'linear_scale' },
   { value: 'nps', label: 'Recommend / NPS', icon: 'recommend' },
-  { value: 'single_choice', label: 'Single choice', icon: 'radio_button_checked' },
-  { value: 'multi_choice', label: 'Multiple choice', icon: 'check_box' },
-  { value: 'short_text', label: 'Short text', icon: 'short_text' },
-  { value: 'long_text', label: 'Long text', icon: 'notes' },
+  { value: 'single_choice', label: 'Single Choice', icon: 'radio_button_checked' },
+  { value: 'multi_choice', label: 'Multiple Choice', icon: 'check_box' },
+  { value: 'short_text', label: 'Short Text', icon: 'short_text' },
+  { value: 'long_text', label: 'Long Text', icon: 'notes' },
 ]
 
 function blankQ(qtype: QType): Q {
@@ -117,35 +117,35 @@ export default function SurveyBuilder() {
     }
   }
 
-  if (loading || !meta) return <Page title="Edit survey"><div style={{ padding: 40, display: 'grid', placeItems: 'center' }}><Spinner /></div></Page>
+  if (loading || !meta) return <Page title="Edit Survey"><div style={{ padding: 40, display: 'grid', placeItems: 'center' }}><Spinner /></div></Page>
 
   return (
-    <Page title="Edit survey" subtitle={meta.title || 'Untitled survey'} back={{ to: `/feedback/surveys/${id}`, label: 'Back to survey' }}
+    <Page title="Edit Survey" subtitle={meta.title || 'Untitled Survey'} back={{ to: `/feedback/surveys/${id}`, label: 'Back to Survey' }}
       actions={<>
         <Button variant="secondary" icon="visibility" onClick={() => setPreview(true)}>Preview</Button>
         <Button variant="secondary" onClick={() => nav(`/feedback/surveys/${id}`)}>Cancel</Button>
-        <Button icon="save" loading={saving} onClick={save}>Save survey</Button>
+        <Button icon="save" loading={saving} onClick={save}>Save Survey</Button>
       </>}>
 
       {err && <ErrBanner error={err} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 16, maxWidth: 820, margin: '0 auto' }}>
         {/* Meta */}
-        <SectionCard title="Survey details">
+        <SectionCard title="Survey Details">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Input label="Title" required value={meta.title} onChange={e => setMeta({ ...meta, title: e.target.value })} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <Input label="Category" value={meta.category} onChange={e => setMeta({ ...meta, category: e.target.value })} />
               <Input label="Department" value={meta.department} onChange={e => setMeta({ ...meta, department: e.target.value })} />
             </div>
-            <Textarea label="Intro message" hint="Appears at the top of the survey and in the invitation email." rows={3} value={meta.intro} onChange={e => setMeta({ ...meta, intro: e.target.value })} />
-            <Textarea label="Thank-you message" hint="Shown after the customer submits." rows={2} value={meta.thank_you} onChange={e => setMeta({ ...meta, thank_you: e.target.value })} />
+            <Textarea label="Intro Message" hint="Appears at the top of the survey and in the invitation email." rows={3} value={meta.intro} onChange={e => setMeta({ ...meta, intro: e.target.value })} />
+            <Textarea label="Thank-You Message" hint="Shown after the customer submits." rows={2} value={meta.thank_you} onChange={e => setMeta({ ...meta, thank_you: e.target.value })} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Input label="Sign-off name" value={meta.signoff_name} onChange={e => setMeta({ ...meta, signoff_name: e.target.value })} />
-              <Input label="Sign-off title" value={meta.signoff_title} onChange={e => setMeta({ ...meta, signoff_title: e.target.value })} />
+              <Input label="Sign-Off Name" value={meta.signoff_name} onChange={e => setMeta({ ...meta, signoff_name: e.target.value })} />
+              <Input label="Sign-Off Title" value={meta.signoff_title} onChange={e => setMeta({ ...meta, signoff_title: e.target.value })} />
             </div>
             <div>
-              <label style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Accent colour</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Accent Colour</label>
               <div style={{ display: 'flex', gap: 8 }}>
                 {['#C00000', '#0E2841', '#16A34A', '#7C3AED', '#0891B2', '#D97706'].map(c => (
                   <button key={c} onClick={() => setMeta({ ...meta, accent_color: c })}
@@ -184,7 +184,7 @@ export default function SurveyBuilder() {
 
           {!locked && (
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--bdr)' }}>
-              <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Add a question</div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Add a Question</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {QTYPES.map(t => (
                   <button key={t.value} onClick={() => add(t.value)}
@@ -213,7 +213,7 @@ function SurveyPreview({ meta, qs }: { meta: Meta; qs: Q[] }) {
       <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--bdr)' }}>
         <div style={{ background: `linear-gradient(135deg, #0E2841, ${accent})`, color: '#fff', padding: '18px 20px' }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.85 }}>Customer Feedback</div>
-          <div style={{ fontSize: 19, fontWeight: 800, marginTop: 6 }}>{meta.title || 'Untitled survey'}</div>
+          <div style={{ fontSize: 19, fontWeight: 800, marginTop: 6 }}>{meta.title || 'Untitled Survey'}</div>
         </div>
         {meta.intro && <div style={{ padding: '14px 20px', fontSize: 13, color: 'var(--txt2)', lineHeight: 1.6 }}>{meta.intro}</div>}
       </div>
@@ -231,7 +231,7 @@ function SurveyPreview({ meta, qs }: { meta: Meta; qs: Q[] }) {
           <div key={i} style={{ border: '1px solid var(--bdr)', borderRadius: 10, padding: '12px 14px' }}>
             <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>
               <span style={{ color: accent, fontWeight: 800, marginRight: 6 }}>{String(n).padStart(2, '0')}</span>
-              {q.label || <span style={{ color: 'var(--txt3)' }}>Untitled question</span>}
+              {q.label || <span style={{ color: 'var(--txt3)' }}>Untitled Question</span>}
               {q.required && <span style={{ color: RED, marginLeft: 4 }}>*</span>}
             </div>
             <div style={{ marginTop: 10 }}>
@@ -278,24 +278,24 @@ function QuestionEditor({ q, idx, total, onPatch, onMove, onRemove }: {
         </div>
       </div>
 
-      <Input label={q.qtype === 'section' ? 'Section title' : 'Question'} value={q.label} onChange={e => onPatch({ label: e.target.value })} placeholder={q.qtype === 'section' ? 'e.g. Service Evaluation' : 'Type your question'} />
+      <Input label={q.qtype === 'section' ? 'Section Title' : 'Question'} value={q.label} onChange={e => onPatch({ label: e.target.value })} placeholder={q.qtype === 'section' ? 'e.g. Service Evaluation' : 'Type your question'} />
 
       {q.qtype !== 'section' && (
         <div style={{ marginTop: 10 }}>
-          <Input label="Helper text (optional)" value={q.help_text} onChange={e => onPatch({ help_text: e.target.value })} />
+          <Input label="Helper Text (Optional)" value={q.help_text} onChange={e => onPatch({ help_text: e.target.value })} />
         </div>
       )}
 
       {isScale && (
         <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <Select label="Scale min" value={String(q.scale_min)} onChange={e => onPatch({ scale_min: parseInt(e.target.value) })}>
+          <Select label="Scale Min" value={String(q.scale_min)} onChange={e => onPatch({ scale_min: parseInt(e.target.value) })}>
             <option value="0">0</option><option value="1">1</option>
           </Select>
-          <Select label="Scale max" value={String(q.scale_max)} onChange={e => onPatch({ scale_max: parseInt(e.target.value) })}>
+          <Select label="Scale Max" value={String(q.scale_max)} onChange={e => onPatch({ scale_max: parseInt(e.target.value) })}>
             <option value="5">5</option><option value="10">10</option>
           </Select>
-          <Input label="Low label" value={q.scale_min_label} onChange={e => onPatch({ scale_min_label: e.target.value })} />
-          <Input label="High label" value={q.scale_max_label} onChange={e => onPatch({ scale_max_label: e.target.value })} />
+          <Input label="Low Label" value={q.scale_min_label} onChange={e => onPatch({ scale_min_label: e.target.value })} />
+          <Input label="High Label" value={q.scale_max_label} onChange={e => onPatch({ scale_max_label: e.target.value })} />
         </div>
       )}
 
@@ -312,7 +312,7 @@ function QuestionEditor({ q, idx, total, onPatch, onMove, onRemove }: {
             ))}
             <button onClick={() => onPatch({ options: [...q.options, `Option ${q.options.length + 1}`] })}
               style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px', border: '1.5px dashed var(--bdr)', borderRadius: RADIUS.md, background: 'none', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span> Add option
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add</span> Add Option
             </button>
           </div>
         </div>

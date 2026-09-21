@@ -198,13 +198,22 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "fd_maturity_notifications:ok")
 	}
 
-	// 9. Monthly board pack email — fires only on 1st of the month
-	if time.Now().Day() == 1 {
+	// 9. Monthly board pack email.
+	//
+	// This was `if time.Now().Day() == 1`, which fires the wrong number of times in
+	// both directions: zero if the 1st is missed (RunBatchNightly always schedules for
+	// TOMORROW 00:05, so a restart after 00:05 skips that day entirely and the pack is
+	// lost for a whole month), and twice if anyone also triggers a manual run that day.
+	// Gate on what was actually last delivered, so a missed month still goes out late
+	// and a second run in the same month is a no-op.
+	if boardPackDue(ctx, db) {
 		if err := batchMonthlyBoardPack(ctx, db); err != nil {
 			slog.Error("Batch: monthly board pack failed", "err", err)
 			steps = append(steps, "board_pack:FAILED")
+			WorkerBeat(ctx, db, "board_pack", "error", "", err.Error())
 		} else {
 			steps = append(steps, "board_pack:ok")
+			WorkerBeat(ctx, db, "board_pack", "ok", "monthly board pack delivered", "")
 		}
 	}
 
@@ -269,9 +278,26 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "reporting_rollups:ok")
 	}
 
+	// Status must reflect the STEPS, not just batchErr.
+	//
+	// Only the first two steps assign batchErr; steps 3-15 append ":FAILED" to
+	// `steps` and leave it nil. So a run with failing steps recorded
+	// status='success' and looked healthy — 32 of 57 logged runs contain a
+	// ":FAILED" step and every one of them says 'success', including
+	// campaign_delivery_alerts failing on every run for days.
+	//
+	// batchErr is still what this function RETURNS, so RunBatchNightly's logging
+	// contract is unchanged; this only fixes what gets recorded.
 	status := "success"
 	if batchErr != nil {
 		status = "partial"
+	} else {
+		for _, s := range steps {
+			if strings.HasSuffix(s, ":FAILED") {
+				status = "partial"
+				break
+			}
+		}
 	}
 	errMsg := ""
 	if batchErr != nil {
@@ -621,40 +647,64 @@ func batchLOSSLACheck(ctx context.Context, db *core.DB) error {
 	return nil
 }
 
-// batchKPISnapshot writes a summary of today's key business metrics into kpi_daily_snapshot.
-// Uses INSERT … ON CONFLICT DO UPDATE so re-running the batch is idempotent.
+// batchKPISnapshot writes a summary of one day's key business metrics into
+// kpi_daily_snapshot. Uses INSERT … ON CONFLICT DO UPDATE so re-running is idempotent.
+//
+// It snapshots YESTERDAY, not today. runBatch fires at 00:05, so "today" was a
+// five-minute-old day and every windowed metric counted only what happened between
+// 00:00 and 00:05 — which is why all 57 daily rows written so far read 0. Yesterday is
+// both complete and fully landed: measured against the source tables, activity arrives
+// in real time and nothing backfills overnight.
 func batchKPISnapshot(ctx context.Context, db *core.DB) error {
-	today := time.Now().Format("2006-01-02")
+	target := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 
 	type metric struct {
 		col string
 		q   string
+		// pointInTime marks a metric describing the book as it stands rather than
+		// activity inside the day, so it takes no date parameter.
+		pointInTime bool
 	}
 	metrics := []metric{
-		{"new_applications", `SELECT COUNT(*) FROM loan_applications WHERE created_at::date = $1`},
-		{"approved_applications", `SELECT COUNT(*) FROM loan_applications WHERE status='approved' AND updated_at::date = $1`},
-		{"disbursements_count", `SELECT COUNT(*) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
-		{"disbursements_kobo", `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
-		{"repayments_count", `SELECT COUNT(*) FROM loan_repayments WHERE payment_date::date = $1`},
-		{"repayments_kobo", `SELECT COALESCE(SUM(amount_kobo),0) FROM loan_repayments WHERE payment_date::date = $1`},
-		{"ptp_set", `SELECT COUNT(*) FROM collection_promises WHERE created_at::date = $1`},
-		{"ptp_broken", `SELECT COUNT(*) FROM collection_promises WHERE status='broken' AND updated_at::date = $1`},
-		{"tickets_opened", `SELECT COUNT(*) FROM helpdesk_tickets WHERE created_at::date = $1`},
-		{"tickets_closed", `SELECT COUNT(*) FROM helpdesk_tickets WHERE status='resolved' AND updated_at::date = $1`},
-		{"active_loans", `SELECT COUNT(*) FROM loan_applications WHERE status='active'`},
-		{"total_book_kobo", `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='active'`},
+		{col: "new_applications", q: `SELECT COUNT(*) FROM loan_applications WHERE created_at::date = $1`},
+		{col: "approved_applications", q: `SELECT COUNT(*) FROM loan_applications WHERE status='approved' AND updated_at::date = $1`},
+		{col: "disbursements_count", q: `SELECT COUNT(*) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
+		{col: "disbursements_kobo", q: `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
+		{col: "repayments_count", q: `SELECT COUNT(*) FROM loan_repayments WHERE payment_date::date = $1`},
+		{col: "repayments_kobo", q: `SELECT COALESCE(SUM(amount_kobo),0) FROM loan_repayments WHERE payment_date::date = $1`},
+		{col: "ptp_set", q: `SELECT COUNT(*) FROM collection_promises WHERE created_at::date = $1`},
+		// collection_promises has no `status` column — the outcome lives in the
+		// is_kept boolean. The old query selected status, so it errored on EVERY run
+		// and the error was swallowed below and stored as a plausible-looking 0.
+		// A promise is broken on the day it fell due, not the day the row was touched.
+		{col: "ptp_broken", q: `SELECT COUNT(*) FROM collection_promises WHERE is_kept = FALSE AND promised_date = $1`},
+		// collection_calls and npl_kobo exist on the table but were missing from the
+		// INSERT column list below, so they were 0 by construction whatever happened.
+		{col: "collection_calls", q: `SELECT COUNT(*) FROM collection_contacts WHERE created_at::date = $1`},
+		{col: "tickets_opened", q: `SELECT COUNT(*) FROM helpdesk_tickets WHERE created_at::date = $1`},
+		{col: "tickets_closed", q: `SELECT COUNT(*) FROM helpdesk_tickets WHERE status='resolved' AND updated_at::date = $1`},
+		{col: "active_loans", q: `SELECT COUNT(*) FROM loan_applications WHERE status='active'`, pointInTime: true},
+		{col: "total_book_kobo", q: `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='active'`, pointInTime: true},
+		{col: "npl_kobo", q: `SELECT COALESCE(SUM(outstanding_principal_kobo + outstanding_interest_kobo),0) FROM cbs_loans WHERE status IN ('Defaulting','Expired')`, pointInTime: true},
 	}
 
 	vals := map[string]int64{}
 	for _, m := range metrics {
 		var rows []map[string]any
 		var err error
-		if m.col == "active_loans" || m.col == "total_book_kobo" {
+		if m.pointInTime {
 			rows, err = db.PGQuery(ctx, m.q)
 		} else {
-			rows, err = db.PGQuery(ctx, m.q, today)
+			rows, err = db.PGQuery(ctx, m.q, target)
 		}
-		if err != nil || len(rows) == 0 {
+		if err != nil {
+			// Never let a broken query masquerade as a real zero — that is exactly
+			// how the ptp_broken defect survived unnoticed for the life of the table.
+			slog.Error("kpi snapshot: metric query failed", "metric", m.col, "date", target, "err", err)
+			vals[m.col] = 0
+			continue
+		}
+		if len(rows) == 0 {
 			vals[m.col] = 0
 			continue
 		}
@@ -669,10 +719,10 @@ func batchKPISnapshot(ctx context.Context, db *core.DB) error {
 			(snapshot_date, new_applications, approved_applications,
 			 disbursements_count, disbursements_kobo,
 			 repayments_count, repayments_kobo,
-			 ptp_set, ptp_broken,
+			 ptp_set, ptp_broken, collection_calls,
 			 tickets_opened, tickets_closed,
-			 active_loans, total_book_kobo)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			 active_loans, total_book_kobo, npl_kobo)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (snapshot_date) DO UPDATE SET
 			new_applications     = EXCLUDED.new_applications,
 			approved_applications= EXCLUDED.approved_applications,
@@ -682,17 +732,19 @@ func batchKPISnapshot(ctx context.Context, db *core.DB) error {
 			repayments_kobo      = EXCLUDED.repayments_kobo,
 			ptp_set              = EXCLUDED.ptp_set,
 			ptp_broken           = EXCLUDED.ptp_broken,
+			collection_calls     = EXCLUDED.collection_calls,
 			tickets_opened       = EXCLUDED.tickets_opened,
 			tickets_closed       = EXCLUDED.tickets_closed,
 			active_loans         = EXCLUDED.active_loans,
-			total_book_kobo      = EXCLUDED.total_book_kobo`,
-		today,
+			total_book_kobo      = EXCLUDED.total_book_kobo,
+			npl_kobo             = EXCLUDED.npl_kobo`,
+		target,
 		vals["new_applications"], vals["approved_applications"],
 		vals["disbursements_count"], vals["disbursements_kobo"],
 		vals["repayments_count"], vals["repayments_kobo"],
-		vals["ptp_set"], vals["ptp_broken"],
+		vals["ptp_set"], vals["ptp_broken"], vals["collection_calls"],
 		vals["tickets_opened"], vals["tickets_closed"],
-		vals["active_loans"], vals["total_book_kobo"])
+		vals["active_loans"], vals["total_book_kobo"], vals["npl_kobo"])
 	return err
 }
 
@@ -871,6 +923,32 @@ func batchFDMaturityNotifications(ctx context.Context, db *core.DB) error {
 // batchMonthlyBoardPack assembles key KPIs and emails the board distribution list.
 // Called only on day 1 of each month from runBatch.
 // Recipients are read from the BOARD_EMAIL_LIST env var (comma-separated).
+// boardPackDue reports whether the monthly board pack still owes a delivery for the
+// current calendar month, judged by when one was last sent rather than by today's date.
+// The comparison is done in SQL so the answer does not depend on how the driver hands
+// back a timestamptz.
+//
+// A missed month therefore goes out on the next batch run instead of being lost, and a
+// second run in the same month sends nothing. Note the consequence on first deploy:
+// with no heartbeat recorded yet, the pack is considered owed and will send on the next
+// batch run. That is the intended reading of "this month has not been delivered".
+func boardPackDue(ctx context.Context, db *core.DB) bool {
+	rows, err := db.PGQuery(ctx, `
+		SELECT (last_ok_at IS NULL
+		        OR date_trunc('month', last_ok_at) < date_trunc('month', NOW())) AS due
+		FROM worker_heartbeats WHERE worker_key = 'board_pack'`)
+	if err != nil {
+		// Err toward silence: a duplicate board pack to the board is worse than a late one.
+		slog.Error("board pack: could not read last delivery — skipping", "err", err)
+		return false
+	}
+	if len(rows) == 0 {
+		return true // never delivered
+	}
+	due, _ := rows[0]["due"].(bool)
+	return due
+}
+
 func batchMonthlyBoardPack(ctx context.Context, db *core.DB) error {
 	boardList := resolveCredKey(ctx, db, "BOARD_EMAIL_LIST")
 	if boardList == "" {

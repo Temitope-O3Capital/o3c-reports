@@ -688,6 +688,7 @@ func phoenixSubmitOne(ctx context.Context, db *core.DB, appID int64) error {
 	rows, err := db.PGQuery(ctx, `
 		SELECT id, COALESCE(reference,'') AS reference, COALESCE(applicant_name,'') AS applicant_name,
 		       COALESCE(applicant_cif, cif, '') AS applicant_cif,
+		       COALESCE(bvn,'') AS bvn,
 		       COALESCE(applicant_phone, phone, '') AS phone,
 		       COALESCE(applicant_email, email, '') AS email,
 		       COALESCE(employer,'') AS employer,

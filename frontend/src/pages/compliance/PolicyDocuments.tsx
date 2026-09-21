@@ -76,7 +76,7 @@ function ReviewDueBadge({ date }: { date: string | null }) {
   const color = days < 0 ? RED : days <= 14 ? AMBER : GREEN
   return (
     <span style={{ fontSize: TEXT.xs, padding: '1px 6px', borderRadius: RADIUS.sm, background: `${color}18`, color, fontWeight: FW.bold, marginLeft: 6 }}>
-      {days < 0 ? `Review overdue ${Math.abs(days)}d` : `Review in ${days}d`}
+      {days < 0 ? `Review Overdue ${Math.abs(days)}d` : `Review in ${days}d`}
     </span>
   )
 }
@@ -127,7 +127,7 @@ function PolicyRow({ doc, onSaved }: { doc: PolicyDoc; onSaved: (updated: Policy
         <td style={{ padding: '10px 12px', fontWeight: FW.semibold, color: 'var(--txt)', maxWidth: 240 }}>
           {doc.name}
           {isOverdue && doc.status === 'approved' && (
-            <span style={{ display: 'block', fontSize: TEXT.xs, color: RED, marginTop: 2 }}>Review overdue</span>
+            <span style={{ display: 'block', fontSize: TEXT.xs, color: RED, marginTop: 2 }}>Review Overdue</span>
           )}
         </td>
         <td style={{ padding: '10px 12px', fontSize: TEXT.sm, color: 'var(--txt-muted)', whiteSpace: 'nowrap' }}>
@@ -282,11 +282,11 @@ export default function PolicyDocuments() {
       <SectionCard>
         <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
           <select style={{ ...sel, width: 200 }} value={filterSt} onChange={e => setFilterSt(e.target.value)}>
-            <option value="">All statuses</option>
+            <option value="">All Statuses</option>
             {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <select style={{ ...sel, width: 200 }} value={filterCat} onChange={e => setFilterCat(e.target.value)}>
-            <option value="">All categories</option>
+            <option value="">All Categories</option>
             {categories.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c] ?? c}</option>)}
           </select>
         </div>

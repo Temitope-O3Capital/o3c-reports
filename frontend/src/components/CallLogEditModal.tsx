@@ -36,20 +36,38 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
   onClose: () => void
   onSaved: () => void
 }) {
-  const [disposition, setDisposition] = useState(call.disposition ?? '')
-  const [notes,       setNotes]       = useState(call.notes ?? '')
-  const [resolution,  setResolution]  = useState(call.resolution ?? '')
-  const [duration,    setDuration]    = useState(String(call.duration_seconds ?? ''))
-  const [direction,   setDirection]   = useState((call.direction || 'outbound').toLowerCase())
+  // What the form was seeded with. save() sends only the fields that actually differ
+  // from this, so a field the form never loaded cannot be written back as a blank.
+  const seeded = {
+    disposition: call.disposition ?? '',
+    notes:       call.notes ?? '',
+    resolution:  call.resolution ?? '',
+    duration:    String(call.duration_seconds ?? ''),
+    direction:   (call.direction || 'outbound').toLowerCase(),
+  }
+  // The review queue carries no resolution, so a call opened from there has a field
+  // this form genuinely does not know. undefined is "not loaded" — a different thing
+  // from "empty", which is what it used to be saved back to the record as.
+  const resolutionKnown = call.resolution !== undefined
+
+  const [disposition, setDisposition] = useState(seeded.disposition)
+  const [notes,       setNotes]       = useState(seeded.notes)
+  const [resolution,  setResolution]  = useState(seeded.resolution)
+  const [duration,    setDuration]    = useState(seeded.duration)
+  const [direction,   setDirection]   = useState(seeded.direction)
   const [reason,      setReason]      = useState('')
   const [mode,        setMode]        = useState<'edit' | 'void'>('edit')
   const [saving,      setSaving]      = useState(false)
 
+  // Keyed on the call's id, not the object: callers build `call` as an object literal,
+  // so depending on the object reset the form on every parent re-render — including a
+  // background refresh arriving while the supervisor was typing the correction.
   useEffect(() => {
     setDisposition(call.disposition ?? ''); setNotes(call.notes ?? '')
     setResolution(call.resolution ?? ''); setDuration(String(call.duration_seconds ?? ''))
     setDirection((call.direction || 'outbound').toLowerCase()); setReason(''); setMode('edit')
-  }, [call])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.id])
 
   const purpose = (call.purpose ?? '').toLowerCase()
   const options = dispositionsFor(purpose)
@@ -69,12 +87,22 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
         toast.success('Log withdrawn')
       } else {
         const dur = duration.trim() === '' ? undefined : Math.max(0, parseInt(duration, 10) || 0)
+        // Only what the supervisor actually changed. The API writes every field it is
+        // given, so sending the whole form blanked anything this modal never loaded —
+        // which is how correcting a flagged call erased the agent's write-up.
+        const patch: Record<string, unknown> = { reason: reason.trim() }
+        if (disposition !== seeded.disposition) patch.disposition = disposition
+        if (notes !== seeded.notes) patch.notes = notes
+        if (resolutionKnown && resolution !== seeded.resolution) patch.resolution = resolution
+        if (direction !== seeded.direction) patch.direction = direction
+        if (dur !== undefined && String(dur) !== seeded.duration) patch.duration_sec = dur
+        if (Object.keys(patch).length === 1) {
+          toast.error('Nothing has been changed yet')
+          return
+        }
         await apiFetch(`/api/helpdesk/calls/${call.id}`, {
           method: 'PATCH',
-          body: JSON.stringify({
-            disposition, notes, resolution, direction,
-            duration_sec: dur, reason: reason.trim(),
-          }),
+          body: JSON.stringify(patch),
         })
         toast.success('Call log corrected')
       }
@@ -99,7 +127,7 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
 
   return (
     <Modal open onClose={onClose} width={520}
-      title={`Correct call log — ${call.customer_name || call.phone || 'call'}`}
+      title={`Correct Call Log — ${call.customer_name || call.phone || 'call'}`}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
@@ -110,15 +138,15 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
               fontWeight: FW.bold, cursor: saving ? 'wait' : 'pointer',
               opacity: saving || (mode === 'void' && !reason.trim()) ? 0.6 : 1,
             }}>
-            {saving ? 'Saving…' : mode === 'void' ? 'Withdraw this log' : 'Save correction'}
+            {saving ? 'Saving…' : mode === 'void' ? 'Withdraw This Log' : 'Save Correction'}
           </button>
         </div>
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setMode('edit')} style={tab(mode === 'edit')}>Correct it</button>
-          <button onClick={() => setMode('void')} style={tab(mode === 'void')}>Withdraw it</button>
+          <button onClick={() => setMode('edit')} style={tab(mode === 'edit')}>Correct It</button>
+          <button onClick={() => setMode('void')} style={tab(mode === 'void')}>Withdraw It</button>
         </div>
 
         {mode === 'void' ? (
@@ -156,7 +184,7 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
               </div>
             </div>
             <div>
-              <label style={lbl}>Duration (seconds)</label>
+              <label style={lbl}>Duration (Seconds)</label>
               <input value={duration} onChange={e => setDuration(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric" style={inp} />
             </div>
@@ -164,14 +192,16 @@ export default function CallLogEditModal({ call, onClose, onSaved }: {
               <label style={lbl}>{copy.notesLabel}</label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4} placeholder={copy.notesPh} style={{ ...inp, resize: 'vertical' }} />
             </div>
-            {!copy.hideRes && (
+            {/* Only shown when its current value was loaded: offering an empty box for
+                a write-up we cannot see invites a supervisor to overwrite it blind. */}
+            {!copy.hideRes && resolutionKnown && (
               <div>
                 <label style={lbl}>{copy.resLabel}</label>
                 <input value={resolution} onChange={e => setResolution(e.target.value)} placeholder={copy.resPh} style={inp} />
               </div>
             )}
             <div>
-              <label style={lbl}>Reason for the correction (optional, shown to supervisors)</label>
+              <label style={lbl}>Reason for the Correction (Optional, Shown to Supervisors)</label>
               <input value={reason} onChange={e => setReason(e.target.value)}
                 placeholder="e.g. picked the wrong disposition" style={inp} />
             </div>

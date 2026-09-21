@@ -23,10 +23,21 @@ interface DueCallback {
   purpose: string
 }
 
-export default function CallbackReminder({ enabled }: { enabled: boolean }) {
+// The feed is a UNION of two tables with independent id sequences, so a bare id is not
+// unique across it: lead #5 and contact #5 are different people. Everything that
+// identifies a reminder — what has been shown, what is still due, what was dismissed —
+// keys on the pair, or one of the two silently stands in for the other.
+const keyOf = (r: { source: string; id: number }) => `${r.source}:${r.id}`
+
+// The softphone sits at bottom:20 and is 48px tall. This card appears at exactly the
+// moment the agent has been told to ring someone, so it must clear the dial button;
+// `offset` then staggers it against its siblings, as SLAReminder/EscalationReminder do.
+const BASE_BOTTOM = 80
+
+export default function CallbackReminder({ enabled, offset = 0 }: { enabled: boolean; offset?: number }) {
   const navigate = useNavigate()
   const [queue, setQueue] = useState<DueCallback[]>([])
-  const shown = useRef<Map<number, string>>(new Map()) // id -> callback_at we last surfaced
+  const shown = useRef<Map<string, string>>(new Map()) // source:id -> callback_at we last surfaced
   const [busy, setBusy] = useState(false)
   const [logOpen, setLogOpen] = useState(false) // log-a-call modal opened from the reminder
 
@@ -39,13 +50,13 @@ export default function CallbackReminder({ enabled }: { enabled: boolean }) {
         if (cancelled || !Array.isArray(rows)) return
         // Surface each call-back once per callback_at (avoids per-poll spam); a
         // re-scheduled one carries a new callback_at and re-surfaces.
-        const fresh = rows.filter(r => shown.current.get(r.id) !== r.callback_at)
-        fresh.forEach(r => shown.current.set(r.id, r.callback_at))
-        const dueIds = new Set(rows.map(r => r.id))
+        const fresh = rows.filter(r => shown.current.get(keyOf(r)) !== r.callback_at)
+        fresh.forEach(r => shown.current.set(keyOf(r), r.callback_at))
+        const dueKeys = new Set(rows.map(keyOf))
         setQueue(q => {
-          const kept = q.filter(x => dueIds.has(x.id)) // drop ones no longer due (dialled/cleared)
-          const keptIds = new Set(kept.map(x => x.id))
-          return [...kept, ...fresh.filter(f => !keptIds.has(f.id))]
+          const kept = q.filter(x => dueKeys.has(keyOf(x))) // drop ones no longer due (dialled/cleared)
+          const keptKeys = new Set(kept.map(keyOf))
+          return [...kept, ...fresh.filter(f => !keptKeys.has(keyOf(f)))]
         })
       } catch { /* ignore transient errors */ }
     }
@@ -56,7 +67,7 @@ export default function CallbackReminder({ enabled }: { enabled: boolean }) {
 
   if (!enabled || queue.length === 0) return null
   const cb = queue[0]
-  const dismiss = (id: number) => setQueue(q => q.filter(x => x.id !== id))
+  const dismiss = (r: DueCallback) => setQueue(q => q.filter(x => keyOf(x) !== keyOf(r)))
 
   async function snooze(mins: number) {
     setBusy(true)
@@ -64,13 +75,13 @@ export default function CallbackReminder({ enabled }: { enabled: boolean }) {
       await apiPost(`/api/call-center/callbacks/${cb.id}/snooze`, { minutes: mins, source: cb.source })
       toast.success(`Call-back snoozed ${mins < 60 ? `${mins} min` : '1 hour'}`)
     } catch (e: any) { toast.error(e?.message ?? 'Could not snooze') }
-    finally { setBusy(false); dismiss(cb.id) }
+    finally { setBusy(false); dismiss(cb) }
   }
   // Take the agent to the actual call, on the book it lives in: a lead call-back opens
   // the Leads page on that lead; a queue call-back opens the Outbound Queue on that
   // contact. Never the wrong one.
   function callNow() {
-    dismiss(cb.id)
+    dismiss(cb)
     if (cb.source === 'lead') navigate(`/call-center/leads?open=${cb.id}`)
     else navigate(`/call-center/queue?bucket=ready&open=${cb.id}`)
   }
@@ -84,20 +95,23 @@ export default function CallbackReminder({ enabled }: { enabled: boolean }) {
   return (
    <>
     <div style={{
-      position: 'fixed', right: 20, bottom: 20, zIndex: 9999, width: 340,
+      position: 'fixed', right: 20, bottom: BASE_BOTTOM + offset, zIndex: 9999, width: 340,
       background: 'var(--card)', border: `1px solid ${AMBER}55`, borderLeft: `4px solid ${AMBER}`,
       borderRadius: RADIUS.lg, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', padding: 16,
       display: 'flex', flexDirection: 'column', gap: 10,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span className="material-symbols-rounded" style={{ fontSize: 20, color: AMBER }}>alarm</span>
-        <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>Call-back due now</span>
+        <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)' }}>Call-Back Due Now</span>
         <div style={{ flex: 1 }} />
         {queue.length > 1 && (
           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>+{queue.length - 1} more</span>
         )}
-        <button onClick={() => dismiss(cb.id)} title="Dismiss"
-          style={{ background: 'none', border: 'none', color: 'var(--txt3)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+        <button onClick={() => dismiss(cb)} title="Dismiss" aria-label="Dismiss this call-back reminder"
+          style={{
+            width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            background: 'none', border: 'none', color: 'var(--txt3)', cursor: 'pointer', fontSize: 18, lineHeight: 1,
+          }}>×</button>
       </div>
 
       <div>
@@ -114,7 +128,7 @@ export default function CallbackReminder({ enabled }: { enabled: boolean }) {
             border: 'none', background: GREEN, color: '#fff', cursor: busy ? 'default' : 'pointer',
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>call</span> Call now
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>call</span> Call Now
         </button>
         {/* Log the call right here — the reminder clears the moment the call is logged
             (the server stamps the lead/contact as called), so it stops nagging. */}
@@ -124,7 +138,7 @@ export default function CallbackReminder({ enabled }: { enabled: boolean }) {
             border: `1px solid ${NAVY}`, background: 'var(--card)', color: NAVY, cursor: busy ? 'default' : 'pointer',
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>edit_note</span> Log call
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>edit_note</span> Log Call
         </button>
       </div>
 
@@ -145,11 +159,11 @@ export default function CallbackReminder({ enabled }: { enabled: boolean }) {
         name:      cb.name,
         phone:     cb.phone,
         direction: 'Outbound',
-        purpose:   cb.source === 'lead' ? 'marketing' : (cb.purpose || undefined),
+        purpose:   cb.source === 'lead' ? 'marketing' : (cb.purpose || 'support'),
         leadId:    cb.source === 'lead' ? cb.id : undefined,
       }}
       onClose={() => setLogOpen(false)}
-      onSaved={() => { setLogOpen(false); dismiss(cb.id); toast.success('Call logged') }}
+      onSaved={() => { setLogOpen(false); dismiss(cb); toast.success('Call logged') }}
     />
    </>
   )

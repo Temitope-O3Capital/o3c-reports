@@ -376,7 +376,7 @@ export default function RiskPortfolio() {
           keyFn={r => r.id}
           loading={loading} skeletonRows={12}
           onRowClick={r => navigate(`/operations/risk/applications/cif/${encodeURIComponent(r.applicant_cif)}`)}
-          emptyText="No active loans found"
+          emptyText="No Active Loans Found"
           pageSize={PAGE_SIZE}
         />
         {pages > 1 && (

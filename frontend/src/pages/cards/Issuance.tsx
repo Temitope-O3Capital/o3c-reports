@@ -5,6 +5,7 @@ import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
 import { fmtDate, monthStart, today } from '../../lib/fmt'
 import { RED, GREEN, AMBER, BLUE, NAVY, INTER, SORA, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { useCardProducts } from '../../lib/cardProducts'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -18,6 +19,11 @@ interface IssuanceRequest {
   status: string
   submitted_date: string
   days_pending: number
+  // Who sold it, and who brought the business if that was someone else. Cards are the
+  // only product the account feed carries no officer for, so this is the sole record.
+  sales_officer_id: number | null
+  sales_officer_name: string
+  introducer: string
 }
 
 const STATUS_COLORS = {
@@ -77,8 +83,30 @@ function IssuanceActions({ row, onReload }: { row: IssuanceRequest; onReload: ()
 // ── New Issuance modal ────────────────────────────────────────────────────────
 
 function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ cif_number: '', customer_name: '', card_type: 'PREP', notes: '' })
+  const [form, setForm] = useState({
+    cif_number: '', customer_name: '', card_type: '', notes: '',
+    sales_officer_id: '', introducer: '',
+  })
   const [saving, setSaving] = useState(false)
+  // Active products only — an operator should not be able to raise a request
+  // against a product that was retired years ago.
+  const { products } = useCardProducts()
+  // Default to the first catalogue product once loaded, so the <select> matches the
+  // form state — 'PREP' was a product code, not a product_name, so it matched no option.
+  useEffect(() => {
+    if (products.length > 0) {
+      setForm(f => (f.card_type ? f : { ...f, card_type: products[0].product_name }))
+    }
+  }, [products])
+  // Left blank, the backend credits whoever raised the request — right when a sales
+  // officer enters their own sale, wrong when ops raises one for a walk-in. So the
+  // list is offered explicitly rather than guessed at.
+  const [officers, setOfficers] = useState<{ id: number; full_name: string }[]>([])
+  useEffect(() => {
+    apiFetch<{ data: { id: number; full_name: string }[] }>('/api/sales/officers')
+      .then(r => setOfficers(Array.isArray(r) ? r : (r?.data ?? [])))
+      .catch(() => setOfficers([]))
+  }, [])
 
   async function submit() {
     if (!form.customer_name.trim()) { toast.error('Customer name is required'); return }
@@ -86,7 +114,12 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
     try {
       await apiFetch('/api/cards/issuance', {
         method: 'POST',
-        body: JSON.stringify(form),
+        // The select holds a string; the API takes a number or null. Posting '' fails
+        // the decoder, and the sale would go uncredited.
+        body: JSON.stringify({
+          ...form,
+          sales_officer_id: form.sales_officer_id ? Number(form.sales_officer_id) : null,
+        }),
       })
       toast.success('Issuance request submitted')
       onCreated()
@@ -117,7 +150,7 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
             />
           </div>
           <div>
-            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>CIF Number (optional)</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>CIF Number (Optional)</label>
             <input
               value={form.cif_number} onChange={e => setForm(f => ({ ...f, cif_number: e.target.value }))}
               style={{ display: 'block', width: '100%', marginTop: 6, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
@@ -130,11 +163,30 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
               value={form.card_type} onChange={e => setForm(f => ({ ...f, card_type: e.target.value }))}
               style={{ display: 'block', width: '100%', marginTop: 6, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             >
-              <option value="PREP">Prepaid (PREP)</option>
-              <option value="Amex Naira">Amex Naira</option>
-              <option value="Amex USD">Amex USD</option>
-              <option value="Classic Accounts">Classic Accounts</option>
+              {products.map(p => (
+                <option key={p.product_name} value={p.product_name}>
+                  {p.product_name}{p.category === 'blink' ? ' — Blink' : ''}
+                </option>
+              ))}
             </select>
+          </div>
+          <div>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Sold By</label>
+            <select
+              value={form.sales_officer_id} onChange={e => setForm(f => ({ ...f, sales_officer_id: e.target.value }))}
+              style={{ display: 'block', width: '100%', marginTop: 6, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+            >
+              <option value="">Me — I Raised This</option>
+              {officers.map(o => <option key={o.id} value={String(o.id)}>{o.full_name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Introducer (Optional)</label>
+            <input
+              value={form.introducer} onChange={e => setForm(f => ({ ...f, introducer: e.target.value }))}
+              style={{ display: 'block', width: '100%', marginTop: 6, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
+              placeholder="Who brought the business, if not the seller"
+            />
           </div>
           <div>
             <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Notes</label>
@@ -189,11 +241,21 @@ export default function CardsIssuance() {
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['cards'] })
 
+  // Filter chips follow the catalogue, not a literal.
+  const { products } = useCardProducts()
+
   const cols: TableCol<IssuanceRequest>[] = useMemo(() => [
     { key: 'customer_name', label: 'Customer',
       render: r => <NameCell name={r.customer_name} sub={r.ref} /> },
     { key: 'card_type', label: 'Card Type',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.card_type}</span> },
+    { key: 'sales_officer_name', label: 'Sold By',
+      render: r => (
+        <NameCell
+          name={r.sales_officer_name || 'Unassigned'}
+          sub={r.introducer ? `via ${r.introducer}` : undefined}
+        />
+      ) },
     { key: 'status', label: 'Status', render: r => <StatusBadge status={r.status} /> },
     { key: 'submitted_date', label: 'Submitted', sortable: true,
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.submitted_date)}</span> },
@@ -252,7 +314,7 @@ export default function CardsIssuance() {
             {
               key: 'card_type',
               label: 'Card Type',
-              options: ['PREP', 'Amex Naira', 'Amex USD', 'Classic Accounts'].map(v => ({ value: v })),
+              options: products.map(p => ({ value: p.product_name })),
               selected: fCardTypes,
               onChange: setFCardTypes,
             },
@@ -267,7 +329,7 @@ export default function CardsIssuance() {
           rows={displayed}
           keyFn={r => r.id}
           loading={loading}
-          emptyText="No issuance requests yet"
+          emptyText="No Issuance Requests Yet"
           pageSize={20}
           selectable
           selectedIds={sel}

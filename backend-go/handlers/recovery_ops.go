@@ -629,8 +629,8 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.AmountKobo == 0 || b.PaymentDate == "" || b.Channel == "" {
-			respondErr(w, 422, "amount_kobo, payment_date and channel are required")
+		if b.AmountKobo <= 0 || b.PaymentDate == "" || b.Channel == "" {
+			respondErr(w, 422, "a positive amount_kobo, payment_date and channel are required")
 			return
 		}
 
@@ -645,8 +645,9 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 		}
 		defer tx.Rollback() //nolint:errcheck
 
-		// Recovery payments enter the SAME HOP → COO → CFO chain as write-offs: the GL is
-		// posted and the case recovered_kobo updated only when the final (CFO) approval lands.
+		// Recovery payments enter their own HOP → COO chain (write-offs go HOP → COO →
+		// CFO): the GL is posted and the case recovered_kobo updated only when the
+		// final (COO) approval lands.
 		var payID int64
 		var payDate, payChannel, payRef, createdAt any
 		err = tx.QueryRowContext(ctx, `
@@ -880,7 +881,7 @@ func recoveryOpsRejectPayment(db *core.DB) http.HandlerFunc {
 			return
 		}
 		cur := str(prows[0]["status"])
-		prog, ok := stageProgressions[cur]
+		prog, ok := paymentStageProgressions[cur] // payments: HOP → COO, not the write-off chain's HOP → COO → CFO
 		if !ok {
 			respondErr(w, 422, "Payment is already finalised")
 			return
@@ -1129,8 +1130,8 @@ func recoveryOpsWriteOff(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid JSON")
 			return
 		}
-		if b.AmountKobo == 0 || b.Reason == "" {
-			respondErr(w, 422, "amount_kobo and reason are required")
+		if b.AmountKobo <= 0 || b.Reason == "" {
+			respondErr(w, 422, "a positive amount_kobo and reason are required")
 			return
 		}
 
@@ -1321,15 +1322,22 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 
 		// If fully approved, update the case and post GL entry inside the same transaction.
 		if prog.next == "approved" {
-			tx.ExecContext(ctx, `
+			if writeOffKobo <= 0 {
+				respondErr(w, 422, "Write-off amount must be greater than zero to post")
+				return
+			}
+			if _, caseErr := tx.ExecContext(ctx, `
 				UPDATE recovery_cases rc
 				SET write_off_amount_kobo = wa.amount_kobo,
 				    outstanding_kobo      = GREATEST(0, rc.outstanding_kobo - wa.amount_kobo),
 				    status = 'closed', closed_at = NOW(), updated_at = NOW()
 				FROM recovery_write_off_approvals wa
 				WHERE wa.id = $1 AND rc.id = wa.case_id`,
-				wid) //nolint:errcheck
-			postJournalTx(ctx, tx, glEntry{ //nolint:errcheck
+				wid); caseErr != nil {
+				respondErr(w, 500, "Failed to close recovery case")
+				return
+			}
+			if glErr := postJournalTx(ctx, tx, glEntry{
 				Date:          time.Now(),
 				Description:   fmt.Sprintf("Loan write-off approved — request %d", wid),
 				Reference:     fmt.Sprintf("WO-%d", wid),
@@ -1339,7 +1347,10 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 				SourceType:    "recovery_write_off",
 				SourceID:      wid,
 				PostedBy:      user.ID,
-			})
+			}); glErr != nil {
+				respondErr(w, 500, "GL post failed")
+				return
+			}
 		}
 
 		if commitErr := tx.Commit(); commitErr != nil {
@@ -1393,14 +1404,21 @@ func recoveryOpsRejectWriteOff(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		user := core.UserFromCtx(r.Context())
 		wrows, err := db.PGQuery(r.Context(), `SELECT status, amount_kobo, requested_by FROM recovery_write_off_approvals WHERE id = $1`, wid)
 		if err != nil || len(wrows) == 0 {
 			respondErr(w, 404, "Write-off request not found")
 			return
 		}
 		currentSt := str(wrows[0]["status"])
-		if currentSt == "approved" || currentSt == "rejected" {
+		prog, ok := stageProgressions[currentSt]
+		if !ok {
 			respondErr(w, 422, "Write-off is already finalised")
+			return
+		}
+		// Only the stage's designated approver may decline it — same gate as approve.
+		if user.Role != prog.required && user.Role != "admin" {
+			respondErr(w, 403, fmt.Sprintf("This stage requires the '%s' (%s) role", prog.required, prog.label))
 			return
 		}
 

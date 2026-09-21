@@ -331,7 +331,8 @@ const bdLeadSelect = `
 	  LEFT JOIN employers e ON e.id = c.employer_id`
 
 // bdStageToLead reconciles the two stage vocabularies. crm_contacts.lead_stage is guarded
-// by crm_contacts_lead_stage_chk (new | contacted | qualified | converted | disqualified),
+// by crm_contacts_lead_stage_chk (new | contacted | qualified | handed_to_sales |
+// documents_requested | application_submitted | approved | converted | disqualified),
 // so every restage must land on one of those. The current pipeline uses exactly those
 // codes; the legacy BD kanban codes are also accepted so old CSV exports still import:
 //
@@ -348,6 +349,8 @@ func bdStageToLead(s string) string {
 		return "new"
 	case "contacted":
 		return "contacted"
+	case "handed_to_sales", "documents_requested", "application_submitted", "approved":
+		return strings.ToLower(strings.TrimSpace(s))
 	case "qualified", "proposal", "negotiation":
 		return "qualified"
 	case "converted", "won":
@@ -570,6 +573,8 @@ func bdUpdateLead(db *core.DB) http.HandlerFunc {
 				return
 			}
 			add("lead_stage", ls)
+			// Stamp when the lead entered its stage, only if the stage really changes.
+			q += fmt.Sprintf(", stage_changed_at=CASE WHEN c.lead_stage IS DISTINCT FROM $%d THEN NOW() ELSE c.stage_changed_at END", n-1)
 		}
 		if b.AssignedTo != nil {
 			// Keep assigned_to and lead_owner_id in step so BD and Sales agree on owner.

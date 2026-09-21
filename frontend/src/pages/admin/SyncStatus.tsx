@@ -37,6 +37,10 @@ const S: Record<string, { c: string; label: string; dot: string }> = {
   error:     { c: RED,      label: 'Error',    dot: RED },
   scheduled: { c: AMBER,    label: 'Waiting',  dot: AMBER },
   idle:      { c: AMBER,    label: 'Waiting',  dot: AMBER },
+  // The worker ran fine; the upstream has sent nothing. Distinct from Error
+  // (which means the ingest itself failed) because the fix is a different
+  // conversation — with whoever produces the drops, not with this box.
+  stale:     { c: RED,      label: 'No New Data', dot: RED },
 }
 const sInfo = (s: string) => S[s] ?? S.scheduled
 const effStatus = (w: Worker) => (w.category === 'Worker Pool' && w.status === 'scheduled' ? 'running' : w.status)
@@ -142,7 +146,7 @@ function WorkerCard({ w, now, onRun, busy, flash, idx }: { w: Worker; now: numbe
           cursor: busy ? 'default' : 'pointer', fontFamily: INTER, whiteSpace: 'nowrap', flexShrink: 0,
         }}>
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, ...(busy ? { animation: 'syncspin 1s linear infinite' } : {}) }}>sync</span>
-          {busy ? 'Syncing…' : 'Sync now'}
+          {busy ? 'Syncing…' : 'Sync Now'}
         </button>
       )}
 
@@ -234,10 +238,15 @@ export default function AdminSyncStatus() {
     }
   }
 
+  // 'stale' used to be counted in NEITHER healthy nor errors, so the fleet banner
+  // read "All systems healthy" while all four file feeds had been dead for six
+  // days. A source that has stopped delivering is a fault, and is counted as one.
   const stats = useMemo(() => {
     const eff = workers.map(effStatus)
     return { total: workers.length, healthy: eff.filter(s => s === 'ok' || s === 'running').length,
-      running: eff.filter(s => s === 'running').length, errors: eff.filter(s => s === 'error').length }
+      running: eff.filter(s => s === 'running').length,
+      errors: eff.filter(s => s === 'error').length,
+      stale: eff.filter(s => s === 'stale').length }
   }, [workers])
 
   const grouped = useMemo(() => {
@@ -250,7 +259,7 @@ export default function AdminSyncStatus() {
     workers.filter(w => w.last_run_at).sort((a, b) => new Date(b.last_run_at!).getTime() - new Date(a.last_run_at!).getTime()).slice(0, 5)
   , [workers])
 
-  const fleetColor = stats.errors ? RED : stats.running ? '#2563EB' : GREEN
+  const fleetColor = (stats.errors || stats.stale) ? RED : stats.running ? '#2563EB' : GREEN
   const refreshPct = Math.min(100, ((now - lastLoad) / REFRESH_MS) * 100)
 
   return (
@@ -325,7 +334,7 @@ export default function AdminSyncStatus() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '10px 16px', marginBottom: 22,
           background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl }}>
           <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.5px', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 15, color: GREEN }}>bolt</span>Recent activity
+            <span className="material-symbols-rounded" style={{ fontSize: 15, color: GREEN }}>bolt</span>Recent Activity
           </span>
           {recent.map(w => (
             <span key={w.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt2)' }}>

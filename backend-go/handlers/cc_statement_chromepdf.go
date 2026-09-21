@@ -26,6 +26,14 @@ var chromePaths = []string{
 	// macOS (local dev)
 	"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 	"/Applications/Chromium.app/Contents/MacOS/Chromium",
+	// Windows (the on-prem APPSVR-CRM box runs the backend as a scheduled task, not
+	// in Docker). Chrome is installed there, but every probe above is a Linux/macOS
+	// name, so findChrome returned "" and statement PDFs silently took the raw
+	// fallback on the one host that actually serves them.
+	`C:\Program Files\Google\Chrome\Application\chrome.exe`,
+	`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
+	`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+	`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
 }
 
 func findChrome() string {

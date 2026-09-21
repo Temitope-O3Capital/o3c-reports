@@ -52,18 +52,26 @@ func cardTrendsKPIs(db *core.DB) http.HandlerFunc {
 		kpis := map[string]any{}
 		var sources []string
 
+		// Counts read app.card_book.card_state, not the raw status column.
+		//
+		// Three defects came with the old version: status does not track expiry,
+		// so "active" counted a book that is 87% past its expiry date; `status NOT
+		// IN (...)` drops NULLs, so rows the live feed writes with no status fell
+		// out of BOTH active and inactive; and 'LEGAL ACTI' is a value that no
+		// longer exists — migration 177 repaired that truncation to 'LEGAL ACTION',
+		// so this filter had been silently returning zero ever since.
 		type spec struct{ key, pg string }
 		for _, s := range []spec{
 			{"total_issued",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE 1=1%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE 1=1%s`, f.PG())},
 			{"active",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('Open','Active')%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE card_state='Live'%s`, f.PG())},
 			{"inactive",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status NOT IN ('Open','Active')%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE card_state<>'Live'%s`, f.PG())},
 			{"terminated",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status='TERMINATED'%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE card_state='Terminated'%s`, f.PG())},
 			{"legal_suspended",
-				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.accounts WHERE status IN ('LEGAL ACTI','SUSPENDED')%s`, f.PG())},
+				fmt.Sprintf(`SELECT COUNT(*) AS val FROM app.card_book WHERE card_state IN ('Legal action','Suspended')%s`, f.PG())},
 		} {
 			val, src, err := db.DualScalar(ctx, "val", s.pg, f.Args()...)
 			if err != nil {
@@ -120,12 +128,16 @@ func cardTrendsPortfolioHealth(db *core.DB) http.HandlerFunc {
 			return
 		}
 		data, src, err := db.DualQuery(r.Context(),
+			// "Active" here means card_state='Live' (the lifecycle truth that tracks
+			// expiry), matching the KPI tiles — the raw status column does not, which
+			// produced an ~8x contradiction against the Live count. card_state has no
+			// NULLs, so active + inactive = total.
 			fmt.Sprintf(`SELECT TO_CHAR(DATE_TRUNC('month',opened_date),'Mon YYYY') AS month,
 			        DATE_TRUNC('month',opened_date) AS month_sort,
-			        SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
-			        SUM(CASE WHEN status NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
+			        SUM(CASE WHEN card_state = 'Live' THEN 1 ELSE 0 END) AS active,
+			        SUM(CASE WHEN card_state <> 'Live' THEN 1 ELSE 0 END) AS inactive,
 			        COUNT(*) AS total
-			 FROM app.accounts WHERE opened_date IS NOT NULL%s
+			 FROM app.card_book_full WHERE opened_date IS NOT NULL%s
 			 GROUP BY DATE_TRUNC('month',opened_date) ORDER BY month_sort`, f.PG()),
 			f.Args()...)
 		if err != nil {
@@ -144,7 +156,9 @@ func cardTrendsStatusDist(db *core.DB) http.HandlerFunc {
 			return
 		}
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT status AS status, COUNT(*) AS count FROM app.accounts WHERE 1=1%s GROUP BY status ORDER BY count DESC`, f.PG()),
+			// Distribution over card_state (Live / Expired / Terminated / …), not the raw
+			// status column, so this chart agrees with the KPI strip and cards.go.
+			fmt.Sprintf(`SELECT card_state AS status, COUNT(*) AS count FROM app.card_book_full WHERE 1=1%s GROUP BY card_state ORDER BY count DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
@@ -162,10 +176,10 @@ func cardTrendsByProgram(db *core.DB) http.HandlerFunc {
 		f.Date("Account_Created_Date", `opened_date`, dateFrom, dateTo)
 		data, src, err := db.DualQuery(r.Context(),
 			fmt.Sprintf(`SELECT COALESCE(card_product,card_program) AS program, COUNT(*) AS total,
-			        SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
-			        SUM(CASE WHEN status NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
-			        ROUND(100.0*SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
-			 FROM app.accounts WHERE COALESCE(card_product,card_program) IS NOT NULL AND COALESCE(card_product,card_program)!=''%s
+			        SUM(CASE WHEN card_state = 'Live' THEN 1 ELSE 0 END) AS active,
+			        SUM(CASE WHEN card_state <> 'Live' THEN 1 ELSE 0 END) AS inactive,
+			        ROUND(100.0*SUM(CASE WHEN card_state = 'Live' THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
+			 FROM app.card_book_full WHERE COALESCE(card_product,card_program) IS NOT NULL AND COALESCE(card_product,card_program)!=''%s
 			 GROUP BY COALESCE(card_product,card_program) ORDER BY total DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {
@@ -185,10 +199,10 @@ func cardTrendsByProduct(db *core.DB) http.HandlerFunc {
 		}
 		data, src, err := db.DualQuery(r.Context(),
 			fmt.Sprintf(`SELECT product_name, COUNT(*) AS total,
-			        SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END) AS active,
-			        SUM(CASE WHEN status NOT IN ('Open','Active') THEN 1 ELSE 0 END) AS inactive,
-			        ROUND(100.0*SUM(CASE WHEN status IN ('Open','Active') THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
-			 FROM app.accounts WHERE product_name IS NOT NULL%s
+			        SUM(CASE WHEN card_state = 'Live' THEN 1 ELSE 0 END) AS active,
+			        SUM(CASE WHEN card_state <> 'Live' THEN 1 ELSE 0 END) AS inactive,
+			        ROUND(100.0*SUM(CASE WHEN card_state = 'Live' THEN 1 ELSE 0 END)/COUNT(*),1) AS activation_rate
+			 FROM app.card_book_full WHERE product_name IS NOT NULL%s
 			 GROUP BY product_name ORDER BY total DESC`, f.PG()),
 			f.Args()...)
 		if err != nil {

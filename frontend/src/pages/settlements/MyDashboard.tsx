@@ -130,16 +130,16 @@ export default function SettlementMyDashboard() {
 
       {/* ── My Day ── */}
       <MyDaySection hint="items to reconcile today">
-        <MyDayTile icon="hourglass_bottom" count={fmtNum(aging)} label="Aging exceptions"
+        <MyDayTile icon="hourglass_bottom" count={fmtNum(aging)} label="Aging Exceptions"
           sub={aging > 0 ? 'open past 3 days' : 'nothing aging'}
           color={aging > 0 ? RED : GREEN} urgent={aging > 0} onClick={() => navigate('/settlements/exceptions')} />
-        <MyDayTile icon="error" count={fmtNum(failed)} label="Failed transactions"
+        <MyDayTile icon="error" count={fmtNum(failed)} label="Failed Transactions"
           sub={failed > 0 ? 'retry or resolve' : 'none failed'}
           color={AMBER} urgent={failed > 0} onClick={() => navigate('/settlements/exceptions')} />
-        <MyDayTile icon="approval" count={fmtNum(postingsPending)} label="Postings pending"
+        <MyDayTile icon="approval" count={fmtNum(postingsPending)} label="Postings Pending"
           sub={(d.my_postings_pending ?? 0) > 0 ? `${fmtNum(d.my_postings_pending ?? 0)} raised by you` : 'awaiting approval'}
           color={PURPLE} urgent={postingsPending > 0} onClick={() => navigate('/settlements/manual-postings')} />
-        <MyDayTile icon="published_with_changes" count={fmtNum(unmatched)} label="Unmatched (last run)"
+        <MyDayTile icon="published_with_changes" count={fmtNum(unmatched)} label="Unmatched (Last Run)"
           sub={lr ? `${lr.source ?? 'recon'} · ${lr.status}` : 'no runs yet'}
           color={BLUE} onClick={() => navigate('/settlements/runs')} />
       </MyDaySection>

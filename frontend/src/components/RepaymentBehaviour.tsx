@@ -55,19 +55,19 @@ export default function RepaymentBehaviour() {
         {/* Headline behaviour stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: SP[3] }}>
           <MiniStat
-            label="Cards met minimum (last cycle)"
+            label="Cards Met Minimum (Last Cycle)"
             main={card ? `${pct(card.met_minimum, card.with_minimum)}%` : '—'}
             sub={card ? `${fmtNum(card.met_minimum)} of ${fmtNum(card.with_minimum)} billed accounts` : undefined}
             color={GREEN}
           />
           <MiniStat
-            label="Loan installments processed"
+            label="Loan Installments Processed"
             main={inst ? `${pct(inst.processed, inst.installments)}%` : '—'}
             sub={inst ? `${fmtNum(inst.processed)} of ${fmtNum(inst.installments)} scheduled` : undefined}
             color={NAVY}
           />
           <MiniStat
-            label="Loans fully repaid"
+            label="Loans Fully Repaid"
             main={totalLoans ? `${pct(Number(tiers.find(t => t.tier === 'cleared')?.loans ?? 0), totalLoans)}%` : '—'}
             sub={`${fmtNum(Number(tiers.find(t => t.tier === 'cleared')?.loans ?? 0))} of ${fmtNum(totalLoans)} loans`}
             color={BLUE}
@@ -76,7 +76,7 @@ export default function RepaymentBehaviour() {
 
         {/* Loan paydown-tier distribution */}
         <div>
-          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: SP[3] }}>Loan paydown tiers</div>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: SP[3] }}>Loan Paydown Tiers</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {TIER_ORDER.map(key => {
               const t = tiers.find(x => x.tier === key)

@@ -147,12 +147,12 @@ export default function ReplyComposer({ ticketId, customerName, customerEmail, c
         </button>
         {hasCc && (
           <button onClick={() => openReply(true)} title={`Also copies ${ccRecipients.join(', ')}`} style={{ ...ghostBtn, padding: '9px 14px' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>reply_all</span>Reply all
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>reply_all</span>Reply All
             <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>· {ccRecipients.length}</span>
           </button>
         )}
         <button onClick={() => openReply(false, true)} style={{ ...ghostBtn, padding: '9px 14px' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>bolt</span>Use a template
+          <span className="material-symbols-rounded" style={{ fontSize: 15 }}>bolt</span>Use a Template
         </button>
         <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>Replies hold {HOLD_SECONDS}s so you can undo</span>
       </div>
@@ -170,7 +170,7 @@ export default function ReplyComposer({ ticketId, customerName, customerEmail, c
       )}
 
       {/* Composer modal */}
-      <Modal open={open} onClose={() => setOpen(false)} title="Reply by email" width={640} maxHeight="86vh"
+      <Modal open={open} onClose={() => setOpen(false)} title="Reply by Email" width={640} maxHeight="86vh"
         footer={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 8 }}>
             <div style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>

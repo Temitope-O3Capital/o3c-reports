@@ -38,13 +38,32 @@ interface Lead {
 
 // Stage vocabulary is crm_contacts.lead_stage — the single lead store now shared with
 // Sales, so BD and Sales speak the same stages. Matches the crm_contacts_lead_stage_chk
-// CHECK constraint exactly (new | contacted | qualified | converted | disqualified).
-const STAGES = ['new', 'contacted', 'qualified', 'converted', 'disqualified'] as const
+// CHECK constraint exactly (migration 246), in lifecycle order: new | contacted |
+// qualified | handed_to_sales | documents_requested | application_submitted | approved |
+// converted | disqualified.
+const STAGES = [
+  'new', 'contacted', 'qualified',
+  'handed_to_sales', 'documents_requested', 'application_submitted', 'approved',
+  'converted', 'disqualified',
+] as const
 
 const STAGE_COLORS: Record<string, string> = {
   new: '#6B7280', contacted: BLUE, qualified: '#7C3AED',
+  handed_to_sales: '#0891B2', documents_requested: AMBER,
+  application_submitted: '#4F46E5', approved: '#059669',
   converted: GREEN, disqualified: RED,
 }
+
+const STAGE_LABELS: Record<string, string> = {
+  // 'qualified' is shown as "Interested" (14 Sept 2026): only a call where the customer
+  // said they are interested puts a lead there. The stored key stays 'qualified'.
+  new: 'New', contacted: 'Contacted', qualified: 'Interested',
+  handed_to_sales: 'Handed to Sales', documents_requested: 'Documents Requested',
+  application_submitted: 'Application Submitted', approved: 'Approved',
+  converted: 'Converted', disqualified: 'Disqualified',
+}
+const stageLabel = (s: string) => STAGE_LABELS[s] ?? s
+const STAGE_OPTIONS = STAGES.map(s => ({ value: s, label: stageLabel(s) }))
 
 const AVATAR_PALETTE = [RED, BLUE, GREEN, AMBER, '#7C3AED', '#0891B2', '#DB2777', '#EA580C']
 
@@ -63,8 +82,8 @@ function StagePill({ stage }: { stage: string }) {
   return (
     <span style={{
       fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
-      background: `${c}18`, color: c, whiteSpace: 'nowrap', textTransform: 'capitalize',
-    }}>{stage}</span>
+      background: `${c}18`, color: c, whiteSpace: 'nowrap',
+    }}>{stageLabel(stage)}</span>
   )
 }
 
@@ -445,7 +464,7 @@ export default function BDPipeline() {
 
   const kanbanColumns = useMemo<{ key: string; label: string; color: string }[]>(() => {
     if (groupBy === 'stage')
-      return STAGES.map(s => ({ key: s, label: s, color: STAGE_COLORS[s] }))
+      return STAGES.map(s => ({ key: s, label: stageLabel(s), color: STAGE_COLORS[s] }))
     if (groupBy === 'type')
       return (['company', 'individual', 'individual_at_company'] as EntityType[])
         .map((t, i) => ({ key: t, label: ENTITY_LABELS[t], color: AVATAR_PALETTE[i] }))
@@ -466,7 +485,7 @@ export default function BDPipeline() {
     setLeads(ls => ls.map(l => (l.id === id ? ({ ...l, [field]: stored } as Lead) : l)))
     try {
       await apiPatch(`/api/bd/leads/${id}`, { [field]: stored ?? '' })
-      toast.success(`Moved to ${toValue}`)
+      toast.success(`Moved to ${groupBy === 'stage' ? stageLabel(toValue) : toValue}`)
     } catch {
       setLeads(prev)
       toast.error('Could not move lead')
@@ -519,7 +538,7 @@ export default function BDPipeline() {
     },
     {
       key: 'stage', label: 'Stage', sortable: true,
-      render: row => <StatusBadge status={row.stage} />,
+      render: row => <StatusBadge status={stageLabel(row.stage)} />,
     },
     {
       key: 'potential_value_kobo', label: 'Est. Value', sortable: true, align: 'right',
@@ -558,7 +577,7 @@ export default function BDPipeline() {
 
   const groupBySwitch = (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>Group by</span>
+      <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>Group By</span>
       <div style={{ display: 'inline-flex', background: 'var(--th-bg)', borderRadius: RADIUS.md, padding: 2, border: '1px solid var(--bdr)' }}>
         {(['stage', 'product', 'type'] as GroupBy[]).map(g => (
           <button key={g} onClick={() => setGroupBy(g)} style={{
@@ -666,8 +685,8 @@ export default function BDPipeline() {
                         />
                         <span style={{
                           fontSize: TEXT.xs, fontWeight: FW.semibold, padding: '2px 10px', borderRadius: RADIUS['2xl'],
-                          background: `${c}18`, color: c, textTransform: 'capitalize',
-                        }}>{s}</span>
+                          background: `${c}18`, color: c,
+                        }}>{stageLabel(s)}</span>
                         <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>{count}</span>
                       </label>
                     )
@@ -752,7 +771,7 @@ export default function BDPipeline() {
                     border: 'none', background: RED, color: '#fff',
                     cursor: 'pointer', fontFamily: SORA,
                   }}
-                >Apply · {filtered.length} results</button>
+                >Apply · {filtered.length} Results</button>
               </div>
             </div>
           )}
@@ -771,7 +790,7 @@ export default function BDPipeline() {
                     padding: '3px 8px', borderRadius: RADIUS['2xl'], fontSize: TEXT.xs, fontWeight: FW.semibold,
                     background: `${c}18`, color: c,
                   }}>
-                    {s}
+                    {stageLabel(s)}
                     <span className="material-symbols-rounded" style={{ fontSize: TEXT.sm, cursor: 'pointer' }} onClick={() => setFStages(toggleSet(fStages, s))}>close</span>
                   </span>
                 )
@@ -802,7 +821,7 @@ export default function BDPipeline() {
                   marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer',
                   fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', padding: 0, fontFamily: SORA,
                 }}
-              >Clear all</button>
+              >Clear All</button>
             </div>
           )}
 
@@ -907,7 +926,7 @@ export default function BDPipeline() {
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                       <div style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
-                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', textTransform: 'capitalize' }}>{colDef.label}</span>
+                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', textTransform: groupBy === 'stage' ? 'none' : 'capitalize' }}>{colDef.label}</span>
                       <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: c, background: `${c}14`, borderRadius: RADIUS.lg, padding: '1px 6px' }}>{col.length}</span>
                     </div>
                     <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>{fmtKobo(colValue)}</span>
@@ -1032,14 +1051,14 @@ export default function BDPipeline() {
               {newForm.entity_type === 'company' ? (<>
                 <FormField label="Organisation Name *" fullWidth list="bd-employer-list" placeholder="Search or type…" value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
                 <SelectField label="Product / Loan Type" placeholder="Select…" options={PRODUCT_OPTIONS} value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
-                <SelectField label="Stage" options={STAGES} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
+                <SelectField label="Stage" options={STAGE_OPTIONS} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
                 <FormField label="Contact Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
                 <FormField label="Contact Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
               </>) : newForm.entity_type === 'individual' ? (<>
                 <FormField label="First Name *" value={newForm.first_name} onChange={v => setNewForm(f => ({ ...f, first_name: v }))} />
                 <FormField label="Last Name" value={newForm.last_name} onChange={v => setNewForm(f => ({ ...f, last_name: v }))} />
                 <SelectField label="Product / Loan Type" placeholder="Select…" options={PRODUCT_OPTIONS} value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
-                <SelectField label="Stage" options={STAGES} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
+                <SelectField label="Stage" options={STAGE_OPTIONS} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
                 <FormField label="Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
                 <FormField label="Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
               </>) : (<>
@@ -1047,7 +1066,7 @@ export default function BDPipeline() {
                 <FormField label="Last Name" value={newForm.last_name} onChange={v => setNewForm(f => ({ ...f, last_name: v }))} />
                 <FormField label="Company / Employer *" fullWidth list="bd-employer-list" placeholder="Search or type…" value={newForm.company_name} onChange={v => setNewForm(f => ({ ...f, company_name: v }))} />
                 <SelectField label="Product / Loan Type" placeholder="Select…" options={PRODUCT_OPTIONS} value={newForm.lead_type} onChange={v => setNewForm(f => ({ ...f, lead_type: v }))} />
-                <SelectField label="Stage" options={STAGES} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
+                <SelectField label="Stage" options={STAGE_OPTIONS} value={newForm.stage} onChange={v => setNewForm(f => ({ ...f, stage: v }))} />
                 <FormField label="Email" value={newForm.contact_email} onChange={v => setNewForm(f => ({ ...f, contact_email: v }))} />
                 <FormField label="Phone" value={newForm.contact_phone} onChange={v => setNewForm(f => ({ ...f, contact_phone: v }))} />
               </>)}
@@ -1062,7 +1081,7 @@ export default function BDPipeline() {
                 }}
               >
                 <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{newMore ? 'expand_less' : 'expand_more'}</span>
-                {newMore ? 'Fewer details' : 'More details'}
+                {newMore ? 'Fewer Details' : 'More Details'}
               </button>
 
               {newMore && (<>
@@ -1129,11 +1148,11 @@ export default function BDPipeline() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <div style={{ background: `${GREEN}12`, borderRadius: RADIUS.md, padding: '12px 16px', textAlign: 'center' }}>
                     <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: GREEN }}>{csvPreview.valid}</div>
-                    <div style={{ fontSize: TEXT.xs, color: GREEN, marginTop: 2 }}>Valid rows</div>
+                    <div style={{ fontSize: TEXT.xs, color: GREEN, marginTop: 2 }}>Valid Rows</div>
                   </div>
                   <div style={{ background: csvPreview.invalid > 0 ? `${RED}12` : `${NAVY}08`, borderRadius: RADIUS.md, padding: '12px 16px', textAlign: 'center' }}>
                     <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.extrabold, color: csvPreview.invalid > 0 ? RED : 'var(--txt3)' }}>{csvPreview.invalid}</div>
-                    <div style={{ fontSize: TEXT.xs, color: csvPreview.invalid > 0 ? RED : 'var(--txt3)', marginTop: 2 }}>Invalid rows</div>
+                    <div style={{ fontSize: TEXT.xs, color: csvPreview.invalid > 0 ? RED : 'var(--txt3)', marginTop: 2 }}>Invalid Rows</div>
                   </div>
                 </div>
                 {csvPreview.errors.length > 0 && (

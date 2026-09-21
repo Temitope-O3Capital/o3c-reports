@@ -13,9 +13,9 @@ interface SearchResult {
 }
 
 const MODULE_SHORTCUTS = [
-  { label: 'Collections: today\'s queue', url: '/collections', kbd: 'G C' },
-  { label: 'Mail: inbox',                 url: '/mail/inbox',  kbd: 'G M' },
-  { label: 'Overview: dashboard',         url: '/',            kbd: 'G O' },
+  { label: 'Collections: Today\'s Queue', url: '/collections', kbd: 'G C' },
+  { label: 'Mail: Inbox',                 url: '/mail/inbox',  kbd: 'G M' },
+  { label: 'Overview: Dashboard',         url: '/',            kbd: 'G O' },
   { label: 'Reports & BI',                 url: '/reports',     kbd: 'G R' },
 ]
 
@@ -232,7 +232,7 @@ export default function GlobalSearch({ open, onClose }: Props) {
                   background: targets[active] === '/mail/compose' ? 'var(--row-hvr)' : 'transparent',
                 }}
               >
-                Compose a message
+                Compose a Message
               </div>
             </>
           )}

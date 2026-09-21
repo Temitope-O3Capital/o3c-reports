@@ -77,7 +77,7 @@ function ResultPanel({ result }: { result: ImportResult }) {
           { label: 'Files Processed', value: fmtNum(result.files), color: NAVY },
           { label: 'Settlement Legs', value: fmtNum(result.legs), color: BLUE },
           { label: 'Inserted', value: fmtNum(result.inserted), color: GREEN },
-          { label: 'Skipped (duplicates)', value: fmtNum(result.skipped), color: AMBER },
+          { label: 'Skipped (Duplicates)', value: fmtNum(result.skipped), color: AMBER },
         ].map(k => (
           <div key={k.label} style={{ padding: SP[4], background: `${k.color}08`, borderRadius: RADIUS.lg, border: `1px solid ${k.color}20` }}>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, marginBottom: SP[1] }}>{k.label}</div>
@@ -170,7 +170,7 @@ export default function SettlementImport() {
                   cursor: busy ? 'default' : 'pointer', fontFamily: INTER, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 18 }}>cloud_upload</span>
-                  {busy ? 'Importing…' : `Import ${files.length} file${files.length !== 1 ? 's' : ''}`}
+                  {busy ? 'Importing…' : `Import ${files.length} File${files.length !== 1 ? 's' : ''}`}
                 </button>
               </div>
             )}
@@ -191,7 +191,7 @@ export default function SettlementImport() {
 
       <div style={{ height: SP[5] }} />
 
-      <SectionCard title="Import history" subtitle="Recent settlement imports" padding={false}>
+      <SectionCard title="Import History" subtitle="Recent settlement imports" padding={false}>
         <DataTable cols={HISTORY_COLS} rows={history} keyFn={(r, i) => r.id ?? i} loading={histLoading} emptyText="No imports yet" pageSize={15} />
       </SectionCard>
     </Page>

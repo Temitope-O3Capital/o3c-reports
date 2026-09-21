@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -242,9 +243,68 @@ func HdMailInlineImage(db *core.DB) http.HandlerFunc {
 
 // ── Zoho Voice — import call logs ─────────────────────────────────────────────
 
+// errZohoVoiceBusy means a Voice import is already in flight, so this caller did
+// nothing. A benign outcome, not a fault — callers skip quietly rather than alarm.
+var errZohoVoiceBusy = errors.New("zoho voice import already running")
+
+// zohoVoicePace spaces Zoho Voice ring-order fetches process-wide.
+//
+// ringFetchCap bounds fetches per RUN, which bounded nothing in practice: several
+// runs could overlap, and even a single run fired its fetches back-to-back, far
+// past Zoho's documented 30 req/min. One shared gate means every caller — live
+// import and the backfill sweep alike — draws on the same budget.
+var (
+	zohoVoicePaceMu   sync.Mutex
+	zohoVoicePaceLast time.Time
+)
+
+const zohoVoiceMinGap = 2100 * time.Millisecond // ~28 req/min, under the ceiling
+
+func zohoVoicePace() {
+	zohoVoicePaceMu.Lock()
+	defer zohoVoicePaceMu.Unlock()
+	if gap := time.Since(zohoVoicePaceLast); gap < zohoVoiceMinGap {
+		time.Sleep(zohoVoiceMinGap - gap)
+	}
+	zohoVoicePaceLast = time.Now()
+}
+
 // runZohoVoiceImport fetches call logs from Zoho Voice and inserts them into
 // helpdesk_calls. Called by the HTTP handler and the hourly auto-sync goroutine.
 func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate string) (imported, skipped, failed int, err error) {
+	// Serialise the import, the way runZohoDeskCallsHeadless has always serialised
+	// the Desk one. This had no guard at all while being reachable from four places
+	// at once: the 60s fast cycle and the hourly deep cycle, the webhook trigger, the
+	// manual route, and one bare goroutine per recording-player click. So several
+	// full passes over the same day ran concurrently — breaching the rate ceiling,
+	// and letting two passes both clear the NOT EXISTS guard on the recording attach
+	// and race to UPDATE, the loser violating idx_hd_calls_zoho_voice, counting as
+	// `failed`, and able to trip zohoFailedSpike into a false HIGH INSERT-FAILURE
+	// RATE alarm.
+	//
+	// The guard lives INSIDE the function on purpose: one of those entry points
+	// (the recording-player goroutine in helpdesk.go) is not ours to change, and any
+	// future caller inherits the protection without having to know about it.
+	j := zohoJobs["voice"]
+	j.Lock()
+	if j.running {
+		j.Unlock()
+		return 0, 0, 0, errZohoVoiceBusy
+	}
+	j.running, j.done = true, false
+	j.imported, j.skipped, j.failed, j.pages = 0, 0, 0, 0
+	j.startedAt, j.endedAt, j.lastErr = time.Now(), time.Time{}, ""
+	j.Unlock()
+	defer func() {
+		j.Lock()
+		j.running, j.done, j.endedAt = false, true, time.Now()
+		j.imported, j.skipped, j.failed = imported, skipped, failed
+		if err != nil {
+			j.lastErr = err.Error()
+		}
+		j.Unlock()
+	}()
+
 	token, err := zohoVoiceAccessToken(ctx, db)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("voice token error: %w", err)
@@ -254,11 +314,16 @@ func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate strin
 	pageFrom := 0
 	pageSize := 100
 	// Provider-neutral enrichment counters (logged, not returned — callers key on the
-	// recording imported/skipped/failed triple). ringFetchCap bounds ringingOrder calls
-	// per run to stay well under Zoho's 30-req/min ceiling; the next run picks up the rest.
+	// recording imported/skipped/failed triple).
+	//
+	// ringFetchCap bounds ringingOrder calls per run. It is small because the fetches
+	// are now paced at ~2.1s apart (zohoVoicePace) to respect Zoho's 30 req/min
+	// ceiling: 25 fetches is about 52 seconds, which fits inside the 60s fast cycle
+	// instead of monopolising it. Nothing is lost — ringLegsExist makes the sweep
+	// resumable, so the next run picks up the rest.
 	enriched := 0
 	ringFetches := 0
-	const ringFetchCap = 250
+	const ringFetchCap = 25
 
 	for {
 		reqURL := fmt.Sprintf("%s/logs?from=%d&size=%d&fromDate=%s&toDate=%s",
@@ -386,8 +451,11 @@ func runZohoVoiceImport(ctx context.Context, db *core.DB, fromDate, toDate strin
 				// bounded per run so a backfill can't blow the rate limit.
 				if direction == "inbound" && queue != "" && ringFetches < ringFetchCap && !ringLegsExist(ctx, db, *callID) {
 					ringFetches++
+					zohoVoicePace()
 					if strategy, legs := zohoFetchRingingOrder(ctx, token, voiceBase, voiceID); len(legs) > 0 {
-						upsertRingLegs(ctx, db, *callID, "zoho_voice", queue, strategy, legs)
+						if rlErr := upsertRingLegs(ctx, db, *callID, "zoho_voice", queue, strategy, legs); rlErr != nil {
+							slog.Warn("runZohoVoiceImport: ring legs", "call", *callID, "err", rlErr)
+						}
 					}
 				}
 			}
@@ -696,6 +764,10 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 		}
 
 		imported, skipped, failed, err := runZohoVoiceImport(ctx, db, fromDate, toDate)
+		if errors.Is(err, errZohoVoiceBusy) {
+			respondErr(w, 409, "A Zoho Voice import is already running — let it finish and try again.")
+			return
+		}
 		if err != nil {
 			// This org's OAuth grant is Zoho Desk + PhoneBridge (Desk.calls.ALL,
 			// PhoneBridge.call.log) — NOT the standalone Zoho Voice product. The Voice
@@ -786,12 +858,15 @@ func zohoBackfillRingLegs(db *core.DB) http.HandlerFunc {
 					continue
 				}
 				consecErr = 0
+				zohoVoicePace() // shared budget with the live import, not a private sleep
 				strategy, legs := zohoFetchRingingOrder(bg, token, voiceBase, j.voiceID)
 				if len(legs) > 0 {
 					// queue name isn't in the ringingOrder payload; the leg count and
 					// sequence are what this backfill is for. Live-window calls still get
 					// queue_name from the /logs enrichment path.
-					upsertRingLegs(bg, db, j.id, "zoho_voice", "", strategy, legs)
+					if rlErr := upsertRingLegs(bg, db, j.id, "zoho_voice", "", strategy, legs); rlErr != nil {
+						slog.Warn("backfill-ring-legs: upsert", "call", j.id, "err", rlErr)
+					}
 					withLegs++
 				} else {
 					empty++
@@ -799,7 +874,6 @@ func zohoBackfillRingLegs(db *core.DB) http.HandlerFunc {
 				if (i+1)%50 == 0 {
 					slog.Info("backfill-ring-legs: progress", "done", i+1, "total", len(jobs), "with_legs", withLegs, "no_ring", empty)
 				}
-				time.Sleep(2100 * time.Millisecond) // under Zoho's 30 req/min ceiling
 			}
 			slog.Info("backfill-ring-legs: done", "total", len(jobs), "with_legs", withLegs, "no_ring", empty)
 		}()
@@ -919,8 +993,17 @@ func runZohoVoiceSyncCycle(db *core.DB, cap int) {
 		recordZohoSyncResult(ctx, db, "calls", 0, err)
 		return
 	}
-	from := time.Now().AddDate(0, 0, -3).Format("2006-01-02")
-	to := time.Now().Format("2006-01-02")
+	// Window edges are taken in the BUSINESS zone, and so is the per-call date the
+	// import compares them against (runZohoDeskCallImportJob). They used to disagree:
+	// these came from time.Now() (server-local) while the call's date came from its
+	// UTC timestamp, so on Africa/Lagos every call placed in the 00:00–01:00 local
+	// hour carried a local date one day AHEAD of its UTC date and fell outside its own
+	// window. The deep cycle's 3-day `from` absorbed it; the fast cycle's today-only
+	// window did not. Making both sides name the same zone removes the dependency on
+	// whatever the server's clock is set to.
+	now := time.Now().In(zohoZone)
+	from := now.AddDate(0, 0, -3).Format("2006-01-02")
+	to := now.Format("2006-01-02")
 
 	backoffs := []time.Duration{0, 30 * time.Second, 2 * time.Minute}
 	var imported, failed int
@@ -972,9 +1055,16 @@ func runZohoVoiceSyncCycle(db *core.DB, cap int) {
 					// midnight for a call placed before it lands on the previous date, which
 					// a today-only window misses until the hourly deep sweep — up to an hour
 					// with an answered call showing as unanswered at the day boundary.
-					vFrom = time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+					vFrom = now.AddDate(0, 0, -1).Format("2006-01-02")
 				}
-				if att, skip, vfail, verr := runZohoVoiceImport(ctx, db, vFrom, vTo); verr != nil {
+				att, skip, vfail, verr := runZohoVoiceImport(ctx, db, vFrom, vTo)
+				switch {
+				case errors.Is(verr, errZohoVoiceBusy):
+					// Another entry point (webhook, manual route, a recording-player
+					// click) is mid-sweep. Expected, and explicitly NOT an error beat:
+					// alarming here would be the false alarm the guard exists to stop.
+					slog.Info("zoho auto-sync: voice import already running, skipped this cycle")
+				case verr != nil:
 					// Surface a Voice failure on the worker beat, not just the log —
 					// otherwise "recordings never download" (most often ZVT022: the token
 					// is scoped to Desk + PhoneBridge, not Zoho Voice) stays invisible
@@ -985,12 +1075,17 @@ func runZohoVoiceSyncCycle(db *core.DB, cap int) {
 					}
 					slog.Warn("zoho auto-sync: voice recordings", "err", verr)
 					WorkerBeat(ctx, db, "zoho_recordings", "error", msg, verr.Error())
-				} else {
+				default:
 					if att > 0 || cap >= 1000 {
 						slog.Info("zoho auto-sync: voice recordings", "attached", att, "skipped", skip, "failed", vfail, "from", vFrom)
 					}
 					WorkerBeat(ctx, db, "zoho_recordings", "ok", fmt.Sprintf("%d attached, %d skipped", att, skip), "")
 				}
+			}
+			// Deep cycle only: at most one attribution digest an hour, never one per
+			// 60-second poll.
+			if cap >= 1000 {
+				zohoAlertUnattributedCalls(ctx, db)
 			}
 			return
 		}
@@ -1151,7 +1246,7 @@ type zohoJob struct {
 
 // zohoJobs is fixed-key and pre-initialised, so concurrent reads need no map lock.
 var zohoJobs = map[string]*zohoJob{
-	"tickets": {}, "threads": {}, "calls": {}, "contacts": {},
+	"tickets": {}, "threads": {}, "calls": {}, "contacts": {}, "voice": {},
 }
 
 // startZohoJob launches fn as the named background job unless one is already
@@ -2064,7 +2159,8 @@ func zohoImportDeskCalls(db *core.DB) http.HandlerFunc {
 			from = "2000-01-01"
 		}
 		if to == "" {
-			to = time.Now().Format("2006-01-02")
+			// Business zone, matching the per-call comparison in the import job.
+			to = time.Now().In(zohoZone).Format("2006-01-02")
 		}
 		maxOffset := 1000000
 		if v := r.URL.Query().Get("max_offset"); v != "" {
@@ -2180,7 +2276,11 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 					skip = 1
 					return
 				}
-				dateStr := startedAt.Format("2006-01-02")
+				// Compare in the same zone the window edges were built in. Formatting a
+				// UTC instant directly gave the call a UTC date while `from`/`to` were
+				// local dates, which silently excluded every call placed in the first
+				// local hour of the day (see runZohoVoiceSyncCycle).
+				dateStr := startedAt.In(zohoZone).Format("2006-01-02")
 				if dateStr < from || dateStr > to {
 					skip = 1
 					return
@@ -2277,7 +2377,7 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 				// a known customer (cif/phone) -> collections; a known lead phone -> marketing;
 				// otherwise outbound telesales -> marketing. Retention is set explicitly by
 				// agents/campaigns, never inferred here.
-				res, err := db.PGExec(ctx, `
+				upRows, err := db.PGQuery(ctx, `
 					INSERT INTO helpdesk_calls
 					  (agent_name, agent_id, customer_name, customer_phone, customer_cif, direction,
 					   duration_sec, outcome, started_at, zoho_call_id, purpose, source_system, zoho_agent_id)
@@ -2336,38 +2436,68 @@ func runZohoDeskCallImportJob(ctx context.Context, db *core.DB, j *zohoJob, from
 					  customer_name  = COALESCE(NULLIF(EXCLUDED.customer_name,''), helpdesk_calls.customer_name),
 					  customer_phone = COALESCE(NULLIF(EXCLUDED.customer_phone,''), helpdesk_calls.customer_phone),
 					  customer_cif   = COALESCE(NULLIF(EXCLUDED.customer_cif,''), helpdesk_calls.customer_cif),
-					  direction      = EXCLUDED.direction,
+					  -- These four used to be written unconditionally, which quietly undid a
+					  -- supervisor's correction: they fix a mislabelled inbound/outbound call
+					  -- through hdEditCall, it is audited in helpdesk_call_edits, and the next
+					  -- hourly reconcile puts the provider's value back — leaving an audit row
+					  -- describing a change that no longer exists in the data. The audit table
+					  -- is the record of which fields a human has settled, so it is what
+					  -- decides whether the provider may still speak for a field.
+					  direction      = `+zohoKeepLocalEdit("direction", "EXCLUDED.direction")+`,
 					  -- A re-sync that no longer resolves a duration must not erase one we
 					  -- already captured.
-					  duration_sec   = COALESCE(EXCLUDED.duration_sec, helpdesk_calls.duration_sec),
-					  outcome        = EXCLUDED.outcome,
-					  started_at     = EXCLUDED.started_at,
-					  purpose        = COALESCE(helpdesk_calls.purpose, EXCLUDED.purpose)`,
+					  duration_sec   = `+zohoKeepLocalEdit("duration_sec", "COALESCE(EXCLUDED.duration_sec, helpdesk_calls.duration_sec)")+`,
+					  outcome        = `+zohoKeepLocalEdit("outcome", "EXCLUDED.outcome")+`,
+					  started_at     = `+zohoKeepLocalEdit("started_at", "EXCLUDED.started_at")+`,
+					  purpose        = COALESCE(helpdesk_calls.purpose, EXCLUDED.purpose)
+					-- xmax = 0 distinguishes a real INSERT from an ON CONFLICT update, the way
+					-- the ticket importer already does it. RowsAffected() cannot: it is 1 for
+					-- every row the upsert touches, so a re-synced call counted as newly
+					-- imported.
+					RETURNING id, (xmax = 0) AS inserted`,
 					agentName, agentID, custName, custPhone, custCIF, direction,
 					durSec, outcome, startedAt, zohoID, agentZID)
-				if err != nil {
+				inserted := false
+				if len(upRows) > 0 {
+					inserted, _ = upRows[0]["inserted"].(bool)
+				}
+				switch {
+				case err != nil:
 					slog.Warn("zohoImportDeskCalls: insert", "zoho_id", zohoID, "err", err)
 					fail = 1
-				} else if n, _ := res.RowsAffected(); n > 0 {
+				case len(upRows) == 0:
+					skip = 1
+				case inserted:
 					imp = 1
-				} else {
+				default:
+					// Already known — a re-sync, not an import. Counting these as imported
+					// made zoho_sync_state.last_imported and the Workers hub detail fiction,
+					// left `skipped` permanently 0 so the failure-spike ratio had no real
+					// denominator, and kept `imported > 0` true on every cycle — so the
+					// "stay idle when nothing new arrived" gate never once engaged and the
+					// Voice sweep ran on all 1,440 polls a day.
 					skip = 1
 				}
 				// Agents dial through the carrier, so this importer is where the
 				// outbound queue learns a contact was called. Without it the queue
 				// keeps offering numbers that were dialled minutes ago (migration 144).
-				if err == nil {
+				if err == nil && len(upRows) > 0 {
 					ccStampQueueForPhone(ctx, db, custPhone)
 
 					// Resolve the caller against our own records and fold in any
 					// write-up the agent filed before this row existed. Both need the
-					// row's id, so they run here rather than inside the upsert.
-					if idRows, idErr := db.PGQuery(ctx,
-						`SELECT id FROM helpdesk_calls WHERE zoho_call_id = $1`, zohoID); idErr == nil && len(idRows) > 0 {
-						callID := toInt64(idRows[0]["id"])
-						resolveCallCustomerName(ctx, db, callID)
-						absorbPendingManualLog(ctx, db, callID)
+					// row's id — which the upsert now RETURNs, so the extra per-row
+					// SELECT this used to do is gone.
+					callID := toInt64(upRows[0]["id"])
+					if inserted {
+						// Only a brand-new row can form a duplicate pair, and a row that was
+						// already collapsed must not be reconsidered. Gating on `inserted`
+						// also keeps this off the re-sync path, which is most of what this
+						// loop sees.
+						callID = zohoCollapseDuplicateCall(ctx, db, callID)
 					}
+					resolveCallCustomerName(ctx, db, callID)
+					absorbPendingManualLog(ctx, db, callID)
 				}
 			}()
 
@@ -2833,6 +2963,134 @@ func absorbPendingManualLog(ctx context.Context, db *core.DB, callID int64) {
 		return
 	}
 	slog.Info("absorbed a manual call log into the synced call", "call", callID, "log", absorbed)
+}
+
+// zohoKeepLocalEdit builds the ON CONFLICT assignment for a column the importer
+// would otherwise overwrite on every re-sync, so a value a human has corrected
+// survives the next reconcile. `otherwise` is the assignment to use when nobody
+// has corrected the field. col is always a literal from this file, never input.
+func zohoKeepLocalEdit(col, otherwise string) string {
+	return `CASE WHEN EXISTS (
+	                 SELECT 1 FROM helpdesk_call_edits e
+	                  WHERE e.call_id = helpdesk_calls.id
+	                    AND e.action  = 'edit'
+	                    AND jsonb_exists(e.changes, '` + col + `'))
+	                THEN helpdesk_calls.` + col + `
+	                ELSE ` + otherwise + ` END`
+}
+
+// zohoCollapseDuplicateCall folds a provider-emitted duplicate of one dial into a
+// single call, and returns the id of the row that survives.
+//
+// Zoho emits more than one call record for the same dial: 1,399 same-second groups
+// across 48,580 calls in 30 days, 1,490 surplus rows, 3.1% inflation and rising
+// month on month. Both rows carry a zoho_call_id and the provider ids genuinely
+// differ, so the unique index on zoho_call_id cannot see them — each is imported as
+// its own call, inflating attempt counts, missed-call counts and per-agent volume.
+//
+// THE RULE: same agent, same customer number, same direction, same SECOND.
+//
+// The same-second requirement is what makes this safe. A genuine redial — an agent
+// dialling the same number again seconds later, which happens constantly and is
+// real work — cannot share a second with the first dial, because a human cannot
+// place two distinct calls in the same second. So the rule collapses only what the
+// provider duplicated, never what an agent actually did.
+//
+// Content equality is deliberately NOT required. Of the 1,399 groups only 41
+// differ in outcome, 34 in duration and 15 in ticket; requiring identical content
+// would leave precisely those ~90 real duplicates uncollapsed. Instead the pair's
+// content is UNIONED onto the survivor below, so nothing any record knew is lost.
+//
+// Marked, never deleted: merged_into_call_id is the existing, reversible mechanism
+// (12,659 rows, already used for manual logs) and every reader already filters on
+// it, so collapsing here needs no change anywhere downstream. The survivor is the
+// LOWEST id in the group, which is what makes this idempotent — a second pass sees
+// the duplicate already merged, excludes it, and does nothing.
+func zohoCollapseDuplicateCall(ctx context.Context, db *core.DB, callID int64) int64 {
+	rows, err := db.PGQuery(ctx, `
+		WITH me AS (
+		  SELECT id, agent_id, zoho_agent_id, direction, started_at,
+		         app.norm_phone(customer_phone) AS ph
+		    FROM helpdesk_calls
+		   WHERE id = $1
+		     AND source_system = 'zoho_desk'
+		     AND zoho_call_id IS NOT NULL
+		     AND merged_into_call_id IS NULL
+		     AND voided_at IS NULL
+		),
+		grp AS (
+		  SELECT h.id
+		    FROM helpdesk_calls h, me
+		   -- A number that does not normalise to 10 digits is not a number. app.norm_phone
+		   -- returns '' (never NULL) for anything it cannot parse, so without this guard
+		   -- every blank-phone call would match every other blank-phone call and unrelated
+		   -- calls would be merged together.
+		   WHERE length(me.ph) = 10
+		     AND app.norm_phone(h.customer_phone) = me.ph
+		     AND h.source_system = 'zoho_desk'
+		     AND h.zoho_call_id IS NOT NULL
+		     AND h.merged_into_call_id IS NULL
+		     AND h.voided_at IS NULL
+		     AND h.direction = me.direction
+		     AND h.agent_id      IS NOT DISTINCT FROM me.agent_id
+		     AND h.zoho_agent_id IS NOT DISTINCT FROM me.zoho_agent_id
+		     AND date_trunc('second', h.started_at) = date_trunc('second', me.started_at)
+		),
+		keep AS (SELECT MIN(id) AS id FROM grp)
+		UPDATE helpdesk_calls d
+		   SET merged_into_call_id = k.id
+		  FROM keep k
+		 WHERE d.id IN (SELECT id FROM grp)
+		   AND d.id <> k.id
+		 RETURNING d.id AS dup, k.id AS kept`, callID)
+	if err != nil {
+		slog.Warn("zohoCollapseDuplicateCall", "call", callID, "err", err)
+		return callID
+	}
+	if len(rows) == 0 {
+		return callID // nothing duplicated it, or this row is already merged
+	}
+	kept := toInt64(rows[0]["kept"])
+
+	// Union the group's content onto the survivor: the provider split ONE dial across
+	// several records, so the fuller of them is the truth about it. Take the longest
+	// duration, a recording any of them carries, and any write-up or link only one
+	// holds. zoho_voice_id is deliberately not copied — it is uniquely indexed and the
+	// merged row still holds its own.
+	if _, uErr := db.PGExec(ctx, `
+		UPDATE helpdesk_calls k
+		   SET duration_sec       = NULLIF(GREATEST(COALESCE(k.duration_sec,0), COALESCE(d.duration_sec,0)), 0),
+		       recording_filename = COALESCE(k.recording_filename, d.recording_filename),
+		       notes              = COALESCE(k.notes, d.notes),
+		       resolution         = COALESCE(k.resolution, d.resolution),
+		       disposition        = COALESCE(NULLIF(k.disposition,''), d.disposition),
+		       customer_name      = COALESCE(NULLIF(k.customer_name,''), NULLIF(d.customer_name,''), ''),
+		       customer_cif       = COALESCE(NULLIF(k.customer_cif,''),  NULLIF(d.customer_cif,''),  ''),
+		       ticket_id          = COALESCE(k.ticket_id, d.ticket_id),
+		       ticket_ref         = COALESCE(k.ticket_ref, d.ticket_ref),
+		       lead_id            = COALESCE(k.lead_id, d.lead_id),
+		       -- One dial reported twice counts as connected if EITHER record says it
+		       -- connected: the missed-looking twin describes the same dial.
+		       outcome            = CASE WHEN k.outcome IN ('missed','no_answer','voicemail')
+		                                  AND d.outcome IS NOT NULL
+		                                 THEN d.outcome ELSE k.outcome END
+		  FROM (
+		    SELECT MAX(duration_sec) AS duration_sec, MIN(recording_filename) AS recording_filename,
+		           MIN(notes) AS notes, MIN(resolution) AS resolution, MIN(disposition) AS disposition,
+		           MIN(customer_name) AS customer_name, MIN(customer_cif) AS customer_cif,
+		           MIN(ticket_id) AS ticket_id, MIN(ticket_ref) AS ticket_ref, MIN(lead_id) AS lead_id,
+		           MIN(outcome) FILTER (
+		             WHERE outcome NOT IN ('missed','no_answer','voicemail','')) AS outcome
+		      FROM helpdesk_calls WHERE merged_into_call_id = $1
+		  ) d
+		 WHERE k.id = $1`, kept); uErr != nil {
+		slog.Warn("zohoCollapseDuplicateCall: fold", "kept", kept, "err", uErr)
+	}
+	for _, r := range rows {
+		slog.Info("collapsed a duplicate provider call record into one dial",
+			"kept", kept, "merged", toInt64(r["dup"]))
+	}
+	return kept
 }
 
 // resolveCallCustomerName names a call from our own records when Zoho could not.

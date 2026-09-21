@@ -107,7 +107,7 @@ function SendModal({ statement, onClose }: {
 
   useEffect(() => { emailRef.current?.focus() }, [])
 
-  const send = async () => {
+  const send = async (allowAlternate = false) => {
     const trimEmail = email.trim()
     if (!trimEmail.includes('@')) { toast.error('Enter a valid recipient email'); return }
     setSending(true)
@@ -116,6 +116,7 @@ function SendModal({ statement, onClose }: {
         method: 'POST',
         body: JSON.stringify({
           recipient_email: trimEmail,
+          allow_alternate: allowAlternate || undefined,
           cc:         cc.trim() || undefined,
           subject:    subject.trim() || defaultSubject,
           email_body: body.trim() || undefined,
@@ -128,6 +129,16 @@ function SendModal({ statement, onClose }: {
       }))
       setStep('sent')
     } catch (e: any) {
+      // The statement's default destination is the cardholder's on-file email. If we
+      // targeted a different address, the API asks us to confirm the alternate before
+      // sending PII off-file — surface the on-file address and let the operator decide.
+      if (e?.status === 409 && e?.body?.requires_confirmation) {
+        const onFile = e.body.on_file_email || 'the address on file'
+        if (window.confirm(`The email on file for this cardholder is ${onFile}.\n\nSend this statement to ${trimEmail} instead?`)) {
+          return send(true)
+        }
+        return
+      }
       toast.error(e.message || 'Failed to send email')
     } finally {
       setSending(false)
@@ -181,7 +192,7 @@ function SendModal({ statement, onClose }: {
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <Button variant="secondary" onClick={() => { setStep('compose'); setEmail(''); setCC('') }}>
-                Send to another
+                Send to Another
               </Button>
               <Button onClick={onClose}>Done</Button>
             </div>
@@ -243,7 +254,7 @@ function SendModal({ statement, onClose }: {
                 style={inputStyle} />
             </div>
             <div>
-              <label style={labelStyle}>CC <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+              <label style={labelStyle}>CC <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(Optional)</span></label>
               <input type="email" value={cc}
                 onChange={e => setCC(e.target.value)}
                 placeholder="e.g. manager@o3capital.com"
@@ -278,7 +289,7 @@ function SendModal({ statement, onClose }: {
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt3)' }}>edit_note</span>
                 <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>
-                  {bodyOpen ? 'Edit message body' : 'Customise message body'}
+                  {bodyOpen ? 'Edit Message Body' : 'Customise Message Body'}
                 </span>
               </div>
               <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--txt3)', transform: bodyOpen ? 'rotate(180deg)' : undefined, transition: 'transform .15s' }}>
@@ -290,7 +301,7 @@ function SendModal({ statement, onClose }: {
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
                   <button onClick={() => setBody(buildDefaultBody())}
                     style={{ fontSize: TEXT.xs, color: 'var(--txt3)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0' }}>
-                    Reset to default
+                    Reset to Default
                   </button>
                 </div>
                 <textarea
@@ -310,7 +321,7 @@ function SendModal({ statement, onClose }: {
             Statement for <strong style={{ color: 'var(--txt2)' }}>{statement.customer_name}</strong> · {monthYear}
           </span>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button icon={sending ? 'hourglass_top' : 'send'} onClick={send} loading={sending}>
+          <Button icon={sending ? 'hourglass_top' : 'send'} onClick={() => send()} loading={sending}>
             {sending ? 'Sending…' : 'Send Statement'}
           </Button>
         </div>
@@ -479,7 +490,7 @@ export default function CCStatementDetail() {
           </div>
           {cards.length > 1 && (
             <Select value={cardFilter} onChange={e => setCardFilter(e.target.value)}>
-              <option value="">All cards</option>
+              <option value="">All Cards</option>
               {cards.map(c => <option key={c} value={c}>{c}</option>)}
             </Select>
           )}
@@ -525,7 +536,7 @@ export default function CCStatementDetail() {
                     <td style={{ padding: '9px 12px', color: t.is_finance_charge ? AMBER : 'var(--txt)', maxWidth: 200 }}>
                       {t.description}
                       {t.is_finance_charge && (
-                        <span style={{ marginLeft: 6, fontSize: TEXT.xs, background: '#FEF3C7', color: AMBER, borderRadius: RADIUS.xs, padding: '1px 6px' }}>charge</span>
+                        <span style={{ marginLeft: 6, fontSize: TEXT.xs, background: '#FEF3C7', color: AMBER, borderRadius: RADIUS.xs, padding: '1px 6px' }}>Charge</span>
                       )}
                     </td>
                     <td style={{ padding: '9px 12px', fontSize: TEXT.xs, color: 'var(--txt3)' }}>

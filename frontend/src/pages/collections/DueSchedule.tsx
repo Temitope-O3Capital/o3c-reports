@@ -126,8 +126,8 @@ function facilityCols(navigate: (p: string) => void, mode: 'day' | 'overdue'): T
 }
 
 const SOURCE_OPTS = [
-  { value: 'ccs',      label: 'CCS (cards)',   color: BLUE },
-  { value: 'udara',    label: 'Udara (loans)', color: GREEN },
+  { value: 'ccs',      label: 'CCS (Cards)',   color: BLUE },
+  { value: 'udara',    label: 'Udara (Loans)', color: GREEN },
   { value: 'uploaded', label: 'Uploaded',      color: AMBER },
 ]
 const PRODUCT_OPTS = [
@@ -213,7 +213,7 @@ export default function CollectionsDueSchedule() {
   const todayY = ymd(new Date())
   const openDay = (key: string) => { setSelectedDay(key); setMSource(new Set()); setMProduct(new Set()); setMSearch('') }
   const rangeLabel = calMode === 'week' ? prettyRange(sunday) : monthAnchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-  const kpiLabel = calMode === 'week' ? (weekOffset === 0 ? 'Due This Week' : 'Due (week shown)') : (monthOffset === 0 ? 'Due This Month' : 'Due (month shown)')
+  const kpiLabel = calMode === 'week' ? (weekOffset === 0 ? 'Due This Week' : 'Due (Week Shown)') : (monthOffset === 0 ? 'Due This Month' : 'Due (Month Shown)')
 
   return (
     <Page title="Repayments Due" subtitle="Loans and credit cards due this week, and everything already overdue — across CCS, Udara and uploaded">
@@ -251,7 +251,7 @@ export default function CollectionsDueSchedule() {
                 <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', minWidth: 150, textAlign: 'center' }}>{rangeLabel}</span>
                 <button onClick={() => (calMode === 'week' ? setWeekOffset(o => o + 1) : setMonthOffset(o => o + 1))} style={navBtn}><span className="material-symbols-rounded" style={{ fontSize: 18 }}>chevron_right</span></button>
                 {((calMode === 'week' && weekOffset !== 0) || (calMode === 'month' && monthOffset !== 0)) && (
-                  <button onClick={() => (calMode === 'week' ? setWeekOffset(0) : setMonthOffset(0))} style={{ ...navBtn, width: 'auto', padding: '0 10px', fontSize: TEXT.xs, fontWeight: FW.semibold }}>{calMode === 'week' ? 'This week' : 'This month'}</button>
+                  <button onClick={() => (calMode === 'week' ? setWeekOffset(0) : setMonthOffset(0))} style={{ ...navBtn, width: 'auto', padding: '0 10px', fontSize: TEXT.xs, fontWeight: FW.semibold }}>{calMode === 'week' ? 'This Week' : 'This Month'}</button>
                 )}
               </div>
             </div>
@@ -295,7 +295,7 @@ export default function CollectionsDueSchedule() {
                         <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: strong ? '#fff' : NAVY, marginTop: 4 }}>{fmtKoboExact(agg.kobo)}</div>
                       </div>
                     ) : (
-                      <span style={{ marginTop: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)' }}>Nothing due</span>
+                      <span style={{ marginTop: 'auto', fontSize: TEXT.xs, color: 'var(--txt3)' }}>Nothing Due</span>
                     )}
                     {isToday && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: strong ? '#fff' : NAVY }}>TODAY</span>}
                   </button>
@@ -352,7 +352,7 @@ export default function CollectionsDueSchedule() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: SP[3], justifyContent: 'flex-end' }}>
               <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>Less</span>
               {[0, 1, 2, 3, 4].map(l => <span key={l} title={`heat ${l + 1}`} style={{ width: 14, height: 14, borderRadius: 3, background: heatBg(l), border: '1px solid var(--bdr)' }} />)}
-              <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>More due</span>
+              <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>More Due</span>
             </div>
           )}
         </SectionCard>
@@ -380,7 +380,7 @@ export default function CollectionsDueSchedule() {
             loading={overdue === null}
             skeletonRows={10}
             pageSize={25}
-            emptyText="Nothing overdue"
+            emptyText="Nothing Overdue"
             onRowClick={r => navigate(`/collections/accounts/${r.cif}`)}
           />
         </SectionCard>
@@ -412,7 +412,7 @@ export default function CollectionsDueSchedule() {
           rows={dayFiltered}
           keyFn={r => `${r.source}-${r.reference}`}
           pageSize={15}
-          emptyText="No facilities match"
+          emptyText="No Facilities Match"
           onRowClick={r => navigate(`/collections/accounts/${r.cif}`)}
         />
       </Modal>

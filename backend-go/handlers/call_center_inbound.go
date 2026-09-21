@@ -19,6 +19,34 @@ func ymd(s string) (string, bool) {
 	return "", false
 }
 
+// ccBusinessZone is the zone the call centre's day is measured in. Stated
+// explicitly rather than relying on the DB session's timezone: a 'date' compared
+// against a timestamptz is resolved in whatever zone the session happens to carry,
+// so the inbound screens were correct only for as long as nobody changed it. A
+// connection pooler, a replica or a container with a different TZ would silently
+// shift every call at the day boundary into the wrong day.
+const ccBusinessZone = "Africa/Lagos"
+
+// ccDayWindow builds the started_at window shared by the inbound list and the
+// call-back sweep, so "Queue N call-backs" sweeps exactly what the page shows.
+// An explicit from/to (YYYY-MM-DD) range wins; otherwise the last-N-days fallback.
+// Dates are validated by ymd, so the result is safe to concatenate into SQL.
+//
+// Both edges are anchored to ccBusinessZone (the form management_reports.go uses)
+// and kept as comparisons against started_at itself rather than a cast of it, so
+// the started_at indexes are still usable.
+func ccDayWindow(r *http.Request, days int) string {
+	if f, ok := ymd(qstr(r, "from")); ok {
+		if t, ok2 := ymd(qstr(r, "to")); ok2 {
+			return fmt.Sprintf(
+				"hc.started_at >= ('%s'::date::timestamp AT TIME ZONE '%s')"+
+					" AND hc.started_at < (('%s'::date + INTERVAL '1 day')::timestamp AT TIME ZONE '%s')",
+				f, ccBusinessZone, t, ccBusinessZone)
+		}
+	}
+	return fmt.Sprintf("hc.started_at > NOW() - INTERVAL '%d days'", days)
+}
+
 // Inbound call handling.
 //
 // Inbound was the module's blind spot. Of 3,226 inbound calls, 1,718 (53%) went
@@ -47,15 +75,8 @@ func ccInboundList(db *core.DB) http.HandlerFunc {
 		status := qstr(r, "status") // missed | answered | (all)
 		outstanding := qstr(r, "outstanding") == "1"
 
-		// Date window: an explicit from/to (YYYY-MM-DD) range wins; otherwise the
-		// last-N-days fallback. Prebuilt as a concrete SQL fragment (dates validated by
-		// ymd) so it can be concatenated into both the list and summary queries.
-		windowClause := fmt.Sprintf("hc.started_at > NOW() - INTERVAL '%d days'", days)
-		if f, ok := ymd(qstr(r, "from")); ok {
-			if t, ok2 := ymd(qstr(r, "to")); ok2 {
-				windowClause = fmt.Sprintf("hc.started_at >= '%s'::date AND hc.started_at < ('%s'::date + INTERVAL '1 day')", f, t)
-			}
-		}
+		// Date window, shared with the call-back sweep and pinned to the business zone.
+		windowClause := ccDayWindow(r, days)
 
 		// A 'completed' call under callConnectMinSec with no recording never reached a
 		// conversation (a 1-second dial blip, not a pickup). Fold that into the outcome
@@ -189,39 +210,55 @@ func ccInboundList(db *core.DB) http.HandlerFunc {
 func ccQueueMissedCallbacks(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		days := qint(r, "days", 7, 1, 90)
-		// Match the visible window: an explicit from/to range wins over the days fallback,
-		// so "Queue N call-backs" sweeps exactly what the page is showing.
-		windowClause := fmt.Sprintf("hc.started_at > NOW() - INTERVAL '%d days'", days)
-		if f, ok := ymd(qstr(r, "from")); ok {
-			if t, ok2 := ymd(qstr(r, "to")); ok2 {
-				windowClause = fmt.Sprintf("hc.started_at >= '%s'::date AND hc.started_at < ('%s'::date + INTERVAL '1 day')", f, t)
-			}
-		}
+		// Match the visible window exactly, so "Queue N call-backs" sweeps what the
+		// page is showing.
+		windowClause := ccDayWindow(r, days)
 
 		// One call-back per NUMBER, not per missed call — a customer who rang five times
 		// in an afternoon is owed one return call, not five queue entries. DISTINCT ON
 		// keeps the most recent call as the one referenced.
+		// Phone comparisons below all carry a length(...) = 10 guard. app.norm_phone
+		// returns the last 10 digits and '' — never NULL — for anything it cannot
+		// parse, so an unguarded equality is TRUE for every pair of unparseable
+		// numbers: one blank-phone call would suppress or duplicate against every
+		// other blank-phone row. The guard is what makes each comparison mean "the
+		// same dialable number".
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			WITH candidates AS (
-			  SELECT DISTINCT ON (norm_phone(hc.customer_phone))
+			WITH lk AS MATERIALIZED (
+			  -- Serialise this operation against itself. The "already queued?" guard and
+			  -- the INSERT are otherwise not atomic: two supervisors pressing "Queue
+			  -- call-backs" together both see no pending call-back for a number and both
+			  -- insert one, queueing the same customer twice. No unique index covers
+			  -- (phone, purpose, status), so there is nothing to ON CONFLICT against —
+			  -- this lock is what makes the check-then-insert safe. It is
+			  -- transaction-scoped and this is a single statement, so it is released as
+			  -- soon as the statement commits. Every candidate row passes through this
+			  -- CROSS JOIN, so the lock is held before any row reaches the INSERT.
+			  SELECT pg_advisory_xact_lock(hashtext('cc_queue_missed_callbacks')::bigint) AS got
+			),
+			candidates AS (
+			  SELECT DISTINCT ON (app.norm_phone(hc.customer_phone))
 			         hc.id, hc.customer_phone, hc.customer_name, hc.customer_cif, hc.started_at
-			    FROM helpdesk_calls hc
+			    FROM helpdesk_calls hc CROSS JOIN lk
 			   WHERE hc.direction = 'inbound'
 			     AND `+callUnansweredExpr("hc.")+`
 			     AND hc.merged_into_call_id IS NULL AND hc.voided_at IS NULL
-			     AND COALESCE(hc.customer_phone,'') <> ''
+			     AND length(app.norm_phone(hc.customer_phone)) = 10
 			     AND `+windowClause+`
 			     -- not already returned
 			     AND NOT EXISTS (
 			       SELECT 1 FROM helpdesk_calls o
 			        WHERE o.direction = 'outbound'
-			          AND norm_phone(o.customer_phone) = norm_phone(hc.customer_phone)
+			          AND length(app.norm_phone(o.customer_phone)) = 10
+			          AND app.norm_phone(o.customer_phone) = app.norm_phone(hc.customer_phone)
 			          AND o.merged_into_call_id IS NULL AND o.voided_at IS NULL
 			          AND o.started_at BETWEEN hc.started_at AND hc.started_at + INTERVAL '%s')
 			     -- not suppressed
 			     AND NOT EXISTS (
-			       SELECT 1 FROM dnc_list d WHERE norm_phone(d.phone) = norm_phone(hc.customer_phone))
-			   ORDER BY norm_phone(hc.customer_phone), hc.started_at DESC
+			       SELECT 1 FROM dnc_list d
+			        WHERE length(app.norm_phone(d.phone)) = 10
+			          AND app.norm_phone(d.phone) = app.norm_phone(hc.customer_phone))
+			   ORDER BY app.norm_phone(hc.customer_phone), hc.started_at DESC
 			)
 			INSERT INTO call_center_contacts
 			    (customer_name, phone, cif, product_name, priority,
@@ -237,7 +274,8 @@ func ccQueueMissedCallbacks(db *core.DB) http.HandlerFunc {
 			 WHERE NOT EXISTS (
 			   -- don't stack a second open call-back on a number already queued
 			   SELECT 1 FROM call_center_contacts cc
-			    WHERE norm_phone(cc.phone) = norm_phone(c.customer_phone)
+			    WHERE length(app.norm_phone(cc.phone)) = 10
+			      AND app.norm_phone(cc.phone) = app.norm_phone(c.customer_phone)
 			      AND cc.purpose = 'support'
 			      AND cc.status = 'pending')
 			RETURNING id`, ccInboundReturnWindow))

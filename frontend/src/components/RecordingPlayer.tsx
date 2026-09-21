@@ -93,7 +93,7 @@ export function RecordingPlayer({ callId, autoPlay = true }: { callId: number; a
 
   const tone = phase === 'downloading' ? AMBER : phase === 'checking' ? NAVY : RED
   const icon = phase === 'downloading' ? 'cloud_download' : phase === 'checking' ? 'hourglass_top' : phase === 'missing' ? 'voice_over_off' : 'error'
-  const title = phase === 'downloading' ? 'Fetching recording…' : phase === 'checking' ? 'Checking recording…' : phase === 'missing' ? 'No recording' : 'Recording unavailable'
+  const title = phase === 'downloading' ? 'Fetching Recording…' : phase === 'checking' ? 'Checking Recording…' : phase === 'missing' ? 'No Recording' : 'Recording Unavailable'
   const fallback = phase === 'missing'
     ? 'No recording is stored for this call.'
     : phase === 'checking' ? '' : 'The recording service is slow right now. Please try again in a moment.'
@@ -110,7 +110,7 @@ export function RecordingPlayer({ callId, autoPlay = true }: { callId: number; a
           <button onClick={retry}
             style={{ padding: '6px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>refresh</span>
-            {phase === 'downloading' ? 'Check now' : 'Retry'}
+            {phase === 'downloading' ? 'Check Now' : 'Retry'}
           </button>
         )}
         {/* Force a live pull from Zoho — the "pull it now" provision for a recording that

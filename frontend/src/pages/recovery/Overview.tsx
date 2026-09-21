@@ -53,7 +53,7 @@ function ChannelBars({ data }: { data: ChannelRow[] }) {
   if (!data.length) {
     return (
       <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
-        No channel data available
+        No Channel Data Available
       </div>
     )
   }
@@ -212,7 +212,7 @@ export default function RecoveryOverview() {
           loading={kpiLoading}
         />
         <KpiCard
-          label="Recovered (period)"
+          label="Recovered (Period)"
           value={fmtKoboExact(kpis?.recovered_mtd_kobo)}
           sub="collected in selected range"
           icon="payments"
@@ -286,7 +286,7 @@ export default function RecoveryOverview() {
         <div style={{ padding: '20px 20px 14px' }}>
           {trend.length === 0 ? (
             <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
-              No recovery activity in the selected range
+              No Recovery Activity in the Selected Range
             </div>
           ) : (
             <EBar
@@ -330,7 +330,7 @@ export default function RecoveryOverview() {
           keyFn={(r, i) => r.agent_name ?? i}
           loading={loading}
           skeletonRows={8}
-          emptyText="No agent data found"
+          emptyText="No Agent Data Found"
           searchKeys={['agent_name']}
           searchPlaceholder="Search by agent name…"
         />

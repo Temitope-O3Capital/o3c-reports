@@ -117,13 +117,39 @@ func growthBehaviour(db *core.DB) http.HandlerFunc {
 			FROM person_last`); err == nil && len(rows) > 0 {
 			out["cohorts_person"] = rows[0]
 		}
+		// Top merchants — PURCHASE transactions only.
+		//
+		// merchant_name is the feed's free-text narrative field, and what it holds
+		// depends on the transaction type. Measured across the ledger:
+		//   transfer      TRANSFERBANK, 03, 03Credit     (a narrative, not a merchant)
+		//   payment       knaibi, taye, tayo, tfalana    (the STAFF member who posted it)
+		//   cash_advance  ATM2_29A Admiralty wa, ...      (the ATM's location)
+		//   purchase      TEAMAPT, OPAY, PALMPAY, APPLE   (an actual merchant)
+		// Ranking every row by that field put a bank-transfer narrative, a code and
+		// four staff usernames at the top of "top merchants". Purchases only.
+		//
+		// app.clean_merchant collapses the spellings a ~21-character truncation
+		// produces (PAYCOM NIGERIA LIMITE / LIMIT / LTD) — see its migration.
 		if rows, err := db.PGQuery(ctx, `
-			SELECT TRIM(merchant_name) AS merchant, COUNT(*) AS txns,
-			       ROUND(SUM(ABS(amount)) FILTER (WHERE NOT money_in) * 100)::bigint AS spend_kobo
-			  FROM app.transactions
-			 WHERE `+win+` AND NULLIF(TRIM(merchant_name),'') IS NOT NULL
+			SELECT app.clean_merchant(t.merchant_name) AS merchant, COUNT(*) AS txns,
+			       ROUND(SUM(ABS(t.amount)) FILTER (WHERE NOT t.money_in) * 100)::bigint AS spend_kobo
+			  FROM app.transactions t
+			  JOIN app.card_txn_codes c ON c.code = t.txn_code AND c.category = 'purchase'
+			 WHERE `+win+` AND app.clean_merchant(t.merchant_name) IS NOT NULL
 			 GROUP BY 1 ORDER BY spend_kobo DESC NULLS LAST LIMIT 12`); err == nil {
 			out["top_merchants"] = rows
+		}
+		// Where customers withdraw cash. On cash-advance rows the same narrative field
+		// carries the ATM's location — far more usable geography than the city column,
+		// which is a packed merchant-location string with 33,899 distinct spellings.
+		if rows, err := db.PGQuery(ctx, `
+			SELECT TRIM(t.merchant_name) AS location, COUNT(*) AS txns,
+			       ROUND(SUM(ABS(t.amount)) * 100)::bigint AS amount_kobo
+			  FROM app.transactions t
+			  JOIN app.card_txn_codes c ON c.code = t.txn_code AND c.category = 'cash_advance'
+			 WHERE `+win+` AND NULLIF(TRIM(t.merchant_name),'') IS NOT NULL
+			 GROUP BY 1 ORDER BY txns DESC LIMIT 10`); err == nil {
+			out["top_atm_locations"] = rows
 		}
 		if rows, err := db.PGQuery(ctx, `
 			SELECT TRIM(mcc) AS mcc, COUNT(*) AS txns,
@@ -147,6 +173,60 @@ func growthBehaviour(db *core.DB) http.HandlerFunc {
 			 WHERE `+win+` AND NULLIF(TRIM(city),'') IS NOT NULL
 			 GROUP BY 1 ORDER BY txns DESC LIMIT 10`); err == nil {
 			out["by_city"] = rows
+		}
+		// Currency split. app.transactions carried no currency at all until
+		// migration 233, so every total in this handler has been adding USD to
+		// naira — 214 Amex USD accounts, 4,882 transactions, and 14.9m of
+		// fee/interest/penalty that app.income_daily reports in a column literally
+		// named amount_ngn.
+		//
+		// Reported per currency, never converted. CCS posts USD cards in DOLLARS
+		// (confirmed 2026-09-14), so a combined figure needs a dated FX rate, and
+		// which rate is finance's call.
+		//
+		// Currency comes from app.resolve_currency rather than currency_code: that
+		// column stays NULL until the backfill runs, so reading it directly reported
+		// every row as 'unknown'. The account's product name is preferred over the
+		// transaction's copy, which is wrong on ~14% of USD-account rows.
+		if rows, err := db.PGQuery(ctx, `
+			SELECT app.resolve_currency(t.currency_code, a.currency_code,
+			                            COALESCE(a.product_name, t.product_name))  AS currency_code,
+			       COUNT(*)                                                          AS txns,
+			       ROUND(SUM(ABS(t.amount)) FILTER (WHERE NOT t.money_in) * 100)::bigint AS spend_kobo,
+			       ROUND(SUM(ABS(t.amount)) FILTER (WHERE t.money_in)     * 100)::bigint AS inflow_kobo
+			  FROM app.transactions t
+			  LEFT JOIN app.accounts a ON a.account_no = t.account_no AND t.account_no <> ''
+			 WHERE `+win+`
+			 GROUP BY 1 ORDER BY txns DESC`); err == nil {
+			out["by_currency"] = rows
+		}
+		// How the money actually moved — ATM vs POS vs transfer vs bill payment.
+		//
+		// The existing `channel` column only ever holds interswitch/collection/
+		// internal, which answers "which rail settled it", not "what did the
+		// customer do". card_txn_codes already classifies every code in the ledger
+		// (verified: 0 of 1,033,223 rows carry a code missing from that table), so
+		// this needs no new column and no backfill — just the join.
+		if rows, err := db.PGQuery(ctx, `
+			SELECT CASE c.category
+			         WHEN 'cash_advance'  THEN 'ATM / cash'
+			         WHEN 'purchase'      THEN 'POS / purchase'
+			         WHEN 'transfer'      THEN 'Transfer'
+			         WHEN 'utility'       THEN 'Bill payment'
+			         WHEN 'payment'       THEN 'Repayment'
+			         WHEN 'fee'           THEN 'Fees'
+			         WHEN 'interest'      THEN 'Interest'
+			         WHEN 'penalty'       THEN 'Penalty'
+			         WHEN 'non_financial' THEN 'Non-financial'
+			         ELSE 'Other'
+			       END                                                               AS txn_type,
+			       COUNT(*)                                                          AS txns,
+			       ROUND(SUM(ABS(t.amount)) FILTER (WHERE NOT t.money_in) * 100)::bigint AS spend_kobo
+			  FROM app.transactions t
+			  JOIN app.card_txn_codes c ON c.code = t.txn_code
+			 WHERE `+win+`
+			 GROUP BY 1 ORDER BY txns DESC`); err == nil {
+			out["by_type"] = rows
 		}
 		if rows, err := db.PGQuery(ctx, `
 			SELECT to_char(date_trunc('month',txn_date),'YYYY-MM')                 AS month,
@@ -232,6 +312,7 @@ func growthSummary(db *core.DB) http.HandlerFunc {
 //   - retained    = transacted this month AND last month
 //   - reactivated = transacted this month but NOT last month (new or returning)
 //   - churned     = transacted last month but NOT this month
+//
 // The active-customer set is windowed to the requested range (+1 month of
 // look-back) so the self-join stays bounded even though the ledger runs to 2014.
 //

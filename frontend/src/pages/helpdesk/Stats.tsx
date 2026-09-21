@@ -124,7 +124,7 @@ export default function HelpdeskStats() {
           <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)}
             title="Filter all charts to a single agent"
             style={{ height: 32, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, padding: '0 10px', cursor: 'pointer' }}>
-            <option value="">All agents</option>
+            <option value="">All Agents</option>
             {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
           </select>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
@@ -142,7 +142,7 @@ export default function HelpdeskStats() {
           {/* ── Row 1: CSAT trend + Handle time ──────────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
             <SectionCard title="CSAT Trend" subtitle="Daily satisfaction score (0–5)">
-              {csatTrend.length === 0 ? <EmptyState msg="No CSAT data yet" /> : (
+              {csatTrend.length === 0 ? <EmptyState msg="No CSAT Data Yet" /> : (
                 <ELine
                   data={csatTrend.map(d => ({ ...d, csat_score: Number(d.csat_score) }))}
                   xKey="date"
@@ -155,13 +155,13 @@ export default function HelpdeskStats() {
             </SectionCard>
 
             <SectionCard title="Avg Handle Time" subtitle="Minutes per ticket type">
-              {handleTime.length === 0 ? <EmptyState msg="No handle time data yet" /> : (
+              {handleTime.length === 0 ? <EmptyState msg="No Handle Time Data Yet" /> : (
                 <EBar
                   data={handleTime.map(d => ({ ...d, avg_minutes: Number(d.avg_minutes) }))}
                   xKey="ticket_type"
                   height={200}
                   valueFmt={(v) => `${v.toFixed(0)} min`}
-                  series={[{ key: 'avg_minutes', name: 'Avg minutes', color: NAVY }]}
+                  series={[{ key: 'avg_minutes', name: 'Avg Minutes', color: NAVY }]}
                 />
               )}
             </SectionCard>
@@ -170,7 +170,7 @@ export default function HelpdeskStats() {
           {/* ── Row 2: Resolution rate + Type distribution ─────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
             <SectionCard title="Resolution Rate by Agent" subtitle="% of tickets resolved">
-              {resolution.length === 0 ? <EmptyState msg="No resolution data yet" /> : (
+              {resolution.length === 0 ? <EmptyState msg="No Resolution Data Yet" /> : (
                 <EBar
                   data={resolution.map(d => ({ ...d, resolution_pct: Number(d.resolution_pct) }))}
                   xKey="agent_name"
@@ -182,7 +182,7 @@ export default function HelpdeskStats() {
             </SectionCard>
 
             <SectionCard title="Ticket Type Distribution" subtitle="Count by category">
-              {typeDist.length === 0 ? <EmptyState msg="No tickets yet" /> : (
+              {typeDist.length === 0 ? <EmptyState msg="No Tickets Yet" /> : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: SP[5] }}>
                   <div style={{ flexShrink: 0 }}>
                     <EDonut
@@ -216,7 +216,7 @@ export default function HelpdeskStats() {
           {/* ── Row 3: Channel breakdown + SLA by agent ─────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
             <SectionCard title="Channel Breakdown" subtitle="Tickets by source channel">
-              {channels.length === 0 ? <EmptyState msg="No channel data yet" /> : (
+              {channels.length === 0 ? <EmptyState msg="No Channel Data Yet" /> : (
                 <EBar
                   data={channels.map(d => ({ ...d, count: Number(d.count) }))}
                   xKey="channel"
@@ -228,7 +228,7 @@ export default function HelpdeskStats() {
             </SectionCard>
 
             <SectionCard title="SLA Breach Rate by Agent" subtitle="% of tickets that breached SLA">
-              {slaByAgent.length === 0 ? <EmptyState msg="No SLA data yet" /> : (
+              {slaByAgent.length === 0 ? <EmptyState msg="No SLA Data Yet" /> : (
                 <EBar
                   data={slaByAgent.map(d => ({ ...d, breach_pct: Number(d.breach_pct) }))}
                   xKey="agent_name"
@@ -242,7 +242,7 @@ export default function HelpdeskStats() {
 
           {/* ── Row 4: Busiest hours heatmap ─────────────────────────────── */}
           <SectionCard title="Busiest Hours" subtitle="Ticket volume by hour of day (WAT)" style={{ marginBottom: SP[4] }}>
-            {heatmapData.every(d => d.ticket_count === 0) ? <EmptyState msg="No hourly data yet" /> : (
+            {heatmapData.every(d => d.ticket_count === 0) ? <EmptyState msg="No Hourly Data Yet" /> : (
               <div style={{ display: 'flex', gap: SP[1], alignItems: 'flex-end', padding: '8px 0' }}>
                 {heatmapData.map(d => {
                   const pct = d.ticket_count / maxCount
@@ -263,7 +263,7 @@ export default function HelpdeskStats() {
 
           {/* ── Row 5: Leaderboard ───────────────────────────────────────── */}
           <SectionCard title="Agent Leaderboard" subtitle="Top agents by tickets resolved this period">
-            {leaderboard.length === 0 ? <EmptyState msg="No leaderboard data yet" /> : (
+            {leaderboard.length === 0 ? <EmptyState msg="No Leaderboard Data Yet" /> : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                 {/* Header */}
                 <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 80px 80px 80px 80px 80px', gap: SP[2], padding: '6px 12px', background: 'var(--th-bg)', borderRadius: RADIUS.md, marginBottom: SP[1] }}>

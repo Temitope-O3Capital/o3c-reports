@@ -308,7 +308,7 @@ function SingleSendTab({ onSent }: { onSent: () => void }) {
           <button onClick={() => setShowOpts(o => !o)}
             style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, padding: 0, fontFamily: INTER, width: 'fit-content' }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, transition: 'transform .15s', transform: showOpts ? 'rotate(90deg)' : 'none' }}>chevron_right</span>
-            {showOpts ? 'Hide' : 'Show'} optional fields
+            {showOpts ? 'Hide' : 'Show'} Optional Fields
           </button>
 
           {showOpts && (
@@ -560,17 +560,17 @@ function BulkSendTab({ onLaunched }: { onLaunched: () => void }) {
               </div>
               <div style={{ display: 'flex', gap: 24, marginBottom: SP[3] }}>
                 <div>
-                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Will send to</div>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Will Send To</div>
                   <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: NAVY }}>{preview.count}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Total eligible</div>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Total Eligible</div>
                   <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: 'var(--txt)' }}>{preview.eligible}</div>
                 </div>
               </div>
               {preview.sample && preview.sample.length > 0 && (
                 <div>
-                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>Sample recipients (first {preview.sample.length}):</div>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>Sample Recipients (First {preview.sample.length}):</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflow: 'auto' }}>
                     {preview.sample.map((r: any, i: number) => {
                       const name = [r['First Name'] ?? r.first_name ?? '', r['Last Name'] ?? r.last_name ?? ''].join(' ').trim() || r.name || 'Unknown'

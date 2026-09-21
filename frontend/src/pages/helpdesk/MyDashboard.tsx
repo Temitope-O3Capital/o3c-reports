@@ -59,7 +59,7 @@ function callDisposition(direction?: string, outcome?: string): { label: string;
   const inbound = (direction || '').toLowerCase() === 'inbound'
   if (answered)  return { label: 'Done', color: GREEN, icon: inbound ? 'call_received' : 'call_made' }
   if (inbound)   return { label: 'Missed', color: RED, icon: 'call_missed' }
-  return { label: 'No answer', color: 'var(--txt3)', icon: 'call_made' }
+  return { label: 'No Answer', color: 'var(--txt3)', icon: 'call_made' }
 }
 const PRIORITY_COLOR: Record<string, string> = { high: RED, medium: AMBER, low: BLUE, urgent: RED, normal: 'var(--chart-lbl)' }
 const PURPOSE_META: Record<string, { label: string; color: string }> = {
@@ -192,16 +192,16 @@ export default function CallCenterMyDashboard() {
 
       {/* ── My Day: forward-looking work + quality ───────────────────────── */}
       <MyDaySection>
-        <MyDayTile icon="reply" count={fmtNum(d.awaiting_my_reply)} label="Awaiting your reply"
+        <MyDayTile icon="reply" count={fmtNum(d.awaiting_my_reply)} label="Awaiting Your Reply"
           sub={d.awaiting_my_reply > 0 ? 'customers waiting on you' : "you're caught up"}
           color={AMBER} urgent={d.awaiting_my_reply > 0} onClick={() => navigate('/helpdesk/tickets')} />
-        <MyDayTile icon="warning" count={fmtNum(d.sla_breached)} label="SLA breached"
+        <MyDayTile icon="warning" count={fmtNum(d.sla_breached)} label="SLA Breached"
           sub={d.sla_breached > 0 ? 'past due, act now' : 'all within SLA'}
           color={d.sla_breached > 0 ? RED : GREEN} urgent={d.sla_breached > 0} onClick={() => navigate('/helpdesk/tickets')} />
-        <MyDayTile icon="dialpad" count={fmtNum(d.queue_pending)} label="Outbound queue"
+        <MyDayTile icon="dialpad" count={fmtNum(d.queue_pending)} label="Outbound Queue"
           sub="contacts ready to dial" color={BLUE} onClick={() => navigate('/call-center/queue')} />
         {d.callbacks_due > 0 && (
-          <MyDayTile icon="event_repeat" count={fmtNum(d.callbacks_due)} label="Callbacks due"
+          <MyDayTile icon="event_repeat" count={fmtNum(d.callbacks_due)} label="Callbacks Due"
             sub="call-backs you promised" color={PURPLE} urgent onClick={() => navigate('/call-center/queue')} />
         )}
         <MyDayTile icon="sentiment_satisfied" count={d.csat_score != null ? `${d.csat_score}` : '—'} label="Your CSAT"
@@ -212,7 +212,7 @@ export default function CallCenterMyDashboard() {
       <SectionCard title="My Call Volume" subtitle="This week · Sunday–Saturday" style={{ marginBottom: SP[4] }}
         actions={<span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', ...NUM }}>{fmtNum(totalWeek)} calls this week</span>}>
         {d.call_this_week.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls this week yet</div>
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No Calls This Week Yet</div>
         ) : (
           <EArea
             data={d.call_this_week.map(x => ({ dow: x.dow, total: Number(x.total), missed: Number(x.missed) }))}
@@ -224,7 +224,7 @@ export default function CallCenterMyDashboard() {
             endFmt={fmtNum}
             series={[
               { key: 'total', name: 'Calls', color: NAVY },
-              { key: 'missed', name: 'Missed (in)', color: RED },
+              { key: 'missed', name: 'Missed (In)', color: RED },
             ]}
           />
         )}
@@ -235,7 +235,7 @@ export default function CallCenterMyDashboard() {
         actions={
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <LiveBadge />
-            <button onClick={() => navigate('/helpdesk/calls')} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: 'none', cursor: 'pointer' }}>Full log</button>
+            <button onClick={() => navigate('/helpdesk/calls')} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: 'none', cursor: 'pointer' }}>Full Log</button>
           </div>
         }>
         {d.recent_calls.length === 0 ? (
@@ -288,7 +288,7 @@ export default function CallCenterMyDashboard() {
       {/* ── My tickets ───────────────────────────────────────────────────── */}
       <SectionCard title="My Open Tickets" badge={d.recent_tickets.length}
         subtitle={d.awaiting_my_reply > 0 ? `${d.awaiting_my_reply} awaiting your reply, shown first` : 'Sorted by urgency'}
-        actions={<button onClick={() => navigate('/helpdesk/tickets')} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: 'none', cursor: 'pointer' }}>View all</button>}>
+        actions={<button onClick={() => navigate('/helpdesk/tickets')} style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, background: 'none', border: 'none', cursor: 'pointer' }}>View All</button>}>
         {d.recent_tickets.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '34px 0', color: 'var(--txt2)' }}>No open tickets. You're all caught up</div>
         ) : (
@@ -305,7 +305,7 @@ export default function CallCenterMyDashboard() {
                     <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.subject || '(no subject)'}</div>
                     <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}><span style={{ fontFamily: 'var(--font-mono)' }}>{t.ticket_ref}</span> · {t.customer_name || 'Unknown'}</div>
                   </div>
-                  {t.awaiting_me && <StatusPill label="Awaiting you" color={AMBER} />}
+                  {t.awaiting_me && <StatusPill label="Awaiting You" color={AMBER} />}
                   <StatusPill label={t.priority} color={pc} />
                   <div style={{ width: 70, textAlign: 'right', flexShrink: 0 }}><SlaCell sla_due_at={t.sla_due_at} /></div>
                 </div>
@@ -343,7 +343,7 @@ export default function CallCenterMyDashboard() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {latest && (latest.strengths || latest.improvements || latest.coaching_notes) && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5, padding: '10px 12px', background: 'var(--th-bg)', borderRadius: RADIUS.md, fontSize: TEXT.sm, marginBottom: 4 }}>
-                    <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Latest feedback</span>
+                    <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Latest Feedback</span>
                     {latest.strengths && <span><b style={{ color: GREEN }}>Strengths:</b> {latest.strengths}</span>}
                     {latest.improvements && <span><b style={{ color: AMBER }}>Improve:</b> {latest.improvements}</span>}
                     {latest.coaching_notes && <span><b style={{ color: NAVY }}>Coaching:</b> {latest.coaching_notes}</span>}

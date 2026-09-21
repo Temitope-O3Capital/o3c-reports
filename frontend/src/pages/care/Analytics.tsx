@@ -153,7 +153,7 @@ export default function CareAnalytics() {
                   endLabel
                   valueFmt={fmtNum}
                   endFmt={fmtNum}
-                  series={[{ key: 'avg_first_mins', name: 'Avg mins', color: BLUE }]}
+                  series={[{ key: 'avg_first_mins', name: 'Avg Mins', color: BLUE }]}
                 />
               )}
             </SectionCard>

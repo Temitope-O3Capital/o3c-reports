@@ -12,12 +12,12 @@ export interface MergeField {
 // Fields the dispatch renderer (backend renderTemplate) knows how to fill from a
 // contact + campaign. Keep in sync with campaigns.go mergeData keys.
 export const MERGE_FIELDS: MergeField[] = [
-  { key: 'first_name', label: 'First name',  sample: 'Ada',                     fallback: 'there' },
-  { key: 'last_name',  label: 'Last name',   sample: 'Okoro',                   fallback: '' },
-  { key: 'full_name',  label: 'Full name',   sample: 'Ada Okoro',               fallback: 'Customer' },
+  { key: 'first_name', label: 'First Name',  sample: 'Ada',                     fallback: 'there' },
+  { key: 'last_name',  label: 'Last Name',   sample: 'Okoro',                   fallback: '' },
+  { key: 'full_name',  label: 'Full Name',   sample: 'Ada Okoro',               fallback: 'Customer' },
   { key: 'amount',     label: 'Amount',      sample: '₦150,000',                fallback: 'your balance' },
-  { key: 'due_date',   label: 'Due date',    sample: '15 Aug 2026',             fallback: 'soon' },
-  { key: 'cif_number', label: 'CIF number',  sample: 'CIF00012345',             fallback: '' },
+  { key: 'due_date',   label: 'Due Date',    sample: '15 Aug 2026',             fallback: 'soon' },
+  { key: 'cif_number', label: 'CIF Number',  sample: 'CIF00012345',             fallback: '' },
   { key: 'phone',      label: 'Phone',       sample: '0803 123 4567',           fallback: '' },
   { key: 'email',      label: 'Email',       sample: 'ada@example.com',         fallback: '' },
   { key: 'company',    label: 'Company',     sample: 'O3 Capital',              fallback: 'O3 Capital' },

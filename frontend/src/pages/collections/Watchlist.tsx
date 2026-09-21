@@ -104,7 +104,7 @@ function AddModal({ open, onClose, onDone }: {
         scenario,
         notes,
         dpd_at_flag:      Number(dpd) || 0,
-        outstanding_kobo: Number(outstanding) || 0,
+        outstanding_kobo: outstanding ? Math.round(parseFloat(outstanding) * 100) : 0,
       })
       toast.success('Added to watchlist')
       onDone()
@@ -159,7 +159,7 @@ function AddModal({ open, onClose, onDone }: {
             <input type="number" value={dpd} onChange={e => setDpd(e.target.value)} placeholder="0" style={field} />
           </div>
           <div>
-            <label style={lbl}>Outstanding (kobo)</label>
+            <label style={lbl}>Outstanding (₦)</label>
             <input type="number" value={outstanding} onChange={e => setOutstanding(e.target.value)} placeholder="0" style={field} />
           </div>
         </div>
@@ -456,7 +456,7 @@ export default function Watchlist() {
           onRowClick={r => { if (r.account_cif) navigate(`/collections/accounts/${r.account_cif}`) }}
           loading={loading}
           skeletonRows={8}
-          emptyText="No watchlist entries found"
+          emptyText="No Watchlist Entries Found"
           pageSize={25}
         />
       </SectionCard>

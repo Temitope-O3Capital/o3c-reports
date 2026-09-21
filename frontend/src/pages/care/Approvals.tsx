@@ -195,7 +195,7 @@ export default function CareApprovals() {
                       style={{ ...btnDanger, opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer' }}
                     >
                       <span className="material-symbols-rounded" style={{ fontSize: 18 }}>delete</span>
-                      Approve deletion
+                      Approve Deletion
                     </button>
                     <button
                       onClick={() => decide(r.id, false)}
@@ -209,7 +209,7 @@ export default function CareApprovals() {
                   <div style={{ marginTop: 12, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
                     {r.decided_by_name
                       ? <>Decided by <strong style={{ color: 'var(--txt2)' }}>{r.decided_by_name}</strong>{r.decided_at ? ` · ${fmtDatetime(r.decided_at)}` : ''}</>
-                      : 'Not yet decided'}
+                      : 'Not Yet Decided'}
                     {r.decision_note && (
                       <span style={{ display: 'block', marginTop: 4, color: 'var(--txt2)', fontStyle: 'italic' }}>
                         “{r.decision_note}”

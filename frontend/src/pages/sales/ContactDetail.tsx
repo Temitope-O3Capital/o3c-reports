@@ -6,6 +6,8 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { fmtDate, fmtKobo } from '../../lib/fmt'
 import { GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
+import { currentUser, allRoles, hasPage } from '../../hooks/useAuth'
+import { MGMT } from '../../lib/roles'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,6 +27,9 @@ interface Contact {
   id_type:          string | null
   source:           string | null
   cif_number:       string | null
+  // The 360 endpoint returns crm_contacts.* so these come along; optional for safety.
+  lead_stage?:      string | null
+  converted_cif?:   string | null
   status:           string
   tags:             string | null
   notes:            string | null
@@ -88,6 +93,25 @@ const PRIORITY_COLOR: Record<string, string> = {
   high: RED, medium: AMBER, low: GREEN,
 }
 
+// Activity kinds that move the lead forward (POST /api/sales/leads/{id}/activity). The
+// stored stage for "Interested" is 'qualified'. Only kinds later than the contact's
+// current lead_stage are offered; with no lead_stage all five are offered and the
+// server's 409 explains a stage that is already at/after the chosen one.
+const FORWARD_KINDS = [
+  { kind: 'interested',            stage: 'qualified',             label: 'Interested' },
+  { kind: 'handed_to_sales',       stage: 'handed_to_sales',       label: 'Handed to Sales' },
+  { kind: 'documents_requested',   stage: 'documents_requested',   label: 'Documents Requested' },
+  { kind: 'application_submitted', stage: 'application_submitted', label: 'Application Submitted' },
+  { kind: 'approved',              stage: 'approved',              label: 'Approved' },
+]
+const LEAD_OPEN_ORDER = ['new', 'contacted', 'qualified', 'handed_to_sales', 'documents_requested', 'application_submitted', 'approved']
+function leadForwardKinds(stage: string | null | undefined) {
+  if (!stage) return FORWARD_KINDS
+  const i = LEAD_OPEN_ORDER.indexOf(stage)
+  if (i < 0) return [] // converted / disqualified: nothing moves forward
+  return FORWARD_KINDS.filter(k => LEAD_OPEN_ORDER.indexOf(k.stage) > i)
+}
+
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null
   return (
@@ -132,10 +156,22 @@ export default function ContactDetail() {
   async function logActivity() {
     setSaving(true)
     try {
-      await apiPost(`/api/crm/activities`, {
-        contact_id: Number(id), type: actType, subject: actSubj, body: actBody, outcome: actOutc,
-      })
-      toast.success('Activity logged')
+      const fwd = FORWARD_KINDS.find(k => k.kind === actType)
+      if (fwd) {
+        // Moves the lead forward — the contact id is the lead id. Note = the body text.
+        const note = actBody.trim()
+        const res = await apiPost<{ ok: boolean; moved: boolean; from?: string; to?: string; activity_id?: number }>(
+          `/api/sales/leads/${id}/activity`, note ? { kind: actType, note } : { kind: actType },
+        )
+        const to = FORWARD_KINDS.find(k => k.stage === res?.to)?.label ?? fwd.label
+        toast.success(res?.moved === false ? 'Activity logged' : `Moved to ${to}`)
+        setActType('call')
+      } else {
+        await apiPost(`/api/crm/activities`, {
+          contact_id: Number(id), type: actType, subject: actSubj, body: actBody, outcome: actOutc,
+        })
+        toast.success('Activity logged')
+      }
       setShowActivity(false)
       setActSubj(''); setActBody(''); setActOutc('')
       load()
@@ -148,12 +184,18 @@ export default function ContactDetail() {
 
   const { contact, deals, activities, tasks } = data
   const statusColor = STATUS_COLOR[contact.status] ?? '#6B7280'
+  const fwdKinds = leadForwardKinds(contact.lead_stage)
+  const isForward = FORWARD_KINDS.some(k => k.kind === actType)
+  // Customer 360: a converted contact with a CIF, for users who can open that page.
+  const me = currentUser()
+  const canC360 = hasPage('customer360', me) || (!!me && allRoles(me).some(r => MGMT.has(r)))
+  const c360Cif = contact.lead_stage === 'converted' ? (contact.converted_cif || contact.cif_number || '') : ''
 
   const TABS = [
     { key: 'overview',   label: 'Overview'   },
     { key: 'activities', label: `Activities (${activities.length})` },
     { key: 'deals',      label: `Deals (${deals.length})`           },
-    { key: 'tasks',      label: `Tasks (${tasks.filter(t=>t.status==='open').length} open)` },
+    { key: 'tasks',      label: `Tasks (${tasks.filter(t=>t.status==='open').length} Open)` },
   ] as const
 
   return (
@@ -162,6 +204,13 @@ export default function ContactDetail() {
       subtitle={[contact.occupation, contact.employer].filter(Boolean).join(' · ')}
       actions={
         <div style={{ display: 'flex', gap: 8 }}>
+          {c360Cif && canC360 && (
+            <button onClick={() => navigate(`/customers/${encodeURIComponent(c360Cif)}`)}
+              title={`Open customer ${c360Cif} in Customer 360`}
+              style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', borderRadius:RADIUS.md, border:'1px solid var(--bdr)', background:'var(--card)', color:'var(--txt)', fontSize:TEXT.sm, fontWeight:FW.semibold, cursor:'pointer', fontFamily:INTER }}>
+              <span className="material-symbols-rounded" style={{ fontSize:15 }}>person</span>Open Customer 360
+            </button>
+          )}
           <button onClick={() => setShowActivity(true)}
             style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', borderRadius:RADIUS.md, border:`1px solid ${NAVY}25`, background:`${NAVY}08`, color:NAVY, fontSize:TEXT.sm, fontWeight:FW.bold, cursor:'pointer', fontFamily:INTER }}>
             <span className="material-symbols-rounded" style={{ fontSize:15 }}>add_task</span>Log Activity
@@ -365,11 +414,23 @@ export default function ContactDetail() {
       >
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
-            <label style={{ display:'block', fontSize:TEXT.sm, fontWeight:FW.semibold, color:'var(--txt2)', marginBottom:5 }}>Type</label>
-            <select value={actType} onChange={e => setActType(e.target.value)}
+            <label htmlFor="contact-activity-type" style={{ display:'block', fontSize:TEXT.sm, fontWeight:FW.semibold, color:'var(--txt2)', marginBottom:5 }}>Type</label>
+            <select id="contact-activity-type" value={actType} onChange={e => setActType(e.target.value)}
               style={{ width:'100%', padding:`${SP[2]} 10px`, border:'1px solid var(--input-bdr)', borderRadius:RADIUS.md, fontSize:TEXT.base, background:'var(--input-bg)', color:'var(--txt)', boxSizing:'border-box' }}>
-              {['call','email','meeting','note','other'].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+              {fwdKinds.length > 0 && (
+                <optgroup label="Moves the Lead Forward">
+                  {fwdKinds.map(k => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+                </optgroup>
+              )}
+              <optgroup label="Record Only">
+                {['call','email','meeting','note','other'].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+              </optgroup>
             </select>
+            {isForward && (
+              <div style={{ fontSize:TEXT.xs, color:'var(--txt3)', marginTop:5 }}>
+                Moves the lead to {FORWARD_KINDS.find(k => k.kind === actType)?.label}. Only the notes are sent with it (max 2000 characters).
+              </div>
+            )}
           </div>
           <div>
             <label style={{ display:'block', fontSize:TEXT.sm, fontWeight:FW.semibold, color:'var(--txt2)', marginBottom:5 }}>Subject</label>
@@ -378,7 +439,7 @@ export default function ContactDetail() {
           </div>
           <div>
             <label style={{ display:'block', fontSize:TEXT.sm, fontWeight:FW.semibold, color:'var(--txt2)', marginBottom:5 }}>Notes</label>
-            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={actBody} onChange={e => setActBody(e.target.value)} rows={3}
+            <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false" value={actBody} onChange={e => setActBody(e.target.value)} rows={3} maxLength={isForward ? 2000 : undefined}
               style={{ width:'100%', padding:'8px 10px', border:'1px solid var(--input-bdr)', borderRadius:7, fontSize:TEXT.base, background:'var(--input-bg)', color:'var(--txt)', boxSizing:'border-box', resize:'vertical' }} />
           </div>
           <div>

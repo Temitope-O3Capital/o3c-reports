@@ -91,7 +91,7 @@ export default function PerformancePanel() {
       {/* Connect-rate trend + talk distribution (not on the Overview) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: SP[4] }}>
         <SectionCard title="Connect Rate Trend" subtitle="Daily connect rate: quality of contact over time">
-          {trend.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls in range</div> : (
+          {trend.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No Calls in Range</div> : (
             <ELine
               data={trend.map(x => ({ ...x, label: fmtDate(x.date, { month: 'short', day: 'numeric' }) }))}
               xKey="label"
@@ -105,7 +105,7 @@ export default function PerformancePanel() {
           )}
         </SectionCard>
         <SectionCard title="Talk-Time Distribution" subtitle="Length of connected calls">
-          {dist.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No connected calls</div> : (
+          {dist.length === 0 ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No Connected Calls</div> : (
             <EBar
               data={dist}
               xKey="bucket"
@@ -121,7 +121,7 @@ export default function PerformancePanel() {
 
       {/* Busiest hours */}
       <SectionCard title="Busiest Hours" subtitle="Inbound & outbound by hour of day">
-        {total === 0 ? <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No calls in range</div> : (
+        {total === 0 ? <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No Calls in Range</div> : (
           <EBar
             data={hours}
             xKey="label"
@@ -147,7 +147,7 @@ export default function PerformancePanel() {
             </tr></thead>
             <tbody>
               {loading ? <tr><td colSpan={8} style={{ ...TD, textAlign: 'center', padding: 40 }}><Spinner size={18} /></td></tr>
-                : purposes.length === 0 ? <tr><td colSpan={8} style={{ ...TD, textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No calls in range</td></tr>
+                : purposes.length === 0 ? <tr><td colSpan={8} style={{ ...TD, textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No Calls in Range</td></tr>
                 : purposes.map((p) => {
                   const t = num(p.total), conn = num(p.connected)
                   const cr = t > 0 ? Math.round((conn / t) * 100) : 0
@@ -183,7 +183,7 @@ export default function PerformancePanel() {
             </tr></thead>
             <tbody>
               {loading ? <tr><td colSpan={7} style={{ ...TD, textAlign: 'center', padding: 40 }}><Spinner size={18} /></td></tr>
-                : agents.length === 0 ? <tr><td colSpan={7} style={{ ...TD, textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No calls in range</td></tr>
+                : agents.length === 0 ? <tr><td colSpan={7} style={{ ...TD, textAlign: 'center', padding: 40, color: 'var(--txt2)' }}>No Calls in Range</td></tr>
                 : agents.map((a, i) => {
                   const t = num(a.total), conn = num(a.connected)
                   const cr = t > 0 ? Math.round((conn / t) * 100) : 0

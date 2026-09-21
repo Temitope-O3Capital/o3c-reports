@@ -48,7 +48,7 @@ function ContextPanel({ ticket, onOpen }: { ticket: MailTicket; onOpen: (id: num
           </div>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ticket.customer_name || 'Unknown customer'}</div>
-            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{ticket.customer_cif ? `CIF ${ticket.customer_cif}` : 'No CIF linked'}</div>
+            <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{ticket.customer_cif ? `CIF ${ticket.customer_cif}` : 'No CIF Linked'}</div>
           </div>
         </div>
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -215,15 +215,15 @@ export default function CareMailView() {
                 <StatusBadge status={t.status} size="sm" />
                 <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{t.assigned_to_name ? `Assigned to ${t.assigned_to_name}` : 'Unassigned'}</span>
                 {t.mail_subgroup && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: NAVY, background: `${NAVY}0f`, padding: '2px 8px', borderRadius: RADIUS.full }}>{t.mail_subgroup}</span>}
-                {t.delete_requested && <span style={{ fontSize: TEXT['2xs'], color: RED, background: `${RED}12`, border: `1px solid ${RED}30`, borderRadius: RADIUS.full, padding: '2px 8px', fontWeight: FW.bold }}>Deletion pending approval</span>}
+                {t.delete_requested && <span style={{ fontSize: TEXT['2xs'], color: RED, background: `${RED}12`, border: `1px solid ${RED}30`, borderRadius: RADIUS.full, padding: '2px 8px', fontWeight: FW.bold }}>Deletion Pending Approval</span>}
               </div>
             </div>
 
             {/* Actions */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, position: 'relative', flexWrap: 'wrap' }}>
-              {!t.assigned_to && <button onClick={claim} style={{ ...ghostBtn, color: NAVY, borderColor: `${NAVY}30` }}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>person_add</span>Assign to me</button>}
+              {!t.assigned_to && <button onClick={claim} style={{ ...ghostBtn, color: NAVY, borderColor: `${NAVY}30` }}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>person_add</span>Assign to Me</button>}
               {escalated
-                ? <button onClick={clearEscalation} style={{ ...ghostBtn, color: RED, borderColor: `${RED}30` }}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>check</span>Clear escalation</button>
+                ? <button onClick={clearEscalation} style={{ ...ghostBtn, color: RED, borderColor: `${RED}30` }}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>check</span>Clear Escalation</button>
                 : <button onClick={escalate} style={{ ...ghostBtn, color: AMBER, borderColor: `${AMBER}40` }}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>priority_high</span>Escalate</button>}
               {terminal
                 ? <button onClick={() => setStatus('open')} style={ghostBtn}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>replay</span>Reopen</button>
@@ -233,14 +233,14 @@ export default function CareMailView() {
                 <>
                   <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 30 }} />
                   <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 31, minWidth: 220, background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, boxShadow: '0 12px 34px rgba(0,0,0,0.18)', overflow: 'hidden', padding: 4 }}>
-                    <MenuItem icon="flag" label={t.is_flagged ? 'Remove flag' : 'Flag this mail'} onClick={toggleFlag} />
-                    <div style={{ padding: '8px 10px 4px', fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Move to folder</div>
+                    <MenuItem icon="flag" label={t.is_flagged ? 'Remove Flag' : 'Flag This Mail'} onClick={toggleFlag} />
+                    <div style={{ padding: '8px 10px 4px', fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Move to Folder</div>
                     <MenuItem icon="inbox" label="Unsorted" onClick={() => changeSubgroup('')} checked={!t.mail_subgroup} />
                     {CARE_SUBGROUPS.map(s => <MenuItem key={s} icon={SUBGROUP_ICON[s] || 'label'} label={s} onClick={() => changeSubgroup(s)} checked={t.mail_subgroup === s} />)}
                     {!t.delete_requested && t.status !== 'closed' && (
                       <>
                         <div style={{ height: 1, background: 'var(--bdr)', margin: '4px 0' }} />
-                        <MenuItem icon="delete" label="Request deletion" onClick={requestDelete} danger />
+                        <MenuItem icon="delete" label="Request Deletion" onClick={requestDelete} danger />
                       </>
                     )}
                   </div>

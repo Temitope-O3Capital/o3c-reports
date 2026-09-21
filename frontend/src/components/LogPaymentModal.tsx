@@ -163,7 +163,7 @@ export function LogPaymentModal({ open, onClose, title, endpoint, onSuccess, cha
 
         {/* Reference */}
         <div>
-          <label style={labelStyle}>Reference / Receipt No. <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+          <label style={labelStyle}>Reference / Receipt No. <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span></label>
           <input
             type="text"
             placeholder="e.g. TRF-2025-00123"

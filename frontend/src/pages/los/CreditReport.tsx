@@ -87,10 +87,10 @@ function BureauSummary({ b }: { b: AnyObj }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <KV cols={4} rows={scalarKeys.map(k => [pretty(k), fmtScalar(k, b[k])])} />
       {Array.isArray(b.reason_codes) && b.reason_codes.length > 0 && (
-        <div><div style={sub}>Reason codes</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{b.reason_codes.map((c: string, i: number) => <span key={i} style={chip}>{c}</span>)}</div></div>
+        <div><div style={sub}>Reason Codes</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{b.reason_codes.map((c: string, i: number) => <span key={i} style={chip}>{c}</span>)}</div></div>
       )}
       {Array.isArray(b.address_history) && b.address_history.length > 0 && (
-        <div><div style={sub}>Address history</div>{b.address_history.map((a: string, i: number) => <div key={i} style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{a}</div>)}</div>
+        <div><div style={sub}>Address History</div>{b.address_history.map((a: string, i: number) => <div key={i} style={{ fontSize: 12.5, color: 'var(--txt2)' }}>{a}</div>)}</div>
       )}
       {['facilities', 'inquiry_history', 'contact_history', 'performance_summary', 'litigation_details', 'dishonored_cheque_details'].map(key =>
         Array.isArray(b[key]) && b[key].length > 0 ? (
@@ -143,14 +143,14 @@ export function CreditReportBody({ data }: { data: ReportResp }) {
       {/* Recommendation / decision trace */}
       <SectionCard title="Recommendation & Decision">
         <KV cols={4} rows={[
-          ['Recommended route', route ? <Pill text={pretty(route)} color={ROUTE_COLOR[route] ?? '#6B7280'} /> : '—'],
-          ['Recommended amount', money(r.recommended_amount_minor)],
-          ['Recommended limit', money(r.recommended_limit_minor)],
-          ['Policy version', txt(r.policy_version)],
+          ['Recommended Route', route ? <Pill text={pretty(route)} color={ROUTE_COLOR[route] ?? '#6B7280'} /> : '—'],
+          ['Recommended Amount', money(r.recommended_amount_minor)],
+          ['Recommended Limit', money(r.recommended_limit_minor)],
+          ['Policy Version', txt(r.policy_version)],
         ]} />
         {Array.isArray(r.decision_trace) && r.decision_trace.length > 0 && (
           <div style={{ marginTop: 14 }}>
-            <div style={sub}>Decision trace</div>
+            <div style={sub}>Decision Trace</div>
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--txt2)', lineHeight: 1.7 }}>
               {r.decision_trace.map((t: string, i: number) => <li key={i}>{t}</li>)}
             </ul>
@@ -161,13 +161,13 @@ export function CreditReportBody({ data }: { data: ReportResp }) {
       {/* Eye score */}
       <SectionCard title="Eye Score & Affordability Model">
         <KV cols={4} rows={[
-          ['Credit score', <span style={{ ...NUM, fontWeight: 800, fontSize: 18, color: NAVY }}>{r.credit_score ?? '—'}</span>],
-          ['Risk band', txt(r.risk_band)],
-          ['Probability of default', pct01(r.probability_of_default)],
-          ['Max loan amount', money(r.max_loan_amount_minor)],
-          ['Hard gate', r.hard_gate_triggered ? <span style={{ color: RED, fontWeight: 700 }}>Triggered</span> : yn(r.hard_gate_triggered)],
-          ['Hard gate reason', txt(r.hard_gate_reason)],
-          ['Scored at', dt(r.scored_at)],
+          ['Credit Score', <span style={{ ...NUM, fontWeight: 800, fontSize: 18, color: NAVY }}>{r.credit_score ?? '—'}</span>],
+          ['Risk Band', txt(r.risk_band)],
+          ['Probability of Default', pct01(r.probability_of_default)],
+          ['Max Loan Amount', money(r.max_loan_amount_minor)],
+          ['Hard Gate', r.hard_gate_triggered ? <span style={{ color: RED, fontWeight: 700 }}>Triggered</span> : yn(r.hard_gate_triggered)],
+          ['Hard Gate Reason', txt(r.hard_gate_reason)],
+          ['Scored At', dt(r.scored_at)],
         ]} />
       </SectionCard>
 
@@ -185,10 +185,10 @@ export function CreditReportBody({ data }: { data: ReportResp }) {
       {/* Applicant / KYC */}
       <SectionCard title="Applicant & KYC">
         <KV rows={[
-          ['Customer name', txt(r.customer_name)],
-          ['KYC status', <Pill text={pretty(kyc)} color={KYC_COLOR[kyc] ?? '#6B7280'} />],
-          ['Customer id', <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{txt(r.customer_id)}</span>],
-          ['Credit request', <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{txt(r.credit_request_id)}</span>],
+          ['Customer Name', txt(r.customer_name)],
+          ['KYC Status', <Pill text={pretty(kyc)} color={KYC_COLOR[kyc] ?? '#6B7280'} />],
+          ['Customer ID', <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{txt(r.customer_id)}</span>],
+          ['Credit Request', <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{txt(r.credit_request_id)}</span>],
         ]} />
       </SectionCard>
 
@@ -196,31 +196,31 @@ export function CreditReportBody({ data }: { data: ReportResp }) {
       <SectionCard title="Employment & Stated Income">
         <KV cols={4} rows={[
           ['Employer', txt(r.employer_name)],
-          ['Stated monthly income', money(r.stated_monthly_income_minor)],
-          ['Pay frequency', txt(r.pay_frequency)],
-          ['Income variance', r.income_variance_pct === null || r.income_variance_pct === undefined ? '—' : `${(Number(r.income_variance_pct) * 100).toFixed(1)}%`],
-          ['Income mismatch', r.income_mismatch_flag ? <span style={{ color: AMBER, fontWeight: 700 }}>Yes (&gt;30%)</span> : yn(r.income_mismatch_flag)],
+          ['Stated Monthly Income', money(r.stated_monthly_income_minor)],
+          ['Pay Frequency', txt(r.pay_frequency)],
+          ['Income Variance', r.income_variance_pct === null || r.income_variance_pct === undefined ? '—' : `${(Number(r.income_variance_pct) * 100).toFixed(1)}%`],
+          ['Income Mismatch', r.income_mismatch_flag ? <span style={{ color: AMBER, fontWeight: 700 }}>Yes (&gt;30%)</span> : yn(r.income_mismatch_flag)],
         ]} />
       </SectionCard>
 
       {/* Verified cash-flow / affordability */}
-      <SectionCard title="Verified Cash-flow & Affordability">
+      <SectionCard title="Verified Cash-Flow & Affordability">
         <KV cols={4} rows={[
-          ['Statement on file', yn(r.statement_on_file)],
-          ['Verified monthly income', money(r.verified_monthly_income_minor)],
-          ['Avg monthly inflow', money(r.avg_monthly_inflow_minor)],
-          ['Avg monthly outflow', money(r.avg_monthly_outflow_minor)],
-          ['Disposable income', <span style={{ color: Number(r.disposable_income_minor) < 0 ? RED : 'var(--txt)', fontWeight: 700 }}>{money(r.disposable_income_minor)}</span>],
-          ['Closing balance', money(r.closing_balance_minor)],
-          ['Aggregate source', txt(r.aggregate_source)],
+          ['Statement on File', yn(r.statement_on_file)],
+          ['Verified Monthly Income', money(r.verified_monthly_income_minor)],
+          ['Avg Monthly Inflow', money(r.avg_monthly_inflow_minor)],
+          ['Avg Monthly Outflow', money(r.avg_monthly_outflow_minor)],
+          ['Disposable Income', <span style={{ color: Number(r.disposable_income_minor) < 0 ? RED : 'var(--txt)', fontWeight: 700 }}>{money(r.disposable_income_minor)}</span>],
+          ['Closing Balance', money(r.closing_balance_minor)],
+          ['Aggregate Source', txt(r.aggregate_source)],
         ]} />
       </SectionCard>
 
       {/* Existing debt */}
       <SectionCard title="Existing Debt">
         <KV rows={[
-          ['GSI / loan-recovery debit', r.gsi_debit_detected ? <span style={{ color: RED, fontWeight: 700 }}>Detected</span> : yn(r.gsi_debit_detected)],
-          ['GSI debit total', money(r.gsi_debit_total_minor)],
+          ['GSI / Loan-Recovery Debit', r.gsi_debit_detected ? <span style={{ color: RED, fontWeight: 700 }}>Detected</span> : yn(r.gsi_debit_detected)],
+          ['GSI Debit Total', money(r.gsi_debit_total_minor)],
         ]} />
       </SectionCard>
 
@@ -228,8 +228,8 @@ export function CreditReportBody({ data }: { data: ReportResp }) {
       <SectionCard title="Bureau (CRC)">
         <div style={{ marginBottom: 14 }}>
           <KV cols={4} rows={[
-            ['Bureau checked', yn(r.bureau_checked)],
-            ['Fetched at', r.bureau_fetched_at ? fmtDatetime(r.bureau_fetched_at) : '—'],
+            ['Bureau Checked', yn(r.bureau_checked)],
+            ['Fetched At', r.bureau_fetched_at ? fmtDatetime(r.bureau_fetched_at) : '—'],
           ]} />
         </div>
         {r.bureau_summary && typeof r.bureau_summary === 'object'
@@ -238,7 +238,7 @@ export function CreditReportBody({ data }: { data: ReportResp }) {
       </SectionCard>
 
       {extra.length > 0 && (
-        <SectionCard title="Other fields">
+        <SectionCard title="Other Fields">
           <KV rows={extra.map(k => [pretty(k), anyVal(r[k])])} />
         </SectionCard>
       )}

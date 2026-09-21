@@ -204,8 +204,8 @@ function makeCols(role: string, onApprove: (r: DebtSale) => void, onReject: (r: 
       render: r => (
         <ActionRow actions={[
           ...(canApprove(r) ? [
-            { icon: 'check_circle', label: r.required_role === FINAL_ROLE ? 'Approve & post debt sale' : 'Approve — send to next approver', onClick: () => onApprove(r), danger: true },
-            { icon: 'cancel',       label: 'Reject debt sale', onClick: () => onReject(r) },
+            { icon: 'check_circle', label: r.required_role === FINAL_ROLE ? 'Approve & Post Debt Sale' : 'Approve — Send to Next Approver', onClick: () => onApprove(r), danger: true },
+            { icon: 'cancel',       label: 'Reject Debt Sale', onClick: () => onReject(r) },
           ] : []),
           { icon: 'delete', label: 'Delete', onClick: () => onDelete(r.id), danger: true },
         ]} />
@@ -228,6 +228,9 @@ export default function DebtSales() {
   const [search,      setSearch]      = useState('')
   const [action,      setAction]      = useState<{ sale: DebtSale; type: 'approve' | 'reject' } | null>(null)
   const [acting,      setActing]      = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+
+  useEffect(() => { if (!action) setRejectReason('') }, [action])
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); setErr(null)
@@ -270,7 +273,7 @@ export default function DebtSales() {
         await apiPut(`/api/recovery/debt-sales/${action.sale.id}/approve`, {})
         toast.success(action.sale.required_role === FINAL_ROLE ? 'Debt sale approved & posted' : 'Approved — sent to the next approver')
       } else {
-        await apiPut(`/api/recovery/debt-sales/${action.sale.id}/reject`, { rejection_reason: 'Rejected on review' })
+        await apiPut(`/api/recovery/debt-sales/${action.sale.id}/reject`, { rejection_reason: rejectReason.trim() || 'Rejected on review' })
         toast.success('Debt sale rejected')
       }
       setAction(null); load()
@@ -387,7 +390,20 @@ export default function DebtSales() {
         loading={acting}
         onConfirm={runAction}
         onClose={() => setAction(null)}
-      />
+      >
+        {action?.type === 'reject' && (
+          <div>
+            <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>Rejection Reason</label>
+            <textarea
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+              rows={3}
+              placeholder="Why is this debt sale being rejected? (optional — defaults to “Rejected on review”)"
+              style={{ ...filterInputStyle, width: '100%', height: 'auto', padding: '8px 10px', resize: 'vertical', boxSizing: 'border-box' }}
+            />
+          </div>
+        )}
+      </ConfirmModal>
     </Page>
   )
 }

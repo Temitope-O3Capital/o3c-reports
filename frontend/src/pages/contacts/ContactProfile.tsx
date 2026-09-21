@@ -6,6 +6,8 @@ import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { fmtDate, fmtDatetime, fmtKoboExact, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, PURPLE, NUM, SORA, TEXT, FW, SP, RADIUS, TRANSITION } from '../../lib/design'
 import { useDebouncedValue } from '../../hooks/useDebounce'
+import { mccName } from '../../lib/mcc'
+import { currencyName } from '../../lib/currency'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -458,7 +460,7 @@ function CardFace({ card, onClick }: { card: ContactProfileData['cards'][number]
       <div style={{ padding: '0 3px', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-            {inCredit ? 'In credit' : (limit > 0 ? 'Balance / Limit' : 'Balance')}
+            {inCredit ? 'In Credit' :(limit > 0 ? 'Balance / Limit' : 'Balance')}
           </span>
           <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: inCredit ? GREEN : 'var(--txt)' }}>
             {inCredit
@@ -480,7 +482,7 @@ function CardFace({ card, onClick }: { card: ContactProfileData['cards'][number]
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>CIF {card.cif}</span>
-          {Number(card.days_overdue ?? 0) > 0 && <Badge label={`${card.days_overdue}d overdue`} colour={RED} />}
+          {Number(card.days_overdue ?? 0) > 0 && <Badge label={`${card.days_overdue}d Overdue`} colour={RED} />}
         </div>
 
         <button
@@ -568,19 +570,10 @@ interface LedgerSummary {
 // can hold 4,600+ transactions. Filtering that client-side would silently show a
 // slice while looking like the whole thing.
 // ── Spending & behaviour analytics ──────────────────────────────────────────────
-// ISO-18245 merchant categories, named for the codes that actually appear in O3's book
-// (6011 dominates — it's ATM cash). Unknown codes fall back to "MCC ####".
-const MCC_NAMES: Record<string, string> = {
-  '6011': 'ATM cash', '6010': 'Cash — manual', '6012': 'Financial institution', '6013': 'Financial — other', '6014': 'Cash disbursement',
-  '6051': 'Quasi-cash / crypto', '4829': 'Money transfer',
-  '5541': 'Fuel', '5542': 'Fuel — automated', '5411': 'Groceries', '5300': 'Wholesale', '5310': 'Discount stores',
-  '5399': 'General merchandise', '5999': 'Retail — misc', '5311': 'Department stores', '5651': 'Clothing', '5691': 'Apparel',
-  '5812': 'Restaurants', '5814': 'Fast food', '5811': 'Caterers', '7011': 'Hotels', '7399': 'Business services',
-  '4814': 'Telecoms / airtime', '4900': 'Utilities', '5912': 'Pharmacy', '8011': 'Doctors', '8062': 'Hospitals',
-  '4111': 'Transport', '4121': 'Taxi / rideshare', '7995': 'Betting', '7994': 'Gaming', '5964': 'Direct marketing',
-  '1111': 'Uncategorised',
-}
-const mccName = (m: string) => MCC_NAMES[m] ?? `MCC ${m}`
+// MCC names come from lib/mcc — this file used to carry its own copy of the table,
+// which had already drifted from the one the portfolio analytics use. The shared
+// table also covers the codes measured off the retained drops (76 distinct in a
+// 120-file sample) rather than the original 32.
 
 const _num = (x: unknown) => Number(x ?? 0)
 function nairaShort(v: number): string {
@@ -597,6 +590,9 @@ interface Analytics {
   by_category?: { mcc: string; txns: number; spend: number }[]
   by_channel?: { channel: string; txns: number; spend: number }[]
   by_city?: { city: string; txns: number; spend: number }[]
+  by_currency?: { currency_code: string; txns: number; spend: number; inflow: number }[]
+  by_type?: { txn_type: string; txns: number; spend: number }[]
+  top_atm_locations?: { location: string; txns: number; amount: number }[]
   monthly?: { month: string; outflow: number; inflow: number }[]
 }
 
@@ -650,37 +646,70 @@ function SpendingInsights({ cif }: { cif: string }) {
   const cats = a?.by_category ?? []
   const channels = a?.by_channel ?? []
   const cities = a?.by_city ?? []
+  const currencies = a?.by_currency ?? []
+  const types = a?.by_type ?? []
+  const atmLocations = a?.top_atm_locations ?? []
   const monthly = a?.monthly ?? []
-  if (merchants.length === 0 && cats.length === 0 && channels.length === 0) return null
+  // A person holding an Amex USD card has their dollars and naira summed in the
+  // totals above; flag it rather than presenting one figure.
+  const mixedCurrency = currencies.filter(c => _num(c.txns) > 0).length > 1
+  if (merchants.length === 0 && cats.length === 0 && channels.length === 0
+    && types.length === 0 && currencies.length === 0 && atmLocations.length === 0) return null
 
   const monthMax = Math.max(1, ...monthly.flatMap(m => [_num(m.outflow), _num(m.inflow)]))
   const span = a?.totals ? `${fmtDate(a.totals.first_txn)} – ${fmtDate(a.totals.last_txn)}` : ''
 
   return (
-    <SectionCard title="Spending & behaviour" subtitle={span ? `Across all accounts · ${span}` : 'Across all accounts'}>
+    <SectionCard title="Spending & Behaviour" subtitle={span ? `Across all accounts · ${span}` : 'Across all accounts'}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
         {merchants.length > 0 && (
-          <InsightCard title="Top merchants" icon="storefront" tone={NAVY}>
+          <InsightCard title="Top Merchants" icon="storefront" tone={NAVY}>
             <BarList color={NAVY} items={merchants.map(m => ({ label: m.merchant || '—', value: _num(m.spend), sub: nairaShort(_num(m.spend)) }))} />
           </InsightCard>
         )}
+        {atmLocations.length > 0 && (
+          <InsightCard title="Where They Withdraw Cash" icon="local_atm" tone={NAVY}>
+            <BarList color={NAVY} items={atmLocations.map(l => ({ label: l.location || '—', value: _num(l.txns), sub: `${fmtNum(l.txns)}× · ${nairaShort(_num(l.amount))}` }))} />
+          </InsightCard>
+        )}
         {cats.length > 0 && (
-          <InsightCard title="Spending by category" icon="category" tone={PURPLE}>
+          <InsightCard title="Spending by Category" icon="category" tone={PURPLE}>
             <BarList color={PURPLE} items={cats.map(c => ({ label: mccName(c.mcc), value: _num(c.spend), sub: nairaShort(_num(c.spend)) }))} />
           </InsightCard>
         )}
         {channels.length > 0 && (
-          <InsightCard title="How they transact" icon="lan" tone={BLUE}>
+          <InsightCard title="How They Transact" icon="lan" tone={BLUE}>
             <BarList color={BLUE} items={channels.map(c => ({ label: initCap(c.channel), value: _num(c.txns), sub: `${fmtNum(c.txns)}×` }))} />
           </InsightCard>
         )}
+        {types.length > 0 && (
+          <InsightCard title="What They Did" icon="account_balance_wallet" tone={NAVY}>
+            <BarList color={NAVY} items={types.map(t => ({ label: t.txn_type, value: _num(t.txns), sub: `${fmtNum(t.txns)}×` }))} />
+          </InsightCard>
+        )}
         {cities.length > 0 && (
-          <InsightCard title="Where they transact" icon="location_on" tone={GREEN}>
+          /* Feed field 13 is a packed merchant/terminal location ("La", "Lagos Stat",
+             "Lekki Expre"), not a city — titled for what it actually holds. */
+          <InsightCard title="Merchant Location" icon="location_on" tone={GREEN}>
             <BarList color={GREEN} items={cities.map(c => ({ label: c.city || '—', value: _num(c.txns), sub: `${fmtNum(c.txns)}×` }))} />
           </InsightCard>
         )}
+        {currencies.length > 0 && (
+          <InsightCard title="Currency" icon="currency_exchange" tone={AMBER}>
+            <BarList color={AMBER} items={currencies.map(c => ({
+              label: currencyName(c.currency_code),
+              value: _num(c.txns),
+              sub: `${fmtNum(c.txns)}× · ${currencyName(c.currency_code)} ${fmtNum(Math.round(_num(c.spend)))}`,
+            }))} />
+            {mixedCurrency && (
+              <div style={{ marginTop: 9, fontSize: TEXT.xs, color: AMBER }}>
+                Not converted — reported as supplied by the feed.
+              </div>
+            )}
+          </InsightCard>
+        )}
         {monthly.length > 1 && (
-          <InsightCard title="Cashflow · last 12 months" icon="bar_chart" tone={AMBER}>
+          <InsightCard title="Cashflow · Last 12 Months" icon="bar_chart" tone={AMBER}>
             <div style={{ display: 'flex', gap: 5, alignItems: 'flex-end', height: 92 }}>
               {monthly.map(m => (
                 <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
@@ -776,7 +805,7 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
             </div>
           </div>
           <button onClick={() => onCardCif('')} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 11px', background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt)', cursor: 'pointer', fontFamily: SORA }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>All cards
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>All Cards
           </button>
         </div>
       )}
@@ -816,7 +845,7 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
       {/* Filters */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
         <select value={cardCif} onChange={e => onCardCif(e.target.value)} style={{ ...filterInputStyle, minWidth: 220 }}>
-          <option value="">All cards ({profile.cards.length})</option>
+          <option value="">All Cards ({profile.cards.length})</option>
           {profile.cards.map(c => (
             <option key={c.id} value={c.cif}>
               {(c.product_name || 'Card')} · {c.card_number_masked || c.cif} ({fmtNum(c.txn_count)})
@@ -825,12 +854,12 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
         </select>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search description or merchant…" style={{ ...filterInputStyle, flex: 1, minWidth: 200 }} />
         <select value={dir} onChange={e => setDir(e.target.value)} style={filterInputStyle}>
-          <option value="">In &amp; out</option>
-          <option value="in">Money in</option>
-          <option value="out">Money out</option>
+          <option value="">In &amp; Out</option>
+          <option value="in">Money In</option>
+          <option value="out">Money Out</option>
         </select>
         <select value={channel} onChange={e => setChannel(e.target.value)} style={filterInputStyle}>
-          <option value="">All channels</option>
+          <option value="">All Channels</option>
           <option value="interswitch">Interswitch</option>
           <option value="internal">Internal</option>
           <option value="collection">Collection</option>
@@ -839,7 +868,7 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
         <input type="date" value={to}   onChange={e => setTo(e.target.value)}   style={filterInputStyle} title="To date" />
         {filtered && (
           <button onClick={reset} style={{ padding: '7px 12px', background: 'transparent', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA }}>
-            Clear filters
+            Clear Filters
           </button>
         )}
       </div>
@@ -1205,7 +1234,7 @@ function LoansTab({ profile }: { profile: ContactProfileData }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {manual.length > 0 && (
-        <SectionCard title="Loan Repayment (uploaded)">
+        <SectionCard title="Loan Repayment (Uploaded)">
           {manual.map((l, i) => (
             <div key={i} style={{ padding: '12px 0', borderBottom: '1px solid var(--bdr)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
               <div>
@@ -1746,7 +1775,7 @@ function DocumentsTab({ cif }: { cif: string }) {
         {docs.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '40px 16px', textAlign: 'center' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 38, color: 'var(--txt3)' }}>folder_open</span>
-            <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No documents on file</div>
+            <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No Documents on File</div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', maxWidth: 380 }}>
               KYC and supporting files uploaded on this customer's credit applications appear here.
               None have been collected yet.
@@ -1781,7 +1810,7 @@ function DocumentsTab({ cif }: { cif: string }) {
                 {preview.file_name} · {preview.application_ref}{preview.uploaded_by_name ? ` · by ${preview.uploaded_by_name}` : ''}
               </div>
               <a href={preview.file_url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, textDecoration: 'none' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>open_in_new</span> Open original
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>open_in_new</span> Open Original
               </a>
             </div>
             {isImageDoc(preview.file_name) ? (
@@ -1791,7 +1820,7 @@ function DocumentsTab({ cif }: { cif: string }) {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '50px 0', color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 44, color: 'var(--txt3)' }}>description</span>
-                <div style={{ fontSize: TEXT.sm }}>Preview not available — use "Open original"</div>
+                <div style={{ fontSize: TEXT.sm }}>Preview not available — use "Open Original"</div>
               </div>
             )}
           </div>
@@ -1882,7 +1911,7 @@ function RequestAccommodationModal({ cif, open, onClose, onDone }: {
             }}>{titleCase(k)}</button>
           ))}
         </div>
-        <div><label style={lbl}>Account / Loan Reference (optional)</label>
+        <div><label style={lbl}>Account / Loan Reference (Optional)</label>
           <input value={accountRef} onChange={e => setAccountRef(e.target.value)} placeholder="e.g. loan or card ref" style={inp} /></div>
         {kind === 'concession' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
@@ -1895,7 +1924,7 @@ function RequestAccommodationModal({ cif, open, onClose, onDone }: {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-            <div><label style={lbl}>New Tenor (months)</label>
+            <div><label style={lbl}>New Tenor (Months)</label>
               <input type="number" value={tenor} onChange={e => setTenor(e.target.value)} style={inp} /></div>
             <div><label style={lbl}>New Rate (% p.a.)</label>
               <input type="number" value={rate} onChange={e => setRate(e.target.value)} style={inp} /></div>
@@ -1952,7 +1981,7 @@ function ConcessionsTab({ cif }: { cif: string }) {
       {rows.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '46px 16px', textAlign: 'center' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 38, color: 'var(--txt3)' }}>handshake</span>
-          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No concessions or restructures yet</div>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No Concessions or Restructures Yet</div>
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', maxWidth: 360 }}>Raise one to waive/settle a balance or re-term the facility. It goes to a head for approval before taking effect.</div>
         </div>
       ) : (
@@ -2047,7 +2076,7 @@ function AccountStatementTab({ cif }: { cif: string }) {
       ) : postings.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '40px 16px', textAlign: 'center' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 30, color: 'var(--txt3)' }}>receipt_long</span>
-          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No postings in this window</div>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No Postings in This Window</div>
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', maxWidth: 320 }}>No core-banking account movement between the selected dates.</div>
         </div>
       ) : (
@@ -2055,7 +2084,7 @@ function AccountStatementTab({ cif }: { cif: string }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--bdr)' }}>
-                {['Value date', 'Description', 'Debit', 'Credit', 'Balance'].map((h, i) => (
+                {['Value Date', 'Description', 'Debit', 'Credit', 'Balance'].map((h, i) => (
                   <th key={h} style={{ textAlign: i > 1 ? 'right' : 'left', padding: '9px 12px', fontSize: TEXT['2xs'], textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--txt3)', fontWeight: FW.bold, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>

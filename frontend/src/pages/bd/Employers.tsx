@@ -479,7 +479,7 @@ function AssignToSalesModal({
             onChange={e => setAgentId(e.target.value)}
             style={{ ...IS, height: 36 }}
           >
-            <option value="">Select agent…</option>
+            <option value="">Select Agent…</option>
             {agents.map(a => (
               <option key={a.id} value={String(a.id)}>{a.full_name}</option>
             ))}
@@ -923,7 +923,7 @@ export default function Employers() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Sales Agent *</label>
             <select value={bulkAgentId} onChange={e => setBulkAgentId(e.target.value)} style={{ ...IS, height: 36 }}>
-              <option value="">Select agent…</option>
+              <option value="">Select Agent…</option>
               {bulkAgents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
             </select>
             {bulkAgents.length === 0 && (
