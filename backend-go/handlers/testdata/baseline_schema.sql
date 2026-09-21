@@ -15,7 +15,10 @@
 -- with foreign keys stripped (tests do not need referential integrity, and the
 -- referenced tables are created later by migrations), and with functional indexes
 -- removed: they call app.norm_phone, regexp_replace and app.gin_trgm_ops, which
--- migrations create after this file loads. Regenerate it the same way
+-- migrations create after this file loads, and with ALL non-unique indexes removed:
+-- they exist for query speed, which no test needs, and each one risked another
+-- dependency on an extension, opclass or function created later. The five unique
+-- indexes stay because migrations use ON CONFLICT against them. Regenerate it the same way
 -- if a baseline table gains a column the handlers read.
 --
 -- It is deliberately NOT a migration: adding a 000_ file would put it in the
@@ -579,63 +582,54 @@ ALTER TABLE ONLY core.state_map
 -- Name: account_account_no_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX account_account_no_idx ON app.accounts USING btree (account_no);
 
 
 --
 -- Name: account_cif_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX account_cif_idx ON app.accounts USING btree (cif);
 
 
 --
 -- Name: account_contact_id_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX account_contact_id_idx ON app.accounts USING btree (contact_id);
 
 
 --
 -- Name: account_product_id_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX account_product_id_idx ON app.accounts USING btree (product_id);
 
 
 --
 -- Name: call_center_leads_contact_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX call_center_leads_contact_idx ON app.call_center_leads USING btree (contact_id);
 
 
 --
 -- Name: customer_cif_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX customer_cif_idx ON app.customers USING btree (cif);
 
 
 --
 -- Name: customer_email_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX customer_email_idx ON app.customers USING btree (email);
 
 
 --
 -- Name: customer_state_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX customer_state_idx ON app.customers USING btree (state);
 
 
 --
 -- Name: idx_accounts_currency_foreign; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_accounts_currency_foreign ON app.accounts USING btree (currency_code) WHERE ((currency_code IS NOT NULL) AND (currency_code <> '566'::text));
 
 
 --
@@ -648,21 +642,18 @@ CREATE INDEX idx_accounts_currency_foreign ON app.accounts USING btree (currency
 -- Name: idx_cc_contacts_assigned; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_contacts_assigned ON app.call_center_contacts USING btree (assigned_to, status) WHERE (assigned_to IS NOT NULL);
 
 
 --
 -- Name: idx_cc_contacts_callback; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_contacts_callback ON app.call_center_contacts USING btree (callback_at) WHERE ((callback_at IS NOT NULL) AND (status = 'pending'::text));
 
 
 --
 -- Name: idx_cc_contacts_lead; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_contacts_lead ON app.call_center_contacts USING btree (lead_id) WHERE (lead_id IS NOT NULL);
 
 
 --
@@ -675,98 +666,84 @@ CREATE INDEX idx_cc_contacts_lead ON app.call_center_contacts USING btree (lead_
 -- Name: idx_cc_contacts_party; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_contacts_party ON app.call_center_contacts USING btree (party_id) WHERE (party_id IS NOT NULL);
 
 
 --
 -- Name: idx_cc_contacts_serving; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_contacts_serving ON app.call_center_contacts USING btree (status, last_called_at NULLS FIRST, priority, dpd DESC);
 
 
 --
 -- Name: idx_cc_contacts_state; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_contacts_state ON app.call_center_contacts USING btree (state) WHERE (state IS NOT NULL);
 
 
 --
 -- Name: idx_cc_dispositions_call; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_dispositions_call ON app.call_center_dispositions USING btree (call_id) WHERE (call_id IS NOT NULL);
 
 
 --
 -- Name: idx_cc_dispositions_contact; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_dispositions_contact ON app.call_center_dispositions USING btree (contact_id) WHERE (contact_id IS NOT NULL);
 
 
 --
 -- Name: idx_cc_leads_party; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_leads_party ON app.call_center_leads USING btree (party_id) WHERE (party_id IS NOT NULL);
 
 
 --
 -- Name: idx_cc_leads_state; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_cc_leads_state ON app.call_center_leads USING btree (state) WHERE (state IS NOT NULL);
 
 
 --
 -- Name: idx_core_txn_cif_date; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_core_txn_cif_date ON app.transactions USING btree (cif, txn_date);
 
 
 --
 -- Name: idx_core_txn_trace; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_core_txn_trace ON app.transactions USING btree (trace);
 
 
 --
 -- Name: idx_customers_account_created; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_customers_account_created ON app.customers USING btree (account_created);
 
 
 --
 -- Name: idx_customers_cif_trgm; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_customers_cif_trgm ON app.customers USING gin (cif app.gin_trgm_ops);
 
 
 --
 -- Name: idx_customers_email_trgm; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_customers_email_trgm ON app.customers USING gin (email app.gin_trgm_ops);
 
 
 --
 -- Name: idx_customers_first_seen; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_customers_first_seen ON app.customers USING btree (first_seen_at);
 
 
 --
 -- Name: idx_customers_fullname_trgm; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_customers_fullname_trgm ON app.customers USING gin (full_name app.gin_trgm_ops);
 
 
 --
@@ -785,7 +762,6 @@ CREATE INDEX idx_customers_fullname_trgm ON app.customers USING gin (full_name a
 -- Name: idx_customers_party_id; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_customers_party_id ON app.customers USING btree (party_id);
 
 
 --
@@ -804,126 +780,108 @@ CREATE INDEX idx_customers_party_id ON app.customers USING btree (party_id);
 -- Name: idx_is_txns_branch; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_is_txns_branch ON app.ccs_transactions USING btree (branch_code, txn_date DESC);
 
 
 --
 -- Name: idx_is_txns_date; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_is_txns_date ON app.ccs_transactions USING btree (txn_date DESC);
 
 
 --
 -- Name: idx_is_txns_product; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_is_txns_product ON app.ccs_transactions USING btree (product_code, txn_date DESC);
 
 
 --
 -- Name: idx_tm_contacts_assigned; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_tm_contacts_assigned ON app.call_center_contacts USING btree (assigned_to);
 
 
 --
 -- Name: idx_tm_contacts_phone; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_tm_contacts_phone ON app.call_center_contacts USING btree (phone);
 
 
 --
 -- Name: idx_tm_contacts_status; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_tm_contacts_status ON app.call_center_contacts USING btree (status, priority DESC, dpd DESC);
 
 
 --
 -- Name: idx_tm_disp_agent; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_tm_disp_agent ON app.call_center_dispositions USING btree (agent_id, created_at);
 
 
 --
 -- Name: idx_tm_disp_lead; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_tm_disp_lead ON app.call_center_dispositions USING btree (lead_id);
 
 
 --
 -- Name: idx_tm_leads_assigned; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_tm_leads_assigned ON app.call_center_leads USING btree (assigned_to);
 
 
 --
 -- Name: idx_tm_leads_campaign; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_tm_leads_campaign ON app.call_center_leads USING btree (campaign_id);
 
 
 --
 -- Name: idx_tm_leads_status; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_tm_leads_status ON app.call_center_leads USING btree (status);
 
 
 --
 -- Name: idx_transactions_account_no; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_transactions_account_no ON app.transactions USING btree (account_no);
 
 
 --
 -- Name: idx_transactions_account_no_date; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_transactions_account_no_date ON app.transactions USING btree (account_no, txn_date DESC);
 
 
 --
 -- Name: idx_transactions_currency_foreign; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX idx_transactions_currency_foreign ON app.transactions USING btree (currency_code) WHERE ((currency_code IS NOT NULL) AND (currency_code <> '566'::text));
 
 
 --
 -- Name: transaction_account_id_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX transaction_account_id_idx ON app.transactions USING btree (account_id);
 
 
 --
 -- Name: transaction_cif_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX transaction_cif_idx ON app.transactions USING btree (cif);
 
 
 --
 -- Name: transaction_contact_id_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX transaction_contact_id_idx ON app.transactions USING btree (contact_id);
 
 
 --
 -- Name: transaction_mcc_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX transaction_mcc_idx ON app.transactions USING btree (mcc);
 
 
 --
@@ -937,7 +895,6 @@ CREATE UNIQUE INDEX transaction_row_hash_uidx ON app.transactions USING btree (r
 -- Name: transaction_txn_date_idx; Type: INDEX; Schema: app; Owner: -
 --
 
-CREATE INDEX transaction_txn_date_idx ON app.transactions USING btree (txn_date);
 
 
 --
