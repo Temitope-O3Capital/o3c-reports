@@ -305,6 +305,15 @@ func riskApplications(db *core.DB) http.HandlerFunc {
 
 		where, args := riskAppWhere(stage, product, band, dateFrom, dateTo)
 
+		// The page has always sent ?search=, and this handler has always dropped it, so
+		// typing a name or reference into the filter bar quietly changed nothing. Added
+		// here rather than in riskAppWhere because that helper has other callers whose
+		// placeholder numbering must not shift.
+		if search := qstr(r, "search"); search != "" {
+			where += fmt.Sprintf(" AND (applicant_name ILIKE '%%' || $%d || '%%' OR reference ILIKE '%%' || $%d || '%%')", len(args)+1, len(args)+1)
+			args = append(args, search)
+		}
+
 		// Count total
 		var total int64
 		countRows, err := db.PGQuery(ctx,
@@ -1133,34 +1142,35 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 				COALESCE(CASE WHEN COUNT(*) > 0
 				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 60)
 				          / NULLIF(COUNT(*),0), 2) END, 0) AS par60_rate_pct,
+				-- >= 90, not > 90, so this agrees with the PAR90 bucket below (90-179).
+				-- A loan at exactly 90 DPD was in the bucket but not in the rate.
+				COALESCE(CASE WHEN COUNT(*) > 0
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` >= 90)
+				          / NULLIF(COUNT(*),0), 2) END, 0) AS par90_rate_pct,
+				-- NPL is DPD > 90. That is the documented single standard (lib/riskScale.ts,
+				-- app.cbs_loan_dpd, riskPortfolioKPIs); every other NPL figure in this file
+				-- already uses it. Only this one said 180+, so the NPL rate on the vintage
+				-- page was roughly half what the same cohort showed everywhere else.
 				COALESCE(CASE WHEN COUNT(*) > 0
 				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 90)
-				          / NULLIF(COUNT(*),0), 2) END, 0) AS par90_rate_pct,
-				COALESCE(CASE WHEN COUNT(*) > 0
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` >= 180)
 				          / NULLIF(COUNT(*),0), 2) END, 0) AS npl_rate_pct,
 				COALESCE(ROUND(AVG(`+cbsLoanScoreBare+`)), 0) AS avg_eye_score,
-				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(approved_date, start_date)))
-				          <= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30)
-				          / NULLIF(COUNT(*),0), 1) END AS par30_1m,
-				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(approved_date, start_date)))
-				          <= DATE_TRUNC('month', NOW()) - INTERVAL '3 months'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30)
-				          / NULLIF(COUNT(*),0), 1) END AS par30_3m,
-				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(approved_date, start_date)))
-				          <= DATE_TRUNC('month', NOW()) - INTERVAL '6 months'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30)
-				          / NULLIF(COUNT(*),0), 1) END AS par30_6m,
-				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(approved_date, start_date)))
-				          <= DATE_TRUNC('month', NOW()) - INTERVAL '12 months'
-				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30)
-				          / NULLIF(COUNT(*),0), 1) END AS par30_12m,
-				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` < 30) AS dpd_current,
-				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` BETWEEN 30 AND 59) AS dpd_par30,
-				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` BETWEEN 60 AND 89) AS dpd_par60,
-				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` BETWEEN 90 AND 179) AS dpd_par90,
-				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` >= 180) AS dpd_npl
+				-- The cohort's age in whole months. This replaces four par30_Nm columns
+				-- that all computed the same thing (see historicalPAR below).
+				GREATEST(0, (EXTRACT(YEAR FROM AGE(DATE_TRUNC('month', NOW()),
+				                MIN(DATE_TRUNC('month', COALESCE(approved_date, start_date))))) * 12
+				           + EXTRACT(MONTH FROM AGE(DATE_TRUNC('month', NOW()),
+				                MIN(DATE_TRUNC('month', COALESCE(approved_date, start_date)))))))::int AS age_months,
+				-- Buckets follow the single standard in lib/riskScale.ts: Current (<=0),
+				-- 1-30, 31-60, 61-90, and 90+ = NPL. This page had its own set in which
+				-- "Current" meant anything under 30 days past due and NPL meant 180+, so a
+				-- loan landed in a different bucket here than on Portfolio, and the page's
+				-- own NPL KPI disagreed with the chart beside it.
+				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` <= 0) AS dpd_current,
+				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` BETWEEN 1 AND 30) AS dpd_1_30,
+				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` BETWEEN 31 AND 60) AS dpd_31_60,
+				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` BETWEEN 61 AND 90) AS dpd_61_90,
+				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 90) AS dpd_npl
 			FROM cbs_loans
 			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(approved_date, start_date)), 'Mon YYYY') = $1`,
 			month)
@@ -1179,18 +1189,27 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 		agg := aggRows[0]
 
 		// Build structured sub-arrays from the flat aggregate row
+		// A vintage trajectory is PAR at 1, 3, 6 and 12 months of age — four different
+		// points in time. cbs_loans carries only today's DPD, so all four milestones were
+		// computed from the same current figure and merely gated on the cohort being old
+		// enough: a 14-month vintage showed one number repeated four times and called it
+		// a trajectory.
+		//
+		// app.loan_dpd_daily_snapshot exists for precisely this and is empty — nothing
+		// writes it — so the historical points are genuinely unknown. Report the single
+		// point that is known (PAR30 today, at the cohort's real age) and say why the
+		// rest are absent, rather than restating today's number under four labels.
 		historicalPAR := []map[string]any{
-			{"age_label": "1m", "par30_pct": agg["par30_1m"]},
-			{"age_label": "3m", "par30_pct": agg["par30_3m"]},
-			{"age_label": "6m", "par30_pct": agg["par30_6m"]},
-			{"age_label": "12m", "par30_pct": agg["par30_12m"]},
+			{"age_label": fmt.Sprintf("%dm (today)", toInt64(agg["age_months"])), "par30_pct": agg["par30_rate_pct"]},
 		}
+		// Labels match DPD_BUCKETS in lib/riskScale.ts exactly, so the chart can colour
+		// them from the shared ramp instead of its own map.
 		dpdBuckets := []map[string]any{
 			{"label": "Current", "count": agg["dpd_current"]},
-			{"label": "PAR30", "count": agg["dpd_par30"]},
-			{"label": "PAR60", "count": agg["dpd_par60"]},
-			{"label": "PAR90", "count": agg["dpd_par90"]},
-			{"label": "NPL", "count": agg["dpd_npl"]},
+			{"label": "1–30 DPD", "count": agg["dpd_1_30"]},
+			{"label": "31–60 DPD", "count": agg["dpd_31_60"]},
+			{"label": "61–90 DPD", "count": agg["dpd_61_90"]},
+			{"label": "90+ DPD (NPL)", "count": agg["dpd_npl"]},
 		}
 
 		// 2. Sector breakdown (top 10 by loan count). CBS carries no employer, so this
@@ -1264,7 +1283,9 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 			"npl_rate_pct":      agg["npl_rate_pct"],
 			"avg_eye_score":     agg["avg_eye_score"],
 			"historical_par":    historicalPAR,
-			"dpd_buckets":       dpdBuckets,
+			"historical_par_note": "PAR at 1, 3, 6 and 12 months needs daily DPD history. " +
+				"app.loan_dpd_daily_snapshot is not being written yet, so only today's PAR is shown.",
+			"dpd_buckets": dpdBuckets,
 			"sectors":           sectorRows,
 			"products":          productRows,
 			"loans":             loanRows,
@@ -1310,6 +1331,13 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 		if band != "" {
 			multiIn(&wbuf, &args, &n, "eye_rating", band)
 		}
+		// The page has always sent ?search=, and this handler has always dropped it, so
+		// typing in the filter bar refiltered nothing and silently returned the whole list.
+		if search := qstr(r, "search"); search != "" {
+			wbuf.WriteString(fmt.Sprintf(" AND (applicant_name ILIKE '%%' || $%d || '%%' OR reference ILIKE '%%' || $%d || '%%')", n, n))
+			args = append(args, search)
+			n++
+		}
 
 		where := wbuf.String()
 
@@ -1319,10 +1347,21 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 				id,
 				id AS application_id,
 				applicant_name,
+				COALESCE(reference, '') AS reference,
 				COALESCE(product_type, loan_type, '') AS product_type,
 				eye_score AS score,
 				COALESCE(eye_rating, '') AS band,
 				dti_pct,
+				-- The page renders a "Key Factor" column that the server never returned, so
+				-- every row read N/A. The factors are already on the row: decision_reasons is
+				-- a jsonb array of {factor, impact} written from the Phoenix decision. The key
+				-- factor is the one that moved the score furthest in either direction.
+				CASE WHEN jsonb_typeof(decision_reasons) = 'array' THEN (
+					SELECT e->>'factor'
+					  FROM jsonb_array_elements(decision_reasons) e
+					 ORDER BY ABS(COALESCE(NULLIF(e->>'impact','')::numeric, 0)) DESC, e->>'factor'
+					 LIMIT 1
+				) END AS top_factor,
 				COALESCE(risk_reviewed_at, submitted_at, created_at) AS scored_at
 			FROM loan_applications`
 

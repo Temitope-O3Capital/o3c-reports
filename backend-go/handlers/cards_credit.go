@@ -12,7 +12,12 @@ import (
 // card_products where category='credit' — i.e. true revolving credit cards, not
 // prepaid/Blink. Point-in-time views use the latest available cycle_date.
 func RegisterCardsCredit(r chi.Router, db *core.DB) {
-	access := core.RequirePages("cards")
+	// Credit limit review is a credit-risk decision that happens to be about a card, and
+	// the risk desk could not reach it at all. RequirePages is OR, and credit_portfolio
+	// is the key the risk roles already hold (the same one Eye Score and Risk Portfolio
+	// use). Widened on both sides at once — the frontend route carries the matching
+	// pair — so this does not reintroduce "the nav opens but the API 403s".
+	access := core.RequirePages("cards", "credit_portfolio")
 	r.With(access).Get("/kpis", ccKPIs(db))
 	r.With(access).Get("/utilization-distribution", ccUtilizationDist(db))
 	r.With(access).Get("/interest-trend", ccInterestTrend(db))

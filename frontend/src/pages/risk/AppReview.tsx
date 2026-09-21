@@ -7,6 +7,7 @@ import { apiFetch, apiPut } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtDate, fmtPct, fmtNum, today, monthStart } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, GREEN, AMBER, RED, INTER, NUM } from '../../lib/design'
 import { canAdvance, canDecline, stageMeta, decisionMeta, syncStateMeta } from '../../lib/losFlow'
+import { downloadCsv, stamp } from '../../lib/csv'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -264,6 +265,29 @@ export default function RiskAppReview() {
 
   useEffect(() => { load(0) }, [load])
 
+  // Exports exactly what is on screen — same view, filters and ordering. Kobo columns
+  // go out as naira numerals rather than formatted text so the file is arithmetic-ready
+  // in Excel; the score and DTI stay raw for the same reason.
+  const exportCsv = useCallback(() => {
+    downloadCsv(`risk-applications-${view}-${stamp()}.csv`, [
+      { header: 'Reference',        value: r => r.reference },
+      { header: 'Application',      value: r => `APP-${r.id}` },
+      { header: 'Applicant',        value: r => r.applicant_name },
+      { header: 'Employer',         value: r => r.employer_name ?? '' },
+      { header: 'Product',          value: r => r.product_type },
+      { header: 'Amount Requested', value: r => r.amount_requested_kobo / 100 },
+      { header: 'Monthly Income',   value: r => r.monthly_income_kobo / 100 },
+      { header: 'DTI %',            value: r => r.dti_pct ?? '' },
+      { header: 'Eye Score',        value: r => r.eye_score ?? '' },
+      { header: 'Risk Band',        value: r => r.risk_band ?? '' },
+      { header: 'Stage',            value: r => r.stage ?? '' },
+      { header: 'Days In Stage',    value: r => r.days_in_stage ?? '' },
+      { header: 'Phoenix Decision', value: r => r.decision ?? '' },
+      { header: 'Phoenix Sync',     value: r => r.phoenix_sync_state ?? '' },
+      { header: 'Submitted At',     value: r => r.submitted_at ?? '' },
+    ], rows)
+  }, [rows, view])
+
   function resetFilters() {
     setFStages(new Set()); setFProducts(new Set()); setFBands(new Set()); setSearch('')
     setDateFrom(monthStart()); setDateTo(today())
@@ -346,6 +370,22 @@ export default function RiskAppReview() {
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+          <button
+            onClick={exportCsv}
+            disabled={rows.length === 0}
+            title={rows.length === 0 ? 'Nothing to export' : `Export ${rows.length} applications`}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7,
+              padding: '7px 15px', background: 'var(--card)', color: 'var(--txt2)',
+              border: '1px solid var(--bdr)', borderRadius: RADIUS.md,
+              fontSize: TEXT.base, fontWeight: FW.semibold, fontFamily: INTER,
+              cursor: rows.length === 0 ? 'default' : 'pointer', opacity: rows.length === 0 ? .5 : 1,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>download</span>
+            Export
+          </button>
         </div>
       }
       loading={loading && rows.length === 0}

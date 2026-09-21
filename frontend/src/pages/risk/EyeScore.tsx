@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -58,6 +59,7 @@ function eyeScoreColor(score: number): string {
 const PAGE_SIZE = 50
 
 export default function EyeScore() {
+  const navigate = useNavigate()
   const [rows,     setRows]     = useState<EyeScoreRow[]>([])
   const [kpis,     setKpis]     = useState<EyeKPIs | null>(null)
   const [total,    setTotal]    = useState(0)
@@ -158,8 +160,11 @@ export default function EyeScore() {
     },
     {
       key: '_actions', label: '',
+      // /risk/eye-score/:id is not a route this app has ever had, so this was a
+      // full page load onto a blank screen. The score lives on the application's
+      // own detail page, which is where "view" should go.
       render: r => <ActionRow actions={[
-        { icon: 'visibility', label: 'View Score', onClick: () => window.open(`/risk/eye-score/${r.id}`, '_self') },
+        { icon: 'visibility', label: 'View Application', onClick: () => navigate(`/sales/applications/${r.application_id}`) },
       ]} />,
     },
   ]

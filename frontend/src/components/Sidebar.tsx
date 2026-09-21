@@ -219,6 +219,10 @@ const SECTIONS: Section[] = [
           { label: 'Loan/Credit Card Portfolio', to: '/operations/risk/portfolio' },
           { label: 'Vintage Analysis', to: '/operations/risk/vintage' },
           { label: 'Eye Score',        to: '/operations/risk/eye-scores',   vis: ['risk_officer','risk_head','coo'] },
+          // Credit limit review is a credit decision about a card. It lives under Card
+          // Operations, whose nav group is visible only to cards_agent/cards_head, so the
+          // risk desk could not reach it from anywhere. Same route, listed where risk works.
+          { label: 'Card Limit Review', to: '/cards/credit-limit',          vis: ['risk_officer','risk_head','coo'] },
           { label: 'Sector Codes',     to: '/operations/risk/sector-codes',  vis: ['risk_officer','risk_head','coo'] },
         ],
       },
@@ -439,7 +443,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/cards': 'cards', '/cards/my-queue': 'cards', '/cards/credit-portfolio': 'cards',
   '/cards/at-risk': 'cards', '/cards/cycle-import': 'cards', '/cards/trends': 'card_trends',
   '/cards/management': 'cards', '/cards/issuance': 'cards', '/cards/disputes': 'cards',
-  '/cards/credit-limit': 'cards', '/cards/billing': 'cards', '/blink-card': 'blink_card',
+  '/cards/credit-limit': ['cards', 'credit_portfolio'], '/cards/billing': 'cards', '/blink-card': 'blink_card',
   '/mobile-app': 'mobile_app',
   // Operations
   '/operations/risk': 'credit_portfolio', '/operations/risk/my-dashboard': 'credit_portfolio', '/operations/risk/applications': 'credit_portfolio',

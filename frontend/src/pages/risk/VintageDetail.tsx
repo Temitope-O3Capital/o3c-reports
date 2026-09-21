@@ -42,6 +42,7 @@ interface CohortDetail {
   npl_rate_pct:     number
   avg_eye_score:    number
   historical_par:   HistoricalPAR[]
+  historical_par_note?: string
   dpd_buckets:      DPDBucket[]
   sectors:          SectorRow[]
   products:         ProductRow[]
@@ -66,13 +67,12 @@ function BandPill({ band }: { band: string }) {
   )
 }
 
-const DPD_BUCKET_COLORS: Record<string, string> = {
-  'Current': GREEN,
-  'PAR30':   AMBER,
-  'PAR60':   RED,
-  'PAR90':   DARKRED,
-  'NPL':     DARKRED,
-}
+// Colours come from the shared ramp, keyed by the same labels the server now sends.
+// The local map had its own label set (PAR30/PAR60/PAR90/NPL) and gave PAR90 and NPL
+// the same DARKRED, so two buckets drew as one colour — the exact duplication
+// lib/riskScale was created to remove.
+const DPD_BUCKET_COLORS: Record<string, string> =
+  Object.fromEntries(DPD_BUCKETS.map(b => [b.label, b.color]))
 
 // ── Loan table columns ────────────────────────────────────────────────────────
 
@@ -285,6 +285,22 @@ export default function VintageDetail() {
           {parChartData.length === 0 ? (
             <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
               Not enough cohort age data yet
+            </div>
+          ) : parChartData.length === 1 ? (
+            // One known point is a reading, not a trajectory: show it as a figure and
+            // say what is missing, rather than drawing a line through a single dot.
+            <div style={{ height: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '0 24px', textAlign: 'center' }}>
+              <span style={{ ...NUM, fontSize: 34, fontWeight: FW.bold, color: parAccent(Number(parChartData[0].par30_pct)) }}>
+                {fmtPct(Number(parChartData[0].par30_pct), 1)}
+              </span>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
+                PAR30 at {parChartData[0].age_label}
+              </span>
+              {detail?.historical_par_note && (
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER, maxWidth: 380, lineHeight: 1.45 }}>
+                  {detail.historical_par_note}
+                </span>
+              )}
             </div>
           ) : (
             <EArea

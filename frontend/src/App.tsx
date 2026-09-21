@@ -1126,7 +1126,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   <Route path="/cards/management"   element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsMgmt /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/issuance"     element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsIssuance /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/disputes"     element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsDisputes /></PageErrorBoundary></RequireAccess>} />
-                  <Route path="/cards/credit-limit" element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsCreditLimit /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/cards/credit-limit" element={<RequireAccess page={['cards', 'credit_portfolio']} user={user}><PageErrorBoundary><CardsCreditLimit /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/cards/billing"      element={<RequireAccess page="cards" user={user}><PageErrorBoundary><CardsBilling /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/blink-card"         element={<RequireAccess page="blink_card" user={user}><PageErrorBoundary><BlinkCard /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/mobile-app"         element={<RequireAccess page="mobile_app" user={user}><PageErrorBoundary><MobileAppDashboard /></PageErrorBoundary></RequireAccess>} />
