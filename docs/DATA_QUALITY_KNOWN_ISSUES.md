@@ -389,6 +389,59 @@ which is why the weekend rule lives in the verdict view alone.
 An alert that fires every weekend is worse than no alert: it teaches everyone to
 ignore the one that matters, which is the failure this whole feature exists to catch.
 
+## 21. The database cannot be rebuilt from this repository
+
+**Status:** Open — architectural. Found 2026-09-21 by the first CI run of
+`handlers/integration_test.go`, which is the first time anything applied these
+migrations to an empty database.
+
+Three facts, none previously written down:
+
+1. **The baseline tables are not in any migration.** Around 110 migrations
+   reference `app.accounts`, `app.customers`, `app.transactions` and friends. No
+   migration creates them — the one-time MSSQL import did. They exist in
+   production and nowhere else.
+
+2. **Production depends on a role setting.** `o3_app` carries
+   `search_path = app, core, public`. That is why 253 *unqualified* `CREATE TABLE`
+   statements land in `app` there — and in `public` on any fresh database, after
+   which every `app.`-qualified reference fails. The schema layout is a property
+   of the role, not of the SQL.
+
+3. **Thirteen migrations cannot replay at all**, even given the tables:
+
+   `125_recon_engine` · `126_rename_telemarketing_tables` ·
+   `144_ticket_sla_csat_backfill` · `157_agent_presence_heartbeat` ·
+   `161_merge_manual_calls` · `166_reattach_orphan_dispositions` ·
+   `167_fix_zoho_call_timestamps` · `168_revert_zoho_timestamp_shift` ·
+   `170_move_misplaced_write_ups` · `171_repair_contradictory_write_ups` ·
+   `172_call_dropped_and_log_audit` ·
+   `190_relocate_ccwriteups_to_connected_call` · `225_call_telephony_neutral`
+
+   Most are data repairs that operate on rows rather than schema, so they have
+   nothing to act on. `125` is different and worth noting: it builds an index on
+   `core.transaction`, which is now a **view** with no indexes — it could not
+   succeed against production's current shape either.
+
+**What this means.** There is no path from this repository to a working database.
+A new environment, a disaster-recovery rebuild, or the Linux target at `/opt/o3c`
+that `.github/workflows/deploy.yml` points at cannot be built from these files.
+The only source of a working schema is a copy of production.
+
+**Not fixed, deliberately.** Making the chain replayable means reconstructing a
+baseline that has since been restructured, and re-authoring thirteen migrations
+whose data no longer exists. That is a project with an owner and a decision
+behind it, not something to slip into a test PR.
+
+**What was done instead.** `handlers/testdata/baseline_schema.sql` holds
+schema-only DDL for the eleven baseline tables, so the integration tests have
+somewhere to stand: foreign keys, triggers and views stripped, and only the five
+plain unique indexes kept — everything else depended on an extension, operator
+class or function that a later migration creates. It is **not** a migration; a
+`000_` file would enter the production boot sequence, where these tables already
+exist. The tests apply what applies and report what does not, so the list above
+stays current instead of going stale in this document.
+
 ## 13. Backfill of the migration 233 columns — run log
 
 **Status:** Done, 2026-09-14 12:20:58–12:23:27, with `go run ./cmd/feedbackfill -apply`.
