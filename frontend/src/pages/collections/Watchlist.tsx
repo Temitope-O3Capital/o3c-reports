@@ -7,6 +7,7 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
+import { CustomerSearch, cleanName } from '../../components/CustomerSearch'
 import { fmtDate, fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
@@ -80,6 +81,7 @@ function AddModal({ open, onClose, onDone }: {
   onDone: () => void
 }) {
   const [cif,         setCif]         = useState('')
+  const [cifName,     setCifName]     = useState('')
   const [scenario,    setScenario]    = useState('unreachable')
   const [notes,       setNotes]       = useState('')
   const [dpd,         setDpd]         = useState('')
@@ -90,7 +92,7 @@ function AddModal({ open, onClose, onDone }: {
   // Wipe the form each time the dialog reopens.
   useEffect(() => {
     if (!open) return
-    setCif(''); setScenario('unreachable'); setNotes('')
+    setCif(''); setCifName(''); setScenario('unreachable'); setNotes('')
     setDpd(''); setOutstanding(''); setAddErr(null)
   }, [open])
 
@@ -144,8 +146,26 @@ function AddModal({ open, onClose, onDone }: {
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
         <ErrBanner error={addErr} />
         <div>
-          <label style={lbl}>Account CIF</label>
-          <input value={cif} onChange={e => setCif(e.target.value)} placeholder="e.g. 21013" style={field} />
+          <label style={lbl}>Customer</label>
+          {/* Was a free-text CIF box: a typo flagged a watchlist entry against a customer
+              who does not exist. Same typeahead the New Ticket form uses, so the CIF is
+              real by construction. */}
+          {cif ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, background: 'var(--input-bg)' }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold }}>{cifName || cif}</span>
+              <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{cif}</span>
+              <button type="button" onClick={() => { setCif(''); setCifName('') }} title="Choose a different customer"
+                style={{ marginLeft: 'auto', border: 'none', background: 'transparent', color: 'var(--txt3)', cursor: 'pointer', display: 'inline-flex' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 17 }}>close</span>
+              </button>
+            </div>
+          ) : (
+            <CustomerSearch
+              autoFocus={false}
+              placeholder="Search customer by name, CIF or phone…"
+              onPick={c => { setCif(c.cif); setCifName(cleanName(c.name)) }}
+            />
+          )}
         </div>
         <div>
           <label style={lbl}>Scenario</label>

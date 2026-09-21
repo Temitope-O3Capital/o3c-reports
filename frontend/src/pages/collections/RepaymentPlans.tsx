@@ -8,6 +8,7 @@ import {
 } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
+import { CustomerSearch, cleanName } from '../../components/CustomerSearch'
 import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, n, today, monthStart } from '../../lib/fmt'
 import { BLUE, GREEN, RED, NAVY, AMBER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
@@ -95,6 +96,7 @@ function NewPlanModal({ open, onClose, onCreated }: {
   onCreated: () => void
 }) {
   const [cif, setCif]                     = useState('')
+  const [cifName, setCifName]             = useState('')
   const [amountNaira, setAmountNaira]     = useState('')
   const [instalmentCount, setInstalmentCount] = useState('3')
   const [firstPaymentDate, setFirstPaymentDate] = useState('')
@@ -103,7 +105,7 @@ function NewPlanModal({ open, onClose, onCreated }: {
   const [err, setErr]                     = useState<string | null>(null)
 
   function reset() {
-    setCif(''); setAmountNaira(''); setInstalmentCount('3')
+    setCif(''); setCifName(''); setAmountNaira(''); setInstalmentCount('3')
     setFirstPaymentDate(''); setNotes(''); setErr(null)
   }
 
@@ -160,14 +162,28 @@ function NewPlanModal({ open, onClose, onCreated }: {
       <ErrBanner error={err} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Customer CIF</label>
-          <input
-            type="text"
-            value={cif}
-            onChange={e => setCif(e.target.value)}
-            placeholder="e.g. CIF-00123"
-            style={{ ...fieldStyle, height: 36 }}
-          />
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Customer</label>
+          {/* Was a free-text CIF box, and a typo created a repayment plan against a
+              customer who does not exist with nothing to catch it. The placeholder even
+              read "CIF-00123" while the real ids look like "00000660", so the field was
+              misleading about its own format. Picking from the same typeahead the New
+              Ticket form uses means the CIF is real by construction. */}
+          {cif ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 36, padding: '0 10px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, background: 'var(--input-bg)' }}>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold }}>{cifName || cif}</span>
+              <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{cif}</span>
+              <button type="button" onClick={() => { setCif(''); setCifName('') }} title="Choose a different customer"
+                style={{ marginLeft: 'auto', border: 'none', background: 'transparent', color: 'var(--txt3)', cursor: 'pointer', display: 'inline-flex' }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 17 }}>close</span>
+              </button>
+            </div>
+          ) : (
+            <CustomerSearch
+              autoFocus={false}
+              placeholder="Search customer by name, CIF or phone…"
+              onPick={c => { setCif(c.cif); setCifName(cleanName(c.name)) }}
+            />
+          )}
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Total Amount NGN</label>
