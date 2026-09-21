@@ -336,11 +336,20 @@ func losStats(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		// Scoped exactly like the queue below it. These chips had no user filter at
+		// all, so a sales officer read counts for the entire book sitting directly
+		// above a table showing only their own applications — two different
+		// populations presented as one. Same scope, same numbers.
+		user := core.UserFromCtx(ctx)
+		seeAll := user.HasPage("los_all")
+		scope := "(" + losQueueScope + ")"
+
 		byStatus, err := db.PGQuery(ctx, `
-			SELECT status, COUNT(*) AS count
-			FROM loan_applications
-			GROUP BY status
-			ORDER BY status`)
+			SELECT la.status, COUNT(*) AS count
+			FROM loan_applications la
+			WHERE `+scope+`
+			GROUP BY la.status
+			ORDER BY la.status`, user.ID, seeAll)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
@@ -351,14 +360,14 @@ func losStats(db *core.DB) http.HandlerFunc {
 
 		// Pipeline value grouped by stage — used for funnel and header KPI.
 		byStage, err := db.PGQuery(ctx, `
-			SELECT stage,
-			       COUNT(*)                                          AS count,
-			       COALESCE(SUM(amount_requested_kobo), 0)          AS pipeline_kobo,
-			       COALESCE(SUM(amount_approved_kobo),  0)          AS approved_kobo
-			FROM loan_applications
-			WHERE stage NOT IN ('declined', 'active', 'closed')
-			GROUP BY stage
-			ORDER BY stage`)
+			SELECT la.stage,
+			       COUNT(*)                                            AS count,
+			       COALESCE(SUM(la.amount_requested_kobo), 0)          AS pipeline_kobo,
+			       COALESCE(SUM(la.amount_approved_kobo),  0)          AS approved_kobo
+			FROM loan_applications la
+			WHERE la.stage NOT IN ('declined', 'active', 'closed') AND `+scope+`
+			GROUP BY la.stage
+			ORDER BY la.stage`, user.ID, seeAll)
 		if err != nil {
 			respondErr(w, 500, "Stage query failed")
 			return
@@ -367,14 +376,17 @@ func losStats(db *core.DB) http.HandlerFunc {
 			byStage = []core.Row{}
 		}
 
-		// Total pipeline and avg days to close
+		// Total pipeline, disbursed today, and avg days to close
 		totals, _ := db.PGQuery(ctx, `
 			SELECT
-				COALESCE(SUM(CASE WHEN stage NOT IN ('declined','active','closed') THEN amount_requested_kobo END), 0) AS total_pipeline_kobo,
-				COALESCE(SUM(CASE WHEN stage = 'active' THEN amount_approved_kobo END), 0)                           AS total_disbursed_kobo,
-				COUNT(CASE WHEN stage NOT IN ('declined','active','closed') THEN 1 END)                              AS open_count,
-				COALESCE(AVG(CASE WHEN stage IN ('active','declined') THEN EXTRACT(EPOCH FROM (updated_at - created_at))/86400 END), 0) AS avg_days_to_close
-			FROM loan_applications`)
+				COALESCE(SUM(CASE WHEN la.stage NOT IN ('declined','active','closed') THEN la.amount_requested_kobo END), 0) AS total_pipeline_kobo,
+				COALESCE(SUM(CASE WHEN la.stage = 'active' THEN la.amount_approved_kobo END), 0)                             AS total_disbursed_kobo,
+				COUNT(CASE WHEN la.stage NOT IN ('declined','active','closed') THEN 1 END)                                   AS open_count,
+				COUNT(*) FILTER (WHERE la.disbursed_at >= DATE_TRUNC('day', NOW()))                                          AS disbursed_today,
+				COALESCE(SUM(CASE WHEN la.disbursed_at >= DATE_TRUNC('day', NOW()) THEN la.amount_approved_kobo END), 0)     AS disbursed_today_kobo,
+				COALESCE(AVG(CASE WHEN la.stage IN ('active','declined') THEN EXTRACT(EPOCH FROM (la.updated_at - la.created_at))/86400 END), 0) AS avg_days_to_close
+			FROM loan_applications la
+			WHERE `+scope, user.ID, seeAll)
 
 		resp := map[string]any{
 			"by_status": byStatus,
@@ -384,6 +396,8 @@ func losStats(db *core.DB) http.HandlerFunc {
 			resp["total_pipeline_kobo"] = totals[0]["total_pipeline_kobo"]
 			resp["total_disbursed_kobo"] = totals[0]["total_disbursed_kobo"]
 			resp["open_count"] = totals[0]["open_count"]
+			resp["disbursed_today"] = totals[0]["disbursed_today"]
+			resp["disbursed_today_kobo"] = totals[0]["disbursed_today_kobo"]
 			resp["avg_days_to_close"] = totals[0]["avg_days_to_close"]
 		}
 		respond(w, resp, "pg")

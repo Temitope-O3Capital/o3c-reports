@@ -1,9 +1,10 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, DateFilter, NameCell, ActionRow, ExpandableFilterBar } from '../../components/UI'
+import { Page, KpiCard, SectionCard, DataTable, ErrBanner, StatusBadge, DateFilter, NameCell, ActionRow, ExpandableFilterBar, Modal } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPut } from '../../lib/api'
+import { hasPage } from '../../hooks/useAuth'
 import { fmtKobo, fmtDatetime } from '../../lib/fmt'
 import { RED, AMBER, NAVY, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { decisionMeta, syncStateMeta } from '../../lib/losFlow'
@@ -28,6 +29,7 @@ interface LoanApp {
 
 interface StageRow { stage: string; count: number }
 interface StatusRow { status: string; count: number }
+interface TeamUser { id: number; full_name: string; role: string }
 
 interface LOSStats {
   by_status: StatusRow[]
@@ -36,6 +38,7 @@ interface LOSStats {
   total_disbursed_kobo: number
   open_count: number
   avg_days_to_close: number
+  disbursed_today: number
 }
 
 const STAGE_COLORS: Record<string, { bg: string; txt: string }> = {
@@ -119,6 +122,17 @@ export default function LOSQueue() {
   const [hasMore,    setHasMore]    = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [bulkSel,    setBulkSel]    = useState<Set<string | number>>(new Set())
+  // Assignment. Both entry points — the row action and the bulk bar — open the same
+  // dialog; the only difference is how many ids it carries. Both were rendered with
+  // no handler at all while the endpoints behind them worked.
+  const [assignIds,  setAssignIds]  = useState<number[] | null>(null)
+  const [team,       setTeam]       = useState<TeamUser[]>([])
+  const [assignTo,   setAssignTo]   = useState<number>(0)
+  const [assigning,  setAssigning]  = useState(false)
+  const [assignErr,  setAssignErr]  = useState<string | null>(null)
+  // PUT /api/los/{id}/assign is gated on los_all or los_assign, so an agent who
+  // cannot assign is not offered the control.
+  const canAssign = hasPage('los_all') || hasPage('los_assign')
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); setErr(null)
@@ -154,6 +168,32 @@ export default function LOSQueue() {
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['loans'] })
+
+  // The team list is only needed once the dialog is open.
+  useEffect(() => {
+    if (assignIds === null || team.length) return
+    apiFetch<{ data: TeamUser[] }>('/api/los/team-users')
+      .then(res => setTeam(res.data ?? []))
+      .catch(() => setTeam([]))
+  }, [assignIds, team.length])
+
+  const submitAssign = useCallback(async () => {
+    if (!assignIds?.length || !assignTo) return
+    setAssigning(true); setAssignErr(null)
+    try {
+      // One call per application — the endpoint assigns a single application, and
+      // looping here keeps a partial failure visible rather than silently half-done.
+      for (const id of assignIds) {
+        await apiPut(`/api/los/${id}/assign`, { assign_to_user_id: assignTo })
+      }
+      setAssignIds(null); setAssignTo(0); setBulkSel(new Set())
+      await load(true)
+    } catch (e: any) {
+      setAssignErr(e?.message ?? 'Could not assign')
+    } finally {
+      setAssigning(false)
+    }
+  }, [assignIds, assignTo, load])
 
   // Page-level date scope — drives KPIs and table together
   const dateFiltered = useMemo(() => {
@@ -246,7 +286,10 @@ export default function LOSQueue() {
   const inQueue      = dateScopedKpi ? dateFiltered.length                                                                                         : stats?.open_count ?? 0
   const pendingDocs  = dateScopedKpi ? dateFiltered.filter(r => r.stage === 'document_collection').length                                          : stats?.by_stage?.find(s => s.stage === 'document_collection')?.count ?? 0
   const awaitingRisk = dateScopedKpi ? dateFiltered.filter(r => r.stage === 'risk_review' || r.stage === 'risk_head_review').length                 : (stats?.by_stage?.find(s => s.stage === 'risk_review')?.count ?? 0) + (stats?.by_stage?.find(s => s.stage === 'risk_head_review')?.count ?? 0)
-  const activeCount  = dateScopedKpi ? dateFiltered.filter(r => r.stage === 'active').length                                                       : stats?.by_stage?.find(s => s.stage === 'active')?.count ?? 0
+  // BUILD_GUIDE 7.16 asks for Disbursed Today here, not Active Loans. It is a
+  // today-only figure and deliberately ignores the page's date scope: "disbursed
+  // today, within a range that excludes today" is a number nobody wants.
+  const disbursedToday = stats?.disbursed_today ?? 0
 
   const cols: TableCol<LoanApp>[] = [
     {
@@ -300,7 +343,10 @@ export default function LOSQueue() {
       key: '_actions', label: '', sortable: false,
       render: r => <ActionRow actions={[
         { icon: 'open_in_new', label: 'View Application', onClick: () => navigate(`/sales/applications/${r.id}`) },
-        { icon: 'person_add', label: 'Assign Reviewer', onClick: () => {} },
+        ...(canAssign ? [{
+          icon: 'person_add', label: 'Assign Reviewer',
+          onClick: () => { setAssignIds([r.id]); setAssignTo(r.assigned_to_user_id || 0); setAssignErr(null) },
+        }] : []),
       ]} />,
     },
   ]
@@ -336,7 +382,7 @@ export default function LOSQueue() {
         <KpiCard label="In Queue"          value={inQueue}      icon="inbox"         loading={loading} />
         <KpiCard label="Pending Docs"      value={pendingDocs}  icon="description"   loading={loading} />
         <KpiCard label="Awaiting Risk"     value={awaitingRisk} icon="shield"        loading={loading} />
-        <KpiCard label="Active Loans"        value={activeCount}  icon="check_circle"  accent="#16A34A" loading={loading} />
+        <KpiCard label="Disbursed Today"   value={disbursedToday} icon="payments"      accent="#16A34A" loading={loading} />
       </div>
 
       <SectionCard
@@ -368,7 +414,11 @@ export default function LOSQueue() {
           onSelect={setBulkSel}
           bulkBar={
             <>
-              <button style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: 'pointer' }}>Bulk Assign</button>
+              <button
+                onClick={() => { setAssignIds([...bulkSel].map(Number)); setAssignTo(0); setAssignErr(null) }}
+                disabled={!canAssign || bulkSel.size === 0}
+                style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', cursor: canAssign && bulkSel.size ? 'pointer' : 'default', opacity: canAssign && bulkSel.size ? 1 : .5 }}
+              >Bulk Assign</button>
             </>
           }
         />
@@ -416,6 +466,43 @@ export default function LOSQueue() {
         </div>
 
       </SectionCard>
+
+      <Modal
+        open={assignIds !== null}
+        onClose={() => { setAssignIds(null); setAssignErr(null) }}
+        title={assignIds && assignIds.length > 1 ? `Assign ${assignIds.length} Applications` : 'Assign Reviewer'}
+        width={460}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button
+              onClick={() => { setAssignIds(null); setAssignErr(null) }}
+              style={{ padding: '7px 14px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.sm, fontFamily: INTER, cursor: 'pointer' }}
+            >Cancel</button>
+            <button
+              onClick={submitAssign}
+              disabled={!assignTo || assigning}
+              style={{ padding: '7px 14px', borderRadius: RADIUS.sm, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, fontFamily: INTER, cursor: !assignTo || assigning ? 'default' : 'pointer', opacity: !assignTo || assigning ? .6 : 1 }}
+            >{assigning ? 'Assigning…' : 'Assign'}</button>
+          </div>
+        }
+      >
+        <div style={{ display: 'grid', gap: 8 }}>
+          <label style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>Reviewer</label>
+          <select
+            value={assignTo}
+            onChange={e => setAssignTo(Number(e.target.value))}
+            style={{ padding: '8px 10px', borderRadius: RADIUS.sm, border: '1px solid var(--input-bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontFamily: INTER }}
+          >
+            <option value={0}>Select a reviewer…</option>
+            {team.map(u => (
+              <option key={u.id} value={u.id}>
+                {u.full_name}{u.role ? ` · ${u.role.replace(/_/g, ' ')}` : ''}
+              </option>
+            ))}
+          </select>
+          {assignErr && <span style={{ fontSize: TEXT.sm, color: RED, fontFamily: INTER }}>{assignErr}</span>}
+        </div>
+      </Modal>
     </Page>
   )
 }
