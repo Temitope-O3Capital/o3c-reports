@@ -1,0 +1,22 @@
+-- 260: stop call dispositions from duplicating onto the unified activity feed.
+--
+-- Migration 251 fanned every call_center_dispositions row into app.activities as a
+-- type='call' row (subject = the disposition, humanised — "Answered Interested",
+-- "No Answer", etc), so calls would show up on timelines that only read
+-- app.activities. But the only page that actually reads GET /api/activities
+-- (call-center Leads.tsx) already builds its own, richer call list straight from
+-- helpdesk_calls/call_center_dispositions (recording, duration, notes, disposition
+-- editor) and merges it in as its "Calls" timeline entries. The mirrored row landed
+-- in the SAME merged timeline as a second, lower-fidelity entry for the identical
+-- call — a bare "Answered Interested" line tagged "CALL" appearing right under the
+-- real call the agent just logged. Confirmed live: 14,797 of 29,670 app.activities
+-- rows (as of 2026-09-21) are these call-centre mirrors, and nothing reads them for
+-- any purpose the real call list doesn't already cover.
+--
+-- Drop the trigger so no new duplicates are created. The existing mirrored rows are
+-- left in place (still a pure duplicate of data that lives in full on
+-- call_center_dispositions/helpdesk_calls) — the frontend now filters type='call'
+-- out of the Activity feed, which hides them for every past call too without a
+-- bulk delete.
+DROP TRIGGER IF EXISTS trg_activities_from_disposition ON call_center_dispositions;
+DROP FUNCTION IF EXISTS app.activities_from_disposition();

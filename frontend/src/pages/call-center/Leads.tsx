@@ -403,7 +403,19 @@ function DetailPanel({ lead, onRefresh, onLogged }: { lead: Lead; onRefresh: () 
     const p = new URLSearchParams({ lead_id: String(lead.id) })
     if (lead.customer_phone) p.set('phone', lead.customer_phone)
     apiFetch<{ data: LeadActivity[]; viewer?: HandoffViewer }>(`/api/activities?${p.toString()}`)
-      .then(r => { if (!cancelled) { setActivities(r?.data ?? []); setViewer(r?.viewer ?? null) } })
+      .then(r => {
+        if (cancelled) return
+        // type='call' rows are a mirror the call-centre disposition trigger writes onto
+        // app.activities so timelines with no call source of their own can show one (see
+        // migration 251). This page already has its own, richer call list a few lines up
+        // (conversations, straight from helpdesk_calls/call_center_dispositions — with
+        // recording, duration, notes and the disposition editor) merged into the SAME
+        // timeline as "Calls" entries. Without this filter every logged call also produced
+        // a second, bare "Answered Interested"-style entry tagged CALL right underneath —
+        // this list is documented (see LeadActivity above) as notes/documents/hand-offs only.
+        setActivities((r?.data ?? []).filter(a => a.type !== 'call'))
+        setViewer(r?.viewer ?? null)
+      })
       .catch(() => { if (!cancelled) setActivities([]) })
     return () => { cancelled = true }
   }, [lead.id, lead.customer_phone, actKey])
