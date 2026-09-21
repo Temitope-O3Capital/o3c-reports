@@ -352,7 +352,7 @@ export default function DebtSales() {
             rows={displayed}
             keyFn={r => r.id}
             focusId={focus}
-            emptyText="No debt sales recorded yet."
+            emptyText="No Debt Sales Recorded Yet"
           />
         )}
       </SectionCard>
