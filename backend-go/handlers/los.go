@@ -696,7 +696,28 @@ func losCreate(db *core.DB) http.HandlerFunc {
 		seq := toInt64(seqRow[0]["seq"])
 		ref := fmt.Sprintf("LOS-%s-%04d", now.Format("200601"), seq)
 
-		rows, err := db.PGQuery(ctx, `
+		// The wizard's Submit is a submission, not a parking place. This used to insert
+		// 'draft','draft', which wrote no event, notified nobody and never enqueued
+		// Phoenix — so an application the officer had just "submitted" sat invisible to
+		// Risk until someone manually advanced it three stages. Route it exactly the way
+		// a Sales-raised application is routed (salesAppRouting): credit products to
+		// risk_review, prepaid and fixed deposits to the relevant operations desk.
+		routedStage, notifyRoles := salesAppRouting(b.ProductType)
+
+		// Row and opening event commit together or not at all, so an application can
+		// never exist without the event that explains how it reached Risk.
+		tx, err := db.PG.BeginTx(ctx, nil)
+		if err != nil {
+			respondErr(w, 500, "Could not start transaction")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		var (
+			appID                       int64
+			appRef, appStage, appStatus string
+		)
+		if err := tx.QueryRowContext(ctx, `
 			INSERT INTO loan_applications (
 				reference, applicant_name, applicant_cif, applicant_email, applicant_phone,
 				product_type, amount_requested_kobo, tenor_months, interest_rate_bps,
@@ -704,13 +725,13 @@ func losCreate(db *core.DB) http.HandlerFunc {
 				bvn, nin, date_of_birth, residential_address,
 				job_title, employment_type, employment_start_date,
 				monthly_obligation_kobo, sector_code, gender,
-				status, stage, sales_officer_id, assigned_to_user_id,
-				created_at, updated_at
+				status, stage, sales_officer_id, assigned_to_user_id, created_by,
+				submitted_at, created_at, updated_at
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
 				NULLIF($13,''), NULLIF($14,''), NULLIF($15,'')::date, NULLIF($16,''),
 				NULLIF($17,''), NULLIF($18,''), NULLIF($19,'')::date,
 				NULLIF($20,0)::bigint, NULLIF($21,''), NULLIF($23,''),
-				'draft','draft',$22,$22,NOW(),NOW())
+				'submitted',$24,$22,$22,$22,NOW(),NOW(),NOW())
 			RETURNING id, reference, status, stage`,
 			ref, b.ApplicantName, b.ApplicantCIF, b.ApplicantEmail, b.ApplicantPhone,
 			// A revolving product has no tenor, and the form leaves it blank. Storing
@@ -720,12 +741,49 @@ func losCreate(db *core.DB) http.HandlerFunc {
 			b.Purpose, b.Employer, b.MonthlyIncome,
 			b.BVN, b.NIN, b.DateOfBirth, b.Address,
 			b.JobTitle, b.EmploymentType, b.EmploymentStartDate,
-			b.MonthlyObligation, b.SectorCode, user.ID, b.Gender)
-		if err != nil {
-			respondErr(w, 500, "Create failed")
+			// created_by is set as well as sales_officer_id: losQueueScope filters on
+			// created_by, and leaving it NULL made an officer's own application visible
+			// to them only by the sales_officer_id half of that OR.
+			b.MonthlyObligation, b.SectorCode, user.ID, b.Gender, routedStage).
+			Scan(&appID, &appRef, &appStatus, &appStage); err != nil {
+			respondErr(w, 500, "Create failed: "+err.Error())
 			return
 		}
-		respond(w, rows[0], "pg")
+
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO application_events (application_id, event_type, to_stage, actor_user_id, notes, created_at)
+			VALUES ($1,'submitted',$3,$2,$4,NOW())`,
+			appID, user.ID, routedStage, "Submitted from the LOS application form by "+user.FullName); err != nil {
+			respondErr(w, 500, "Could not record the application event: "+err.Error())
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+
+		// Credit applications go to Phoenix for a decision; prepaid and FD do not.
+		salesHandToPhoenix(ctx, db, appID, routedStage)
+
+		productLabel := salesProductTypes[b.ProductType]
+		if productLabel == "" {
+			productLabel = b.ProductType
+		}
+		// Detached from the request context: the application is already committed, and a
+		// slow mail hop must not fail the call or die when the browser moves on.
+		go NotifyRoles(context.Background(), db, notifyRoles, NotifPayload{
+			EventType: "los_application_submitted",
+			Title:     fmt.Sprintf("New %s application", productLabel),
+			Body: fmt.Sprintf("%s submitted %s for %s, %s",
+				user.FullName, ref, b.ApplicantName, fmtKoboServer(b.AmountRequested)),
+			ActionURL: fmt.Sprintf("/los/applications/%d", appID),
+			EntityRef: ref,
+		})
+
+		respond(w, map[string]any{
+			"id": appID, "reference": appRef, "status": appStatus, "stage": appStage,
+		}, "pg")
 	}
 }
 

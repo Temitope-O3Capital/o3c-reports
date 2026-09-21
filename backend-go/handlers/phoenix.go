@@ -688,6 +688,10 @@ func phoenixSubmitOne(ctx context.Context, db *core.DB, appID int64) error {
 	rows, err := db.PGQuery(ctx, `
 		SELECT id, COALESCE(reference,'') AS reference, COALESCE(applicant_name,'') AS applicant_name,
 		       COALESCE(applicant_cif, cif, '') AS applicant_cif,
+		       -- The payload has always read a["bvn"], but this SELECT never fetched it,
+		       -- so every application ever submitted carried an empty BVN. Phoenix uses
+		       -- it to derive the customer's KYC tier.
+		       COALESCE(bvn,'') AS bvn,
 		       COALESCE(applicant_phone, phone, '') AS phone,
 		       COALESCE(applicant_email, email, '') AS email,
 		       COALESCE(employer,'') AS employer,
@@ -708,6 +712,25 @@ func phoenixSubmitOne(ctx context.Context, db *core.DB, appID int64) error {
 		return fmt.Errorf("application %d not found", appID)
 	}
 	a := rows[0]
+
+	// Phoenix matches CreditProduct.Name exactly, and holds only the products named
+	// in phoenixProductNames. An unmapped code is a guaranteed 422 one round trip
+	// later, with Phoenix's "product not found" as the only clue. Failing here instead
+	// abandons the job on its first attempt with a reason that names the fix.
+	//
+	// Sales routes individual_loan and card_limit_increase to risk_review, and neither
+	// exists in Phoenix. Mapping them is a product decision, not a translation: a card
+	// limit increase sent as "Credit Card" would have Phoenix open a NEW card line
+	// rather than raise an existing limit. Create the product in Phoenix first, then
+	// map it here.
+	if code := strings.TrimSpace(str(a["product_type"])); code != "" {
+		if _, ok := phoenixProductNames[code]; !ok {
+			return phoenixHTTPError{
+				Status: http.StatusUnprocessableEntity,
+				Body: fmt.Sprintf("no Phoenix product is mapped to %q — create the product in Phoenix, then add it to phoenixProductNames", code),
+			}
+		}
+	}
 
 	// Exactly one of amount/limit, chosen by product: Phoenix rejects a
 	// principal on a REVOLVING product and a limit on an INSTALMENT one.
