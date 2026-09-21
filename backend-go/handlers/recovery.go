@@ -153,9 +153,17 @@ func recoveryByMethod(db *core.DB) http.HandlerFunc {
 
 // recoveryMonthlyTrend — recovered amount per month across the SELECTED date range
 // (defaults to a trailing 12 months), off the live payments ledger. The month spine
-// is generated from the range so the area chart never renders a ragged axis, and it
-// moves with the Overview date filter like every other panel. Counts 'posted' and
-// 'approved' payments (the terminal money-received states).
+// is generated from the range so the chart never renders a ragged axis, and it moves
+// with the Overview date filter like every other panel. Counts 'posted' and 'approved'
+// payments (the terminal money-received states).
+//
+// Split into card_kobo / loan_kobo by the recovery case's product_type (channel maps
+// 1:1 to product — 'loan repayment' is the only loan channel — but keying off the case
+// is the robust join). A single blended bar was unreadable: one ~₦420M loan recovery in
+// a month reduced every ~₦8M card-recovery month to an invisible sliver. Two series let
+// each product read on its own. Future-dated rows are excluded and the spine is capped
+// at the current month, so the trend never projects "recovered" money into months that
+// have not happened yet (the seed loan-repayment rows run to Jan 2027).
 func recoveryMonthlyTrend(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := qstr(r, "from")
@@ -175,13 +183,21 @@ func recoveryMonthlyTrend(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		query := fmt.Sprintf(`
-			WITH months AS (SELECT GENERATE_SERIES(%s, %s, INTERVAL '1 month') AS m),
+			WITH months AS (
+				SELECT GENERATE_SERIES(%s, LEAST(%s, DATE_TRUNC('month',CURRENT_DATE)), INTERVAL '1 month') AS m
+			),
 			p AS (
-				SELECT DATE_TRUNC('month', payment_date::date) AS m, COALESCE(SUM(amount_kobo),0) AS amount_kobo
-				FROM recovery_payments WHERE status IN ('approved','posted')
+				SELECT DATE_TRUNC('month', rp.payment_date::date) AS m,
+				       COALESCE(SUM(rp.amount_kobo) FILTER (WHERE COALESCE(rc.product_type,'card') <> 'loan'),0) AS card_kobo,
+				       COALESCE(SUM(rp.amount_kobo) FILTER (WHERE rc.product_type = 'loan'),0)                  AS loan_kobo
+				FROM recovery_payments rp
+				LEFT JOIN recovery_cases rc ON rc.id = rp.case_id
+				WHERE rp.status IN ('approved','posted') AND rp.payment_date <= CURRENT_DATE
 				GROUP BY 1
 			)
-			SELECT TO_CHAR(months.m,'Mon YYYY') AS month, COALESCE(p.amount_kobo,0) AS amount_kobo
+			SELECT TO_CHAR(months.m,'Mon YYYY') AS month,
+			       COALESCE(p.card_kobo,0) AS card_kobo,
+			       COALESCE(p.loan_kobo,0) AS loan_kobo
 			FROM months LEFT JOIN p ON p.m = months.m ORDER BY months.m`, startExpr, endExpr)
 		data, err := db.PGQuery(r.Context(), query, args...)
 		if err != nil {
