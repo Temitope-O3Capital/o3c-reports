@@ -228,7 +228,11 @@ export default function AgentDashboard() {
       },
     },
     {
-      key: 'account_cif', label: 'Tier',
+      // Unique key: 'account_cif' is already used by the first column and 'min_payment'
+      // by two others, so cols.map emitted duplicate React keys on every row. TableCol.key
+      // is a plain string (UI.tsx:894), not keyof T, so a descriptive key is legal here —
+      // it is only a render key, never a data lookup, because this column supplies render.
+      key: 'tier_from_min_due', label: 'Tier',
       render: r => {
         const pct = r.min_payment && r.min_payment > 0 ? Math.min(Math.round(((r.last_payment_amount ?? 0) / r.min_payment) * 100), 100) : 0
         return <TierBadge tier={tierFromPct(pct)} />

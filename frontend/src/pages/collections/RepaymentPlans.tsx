@@ -585,7 +585,7 @@ export default function RepaymentPlans() {
           keyFn={r => r.id}
           loading={loading}
           onRowClick={r => setDetailPlan(r)}
-          emptyText="No repayment plans found"
+          emptyText="No Repayment Plans — a plan is created from a collections account once a customer agrees a schedule; none have been created yet"
           skeletonRows={8}
         />
       </SectionCard>

@@ -476,7 +476,7 @@ export default function Watchlist() {
           onRowClick={r => { if (r.account_cif) navigate(`/collections/accounts/${r.account_cif}`) }}
           loading={loading}
           skeletonRows={8}
-          emptyText="No watchlist entries found"
+          emptyText="No Watchlist Entries — accounts are added here by hand from an account's detail page; none have been added yet"
           pageSize={25}
         />
       </SectionCard>

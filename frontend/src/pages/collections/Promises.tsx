@@ -270,7 +270,11 @@ export default function CollectionsPromises() {
           selectedIds={selectedIds}
           onSelect={setSelectedIds}
           bulkBar={bulkBar}
-          emptyText="No promises found"
+          // Say WHY it is empty, not just that it is. collection_promises has never held a
+          // row: promises are captured from the queue and the agent dashboard, so an empty
+          // table here means the floor is not logging them, which is worth knowing rather
+          // than reading as "no promises exist".
+          emptyText="No Promises Recorded — promises to pay are logged from the agent queue; none have been captured yet"
           skeletonRows={8}
           rowStyle={r => {
             const s = r.status

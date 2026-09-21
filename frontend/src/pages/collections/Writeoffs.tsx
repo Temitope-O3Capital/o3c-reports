@@ -251,7 +251,7 @@ function ApprovalsPane({ onCount }: { onCount: (n: number) => void }) {
         />
         <DataTable
           cols={cols} rows={displayed} keyFn={r => r.id} loading={loading} pageSize={20}
-          focusId={focus} emptyText="No write-offs awaiting approval" skeletonRows={8}
+          focusId={focus} emptyText="No write-offs awaiting approval — requests arrive here when a recovery agent recommends one on a case" skeletonRows={8}
         />
       </SectionCard>
 
