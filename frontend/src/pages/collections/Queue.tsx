@@ -1172,11 +1172,14 @@ export default function CollectionsQueue() {
             </div>
           )}
 
-          {/* Batch bar — call-centre style: pick an agent, Assign the ticked accounts */}
+          {/* Batch bar — call-centre style: pick an agent, Assign the ticked accounts.
+              #F0F4FF is the design system's batch-bar fill (§19); recovery/Cases.tsx
+              already uses it. The agent-scope banner above deliberately keeps ${NAVY}0D —
+              they are different elements and should not read as the same surface. */}
           {checkedIds.size > 0 && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8,
-              padding: '7px 14px', background: `${NAVY}0D`,
+              padding: '7px 14px', background: '#F0F4FF',
               borderBottom: '1px solid var(--bdr)', flexShrink: 0,
             }}>
               <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: NAVY, whiteSpace: 'nowrap' }}>

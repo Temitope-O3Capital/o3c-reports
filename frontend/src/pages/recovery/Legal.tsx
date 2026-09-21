@@ -1,6 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Page, SectionCard, ErrBanner, ExpandableFilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, NameCell, ActionRow, Modal } from '../../components/UI'
+import { Page, SectionCard, ErrBanner, ExpandableFilterBar, filterInputStyle, Spinner, KpiCard, DateFilter, NameCell, ActionRow, Modal, DataTable } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
@@ -494,71 +494,32 @@ export default function RecoveryLegal() {
           totalCount={rows.length}
           placeholder="Search name, solicitor, CIF…"
         />
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.base }}>
-            <thead>
-              <tr style={{ background: 'var(--th-bg)' }}>
-                {cols.map(col => (
-                  <th key={col.key} style={{
-                    padding: '10px 14px',
-                    textAlign: col.align === 'right' ? 'right' : 'left',
-                    fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)',
-                    letterSpacing: '0.2px', whiteSpace: 'nowrap',
-                    borderBottom: '1px solid var(--bdr)',
-                  }}>
-                    {col.label}
-                  </th>
-                ))}
-                <th style={{ width: 84, borderBottom: '1px solid var(--bdr)' }} />
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i}>
-                    {cols.map(col => (
-                      <td key={col.key} style={{ padding: '12px 14px', borderBottom: '1px solid var(--bdr)' }}>
-                        <div style={{ height: 14, background: 'var(--bdr)', borderRadius: 4, width: '80%', opacity: 0.5 }} />
-                      </td>
-                    ))}
-                    <td style={{ borderBottom: '1px solid var(--bdr)' }} />
-                  </tr>
-                ))
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={cols.length + 1} style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
-                    No legal cases found.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map(row => (
-                  <tr
-                    key={row.id}
-                    onClick={() => setTlCase(row)}
-                    style={{ cursor: 'pointer', borderBottom: '1px solid var(--bdr)' }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--row-hvr)' }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '' }}
-                  >
-                    {cols.map(col => (
-                      <td key={col.key} style={{
-                        padding: '12px 14px',
-                        textAlign: col.align === 'right' ? 'right' : 'left',
-                      }}>
-                        {col.render ? col.render(row, 0) : row[col.key as keyof LegalCase] as React.ReactNode}
-                      </td>
-                    ))}
-                    <td style={{ padding: '12px 14px' }}>
-                      <ActionRow actions={[
-                        { icon: 'account_balance', label: 'Assign Solicitor', onClick: () => setSolCase(row) },
-                        { icon: 'timeline',        label: 'View Timeline',    onClick: () => setTlCase(row) },
-                      ]} />
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {/* Was a hand-rolled <table> duplicating DataTable: its own thead, skeleton,
+            empty row and hover handlers. Two bugs came with the duplication — every
+            <td> keyed on col.key, which silently collides when two columns share a key,
+            and render(row, 0) passed a hardcoded index so any column using it saw row 0
+            for every row. DataTable keys by column position and passes the real index,
+            and it brings sorting on the columns already marked sortable, which the
+            hand-rolled version declared but never implemented. */}
+        <DataTable
+          cols={[...cols, {
+            key: '__actions',
+            label: '',
+            width: 84,
+            render: row => (
+              <ActionRow actions={[
+                { icon: 'account_balance', label: 'Assign Solicitor', onClick: () => setSolCase(row) },
+                { icon: 'timeline',        label: 'View Timeline',    onClick: () => setTlCase(row) },
+              ]} />
+            ),
+          }]}
+          rows={filtered}
+          keyFn={r => r.id}
+          onRowClick={r => setTlCase(r)}
+          loading={loading}
+          skeletonRows={6}
+          emptyText="No legal cases found — cases appear here once a recovery case is escalated to legal"
+        />
       </SectionCard>
 
       {tlCase && <TimelineModal legalCase={tlCase} onClose={() => setTlCase(null)} />}

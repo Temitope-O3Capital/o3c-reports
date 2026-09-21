@@ -602,14 +602,32 @@ export default function CollectionsAccountDetail() {
     } catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
   }
 
-  async function reassign() {
-    if (!detail?.assignment_id || !newAgentId) return
+  // Assign, or reassign. An account arrived at from Portfolio or Watchlist often has no
+  // assignment row yet — those screens are keyed by facility and CIF, not assignment —
+  // and every working action here (Log Contact, Create PTP, Log Payment) is gated on
+  // assignment_id, so such an account could be viewed but never worked.
+  //
+  // The two cases need different endpoints: PUT /{id}/assign updates an existing row and
+  // has no id to take when none exists, so an unassigned account goes through
+  // POST /bulk/assign-by-cif, which reassigns an active row or creates one. Both are
+  // head-gated, which is why this whole flow is head-only: assignment is a supervisor's
+  // decision, not something an officer does to themselves.
+  async function assignAccount() {
+    if (!newAgentId || !detail) return
     setSaving(true)
     try {
-      await apiPut(`/api/collections-ops/${detail.assignment_id}/assign`, {
-        agent_id: Number(newAgentId), notes: '',
-      })
-      toast.success('Account reassigned')
+      if (detail.assignment_id) {
+        await apiPut(`/api/collections-ops/${detail.assignment_id}/assign`, {
+          agent_id: Number(newAgentId), notes: '',
+        })
+        toast.success('Account reassigned')
+      } else {
+        await apiPost('/api/collections-ops/bulk/assign-by-cif', {
+          agent_user_id: Number(newAgentId),
+          accounts: [{ cif: detail.applicant_cif }],
+        })
+        toast.success('Account assigned — it can now be worked')
+      }
       setModal(null); setNewAgentId('')
       refreshAll()
     } catch (e: any) { toast.error(e.message) } finally { setSaving(false) }
@@ -841,16 +859,36 @@ export default function CollectionsAccountDetail() {
             onClick={() => { setWlScenario('unreachable'); setWlNotes(''); setModal('watchlist_add') }}
           />
         )}
-        {isHead && d.assignment_id && (
+        {isHead && (
           <>
             <div style={{ width: 1, background: 'var(--bdr)', alignSelf: 'stretch', margin: '0 4px' }} />
-            <Btn label="Reassign"          icon="swap_horiz" onClick={() => { setNewAgentId(''); setModal('reassign') }} />
-            {d.dpd_lower <= 90 && (
+            {/* Offered whether or not an assignment exists: an unassigned account could
+                previously be read but never worked, because every action below is gated
+                on assignment_id and nothing here could create one. */}
+            <Btn
+              label={d.assignment_id ? 'Reassign' : 'Assign to an agent'}
+              icon={d.assignment_id ? 'swap_horiz' : 'person_add'}
+              onClick={() => { setNewAgentId(''); setModal('reassign') }}
+            />
+            {d.assignment_id && d.dpd_lower <= 90 && (
               <Btn label="Send to Recovery" icon="gavel"      color={RED} onClick={() => setModal('send_to_recovery')} />
             )}
           </>
         )}
       </div>
+
+      {/* An officer cannot assign to themselves — assignment is head-gated on both
+          endpoints, so a self-assign button would simply 403. Say who can help instead
+          of leaving them looking at a screen with no working actions on it. */}
+      {!isHead && !d.assignment_id && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: `${SP[3]} ${SP[4]}`, marginBottom: SP[3], background: 'var(--chip-bg)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }}>
+          <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: 'var(--txt3)' }}>info</span>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+            This account is not assigned to anyone yet, so it cannot be contacted or paid against here.
+            Ask a collections head to assign it — from Supervisor, use Distribute or open this account.
+          </span>
+        </div>
+      )}
 
       {/* ── The credit itself ────────────────────────────────────────────────── */}
       {creditError && <ErrBanner error={creditError} onRetry={() => reloadCredit()} />}
@@ -1077,13 +1115,14 @@ export default function CollectionsAccountDetail() {
       </Modal>
 
       {isHead && (
-        <Modal open={openModal === 'reassign'} onClose={() => setModal(null)} title="Reassign Account" width={420}
+        <Modal open={openModal === 'reassign'} onClose={() => setModal(null)}
+          title={d.assignment_id ? 'Reassign Account' : 'Assign Account'} width={420}
           footer={
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={reassign} disabled={saving || !newAgentId} style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving || !newAgentId ? 'not-allowed' : 'pointer', opacity: saving || !newAgentId ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <button onClick={assignAccount} disabled={saving || !newAgentId} style={{ padding: `${SP[2]} ${SP[5]}`, borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving || !newAgentId ? 'not-allowed' : 'pointer', opacity: saving || !newAgentId ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {saving && <Spinner size={13} color="#fff" />}
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>swap_horiz</span>
-                Reassign
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{d.assignment_id ? 'swap_horiz' : 'person_add'}</span>
+                {d.assignment_id ? 'Reassign' : 'Assign'}
               </button>
               <button onClick={() => setModal(null)} style={{ padding: `${SP[2]} ${SP[4]}`, borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
             </div>

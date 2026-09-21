@@ -24,6 +24,12 @@ interface Dash {
   ptp_kept_rate_pct:    number
   contact_rate_pct:     number
   cure_rate_pct:        number
+  // Denominators for the three rates above, so the UI can tell "0% of a real
+  // population" from "nothing measured yet". Each rate returns 0 when its population is
+  // empty, which is indistinguishable from genuine failure — and with collection_promises
+  // and collection_contacts empty, all three read 0 and painted red.
+  ptp_resolved_month:   number
+  cured_accounts:       number
 }
 
 // GET /api/collections-ops/agent-dashboard
@@ -114,7 +120,6 @@ export default function CollectionsSupervisor() {
   const [agents, setAgents] = useState<AgentRow[]>([])
   const [feed,   setFeed]   = useState<ActivityEvent[]>([])
   const [pmtCount, setPmtCount] = useState(0); const [pmtValue, setPmtValue] = useState(0)
-  const [woReqCount, setWoReqCount] = useState(0); const [woReqValue, setWoReqValue] = useState(0)
   const [woApvCount, setWoApvCount] = useState(0); const [woApvValue, setWoApvValue] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
@@ -129,12 +134,13 @@ export default function CollectionsSupervisor() {
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const [d, a, act, pmts, woReq, woApv] = await Promise.all([
+      // No writeoff-requests fetch: that flow is retired (0 rows, ever) and its tile
+      // has been removed, so polling it every load was work for a number nobody saw.
+      const [d, a, act, pmts, woApv] = await Promise.all([
         apiFetch<any>('/api/collections-ops/dashboard'),
         apiFetch<any>('/api/collections-ops/agent-dashboard'),
         apiFetch<any>('/api/collections/activity?module=collections&page=1&size=20'),
         apiFetch<any>('/api/recovery-ops/payments/pending'),
-        apiFetch<any>('/api/collections-ops/writeoff-requests?status=pending'),
         apiFetch<any>('/api/collections-ops/writeoffs'),
       ])
       setDash(unwrap<Dash>(d) ?? null)
@@ -142,8 +148,6 @@ export default function CollectionsSupervisor() {
       const inner = unwrap<any>(act); setFeed((inner?.data ?? (Array.isArray(inner) ? inner : [])) as ActivityEvent[])
       const pmtRows = (unwrap<any[]>(pmts) as any[]) ?? []
       setPmtCount(pmtRows.length); setPmtValue(pmtRows.reduce((s, r) => s + Number(r.amount_kobo || 0), 0))
-      const woReqRows = (unwrap<any[]>(woReq) as any[]) ?? []
-      setWoReqCount(woReqRows.length); setWoReqValue(woReqRows.reduce((s, r) => s + Number(r.amount_kobo || r.outstanding_kobo || 0), 0))
       const woApvRows = (unwrap<any[]>(woApv) as any[]) ?? []
       setWoApvCount(woApvRows.length); setWoApvValue(woApvRows.reduce((s, r) => s + Number(r.outstanding_kobo || 0), 0))
     } catch (e: any) { setError(e.message) }
@@ -177,7 +181,7 @@ export default function CollectionsSupervisor() {
   const collected = Number(d?.collected_today_kobo ?? 0)
   const target = Number(d?.target_kobo ?? 0)
   const targetPct = target > 0 ? Math.round((collected / target) * 100) : 0
-  const pendingApprovals = pmtCount + woReqCount + woApvCount
+  const pendingApprovals = pmtCount + woApvCount
 
   const agentCols: TableCol<AgentRow>[] = [
     {
@@ -246,12 +250,30 @@ export default function CollectionsSupervisor() {
         <KpiCard label="Collected Today" value={loading && !d ? '—' : fmtKoboExact(collected)}
           sub={target > 0 ? `${targetPct}% of ${fmtKoboExact(target)} target` : 'no target set today'}
           icon="payments" accent={GREEN} loading={loading && !d} />
-        <KpiCard label="PTP Kept Rate" value={loading && !d ? '—' : `${Number(d?.ptp_kept_rate_pct ?? 0)}%`}
-          sub="promises honoured this month" icon="handshake" accent={pctColour(Number(d?.ptp_kept_rate_pct ?? 0))} loading={loading && !d} />
-        <KpiCard label="Contact Rate" value={loading && !d ? '—' : `${Number(d?.contact_rate_pct ?? 0)}%`}
-          sub="of active book contacted today" icon="call" accent={pctColour(Number(d?.contact_rate_pct ?? 0))} loading={loading && !d} />
-        <KpiCard label="Cure Rate" value={loading && !d ? '—' : `${Number(d?.cure_rate_pct ?? 0)}%`}
-          sub="active accounts back to current" icon="healing" accent={pctColour(Number(d?.cure_rate_pct ?? 0))} loading={loading && !d} />
+        {/* These three are behavioural rates with no instrumentation behind them yet:
+            collection_promises and collection_contacts are empty, so each resolves to 0
+            and pctColour(0) painted them RED — a supervisor read catastrophic floor
+            performance where there was simply nothing measured. Show a dash and say why,
+            exactly as "Collected Today" above already does for a missing target. They
+            light up on their own once agents start logging contacts and promises. */}
+        <KpiCard label="PTP Kept Rate"
+          value={loading && !d ? '—' : (Number(d?.ptp_resolved_month ?? 0) > 0 ? `${Number(d?.ptp_kept_rate_pct ?? 0)}%` : '—')}
+          sub={Number(d?.ptp_resolved_month ?? 0) > 0 ? 'promises honoured this month' : 'no promises resolved this month'}
+          icon="handshake"
+          accent={Number(d?.ptp_resolved_month ?? 0) > 0 ? pctColour(Number(d?.ptp_kept_rate_pct ?? 0)) : 'var(--txt3)'}
+          loading={loading && !d} />
+        <KpiCard label="Contact Rate"
+          value={loading && !d ? '—' : (Number(d?.contacts_today ?? 0) > 0 ? `${Number(d?.contact_rate_pct ?? 0)}%` : '—')}
+          sub={Number(d?.contacts_today ?? 0) > 0 ? 'of active book contacted today' : 'no contacts logged today'}
+          icon="call"
+          accent={Number(d?.contacts_today ?? 0) > 0 ? pctColour(Number(d?.contact_rate_pct ?? 0)) : 'var(--txt3)'}
+          loading={loading && !d} />
+        <KpiCard label="Cure Rate"
+          value={loading && !d ? '—' : (Number(d?.cured_accounts ?? 0) > 0 ? `${Number(d?.cure_rate_pct ?? 0)}%` : '—')}
+          sub={Number(d?.cured_accounts ?? 0) > 0 ? 'active accounts back to current' : 'no accounts back to current yet'}
+          icon="healing"
+          accent={Number(d?.cured_accounts ?? 0) > 0 ? pctColour(Number(d?.cure_rate_pct ?? 0)) : 'var(--txt3)'}
+          loading={loading && !d} />
         <KpiCard label="Overdue Promises" value={loading && !d ? '—' : fmtNum(Number(d?.overdue_promises ?? 0))}
           sub="PTPs past due, unresolved" icon="running_with_errors" accent={RED} loading={loading && !d} />
         <KpiCard label="Contacts Today" value={loading && !d ? '—' : fmtNum(Number(d?.contacts_today ?? 0))}
@@ -267,8 +289,12 @@ export default function CollectionsSupervisor() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
           <ApprovalCard icon="payments" label="Recovery payments" count={pmtCount} value={pmtValue} accent={GREEN}
             onReview={() => navigate('/collections/recovery-approvals')} />
-          <ApprovalCard icon="request_quote" label="Write-off requests" count={woReqCount} value={woReqValue} accent={AMBER}
-            onReview={() => navigate('/collections/writeoff-requests')} />
+          {/* The "Write-off requests" card is gone. It polled
+              collections_writeoff_requests — a table with 0 rows whose flow Writeoffs.tsx
+              documents as retired — so it was permanently 0, and its Review button went to
+              /collections/writeoff-requests, which App.tsx redirects straight back to
+              /collections/writeoffs. A tile that always reads zero and links to a redirect
+              is furniture. Recovery write-offs below is the live approval queue. */}
           <ApprovalCard icon="gavel" label="Recovery write-offs" count={woApvCount} value={woApvValue} accent={RED}
             onReview={() => navigate('/collections/writeoffs')} />
         </div>

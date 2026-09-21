@@ -190,11 +190,40 @@ export default function CollectionsPromises() {
 
   const selectedRows = rows.filter(r => selectedIds.has(r.id))
 
+  // Export what is selected. The batch bar rendered an empty <div> where its action
+  // should be, so the checkboxes selected into nothing and selectedRows was computed
+  // and never read — the same dead-selection pattern the Sales Targets page had.
+  // Everything needed is already client-side, so no endpoint is involved.
+  const exportSelected = () => {
+    const esc = (v: unknown) => {
+      const s = String(v ?? '')
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const header = ['CIF', 'Customer', 'Agent', 'Promised ₦', 'Promise Date', 'Status']
+    const body = selectedRows.map(r => [
+      r.account_cif, r.customer_name, r.agent_name,
+      (Number(r.promise_amount_kobo ?? 0) / 100).toFixed(2),
+      (r.promise_date ?? '').slice(0, 10), r.status,
+    ].map(esc).join(','))
+    const blob = new Blob([[header.join(','), ...body].join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `promises-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const bulkBar = selectedIds.size > 0 ? (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'var(--chip-bg)', borderBottom: '1px solid var(--bdr)' }}>
       <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{selectedIds.size} selected</span>
       <div style={{ marginLeft: 'auto' }}>
-        </div>
+        <button onClick={exportSelected}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>download</span>
+          Export
+        </button>
+      </div>
     </div>
   ) : undefined
 
@@ -241,7 +270,11 @@ export default function CollectionsPromises() {
           selectedIds={selectedIds}
           onSelect={setSelectedIds}
           bulkBar={bulkBar}
-          emptyText="No promises found"
+          // Say WHY it is empty, not just that it is. collection_promises has never held a
+          // row: promises are captured from the queue and the agent dashboard, so an empty
+          // table here means the floor is not logging them, which is worth knowing rather
+          // than reading as "no promises exist".
+          emptyText="No Promises Recorded — promises to pay are logged from the agent queue; none have been captured yet"
           skeletonRows={8}
           rowStyle={r => {
             const s = r.status

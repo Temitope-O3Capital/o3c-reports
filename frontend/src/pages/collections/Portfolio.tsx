@@ -157,10 +157,14 @@ export default function CollectionsPortfolio() {
       const portUrl = qs.toString() ? `/api/collections/portfolio?${qs}` : '/api/collections/portfolio'
       const [portRes, kpiRes] = await Promise.all([
         apiFetch<{ data: PortfolioRow[] }>(portUrl),
-        apiFetch<PortfolioKpis>('/api/collections/portfolio-kpis'),
+        apiFetch<{ data: PortfolioKpis }>('/api/collections/portfolio-kpis'),
       ])
       setRows(portRes.data ?? [])
-      setKpis(kpiRes ?? null)
+      // Every endpoint wraps its payload as {data:…} and apiFetch does not unwrap it.
+      // Reading kpiRes directly left every field undefined, so all five tiles fell back
+      // to ₦0.00 above a table of ~1,600 real facilities — with no loading state to hint
+      // at it. Collections Overview types the same endpoint this way and is correct.
+      setKpis(kpiRes?.data ?? null)
     } catch (e: any) {
       setError(e.message)
     } finally {

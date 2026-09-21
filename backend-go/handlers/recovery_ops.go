@@ -104,13 +104,52 @@ func escalateSevereToRecovery(ctx context.Context, db *core.DB, minDPD int) (int
 
 	// Take every active collection assignment that is now in an open recovery case out
 	// of the collections queue, so no account is worked by both teams at once.
+	//
+	// The delinquency condition is essential and was missing. Without it this swept out
+	// any account whose customer had ANY open case, regardless of whether the debt was
+	// still severe — and because nothing closes a case when a debt cures, that exit was
+	// permanent and re-applied every night. The queue therefore drained to nothing
+	// (0 active assignments survived), and re-assigning an account by hand was undone
+	// within 24 hours. An account only leaves collections while it is genuinely at or
+	// beyond the escalation threshold.
 	if _, err := db.PG.ExecContext(ctx, `
 		UPDATE collection_assignments ca
 		   SET status = 'sent_to_recovery', updated_at = NOW()
 		 WHERE ca.status = 'active'
 		   AND EXISTS (SELECT 1 FROM recovery_cases rc
 		               WHERE rc.account_cif = ca.account_cif
-		                 AND rc.status NOT IN ('closed','recovered','written_off'))`); err != nil {
+		                 AND rc.status NOT IN ('closed','recovered','written_off'))
+		   AND EXISTS (SELECT 1 FROM app.collections_delinquent_unified v
+		               WHERE v.cif = ca.account_cif
+		                 AND v.dpd >= $1)`, minDPD); err != nil {
+		return created, err
+	}
+
+	// Close cases whose debt has cured. Nothing else in the system ever closes a case —
+	// the only other exit is a write-off approval — so an open case was effectively
+	// permanent. That is what made the sweep above one-way: it keys on "an open case
+	// exists", so a customer who paid off months ago could never return to collections,
+	// and their balance kept inflating every recovery figure. 558 open cases belong to
+	// customers with no delinquency at all.
+	//
+	// Legal cases are deliberately exempt. A matter under legal proceedings ends by
+	// judgment, settlement or write-off — not because today's delinquency feed stopped
+	// listing the customer, which it may do for reasons that have nothing to do with the
+	// debt being paid. 63 such cases stay open by this rule.
+	//
+	// Ordering against the sweep does not matter: the sweep now carries its own DPD
+	// guard, so a cured account cannot be swept out regardless of which runs first.
+	// Requires migration 258 (closed_reason).
+	if _, err := db.PG.ExecContext(ctx, `
+		UPDATE recovery_cases rc
+		   SET status        = 'closed',
+		       closed_at     = NOW(),
+		       updated_at    = NOW(),
+		       closed_reason = 'cured — no delinquency on the book'
+		 WHERE rc.status NOT IN ('closed','recovered','written_off','legal')
+		   AND rc.account_cif IS NOT NULL
+		   AND NOT EXISTS (SELECT 1 FROM app.collections_delinquent_unified v
+		                   WHERE v.cif = rc.account_cif)`); err != nil {
 		return created, err
 	}
 	return created, nil
@@ -955,6 +994,21 @@ func recoveryOpsAddLegal(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "Add legal proceeding failed")
 			return
 		}
+		if len(rows) == 0 {
+			respondErr(w, 500, "Insert returned no result")
+			return
+		}
+		// Move the CASE, not just the paperwork. recoveryLegal lists cases WHERE
+		// legal_stage IS NOT NULL and both dashboards filter status IN ('active','legal'),
+		// neither of which this handler set — so proceedings could be filed against a case
+		// that never appeared in the Legal tracker. Only escalates: a closed, recovered or
+		// written-off case is left alone.
+		db.PGExec(r.Context(), `
+			UPDATE recovery_cases
+			   SET legal_stage = $1, status = 'legal', updated_at = NOW()
+			 WHERE id = $2
+			   AND status NOT IN ('closed','recovered','written_off')`,
+			b.ProceedingType, id) //nolint:errcheck
 		cif := ""
 		if cifRows, _ := db.PGQuery(r.Context(), `SELECT account_cif FROM recovery_cases WHERE id = $1`, id); len(cifRows) > 0 {
 			cif = str(cifRows[0]["account_cif"])

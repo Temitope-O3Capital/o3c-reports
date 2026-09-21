@@ -1,6 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Page, ExpandableFilterBar, Tabs, ConfirmModal, ErrBanner, Spinner, Modal,
   filterInputStyle, NameCell, ActionRow, StatusBadge, Pagination,
@@ -779,6 +779,22 @@ export default function RecoveryCases() {
   // A single selection filters to that product; selecting both (or none) = all.
   const fProductKey = fProduct.size === 1 ? [...fProduct][0] : ''
 
+  // Agent scope from the URL: ?agent=<id>, set by the Supervisor leaderboard's "View
+  // Cases". That button has always passed the parameter, but nothing here read it — so
+  // a supervisor clicking an agent's row landed on the UNFILTERED list of every case
+  // and read it as that agent's book. Filtered server-side via agent_id (the name
+  // recoveryOpsCases expects) so it spans the whole queue rather than the current page,
+  // and shown as a clearable banner. Mirrors the pattern Collections Queue already uses.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [agentFilter, setAgentFilter] = useState<number | null>(() => {
+    const a = searchParams.get('agent')
+    return a ? Number(a) : null
+  })
+  useEffect(() => {
+    const a = searchParams.get('agent')
+    setAgentFilter(a ? Number(a) : null)
+  }, [searchParams])
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setErr(null)
@@ -786,6 +802,7 @@ export default function RecoveryCases() {
     if (fStatusKey)  params.set('status', fStatusKey)
     if (fProductKey) params.set('product_type', fProductKey)
     if (dq)          params.set('q', dq)
+    if (agentFilter != null) params.set('agent_id', String(agentFilter))
     // The agent list is only needed for the (head-only) assign action. Fetch it
     // independently so a 403 for a recovery agent — who has no admin access — can
     // never blank the whole case list, which is what the shared Promise.all did.
@@ -801,13 +818,13 @@ export default function RecoveryCases() {
       const usersRes = await apiFetch<{ data: AgentUser[] }>('/api/recovery-ops/agents')
       setAgents(usersRes.data ?? [])
     } catch { /* non-fatal: assign dropdown just stays empty */ }
-  }, [fStatusKey, fProductKey, dq, page])
+  }, [fStatusKey, fProductKey, dq, page, agentFilter])
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['recovery'] })
 
-  // Changing a filter or the search resets to the first page of the (new) queue.
-  useEffect(() => { setPage(1) }, [fStatusKey, fProductKey, dq])
+  // Changing a filter, the search or the agent scope resets to the first page.
+  useEffect(() => { setPage(1) }, [fStatusKey, fProductKey, dq, agentFilter])
 
   // Head-only: seed recovery cases from the severe delinquency book. Recovery's
   // analogue of Collections' "Generate Assignments" — without it the module stays
@@ -938,6 +955,32 @@ export default function RecoveryCases() {
             totalCount={total}
             placeholder="Search CIF, case ref, agent…"
           />
+
+          {/* Agent-scope banner — set by ?agent=<id> from the Supervisor leaderboard,
+              clearable. Without this the filter is invisible: the list would silently
+              show one agent's cases with nothing on screen saying so. */}
+          {agentFilter != null && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '7px 14px', background: `${NAVY}0D`,
+              borderBottom: '1px solid var(--bdr)', flexShrink: 0,
+            }}>
+              <span className="material-symbols-rounded" style={{ fontSize: TEXT.md, color: NAVY }}>filter_alt</span>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>
+                Showing cases assigned to <strong>{agents.find(a => a.id === agentFilter)?.full_name ?? `agent #${agentFilter}`}</strong>
+              </span>
+              <button
+                onClick={() => { const p = new URLSearchParams(searchParams); p.delete('agent'); setSearchParams(p, { replace: true }) }}
+                style={{
+                  marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '3px 10px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
+                  background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer',
+                }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>close</span>
+                Show all cases
+              </button>
+            </div>
+          )}
 
           {/* Batch bar */}
           {checkedIds.size > 0 && (
