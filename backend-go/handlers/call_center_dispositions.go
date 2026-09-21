@@ -260,6 +260,19 @@ func ccApplyDisposition(ctx context.Context, db *core.DB, contactID string,
 		cb = *callbackAt
 	}
 
+	// Did THIS dial actually reach the customer? A promised call-back is a promise to
+	// TRY the number at that time, not to close the contact — so a real conversation
+	// fulfils it no matter what was said ("Answered — Interested" and "Promise to Pay"
+	// both carry no status of their own, same as "No Answer"). Without this, calling
+	// a customer back exactly as promised and logging the outcome left the old
+	// callback_at in place: the contact kept showing "Callback Due" and inflating the
+	// queue's count forever, because nothing here ever cleared a promise that wasn't
+	// being replaced by a newer one or closed outright.
+	//
+	// "Call Dropped" is the one connected code that is NOT a real conversation — the
+	// line picked up and died within seconds, so whatever was promised still stands.
+	fulfilled := d.Connected && d.Code != "call_dropped"
+
 	if _, err := db.PGExec(ctx,
 		`UPDATE call_center_contacts
 		    SET disposition_code = $1,
@@ -274,10 +287,12 @@ func ccApplyDisposition(ctx context.Context, db *core.DB, contactID string,
 		                                WHEN $4::text IS NOT NULL             THEN 'pending'
 		                                ELSE status END,
 		        -- Set a new time when this disposition carries one; drop a now-meaningless
-		        -- one only when the contact is being closed out; otherwise leave the
-		        -- customer's existing promise alone.
+		        -- one when the contact is being closed out or the call-back was just
+		        -- fulfilled by reaching the customer; otherwise (no answer, call dropped)
+		        -- leave the customer's existing promise alone for the next attempt.
 		        callback_at      = CASE WHEN $4::text IS NOT NULL THEN $4::timestamptz
 		                                WHEN $3::text IN ('closed','invalid') THEN NULL
+		                                WHEN $6::boolean THEN NULL
 		                                ELSE callback_at END,
 		        -- Re-arm the reminder whenever a NEW call-back is scheduled. The worker
 		        -- fires only where callback_notified_at IS NULL, so leaving the old stamp
@@ -286,7 +301,7 @@ func ccApplyDisposition(ctx context.Context, db *core.DB, contactID string,
 		                                    ELSE callback_notified_at END,
 		        updated_at       = NOW()
 		  WHERE id = $5`,
-		d.Code, d.Label, d.Status, cb, contactID); err != nil {
+		d.Code, d.Label, d.Status, cb, contactID, fulfilled); err != nil {
 		slog.Error("ccApplyDisposition: apply to contact",
 			"contact", contactID, "disposition", d.Code, "err", err)
 	}
