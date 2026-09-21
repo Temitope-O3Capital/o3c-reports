@@ -19,6 +19,9 @@ interface LoanSummary {
   dpd_31_60:              number
   dpd_61_90:              number
   dpd_90plus:             number
+  // Canonical NPL (app.is_npl, migration 261): DPD > 90 OR CBS Defaulting/Expired.
+  // dpd_90plus above stays a pure DPD bucket so the distribution still adds up.
+  npl_count:              number
   npl_outstanding_kobo:   number
 }
 
@@ -191,7 +194,9 @@ export default function RiskPortfolio() {
   const [offset,  setOffset]  = useState(0)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
-  const [search,  setSearch]  = useState('')
+  // ?search= is honoured like the other deep-link filters, so a watchlist row can open
+  // the portfolio on the loan it refers to instead of on the whole book.
+  const [search,  setSearch]  = useState(() => searchParams.get('search') ?? '')
   const [fDpd,    setFDpd]    = useState<Set<string>>(() => { const v = searchParams.get('dpd'); return new Set(v ? v.split(',') : []) })
   const [fBand,   setFBand]   = useState<Set<string>>(() => { const v = searchParams.get('band'); return new Set(v ? v.split(',') : []) })
   const [fProduct, setFProduct] = useState<Set<string>>(() => { const v = searchParams.get('product'); return new Set(v ? v.split(',') : []) })
@@ -359,7 +364,10 @@ export default function RiskPortfolio() {
         <KpiCard label="Outstanding"       value={fmtKoboExact(summary?.total_outstanding_kobo ?? 0)} loading={!summary} />
         <KpiCard label="Current"           value={fmtNum(summary?.current_count ?? 0)}          loading={!summary} sub="no overdue" />
         <KpiCard label="PAR 1–90"          value={fmtNum((summary?.dpd_1_30 ?? 0) + (summary?.dpd_31_60 ?? 0) + (summary?.dpd_61_90 ?? 0))} loading={!summary} sub="DPD 1–90 accounts" />
-        <KpiCard label="NPL (90+)"         value={fmtNum(summary?.dpd_90plus ?? 0)}             loading={!summary} sub={summary ? fmtKoboExact(summary.npl_outstanding_kobo) : undefined} accent={RED} />
+        {/* Count and value now describe the SAME set of loans. The value underneath was
+            summed over every delinquent loan (DPD > 0) while the count above it was
+            DPD > 90, so this tile overstated NPL exposure several-fold. */}
+        <KpiCard label="Non-Performing"    value={fmtNum(summary?.npl_count ?? 0)}              loading={!summary} sub={summary ? fmtKoboExact(summary.npl_outstanding_kobo) : undefined} accent={RED} />
       </div>
 
       <SectionCard title="Active Loan Book" badge={total} padding={false}>

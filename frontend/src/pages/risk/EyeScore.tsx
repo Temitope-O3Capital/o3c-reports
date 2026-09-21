@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Page, KpiCard, SectionCard, DataTable, ExpandableFilterBar, ErrBanner, DateFilter, NameCell, ActionRow } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -14,7 +15,7 @@ interface EyeScoreRow {
   product_type: string
   score: number
   band: string
-  top_factor: string | null
+  reference: string
   dti_pct: number | null
   scored_at: string
 }
@@ -58,6 +59,7 @@ function eyeScoreColor(score: number): string {
 const PAGE_SIZE = 50
 
 export default function EyeScore() {
+  const navigate = useNavigate()
   const [rows,     setRows]     = useState<EyeScoreRow[]>([])
   const [kpis,     setKpis]     = useState<EyeKPIs | null>(null)
   const [total,    setTotal]    = useState(0)
@@ -69,6 +71,8 @@ export default function EyeScore() {
   const [fProducts, setFProducts] = useState(new Set<string>())
   const [fBands,    setFBands]    = useState(new Set<string>())
   const [search,    setSearch]    = useState('')
+  const [sortKey,   setSortKey]   = useState('scored_at')
+  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('desc')
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -81,8 +85,18 @@ export default function EyeScore() {
     if (fProducts.size) p.set('product', [...fProducts].join(','))
     if (fBands.size)    p.set('band',    [...fBands].join(','))
     if (search)         p.set('search', search)
+    p.set('sort', sortKey)
+    p.set('dir', sortDir)
     return p.toString()
-  }, [dateFrom, dateTo, fProducts, fBands, search])
+  }, [dateFrom, dateTo, fProducts, fBands, search, sortKey, sortDir])
+
+  // The KPI cards take the page's window so they describe the same period as the table.
+  const kpiQS = useCallback(() => {
+    const p = new URLSearchParams()
+    if (dateFrom) p.set('date_from', dateFrom)
+    if (dateTo)   p.set('date_to', dateTo)
+    return p.toString()
+  }, [dateFrom, dateTo])
 
   const load = useCallback(async (off = 0) => {
     abortRef.current?.abort()
@@ -95,7 +109,9 @@ export default function EyeScore() {
           `/api/risk/eye-scores?${buildQS(off)}`,
           { signal: abortRef.current.signal },
         ),
-        apiFetch<{ data: EyeKPIs }>('/api/risk/eye-kpis'),
+        // The cards sit directly above a date-filtered table; fetching them with no
+        // params meant they described a different period from the rows beneath them.
+        apiFetch<{ data: EyeKPIs }>(`/api/risk/eye-kpis?${kpiQS()}`),
       ])
       setRows(scoreRes.data ?? [])
       setTotal(scoreRes.total ?? 0)
@@ -136,14 +152,10 @@ export default function EyeScore() {
       key: 'band', label: 'Band',
       render: r => <BandPill band={r.band} />,
     },
-    {
-      key: 'top_factor', label: 'Key Factor',
-      render: r => (
-        <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontStyle: r.top_factor ? 'normal' : 'italic' }}>
-          {r.top_factor ?? 'N/A'}
-        </span>
-      ),
-    },
+    // "Key Factor" lived here, fed by `top_factor` — a field returned by the mock
+    // handlers and by nothing in the backend. It rendered an italic "N/A" on every row
+    // in production while looking populated in development. The real factor breakdown
+    // is the Phoenix Eye panel on the application, which "View Score" now opens.
     {
       key: 'dti_pct', label: 'DTI %', align: 'right',
       render: r => (
@@ -159,7 +171,10 @@ export default function EyeScore() {
     {
       key: '_actions', label: '',
       render: r => <ActionRow actions={[
-        { icon: 'visibility', label: 'View Score', onClick: () => window.open(`/risk/eye-score/${r.id}`, '_self') },
+        // Was /risk/eye-score/{id} — a route that does not exist, so the only control
+        // on the row went to the 404 page. The score's actual reasoning (factor
+        // attribution, the Phoenix Eye report) lives on the application itself.
+        { icon: 'visibility', label: 'View Score', onClick: () => navigate(`/operations/risk/applications/${r.application_id}`) },
       ]} />,
     },
   ]
@@ -254,6 +269,11 @@ export default function EyeScore() {
           keyFn={r => r.id}
           loading={loading}
           skeletonRows={8}
+          // Sorting goes to the server, so a header click ranks the whole filtered set
+          // rather than reordering the 50 rows this page happens to be holding.
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSortChange={(k, d) => { setSortKey(k); setSortDir(d) }}
           emptyText={kpis?.origination_live === false ? 'No scored applications yet. Eye Score runs at application time. Scores appear here once applications are raised or synced from Phoenix. Live-book risk scores are on the Portfolio page.' : 'No Score Requests Found'}
         />
 

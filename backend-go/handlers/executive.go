@@ -1324,11 +1324,15 @@ func execRiskHandler(db *core.DB) http.HandlerFunc {
 		var portfolioKobo, nplKobo, avgLoanKobo, top10Kobo int64
 		if rows, e := db.PGQuery(ctx, `
 			WITH o AS (
-				SELECT outstanding_principal_kobo AS op, loan_amount_kobo AS la, status
+				SELECT outstanding_principal_kobo AS op, loan_amount_kobo AS la, status,
+				       `+cbsLoanDPDBare+` AS dpd
 				FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
 			SELECT
 				COALESCE(SUM(op), 0)                                                  AS portfolio,
-				COALESCE(SUM(op) FILTER (WHERE status IN ('Defaulting','Expired')), 0) AS npl,
+				-- Canonical NPL (app.is_npl, migration 261). The executive view tested
+				-- status alone while Risk tested DPD alone, so the board pack and the
+				-- risk desk quoted different NPL figures for the same book.
+				COALESCE(SUM(op) FILTER (WHERE app.is_npl(status, dpd)), 0)            AS npl,
 				COALESCE(AVG(la), 0)::bigint                                          AS avg_loan,
 				(SELECT COALESCE(SUM(op2), 0) FROM (SELECT op AS op2 FROM o ORDER BY op DESC LIMIT 10) t) AS top10
 			FROM o`); e == nil && len(rows) > 0 {

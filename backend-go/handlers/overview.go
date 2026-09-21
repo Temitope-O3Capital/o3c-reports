@@ -88,11 +88,16 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 		}
 
 		// KPI 1 (Loan Book) — live from the CBS/Udara loan book.
-		// open loans = NOT IN ('Closed','Revoked');  NPL = Defaulting/Expired.
+		// open loans = NOT IN ('Closed','Revoked'); NPL = app.is_npl (migration 261):
+		// schedule DPD > 90 OR CBS Defaulting/Expired. This page used to test status
+		// alone while the Risk module tested DPD alone, so the two disagreed on the same
+		// book. DPD is only computed for open loans — a closed one can never be NPL, and
+		// the function is plpgsql, so this keeps it off the bulk of the table.
 		if rows, err := db.PGQuery(ctx, `
 			SELECT
 				COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status NOT IN ('Closed','Revoked')), 0) AS outstanding_kobo,
-				COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status IN ('Defaulting','Expired')), 0)  AS npl_kobo,
+				COALESCE(SUM(outstanding_principal_kobo) FILTER (
+					WHERE status NOT IN ('Closed','Revoked') AND app.is_npl(status, `+cbsLoanDPDBare+`)), 0)    AS npl_kobo,
 				COUNT(*)                        FILTER (WHERE status = 'Active')                                 AS active_loans,
 				COUNT(DISTINCT cbs_customer_id) FILTER (WHERE status = 'Active')                                 AS borrowers_active
 			FROM cbs_loans`); err == nil && len(rows) > 0 {
