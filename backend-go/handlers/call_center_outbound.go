@@ -3269,36 +3269,43 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 
 	res, err := db.PGExec(ctx, `
 		UPDATE call_center_leads
-		   SET status           = $1,
+		   -- Forward-only: status alone stays behind the rank guard, so a no-answer
+		   -- logged against a CONVERTED lead can't knock it back to 'no_answer' —
+		   -- dropping it out of the converted count and blocking forwardLeadToSales,
+		   -- which accepts only 'interested'. Compared inside the statement so it
+		   -- cannot race another writer.
+		   SET status           = CASE WHEN $5::int >= `+ccLeadStatusRankSQL+` THEN $1 ELSE status END,
 		       last_disposition = COALESCE(NULLIF($4,''), last_disposition),
 		       last_called_at   = NOW(),
 		       updated_at       = NOW(),
-		       -- Keep/refresh the due time while the lead is still a callback, or a
-		       -- "not ready yet" lead carrying an optional try-again date; once a call
-		       -- resolves it to any other status, drop the stale time so the lead
-		       -- doesn't read "Callback At …" after it has been dealt with.
+		       -- callback_at is a live operational promise, not funnel progress, so it
+		       -- is NOT behind the rank guard above — a call that actually happens
+		       -- must always be allowed to resolve it. Refreshed/kept while the call
+		       -- IS itself a callback/"not ready yet" promise; left untouched on a
+		       -- no-answer or a dropped line (nothing was discussed, so the earlier
+		       -- promise still stands — a bare no-answer used to wipe it out here,
+		       -- same bug ccApplyDisposition had for the outbound queue); cleared
+		       -- everywhere else, because every other status means the promised call
+		       -- happened and was resolved one way or another. Previously this whole
+		       -- statement was skipped outright whenever the new status ranked below
+		       -- the lead's current one (e.g. a promised callback answered "Not
+		       -- Interested" ranks BELOW 'callback'), which silently froze
+		       -- last_called_at and callback_at too — so the lead kept showing an
+		       -- overdue callback for a call that had already happened and been logged.
 		       callback_at      = CASE WHEN $1 IN ('callback','not_ready')
 		                               THEN CASE WHEN $3 <> '' THEN $3::timestamptz ELSE callback_at END
+		                               WHEN $1 IN ('pending','no_answer') THEN callback_at
 		                               ELSE NULL END
-		 WHERE id = $2
-		   -- Forward-only, the guard advanceLeadStatus has always had in its own form
-		   -- (status='pending'). This rewrote status unconditionally, so a no-answer
-		   -- logged against a CONVERTED lead knocked it back to 'no_answer' — dropping
-		   -- it out of the converted count and blocking forwardLeadToSales, which
-		   -- accepts only 'interested'. Compared inside the statement so it cannot race
-		   -- another writer.
-		   AND $5::int >= `+ccLeadStatusRankSQL,
+		 WHERE id = $2`,
 		status, leadID, callbackAt, dispo, ccLeadStatusRank[status])
 	if err != nil {
 		slog.Error("syncLeadFromCall: update lead", "lead", leadID, "err", err)
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		// The guard held: this call does not move the lead (a no-answer against an
-		// already-converted lead, say). The call itself is still recorded below — what
-		// is refused is the regression, not the record.
-		slog.Info("syncLeadFromCall: lead not moved (forward-only guard)",
-			"lead", leadID, "proposed_status", status)
+		// The lead id itself did not match any row — status/callback tracking for
+		// this call was lost. The call itself is still recorded below.
+		slog.Warn("syncLeadFromCall: lead not found", "lead", leadID, "proposed_status", status)
 	}
 
 	// Keep the lead-funnel table in step — canonical code + handle time, so connect
