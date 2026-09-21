@@ -8,6 +8,13 @@ name: Deploy
 on:
   push:
     branches: [main]
+  # Run the gate on pull requests too. Until now nothing was verified until it
+  # was already on main, which is the wrong order — especially for
+  # handlers/integration_test.go, which needs the Postgres service to run at all.
+  # The deploy job below stays pinned to main, so a PR validates but never ships.
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   # ── D5: Secret scanning — must run before anything else ─────────────────────
@@ -53,7 +60,11 @@ jobs:
           cache-dependency-path: backend-go/go.sum
 
       - name: Go tests
-        run: go test ./... -v -race -timeout 120s
+        # 300s, not 120s: handlers/integration_test.go migrates the service
+        # database from empty, which is ~290 migration files. That run is the
+        # point — a migration that fails only ever failed at startup before, and
+        # no unit test starts the server.
+        run: go test ./... -v -race -timeout 300s
         working-directory: backend-go
         env:
           DATABASE_URL: postgres://postgres:testpass@localhost:5432/o3c_test
@@ -118,7 +129,8 @@ jobs:
   deploy:
     name: Deploy (On-prem)
     needs: [test, preflight]
-    if: needs.preflight.outputs.configured == 'true'
+    # main only: a pull request runs the gate but must never ship.
+    if: github.ref == 'refs/heads/main' && needs.preflight.outputs.configured == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
