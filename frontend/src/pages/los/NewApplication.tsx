@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { Page, Spinner } from '../../components/UI'
 import { apiPost } from '../../lib/api'
 import { NAVY, RED, GREEN, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
@@ -9,6 +9,10 @@ import { toast } from 'sonner'
 
 interface PersonalInfo {
   full_name:  string
+  // The customer number, when this application is for someone already on the book.
+  // Without it the detail page hides Credit File and Customer 360 and shows
+  // "· no CIF yet", and nothing can be matched back to the core system.
+  cif:        string
   dob:        string
   gender:     string
   phone:      string
@@ -42,7 +46,7 @@ interface FormData {
 
 const INIT: FormData = {
   personal: {
-    full_name: '', dob: '', gender: '', phone: '', email: '', bvn: '', nin: '', address: '',
+    full_name: '', cif: '', dob: '', gender: '', phone: '', email: '', bvn: '', nin: '', address: '',
   },
   employment: {
     employer: '', job_title: '', monthly_salary: '', monthly_obligation: '', employment_type: '', start_date: '',
@@ -165,6 +169,9 @@ function Step1({ data, onChange }: { data: PersonalInfo; onChange: (d: PersonalI
       <Field label="Email">
         <input type="email" style={inputStyle} value={data.email} onChange={set('email')} placeholder="applicant@email.com" />
       </Field>
+      <Field label="CIF">
+        <input style={inputStyle} value={data.cif} onChange={set('cif')} placeholder="Existing customer number, if any" />
+      </Field>
       <Field label="BVN" required>
         <input style={inputStyle} value={data.bvn} onChange={set('bvn')} placeholder="11-digit BVN" maxLength={11} />
       </Field>
@@ -279,59 +286,106 @@ function Step3({ data, onChange }: { data: LoanRequest; onChange: (d: LoanReques
 
 // ── Step 4 — Documents ────────────────────────────────────────────────────────
 
+// Keys match DOC_SLOTS in ApplicationDetail.tsx exactly. This list used 'id' where the
+// detail page uses 'government_id', which was harmless only while nothing here ever
+// uploaded: the same document would have filed itself under a slot the detail page
+// does not render.
 const DOC_SLOTS = [
-  { key: 'id',            label: 'Government-Issued ID',     icon: 'badge' },
-  { key: 'payslip',       label: 'Latest Payslip',           icon: 'receipt_long' },
+  { key: 'government_id', label: 'Government-Issued ID',      icon: 'badge' },
+  { key: 'payslip',       label: 'Latest Payslip',            icon: 'receipt_long' },
   { key: 'bank_statement',label: 'Bank Statement (6 months)', icon: 'account_balance' },
-  { key: 'offer_letter',  label: 'Employment Offer Letter',  icon: 'description' },
+  { key: 'offer_letter',  label: 'Employment Offer Letter',   icon: 'description' },
 ]
 
-function Step4() {
+const MAX_DOC_BYTES = 10 * 1024 * 1024
+
+// Step 4 was a mock: a disabled Upload button, a hardcoded "Pending" pill and the words
+// "No file selected" that never changed. Staff walked through a quarter of the wizard
+// that did nothing. Files are held here and attached after submit, because a document
+// needs an application id to belong to.
+function Step4({ files, onPick }: {
+  files: Record<string, File | null>
+  onPick: (key: string, file: File | null) => void
+}) {
   return (
     <div>
       <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', marginBottom: SP[5], lineHeight: 1.6 }}>
-        Upload the required documents below. Accepted formats: PDF, JPG, PNG (max 10 MB each).
+        Attach the required documents below. Accepted formats: PDF, JPG, PNG (max 10 MB each).
+        They are uploaded when you submit the application.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {DOC_SLOTS.map(slot => (
-          <div key={slot.key} style={{
-            display: 'flex', alignItems: 'center', gap: 14,
-            padding: '14px 16px', borderRadius: RADIUS.lg,
-            border: '1px solid var(--bdr)', background: 'var(--card)',
-          }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: RADIUS.lg,
-              background: 'var(--chip-bg)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        {DOC_SLOTS.map(slot => {
+          const f = files[slot.key] ?? null
+          return (
+            <div key={slot.key} style={{
+              display: 'flex', alignItems: 'center', gap: 14,
+              padding: '14px 16px', borderRadius: RADIUS.lg,
+              border: '1px solid var(--bdr)', background: 'var(--card)',
             }}>
-              <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: 'var(--txt2)' }}>
-                {slot.icon}
+              <div style={{
+                width: 36, height: 36, borderRadius: RADIUS.lg,
+                background: 'var(--chip-bg)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: 'var(--txt2)' }}>
+                  {slot.icon}
+                </span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{slot.label}</div>
+                <div
+                  title={f?.name}
+                  style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
+                  {f ? `${f.name} · ${(f.size / 1024 / 1024).toFixed(2)} MB` : 'No file selected'}
+                </div>
+              </div>
+              <span style={{
+                fontSize: TEXT.xs, fontWeight: FW.semibold,
+                padding: '2px 8px', borderRadius: RADIUS['2xl'],
+                background: f ? 'rgba(22,163,74,.12)' : 'rgba(217,119,6,.12)',
+                color: f ? GREEN : '#D97706', flexShrink: 0,
+              }}>
+                {f ? 'Ready' : 'Pending'}
               </span>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{slot.label}</div>
-              <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>No file selected</div>
-            </div>
-            <span style={{
-              fontSize: TEXT.xs, fontWeight: FW.semibold,
-              padding: '2px 8px', borderRadius: RADIUS['2xl'],
-              background: 'rgba(217,119,6,.12)', color: '#D97706',
-            }}>
-              Pending
-            </span>
-            <button
-              disabled
-              style={{
+              {f && (
+                <button
+                  onClick={() => onPick(slot.key, null)}
+                  title="Remove"
+                  style={{
+                    display: 'flex', alignItems: 'center', padding: 4, borderRadius: RADIUS.md,
+                    border: 'none', background: 'none', color: 'var(--txt2)', cursor: 'pointer',
+                  }}
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>close</span>
+                </button>
+              )}
+              <label style={{
                 padding: '6px 14px', borderRadius: RADIUS.md,
                 border: '1px solid var(--bdr)', background: 'var(--input-bg)',
                 fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)',
-                cursor: 'not-allowed', opacity: 0.6,
-              }}
-            >
-              Upload
-            </button>
-          </div>
-        ))}
+                cursor: 'pointer', flexShrink: 0,
+              }}>
+                {f ? 'Replace' : 'Upload'}
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                  style={{ display: 'none' }}
+                  onChange={ev => {
+                    const picked = ev.target.files?.[0] ?? null
+                    if (picked && picked.size > MAX_DOC_BYTES) {
+                      toast.error(`${picked.name} is larger than 10 MB`)
+                    } else {
+                      onPick(slot.key, picked)
+                    }
+                    // Clear the input so re-picking the same file still fires onChange.
+                    ev.target.value = ''
+                  }}
+                />
+              </label>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -384,10 +438,11 @@ function ReviewSection({
   )
 }
 
-function Step5({ form, goTo }: { form: FormData; goTo: (s: number) => void }) {
+function Step5({ form, docs, goTo }: { form: FormData; docs: Record<string, File | null>; goTo: (s: number) => void }) {
   const p = form.personal
   const e = form.employment
   const l = form.loan
+  const attached = DOC_SLOTS.filter(s => docs[s.key])
 
   return (
     <div>
@@ -397,6 +452,7 @@ function Step5({ form, goTo }: { form: FormData; goTo: (s: number) => void }) {
         onEdit={() => goTo(0)}
         data={{
           'Full Name': p.full_name,
+          'CIF': p.cif,
           'Date of Birth': p.dob,
           'Gender': p.gender,
           'Phone': p.phone,
@@ -414,6 +470,10 @@ function Step5({ form, goTo }: { form: FormData; goTo: (s: number) => void }) {
           'Employer': e.employer,
           'Job Title': e.job_title,
           'Monthly Salary': e.monthly_salary ? `₦${Number(e.monthly_salary).toLocaleString('en-NG')}` : '',
+          // Existing obligations drive DTI, which is the input most likely to change a
+          // decision. Step 2 collects it and the review step used to leave it out, so
+          // the officer confirmed a picture of affordability the application did not have.
+          'Existing Monthly Repayments': e.monthly_obligation ? `₦${Number(e.monthly_obligation).toLocaleString('en-NG')}` : '',
           'Employment Type': e.employment_type,
           'Start Date': e.start_date,
         }}
@@ -428,6 +488,16 @@ function Step5({ form, goTo }: { form: FormData; goTo: (s: number) => void }) {
           'Tenor': l.tenor_months ? `${l.tenor_months} months` : '',
           'Purpose': l.purpose,
         }}
+      />
+      <ReviewSection
+        title="Documents"
+        step={3}
+        onEdit={() => goTo(3)}
+        data={
+          attached.length === 0
+            ? { 'Attached': 'None' }
+            : Object.fromEntries(attached.map(s => [s.label, docs[s.key]!.name]))
+        }
       />
     </div>
   )
@@ -473,10 +543,29 @@ function validateStep(step: number, form: FormData): string | null {
 
 export default function NewApplication() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [step,       setStep]       = useState(0)
   const [form,       setForm]       = useState<FormData>(INIT)
+  const [docs,       setDocs]       = useState<Record<string, File | null>>({})
   const [stepError,  setStepError]  = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Four pages carefully assemble these parameters — the BD pipeline sends
+  // contact/employer/product, Book Customer and the helpdesk ticket send cif, the CRM
+  // pipeline sends contact — and this page read none of them. An officer who clicked
+  // "Create Application" from a lead retyped everything that was already on screen.
+  useEffect(() => {
+    const contact  = searchParams.get('contact')  ?? ''
+    const employer = searchParams.get('employer') ?? ''
+    const product  = searchParams.get('product')  ?? ''
+    const cif      = searchParams.get('cif')      ?? ''
+    if (!contact && !employer && !product && !cif) return
+    setForm(f => ({
+      personal:   { ...f.personal,   full_name: contact || f.personal.full_name, cif: cif || f.personal.cif },
+      employment: { ...f.employment, employer: employer || f.employment.employer },
+      loan:       { ...f.loan,       product_type: product || f.loan.product_type },
+    }))
+  }, [searchParams])
 
   const updatePersonal   = (d: PersonalInfo)  => setForm(f => ({ ...f, personal: d }))
   const updateEmployment = (d: Employment)    => setForm(f => ({ ...f, employment: d }))
@@ -508,6 +597,7 @@ export default function NewApplication() {
       const payload = {
         // Step 1 — identity
         applicant_name:        form.personal.full_name,
+        applicant_cif:         form.personal.cif.trim(),
         applicant_email:       form.personal.email,
         applicant_phone:       form.personal.phone,
         bvn:                   form.personal.bvn,
@@ -534,8 +624,32 @@ export default function NewApplication() {
         purpose:               form.loan.purpose,
       }
       const res = await apiPost<{ data: { id: number; reference: string } }>('/api/los', payload)
+      const appID = res.data.id
+
+      // A document needs an application to belong to, so the files staged on step 4 are
+      // uploaded now. A failed upload must not discard the application that was just
+      // created: report how many failed and continue to the detail page, whose
+      // documents panel can retry the same slots.
+      const staged = Object.entries(docs).filter((e): e is [string, File] => e[1] instanceof File)
+      let failed = 0
+      for (const [docType, file] of staged) {
+        try {
+          const token = localStorage.getItem('o3c_token') ?? ''
+          const fd = new FormData()
+          fd.append('file', file)
+          fd.append('doc_type', docType)
+          const up = await fetch(`/api/los/${appID}/documents`, {
+            method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+          })
+          if (!up.ok) failed++
+        } catch { failed++ }
+      }
+
       toast.success(`Application ${res.data.reference} created`)
-      navigate(`/sales/applications/${res.data.id}`)
+      if (failed > 0) {
+        toast.error(`${failed} of ${staged.length} documents did not upload — retry from the application page`)
+      }
+      navigate(`/sales/applications/${appID}`)
     } catch (e: any) {
       setStepError(e.message ?? 'Submit failed')
     } finally {
@@ -574,8 +688,8 @@ export default function NewApplication() {
             {step === 0 && <Step1 data={form.personal}   onChange={updatePersonal} />}
             {step === 1 && <Step2 data={form.employment} onChange={updateEmployment} />}
             {step === 2 && <Step3 data={form.loan}       onChange={updateLoan} />}
-            {step === 3 && <Step4 />}
-            {step === 4 && <Step5 form={form} goTo={goTo} />}
+            {step === 3 && <Step4 files={docs} onPick={(k, f) => setDocs(d => ({ ...d, [k]: f }))} />}
+            {step === 4 && <Step5 form={form} docs={docs} goTo={goTo} />}
           </div>
 
           {/* Validation error */}

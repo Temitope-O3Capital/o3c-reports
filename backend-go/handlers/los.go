@@ -741,7 +741,7 @@ func losCreate(db *core.DB) http.HandlerFunc {
 				monthly_obligation_kobo, sector_code, gender,
 				status, stage, sales_officer_id, assigned_to_user_id, created_by,
 				submitted_at, created_at, updated_at
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,0)::int,$10,$11,$12,
 				NULLIF($13,''), NULLIF($14,''), NULLIF($15,'')::date, NULLIF($16,''),
 				NULLIF($17,''), NULLIF($18,''), NULLIF($19,'')::date,
 				NULLIF($20,0)::bigint, NULLIF($21,''), NULLIF($23,''),
@@ -751,6 +751,12 @@ func losCreate(db *core.DB) http.HandlerFunc {
 			// A revolving product has no tenor, and the form leaves it blank. Storing
 			// the resulting 0 would claim a zero-month term (see migration 217), so an
 			// absent tenor goes in as NULL.
+			//
+			// The rate is the same story. The wizard deliberately omits interest_rate_bps
+			// "so the backend can compute or default it" — the backend does neither, so
+			// the Go zero went straight in and FinanceView computed every monthly
+			// repayment at 0%. NULL says "not priced yet", which is the truth, and renders
+			// as a dash instead of a confident wrong number.
 			b.ProductType, b.AmountRequested, nullIfZero(int64(b.TenorMonths)), b.InterestRateBPS,
 			b.Purpose, b.Employer, b.MonthlyIncome,
 			b.BVN, b.NIN, b.DateOfBirth, b.Address,
