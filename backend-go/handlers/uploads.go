@@ -30,14 +30,31 @@ func uploadsOverdue(db *core.DB) http.HandlerFunc {
 			       EXTRACT(EPOCH FROM f.warn_after)::bigint  AS warn_after_sec,
 			       u.last_upload_at, u.last_upload_status, u.last_upload_by
 			  FROM app.v_pipeline_freshness f
+			  -- Two places record an upload, and settlement uses the other one.
+			  -- Keying only on upload_audit_log meant interswitch_settlement could
+			  -- never show a last upload: its importer writes interswitch_imports
+			  -- (it had a run table before the ledger existed), so that row would
+			  -- have read "no upload recorded yet" for ever, including straight
+			  -- after someone uploaded. Both sources are unioned and the newest
+			  -- wins.
 			  LEFT JOIN LATERAL (
-			      SELECT a.uploaded_at AS last_upload_at,
-			             a.status      AS last_upload_status,
-			             usr.full_name AS last_upload_by
-			        FROM app.upload_audit_log a
-			        LEFT JOIN o3c_users usr ON usr.id = a.uploaded_by
-			       WHERE a.report_type = f.source_key
-			       ORDER BY a.uploaded_at DESC
+			      SELECT up.last_upload_at, up.last_upload_status, up.last_upload_by
+			        FROM (
+			            SELECT a.uploaded_at AS last_upload_at,
+			                   a.status      AS last_upload_status,
+			                   usr.full_name AS last_upload_by
+			              FROM app.upload_audit_log a
+			              LEFT JOIN o3c_users usr ON usr.id = a.uploaded_by
+			             WHERE a.report_type = f.source_key
+			            UNION ALL
+			            SELECT i.started_at,
+			                   CASE i.status WHEN 'ok' THEN 'success' ELSE i.status END,
+			                   usr.full_name
+			              FROM app.interswitch_imports i
+			              LEFT JOIN o3c_users usr ON usr.id = i.triggered_by
+			             WHERE f.source_key = 'interswitch_settlement'
+			        ) up
+			       ORDER BY up.last_upload_at DESC
 			       LIMIT 1
 			  ) u ON true
 			 WHERE f.category = 'manual_upload' AND f.enabled

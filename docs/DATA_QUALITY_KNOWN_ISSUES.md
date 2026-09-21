@@ -151,13 +151,47 @@ which is exactly the case the volume-taper check exists for.
 
 ## 7. Manual-upload sources months stale
 
-**Status:** Open — operational. Now visible on the Data Freshness page.
+**Status:** Open — operational. Visible on the Data Freshness page and, since migration
+245, on Data Management itself.
 
-| Source | Newest import | Newest business date |
-|---|---|---|
-| Interswitch settlement (`interswitch_legs`) | 2026-08-05 | settlement 2026-07-01 |
-| CCS EODTXN (`ccs_transactions`) | 2026-08-05 | — |
-| Card cycle (`card_cycle_data`) | 2026-08-04 | cycle 2026-07-14 |
+| Source | Newest import | Newest business date | Stale as of 2026-09-21 |
+|---|---|---|---|
+| Interswitch settlement (`interswitch_legs`) | 2026-08-05 | settlement 2026-07-01 | **47 days** |
+| CCS EODTXN (`ccs_transactions`) | 2026-08-05 | — | **47 days** |
+| Card cycle (`card_cycle_data`) | 2026-08-04 | cycle 2026-07-14 | **48 days** |
+
+Nothing has been uploaded since: `app.upload_audit_log` holds **zero** rows and
+`app.interswitch_imports` **zero** runs. The source files are not on this server
+either — a search of `E:\`, Desktop, Downloads, Documents and `o3c-db` on 2026-09-20
+found no EODTXN, Report 620, settlement or cycle file from the last 120 days. Someone
+has to fetch them from CCS/Interswitch and upload them; there is nothing to automate.
+
+## 7a. The account feed is NOT degraded — mean vs median
+
+**Status:** Documented. Recorded because the wrong reading was nearly acted on.
+
+On 2026-09-21 the account feed looked catastrophic: ~60–90 rows/day against an
+apparent norm of 5,487/day, which suggested it was running at 1–2% of normal and that
+the taper check was blind to a slow collapse. Both conclusions were wrong, and a
+migration to "fix" the baseline was nearly written on them.
+
+The norm was a **mean**, and this feed's daily volume is extremely skewed by a
+periodic full-book refresh:
+
+| Month | accounts mean | accounts **median** | biggest single day |
+|---|---|---|---|
+| 2026-09 | 1,434 | **72** | 19,093 |
+| 2026-08 | 5,488 | **99** | 149,213 |
+| 2026-07 | 10,634 | **116** | 312,252 |
+| 2026-06 | 120 | **77** | 538 |
+| 2026-04 | 7,973 | **78** | 229,200 |
+
+The typical day has always been ~70–120 rows. September's median of 72 is ordinary.
+The monitor's 14-day **median** baseline was right to stay quiet, and the mean was the
+misleading statistic — which is precisely why `v_pipeline_data_age` uses
+`percentile_cont(0.5)` rather than `avg()`. Lesson for the next person reading a
+volume chart on this feed: **read the median, and check whether a bulk-refresh day is
+doing the talking.**
 
 ## 8. Duplicate customer rows per CIF
 
