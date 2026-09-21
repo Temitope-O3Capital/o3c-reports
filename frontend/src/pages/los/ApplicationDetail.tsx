@@ -971,7 +971,7 @@ function decisionReasons(raw: unknown, decision: string): { shown: DecisionReaso
 
 function PhoenixDecisionBanner({ app }: { app: Application }) {
   const decision = (app.decision ?? '').toLowerCase()
-  const sync = syncStateMeta(app.phoenix_sync_state)
+  const sync = syncStateMeta(app.phoenix_sync_state, app.decision)
   const hasDecision = !!decision && decision !== 'pending'
   const fromPhoenix = app.source_system === 'phoenix'
   if (!hasDecision && !sync && !fromPhoenix) return null

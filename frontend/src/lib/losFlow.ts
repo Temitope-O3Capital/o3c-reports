@@ -130,8 +130,18 @@ export function decisionMeta(d?: string | null): { label: string; txt: string; b
 
 // phoenix_sync_state → a small provenance badge so reviewers know whether the score
 // is live from Phoenix, still in flight, or absent.
-export function syncStateMeta(s?: string | null): { label: string; txt: string; bg: string } | null {
-  switch ((s ?? '').toLowerCase()) {
+export function syncStateMeta(s?: string | null, decision?: string | null): { label: string; txt: string; bg: string } | null {
+  const state = (s ?? '').toLowerCase()
+  // 'decided' is written in the same statement as the decision fields, so the two
+  // should never disagree — yet a row can carry the state with every decision field
+  // empty, and it then showed a settled green "Phoenix decided" for an application
+  // with no decision, no score and no decided-at. Phoenix emits decision.completed
+  // only for approve and decline, never for a REFER, so a referred application can
+  // sit in exactly this state indefinitely. Say that rather than showing it as done.
+  if (state === 'decided' && !(decision ?? '').trim()) {
+    return { label: 'Decision not received', ...C.amber }
+  }
+  switch (state) {
     case 'decided':      return { label: 'Phoenix decided', ...C.green }
     case 'sent':         return { label: 'Awaiting Phoenix', ...C.blue }
     case 'pending':      return { label: 'Queued for Phoenix', ...C.grey }

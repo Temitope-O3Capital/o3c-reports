@@ -237,7 +237,14 @@ func main() {
 	r := chi.NewRouter()
 
 	// ── Global middleware ──────────────────────────────────────────────────────
-	r.Use(middleware.RealIP)
+	// Not chi's middleware.RealIP: that takes the LEFTMOST X-Forwarded-For entry, which
+	// is whatever the caller sent. Anyone could prepend a forged address and become that
+	// IP as far as rate limiting, the audit trail and the login history are concerned.
+	// Every other IP read in this codebase (rightmostIP here, getRealIPFromRequest in
+	// campaign_analytics.go) already takes the rightmost entry — the one our own proxy
+	// appended — and RealIP ran before all of them, so a spoofed value could reach even
+	// the helpers that fall back to RemoteAddr.
+	r.Use(realIP)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware(cfg.AllowedOrigins))
@@ -1223,6 +1230,17 @@ func warnMissingEnv() {
 			slog.Warn("missing env var", "key", c.key, "impact", c.detail)
 		}
 	}
+}
+
+// realIP replaces chi's middleware.RealIP, which trusts the leftmost (client-supplied)
+// X-Forwarded-For entry. See the note at the Use site.
+func realIP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ip := rightmostIP(r); ip != "" {
+			r.RemoteAddr = ip
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // rightmostIP extracts the real client IP — Railway appends it last in X-Forwarded-For.

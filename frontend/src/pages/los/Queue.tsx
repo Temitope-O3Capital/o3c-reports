@@ -319,7 +319,7 @@ export default function LOSQueue() {
             </span>
           )
         }
-        const s = syncStateMeta(r.phoenix_sync_state)
+        const s = syncStateMeta(r.phoenix_sync_state, r.decision)
         return s ? <span style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: s.txt }}>{s.label}</span> : <span style={{ color: 'var(--txt3)' }}>—</span>
       },
     },

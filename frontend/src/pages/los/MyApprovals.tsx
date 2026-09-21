@@ -49,7 +49,7 @@ function StagePill({ stage }: { stage: string }) {
 function DecisionChip({ decision, sync }: { decision: string | null; sync: string | null }) {
   const d = (decision ?? '').toLowerCase()
   if (!d || d === 'pending') {
-    const s = syncStateMeta(sync)
+    const s = syncStateMeta(sync, decision)
     if (s) return <span style={{ fontSize: TEXT.xs, fontWeight: FW.medium, color: s.txt }}>{s.label}</span>
     return <span style={{ color: 'var(--txt3)' }}>—</span>
   }
