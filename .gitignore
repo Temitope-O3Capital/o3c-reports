@@ -59,3 +59,14 @@ backend-go/RESTART.flag
 
 # Root build output (backend-go/frontend-dist is listed above)
 /frontend-dist/
+
+# Management report generator. Dry-run previews and SendGrid payloads carry recipient
+# addresses and report figures; the Chrome profile and PNGs are phone-width checks.
+scripts/management-reports/preview-*.html
+scripts/management-reports/_payload-*.json
+scripts/management-reports/_sql-*.sql
+scripts/management-reports/*.png
+scripts/management-reports/cdp-profile/
+# Chart intermediates: one HTML page per chart, rendered to PNG and then re-read.
+# Same throwaway status as the PNGs beside them, which were already ignored.
+scripts/management-reports/_c-c-*.html

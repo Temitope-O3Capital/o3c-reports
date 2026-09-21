@@ -416,8 +416,42 @@ func AuthMiddleware(next http.Handler) http.Handler {
 				}
 			}
 		}
+		// Read-only roles (internal control) may reach every module but change nothing.
+		if WriteBlocked(claims.Role, r.Method, r.URL.Path) {
+			authErr(w, 403, "Internal Control has read-only access to the workspace")
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, claims)))
 	})
+}
+
+// readOnlyRoles may read the whole workspace and change none of it. The page grant that
+// lets internal control OPEN a screen also carries that screen's write endpoints, so the
+// guarantee has to sit at the one place every authenticated request passes through
+// rather than being repeated on each route and forgotten on the next one added.
+var readOnlyRoles = map[string]bool{"internal_control_head": true}
+
+// writeAllowedForReadOnly lists the state-changing paths a read-only user still needs:
+// signing out, changing their own password and MFA; plus the Report Builder's table and
+// column-value endpoints, which are POST-shaped READS that only ever run SELECTs.
+func writeAllowedForReadOnly(path string) bool {
+	return strings.HasPrefix(path, "/api/auth/") ||
+		strings.HasPrefix(path, "/api/reports/datasets/")
+}
+
+// WriteBlocked reports whether a request must be refused because the user holds a
+// read-only role. Only the PRIMARY role counts: someone who is internal control in
+// addition to a line job keeps their line job's writes. Split out of AuthMiddleware so
+// the rule can be tested directly.
+func WriteBlocked(role, method, path string) bool {
+	if !readOnlyRoles[role] {
+		return false
+	}
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return false
+	}
+	return !writeAllowedForReadOnly(path)
 }
 
 // RequirePages returns middleware that gates access by page permission.
@@ -742,6 +776,31 @@ func buildRolePages() map[string][]string {
 	// managementRoles in scope.go / MGMT in the frontend) so the Overview is visible,
 	// but unlike md it is NOT unrestricted — page access is exactly this set.
 	m["exec_overview"] = union(util, []string{"executive", "kpi_dashboard", "statements"})
+
+	// ── Internal Control ──
+	// Head of Internal Control audits the business, so it holds every page in the
+	// catalog EXCEPT the Administration module — and is read-only, enforced centrally by
+	// WriteBlocked. The read-only half is not optional: a page grant carries that page's
+	// write endpoints too, so pages alone would make internal control an approver.
+	//
+	// Two deliberate exclusions beyond the admin module:
+	//   - "uploads" (bulk data import) is a write, and lives in Administration anyway.
+	//   - "reports" is the bulk export engine, kept to BI and admin by O3's 2026-08-17
+	//     decision; exportaccess_test.go pins that. "report_builder" IS held (every
+	//     *_head holds it), so internal control still builds and reads its own reports.
+	m["internal_control_head"] = func() []string {
+		skip := map[string]bool{
+			"admin_users": true, "admin_api_keys": true, "settings": true,
+			"sync_status": true, "uploads": true, "reports": true,
+		}
+		out := make([]string, 0, len(catalogPageSet))
+		for _, p := range AllCatalogPages() {
+			if !skip[p] {
+				out = append(out, p)
+			}
+		}
+		return out
+	}()
 
 	// Uploads (bulk data import) is a senior/oversight tool, not a line-agent page.
 	// Grant it to admin/C-suite, IT, and every module head — never officers or agents.
