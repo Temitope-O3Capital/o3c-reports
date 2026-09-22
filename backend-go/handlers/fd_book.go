@@ -190,8 +190,8 @@ func fdBookKPIs(db *core.DB) http.HandlerFunc {
 				-- How many account officers hold the book, and how many deposits carry
 				-- an officer name Udara sends but cbs_officer_map does not know (0 today
 				-- — worth watching, because an unmapped officer is silently unattributed).
-				COUNT(DISTINCT officer_name) FILTER (WHERE book AND officer_name <> '') AS officer_count,
-				COUNT(*) FILTER (WHERE book AND officer_name <> '' AND officer_user_id IS NULL) AS unmapped_officer_count
+				COUNT(DISTINCT officer_display) FILTER (WHERE book AND officer_display <> '') AS officer_count,
+				COUNT(*) FILTER (WHERE book AND officer_display <> '' AND officer_user_id IS NULL) AS unmapped_officer_count
 			FROM (
 				SELECT f.*,
 					(` + sqlFDFunded + `)                  AS funded,

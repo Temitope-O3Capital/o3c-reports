@@ -245,7 +245,13 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("collections"))
 	head := core.RequirePages("collections_assign")
 	payApprove := core.RequirePages("collections_payment_approve") // HOP/COO/CFO all hold this
-	r.Get("/kpis", collectionsKPIs(db))
+	// /kpis stays unregistered, with /by-mode, /monthly-trend and /log. All four query a
+	// "Collections Log" relation that does not exist in this database, and core/db.go
+	// swallows a missing-relation error and returns an empty result with HTTP 200 — so
+	// they answered every request with permanent zeros indistinguishable from real ones.
+	// Nothing in the frontend calls them. A merge restored this one line; it is removed
+	// again deliberately. Their handler functions are now unreferenced and should be
+	// deleted in a follow-up pass.
 	r.Get("/portfolio-kpis", collectionsPortfolioKPIs(db))
 	r.Get("/dpd-trend", collectionsDPDTrend(db))
 	r.Get("/by-agent", collectionsByAgent(db))

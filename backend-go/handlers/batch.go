@@ -353,49 +353,68 @@ func runBatch(ctx context.Context, db *core.DB) error {
 	return batchErr
 }
 
-// batchGenerateCollectionAssignments refreshes the collections work book on a schedule.
+// batchGenerateCollectionAssignments refreshes the collections work book on a schedule,
+// running the SAME identity-safe statements collectionsGenerateAssignments runs behind
+// the Supervisor's "Generate Cases" button, with assigned_by left NULL because no human
+// triggered this.
 //
-// The same two statements collectionsGenerateAssignments runs behind the Supervisor's
-// "Generate Cases" button, with assigned_by left NULL because no human triggered this.
-// Kept deliberately separate from the handler rather than shared: the handler enforces a
-// permission and records who pressed the button, neither of which applies to a batch run.
+// It must stay in step with that handler, and for one release it did not. The earlier
+// copy of this function grouped app.collections_delinquent_unified by the BARE cif and
+// inserted `cif, cif` with no party_id, data_source or product_type. Migration 267
+// re-keys a Udara borrower to 'UD-<cbs_customer_id>' precisely because the bare id
+// collides with an unrelated cards CIF — a different real person for 271 of 288
+// colliding ids — so this dedupe ("cif NOT IN (SELECT account_cif …)") could no longer
+// see the corrected row, and re-created the wrong-namespace duplicate every night at
+// 00:05, undoing the migration on a schedule.
 //
-// The refresh EXCLUDES the view's "Loan (uploaded)" arm, which is itself built from
-// collection_assignments — including it makes the UPDATE feed on its own output and
-// compound a customer's balance every run.
+// Reading the book through armSplitDelinquency is what prevents that: it groups by
+// (arm, id), emits key_cif already prefixed for Udara, and carries the real party_id.
+// udaraIdentityResolved refuses any Udara row app.cbs_links cannot name, and crossedOpen
+// refuses one whose bare id is still held by a live cards assignment. It also excludes
+// the view's "Loan (uploaded)" arm, which is itself built FROM collection_assignments —
+// including it would feed this UPDATE its own output and compound a balance every run.
 func batchGenerateCollectionAssignments(ctx context.Context, db *core.DB) (int64, error) {
 	WorkerBeat(ctx, db, "collections_generate", "running", "", "")
 
-	bucketExpr := `CASE WHEN dpd<=30 THEN '1-30' WHEN dpd<=60 THEN '31-60' WHEN dpd<=90 THEN '61-90'
-		WHEN dpd<=180 THEN '91-180' WHEN dpd<=360 THEN '181-360' ELSE '360+' END`
+	bucket := func(dpd string) string {
+		return `CASE WHEN ` + dpd + `<=30 THEN '1-30' WHEN ` + dpd + `<=60 THEN '31-60' WHEN ` + dpd + `<=90 THEN '61-90'
+			WHEN ` + dpd + `<=180 THEN '91-180' WHEN ` + dpd + `<=360 THEN '181-360' ELSE '360+' END`
+	}
 
-	if _, err := db.PGExec(ctx, `
-		WITH agg AS (
-			SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo, MAX(customer_name) AS customer_name
-			FROM app.collections_delinquent_unified
-			WHERE product_name <> 'Loan (uploaded)'
-			GROUP BY cif
-		)
+	// The same gate the handler and the recovery escalation apply: never seed a Udara
+	// borrower while a live assignment still holds their bare id in the cards namespace.
+	// That row names a card customer for this borrower's debt; adding the correctly-named
+	// row beside it would put the same money on two queues and the wrong person on one.
+	const crossedOpen = `EXISTS (
+		SELECT 1 FROM collection_assignments ca
+		 WHERE b.arm = 'udara' AND ca.account_cif = b.raw_cif
+		   AND NOT (COALESCE(ca.data_source,'') = 'udara' OR ca.account_cif LIKE '` + udaraCIFPrefix + `%')
+		   AND ca.status IN ('active','sent_to_recovery'))`
+
+	if _, err := db.PGExec(ctx, armSplitDelinquency+`
 		UPDATE collection_assignments ca SET
-			outstanding_kobo = agg.outstanding_kobo,
-			dpd_bucket       = `+bucketExpr+`,
-			customer_name    = COALESCE(NULLIF(ca.customer_name,''), agg.customer_name),
+			outstanding_kobo = b.outstanding_kobo,
+			dpd_bucket       = `+bucket("b.dpd")+`,
+			customer_name    = COALESCE(NULLIF(ca.customer_name,''), b.customer_name),
 			updated_at       = NOW()
-		FROM agg WHERE ca.account_cif = agg.cif AND ca.status = 'active'`); err != nil {
+		FROM book b
+		WHERE ca.account_cif = b.key_cif
+		  AND ca.status = 'active'
+		  AND `+udaraIdentityResolved); err != nil {
 		WorkerBeat(ctx, db, "collections_generate", "error", "", err.Error())
 		return 0, fmt.Errorf("refresh assignments: %w", err)
 	}
 
-	res, err := db.PGExec(ctx, `
-		WITH agg AS (
-			SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo, MAX(customer_name) AS customer_name
-			FROM app.collections_delinquent_unified GROUP BY cif
-		)
+	res, err := db.PGExec(ctx, armSplitDelinquency+`
 		INSERT INTO collection_assignments
-		  (cif_number, account_cif, customer_name, dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
-		SELECT cif, cif, customer_name, `+bucketExpr+`, outstanding_kobo, 'active', CURRENT_DATE, NOW(), NOW()
-		FROM agg
-		WHERE cif NOT IN (
+		  (cif_number, account_cif, customer_name, party_id, data_source, product_type,
+		   dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
+		SELECT b.key_cif, b.key_cif, b.customer_name, b.party_id, b.data_source, b.product_type,
+		       `+bucket("b.dpd")+`, b.outstanding_kobo, 'active', CURRENT_DATE, NOW(), NOW()
+		FROM book b
+		WHERE `+udaraIdentityResolved+`
+		  AND NOT `+crossedOpen+`
+		  AND b.key_cif NOT IN (
 			SELECT account_cif FROM collection_assignments
 			WHERE status IN ('active','sent_to_recovery') AND account_cif IS NOT NULL
 		)`)

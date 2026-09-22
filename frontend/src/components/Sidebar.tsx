@@ -366,10 +366,6 @@ const SECTIONS: Section[] = [
           { label: 'Customer Behaviour', to: '/reports/behaviour',    vis: ['bi_analyst','bi_head'] },
           { label: 'Data Management',    to: '/reports/uploads',      vis: ['bi_head','cards_head','finance_head','settlement_head','coo','cfo'] },
           { label: 'Merchant Names',     to: '/reports/merchant-names', vis: ['bi_head','cards_head','finance_head','settlement_head','coo','cfo'] },
-          { label: 'KPI Tracker',        to: '/reports/kpi',
-            vis: ['bi_analyst','bi_head','sales_head','collections_head','recovery_head',
-                  'finance_head','compliance_head','cards_head','risk_head','call_center_head',
-                  'care_head','bd_head','coo','cfo','cmo','md'] },
           // The scheduled management and sales emails: status, previews, recipients. Every
           // head can read it; changing recipients or sending is management and BI only.
           { label: 'Email Reports', to: '/reports/management',

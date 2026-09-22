@@ -280,6 +280,11 @@ func c360AuditIdentityReveal(ctx context.Context, db *core.DB, r *http.Request, 
 		INSERT INTO audit_logs (actor_id, actor_role, actor_name, action, entity_type,
 			entity_id, changes, ip_address, created_at)
 		VALUES ($1,$2,$3,'identity_field_revealed','customer360',$4,$5,$6,NOW())`,
-		user.ID, user.Role, user.FullName, entityID, string(changes), clientIP(r))
+		// getRealIPFromRequest, not clientIP. clientIP returns the LEFTMOST
+		// X-Forwarded-For value, which the caller sets — so the person making a
+		// disclosure could stamp this record with any origin they liked, undermining
+		// the one artefact this feature exists to produce. The rightmost value is the
+		// hop our own proxy appended.
+		user.ID, user.Role, user.FullName, entityID, string(changes), getRealIPFromRequest(r))
 	return err
 }

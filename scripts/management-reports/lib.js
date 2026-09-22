@@ -19,13 +19,51 @@ function envVal(key) {
 const DB_URL = envVal('DATABASE_URL');
 const SG_KEY = envVal('SENDGRID_API_KEY');
 
+/**
+ * Strip live secrets out of anything on its way to a log, a database column or a screen.
+ *
+ * execFileSync puts the whole command line into err.message, and DB_URL is argv[0] — so
+ * a single failing statement produced an Error carrying the database password. That text
+ * is stored in management_report_runs.error by build-reports.js and rendered verbatim to
+ * anyone who can open the Management Reports page (ManagementReports.tsx shows the first
+ * line inline and the full text in the title attribute). A SQL typo therefore published
+ * the password to every report viewer.
+ *
+ * Also scrubs the SendGrid key and any postgres:// URL that arrives by another route.
+ * This does NOT fix the process list — DB_URL and the key are still visible to anything
+ * that can enumerate processes on this host while psql runs; passing them by environment
+ * instead of argv is the follow-up.
+ */
+function scrubSecrets(text) {
+  let s = String(text == null ? '' : text);
+  for (const secret of [DB_URL, SG_KEY]) {
+    if (secret && secret.length > 8) s = s.split(secret).join('[redacted]');
+  }
+  // Catch-all for a connection string built or logged elsewhere.
+  return s.replace(/postgres(?:ql)?:\/\/[^\s'"]+/gi, 'postgres://[redacted]')
+          .replace(/SG\.[A-Za-z0-9_\-.]{10,}/g, 'SG.[redacted]');
+}
+
+/** Re-throw an execFileSync failure with every secret removed from its message. */
+function rethrowScrubbed(err) {
+  const clean = new Error(scrubSecrets(err && err.message));
+  clean.status = err && err.status;
+  clean.stderr = scrubSecrets(err && err.stderr);
+  throw clean;
+}
+
 /** Run a SELECT and return rows as objects. Wrapped in json_agg so types survive. */
 function q(sql) {
   // PGCLIENTENCODING is pinned because Windows hands argv to psql in the console
   // codepage: an em-dash in a SQL literal arrived as CP1252 0x97 and the UTF-8
   // connection rejected the whole statement. Keep SQL ASCII-only as well.
-  const out = execFileSync(PSQL, [DB_URL, '-tAqc', `SELECT coalesce(json_agg(t),'[]'::json) FROM (${sql}) t`],
-    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, PGCLIENTENCODING: 'UTF8' } });
+  let out;
+  try {
+    out = execFileSync(PSQL, [DB_URL, '-tAqc', `SELECT coalesce(json_agg(t),'[]'::json) FROM (${sql}) t`],
+      { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, PGCLIENTENCODING: 'UTF8' } });
+  } catch (err) {
+    rethrowScrubbed(err); // err.message contains argv[0] — the DB URL, password and all
+  }
   return JSON.parse(out.trim() || '[]');
 }
 const q1 = (sql) => q(sql)[0] || {};
@@ -41,6 +79,8 @@ function exec(sql) {
   try {
     return execFileSync(PSQL, [DB_URL, '-v', 'ON_ERROR_STOP=1', '-tAq', '-f', file],
       { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, PGCLIENTENCODING: 'UTF8' } }).trim();
+  } catch (err) {
+    rethrowScrubbed(err); // ON_ERROR_STOP failures carry argv[0] — the DB URL — in err.message
   } finally {
     fs.rmSync(file, { force: true });
   }
