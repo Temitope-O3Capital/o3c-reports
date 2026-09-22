@@ -88,8 +88,11 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 		// carry status 'posted' (or 'approved' once the pending-approval flow is used),
 		// never 'approved'-only — filtering to 'approved' alone silently zeroed this.
 		pw, pargs := recoveryPaymentPeriod(from, to)
-		if rows, _ := db.PGQuery(ctx, `SELECT COALESCE(SUM(amount_kobo),0) AS v
-			FROM recovery_payments WHERE status IN ('approved','posted')`+pw, pargs...); len(rows) > 0 {
+		if rows, err := db.PGQuery(ctx, `SELECT COALESCE(SUM(amount_kobo),0) AS v
+			FROM recovery_payments WHERE status IN ('approved','posted')`+pw, pargs...); err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		} else if len(rows) > 0 {
 			kpis["recovered_mtd_kobo"] = rows[0]["v"]
 		}
 		kpis["total_npl_balance"] = kpis["total_in_recovery_kobo"]
@@ -110,10 +113,19 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 }
 
 // recoveryPaymentPeriod builds a " AND payment_date::date BETWEEN ..." clause for the
-// recovery-activity date filter, shared by the KPI, trend, channel and agent handlers
+// recovery-activity date filter, shared by the KPI, channel, method and agent handlers
 // so the whole Overview responds to one filter consistently.
+//
+// It ALWAYS caps at CURRENT_DATE, unconditionally, even when no `to` is supplied. The
+// payments ledger carries future-dated rows (seed data runs to Jan 2027), and without
+// this backstop "recovered" figures count money not yet received — e.g. recovered_mtd
+// read ~16.5% high (₦915.3M vs ₦764.2M actually collected), and a user picking a future
+// `to` in the DateFilter would pull the whole future tail in. The monthly-trend handler
+// carries the same guard inline; every caller here targets recovery_payments (aliased or
+// not) and recovery_cases has no payment_date column, so the unqualified reference is
+// unambiguous (recoveryByAgent rewrites it to rp.payment_date for its LEFT JOIN).
 func recoveryPaymentPeriod(from, to string) (string, []any) {
-	where := ""
+	where := " AND payment_date::date <= CURRENT_DATE"
 	args := []any{}
 	n := 1
 	if from != "" && dateRE.MatchString(from) {
@@ -272,19 +284,29 @@ func recoveryCases(db *core.DB) http.HandlerFunc {
 // ── New endpoints ─────────────────────────────────────────────────────────────
 
 // recoveryByChannel aggregates recovered amounts by payment channel for the selected
-// period. Counts posted/approved payments and uses the shared period filter so it
-// moves with the rest of the Overview.
+// period. Counts posted/approved payments and uses the shared period filter so it moves
+// with the rest of the Overview.
+//
+// Each row carries its product (card / loan), and pct is computed WITHIN the product,
+// not across the whole book. Loan recovery is ~96% of all recovered money and flows
+// through a single channel ('loan repayment'); pooled together it rendered every card
+// channel as a sub-1% sliver. Grouping by product lets the frontend scale card channels
+// against each other and show loan on its own, matching the card/loan split on the
+// trend. channel maps 1:1 to product_type, but keying off the case is the robust join.
 func recoveryByChannel(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		where, args := recoveryPaymentPeriod(qstr(r, "from"), qstr(r, "to"))
 		rows, err := db.PGQuery(r.Context(), `
-			SELECT COALESCE(NULLIF(TRIM(channel),''),'Unspecified') AS channel,
-			       COALESCE(SUM(amount_kobo), 0) AS amount_kobo,
-			       ROUND(100.0 * SUM(amount_kobo) / NULLIF(SUM(SUM(amount_kobo)) OVER (), 0), 1) AS pct
-			FROM recovery_payments
-			WHERE status IN ('approved','posted')`+where+`
-			GROUP BY 1
-			ORDER BY amount_kobo DESC`, args...)
+			SELECT COALESCE(NULLIF(TRIM(rp.channel),''),'Unspecified') AS channel,
+			       CASE WHEN COALESCE(rc.product_type,'card') = 'loan' THEN 'loan' ELSE 'card' END AS product,
+			       COALESCE(SUM(rp.amount_kobo), 0) AS amount_kobo,
+			       ROUND(100.0 * SUM(rp.amount_kobo) / NULLIF(SUM(SUM(rp.amount_kobo)) OVER (
+			           PARTITION BY CASE WHEN COALESCE(rc.product_type,'card') = 'loan' THEN 'loan' ELSE 'card' END), 0), 1) AS pct
+			FROM recovery_payments rp
+			LEFT JOIN recovery_cases rc ON rc.id = rp.case_id
+			WHERE rp.status IN ('approved','posted')`+where+`
+			GROUP BY 1, 2
+			ORDER BY product, amount_kobo DESC`, args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
@@ -311,6 +333,8 @@ func recoveryByAgent(db *core.DB) http.HandlerFunc {
 			SELECT
 			    COALESCE(u.full_name, 'Unassigned') AS agent_name,
 			    COUNT(DISTINCT rc.id) AS case_count,
+			    COALESCE(SUM(rp.amount_kobo) FILTER (WHERE COALESCE(rc.product_type,'card') <> 'loan'), 0) AS card_kobo,
+			    COALESCE(SUM(rp.amount_kobo) FILTER (WHERE rc.product_type = 'loan'), 0)                  AS loan_kobo,
 			    COALESCE(SUM(rp.amount_kobo), 0) AS recovered_kobo,
 			    ROUND(100.0 * COUNT(DISTINCT rc.id) FILTER (WHERE rc.status IN ('closed','recovered'))
 			          / NULLIF(COUNT(DISTINCT rc.id), 0), 1) AS success_rate_pct
@@ -385,7 +409,7 @@ func recoveryLegal(db *core.DB) http.HandlerFunc {
 			FROM recovery_cases rc
 			LEFT JOIN app.customers c ON c.cif = rc.account_cif
 			LEFT JOIN LATERAL (
-			    SELECT court_name, next_hearing_date
+			    SELECT next_hearing_date
 			    FROM legal_proceedings
 			    WHERE case_id = rc.id
 			    ORDER BY filing_date DESC
@@ -527,7 +551,7 @@ func recoveryLegalMilestones(db *core.DB) http.HandlerFunc {
 			    proceeding_type AS milestone_type,
 			    filing_date AS milestone_date,
 			    notes,
-			    (status NOT IN ('active', 'pending') OR status IS NULL) AS completed
+			    (status IS NOT NULL AND status NOT IN ('active', 'pending')) AS completed
 			FROM legal_proceedings
 			WHERE case_id = $1
 			ORDER BY filing_date ASC`, id)

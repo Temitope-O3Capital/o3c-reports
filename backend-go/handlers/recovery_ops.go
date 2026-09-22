@@ -995,9 +995,15 @@ func recoveryOpsUpdateLegal(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// Preserve existing next_hearing_date/notes when the caller omits them: an
+		// update that only changes status used to blank both. COALESCE(NULLIF(...))
+		// keeps the stored value on empty input — and, since next_hearing_date is now a
+		// DATE column (mig 255), also avoids the '' → date cast error a blank would throw.
 		_, err = db.PGExec(r.Context(), `
 			UPDATE legal_proceedings
-			SET status = $1, next_hearing_date = $2, notes = $3
+			SET status = $1,
+			    next_hearing_date = COALESCE(NULLIF($2,'')::date, next_hearing_date),
+			    notes = COALESCE(NULLIF($3,''), notes)
 			WHERE id = $4`,
 			b.Status, b.NextHearingDate, b.Notes, lid)
 		if err != nil {
@@ -1422,10 +1428,19 @@ func recoveryOpsRejectWriteOff(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		_, err = db.PGExec(r.Context(),
-			`UPDATE recovery_write_off_approvals SET status = 'rejected', updated_at = NOW() WHERE id = $1`, wid)
+		// Guard on the status we validated (same optimistic-lock as approve/payment-reject):
+		// without it, a reject that raced a concurrent final approval would blindly flip an
+		// already-approved, GL-posted, case-closed write-off back to 'rejected' — an
+		// un-reconcilable state with no compensating GL entry. 409 if it moved under us.
+		rrows, err := db.PGQuery(r.Context(),
+			`UPDATE recovery_write_off_approvals SET status = 'rejected', updated_at = NOW()
+			 WHERE id = $1 AND status = $2 RETURNING id`, wid, currentSt)
 		if err != nil {
 			respondErr(w, 500, "Reject failed")
+			return
+		}
+		if len(rrows) == 0 {
+			respondErr(w, 409, "Write-off status changed concurrently — please refresh and try again")
 			return
 		}
 		// Tell the requester it was declined so they aren't left waiting on a dead request.

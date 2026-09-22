@@ -129,7 +129,10 @@ export default function RecoverySupervisor() {
     try {
       const [d, c, act, pmts] = await Promise.all([
         apiFetch<any>('/api/recovery-ops/dashboard'),
-        apiFetch<any>('/api/recovery-ops/cases?limit=200'),
+        // Only OPEN cases — the caseload card is "Open cases grouped by agent" and must
+        // reconcile with the Open Cases KPI (active+legal). Without this it also counted
+        // closed/written-off cases, which never matched the KPI above it.
+        apiFetch<any>('/api/recovery-ops/cases?status=active,legal&limit=200'),
         apiFetch<any>('/api/collections/activity?module=recovery&page=1&size=20'),
         apiFetch<any>('/api/recovery-ops/payments/pending'),
       ])
@@ -211,7 +214,7 @@ export default function RecoverySupervisor() {
         </div>
       }
     >
-      <ErrBanner error={error} onRetry={load} />
+      <ErrBanner error={error} onRetry={() => load()} />
 
       {/* ── KPI strip ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 18 }}>

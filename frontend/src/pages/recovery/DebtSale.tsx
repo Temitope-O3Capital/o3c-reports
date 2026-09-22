@@ -118,7 +118,11 @@ function CreateModal({ open, onClose, onDone }: {
     } finally { setSaving(false) }
   }
 
-  const canSubmit = buyerName.trim().length > 0 && saleDate.length > 0
+  // Mirror the backend's rules (recoveryCreateDebtSale): face value must be > 0 and the
+  // sale price cannot exceed it — validating here avoids submitting a payload the API 422s.
+  const faceKobo = faceValue ? Math.round(parseFloat(faceValue) * 100) : 0
+  const saleKobo = salePrice ? Math.round(parseFloat(salePrice) * 100) : 0
+  const canSubmit = buyerName.trim().length > 0 && saleDate.length > 0 && faceKobo > 0 && saleKobo <= faceKobo
 
   return (
     <Modal open={open} onClose={handleClose} title="Record Debt Sale" width={500}>
@@ -192,6 +196,9 @@ function CreateModal({ open, onClose, onDone }: {
 
 function makeCols(role: string, onApprove: (r: DebtSale) => void, onReject: (r: DebtSale) => void, onDelete: (id: number) => void): TableCol<DebtSale>[] {
   const canApprove = (r: DebtSale) => (role === r.required_role || role === 'admin') && r.status !== 'approved' && r.status !== 'rejected'
+  // Deleting a debt sale is an admin-only correction, and never for one already approved
+  // (it has been posted to the GL) — those must be reversed, not deleted.
+  const canDelete = (r: DebtSale) => role === 'admin' && r.status !== 'approved'
   return [
     { key: 'buyer_name', label: 'Buyer', render: r => <NameCell name={r.buyer_name} /> },
     { key: 'sale_date',  label: 'Sale Date', render: r => fmtDate(r.sale_date) },
@@ -207,7 +214,9 @@ function makeCols(role: string, onApprove: (r: DebtSale) => void, onReject: (r: 
             { icon: 'check_circle', label: r.required_role === FINAL_ROLE ? 'Approve & Post Debt Sale' : 'Approve — Send to Next Approver', onClick: () => onApprove(r), danger: true },
             { icon: 'cancel',       label: 'Reject Debt Sale', onClick: () => onReject(r) },
           ] : []),
-          { icon: 'delete', label: 'Delete', onClick: () => onDelete(r.id), danger: true },
+          ...(canDelete(r) ? [
+            { icon: 'delete', label: 'Delete', onClick: () => onDelete(r.id), danger: true },
+          ] : []),
         ]} />
       ),
     },
@@ -332,7 +341,7 @@ export default function DebtSales() {
       </div>
 
       {/* Error */}
-      {err && <ErrBanner error={err} onRetry={load} />}
+      {err && <ErrBanner error={err} onRetry={() => load()} />}
 
       {/* Table */}
       <SectionCard padding={false}>

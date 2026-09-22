@@ -213,7 +213,7 @@ function AssignAgentTab({ caseId, agents, onDone }: {
 
 // ── Log Visit tab ─────────────────────────────────────────────────────────────
 
-const VISIT_TYPES    = ['Physical Visit', 'Phone Call', 'WhatsApp', 'Email']
+const VISIT_TYPES    = ['Physical Visit', 'Phone Call', 'WhatsApp', 'Email', 'Legal Notice']
 const VISIT_OUTCOMES = ['Customer Met', 'Not Home', 'Promised to Pay', 'Refused to Pay', 'No Response', 'Other']
 
 function FieldVisitTab({ caseId, onDone }: { caseId: number; onDone: () => void }) {
@@ -532,8 +532,8 @@ function CaseTimeline({ caseId }: { caseId: number }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {events.map((ev, i) => (
-        <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+      {events.map(ev => (
+        <div key={`${ev.date}|${ev.label}|${ev.sub ?? ''}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
           <span style={{
             ...NUM, fontSize: TEXT['2xs'], fontWeight: FW.semibold,
             background: `${ev.color}18`, color: ev.color,
@@ -956,7 +956,7 @@ export default function RecoveryCases() {
             onSearch={setSearch}
             groups={groups}
             onReset={resetFilters}
-            onApply={load}
+            onApply={() => load()}
             resultCount={cases.length}
             totalCount={total}
             placeholder="Search CIF, case ref, agent…"
@@ -994,7 +994,7 @@ export default function RecoveryCases() {
           {/* Error */}
           {err && (
             <div style={{ padding: '10px 14px' }}>
-              <ErrBanner error={err} onRetry={load} />
+              <ErrBanner error={err} onRetry={() => load()} />
             </div>
           )}
 

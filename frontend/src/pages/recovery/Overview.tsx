@@ -27,6 +27,7 @@ interface MonthlyPoint {
 
 interface ChannelRow {
   channel: string
+  product: string
   amount_kobo: number
   pct: number
 }
@@ -34,6 +35,8 @@ interface ChannelRow {
 interface AgentRow {
   agent_name: string
   case_count: number
+  card_kobo: number
+  loan_kobo: number
   recovered_kobo: number
   success_rate_pct: number
 }
@@ -50,6 +53,11 @@ const CHANNEL_COLORS: Record<string, string> = {
 // REMITA) still get distinct colours instead of all rendering grey.
 const CHANNEL_PALETTE = CHART_SERIES
 
+// Channels are grouped by product (Card / Loan) and each group scales to ITS OWN max.
+// Loan recovery is ~96% of the book and flows through a single 'loan repayment' channel;
+// scaled against it, every card channel collapsed to a sub-1% sliver. Grouping keeps card
+// channels legible against each other, and pct is already computed within-product server
+// side. Card is shown first (the panel's real subject); loan appears as its own group.
 function ChannelBars({ data }: { data: ChannelRow[] }) {
   if (!data.length) {
     return (
@@ -58,32 +66,52 @@ function ChannelBars({ data }: { data: ChannelRow[] }) {
       </div>
     )
   }
-  const maxKobo = Math.max(...data.map(d => d.amount_kobo), 1)
+  const groups = (['card', 'loan'] as const)
+    .map(product => ({
+      product,
+      label: product === 'loan' ? 'Loan' : 'Card',
+      rows: data.filter(d => (d.product ?? 'card') === product),
+    }))
+    .filter(g => g.rows.length > 0)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: `${SP[1]} 0` }}>
-      {data.map((d, i) => {
-        const barPct = (d.amount_kobo / maxKobo) * 100
-        const color = CHANNEL_COLORS[d.channel] ?? CHANNEL_PALETTE[i % CHANNEL_PALETTE.length]
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: `${SP[1]} 0` }}>
+      {groups.map(g => {
+        const maxKobo = Math.max(...g.rows.map(d => d.amount_kobo), 1)
         return (
-          <div key={d.channel}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
-              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', width: 90, flexShrink: 0 }}>
-                {d.channel}
-              </span>
-              <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: RADIUS.full, overflow: 'hidden' }}>
-                <div style={{
-                  width: `${barPct}%`, height: '100%',
-                  background: color, borderRadius: RADIUS.full, transition: 'width 0.4s',
-                }} />
+          <div key={g.product}>
+            {groups.length > 1 && (
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 8 }}>
+                {g.label} Recovery
               </div>
-              <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', width: 130, flexShrink: 0, justifyContent: 'flex-end' }}>
-                <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                  {fmtKoboExact(d.amount_kobo)}
-                </span>
-                <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
-                  {fmtPct(d.pct)}
-                </span>
-              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {g.rows.map((d, i) => {
+                const barPct = (d.amount_kobo / maxKobo) * 100
+                const color = CHANNEL_COLORS[d.channel] ?? CHANNEL_PALETTE[i % CHANNEL_PALETTE.length]
+                return (
+                  <div key={d.channel}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
+                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', width: 90, flexShrink: 0 }}>
+                        {d.channel}
+                      </span>
+                      <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: RADIUS.full, overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${barPct}%`, height: '100%',
+                          background: color, borderRadius: RADIUS.full, transition: 'width 0.4s',
+                        }} />
+                      </div>
+                      <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', width: 130, flexShrink: 0, justifyContent: 'flex-end' }}>
+                        <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                          {fmtKoboExact(d.amount_kobo)}
+                        </span>
+                        <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
+                          {fmtPct(d.pct)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )
@@ -109,11 +137,18 @@ const AGENT_COLS: TableCol<AgentRow>[] = [
     render: r => <span style={{ ...NUM, fontSize: TEXT.base }}>{fmtNum(r.case_count)}</span>,
   },
   {
-    key: 'recovered_kobo',
-    label: 'Recovered ₦',
+    key: 'card_kobo',
+    label: 'Card ₦',
     sortable: true,
     align: 'right',
-    render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKoboExact(r.recovered_kobo)}</span>,
+    render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKoboExact(r.card_kobo)}</span>,
+  },
+  {
+    key: 'loan_kobo',
+    label: 'Loan ₦',
+    sortable: true,
+    align: 'right',
+    render: r => <span style={{ ...NUM, color: NAVY, fontWeight: FW.semibold }}>{fmtKoboExact(r.loan_kobo)}</span>,
   },
   {
     key: 'success_rate_pct',
@@ -191,7 +226,7 @@ export default function RecoveryOverview() {
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
     >
-      <ErrBanner error={err} onRetry={load} />
+      <ErrBanner error={err} onRetry={() => load()} />
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: SP[3], marginBottom: SP[5] }}>

@@ -207,8 +207,8 @@ function ActivityDot({ color }: { color: string }) {
   )
 }
 
-function TimelineItem({ actor, label, detail, date, color }: {
-  actor?: string; label: string; detail?: string; date: string; color: string
+function TimelineItem({ actor, label, detail, date, color, dateOnly }: {
+  actor?: string; label: string; detail?: string; date: string; color: string; dateOnly?: boolean
 }) {
   return (
     <div style={{ display: 'flex', gap: 0, alignItems: 'flex-start' }}>
@@ -216,7 +216,7 @@ function TimelineItem({ actor, label, detail, date, color }: {
       <div style={{ flex: 1, paddingBottom: 16, paddingLeft: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{label}</span>
-          <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>{fmtDatetime(date)}</span>
+          <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>{dateOnly ? fmtDate(date) : fmtDatetime(date)}</span>
         </div>
         {actor && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{actor}</div>}
         {detail && <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 4, lineHeight: 1.5 }}>{detail}</div>}
@@ -689,7 +689,7 @@ export default function RecoveryCaseDetail() {
   const promisesKept  = coll_promises.filter(p => p.is_kept).length
 
   // Build unified timeline: activity_log + recovery events merged and sorted
-  type TL = { date: string; label: string; actor?: string; detail?: string; color: string }
+  type TL = { date: string; label: string; actor?: string; detail?: string; color: string; dateOnly?: boolean }
   const timeline: TL[] = [
     ...activity_log.map(a => ({
       date:   a.created_at,
@@ -698,26 +698,32 @@ export default function RecoveryCaseDetail() {
       detail: a.detail ?? undefined,
       color:  MODULE_COLORS[a.module] ?? '#6B7280',
     })),
+    // Visits / proceedings / payments carry a date only (no clock component); render as a
+    // plain date rather than fmtDatetime, which would print a spurious local midnight and
+    // could roll the calendar day across the UTC boundary.
     ...visits.map(v => ({
-      date:   v.visit_date + 'T00:00:00Z',
+      date:   v.visit_date,
       label:  `Visit, ${v.visit_type}: ${v.outcome}`,
       actor:  v.agent_name ?? undefined,
       detail: v.notes ?? undefined,
       color:  AMBER,
+      dateOnly: true,
     })),
     ...proceedings.map(p => ({
-      date:   p.filing_date + 'T00:00:00Z',
+      date:   p.filing_date,
       label:  `Legal: ${p.proceeding_type}`,
       actor:  p.court_name ?? undefined,
       detail: p.notes ?? undefined,
       color:  RED,
+      dateOnly: true,
     })),
     ...payments.map(p => ({
-      date:   p.payment_date + 'T00:00:00Z',
+      date:   p.payment_date,
       label:  `Payment: ${fmtKoboExact(p.amount_kobo)}`,
       actor:  p.agent_name ?? undefined,
       detail: `${p.channel}${p.reference ? ' · ' + p.reference : ''}`,
       color:  GREEN,
+      dateOnly: true,
     })),
   ].sort((a, b) => b.date.localeCompare(a.date))
 
@@ -893,7 +899,7 @@ export default function RecoveryCaseDetail() {
             ) : (
               <div style={{ paddingTop: SP[2] }}>
                 {timeline.map((ev, i) => (
-                  <TimelineItem key={i} {...ev} />
+                  <TimelineItem key={`${ev.date}|${ev.label}|${i}`} {...ev} />
                 ))}
               </div>
             )}
