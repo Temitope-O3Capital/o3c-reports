@@ -1,11 +1,65 @@
 # O3 Capital Workspace — Deployment Guide
 
+> **Everything below "Planned on-prem design" describes a stack that has never
+> run.** Verified 2026-09-22. Read this section first — it is how the product
+> actually reaches users today.
+
+## How production actually runs (current, true)
+
+Production is a **Windows host**, and deployment is a **manual act**. There is no
+Nginx, no Docker and no CI deploy anywhere in the live path.
+
+```
+Internet
+   │
+   ▼
+O3C-TLSProxy  (scheduled task, TLS on 8443)
+   │
+   ▼
+o3c-backend.exe  (port 8000)  ← ONE process serves both
+   ├── /api/*        the Go API
+   └── /*            the built React SPA, straight off disk from
+                     FRONTEND_DIR = backend-go\frontend-dist
+   │
+   ▼
+PostgreSQL
+```
+
+Two scheduled tasks keep it alive: **O3C-Backend** (a keep-alive wrapper that
+restarts the binary within ~60s of it stopping) and **O3C-TLSProxy**.
+
+**To deploy:** run `backend-go/deploy-sales-fixes.ps1` from an **elevated**
+PowerShell — the service runs as SYSTEM, so a normal shell cannot stop it. Stage
+the binary first (`go build -o o3c-backend-new.exe .`); the script then builds
+the frontend, stops the backend, swaps the binary, keeps a timestamped `.bak`,
+and waits for `/api/health` to come back. Frontend and backend must land
+together — each half calls endpoints the other version may not have.
+
+**Pushing to `main` does not deploy.** `.github/workflows/deploy.yml` runs
+checks only (gitleaks, Go tests, govulncheck, TypeScript). Its deploy job is
+gated on `SERVER_HOST` and `SSH_PRIVATE_KEY`, which this repository does not
+have — the only Actions secret is `CF_ACCOUNT_ID` — so it skips every time. A
+green tick means "the checks passed", never "it shipped".
+
+Because the live host has no Nginx, **edits to `nginx.conf` change nothing
+today** — including the 25MB `client_max_body_size`. The upload limits that
+bind in production are the ones enforced in the Go handlers.
+
+---
+
+## Planned on-prem design (NOT in use)
+
+Everything from here on is the intended Docker/Nginx/rsync architecture. It is
+kept because it is where the project is heading, but no part of it is running:
+the on-prem deploy job has never completed successfully. Treat it as a target,
+not a description, and do not follow it to debug a live incident.
+
 **Stack:** Go backend (chi router) + React 18/TypeScript frontend  
 **Backend host:** On-premises server | **Frontend:** Served by Nginx on the same server | **DB:** PostgreSQL (self-hosted or Supabase)
 
 ---
 
-## Architecture Overview
+### Architecture Overview
 
 ```
 Internet

@@ -1,6 +1,29 @@
-name: Deploy
+name: Checks (no deploy)
 
-# Required GitHub secrets (Settings → Secrets and variables → Actions):
+# A GREEN RUN HERE HAS NOT DEPLOYED ANYTHING. Read this before trusting it.
+#
+# What this workflow actually does today is verify: gitleaks, Go tests,
+# govulncheck and the frontend TypeScript type-check. That is all, and it is
+# worth keeping green — it is what caught the concatenated-interval bug that
+# neither collections-fixes nor ci-integration-tests could see alone.
+#
+# The `deploy` job below has never once shipped. It is gated on the `preflight`
+# job, which needs SERVER_HOST and SSH_PRIVATE_KEY; this repository has one
+# Actions secret (CF_ACCOUNT_ID) and neither of those, so the job SKIPS. In the
+# 60 runs before 2026-09-22 it executed exactly twice — both before the gate
+# existed, and both failed. The /opt/o3c + docker compose target it describes is
+# a design, not a running system.
+#
+# Production today is a Windows host, and it is deployed BY HAND:
+# the Go binary serves the built SPA itself from FRONTEND_DIR
+# (backend-go/frontend-dist) on port 8000, behind the O3C-TLSProxy scheduled
+# task, and a new build goes live via backend-go/deploy-sales-fixes.ps1 — build
+# the frontend, stop the service, swap the binary, let the keep-alive task bring
+# it back. See docs/DEPLOYMENT.md, which documents the real path first.
+#
+# So: pushing to main runs these checks. Shipping is a separate, manual act.
+#
+# Secrets the deploy job WOULD need if the on-prem server is ever stood up:
 #   SERVER_HOST        - IP address or hostname of the on-prem server
 #   SSH_PRIVATE_KEY    - Private key for the deploy user on the server
 #   VITE_API_URL       - Backend URL visible to the browser, e.g. https://workspace.o3ccards.com

@@ -95,8 +95,14 @@ Icons:   Material Symbols Rounded (Google CDN, variable font)
 ```
 o3c-reports/
 ├── CLAUDE.md                      ← you are here
-├── .github/workflows/deploy.yml   ← CI: build frontend → rsync to server; SSH to rebuild Go container
-├── docs/DEPLOYMENT.md
+├── .github/workflows/deploy.yml   ← CHECKS ONLY. Pushing to main deploys NOTHING.
+│                                    gitleaks + Go tests + govulncheck + tsc. Its
+│                                    rsync/docker deploy job is gated on secrets
+│                                    this repo lacks, so it always skips.
+├── docs/DEPLOYMENT.md             ← READ FIRST before claiming anything shipped.
+│                                    Prod is a Windows host; the Go binary serves
+│                                    the SPA from FRONTEND_DIR on :8000 and is
+│                                    deployed BY HAND (deploy-sales-fixes.ps1).
 │
 ├── frontend/
 │   ├── index.html
