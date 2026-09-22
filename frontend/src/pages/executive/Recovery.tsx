@@ -36,8 +36,8 @@ interface ExecRecovery {
   legal_by_stage: { stage: string; count: number; value_kobo: number }[]
   legal_pipeline: { proceeding_type: string; count: number }[]
 
-  monthly_trend: { month: string; recovered_kobo: number; count: number }[]
-  top_agents: { name: string; role: string; open_cases: number; cases: number; open_outstanding_kobo: number; recovered_period_kobo: number }[]
+  monthly_trend: { month: string; card_kobo: number; loan_kobo: number; count: number }[]
+  top_agents: { name: string; role: string; open_cases: number; cases: number; open_outstanding_kobo: number; recovered_period_kobo: number; recovered_card_kobo: number; recovered_loan_kobo: number }[]
 }
 
 // Status keeps its colour whatever the mix looks like this period.
@@ -96,7 +96,7 @@ export default function ExecRecovery() {
     .reduce((s, b) => s + b.value_kobo, 0)
   const deepShare = share(deep, data.open_outstanding_kobo)
   const noRecovery = data.recovered_period_kobo === 0 && data.recovered_period_count === 0
-  const recoveredMax = Math.max(1, ...data.monthly_trend.map(m => m.recovered_kobo))
+  const recoveredMax = Math.max(1, ...data.monthly_trend.map(m => m.card_kobo + m.loan_kobo))
 
   return (
     <Page title={title} back={back} actions={actions}>
@@ -120,7 +120,7 @@ export default function ExecRecovery() {
       )}
 
       {/* ── Recovered over time ───────────────────────────────────────────── */}
-      <SectionCard title="Recovered" subtitle="Posted recovery payments per month · rolling 12 months" style={{ marginBottom: 14 }}>
+      <SectionCard title="Recovered" subtitle="Posted recovery payments per month · card vs loan · rolling 12 months" style={{ marginBottom: 14 }}>
         <EArea
           data={data.monthly_trend}
           xKey="month"
@@ -130,7 +130,10 @@ export default function ExecRecovery() {
           endFmt={ytick}
           hideYAxis
           valueFmt={fmtKobo}
-          series={[{ key: 'recovered_kobo', name: 'Recovered', color: GREEN }]}
+          series={[
+            { key: 'card_kobo', name: 'Card', color: GREEN },
+            { key: 'loan_kobo', name: 'Loan', color: NAVY },
+          ]}
         />
         {recoveredMax === 1 && (
           <div style={{ marginTop: SP[2] }}>
@@ -258,7 +261,7 @@ export default function ExecRecovery() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--th-bg)' }}>
-                {['Agent', 'Open Cases', 'Open Book', 'Recovered (Period)', 'Rate'].map(h => (
+                {['Agent', 'Open Cases', 'Open Book', 'Card', 'Loan', 'Rate'].map(h => (
                   <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Agent' ? 'left' : 'right', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
                 ))}
               </tr>
@@ -279,7 +282,8 @@ export default function ExecRecovery() {
                     </td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtNum(a.open_cases)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{fmtKobo(a.open_outstanding_kobo)}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>{fmtKobo(a.recovered_period_kobo)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: a.recovered_card_kobo > 0 ? GREEN : 'var(--txt3)', fontFamily: INTER }}>{fmtKobo(a.recovered_card_kobo)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: a.recovered_loan_kobo > 0 ? NAVY : 'var(--txt3)', fontFamily: INTER }}>{fmtKobo(a.recovered_loan_kobo)}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', ...NUM, fontSize: TEXT.sm, color: rate >= 30 ? GREEN : 'var(--txt2)', fontFamily: INTER }}>{fmtPct(rate)}</td>
                   </tr>
                 )

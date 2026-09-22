@@ -1148,7 +1148,8 @@ func execRecoveryHandler(db *core.DB) http.HandlerFunc {
 		if rows, e := db.PGQuery(ctx, `
 			SELECT COALESCE(SUM(amount_kobo), 0) AS kobo, COUNT(*) AS n
 			FROM recovery_payments
-			WHERE status IN ('approved','posted') AND payment_date::date BETWEEN $1 AND $2`,
+			WHERE status IN ('approved','posted') AND payment_date::date <= CURRENT_DATE
+			  AND payment_date::date BETWEEN $1 AND $2`,
 			d(cs), d(ce)); e == nil && len(rows) > 0 {
 			recoveredPeriod = toInt64(rows[0]["kobo"])
 			recoveredCount = toInt64(rows[0]["n"])
@@ -1237,7 +1238,11 @@ func execRecoveryHandler(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// ── Monthly recovered trend (12 months) ───────────────────────────────
+		// ── Monthly recovered trend (12 months), split card vs loan ───────────
+		// Loan recovery is ~96% of the book and one ~₦420M case; blended into a single
+		// series it flattened every card-recovery month to a sliver (same defect fixed on
+		// the operational trend). Split by the case's product_type and exclude future-dated
+		// rows so a bar never shows money not yet received.
 		monthlyTrend := make([]map[string]any, 0)
 		if rows, e := db.PGQuery(ctx, `
 			WITH months AS (
@@ -1245,15 +1250,25 @@ func execRecoveryHandler(db *core.DB) http.HandlerFunc {
 			                         DATE_TRUNC('month', CURRENT_DATE), '1 month'::interval) AS m)
 			SELECT TO_CHAR(mo.m, 'Mon YY') AS month,
 			  COALESCE((SELECT SUM(rp.amount_kobo) FROM recovery_payments rp
-			             WHERE rp.status IN ('approved','posted')
-			               AND DATE_TRUNC('month', rp.payment_date::date) = mo.m), 0) AS recovered_kobo,
+			             LEFT JOIN recovery_cases rc ON rc.id = rp.case_id
+			             WHERE rp.status IN ('approved','posted') AND rp.payment_date::date <= CURRENT_DATE
+			               AND COALESCE(rc.product_type,'card') <> 'loan'
+			               AND DATE_TRUNC('month', rp.payment_date::date) = mo.m), 0) AS card_kobo,
+			  COALESCE((SELECT SUM(rp.amount_kobo) FROM recovery_payments rp
+			             LEFT JOIN recovery_cases rc ON rc.id = rp.case_id
+			             WHERE rp.status IN ('approved','posted') AND rp.payment_date::date <= CURRENT_DATE
+			               AND rc.product_type = 'loan'
+			               AND DATE_TRUNC('month', rp.payment_date::date) = mo.m), 0) AS loan_kobo,
 			  COALESCE((SELECT COUNT(*) FROM recovery_payments rp
-			             WHERE rp.status IN ('approved','posted')
+			             WHERE rp.status IN ('approved','posted') AND rp.payment_date::date <= CURRENT_DATE
 			               AND DATE_TRUNC('month', rp.payment_date::date) = mo.m), 0) AS count
 			FROM months mo ORDER BY mo.m`); e == nil {
 			for _, row := range rows {
 				monthlyTrend = append(monthlyTrend, map[string]any{
-					"month": str(row["month"]), "recovered_kobo": toInt64(row["recovered_kobo"]), "count": toInt64(row["count"]),
+					"month":     str(row["month"]),
+					"card_kobo": toInt64(row["card_kobo"]),
+					"loan_kobo": toInt64(row["loan_kobo"]),
+					"count":     toInt64(row["count"]),
 				})
 			}
 		}
@@ -1268,7 +1283,18 @@ func execRecoveryHandler(db *core.DB) http.HandlerFunc {
 			       COALESCE(SUM(rc.outstanding_kobo) FILTER (WHERE rc.status IN ('active','legal')), 0) AS open_outstanding_kobo,
 			       COALESCE(SUM((SELECT COALESCE(SUM(rp.amount_kobo),0) FROM recovery_payments rp
 			                      WHERE rp.case_id = rc.id AND rp.status IN ('approved','posted')
-			                        AND rp.payment_date::date BETWEEN $1 AND $2)), 0)   AS recovered_period_kobo
+			                        AND rp.payment_date::date <= CURRENT_DATE
+			                        AND rp.payment_date::date BETWEEN $1 AND $2)), 0)   AS recovered_period_kobo,
+			       COALESCE(SUM((SELECT COALESCE(SUM(rp.amount_kobo),0) FROM recovery_payments rp
+			                      WHERE rp.case_id = rc.id AND rp.status IN ('approved','posted')
+			                        AND rp.payment_date::date <= CURRENT_DATE
+			                        AND rp.payment_date::date BETWEEN $1 AND $2))
+			              FILTER (WHERE COALESCE(rc.product_type,'card') <> 'loan'), 0)  AS recovered_card_kobo,
+			       COALESCE(SUM((SELECT COALESCE(SUM(rp.amount_kobo),0) FROM recovery_payments rp
+			                      WHERE rp.case_id = rc.id AND rp.status IN ('approved','posted')
+			                        AND rp.payment_date::date <= CURRENT_DATE
+			                        AND rp.payment_date::date BETWEEN $1 AND $2))
+			              FILTER (WHERE rc.product_type = 'loan'), 0)                    AS recovered_loan_kobo
 			FROM recovery_cases rc
 			LEFT JOIN o3c_users u ON u.id = rc.assigned_agent_id
 			WHERE rc.assigned_agent_id IS NOT NULL
@@ -1283,6 +1309,8 @@ func execRecoveryHandler(db *core.DB) http.HandlerFunc {
 					"cases":                 toInt64(row["cases"]),
 					"open_outstanding_kobo": toInt64(row["open_outstanding_kobo"]),
 					"recovered_period_kobo": toInt64(row["recovered_period_kobo"]),
+					"recovered_card_kobo":   toInt64(row["recovered_card_kobo"]),
+					"recovered_loan_kobo":   toInt64(row["recovered_loan_kobo"]),
 				})
 			}
 		}
