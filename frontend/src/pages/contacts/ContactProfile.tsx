@@ -9,6 +9,7 @@ import { useDebouncedValue } from '../../hooks/useDebounce'
 import { mccName } from '../../lib/mcc'
 import { currencyName } from '../../lib/currency'
 import { toast } from 'sonner'
+import HandoffActions, { HandoffStatusChip, handoffOpen, type HandoffViewer } from '../../components/HandoffActions'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -977,15 +978,19 @@ const STEP_COLOUR: Record<string, string> = {
 // The customer's own status badges (Customer, Card Holder, Delinquent, In Recovery…),
 // rendered as pills inside the blue overview hero — only the ones this customer
 // actually has. Replaces the standalone horizontal lifecycle stepper.
+// A core-banking customer who holds no card. Migration 258 gave all 294 Udara
+// customers a workspace profile, 263 of them brand new with no CIF — for those the
+// Cards, Transactions and Statement tabs are legitimately empty, and without saying
+// so the profile reads as broken rather than as "this person banks with us, not on
+// a card".
+function isCoreBankingOnly(profile: ContactProfileData, identity: IdentityBlock | null): boolean {
+  return !!identity?.linked && (profile.identifiers?.cifs?.length ?? 0) === 0
+}
+
 function HeroStatusBadges({ profile, identity }: { profile: ContactProfileData; identity: IdentityBlock | null }) {
   const active = LIFECYCLE_STEPS.filter(s => profile[s.key as keyof ContactProfileData] as boolean)
   const pep = identity?.pep === true
-  // A core-banking customer who holds no card: 263 of these exist (migration 258
-  // gave every Udara customer a workspace profile). Cards, card transactions and
-  // the card ledger are all legitimately empty for them, and without this the
-  // profile reads as broken rather than as "this person banks with us, not on a
-  // card". Deposits and loans still show on their own tabs.
-  const coreOnly = !!identity?.linked && (profile.identifiers?.cifs?.length ?? 0) === 0
+  const coreOnly = isCoreBankingOnly(profile, identity)
   if (active.length === 0 && !pep && !coreOnly) return null
   return (
     <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 12 }}>
@@ -1102,6 +1107,86 @@ function AllIdentifiersCard({ profile }: { profile: ContactProfileData }) {
   )
 }
 
+// A hand-off ("Log Activity → Hand Off" on a lead, a case, a ticket…) used to be
+// visible only on the screen that raised it, or on the standalone /handoffs inbox —
+// nowhere on the customer's own record. Customer 360 is the one screen every team
+// ends up on regardless of who raised the hand-off or which module it came from, so
+// an open one surfaces right here too, with the same Accept/Resolve/Return controls
+// as the inbox (HandoffActions is shared, not reimplemented) rather than just a link
+// out to another page. Silent when there is nothing open — this is an alert, not a log.
+interface HandoffActivity {
+  id: number
+  type: string
+  subject: string | null
+  body: string | null
+  status: string | null
+  target_team: string | null
+  actor_name: string | null
+  actor_team: string | null
+  actor_user_id: number | null
+  occurred_at: string
+}
+
+function titleTeamLabel(team: string | null | undefined): string {
+  const t = (team || '').trim()
+  if (!t) return ''
+  return t.split('_').filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
+}
+
+function OpenHandoffsBanner({ cif }: { cif: string }) {
+  const [handoffs, setHandoffs] = useState<HandoffActivity[]>([])
+  const [viewer, setViewer] = useState<HandoffViewer | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    if (!cif) { setHandoffs([]); return }
+    let cancelled = false
+    apiFetch<{ data: HandoffActivity[]; viewer?: HandoffViewer }>(`/api/activities?cif=${encodeURIComponent(cif)}`)
+      .then(r => {
+        if (cancelled) return
+        setHandoffs((r?.data ?? []).filter(a => a.type === 'handoff' && handoffOpen(a.status)))
+        setViewer(r?.viewer ?? null)
+      })
+      .catch(() => { if (!cancelled) setHandoffs([]) })
+    return () => { cancelled = true }
+  }, [cif, refreshKey])
+
+  if (handoffs.length === 0) return null
+
+  return (
+    <SectionCard
+      title="Open Hand-Offs"
+      subtitle={`${handoffs.length} waiting on ${handoffs.length === 1 ? 'a team' : 'other teams'}`}
+      style={{ borderLeft: `4px solid ${AMBER}`, marginBottom: SP[4] }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {handoffs.map((h, i) => (
+          <div key={h.id} style={{ paddingBottom: i === handoffs.length - 1 ? 0 : 12, borderBottom: i === handoffs.length - 1 ? 'none' : '1px solid var(--bdr)' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                {h.subject || 'Hand-off'}{h.target_team ? ` → ${titleTeamLabel(h.target_team)}` : ''}
+              </span>
+              <HandoffStatusChip status={h.status} />
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>{fmtDatetime(h.occurred_at)}</span>
+            </div>
+            {h.body && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>{h.body}</div>}
+            <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 3 }}>
+              {h.actor_name || 'Staff'}{h.actor_team ? ` · ${titleTeamLabel(h.actor_team)}` : ''}
+            </div>
+            <div style={{ marginTop: 7 }}>
+              <HandoffActions
+                handoff={{ id: h.id, status: h.status, target_team: h.target_team, actor_user_id: h.actor_user_id }}
+                viewer={viewer}
+                onDone={() => setRefreshKey(k => k + 1)}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </SectionCard>
+  )
+}
+
 // Risk carries its own visual weight — a colour-coded left rail (same palette as the
 // hero's lifecycle badges: AMBER delinquent, RED in recovery, grey written off) plus
 // headline stat tiles for DPD and outstanding, so the one card collections/recovery
@@ -1205,7 +1290,7 @@ function RiskSnapshotCard({ profile }: { profile: ContactProfileData }) {
 // occupation 63, TIN 9 — so the server sends only populated fields and drops a
 // whole group when none of its fields survived.
 
-interface IdentityField { key: string; label: string; value: string; mono?: boolean; sensitive?: boolean }
+interface IdentityField { key: string; label: string; value: string; icon?: string; mono?: boolean; copy?: boolean; sensitive?: boolean }
 interface IdentityGroup { key: string; title: string; icon: string; fields: IdentityField[] }
 interface IdentityBlock {
   entity_type: 'individual' | 'corporate'
@@ -1239,17 +1324,18 @@ function CoreBankingChip() {
   )
 }
 
-function IdentityKycCard({ identity }: { identity: IdentityBlock | null }) {
+function IdentityKycCard({ profile, identity }: { profile: ContactProfileData; identity: IdentityBlock | null }) {
   if (!identity) return null
   const flagged = identity.pep === true
-  // Render for anyone the core-banking master knows, even when it holds no KYC
-  // detail — for a Udara-only customer that absence is itself the answer. A
-  // card-only customer the master has never seen gets no card at all.
-  if (identity.field_count === 0 && !flagged && !identity.linked) return null
+  // An empty core-banking KYC record is worth stating for a customer whose whole
+  // profile comes from core banking — the absence is itself the answer, and 116 of
+  // the 294 linked customers carry no identity detail at all. For a card customer
+  // it would just be an empty card, so it isn't rendered.
+  if (identity.field_count === 0 && !flagged && !isCoreBankingOnly(profile, identity)) return null
 
   const src = identity.source
   const subtitle = src?.cbs_customer_id
-    ? `From ${src.label} — customer ${src.cbs_customer_id}${src.synced_at ? ` · synced ${fmtDatetime(src.synced_at)}` : ''}`
+    ? `${src.label} record · customer ${src.cbs_customer_id}${src.synced_at ? ` · synced ${fmtDatetime(src.synced_at)}` : ''}`
     : 'From the core banking customer master — not the card feed'
 
   return (
@@ -1297,7 +1383,7 @@ function IdentityKycCard({ identity }: { identity: IdentityBlock | null }) {
                   <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{g.title}</span>
                 </div>
                 <InfoGrid>
-                  {g.fields.map(f => <InfoPair key={f.key} label={f.label} value={f.value} mono={f.mono} />)}
+                  {g.fields.map(f => <InfoPair key={f.key} label={f.label} icon={f.icon} value={f.value} mono={f.mono} copy={f.copy} />)}
                 </InfoGrid>
               </div>
             )
@@ -1334,7 +1420,7 @@ function OverviewTab({ profile, identity, onOpenTab }: { profile: ContactProfile
         </div>
       )}
       <AllIdentifiersCard profile={profile} />
-      <IdentityKycCard identity={identity} />
+      <IdentityKycCard profile={profile} identity={identity} />
 
       <SectionCard title="Identity &amp; Contact">
         <InfoGrid>
@@ -2536,6 +2622,10 @@ export default function ContactProfile() {
       <KpiStrip profile={profile} />
 
       <div style={{ marginBottom: 20 }} />
+
+      {/* Any hand-off raised against this customer, from any module — resolved right
+          here rather than only on the raising screen or the standalone inbox. */}
+      <OpenHandoffsBanner cif={profile.cif} />
 
       {/* Tabs */}
       <div style={{ marginBottom: 16 }}>
