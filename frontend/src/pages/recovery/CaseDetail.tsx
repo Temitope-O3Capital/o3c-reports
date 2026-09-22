@@ -285,6 +285,55 @@ function LogVisitModal({ caseId, open, onClose, onDone }: {
   )
 }
 
+// ── Reverse Payment Modal ──────────────────────────────────────────────────────
+// Corrects an approved/posted payment: posts a compensating GL entry, gives the amount
+// back on the case, and keeps the original row for audit (status → 'reversed'). COO/admin
+// only, matching the backend gate.
+function ReversePaymentModal({ caseId, payment, open, onClose, onDone }: {
+  caseId: number; payment: Payment | null; open: boolean; onClose: () => void; onDone: () => void
+}) {
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err,    setErr]    = useState<string | null>(null)
+
+  useEffect(() => { if (open) { setReason(''); setErr(null) } }, [open])
+
+  async function submit() {
+    if (!payment || !reason.trim()) return
+    setSaving(true); setErr(null)
+    try {
+      await apiPut(`/api/recovery-ops/payments/${payment.id}/reverse`, { reason: reason.trim() })
+      toast.success('Payment reversed')
+      onDone()
+    } catch (e: any) { setErr(e.message ?? 'Reversal failed') } finally { setSaving(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Reverse Payment" width={460}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <ErrBanner error={err} />
+        {payment && (
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
+            Reversing <strong style={{ ...NUM, color: 'var(--txt)' }}>{fmtKoboExact(payment.amount_kobo)}</strong>
+            {' '}({payment.channel} · {fmtDate(payment.payment_date)}). This posts a compensating
+            ledger entry and returns the amount to the case. The original payment is kept for audit.
+          </div>
+        )}
+        <div>
+          <label style={labelStyle}>Reason *</label>
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3}
+            spellCheck={false} data-gramm="false" placeholder="Why is this payment being reversed?"
+            style={{ ...fieldStyle, resize: 'vertical' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn onClick={submit} loading={saving} disabled={!reason.trim()} danger>Reverse Payment</Btn>
+          <Btn onClick={onClose} outline>Cancel</Btn>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ── Log Step Modal ─────────────────────────────────────────────────────────────
 // A generic typed step (call / email / SMS / letter / field-visit / file / note),
 // written through the unified step-log so the whole recovery/collections trail is in
@@ -631,10 +680,13 @@ export default function RecoveryCaseDetail() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const [activeModal, setActiveModal] = useState<ActionTab | null>(null)
+  const [reverseTarget, setReverseTarget] = useState<Payment | null>(null)
 
   // Reassigning is a supervisor capability — gate on the recovery_assign page (same as
   // the backend), so a plain agent sees the case but no Assign/Reassign control.
   const isHead = hasPage('recovery_assign')
+  // Reversing a posted payment is a COO/admin authority (matches the backend gate).
+  const canReverse = ['coo', 'admin'].includes(getStoredRole())
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -1047,17 +1099,33 @@ export default function RecoveryCaseDetail() {
           {payments.length > 0 && (
             <SectionCard title="Payments Received" badge={payments.length}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {payments.map(p => (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', borderBottom: '1px solid var(--bdr)' }}>
+                {payments.map(p => {
+                  const reversed = p.status === 'reversed'
+                  return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', borderBottom: '1px solid var(--bdr)', opacity: reversed ? 0.55 : 1 }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: GREEN }}>{fmtKoboExact(p.amount_kobo)}</div>
+                      <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: reversed ? 'var(--txt3)' : GREEN, textDecoration: reversed ? 'line-through' : 'none' }}>{fmtKoboExact(p.amount_kobo)}</div>
                       <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
                         {p.channel} · {fmtDate(p.payment_date)}
                         {p.reference ? ` · ${p.reference}` : ''}
+                        {reversed ? ' · reversed' : ''}
                       </div>
                     </div>
+                    {canReverse && (p.status === 'approved' || p.status === 'posted') && (
+                      <button
+                        onClick={() => setReverseTarget(p)}
+                        style={{
+                          fontSize: TEXT.xs, fontWeight: FW.medium, color: RED,
+                          background: 'none', border: `1px solid ${RED}30`,
+                          borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer', flexShrink: 0,
+                        }}
+                      >
+                        Reverse
+                      </button>
+                    )}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </SectionCard>
           )}
@@ -1091,6 +1159,7 @@ export default function RecoveryCaseDetail() {
       <LogPaymentModal caseId={caseId} open={activeModal === 'payment'} onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
       <LegalModal      caseId={caseId} open={activeModal === 'legal'}   onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
       <WriteOffModal   caseId={caseId} outstanding={net} open={activeModal === 'writeoff'} onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
+      <ReversePaymentModal caseId={caseId} payment={reverseTarget} open={reverseTarget !== null} onClose={() => setReverseTarget(null)} onDone={() => { setReverseTarget(null); load() }} />
       {isHead && (
         <ReassignModal caseId={caseId} agents={agents} open={activeModal === 'reassign'} onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
       )}

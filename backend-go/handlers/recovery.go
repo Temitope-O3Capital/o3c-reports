@@ -51,7 +51,7 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 		kpis := map[string]any{
 			"total_in_recovery_kobo": 0, "recovered_mtd_kobo": 0, "success_rate_pct": 0.0,
 			"avg_days_in_recovery": 0, "total_recovered_kobo": 0, "open_cases": 0,
-			"accounts_in_legal": 0, "total_cases": 0,
+			"accounts_in_legal": 0, "total_cases": 0, "over_recovered_cases": 0,
 		}
 
 		// Book metrics are point-in-time — "in recovery" means the current open book,
@@ -64,6 +64,7 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 			COALESCE(SUM(outstanding_kobo),0)                                                                     AS total_handoff_kobo,
 			COUNT(*) FILTER (WHERE status NOT IN ('closed','recovered','written_off'))                            AS open_cases,
 			COUNT(*) FILTER (WHERE legal_stage IS NOT NULL AND legal_stage <> '')                                 AS accounts_in_legal,
+			COUNT(*) FILTER (WHERE recovered_kobo > outstanding_kobo)                                             AS over_recovered_cases,
 			COUNT(*)                                                                                              AS total_cases,
 			COALESCE(ROUND(AVG(EXTRACT(DAY FROM NOW() - opened_at)) FILTER (WHERE status NOT IN ('closed','recovered','written_off')))::int, 0) AS avg_days_in_recovery
 			FROM recovery_cases`); err == nil && len(rows) > 0 {
@@ -76,6 +77,7 @@ func recoveryKPIs(db *core.DB) http.HandlerFunc {
 			kpis["total_recovered_kobo"] = row["total_recovered_kobo"]
 			kpis["open_cases"] = row["open_cases"]
 			kpis["accounts_in_legal"] = row["accounts_in_legal"]
+			kpis["over_recovered_cases"] = row["over_recovered_cases"]
 			kpis["total_cases"] = row["total_cases"]
 			kpis["avg_days_in_recovery"] = row["avg_days_in_recovery"]
 			handoff := toFloat(row["total_handoff_kobo"])
@@ -512,7 +514,11 @@ func recoveryLegalKPIs(db *core.DB) http.HandlerFunc {
 			    FROM recovery_cases WHERE legal_stage IS NOT NULL%s
 			),
 			proceedings AS (
-			    SELECT case_id, BOOL_OR(outcome = 'won') AS won
+			    -- "Won" = the legal action fully recovered the debt. The real terminal
+			    -- outcomes are CLEARED (plus the 'CLEARD' typo in the data); PART-PAYMENT and
+			    -- APPEAL are not clean wins. Normalise case/whitespace so the variants count,
+			    -- and stop the KPI reading a permanent zero (there was never a 'won' value).
+			    SELECT case_id, BOOL_OR(UPPER(TRIM(outcome)) IN ('CLEARED','CLEARD')) AS won
 			    FROM legal_proceedings GROUP BY case_id
 			)
 			SELECT

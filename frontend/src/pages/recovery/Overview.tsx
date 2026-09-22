@@ -16,6 +16,7 @@ interface RecoveryKPIs {
   recovered_mtd_kobo: number
   success_rate_pct: number
   avg_days_in_recovery: number
+  over_recovered_cases: number
   by_product?: { product: string; open_cases: number; in_recovery_kobo: number; recovered_kobo: number }[]
 }
 
@@ -271,6 +272,23 @@ export default function RecoveryOverview() {
           loading={kpiLoading}
         />
       </div>
+
+      {/* Over-recovery watch: cases whose recovered total exceeds their outstanding. Shown
+          only when non-zero — these need a supervisor to confirm the extra (interest/fees)
+          or reverse an erroneous payment. */}
+      {kpis && kpis.over_recovered_cases > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 14px', marginBottom: SP[5], borderRadius: RADIUS.md,
+          background: `${AMBER}12`, border: `1px solid ${AMBER}40`,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 18, color: AMBER }}>error</span>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>
+            <strong style={NUM}>{fmtNum(kpis.over_recovered_cases)}</strong>{' '}
+            case{kpis.over_recovered_cases === 1 ? ' has' : 's have'} recovered more than the outstanding — review for a possible payment reversal.
+          </span>
+        </div>
+      )}
 
       {/* Card vs Loan split of the open recovery book */}
       {kpis?.by_product && kpis.by_product.length > 0 && (

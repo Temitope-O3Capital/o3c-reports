@@ -36,6 +36,7 @@ func RegisterRecoveryOps(r chi.Router, db *core.DB) {
 	r.With(base).Get("/payments/pending", recoveryOpsPendingPayments(db))
 	r.With(base).Put("/payments/{pid}/approve", recoveryOpsApprovePayment(db))
 	r.With(base).Put("/payments/{pid}/reject", recoveryOpsRejectPayment(db))
+	r.With(base).Put("/payments/{pid}/reverse", recoveryOpsReversePayment(db))
 	r.With(base).Get("/dashboard", recoveryOpsDashboard(db))
 	r.With(base).Get("/agent-dashboard", recoveryOpsAgentDashboard(db))
 	r.With(base).Get("/agents", recoveryOpsAgents(db))
@@ -765,6 +766,18 @@ func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, "Cannot approve a payment you submitted")
 			return
 		}
+		// Four-eyes ACROSS stages: the same person may not sign two stages of one payment —
+		// admin included, since admin is the break-glass override for every stage and could
+		// otherwise push HOP→COO single-handedly. The prior approver is read from the audit
+		// log (logCreditEvent stamps actor_id on each 'payment_approved'), so no schema change.
+		if prior, _ := db.PGQuery(ctx, `
+			SELECT 1 FROM credit_activity_log
+			WHERE entity_type = 'recovery_payment' AND entity_id = $1
+			  AND action = 'payment_approved' AND actor_id = $2
+			LIMIT 1`, fmt.Sprint(pid), user.ID); len(prior) > 0 {
+			respondErr(w, 403, "You already approved an earlier stage of this payment — a different approver must sign the next stage")
+			return
+		}
 		caseID := toInt64(pmt["case_id"])
 		amtKobo := toInt64(pmt["amount_kobo"])
 		isFinal := prog.next == "approved"
@@ -1120,6 +1133,115 @@ func recoveryOpsVisit(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// recoveryOpsReversePayment reverses a fully-approved recovery payment. Until now a payment
+// was permanent once the COO posted it: a wrong amount, a wrong case, or a duplicate could
+// never be corrected — which is how 33 cases came to carry recovered_kobo above their
+// outstanding. This posts a COMPENSATING reversal rather than deleting the row: the original
+// payment is preserved for audit, its status flips to 'reversed' (dropping it from every
+// 'approved','posted' sum), the case recovered totals are given back, and an offsetting GL
+// entry — debit/credit swapped from the original posting — nets the ledger to zero.
+// Reversal is a COO/admin authority: the level that posted it is the level that can undo it.
+func recoveryOpsReversePayment(db *core.DB) http.HandlerFunc {
+	type body struct {
+		Reason string `json:"reason"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		pid, err := strconv.ParseInt(chi.URLParam(r, "pid"), 10, 64)
+		if err != nil {
+			respondErr(w, 400, "Invalid payment ID")
+			return
+		}
+		user := core.UserFromCtx(r.Context())
+		if user.Role != "coo" && user.Role != "admin" {
+			respondErr(w, 403, "Only the COO or an administrator can reverse a posted payment")
+			return
+		}
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			respondErr(w, 400, "Invalid JSON")
+			return
+		}
+		if strings.TrimSpace(b.Reason) == "" {
+			respondErr(w, 422, "a reason for the reversal is required")
+			return
+		}
+		ctx := r.Context()
+
+		pmtRows, err := db.PGQuery(ctx,
+			`SELECT id, case_id, amount_kobo, status FROM recovery_payments WHERE id = $1`, pid)
+		if err != nil || len(pmtRows) == 0 {
+			respondErr(w, 404, "Payment not found")
+			return
+		}
+		caseID := toInt64(pmtRows[0]["case_id"])
+		amtKobo := toInt64(pmtRows[0]["amount_kobo"])
+
+		tx, err := db.PG.BeginTx(ctx, nil)
+		if err != nil {
+			respondErr(w, 500, "Transaction start failed")
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		// CAS on status: only an approved/posted payment can be reversed, and only once —
+		// this both blocks reversing a pending/rejected payment and stops a double reversal
+		// racing itself.
+		var reversedID int64
+		scanErr := tx.QueryRowContext(ctx, `
+			UPDATE recovery_payments SET status = 'reversed'
+			WHERE id = $1 AND status IN ('approved','posted') RETURNING id`, pid).Scan(&reversedID)
+		if scanErr == sql.ErrNoRows {
+			respondErr(w, 409, "Only an approved payment can be reversed (it may already be reversed) — refresh and check")
+			return
+		}
+		if scanErr != nil {
+			respondErr(w, 500, "Reverse failed")
+			return
+		}
+
+		// Give the money back on the case — the mirror of the credit made at final approval.
+		if _, err = tx.ExecContext(ctx, `
+			UPDATE recovery_cases
+			SET recovered_kobo = GREATEST(COALESCE(recovered_kobo,0) - $1, 0),
+			    total_recovered_kobo = GREATEST(COALESCE(total_recovered_kobo,0) - $1, 0),
+			    updated_at = NOW()
+			WHERE id = $2`, amtKobo, caseID); err != nil {
+			respondErr(w, 500, "Update case totals failed")
+			return
+		}
+
+		// Compensating GL entry: debit/credit swapped from the original posting (1001/1100)
+		// so the pair nets to zero, referenced back to the payment.
+		if glErr := postJournalTx(ctx, tx, glEntry{
+			Date:          time.Now(),
+			Description:   fmt.Sprintf("Recovery payment reversed — payment %d (%s)", pid, b.Reason),
+			Reference:     fmt.Sprintf("RCOV-REV-%d", pid),
+			DebitAccount:  "1100",
+			CreditAccount: "1001",
+			AmountKobo:    amtKobo,
+			SourceType:    "recovery_payment_reversal",
+			SourceID:      pid,
+			PostedBy:      user.ID,
+		}); glErr != nil {
+			respondErr(w, 500, "GL reversal post failed")
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "Commit failed")
+			return
+		}
+		cif := ""
+		if cifRows, _ := db.PGQuery(ctx, `SELECT account_cif FROM recovery_cases WHERE id = $1`, caseID); len(cifRows) > 0 {
+			cif = str(cifRows[0]["account_cif"])
+		}
+		logCreditEvent(ctx, db, r, "recovery", "recovery_payment", fmt.Sprint(pid), cif, "payment_reversed",
+			fmt.Sprintf("Recovery payment of ₦%s reversed — %s", fmtKoboStr(amtKobo), b.Reason), nil,
+			map[string]any{"amount_kobo": amtKobo, "reason": b.Reason})
+		respond(w, map[string]any{"id": pid, "status": "reversed"}, "pg")
+	}
+}
+
 func recoveryOpsWriteOff(db *core.DB) http.HandlerFunc {
 	type body struct {
 		AmountKobo int64  `json:"amount_kobo"`
@@ -1138,6 +1260,22 @@ func recoveryOpsWriteOff(db *core.DB) http.HandlerFunc {
 		}
 		if b.AmountKobo <= 0 || b.Reason == "" {
 			respondErr(w, 422, "a positive amount_kobo and reason are required")
+			return
+		}
+
+		// A write-off cannot exceed the debt that is actually still owed — you can't expense
+		// a receivable that isn't there, and the GL posts the full requested amount at
+		// approval. Reject rather than silently clamp, so an operator's slip surfaces instead
+		// of quietly over-crediting the P&L.
+		var outstanding int64
+		if err := db.PG.QueryRowContext(r.Context(),
+			`SELECT GREATEST(COALESCE(outstanding_kobo,0) - COALESCE(recovered_kobo,0) - COALESCE(write_off_amount_kobo,0), 0)
+			 FROM recovery_cases WHERE id = $1`, id).Scan(&outstanding); err != nil {
+			respondErr(w, 404, "Case not found")
+			return
+		}
+		if b.AmountKobo > outstanding {
+			respondErr(w, 422, fmt.Sprintf("Write-off (₦%s) exceeds the ₦%s still outstanding on this case", fmtKoboStr(b.AmountKobo), fmtKoboStr(outstanding)))
 			return
 		}
 

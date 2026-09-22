@@ -16,13 +16,12 @@ import { WorkspaceHero, MyDaySection, MyDayTile, PresenceControl, StatusPill, He
 
 interface Case {
   id: number; case_ref: string; debtor_name: string
-  outstanding_kobo: number; dpd: number; next_action: string
-  next_action_date: string; status: string
+  outstanding_kobo: number; dpd: number; status: string
 }
 
 interface Visit {
   id: number; case_ref: string; debtor_name: string
-  outcome: string; visited_at: string; amount_promised_kobo: number
+  outcome: string; visited_at: string
 }
 
 interface RecoveryAgentDash {
@@ -266,7 +265,7 @@ export default function RecoveryAgentDashboard() {
     if (!searchCases.trim()) return rows
     const q = searchCases.toLowerCase()
     return rows.filter(r =>
-      [r.case_ref, r.debtor_name, r.status, r.next_action].some(v => v != null && String(v).toLowerCase().includes(q))
+      [r.case_ref, r.debtor_name, r.status].some(v => v != null && String(v).toLowerCase().includes(q))
     )
   }, [data?.cases, searchCases])
 
@@ -285,8 +284,6 @@ export default function RecoveryAgentDashboard() {
   if (error && !data) return <Page title="My Workspace"><ErrBanner error={error} onRetry={load} /></Page>
   if (!data) return null
 
-  const now = Date.now()
-  const actionsDue = data.cases.filter(c => c.next_action_date && new Date(c.next_action_date).getTime() <= now).length
   const severe = data.cases.filter(c => c.dpd > 90).length
   const clearMax = Math.max(1, data.assigned_cases + data.cases_closed_mtd)
 
@@ -295,12 +292,6 @@ export default function RecoveryAgentDashboard() {
     { key: 'debtor_name', label: 'Debtor' },
     { key: 'outstanding_kobo', label: 'Outstanding', render: r => <span style={NUM}>{fmtKoboExact(r.outstanding_kobo)}</span> },
     { key: 'dpd', label: 'DPD', render: r => <DpdCell dpd={r.dpd} /> },
-    { key: 'next_action', label: 'Next Action', render: r => (
-      <div>
-        <div style={{ fontSize: TEXT.xs }}>{r.next_action}</div>
-        <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{fmtDate(r.next_action_date)}</div>
-      </div>
-    )},
     { key: 'status', label: 'Status', render: r => <StatusPill label={r.status} color={NAVY} /> },
     {
       key: 'id', label: 'Actions',
@@ -341,7 +332,6 @@ export default function RecoveryAgentDashboard() {
     )},
     { key: 'outcome', label: 'Outcome', render: r => <StatusPill label={r.outcome} color={outcomeColor(r.outcome)} /> },
     { key: 'visited_at', label: 'Date', render: r => fmtDate(r.visited_at) },
-    { key: 'amount_promised_kobo', label: 'Promised', render: r => <span style={NUM}>{fmtKoboExact(r.amount_promised_kobo)}</span> },
   ]
 
   return (
@@ -367,9 +357,6 @@ export default function RecoveryAgentDashboard() {
 
       {/* ── My Day ── */}
       <MyDaySection hint="cases to work today">
-        <MyDayTile icon="event_available" count={fmtNum(actionsDue)} label="Actions Due"
-          sub={actionsDue > 0 ? 'follow-ups scheduled by now' : 'nothing due'}
-          color={AMBER} urgent={actionsDue > 0} onClick={() => navigate('/recovery/cases')} />
         <MyDayTile icon="priority_high" count={fmtNum(severe)} label="Severe (90+ DPD)"
           sub={severe > 0 ? 'escalate or push hard' : 'none at 90+ DPD'}
           color={severe > 0 ? RED : GREEN} urgent={severe > 0} onClick={() => navigate('/recovery/cases')} />
