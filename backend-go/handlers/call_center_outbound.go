@@ -3257,14 +3257,20 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 
 	status := leadStatusFromCall(outcome, disposition)
 
-	// Did this call actually reach the customer and resolve something? Every status
-	// leadStatusFromCall can return means a real conversation EXCEPT two: 'no_answer'
-	// (nobody picked up) and 'pending' (the line was answered then dropped within
-	// seconds, so nothing was discussed). Derived from the mapped status rather than
-	// re-matching the label, so this can never drift out of step with the mapping
-	// above. Mirrors `fulfilled` in ccApplyDisposition, which does the same job for
-	// the outbound queue's contact row.
-	fulfilled := status != "no_answer" && status != "pending"
+	// Did this call establish an outcome at all? Everything leadStatusFromCall can
+	// return does, EXCEPT 'pending' — the code for "Call Dropped", where the line
+	// picked up and died within seconds so nothing was established. Recording that as
+	// the lead's status would read as "never worked" and lose what we knew before.
+	//
+	// 'no_answer' deliberately COUNTS as an outcome: nobody picked up is a fact about
+	// the last call, and the status field is what the Leads screen shows. The promise
+	// itself is not lost with it — callback_at below is left standing on a no-answer,
+	// and the outbound queue dials from the CONTACT row's callback_at, never from this
+	// status, so the customer is still rung back.
+	//
+	// Derived from the mapped status rather than re-matching the label, so it cannot
+	// drift out of step with the mapping above.
+	outcomeKnown := status != "pending"
 
 	// The business disposition (falling back to the raw outcome) — now stored durably
 	// on the lead itself, so its history survives a later void/merge of the call.
@@ -3284,18 +3290,22 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		   -- which accepts only 'interested'. Compared inside the statement so it
 		   -- cannot race another writer.
 		   -- An OPEN PROMISE is not funnel progress. 'callback' ranks 3 and
-		   -- 'not_ready' 2, above 'called' (1), so a promised call that was actually
-		   -- made and answered "Not Interested" (→ 'called') lost the rank comparison
-		   -- and the lead stayed on 'callback' forever — reading as still-owed a call
-		   -- that had already happened. 25 leads were frozen this way on 2026-09-22
-		   -- (17 "not interested", 8 "not ready"), two of them dialled that same
-		   -- morning; migration 275 releases them. callback_at was freed from this
-		   -- guard earlier; status was not, and status is the half the UI shows.
+		   -- 'not_ready' 2, above 'called' (1) and 'no_answer' (1), so a promised call
+		   -- that was actually made lost the rank comparison and the lead stayed on
+		   -- 'callback' — reading as still-owed a call that had already been made.
+		   -- 25 leads were frozen that way on 2026-09-22 (migration 275), and 48 more
+		   -- sat on 'callback' whose last call was a plain no-answer (migration 278).
 		   --
-		   -- So a real conversation ($6) always resolves a lead that is merely holding
-		   -- a promise. It is deliberately NOT a general escape: 'interested' and
-		   -- 'converted' are earned states and still cannot be walked backwards, which
-		   -- is what the rank guard was built to protect.
+		   -- So while a lead is merely HOLDING a promise, the status follows whatever
+		   -- the last call established ($6) — including "nobody answered", which is a
+		   -- fact about that call and what the Leads screen should show.
+		   --
+		   -- Two things this deliberately does NOT do. It does not discard the promise:
+		   -- callback_at below still stands on a no-answer, and the outbound queue
+		   -- dials from the CONTACT row's callback_at rather than this status, so the
+		   -- customer is still rung back. And it is not a general escape from the rank
+		   -- guard: 'interested' and 'converted' are earned, and still cannot be walked
+		   -- backwards, which is what that guard was built to protect.
 		   SET status           = CASE
 		                            WHEN $5::int >= `+ccLeadStatusRankSQL+` THEN $1
 		                            WHEN $6::boolean AND status IN ('callback','not_ready') THEN $1
@@ -3322,7 +3332,7 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		                               WHEN $1 IN ('pending','no_answer') THEN callback_at
 		                               ELSE NULL END
 		 WHERE id = $2`,
-		status, leadID, callbackAt, dispo, ccLeadStatusRank[status], fulfilled)
+		status, leadID, callbackAt, dispo, ccLeadStatusRank[status], outcomeKnown)
 	if err != nil {
 		slog.Error("syncLeadFromCall: update lead", "lead", leadID, "err", err)
 		return
