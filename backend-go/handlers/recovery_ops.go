@@ -1470,6 +1470,23 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 				respondErr(w, 422, "Write-off amount must be greater than zero to post")
 				return
 			}
+			// Belt-and-suspenders against over-expensing the GL. The request-time cap can go
+			// stale: outstanding may drop between request and this final sign-off if a payment
+			// posts in between. Re-check at the point the GL actually moves — if the approved
+			// amount now exceeds what is still owed, refuse rather than expense a receivable
+			// that is no longer there. Runs inside the tx, so the status update rolls back.
+			var netOutstanding int64
+			if err := tx.QueryRowContext(ctx, `
+				SELECT GREATEST(COALESCE(rc.outstanding_kobo,0) - COALESCE(rc.recovered_kobo,0) - COALESCE(rc.write_off_amount_kobo,0), 0)
+				FROM recovery_cases rc JOIN recovery_write_off_approvals wa ON wa.case_id = rc.id
+				WHERE wa.id = $1`, wid).Scan(&netOutstanding); err != nil {
+				respondErr(w, 500, "Failed to read case outstanding")
+				return
+			}
+			if writeOffKobo > netOutstanding {
+				respondErr(w, 422, fmt.Sprintf("Write-off (₦%s) now exceeds the ₦%s still outstanding — the balance changed since the request; please revise it", fmtKoboStr(writeOffKobo), fmtKoboStr(netOutstanding)))
+				return
+			}
 			if _, caseErr := tx.ExecContext(ctx, `
 				UPDATE recovery_cases rc
 				SET write_off_amount_kobo = wa.amount_kobo,
