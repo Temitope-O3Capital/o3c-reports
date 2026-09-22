@@ -9,6 +9,8 @@ import { useDebouncedValue } from '../../hooks/useDebounce'
 import { mccName } from '../../lib/mcc'
 import { currencyName } from '../../lib/currency'
 import { toast } from 'sonner'
+import HandoffActions, { HandoffStatusChip, handoffOpen, type HandoffViewer } from '../../components/HandoffActions'
+import LogActivityModal from '../../components/LogActivityModal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -43,6 +45,8 @@ interface ContactProfileData {
   email: string
   bvn?: string
   nin?: string
+  bvn_masked?: boolean
+  nin_masked?: boolean
   address?: string
   full_address?: string
   city?: string
@@ -51,6 +55,7 @@ interface ContactProfileData {
   employer?: string
   monthly_income_kobo?: number
   date_of_birth?: string
+  date_of_birth_masked?: boolean
   gender?: string
 
   // Repayments (naira) + monthly cadence, for the collections/recovery teams.
@@ -483,7 +488,7 @@ function CardFace({ card, onClick }: { card: ContactProfileData['cards'][number]
       <div style={{ padding: '0 3px', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
-            {inCredit ? 'In credit' : (limit > 0 ? 'Balance / Limit' : 'Balance')}
+            {inCredit ? 'In Credit' :(limit > 0 ? 'Balance / Limit' : 'Balance')}
           </span>
           <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: inCredit ? GREEN : 'var(--txt)' }}>
             {inCredit
@@ -505,7 +510,7 @@ function CardFace({ card, onClick }: { card: ContactProfileData['cards'][number]
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>CIF {card.cif}</span>
-          {Number(card.days_overdue ?? 0) > 0 && <Badge label={`${card.days_overdue}d overdue`} colour={RED} />}
+          {Number(card.days_overdue ?? 0) > 0 && <Badge label={`${card.days_overdue}d Overdue`} colour={RED} />}
         </div>
 
         <button
@@ -683,37 +688,37 @@ function SpendingInsights({ cif }: { cif: string }) {
   const span = a?.totals ? `${fmtDate(a.totals.first_txn)} – ${fmtDate(a.totals.last_txn)}` : ''
 
   return (
-    <SectionCard title="Spending & behaviour" subtitle={span ? `Across all accounts · ${span}` : 'Across all accounts'}>
+    <SectionCard title="Spending & Behaviour" subtitle={span ? `Across all accounts · ${span}` : 'Across all accounts'}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
         {merchants.length > 0 && (
-          <InsightCard title="Top merchants" icon="storefront" tone={NAVY}>
+          <InsightCard title="Top Merchants" icon="storefront" tone={NAVY}>
             <BarList color={NAVY} items={merchants.map(m => ({ label: m.merchant || '—', value: _num(m.spend), sub: nairaShort(_num(m.spend)) }))} />
           </InsightCard>
         )}
         {atmLocations.length > 0 && (
-          <InsightCard title="Where they withdraw cash" icon="local_atm" tone={NAVY}>
+          <InsightCard title="Where They Withdraw Cash" icon="local_atm" tone={NAVY}>
             <BarList color={NAVY} items={atmLocations.map(l => ({ label: l.location || '—', value: _num(l.txns), sub: `${fmtNum(l.txns)}× · ${nairaShort(_num(l.amount))}` }))} />
           </InsightCard>
         )}
         {cats.length > 0 && (
-          <InsightCard title="Spending by category" icon="category" tone={PURPLE}>
+          <InsightCard title="Spending by Category" icon="category" tone={PURPLE}>
             <BarList color={PURPLE} items={cats.map(c => ({ label: mccName(c.mcc), value: _num(c.spend), sub: nairaShort(_num(c.spend)) }))} />
           </InsightCard>
         )}
         {channels.length > 0 && (
-          <InsightCard title="How they transact" icon="lan" tone={BLUE}>
+          <InsightCard title="How They Transact" icon="lan" tone={BLUE}>
             <BarList color={BLUE} items={channels.map(c => ({ label: initCap(c.channel), value: _num(c.txns), sub: `${fmtNum(c.txns)}×` }))} />
           </InsightCard>
         )}
         {types.length > 0 && (
-          <InsightCard title="What they did" icon="account_balance_wallet" tone={NAVY}>
+          <InsightCard title="What They Did" icon="account_balance_wallet" tone={NAVY}>
             <BarList color={NAVY} items={types.map(t => ({ label: t.txn_type, value: _num(t.txns), sub: `${fmtNum(t.txns)}×` }))} />
           </InsightCard>
         )}
         {cities.length > 0 && (
           /* Feed field 13 is a packed merchant/terminal location ("La", "Lagos Stat",
              "Lekki Expre"), not a city — titled for what it actually holds. */
-          <InsightCard title="Merchant location" icon="location_on" tone={GREEN}>
+          <InsightCard title="Merchant Location" icon="location_on" tone={GREEN}>
             <BarList color={GREEN} items={cities.map(c => ({ label: c.city || '—', value: _num(c.txns), sub: `${fmtNum(c.txns)}×` }))} />
           </InsightCard>
         )}
@@ -732,7 +737,7 @@ function SpendingInsights({ cif }: { cif: string }) {
           </InsightCard>
         )}
         {monthly.length > 1 && (
-          <InsightCard title="Cashflow · last 12 months" icon="bar_chart" tone={AMBER}>
+          <InsightCard title="Cashflow · Last 12 Months" icon="bar_chart" tone={AMBER}>
             <div style={{ display: 'flex', gap: 5, alignItems: 'flex-end', height: 92 }}>
               {monthly.map(m => (
                 <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
@@ -828,7 +833,7 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
             </div>
           </div>
           <button onClick={() => onCardCif('')} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 11px', background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt)', cursor: 'pointer', fontFamily: SORA }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>All cards
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>All Cards
           </button>
         </div>
       )}
@@ -868,7 +873,7 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
       {/* Filters */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
         <select value={cardCif} onChange={e => onCardCif(e.target.value)} style={{ ...filterInputStyle, minWidth: 220 }}>
-          <option value="">All cards ({profile.cards.length})</option>
+          <option value="">All Cards ({profile.cards.length})</option>
           {profile.cards.map(c => (
             <option key={c.id} value={c.cif}>
               {(c.product_name || 'Card')} · {c.card_number_masked || c.cif} ({fmtNum(c.txn_count)})
@@ -877,12 +882,12 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
         </select>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search description or merchant…" style={{ ...filterInputStyle, flex: 1, minWidth: 200 }} />
         <select value={dir} onChange={e => setDir(e.target.value)} style={filterInputStyle}>
-          <option value="">In &amp; out</option>
-          <option value="in">Money in</option>
-          <option value="out">Money out</option>
+          <option value="">In &amp; Out</option>
+          <option value="in">Money In</option>
+          <option value="out">Money Out</option>
         </select>
         <select value={channel} onChange={e => setChannel(e.target.value)} style={filterInputStyle}>
-          <option value="">All channels</option>
+          <option value="">All Channels</option>
           <option value="interswitch">Interswitch</option>
           <option value="internal">Internal</option>
           <option value="collection">Collection</option>
@@ -891,7 +896,7 @@ function TransactionsTab({ profile, cardCif, onCardCif }: {
         <input type="date" value={to}   onChange={e => setTo(e.target.value)}   style={filterInputStyle} title="To date" />
         {filtered && (
           <button onClick={reset} style={{ padding: '7px 12px', background: 'transparent', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', cursor: 'pointer', fontFamily: SORA }}>
-            Clear filters
+            Clear Filters
           </button>
         )}
       </div>
@@ -977,15 +982,19 @@ const STEP_COLOUR: Record<string, string> = {
 // The customer's own status badges (Customer, Card Holder, Delinquent, In Recovery…),
 // rendered as pills inside the blue overview hero — only the ones this customer
 // actually has. Replaces the standalone horizontal lifecycle stepper.
+// A core-banking customer who holds no card. Migration 258 gave all 294 Udara
+// customers a workspace profile, 263 of them brand new with no CIF — for those the
+// Cards, Transactions and Statement tabs are legitimately empty, and without saying
+// so the profile reads as broken rather than as "this person banks with us, not on
+// a card".
+function isCoreBankingOnly(profile: ContactProfileData, identity: IdentityBlock | null): boolean {
+  return !!identity?.linked && (profile.identifiers?.cifs?.length ?? 0) === 0
+}
+
 function HeroStatusBadges({ profile, identity }: { profile: ContactProfileData; identity: IdentityBlock | null }) {
   const active = LIFECYCLE_STEPS.filter(s => profile[s.key as keyof ContactProfileData] as boolean)
   const pep = identity?.pep === true
-  // A core-banking customer who holds no card: 263 of these exist (migration 258
-  // gave every Udara customer a workspace profile). Cards, card transactions and
-  // the card ledger are all legitimately empty for them, and without this the
-  // profile reads as broken rather than as "this person banks with us, not on a
-  // card". Deposits and loans still show on their own tabs.
-  const coreOnly = !!identity?.linked && (profile.identifiers?.cifs?.length ?? 0) === 0
+  const coreOnly = isCoreBankingOnly(profile, identity)
   if (active.length === 0 && !pep && !coreOnly) return null
   return (
     <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 12 }}>
@@ -1102,6 +1111,86 @@ function AllIdentifiersCard({ profile }: { profile: ContactProfileData }) {
   )
 }
 
+// A hand-off ("Log Activity → Hand Off" on a lead, a case, a ticket…) used to be
+// visible only on the screen that raised it, or on the standalone /handoffs inbox —
+// nowhere on the customer's own record. Customer 360 is the one screen every team
+// ends up on regardless of who raised the hand-off or which module it came from, so
+// an open one surfaces right here too, with the same Accept/Resolve/Return controls
+// as the inbox (HandoffActions is shared, not reimplemented) rather than just a link
+// out to another page. Silent when there is nothing open — this is an alert, not a log.
+interface HandoffActivity {
+  id: number
+  type: string
+  subject: string | null
+  body: string | null
+  status: string | null
+  target_team: string | null
+  actor_name: string | null
+  actor_team: string | null
+  actor_user_id: number | null
+  occurred_at: string
+}
+
+function titleTeamLabel(team: string | null | undefined): string {
+  const t = (team || '').trim()
+  if (!t) return ''
+  return t.split('_').filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
+}
+
+function OpenHandoffsBanner({ cif, refreshSignal }: { cif: string; refreshSignal?: number }) {
+  const [handoffs, setHandoffs] = useState<HandoffActivity[]>([])
+  const [viewer, setViewer] = useState<HandoffViewer | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    if (!cif) { setHandoffs([]); return }
+    let cancelled = false
+    apiFetch<{ data: HandoffActivity[]; viewer?: HandoffViewer }>(`/api/activities?cif=${encodeURIComponent(cif)}`)
+      .then(r => {
+        if (cancelled) return
+        setHandoffs((r?.data ?? []).filter(a => a.type === 'handoff' && handoffOpen(a.status)))
+        setViewer(r?.viewer ?? null)
+      })
+      .catch(() => { if (!cancelled) setHandoffs([]) })
+    return () => { cancelled = true }
+  }, [cif, refreshKey, refreshSignal])
+
+  if (handoffs.length === 0) return null
+
+  return (
+    <SectionCard
+      title="Open Hand-Offs"
+      subtitle={`${handoffs.length} waiting on ${handoffs.length === 1 ? 'a team' : 'other teams'}`}
+      style={{ borderLeft: `4px solid ${AMBER}`, marginBottom: SP[4] }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {handoffs.map((h, i) => (
+          <div key={h.id} style={{ paddingBottom: i === handoffs.length - 1 ? 0 : 12, borderBottom: i === handoffs.length - 1 ? 'none' : '1px solid var(--bdr)' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                {h.subject || 'Hand-off'}{h.target_team ? ` → ${titleTeamLabel(h.target_team)}` : ''}
+              </span>
+              <HandoffStatusChip status={h.status} />
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginLeft: 'auto' }}>{fmtDatetime(h.occurred_at)}</span>
+            </div>
+            {h.body && <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>{h.body}</div>}
+            <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 3 }}>
+              {h.actor_name || 'Staff'}{h.actor_team ? ` · ${titleTeamLabel(h.actor_team)}` : ''}
+            </div>
+            <div style={{ marginTop: 7 }}>
+              <HandoffActions
+                handoff={{ id: h.id, status: h.status, target_team: h.target_team, actor_user_id: h.actor_user_id }}
+                viewer={viewer}
+                onDone={() => setRefreshKey(k => k + 1)}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </SectionCard>
+  )
+}
+
 // Risk carries its own visual weight — a colour-coded left rail (same palette as the
 // hero's lifecycle badges: AMBER delinquent, RED in recovery, grey written off) plus
 // headline stat tiles for DPD and outstanding, so the one card collections/recovery
@@ -1205,14 +1294,27 @@ function RiskSnapshotCard({ profile }: { profile: ContactProfileData }) {
 // occupation 63, TIN 9 — so the server sends only populated fields and drops a
 // whole group when none of its fields survived.
 
-interface IdentityField { key: string; label: string; value: string; mono?: boolean; sensitive?: boolean }
+interface IdentityField {
+  key: string; label: string; value: string; icon?: string; mono?: boolean; copy?: boolean
+  sensitive?: boolean
+  /** true = `value` is the MASK, not the value. The real one needs a logged reveal. */
+  masked?: boolean
+}
 interface IdentityGroup { key: string; title: string; icon: string; fields: IdentityField[] }
 interface IdentityBlock {
   entity_type: 'individual' | 'corporate'
   groups: IdentityGroup[]
   field_count: number
-  /** true = flagged, false = checked and clear, null = the core-banking master has never seen this customer. */
+  /**
+   * Sensitive, so it arrives null: the server never sends the determination
+   * unmasked. It becomes true/false only after a reveal, which the page writes
+   * back onto this object so the hero badge and the "PEP Clear" chip react.
+   */
   pep: boolean | null
+  /** A determination exists on the core banking record (its VALUE is still withheld). */
+  pep_known?: boolean
+  /** A determination exists and has not been revealed in this session. */
+  pep_masked?: boolean
   linked: boolean
   source?: { system: string; label: string; cbs_customer_id: string; synced_at: string | null; party_id: number | null }
 }
@@ -1239,17 +1341,159 @@ function CoreBankingChip() {
   )
 }
 
-function IdentityKycCard({ identity }: { identity: IdentityBlock | null }) {
+// ── Sensitive values: masked by default, revealed on the record ───────────────
+//
+// The server never sends a sensitive identity value. `field.value` IS the mask
+// (last 4 of a BVN/NIN/TIN/ID/phone, year only for a date of birth) and
+// `field.masked` says so. There is nothing here to "un-hide": the full value has
+// to be fetched, one field at a time, from
+// POST /api/customer360/{key}/identity/reveal — which writes an audit row naming
+// who looked, at which customer, at what field and when BEFORE it answers. If
+// that record can't be written the value isn't returned.
+//
+// Nobody is blocked: an agent verifying a caller's date of birth clicks and sees
+// it. The point is only that the click is on the record, which is why the
+// affordance says so rather than hiding it.
+
+const REVEAL_NOTE = 'Show the full value. Your name, this customer, this field and the time are written to the audit trail.'
+
+// Mirrors c360MaskValue / c360MaskDOB in backend-go/handlers/identity_reveal.go.
+// Only needed for the "Identity & Contact" card, whose values come from
+// /api/contacts and so arrive unmasked — the Identity & KYC block is masked by
+// the server and these are never applied to it.
+function maskTailLocal(v: string): string {
+  const s = [...String(v ?? '')]
+  const tail = s.length >= 8 ? 4 : s.length >= 6 ? 2 : 0
+  return '•'.repeat(s.length - tail) + s.slice(s.length - tail).join('')
+}
+
+function maskDobLocal(v: string): string {
+  const parts = String(v ?? '').trim().split(/\s+/)
+  const year = parts[parts.length - 1]
+  if (parts.length >= 2 && /^\d{4}$/.test(year)) return `•• ••• ${year}`
+  return maskTailLocal(v)
+}
+
+function SensitiveValue({ customerKey, field, label, mask, mono, onRevealed }: {
+  customerKey: string
+  field: string
+  label: string
+  mask: string
+  mono?: boolean
+  onRevealed?: (d: { value: string; pep?: boolean }) => void
+}) {
+  const [value, setValue] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const valueStyle: React.CSSProperties = {
+    fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.35, wordBreak: 'break-word',
+    fontFamily: mono ? 'var(--font-mono)' : undefined, fontWeight: mono ? FW.semibold : FW.medium,
+  }
+
+  const reveal = async () => {
+    if (busy || value !== null) return
+    setBusy(true)
+    try {
+      const r = await apiPost<{ data: { key: string; label: string; value: string; pep?: boolean } }>(
+        `/api/customer360/${encodeURIComponent(customerKey)}/identity/reveal`, { field },
+      )
+      const d = (r as any)?.data
+      if (!d?.value) throw new Error('no value')
+      setValue(d.value)
+      onRevealed?.(d)
+    } catch {
+      // A failed reveal discloses nothing — including a reveal refused because the
+      // audit row could not be written, which is the intended behaviour.
+      toast.error(`${label} was not revealed. Nothing was disclosed.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (value !== null) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0, flexWrap: 'wrap' }}>
+        <span style={valueStyle}>{value}</span>
+        <button
+          onClick={() => { try { navigator.clipboard?.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1200) } catch { /* clipboard unavailable */ } }}
+          title={`Copy ${label}`}
+          aria-label={`Copy ${label}`}
+          style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            width: 20, height: 20, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer',
+            color: copied ? GREEN : 'var(--txt3)', borderRadius: RADIUS.sm,
+          }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{copied ? 'check' : 'content_copy'}</span>
+        </button>
+        <span
+          title="This reveal is recorded in the audit trail."
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 12 }}>history_edu</span>
+          Logged
+        </span>
+      </span>
+    )
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+      <span style={{ ...valueStyle, color: 'var(--txt2)', letterSpacing: mono ? 0.5 : undefined }}>{mask}</span>
+      <button
+        onClick={reveal}
+        disabled={busy}
+        title={REVEAL_NOTE}
+        aria-label={`Reveal ${label}. ${REVEAL_NOTE}`}
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          width: 20, height: 20, padding: 0, background: 'transparent', border: 'none',
+          cursor: busy ? 'progress' : 'pointer', color: busy ? 'var(--txt3)' : BLUE, borderRadius: RADIUS.sm,
+        }}
+      >
+        <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{busy ? 'hourglass_top' : 'visibility'}</span>
+      </button>
+    </span>
+  )
+}
+
+// The caption that makes the rule visible rather than implicit — shown once per
+// card, above the fields, so nobody has to hover a button to learn that a reveal
+// is recorded.
+function MaskingNote() {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14,
+      fontSize: TEXT.xs, color: 'var(--txt2)',
+    }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 14, color: 'var(--txt3)' }}>visibility_off</span>
+      <span>Sensitive values are hidden. Revealing one records who looked, at what and when in the audit trail.</span>
+    </div>
+  )
+}
+
+function IdentityKycCard({ profile, identity, customerKey, onPepRevealed }: {
+  profile: ContactProfileData
+  identity: IdentityBlock | null
+  customerKey: string
+  onPepRevealed: (v: boolean) => void
+}) {
   if (!identity) return null
+  // pep is null until a reveal is made and written back, so `flagged` now means
+  // "revealed AND flagged" rather than "flagged".
   const flagged = identity.pep === true
-  // Render for anyone the core-banking master knows, even when it holds no KYC
-  // detail — for a Udara-only customer that absence is itself the answer. A
-  // card-only customer the master has never seen gets no card at all.
-  if (identity.field_count === 0 && !flagged && !identity.linked) return null
+  const masked = identity.groups.some(g => g.fields.some(f => f.masked))
+  // An empty core-banking KYC record is worth stating for a customer whose whole
+  // profile comes from core banking — the absence is itself the answer, and 116 of
+  // the 294 linked customers carry no identity detail at all. For a card customer
+  // it would just be an empty card, so it isn't rendered. A withheld PEP
+  // determination is itself something to show, so it keeps the card alive too.
+  if (identity.field_count === 0 && !flagged && !identity.pep_masked && !isCoreBankingOnly(profile, identity)) return null
 
   const src = identity.source
   const subtitle = src?.cbs_customer_id
-    ? `From ${src.label} — customer ${src.cbs_customer_id}${src.synced_at ? ` · synced ${fmtDatetime(src.synced_at)}` : ''}`
+    ? `${src.label} record · customer ${src.cbs_customer_id}${src.synced_at ? ` · synced ${fmtDatetime(src.synced_at)}` : ''}`
     : 'From the core banking customer master — not the card feed'
 
   return (
@@ -1281,11 +1525,41 @@ function IdentityKycCard({ identity }: { identity: IdentityBlock | null }) {
           </div>
         )}
 
+        {/* A PEP determination exists but its value is withheld like any other
+            sensitive field. Saying a determination is on file is not the same as
+            saying what it says — and once revealed the red banner above (and the
+            hero PEP badge) appear, because the reveal is written back onto the
+            identity block. */}
+        {identity.pep_masked && !flagged && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 11, marginBottom: 16,
+            padding: '11px 14px', borderRadius: RADIUS.md,
+            background: 'var(--th-bg)', border: '1px solid var(--bdr)',
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 21, color: 'var(--txt3)' }}>policy</span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA }}>PEP Status</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                A politically-exposed-person determination is on the core banking record.
+              </div>
+            </div>
+            <SensitiveValue
+              customerKey={customerKey}
+              field="pep"
+              label="PEP Status"
+              mask="Hidden"
+              onRevealed={d => onPepRevealed(d.pep === true)}
+            />
+          </div>
+        )}
+
         {identity.field_count === 0 && (
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
             The core banking record carries no identity or KYC detail for this customer yet.
           </div>
         )}
+
+        {(masked || identity.pep_masked) && <MaskingNote />}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px 22px' }}>
           {identity.groups.map(g => {
@@ -1297,7 +1571,16 @@ function IdentityKycCard({ identity }: { identity: IdentityBlock | null }) {
                   <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{g.title}</span>
                 </div>
                 <InfoGrid>
-                  {g.fields.map(f => <InfoPair key={f.key} label={f.label} value={f.value} mono={f.mono} />)}
+                  {g.fields.map(f => f.masked
+                    ? (
+                      <InfoPair
+                        key={f.key}
+                        label={f.label}
+                        icon={f.icon}
+                        value={<SensitiveValue customerKey={customerKey} field={f.key} label={f.label} mask={f.value} mono={f.mono} />}
+                      />
+                    )
+                    : <InfoPair key={f.key} label={f.label} icon={f.icon} value={f.value} mono={f.mono} copy={f.copy} />)}
                 </InfoGrid>
               </div>
             )
@@ -1308,7 +1591,13 @@ function IdentityKycCard({ identity }: { identity: IdentityBlock | null }) {
   )
 }
 
-function OverviewTab({ profile, identity, onOpenTab }: { profile: ContactProfileData; identity: IdentityBlock | null; onOpenTab: (t: string) => void }) {
+function OverviewTab({ profile, identity, customerKey, onOpenTab, onPepRevealed }: {
+  profile: ContactProfileData
+  identity: IdentityBlock | null
+  customerKey: string
+  onOpenTab: (t: string) => void
+  onPepRevealed: (v: boolean) => void
+}) {
   const s = profile.summary
   const txns = profile.transactions.slice(0, 5)
   return (
@@ -1334,17 +1623,45 @@ function OverviewTab({ profile, identity, onOpenTab }: { profile: ContactProfile
         </div>
       )}
       <AllIdentifiersCard profile={profile} />
-      <IdentityKycCard identity={identity} />
+      <IdentityKycCard profile={profile} identity={identity} customerKey={customerKey} onPepRevealed={onPepRevealed} />
 
+      {/* This card is fed by /api/contacts/{key}, NOT by the Identity & KYC endpoint.
+          That handler now masks bvn / nin / date_of_birth server-side before the response
+          is written, and sets <field>_masked, so the full value no longer reaches the
+          browser here either — this is real masking, not a display mask over a payload
+          that still carries the secret.
+
+          The local helpers stay as a FALLBACK for when the flag is absent, so if that
+          handler ever changes this screen degrades to masked rather than to plaintext.
+          Reveals route through the same audited endpoint either way. */}
       <SectionCard title="Identity &amp; Contact">
+        {(profile.bvn || profile.nin || profile.date_of_birth) && <MaskingNote />}
         <InfoGrid>
           <InfoPair label="Full Name"      icon="badge"        value={profile.name} />
           <InfoPair label="Phone"          icon="call"         value={profile.phone} copy />
           <InfoPair label="Email"          icon="mail"         value={profile.email} copy />
           <InfoPair label="Gender"         icon="wc"           value={profile.gender} />
-          <InfoPair label="Date of Birth"  icon="cake"         value={profile.date_of_birth ? fmtDate(profile.date_of_birth) : undefined} />
-          <InfoPair label="BVN"            icon="fingerprint"  value={profile.bvn} mono copy />
-          <InfoPair label="NIN"            icon="badge"        value={profile.nin} mono copy />
+          <InfoPair
+            label="Date of Birth" icon="cake"
+            value={profile.date_of_birth
+              ? <SensitiveValue customerKey={customerKey} field="date_of_birth" label="Date of Birth"
+                  mask={profile.date_of_birth_masked ? profile.date_of_birth : maskDobLocal(fmtDate(profile.date_of_birth))} />
+              : undefined}
+          />
+          <InfoPair
+            label="BVN" icon="fingerprint"
+            value={profile.bvn
+              ? <SensitiveValue customerKey={customerKey} field="bvn" label="BVN"
+                  mask={profile.bvn_masked ? profile.bvn : maskTailLocal(profile.bvn)} mono />
+              : undefined}
+          />
+          <InfoPair
+            label="NIN" icon="badge"
+            value={profile.nin
+              ? <SensitiveValue customerKey={customerKey} field="nin" label="NIN"
+                  mask={profile.nin_masked ? profile.nin : maskTailLocal(profile.nin)} mono />
+              : undefined}
+          />
         </InfoGrid>
       </SectionCard>
 
@@ -1468,7 +1785,7 @@ function LoansTab({ profile }: { profile: ContactProfileData }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {manual.length > 0 && (
-        <SectionCard title="Loan Repayment (uploaded)">
+        <SectionCard title="Loan Repayment (Uploaded)">
           {manual.map((l, i) => (
             <div key={i} style={{ padding: '12px 0', borderBottom: '1px solid var(--bdr)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
               <div>
@@ -1771,7 +2088,7 @@ function fmtDur(s?: number | null): string {
   return `${m}:${String(ss).padStart(2, '0')}`
 }
 
-function InteractionTimeline({ cif }: { cif: string }) {
+function InteractionTimeline({ cif, refreshSignal }: { cif: string; refreshSignal?: number }) {
   const [items, setItems] = useState<TimelineItem[] | null>(null)
   const [err, setErr]     = useState<string | null>(null)
   useEffect(() => {
@@ -1784,7 +2101,7 @@ function InteractionTimeline({ cif }: { cif: string }) {
       } catch (e: any) { if (live) setErr(e.message) }
     })()
     return () => { live = false }
-  }, [cif])
+  }, [cif, refreshSignal])
 
   if (err) return (
     <SectionCard title="All Interactions">
@@ -1855,10 +2172,10 @@ function InteractionTimeline({ cif }: { cif: string }) {
   )
 }
 
-function ActivityTab({ profile, cif }: { profile: ContactProfileData; cif: string }) {
+function ActivityTab({ profile, cif, refreshSignal }: { profile: ContactProfileData; cif: string; refreshSignal?: number }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <InteractionTimeline cif={cif} />
+      <InteractionTimeline cif={cif} refreshSignal={refreshSignal} />
       {profile.activity_log.length > 0 && <SystemActivityList profile={profile} />}
     </div>
   )
@@ -2009,7 +2326,7 @@ function DocumentsTab({ cif }: { cif: string }) {
         {docs.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '40px 16px', textAlign: 'center' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 38, color: 'var(--txt3)' }}>folder_open</span>
-            <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No documents on file</div>
+            <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No Documents on File</div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', maxWidth: 380 }}>
               KYC and supporting files uploaded on this customer's credit applications appear here.
               None have been collected yet.
@@ -2044,7 +2361,7 @@ function DocumentsTab({ cif }: { cif: string }) {
                 {preview.file_name} · {preview.application_ref}{preview.uploaded_by_name ? ` · by ${preview.uploaded_by_name}` : ''}
               </div>
               <a href={preview.file_url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: TEXT.xs, fontWeight: FW.semibold, color: NAVY, textDecoration: 'none' }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>open_in_new</span> Open original
+                <span className="material-symbols-rounded" style={{ fontSize: 15 }}>open_in_new</span> Open Original
               </a>
             </div>
             {isImageDoc(preview.file_name) ? (
@@ -2054,7 +2371,7 @@ function DocumentsTab({ cif }: { cif: string }) {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '50px 0', color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 44, color: 'var(--txt3)' }}>description</span>
-                <div style={{ fontSize: TEXT.sm }}>Preview not available — use "Open original"</div>
+                <div style={{ fontSize: TEXT.sm }}>Preview not available — use "Open Original"</div>
               </div>
             )}
           </div>
@@ -2145,7 +2462,7 @@ function RequestAccommodationModal({ cif, open, onClose, onDone }: {
             }}>{titleCase(k)}</button>
           ))}
         </div>
-        <div><label style={lbl}>Account / Loan Reference (optional)</label>
+        <div><label style={lbl}>Account / Loan Reference (Optional)</label>
           <input value={accountRef} onChange={e => setAccountRef(e.target.value)} placeholder="e.g. loan or card ref" style={inp} /></div>
         {kind === 'concession' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
@@ -2158,7 +2475,7 @@ function RequestAccommodationModal({ cif, open, onClose, onDone }: {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-            <div><label style={lbl}>New Tenor (months)</label>
+            <div><label style={lbl}>New Tenor (Months)</label>
               <input type="number" value={tenor} onChange={e => setTenor(e.target.value)} style={inp} /></div>
             <div><label style={lbl}>New Rate (% p.a.)</label>
               <input type="number" value={rate} onChange={e => setRate(e.target.value)} style={inp} /></div>
@@ -2215,7 +2532,7 @@ function ConcessionsTab({ cif }: { cif: string }) {
       {rows.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '46px 16px', textAlign: 'center' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 38, color: 'var(--txt3)' }}>handshake</span>
-          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No concessions or restructures yet</div>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No Concessions or Restructures Yet</div>
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', maxWidth: 360 }}>Raise one to waive/settle a balance or re-term the facility. It goes to a head for approval before taking effect.</div>
         </div>
       ) : (
@@ -2310,7 +2627,7 @@ function AccountStatementTab({ cif }: { cif: string }) {
       ) : postings.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '40px 16px', textAlign: 'center' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 30, color: 'var(--txt3)' }}>receipt_long</span>
-          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No postings in this window</div>
+          <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No Postings in This Window</div>
           <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', maxWidth: 320 }}>No core-banking account movement between the selected dates.</div>
         </div>
       ) : (
@@ -2318,7 +2635,7 @@ function AccountStatementTab({ cif }: { cif: string }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--bdr)' }}>
-                {['Value date', 'Description', 'Debit', 'Credit', 'Balance'].map((h, i) => (
+                {['Value Date', 'Description', 'Debit', 'Credit', 'Balance'].map((h, i) => (
                   <th key={h} style={{ textAlign: i > 1 ? 'right' : 'left', padding: '9px 12px', fontSize: TEXT['2xs'], textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--txt3)', fontWeight: FW.bold, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -2372,6 +2689,13 @@ export default function ContactProfile() {
   // Which card the Transactions tab is scoped to. Lives here, not in the tab, so
   // clicking a card on the Cards tab can set it and switch tabs in one go.
   const [cardCif, setCardCif]   = useState('')
+
+  // Log Activity (note / hand-off / document / follow-up) — Leads already has this;
+  // Customer 360 could show an open hand-off (see OpenHandoffsBanner) but had no way
+  // to raise one. Bumping activityKey re-fetches both the hand-off banner and the
+  // interaction timeline so a freshly logged item appears without a full page reload.
+  const [logOpen, setLogOpen]     = useState(false)
+  const [activityKey, setActivityKey] = useState(0)
 
   // Identity / KYC from the core-banking customer master (migration 258). Fetched
   // apart from the profile because it is a different source system and a different
@@ -2529,6 +2853,9 @@ export default function ContactProfile() {
           <button onClick={() => navigate(`/helpdesk/new?cif=${profile.cif}&name=${encodeURIComponent(profile.name)}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#fff', color: NAVY, border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add_comment</span>Open Ticket
           </button>
+          <button onClick={() => setLogOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.25)', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>bolt</span>Log Activity
+          </button>
         </div>
       </div>
 
@@ -2537,12 +2864,27 @@ export default function ContactProfile() {
 
       <div style={{ marginBottom: 20 }} />
 
+      {/* Any hand-off raised against this customer, from any module — resolved right
+          here rather than only on the raising screen or the standalone inbox. */}
+      <OpenHandoffsBanner cif={profile.cif} refreshSignal={activityKey} />
+
       {/* Tabs */}
       <div style={{ marginBottom: 16 }}>
         <Tabs tabs={visibleTabs} active={tab} onChange={setTab} />
       </div>
 
-      {tab === 'overview'    && <OverviewTab    profile={profile} identity={identity} onOpenTab={setTab} />}
+      {/* A revealed PEP determination is written back onto the identity block so the
+          hero badge and the "PEP Clear" chip — which both read identity.pep — light
+          up from the same reveal, instead of each asking for its own. */}
+      {tab === 'overview'    && (
+        <OverviewTab
+          profile={profile}
+          identity={identity}
+          customerKey={key ?? ''}
+          onOpenTab={setTab}
+          onPepRevealed={v => setIdentity(prev => (prev ? { ...prev, pep: v, pep_masked: false } : prev))}
+        />
+      )}
       {tab === 'loans'       && <LoansTab       profile={profile} />}
       {tab === 'fixed_deposits' && <FixedDepositsTab profile={profile} />}
       {tab === 'cards'       && <CardsTab       profile={profile} onViewTransactions={openCardTransactions} />}
@@ -2553,7 +2895,15 @@ export default function ContactProfile() {
       {tab === 'helpdesk'    && <HelpdeskTab    profile={profile} />}
       {tab === 'concessions' && <ConcessionsTab  cif={profile.cif} />}
       {tab === 'documents'   && <DocumentsTab   cif={profile.cif} />}
-      {tab === 'activity'    && <ActivityTab    profile={profile} cif={profile.cif} />}
+      {tab === 'activity'    && <ActivityTab    profile={profile} cif={profile.cif} refreshSignal={activityKey} />}
+
+      <LogActivityModal
+        open={logOpen}
+        about={profile.name}
+        anchor={{ cif: profile.cif, phone: profile.phone || undefined }}
+        onClose={() => setLogOpen(false)}
+        onSaved={() => { setLogOpen(false); setActivityKey(k => k + 1); load(true) }}
+      />
     </Page>
   )
 }

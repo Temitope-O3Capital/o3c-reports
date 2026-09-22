@@ -138,7 +138,7 @@ function AppDetailModal({ app, onClose }: { app: CreditApp; onClose: () => void 
         <DetailRow label="Approved Amount"  value={<span style={NUM}>{fmtKobo(app.approved_amount)}</span>} />
         <DetailRow label="Disbursed Amount" value={<span style={NUM}>{fmtKobo(app.disbursed_amount)}</span>} />
         <DetailRow label="Disbursed Date"   value={fmtDate(app.disbursed_date)} />
-        <DetailRow label="Tenor (months)"   value={app.tenor != null ? String(app.tenor) : null} />
+        <DetailRow label="Tenor (Months)"  value={app.tenor != null ? String(app.tenor) : null} />
         <DetailRow label="Rate"             value={app.rate != null ? fmtPct(app.rate) : null} />
         <DetailRow label="Repayment Amount" value={<span style={NUM}>{fmtKobo(app.repayment_amount)}</span>} />
         <DetailRow label="Maturity Date"    value={fmtDate(app.maturity_date)} />
@@ -410,7 +410,7 @@ export default function CreditPortfolio() {
             loading={loading || detailLoading}
             skeletonRows={8}
             onRowClick={r => openDetail(r.id)}
-            emptyText="No applications found"
+            emptyText="No Applications Found"
           />
 
           {/* Pagination */}
@@ -456,7 +456,7 @@ export default function CreditPortfolio() {
             keyFn={(r, i) => `${r.id}-${i}`}
             loading={loading}
             skeletonRows={6}
-            emptyText="No overdue loans"
+            emptyText="No Overdue Loans"
           />
         </SectionCard>
       )}

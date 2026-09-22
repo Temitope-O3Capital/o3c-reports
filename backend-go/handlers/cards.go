@@ -23,6 +23,21 @@ func RegisterCards(r chi.Router, db *core.DB) {
 	r.With(cards).Get("/issuance", cardListIssuance(db))
 	r.With(cards).Post("/issuance", cardCreateIssuance(db))
 	r.With(cards).Patch("/issuance/{id}/status", cardAdvanceIssuance(db))
+	// Who sold the card. Cards are not in CBS and the account feed carries no officer,
+	// so this is the only place the credit can come from.
+	//
+	// Read by management, BI and the sales floor as well as the cards team, so it is not
+	// gated on the cards page alone. Crediting is narrower: cards, BI, and heads and
+	// management (all of whom hold "executive"). Sales officers can see the credit but
+	// not assign it, so nobody can move cards onto their own target.
+	attrRead := core.RequirePages("cards", "reports", "executive", "sales")
+	attrWrite := core.RequirePages("cards", "reports", "executive")
+	r.With(attrRead).Get("/attribution", cardListAttribution(db))
+	r.With(attrRead).Get("/attribution/summary", cardAttributionSummary(db))
+	r.With(attrRead).Get("/attribution/coverage", cardAttributionCoverage(db))
+	r.With(attrRead).Get("/attribution/people", cardAttributionPeople(db))
+	r.With(attrWrite).Post("/attribution", cardSetAttribution(db))
+	r.With(attrWrite).Post("/attribution/bulk", cardBulkAttribution(db))
 	r.With(cards).Get("/disputes", cardListDisputes(db))
 	r.With(cards).Post("/disputes", cardCreateDispute(db))
 	r.With(cards).Patch("/disputes/{id}/status", cardAdvanceDispute(db))
@@ -47,24 +62,40 @@ func cardMyQueue(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		issuance, _ := db.PGQuery(ctx, `
+		// Issuance is scoped to the submitter (your own raised requests); disputes and
+		// credit reviews are a shared cards-ops pool (no per-agent owner column exists).
+		// A failed query must surface as an error, not be silently rendered as an empty
+		// queue — "0 open disputes" and "the disputes query errored" are very different.
+		issuance, err := db.PGQuery(ctx, `
 			SELECT id, cif_number, customer_name, card_type, status, submitted_by, created_at
 			FROM card_issuance_requests
 			WHERE submitted_by = $1
 			  AND status IN ('pending','doc_review','credit_check','risk_review')
 			ORDER BY created_at DESC`, user.ID)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 
-		disputes, _ := db.PGQuery(ctx, `
+		disputes, err := db.PGQuery(ctx, `
 			SELECT id, cif_number, customer_name, card_type, amount_kobo, dispute_type, notes, status, filed_at, resolved_at
 			FROM card_disputes
 			WHERE status NOT IN ('resolved','closed')
 			ORDER BY filed_at DESC`)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 
-		creditReviews, _ := db.PGQuery(ctx, `
+		creditReviews, err := db.PGQuery(ctx, `
 			SELECT id, cif_number, customer_name, card_type, current_limit_kobo, proposed_limit_kobo, utilization_pct, eye_score, status, created_at
 			FROM card_credit_limit_reviews
 			WHERE status = 'pending'
 			ORDER BY created_at DESC`)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
 
 		if issuance == nil {
 			issuance = []core.Row{}
@@ -189,9 +220,12 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 			kpis["activation_rate"] = 0.0
 		}
 
-		// unique merchants (joined with transactions)
+		// unique merchants (joined with transactions) — honour the same date range as the
+		// rest of the strip, applied to the transaction date so the count reflects the
+		// selected period rather than all-time.
 		var mf Filter
 		mf.Eq(" AND p.Product_Name=?", ` AND p.product_name=?`, cardType)
+		mf.Date("t.Transaction_Date", ` t.txn_date`, from, to)
 		merchants, src, err := db.DualScalar(ctx, "val",
 			fmt.Sprintf(`SELECT COUNT(DISTINCT t.merchant_name) AS val
 			  FROM app.transactions t JOIN app.accounts p ON t.cif=p.cif
@@ -262,7 +296,11 @@ func cardsVolumeByType(db *core.DB) http.HandlerFunc {
 		f.Eq(" AND p.Product_Name=?", ` AND p.product_name=?`, cardType)
 
 		data, src, err := db.DualQuery(r.Context(),
-			fmt.Sprintf(`SELECT p.product_name AS product_name, COALESCE(SUM(t.amount),0) AS volume, COUNT(t.amount) AS txn_count
+			// volume is returned in KOBO (the frontend divides by 100). app.transactions.amount
+			// is NAIRA with decimals, so multiply by 100 — summing it straight in would report
+			// a figure 100x too small once the client divides. txn_count is COUNT(*), not
+			// COUNT(t.amount), so rows with a NULL amount are still counted.
+			fmt.Sprintf(`SELECT p.product_name AS product_name, ROUND(COALESCE(SUM(t.amount),0)*100)::bigint AS volume, COUNT(*) AS txn_count
 			  FROM app.accounts p JOIN app.transactions t ON p.cif=t.cif
 			  WHERE 1=1%s GROUP BY p.product_name ORDER BY volume DESC`, f.PG()),
 			f.Args()...)

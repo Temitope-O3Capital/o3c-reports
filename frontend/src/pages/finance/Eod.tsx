@@ -126,64 +126,64 @@ export default function FinanceEOD() {
 
       {/* Movement KPI strip (naira, from the transaction feed) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
-        <KpiCard label="Credits (in)" value={fmt(mv?.credit_ngn ?? 0)} sub={`${fmtNum(mv?.credit_count ?? 0)} txns`} icon="south_east" accent={GREEN} loading={loading} />
-        <KpiCard label="Debits (out)" value={fmt(mv?.debit_ngn ?? 0)} sub={`${fmtNum(mv?.debit_count ?? 0)} txns`} icon="north_west" accent={RED} loading={loading} />
+        <KpiCard label="Credits (In)" value={fmt(mv?.credit_ngn ?? 0)} sub={`${fmtNum(mv?.credit_count ?? 0)} txns`} icon="south_east" accent={GREEN} loading={loading} />
+        <KpiCard label="Debits (Out)" value={fmt(mv?.debit_ngn ?? 0)} sub={`${fmtNum(mv?.debit_count ?? 0)} txns`} icon="north_west" accent={RED} loading={loading} />
         <KpiCard label="Net Flow" value={fmt(mv?.net_ngn ?? 0)} icon="trending_up" accent={(mv?.net_ngn ?? 0) >= 0 ? GREEN : RED} loading={loading} />
         <KpiCard label="Transactions" value={fmtNum(mv?.txn_count ?? 0)} sub="posted this day" icon="swap_horiz" accent={NAVY} loading={loading} />
       </div>
 
       {/* Income earned + Position (mixed units, each labelled) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
-        <SectionCard title="Income earned" subtitle="Transaction-derived (interest · fees · penalty)">
+        <SectionCard title="Income Earned" subtitle="Transaction-derived (interest · fees · penalty)">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <MiniStat label="Interest" value={fmt(inc?.interest_ngn ?? 0)} color={BLUE} />
             <MiniStat label="Fees" value={fmt(inc?.fee_ngn ?? 0)} color={PURPLE} />
             <MiniStat label="Penalty" value={fmt(inc?.penalty_ngn ?? 0)} color={AMBER} />
-            <MiniStat label="Total income" value={fmt(inc?.total_ngn ?? 0)} color={GREEN} />
+            <MiniStat label="Total Income" value={fmt(inc?.total_ngn ?? 0)} color={GREEN} />
           </div>
         </SectionCard>
 
-        <SectionCard title="Portfolio position" subtitle={pos?.snapshot_date ? `CBS book as of ${fmtDate(pos.snapshot_date)}` : 'CBS book'}>
+        <SectionCard title="Portfolio Position" subtitle={pos?.snapshot_date ? `CBS book as of ${fmtDate(pos.snapshot_date)}` : 'CBS book'}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <MiniStat label="Loan book" value={fmtKoboExact(pos?.outstanding_principal_kobo ?? 0)} sub={`${fmtNum(pos?.loans_active ?? 0)} active · ${fmtNum(pos?.borrowers_active ?? 0)} borrowers`} />
-            <MiniStat label="NPL ratio" value={fmtPct(pos?.npl_ratio_pct ?? 0)} color={(pos?.npl_ratio_pct ?? 0) > 5 ? RED : AMBER} sub={fmtKoboExact(pos?.npl_kobo ?? 0)} />
-            <MiniStat label="FD book" value={fmtKoboExact(pos?.fd_principal_kobo ?? 0)} sub={`${fmtNum(pos?.fd_active_count ?? 0)} active`} />
-            <MiniStat label="Accrued interest (FD)" value={fmtKoboExact(pos?.outstanding_interest_kobo ?? 0)} color={BLUE} />
+            <MiniStat label="Loan Book" value={fmtKoboExact(pos?.outstanding_principal_kobo ?? 0)} sub={`${fmtNum(pos?.loans_active ?? 0)} active · ${fmtNum(pos?.borrowers_active ?? 0)} borrowers`} />
+            <MiniStat label="NPL Ratio" value={fmtPct(pos?.npl_ratio_pct ?? 0)} color={(pos?.npl_ratio_pct ?? 0) > 5 ? RED : AMBER} sub={fmtKoboExact(pos?.npl_kobo ?? 0)} />
+            <MiniStat label="FD Book" value={fmtKoboExact(pos?.fd_principal_kobo ?? 0)} sub={`${fmtNum(pos?.fd_active_count ?? 0)} active`} />
+            <MiniStat label="Accrued Interest (FD)" value={fmtKoboExact(pos?.outstanding_interest_kobo ?? 0)} color={BLUE} />
           </div>
         </SectionCard>
       </div>
 
       {/* Movement breakdowns */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
-        <SectionCard title="Movement by channel" padding={false}>
+        <SectionCard title="Movement by Channel" padding={false}>
           <DataTable cols={CHANNEL_COLS} rows={eod?.by_channel ?? []} keyFn={(r, i) => r.channel ?? i} loading={loading} emptyText="No movement on this day" />
         </SectionCard>
-        <SectionCard title="Movement by product" padding={false}>
+        <SectionCard title="Movement by Product" padding={false}>
           <DataTable cols={PRODUCT_COLS} rows={eod?.by_product ?? []} keyFn={(r, i) => r.product_name ?? i} loading={loading} emptyText="No movement on this day" pageSize={8} />
         </SectionCard>
       </div>
 
       {/* Maturities + New business + Rails/Exceptions */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
-        <SectionCard title="FD maturities" subtitle="Due on this day and within 7 days" padding={false}>
+        <SectionCard title="FD Maturities" subtitle="Due on this day and within 7 days" padding={false}>
           <div style={{ display: 'flex', gap: 10, padding: '14px 16px 4px' }}>
-            <MiniStat label="Maturing today" value={fmtKoboExact(mat?.today_kobo ?? 0)} sub={`${fmtNum(mat?.today_count ?? 0)} deposits`} color={AMBER} />
-            <MiniStat label="Next 7 days" value={fmtKoboExact(mat?.next7_kobo ?? 0)} sub={`${fmtNum(mat?.next7_count ?? 0)} deposits`} />
+            <MiniStat label="Maturing Today" value={fmtKoboExact(mat?.today_kobo ?? 0)} sub={`${fmtNum(mat?.today_count ?? 0)} deposits`} color={AMBER} />
+            <MiniStat label="Next 7 Days" value={fmtKoboExact(mat?.next7_kobo ?? 0)} sub={`${fmtNum(mat?.next7_count ?? 0)} deposits`} />
           </div>
           <DataTable cols={MATURITY_COLS} rows={mat?.list ?? []} keyFn={(r, i) => i} loading={loading} emptyText="No maturities in the next 7 days" pageSize={6} />
         </SectionCard>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
-          <SectionCard title="New business booked">
+          <SectionCard title="New Business Booked">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <MiniStat label="Loans" value={fmtKoboExact(nb?.loans_kobo ?? 0)} sub={`${fmtNum(nb?.loans_count ?? 0)} booked`} />
-              <MiniStat label="Fixed deposits" value={fmtKoboExact(nb?.fd_kobo ?? 0)} sub={`${fmtNum(nb?.fd_count ?? 0)} opened`} />
+              <MiniStat label="Fixed Deposits" value={fmtKoboExact(nb?.fd_kobo ?? 0)} sub={`${fmtNum(nb?.fd_count ?? 0)} opened`} />
             </div>
           </SectionCard>
-          <SectionCard title="Rails & exceptions">
+          <SectionCard title="Rails & Exceptions">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <MiniStat label="Paystack in" value={fmtKoboExact(eod?.rails?.paystack_in_kobo ?? 0)} sub={`${fmtNum(eod?.rails?.paystack_in_count ?? 0)} settled`} color={GREEN} />
-              <MiniStat label="Recon exceptions" value={fmtNum(eod?.exceptions?.recon_open_count ?? 0)} sub={fmtKoboExact(eod?.exceptions?.recon_open_kobo ?? 0)} color={(eod?.exceptions?.recon_open_count ?? 0) > 0 ? RED : 'var(--txt)'} />
+              <MiniStat label="Paystack In" value={fmtKoboExact(eod?.rails?.paystack_in_kobo ?? 0)} sub={`${fmtNum(eod?.rails?.paystack_in_count ?? 0)} settled`} color={GREEN} />
+              <MiniStat label="Recon Exceptions" value={fmtNum(eod?.exceptions?.recon_open_count ?? 0)} sub={fmtKoboExact(eod?.exceptions?.recon_open_kobo ?? 0)} color={(eod?.exceptions?.recon_open_count ?? 0) > 0 ? RED : 'var(--txt)'} />
             </div>
           </SectionCard>
         </div>
@@ -191,9 +191,9 @@ export default function FinanceEOD() {
 
       {/* FX + data caveats */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: SP[4] }}>
-        <SectionCard title="FX (parallel market)" subtitle={eod?.fx?.[0]?.as_of ? `as of ${eod.fx[0].as_of}` : undefined}>
+        <SectionCard title="FX (Parallel Market)" subtitle={eod?.fx?.[0]?.as_of ? `as of ${eod.fx[0].as_of}` : undefined}>
           {(eod?.fx ?? []).length === 0
-            ? <EmptyState icon="currency_exchange" title="No FX rates" />
+            ? <EmptyState icon="currency_exchange" title="No FX Rates" />
             : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {eod!.fx!.map(fx => (
@@ -209,7 +209,7 @@ export default function FinanceEOD() {
             )}
         </SectionCard>
 
-        <SectionCard title="About this report">
+        <SectionCard title="About This Report">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6 }}>
             <p style={{ margin: 0 }}>
               This End-of-Day is computed from data the workspace already holds — the live transaction

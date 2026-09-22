@@ -143,7 +143,7 @@ export default function CardsOverview() {
         <SectionCard title="Transaction Volume by Product">
           {volumeData.length === 0 && !loading ? (
             <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
-              No transaction data for current period
+              No Transaction Data for Current Period
             </div>
           ) : (
             <EBar
@@ -161,7 +161,7 @@ export default function CardsOverview() {
         <SectionCard title="Card Type Mix">
           {pieData.length === 0 && !loading ? (
             <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>
-              No product data
+              No Product Data
             </div>
           ) : (
             <EDonut
@@ -182,7 +182,7 @@ export default function CardsOverview() {
             rows={products}
             keyFn={(r, i) => i}
             loading={loading}
-            emptyText="No product data"
+            emptyText="No Product Data"
           />
         </SectionCard>
 
@@ -206,7 +206,7 @@ export default function CardsOverview() {
               )
             })}
             {statuses.length === 0 && !loading && (
-              <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base, padding: '24px 0' }}>No status data</div>
+              <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base, padding: '24px 0' }}>No Status Data</div>
             )}
           </div>
         </SectionCard>

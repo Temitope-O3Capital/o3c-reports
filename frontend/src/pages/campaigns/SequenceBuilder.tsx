@@ -15,11 +15,11 @@ interface Step {
 
 const AUDIENCE_OPTS: { v: string; l: string }[] = [
   { v: 'all',           l: 'Everyone' },
-  { v: 'delivered',     l: 'Prev. delivered' },
-  { v: 'not_delivered', l: 'Prev. not delivered' },
-  { v: 'opened',        l: 'Opened a prev. email' },
-  { v: 'not_opened',    l: "Didn't open prev. email" },
-  { v: 'clicked',       l: 'Clicked a prev. email' },
+  { v: 'delivered',     l: 'Prev. Delivered' },
+  { v: 'not_delivered', l: 'Prev. Not Delivered' },
+  { v: 'opened',        l: 'Opened a Prev. Email' },
+  { v: 'not_opened',    l: "Didn't Open Prev. Email" },
+  { v: 'clicked',       l: 'Clicked a Prev. Email' },
 ]
 interface Tpl { id: number; name: string; channel: string }
 
@@ -110,11 +110,11 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
       </div>
 
       <SectionCard title="Steps" badge={steps.length} padding
-        actions={editable ? <button onClick={addStep} style={{ ...btnSecondary, gap: 5 }}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>Add step</button> : undefined}>
+        actions={editable ? <button onClick={addStep} style={{ ...btnSecondary, gap: 5 }}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>Add Step</button> : undefined}>
         {steps.length === 0 ? (
-          <EmptyState icon="schedule" title="No steps yet"
+          <EmptyState icon="schedule" title="No Steps Yet"
             description="Add steps to build a scheduled sequence (e.g. Email template on day 0, SMS on day 2)."
-            action={editable ? { label: 'Add first step', onClick: addStep, icon: 'add' } : undefined} />
+            action={editable ? { label: 'Add First Step', onClick: addStep, icon: 'add' } : undefined} />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {steps.map((s, i) => {
@@ -135,7 +135,7 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
                     <div>
                       <label style={lbl}>Template</label>
                       <select value={s.template_id ?? ''} disabled={!editable} onChange={e => saveStep(s, { template_id: e.target.value ? Number(e.target.value) : null })} style={{ ...fld, width: '100%', cursor: editable ? 'pointer' : 'default' }}>
-                        <option value="">— choose {meta.l} template —</option>
+                        <option value="">— Choose {meta.l} Template —</option>
                         {chTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                       </select>
                     </div>
@@ -144,8 +144,8 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
                       <label style={lbl}>When</label>
                       <div style={{ display: 'flex', gap: 4 }}>
                         <select value={s.schedule_mode} disabled={!editable} onChange={e => saveStep(s, { schedule_mode: e.target.value })} style={{ ...fld, cursor: editable ? 'pointer' : 'default', flexShrink: 0 }}>
-                          <option value="offset">Days after launch</option>
-                          <option value="absolute">Specific date</option>
+                          <option value="offset">Days After Launch</option>
+                          <option value="absolute">Specific Date</option>
                         </select>
                         {s.schedule_mode === 'absolute' ? (
                           <input type="datetime-local" disabled={!editable} value={toLocalInput(s.send_at)} onChange={e => saveStep(s, { send_at: e.target.value ? new Date(e.target.value).toISOString() : null })} style={{ ...fld, flex: 1 }} />
@@ -157,7 +157,7 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
                     {/* Audience (skip on step 1 — no prior engagement) */}
                     {i > 0 && (
                       <div>
-                        <label style={lbl}>Send to</label>
+                        <label style={lbl}>Send To</label>
                         <select value={s.audience_filter || 'all'} disabled={!editable} onChange={e => saveStep(s, { audience_filter: e.target.value })} style={{ ...fld, width: '100%', cursor: editable ? 'pointer' : 'default' }}>
                           {AUDIENCE_OPTS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
                         </select>
@@ -196,17 +196,17 @@ export default function SequenceBuilder({ campaignId, canEdit, campaignStatus }:
               <button onClick={() => setConfirmLaunch(true)} disabled={!editable || launching || steps.some(s => !s.template_id)}
                 style={{ ...btnPrimary, opacity: (!editable || launching || steps.some(s => !s.template_id)) ? 0.6 : 1 }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 17 }}>rocket_launch</span>
-                {launching ? 'Launching…' : 'Launch sequence'}
+                {launching ? 'Launching…' : 'Launch Sequence'}
               </button>
             </>
           )}
         </div>
       )}
 
-      <ConfirmModal open={confirmLaunch} title="Launch sequence?"
+      <ConfirmModal open={confirmLaunch} title="Launch Sequence?"
         body={`This schedules all ${steps.length} steps to send to the campaign's audience. Steps fire automatically on their day/date. Continue?`}
         confirmLabel="Launch" onConfirm={launch} onClose={() => setConfirmLaunch(false)} />
-      <ConfirmModal open={!!delTarget} title="Remove step"
+      <ConfirmModal open={!!delTarget} title="Remove Step"
         body="Remove this step from the sequence?" danger onConfirm={doDelete} onClose={() => setDelTarget(null)} />
     </div>
   )

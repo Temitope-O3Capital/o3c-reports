@@ -62,12 +62,12 @@ export default function CommissionRatesModal({ open, onClose, onSaved }: {
   const lbl: React.CSSProperties = { display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }
 
   return (
-    <Modal open={open} onClose={onClose} title="Sales commission rates" width={420}
+    <Modal open={open} onClose={onClose} title="Sales Commission Rates" width={420}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Close</button>
           {canEdit && (
-            <button onClick={save} disabled={saving || loading} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'wait' : 'pointer', opacity: (saving || loading) ? 0.7 : 1 }}>{saving ? 'Saving…' : 'Save rates'}</button>
+            <button onClick={save} disabled={saving || loading} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'wait' : 'pointer', opacity: (saving || loading) ? 0.7 : 1 }}>{saving ? 'Saving…' : 'Save Rates'}</button>
           )}
         </div>
       }
@@ -79,9 +79,9 @@ export default function CommissionRatesModal({ open, onClose, onSaved }: {
             : 'Read-only — only Finance can change these rates.'}
         </div>
         {[
-          { label: 'Loans — % of disbursement', value: rLoan, set: setRLoan, suffix: '%' },
-          { label: 'Fixed Deposit — % of principal', value: rFd, set: setRFd, suffix: '%' },
-          { label: 'Cards — ₦ per card issued', value: rCard, set: setRCard, suffix: '₦' },
+          { label: 'Loans — % of Disbursement', value: rLoan, set: setRLoan, suffix: '%' },
+          { label: 'Fixed Deposit — % of Principal', value: rFd, set: setRFd, suffix: '%' },
+          { label: 'Cards — ₦ per Card Issued', value: rCard, set: setRCard, suffix: '₦' },
         ].map(({ label, value, set, suffix }) => (
           <div key={label}>
             <label style={lbl}>{label}</label>

@@ -73,10 +73,12 @@ export default function CoreBanking() {
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  // The CIF of the customer whose detail modal is open (null = closed). Every table
-  // that carries a CBS customer id opens the same modal, so the Udara-vs-workspace
-  // detail view is reached identically from Loans, Fixed Deposits, and Customers.
-  const [openCif, setOpenCif] = useState<string | null>(null)
+  // The Udara customer id whose detail modal is open (null = closed). NOT a CIF — that
+  // is a cards identifier in a separate namespace that collides on the same 8-digit
+  // shape for a different person. Every table that carries a Udara customer id opens
+  // the same modal, so the Udara-vs-workspace detail view is reached identically from
+  // Loans, Fixed Deposits, and Customers.
+  const [openUdaraId, setOpenUdaraId] = useState<string | null>(null)
 
   // load pulls all report data. Pass silent=true for the background auto-refresh so
   // the view updates in place without flashing skeletons or surfacing transient errors.
@@ -105,8 +107,8 @@ export default function CoreBanking() {
 
   const last = sync?.last_run
   const lastLabel = last?.finished_at
-    ? `Live · synced ${fmtDatetime(last.finished_at)}`
-    : 'Not yet synced'
+    ? `Live · Synced ${fmtDatetime(last.finished_at)}`
+    : 'Not Yet Synced'
 
   const tabs = [
     { key: 'overview', label: 'Overview' },
@@ -130,12 +132,12 @@ export default function CoreBanking() {
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
       {tab === 'overview' && <Overview loan={loan} fd={fd} recon={recon} cust={cust} loading={loading} />}
-      {tab === 'customers' && <CustomerTab data={cust} loading={loading} onOpen={setOpenCif} />}
-      {tab === 'loans' && <LoanTab data={loan} loading={loading} onOpen={setOpenCif} />}
-      {tab === 'fd' && <FDTab data={fd} loading={loading} onOpen={setOpenCif} />}
-      {tab === 'recon' && <ReconTab data={recon} loading={loading} onOpen={setOpenCif} />}
+      {tab === 'customers' && <CustomerTab data={cust} loading={loading} onOpen={setOpenUdaraId} />}
+      {tab === 'loans' && <LoanTab data={loan} loading={loading} onOpen={setOpenUdaraId} />}
+      {tab === 'fd' && <FDTab data={fd} loading={loading} onOpen={setOpenUdaraId} />}
+      {tab === 'recon' && <ReconTab data={recon} loading={loading} onOpen={setOpenUdaraId} />}
 
-      <CustomerModal cif={openCif} onClose={() => setOpenCif(null)} />
+      <CustomerModal udaraId={openUdaraId} onClose={() => setOpenUdaraId(null)} />
     </Page>
   )
 }
@@ -149,21 +151,21 @@ function Overview({ loan, fd, recon, cust, loading }: { loan: LoanBook | null; f
     <>
       <div style={grid(220)}>
         <KpiCard label="Customers" value={fmtNum(cs?.total)} sub="on Udara360" icon="groups" accent={NAVY} loading={loading} />
-        <KpiCard label="Loan outstanding" value={fmtKobo(loan?.summary.outstanding_principal_kobo)} sub={`${fmtNum(loan?.summary.accounts)} loans`} icon="payments" accent={RED} loading={loading} />
-        <KpiCard label="FD principal" value={fmtKobo(fd?.summary.principal_kobo)} sub={`${fmtNum(fd?.summary.accounts)} deposits`} icon="savings" accent={GREEN} loading={loading} />
-        <KpiCard label="Contact captured" value={fmtNum(cs?.with_phone)} sub={`of ${fmtNum(cs?.total)} have a phone`} icon="contact_phone" accent={BLUE} loading={loading} />
+        <KpiCard label="Loan Outstanding" value={fmtKobo(loan?.summary.outstanding_principal_kobo)} sub={`${fmtNum(loan?.summary.accounts)} loans`} icon="payments" accent={RED} loading={loading} />
+        <KpiCard label="FD Principal" value={fmtKobo(fd?.summary.principal_kobo)} sub={`${fmtNum(fd?.summary.accounts)} deposits`} icon="savings" accent={GREEN} loading={loading} />
+        <KpiCard label="Contact Captured" value={fmtNum(cs?.with_phone)} sub={`of ${fmtNum(cs?.total)} have a phone`} icon="contact_phone" accent={BLUE} loading={loading} />
       </div>
 
       <div style={{ ...grid(320), marginTop: SP[6] }}>
-        <SectionCard title="Loan book by status">
+        <SectionCard title="Loan Book by Status">
           <BreakdownBars rows={(loan?.by_status || []).map(r => ({ label: r.status, count: r.count, amount: r.outstanding_kobo }))} total={loan?.summary.outstanding_principal_kobo || 0} tone={statusTone} />
         </SectionCard>
-        <SectionCard title="Data health">
+        <SectionCard title="Data Health">
           <dl style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: 10, margin: 0 }}>
-            <dt style={{ color: TXT2 }}>Customers linked to a workspace profile</dt><dd style={dd}>{fmtNum(cs?.linked)} / {fmtNum(cs?.total)}</dd>
-            <dt style={{ color: TXT2 }}>Customers with an email on file</dt><dd style={dd}>{fmtNum(cs?.with_email)}</dd>
-            <dt style={{ color: TXT2 }}>Facilities linked to workspace</dt><dd style={dd}>{fmtNum((recon?.loans.matched || 0) + (recon?.fixed_deposits.matched || 0))}</dd>
-            <dt style={{ color: TXT2 }}>Facilities unmatched</dt><dd style={{ ...dd, color: unmatched ? AMBER : GREEN }}>{fmtNum(unmatched)}</dd>
+            <dt style={{ color: TXT2 }}>Customers Linked to a Workspace Profile</dt><dd style={dd}>{fmtNum(cs?.linked)} / {fmtNum(cs?.total)}</dd>
+            <dt style={{ color: TXT2 }}>Customers with an Email on File</dt><dd style={dd}>{fmtNum(cs?.with_email)}</dd>
+            <dt style={{ color: TXT2 }}>Facilities Linked to Workspace</dt><dd style={dd}>{fmtNum((recon?.loans.matched || 0) + (recon?.fixed_deposits.matched || 0))}</dd>
+            <dt style={{ color: TXT2 }}>Facilities Unmatched</dt><dd style={{ ...dd, color: unmatched ? AMBER : GREEN }}>{fmtNum(unmatched)}</dd>
           </dl>
         </SectionCard>
       </div>
@@ -182,7 +184,7 @@ function CustomerTab({ data, loading, onOpen }: { data: CustomerList | null; loa
     { key: 'state', label: 'State', render: r => r.state || <span style={{ color: TXT3 }}>—</span> },
     { key: 'in_workspace', label: 'Workspace', render: r => r.in_workspace
         ? <span style={{ background: GREEN + '18', color: GREEN, padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: FW.semibold }}>{r.cust_id || 'Linked'}</span>
-        : <span style={{ background: AMBER + '18', color: AMBER, padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: FW.semibold }}>Udara only</span> },
+        : <span style={{ background: AMBER + '18', color: AMBER, padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: FW.semibold }}>Udara Only</span> },
     { key: 'card_count', label: 'Cards', align: 'right', render: r => fmtNum(r.card_count) },
     { key: 'loan_count', label: 'Loans', align: 'right', render: r => fmtNum(r.loan_count) },
     { key: 'fd_count', label: 'FDs', align: 'right', render: r => fmtNum(r.fd_count) },
@@ -192,11 +194,11 @@ function CustomerTab({ data, loading, onOpen }: { data: CustomerList | null; loa
     <>
       <div style={grid(220)}>
         <KpiCard label="Customers" value={fmtNum(s?.total)} sub="on Udara360" icon="groups" accent={NAVY} loading={loading} />
-        <KpiCard label="Linked to workspace" value={`${fmtNum(s?.linked)} / ${fmtNum(s?.total)}`} sub="resolve to a CUST profile" icon="link" accent={s && s.linked === s.total ? GREEN : AMBER} loading={loading} />
-        <KpiCard label="With phone" value={fmtNum(s?.with_phone)} icon="contact_phone" accent={BLUE} loading={loading} />
-        <KpiCard label="With email" value={fmtNum(s?.with_email)} icon="mail" accent={BLUE} loading={loading} />
+        <KpiCard label="Linked to Workspace" value={`${fmtNum(s?.linked)} / ${fmtNum(s?.total)}`} sub="resolve to a CUST profile" icon="link" accent={s && s.linked === s.total ? GREEN : AMBER} loading={loading} />
+        <KpiCard label="With Phone" value={fmtNum(s?.with_phone)} icon="contact_phone" accent={BLUE} loading={loading} />
+        <KpiCard label="With Email" value={fmtNum(s?.with_email)} icon="mail" accent={BLUE} loading={loading} />
       </div>
-      <SectionCard title="Udara customer master" subtitle="Every customer on Udara360, with the contact detail Udara holds and their workspace link. Click a row for the full profile." padding={false} style={{ marginTop: SP[6] }}>
+      <SectionCard title="Udara Customer Master" subtitle="Every customer on Udara360, with the contact detail Udara holds and their workspace link. Click a row for the full profile." padding={false} style={{ marginTop: SP[6] }}>
         <DataTable cols={cols} rows={data?.customers || []} loading={loading} keyFn={(r, i) => r.cbs_customer_id || i}
           onRowClick={r => r.cbs_customer_id && onOpen(r.cbs_customer_id)}
           searchKeys={['name', 'phone', 'email', 'state', 'cust_id', 'cbs_customer_id']} searchPlaceholder="Search customers…" pageSize={20} />
@@ -225,18 +227,18 @@ function LoanTab({ data, loading, onOpen }: { data: LoanBook | null; loading: bo
       <div style={grid(200)}>
         <KpiCard label="Accounts" value={fmtNum(data?.summary.accounts)} icon="request_quote" accent={NAVY} loading={loading} />
         <KpiCard label="Disbursed" value={fmtKobo(data?.summary.disbursed_kobo)} icon="north_east" accent={BLUE} loading={loading} />
-        <KpiCard label="Outstanding principal" value={fmtKobo(data?.summary.outstanding_principal_kobo)} icon="payments" accent={RED} loading={loading} />
-        <KpiCard label="Outstanding interest" value={fmtKobo(data?.summary.outstanding_interest_kobo)} icon="percent" accent={AMBER} loading={loading} />
+        <KpiCard label="Outstanding Principal" value={fmtKobo(data?.summary.outstanding_principal_kobo)} icon="payments" accent={RED} loading={loading} />
+        <KpiCard label="Outstanding Interest" value={fmtKobo(data?.summary.outstanding_interest_kobo)} icon="percent" accent={AMBER} loading={loading} />
       </div>
       <div style={{ ...grid(320), marginTop: SP[6], marginBottom: SP[6] }}>
-        <SectionCard title="By status">
+        <SectionCard title="By Status">
           <BreakdownBars rows={(data?.by_status || []).map(r => ({ label: r.status, count: r.count, amount: r.outstanding_kobo }))} total={data?.summary.outstanding_principal_kobo || 0} tone={statusTone} />
         </SectionCard>
-        <SectionCard title="By product">
+        <SectionCard title="By Product">
           <BreakdownBars rows={(data?.by_product || []).map(r => ({ label: r.product_name, count: r.count, amount: r.outstanding_kobo }))} total={data?.summary.outstanding_principal_kobo || 0} tone={() => NAVY} />
         </SectionCard>
       </div>
-      <SectionCard title="Loan accounts" subtitle="Click a loan for the full Udara + workspace customer profile." padding={false}>
+      <SectionCard title="Loan Accounts" subtitle="Click a loan for the full Udara + workspace customer profile." padding={false}>
         <DataTable cols={cols} rows={data?.loans || []} loading={loading} keyFn={(r, i) => r.cbs_account_number || i}
           onRowClick={r => r.cbs_customer_id && onOpen(r.cbs_customer_id)}
           searchKeys={['cbs_account_number', 'customer_name', 'product_name', 'status', 'officer_name']} searchPlaceholder="Search loans…" pageSize={15} />
@@ -258,27 +260,28 @@ function FDTab({ data, loading, onOpen }: { data: FDBook | null; loading: boolea
     { key: 'interest_rate', label: 'Rate', align: 'right', render: r => fmtPct(r.interest_rate, 1) },
     { key: 'date_booked', label: 'Booked', render: r => fmtDate(r.date_booked ?? r.commencement_date) },
     { key: 'maturity_date', label: 'Maturity', render: r => fmtDate(r.maturity_date) },
+    { key: 'officer_name', label: 'Officer', render: r => (r.officer_name || '').trim() || '—' },
   ]
   return (
     <>
       <div style={grid(200)}>
         <KpiCard label="Accounts" value={fmtNum(data?.summary.accounts)} icon="savings" accent={NAVY} loading={loading} />
         <KpiCard label="Principal" value={fmtKobo(data?.summary.principal_kobo)} icon="account_balance" accent={GREEN} loading={loading} />
-        <KpiCard label="Accrued interest" value={fmtKobo(data?.summary.accrued_kobo)} icon="percent" accent={AMBER} loading={loading} />
-        <KpiCard label="Ledger balance" value={fmtKobo(data?.summary.ledger_kobo)} icon="account_balance_wallet" accent={BLUE} loading={loading} />
+        <KpiCard label="Accrued Interest" value={fmtKobo(data?.summary.accrued_kobo)} icon="percent" accent={AMBER} loading={loading} />
+        <KpiCard label="Ledger Balance" value={fmtKobo(data?.summary.ledger_kobo)} icon="account_balance_wallet" accent={BLUE} loading={loading} />
       </div>
       <div style={{ ...grid(320), marginTop: SP[6], marginBottom: SP[6] }}>
-        <SectionCard title="Maturity ladder" subtitle="FDs maturing by month">
+        <SectionCard title="Maturity Ladder" subtitle="FDs maturing by month">
           <BreakdownBars rows={(data?.maturity_ladder || []).map(r => ({ label: r.bucket, count: r.count, amount: r.principal_kobo }))} total={data?.summary.principal_kobo || 0} tone={() => BLUE} />
         </SectionCard>
-        <SectionCard title="By product">
+        <SectionCard title="By Product">
           <BreakdownBars rows={(data?.by_product || []).map(r => ({ label: r.product_name, count: r.count, amount: r.principal_kobo }))} total={data?.summary.principal_kobo || 0} tone={() => NAVY} />
         </SectionCard>
       </div>
-      <SectionCard title="Fixed deposit accounts" subtitle="Click a deposit for the full Udara + workspace customer profile." padding={false}>
+      <SectionCard title="Fixed Deposit Accounts" subtitle="Click a deposit for the full Udara + workspace customer profile." padding={false}>
         <DataTable cols={cols} rows={data?.fixed_deposits || []} loading={loading} keyFn={(r, i) => r.cbs_account_number || i}
           onRowClick={r => r.cbs_customer_id && onOpen(r.cbs_customer_id)}
-          searchKeys={['cbs_account_number', 'customer_name', 'product_name', 'status']} searchPlaceholder="Search fixed deposits…" pageSize={15} />
+          searchKeys={['cbs_account_number', 'customer_name', 'product_name', 'status', 'officer_name']} searchPlaceholder="Search fixed deposits…" pageSize={15} />
       </SectionCard>
     </>
   )
@@ -290,7 +293,7 @@ function ReconTab({ data, loading, onOpen }: { data: Recon | null; loading: bool
   const loanCols: TableCol[] = [
     { key: 'cbs_account_number', label: 'Account' },
     { key: 'customer_name', label: 'Customer (per CBS)', render: r => r.customer_name || '—' },
-    { key: 'cbs_customer_id', label: 'CIF' },
+    { key: 'cbs_customer_id', label: 'Udara ID' },
     { key: 'product_name', label: 'Product' },
     { key: 'status', label: 'Status', render: r => <StatusTag s={r.status} /> },
     { key: 'outstanding_principal_kobo', label: 'Outstanding', align: 'right', render: r => fmtKobo(r.outstanding_principal_kobo) },
@@ -298,7 +301,7 @@ function ReconTab({ data, loading, onOpen }: { data: Recon | null; loading: bool
   const fdCols: TableCol[] = [
     { key: 'cbs_account_number', label: 'Account' },
     { key: 'customer_name', label: 'Customer (per CBS)', render: r => r.customer_name || '—' },
-    { key: 'cbs_customer_id', label: 'CIF' },
+    { key: 'cbs_customer_id', label: 'Udara ID' },
     { key: 'product_name', label: 'Product' },
     { key: 'status', label: 'Status', render: r => <StatusTag s={r.status} /> },
     { key: 'principal_kobo', label: 'Principal', align: 'right', render: r => fmtKobo(r.principal_kobo) },
@@ -312,20 +315,20 @@ function ReconTab({ data, loading, onOpen }: { data: Recon | null; loading: bool
         overlay data (officers, notes, approvals) and workflows attach to the right customer.
       </div>
       <div style={grid(220)}>
-        <KpiCard label="Loans linked" value={`${fmtNum(lt?.matched)} / ${fmtNum(lt?.cbs_total)}`} sub="matched to workspace" icon="link" accent={lt && lt.matched === lt.cbs_total ? GREEN : AMBER} loading={loading} />
-        <KpiCard label="Loans unmatched" value={fmtNum(data?.unmatched_loans?.length)} icon="link_off" accent={RED} loading={loading} />
-        <KpiCard label="FDs linked" value={`${fmtNum(ft?.matched)} / ${fmtNum(ft?.cbs_total)}`} sub="matched to workspace" icon="link" accent={ft && ft.matched === ft.cbs_total ? GREEN : AMBER} loading={loading} />
-        <KpiCard label="FDs unmatched" value={fmtNum(data?.unmatched_fds?.length)} icon="link_off" accent={RED} loading={loading} />
+        <KpiCard label="Loans Linked" value={`${fmtNum(lt?.matched)} / ${fmtNum(lt?.cbs_total)}`} sub="matched to workspace" icon="link" accent={lt && lt.matched === lt.cbs_total ? GREEN : AMBER} loading={loading} />
+        <KpiCard label="Loans Unmatched" value={fmtNum(data?.unmatched_loans?.length)} icon="link_off" accent={RED} loading={loading} />
+        <KpiCard label="FDs Linked" value={`${fmtNum(ft?.matched)} / ${fmtNum(ft?.cbs_total)}`} sub="matched to workspace" icon="link" accent={ft && ft.matched === ft.cbs_total ? GREEN : AMBER} loading={loading} />
+        <KpiCard label="FDs Unmatched" value={fmtNum(data?.unmatched_fds?.length)} icon="link_off" accent={RED} loading={loading} />
       </div>
       <div style={{ marginTop: SP[6] }}>
-        <SectionCard title="Unmatched loans" padding={false} style={{ marginBottom: SP[6] }}>
+        <SectionCard title="Unmatched Loans" padding={false} style={{ marginBottom: SP[6] }}>
           {(!loading && data && (data.unmatched_loans?.length ?? 0) === 0)
-            ? <EmptyState icon="check_circle" title="All loans linked" description="Every CBS loan maps to a workspace record." />
+            ? <EmptyState icon="check_circle" title="All Loans Linked" description="Every CBS loan maps to a workspace record." />
             : <DataTable cols={loanCols} rows={data?.unmatched_loans || []} loading={loading} keyFn={(r, i) => r.cbs_account_number || i} onRowClick={r => r.cbs_customer_id && onOpen(r.cbs_customer_id)} searchKeys={['cbs_account_number', 'cbs_customer_id', 'product_name']} pageSize={10} />}
         </SectionCard>
-        <SectionCard title="Unmatched fixed deposits" padding={false}>
+        <SectionCard title="Unmatched Fixed Deposits" padding={false}>
           {(!loading && data && (data.unmatched_fds?.length ?? 0) === 0)
-            ? <EmptyState icon="check_circle" title="All FDs linked" description="Every CBS fixed deposit maps to a workspace record." />
+            ? <EmptyState icon="check_circle" title="All FDs Linked" description="Every CBS fixed deposit maps to a workspace record." />
             : <DataTable cols={fdCols} rows={data?.unmatched_fds || []} loading={loading} keyFn={(r, i) => r.cbs_account_number || i} onRowClick={r => r.cbs_customer_id && onOpen(r.cbs_customer_id)} searchKeys={['cbs_account_number', 'cbs_customer_id', 'product_name']} pageSize={10} />}
         </SectionCard>
       </div>
@@ -335,28 +338,28 @@ function ReconTab({ data, loading, onOpen }: { data: Recon | null; loading: bool
 
 // ── Customer detail modal ───────────────────────────────────────────────────
 
-function CustomerModal({ cif, onClose }: { cif: string | null; onClose: () => void }) {
+function CustomerModal({ udaraId, onClose }: { udaraId: string | null; onClose: () => void }) {
   const [data, setData] = useState<CustomerDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!cif) { setData(null); return }
+    if (!udaraId) { setData(null); return }
     let live = true
     setLoading(true); setErr(null); setData(null)
-    apiFetch<CustomerDetail>(`/api/cbs/reports/customer/${encodeURIComponent(cif)}`)
+    apiFetch<CustomerDetail>(`/api/cbs/reports/customer/${encodeURIComponent(udaraId)}`)
       .then(d => { if (live) setData(d) })
       .catch(e => { if (live) setErr(e?.message || 'Failed to load customer') })
       .finally(() => { if (live) setLoading(false) })
     return () => { live = false }
-  }, [cif])
+  }, [udaraId])
 
   const c = data?.cbs || {}
   const w = data?.workspace || {}
   const title = (c.name as string) || 'Customer'
 
   return (
-    <Modal open={!!cif} onClose={onClose} title={title} width={760} maxHeight="82vh">
+    <Modal open={!!udaraId} onClose={onClose} title={title} width={760} maxHeight="82vh">
       {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: SP[6] }}><Spinner /></div>}
       {err && <div style={{ color: RED, fontSize: 13, padding: SP[3] }}>{err}</div>}
       {data && !loading && (
@@ -364,9 +367,9 @@ function CustomerModal({ cif, onClose }: { cif: string | null; onClose: () => vo
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             {c.customer_type && <Badge variant="default">{c.customer_type}</Badge>}
             {data.in_workspace
-              ? <Badge variant="success" dot>In workspace · {w.cust_id}</Badge>
-              : <Badge variant="warning" dot>Udara only — no workspace profile yet</Badge>}
-            <span style={{ color: TXT3, fontSize: 12, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>CIF {c.cbs_customer_id}</span>
+              ? <Badge variant="success" dot>In Workspace · {w.cust_id}</Badge>
+              : <Badge variant="warning" dot>Udara Only — No Workspace Profile Yet</Badge>}
+            <span style={{ color: TXT3, fontSize: 12, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>Udara ID {c.cbs_customer_id}</span>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: SP[5] }}>
@@ -377,24 +380,24 @@ function CustomerModal({ cif, onClose }: { cif: string | null; onClose: () => vo
               <Field label="State / LGA" value={[c.state, c.lga].filter(Boolean).join(' · ')} />
               <Field label="BVN" value={c.bvn} />
               <Field label="NIN" value={c.nin} />
-              <Field label="Date of birth" value={c.date_of_birth ? fmtDate(c.date_of_birth) : ''} />
+              <Field label="Date of Birth" value={c.date_of_birth ? fmtDate(c.date_of_birth) : ''} />
               <Field label="Gender" value={c.gender} />
               {c.customer_type === 'Individual'
                 ? <Field label="Occupation" value={[c.occupation, c.employer_name].filter(Boolean).join(' · ')} />
                 : <Field label="Business" value={[c.nature_of_business, c.registration_number].filter(Boolean).join(' · ')} />}
-              {c.customer_type !== 'Individual' && <Field label="Contact person" value={[c.contact_person_name, c.contact_person_phone].filter(Boolean).join(' · ')} />}
-              {c.nok_name && <Field label="Next of kin" value={[c.nok_name, c.nok_relationship, c.nok_phone].filter(Boolean).join(' · ')} />}
+              {c.customer_type !== 'Individual' && <Field label="Contact Person" value={[c.contact_person_name, c.contact_person_phone].filter(Boolean).join(' · ')} />}
+              {c.nok_name && <Field label="Next of Kin" value={[c.nok_name, c.nok_relationship, c.nok_phone].filter(Boolean).join(' · ')} />}
             </Panel>
 
-            <Panel title="In the workspace" accent={GREEN}>
+            <Panel title="In the Workspace" accent={GREEN}>
               {data.in_workspace ? (
                 <>
                   <Field label="Customer ID" value={w.cust_id} />
                   <Field label="Name" value={w.party_name} />
                   <Field label="Type" value={w.party_type} />
-                  <Field label="Cards held" value={fmtNum(w.card_count)} />
-                  <Field label="Primary phone" value={w.primary_phone} />
-                  <Field label="Primary email" value={w.primary_email} />
+                  <Field label="Cards Held" value={fmtNum(w.card_count)} />
+                  <Field label="Primary Phone" value={w.primary_phone} />
+                  <Field label="Primary Email" value={w.primary_email} />
                   <Field label="BVN" value={w.party_bvn} />
                 </>
               ) : (
@@ -415,7 +418,7 @@ function CustomerModal({ cif, onClose }: { cif: string | null; onClose: () => vo
                 }))} />
               )}
               {data.fixed_deposits?.length > 0 && (
-                <FacilityList title="Fixed deposits" rows={data.fixed_deposits.map(f => ({
+                <FacilityList title="Fixed Deposits" rows={data.fixed_deposits.map(f => ({
                   acct: f.cbs_account_number, product: f.product_name, status: f.status,
                   amount: f.principal_kobo, sub: f.maturity_date ? `matures ${fmtDate(f.maturity_date)}` : '',
                 }))} />
@@ -475,7 +478,7 @@ function grid(min: number): React.CSSProperties {
 }
 
 function BreakdownBars({ rows, tone }: { rows: { label: string; count: number; amount: number }[]; tone: (label: string) => string; total: number }) {
-  if (!rows.length) return <EmptyState icon="inbox" title="No data" />
+  if (!rows.length) return <EmptyState icon="inbox" title="No Data" />
   const max = Math.max(...rows.map(r => n(r.amount)), 1)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

@@ -67,6 +67,10 @@ type exportDataset struct {
 	Where   string `json:"-"` // static predicate, without the WHERE keyword
 	OrderBy string `json:"-"`
 
+	// KeyCol is the data source's unique key. It ends every Table sort, so a page break
+	// never repeats or skips a record when many records share the same sort value.
+	KeyCol string `json:"-"`
+
 	// MaxRows caps the result. Every dataset gets one; see exportDefaultMaxRows.
 	MaxRows int `json:"max_rows"`
 }
@@ -85,7 +89,7 @@ var exportDatasets = []exportDataset{
 	// ── Credit ────────────────────────────────────────────────────────────────
 	{
 		Key:    "loan_book",
-		Label:  "Loan Book (live)",
+		Label:  "Loan Book (Live)",
 		Module: "Credit",
 		Desc:   "The live Udara/CBS credit book with schedule-derived DPD, arrears and risk band.",
 		From:   "app.cbs_loans cl",
@@ -94,8 +98,9 @@ var exportDatasets = []exportDataset{
 		// export reconciles against the dashboards instead of contradicting them.
 		Where:     "cl.status NOT IN ('Closed','Revoked')",
 		OrderBy:   "cl.outstanding_principal_kobo DESC",
+		KeyCol:    "cl.cbs_id",
 		DateCol:   "cl.date_booked::date",
-		DateLabel: "Date booked",
+		DateLabel: "Date Booked",
 		Cols: []exportCol{
 			{Key: "account_number", Label: "Account Number", Type: colText, Expr: "cl.cbs_account_number"},
 			{Key: "cif", Label: "CIF", Type: colText, Expr: "cl.cbs_customer_id"},
@@ -112,7 +117,7 @@ var exportDatasets = []exportDataset{
 			{Key: "risk_band", Label: "Risk Band", Type: colText, Expr: cbsLoanBand},
 			{Key: "risk_score", Label: "Risk Score", Type: colInt, Expr: cbsLoanScore},
 			{Key: "interest_rate", Label: "Interest Rate (%)", Type: colPct, Expr: "cl.interest_rate"},
-			{Key: "tenor_days", Label: "Tenor (days)", Type: colInt, Expr: "cl.tenor_days"},
+			{Key: "tenor_days", Label: "Tenor (Days)", Type: colInt, Expr: "cl.tenor_days"},
 			{Key: "sector", Label: "Sector", Type: colText, Expr: "app.cbn_sector_name(cl.economic_sector)"},
 			{Key: "sector_code", Label: "Sector Code", Type: colText, Expr: "cl.economic_sector"},
 			{Key: "branch_name", Label: "Branch", Type: colText, Expr: "cl.branch_name"},
@@ -135,6 +140,7 @@ var exportDatasets = []exportDataset{
 		Desc:      "Origination pipeline: applications, stage, decision and Eye Score.",
 		From:      "app.loan_applications la",
 		OrderBy:   "la.created_at DESC",
+		KeyCol:    "la.id",
 		DateCol:   "la.created_at::date",
 		DateLabel: "Created",
 		Cols: []exportCol{
@@ -144,7 +150,7 @@ var exportDatasets = []exportDataset{
 			{Key: "product_type", Label: "Product", Type: colText, Expr: "la.product_type"},
 			{Key: "amount_requested", Label: "Amount Requested (NGN)", Type: colKobo, Expr: "la.amount_requested_kobo"},
 			{Key: "amount_approved", Label: "Amount Approved (NGN)", Type: colKobo, Expr: "la.amount_approved_kobo"},
-			{Key: "tenor_months", Label: "Tenor (months)", Type: colInt, Expr: "la.tenor_months"},
+			{Key: "tenor_months", Label: "Tenor (Months)", Type: colInt, Expr: "la.tenor_months"},
 			{Key: "status", Label: "Status", Type: colText, Expr: "la.status"},
 			{Key: "stage", Label: "Stage", Type: colText, Expr: "la.stage"},
 			{Key: "decision", Label: "Decision", Type: colText, Expr: "la.decision"},
@@ -174,13 +180,14 @@ var exportDatasets = []exportDataset{
 		Desc:      "Cardholder accounts, limits, balances and delinquency. Card PAN is masked to the last 4 digits.",
 		From:      "app.accounts a",
 		OrderBy:   "a.opened_date DESC NULLS LAST",
+		KeyCol:    "a.account_no",
 		DateCol:   "a.opened_date",
 		DateLabel: "Opened",
 		Cols: []exportCol{
 			{Key: "account_no", Label: "Account No", Type: colText, Expr: "a.account_no"},
 			{Key: "cif", Label: "CIF", Type: colText, Expr: "a.cif"},
 			{Key: "name_on_card", Label: "Name on Card", Type: colText, Expr: "a.name_on_card"},
-			{Key: "card_pan_masked", Label: "Card (masked)", Type: colText, Expr: maskedPAN},
+			{Key: "card_pan_masked", Label: "Card (Masked)", Type: colText, Expr: maskedPAN},
 			{Key: "product_name", Label: "Product", Type: colText, Expr: "a.product_name"},
 			{Key: "card_program", Label: "Programme", Type: colText, Expr: "a.card_program"},
 			{Key: "product_line", Label: "Product Line", Type: colText, Expr: "a.product_line"},
@@ -214,8 +221,9 @@ var exportDatasets = []exportDataset{
 		// Over 1.1m rows: an unbounded export is an outage, not a report.
 		DateRequired: true,
 		OrderBy:      "t.txn_date DESC, t.txn_id",
+		KeyCol:       "t.txn_id",
 		DateCol:      "t.txn_date",
-		DateLabel:    "Transaction date",
+		DateLabel:    "Transaction Date",
 		MaxRows:      250000,
 		Cols: []exportCol{
 			{Key: "txn_id", Label: "Txn ID", Type: colText, Expr: "t.txn_id"},
@@ -251,14 +259,15 @@ var exportDatasets = []exportDataset{
 		Desc:      "The customer identity master. BVN is masked to the last 4 digits.",
 		From:      "app.customers c",
 		OrderBy:   "c.cif",
+		KeyCol:    "c.cif",
 		DateCol:   "c.account_created::date",
-		DateLabel: "Account created",
+		DateLabel: "Account Created",
 		Cols: []exportCol{
 			{Key: "cif", Label: "CIF", Type: colText, Expr: "c.cif"},
 			{Key: "full_name", Label: "Full Name", Type: colText, Expr: "c.full_name"},
 			{Key: "phone", Label: "Phone", Type: colText, Expr: "c.phone"},
 			{Key: "email", Label: "Email", Type: colText, Expr: "c.email"},
-			{Key: "bvn_masked", Label: "BVN (masked)", Type: colText, Expr: maskedBVN},
+			{Key: "bvn_masked", Label: "BVN (Masked)", Type: colText, Expr: maskedBVN},
 			{Key: "gender", Label: "Gender", Type: colText, Expr: "c.gender"},
 			{Key: "birthday", Label: "Date of Birth", Type: colDate, Expr: "c.birthday"},
 			{Key: "city", Label: "City", Type: colText, Expr: "c.city"},
@@ -282,6 +291,7 @@ var exportDatasets = []exportDataset{
 		Desc:      "CRM contacts and the lead pipeline. Encrypted ID numbers are never exported.",
 		From:      "app.crm_contacts k",
 		OrderBy:   "k.created_at DESC",
+		KeyCol:    "k.id",
 		DateCol:   "k.created_at::date",
 		DateLabel: "Created",
 		Cols: []exportCol{
@@ -303,7 +313,8 @@ var exportDatasets = []exportDataset{
 			{Key: "owner_name", Label: "Lead Owner", Type: colText,
 				Expr: `(SELECT u.full_name FROM app.o3c_users u WHERE u.id = k.lead_owner_id)`},
 			{Key: "created_at", Label: "Created", Type: colDateTime, Expr: "k.created_at"},
-			{Key: "qualified_at", Label: "Qualified", Type: colDateTime, Expr: "k.qualified_at"},
+			// Stored as qualified_at; shown as Interested, the only way a lead gets there.
+			{Key: "qualified_at", Label: "Interested On", Type: colDateTime, Expr: "k.qualified_at"},
 			{Key: "converted_at", Label: "Converted", Type: colDateTime, Expr: "k.converted_at"},
 		},
 		Filters: []exportFilter{
@@ -321,8 +332,19 @@ var exportDatasets = []exportDataset{
 		Desc:      "The live CBS fixed-deposit book with principal, accrued interest and maturity.",
 		From:      "app.cbs_fixed_deposits fd",
 		OrderBy:   "fd.principal_kobo DESC",
+		KeyCol:    "fd.cbs_id",
 		DateCol:   "fd.date_booked::date",
-		DateLabel: "Date booked",
+		DateLabel: "Date Booked",
+		// A "Rollovers" column (fd.rollover_count) was removed from this export
+		// rather than carried forward. Udara populates rolloverCount on NONE of the
+		// 380 deposits (the key is present in every payload and null in every one),
+		// and applyRollover is false on 379 of 380 -- while deposits demonstrably do
+		// roll over. So the column was not "empty data", it was a blank cell that
+		// read as the assertion "this deposit has never rolled over", on every row.
+		// Relabelling it ("Rollovers (Not Reported)") would still spend a column in
+		// every spreadsheet to say nothing, so it is gone. Rollover DETECTION is a
+		// separate piece of work (deliberately out of scope here); when it exists,
+		// re-add the column under the same "rollover_count" key.
 		Cols: []exportCol{
 			{Key: "account_number", Label: "Account Number", Type: colText, Expr: "fd.cbs_account_number"},
 			{Key: "cif", Label: "CIF", Type: colText, Expr: "fd.cbs_customer_id"},
@@ -334,9 +356,12 @@ var exportDatasets = []exportDataset{
 			{Key: "accrued_interest", Label: "Accrued Interest (NGN)", Type: colKobo, Expr: "fd.accrued_interest_kobo"},
 			{Key: "ledger_balance", Label: "Ledger Balance (NGN)", Type: colKobo, Expr: "fd.ledger_balance_kobo"},
 			{Key: "interest_rate", Label: "Interest Rate (%)", Type: colPct, Expr: "fd.interest_rate"},
-			{Key: "tenor_days", Label: "Tenor (days)", Type: colInt, Expr: "fd.tenor_days"},
-			{Key: "rollover_count", Label: "Rollovers", Type: colInt, Expr: "fd.rollover_count"},
+			{Key: "tenor_days", Label: "Tenor (Days)", Type: colInt, Expr: "fd.tenor_days"},
 			{Key: "branch_name", Label: "Branch", Type: colText, Expr: "fd.branch_name"},
+			// Officer. Udara sends accountOfficerName on all 380 deposits; before
+			// migration 261 it was dropped by the FD sync, so this export could not
+			// answer "whose deposit is this" while the loan export could.
+			{Key: "officer_name", Label: "Officer", Type: colText, Expr: "fd.officer_name"},
 			{Key: "commencement_date", Label: "Commencement", Type: colDate, Expr: "fd.commencement_date"},
 			{Key: "maturity_date", Label: "Maturity", Type: colDate, Expr: "fd.maturity_date"},
 		},
@@ -354,6 +379,7 @@ var exportDatasets = []exportDataset{
 		Desc:      "Delinquent accounts assigned to collections agents, with DPD bucket and target.",
 		From:      "app.collection_assignments ca",
 		OrderBy:   "ca.outstanding_kobo DESC",
+		KeyCol:    "ca.id",
 		DateCol:   "ca.created_at::date",
 		DateLabel: "Assigned",
 		Cols: []exportCol{
@@ -381,8 +407,9 @@ var exportDatasets = []exportDataset{
 		Desc:      "Payments recorded against collections cases, with reconciliation state.",
 		From:      "app.collection_payments cp",
 		OrderBy:   "cp.payment_date DESC",
+		KeyCol:    "cp.id",
 		DateCol:   "cp.payment_date",
-		DateLabel: "Payment date",
+		DateLabel: "Payment Date",
 		Cols: []exportCol{
 			{Key: "account_cif", Label: "CIF", Type: colText, Expr: "cp.account_cif"},
 			{Key: "amount", Label: "Amount (NGN)", Type: colKobo, Expr: "cp.amount_kobo"},
@@ -409,6 +436,7 @@ var exportDatasets = []exportDataset{
 		Desc:      "The Paystack transaction mirror used for settlement reconciliation.",
 		From:      "app.paystack_transactions pt",
 		OrderBy:   "pt.paid_at DESC NULLS LAST",
+		KeyCol:    "pt.id",
 		DateCol:   "COALESCE(pt.paid_at, pt.created_at_ps)::date",
 		DateLabel: "Paid",
 		Cols: []exportCol{
@@ -438,8 +466,9 @@ var exportDatasets = []exportDataset{
 		Desc:      "Unmatched and disputed items raised by the reconciliation engine.",
 		From:      "app.recon_exceptions re",
 		OrderBy:   "re.created_at DESC",
+		KeyCol:    "re.id",
 		DateCol:   "re.txn_date",
-		DateLabel: "Transaction date",
+		DateLabel: "Transaction Date",
 		Cols: []exportCol{
 			{Key: "source", Label: "Source", Type: colText, Expr: "re.source"},
 			{Key: "source_ref", Label: "Source Reference", Type: colText, Expr: "re.source_ref"},
@@ -466,6 +495,7 @@ var exportDatasets = []exportDataset{
 		Desc:      "Support tickets with SLA, resolution and CSAT.",
 		From:      "app.helpdesk_tickets ht",
 		OrderBy:   "ht.created_at DESC",
+		KeyCol:    "ht.id",
 		DateCol:   "ht.created_at::date",
 		DateLabel: "Created",
 		Cols: []exportCol{
@@ -502,8 +532,9 @@ var exportDatasets = []exportDataset{
 		From:      "app.helpdesk_calls hc",
 		Where:     "hc.merged_into_call_id IS NULL AND hc.voided_at IS NULL",
 		OrderBy:   "COALESCE(hc.started_at, hc.created_at) DESC",
+		KeyCol:    "hc.id",
 		DateCol:   "COALESCE(hc.started_at, hc.created_at)::date",
-		DateLabel: "Call date",
+		DateLabel: "Call Date",
 		Cols: []exportCol{
 			{Key: "started_at", Label: "Started", Type: colDateTime, Expr: "COALESCE(hc.started_at, hc.created_at)"},
 			{Key: "direction", Label: "Direction", Type: colText, Expr: "hc.direction"},
@@ -536,8 +567,9 @@ var exportDatasets = []exportDataset{
 		Desc:      "Per-cycle billed balances, minimum payments, fees, interest and penalties.",
 		From:      "app.card_cycle_data cd",
 		OrderBy:   "cd.cycle_date DESC, cd.outstanding_balance_kobo DESC",
+		KeyCol:    "cd.id",
 		DateCol:   "cd.cycle_date",
-		DateLabel: "Cycle date",
+		DateLabel: "Cycle Date",
 		Cols: []exportCol{
 			{Key: "cycle_date", Label: "Cycle Date", Type: colDate, Expr: "cd.cycle_date"},
 			{Key: "account_number", Label: "Account Number", Type: colText, Expr: "cd.account_number"},
@@ -566,14 +598,15 @@ var exportDatasets = []exportDataset{
 	// ── Customers (continued) ─────────────────────────────────────────────────
 	{
 		Key:    "parties",
-		Label:  "People (deduplicated)",
+		Label:  "People (Deduplicated)",
 		Module: "Customers",
 		Desc: "The person layer: one row per human being, with how many cards they hold. " +
 			"A CIF is a card, not a person — this is the honest customer count.",
 		From:      "app.parties p",
 		OrderBy:   "p.card_count DESC NULLS LAST",
+		KeyCol:    "p.party_id",
 		DateCol:   "p.created_at::date",
-		DateLabel: "First seen",
+		DateLabel: "First Seen",
 		Cols: []exportCol{
 			{Key: "party_key", Label: "Party Key", Type: colText, Expr: "p.party_key"},
 			{Key: "full_name", Label: "Full Name", Type: colText, Expr: "p.full_name"},
@@ -581,7 +614,7 @@ var exportDatasets = []exportDataset{
 			{Key: "primary_phone", Label: "Phone", Type: colText, Expr: "p.primary_phone"},
 			{Key: "primary_email", Label: "Email", Type: colText, Expr: "p.primary_email"},
 			// Masked for the same reason as the customer master.
-			{Key: "bvn_masked", Label: "BVN (masked)", Type: colText,
+			{Key: "bvn_masked", Label: "BVN (Masked)", Type: colText,
 				Expr: `CASE WHEN NULLIF(p.bvn,'') IS NULL THEN NULL
 				            ELSE '*******' || RIGHT(p.bvn, 4) END`},
 			{Key: "card_count", Label: "Cards Held", Type: colInt, Expr: "p.card_count"},
@@ -595,11 +628,12 @@ var exportDatasets = []exportDataset{
 	// ── Settlements (continued) ───────────────────────────────────────────────
 	{
 		Key:       "paystack_transfers",
-		Label:     "Paystack Transfers (payouts)",
+		Label:     "Paystack Transfers (Payouts)",
 		Module:    "Settlements",
 		Desc:      "Outbound transfers: recipient, bank, status and failure reason.",
 		From:      "app.paystack_transfers pt",
 		OrderBy:   "COALESCE(pt.transferred_at, pt.created_at_ps) DESC NULLS LAST",
+		KeyCol:    "pt.id",
 		DateCol:   "COALESCE(pt.transferred_at, pt.created_at_ps)::date",
 		DateLabel: "Transferred",
 		Cols: []exportCol{
@@ -628,15 +662,16 @@ var exportDatasets = []exportDataset{
 		Desc:      "Matched pairs produced by the reconciliation engine, with tier and confidence.",
 		From:      "app.recon_matches rm",
 		OrderBy:   "rm.txn_date DESC",
+		KeyCol:    "rm.id",
 		DateCol:   "rm.txn_date",
-		DateLabel: "Transaction date",
+		DateLabel: "Transaction Date",
 		Cols: []exportCol{
 			{Key: "txn_date", Label: "Txn Date", Type: colDate, Expr: "rm.txn_date"},
 			{Key: "source_key", Label: "Source Key", Type: colText, Expr: "rm.source_key"},
 			{Key: "counterparty_key", Label: "Counterparty Key", Type: colText, Expr: "rm.counterparty_key"},
 			{Key: "amount", Label: "Amount (NGN)", Type: colKobo, Expr: "rm.amount_kobo"},
 			{Key: "tier", Label: "Match Tier", Type: colText, Expr: "rm.tier::text"},
-			{Key: "confidence", Label: "Confidence", Type: colPct, Expr: "rm.confidence"},
+			{Key: "confidence", Label: "Confidence (%)", Type: colPct, Expr: "(rm.confidence * 100)"},
 			{Key: "created_at", Label: "Matched At", Type: colDateTime, Expr: "rm.created_at"},
 		},
 		Filters: []exportFilter{
@@ -652,6 +687,7 @@ var exportDatasets = []exportDataset{
 		Desc:      "Cases handed to recovery, with legal stage, amounts recovered and write-off status.",
 		From:      "app.recovery_cases rc",
 		OrderBy:   "rc.outstanding_kobo DESC NULLS LAST",
+		KeyCol:    "rc.id",
 		DateCol:   "COALESCE(rc.opened_at, rc.created_at)::date",
 		DateLabel: "Opened",
 		Cols: []exportCol{
@@ -662,8 +698,8 @@ var exportDatasets = []exportDataset{
 			{Key: "legal_stage", Label: "Legal Stage", Type: colText, Expr: "rc.legal_stage"},
 			{Key: "outstanding", Label: "Outstanding (NGN)", Type: colKobo, Expr: "COALESCE(rc.outstanding_kobo, rc.total_outstanding_kobo)"},
 			{Key: "recovered", Label: "Recovered (NGN)", Type: colKobo, Expr: "COALESCE(rc.recovered_kobo, rc.total_recovered_kobo)"},
-			{Key: "write_off_status", Label: "Write-off Status", Type: colText, Expr: "rc.write_off_status"},
-			{Key: "write_off_amount", Label: "Write-off Amount (NGN)", Type: colKobo, Expr: "rc.write_off_amount_kobo"},
+			{Key: "write_off_status", Label: "Write-Off Status", Type: colText, Expr: "rc.write_off_status"},
+			{Key: "write_off_amount", Label: "Write-Off Amount (NGN)", Type: colKobo, Expr: "rc.write_off_amount_kobo"},
 			{Key: "dpd_at_handoff", Label: "DPD at Handoff", Type: colInt, Expr: "rc.dpd_at_handoff"},
 			{Key: "solicitor", Label: "Solicitor", Type: colText, Expr: "rc.solicitor"},
 			{Key: "agent_name", Label: "Agent", Type: colText,
@@ -674,7 +710,7 @@ var exportDatasets = []exportDataset{
 		},
 		Filters: []exportFilter{
 			{Key: "status", Label: "Status", Kind: filterText, Expr: "rc.status = ?"},
-			{Key: "write_off_status", Label: "Write-off Status", Kind: filterText, Expr: "rc.write_off_status = ?"},
+			{Key: "write_off_status", Label: "Write-Off Status", Kind: filterText, Expr: "rc.write_off_status = ?"},
 		},
 	},
 
@@ -686,8 +722,9 @@ var exportDatasets = []exportDataset{
 		Desc:      "Exceptions raised against settlement batches.",
 		From:      "app.settlement_exceptions se",
 		OrderBy:   "se.created_at DESC",
+		KeyCol:    "se.id",
 		DateCol:   "se.txn_date",
-		DateLabel: "Transaction date",
+		DateLabel: "Transaction Date",
 		Cols: []exportCol{
 			{Key: "txn_ref", Label: "Txn Reference", Type: colText, Expr: "se.txn_ref"},
 			{Key: "batch_id", Label: "Batch", Type: colText, Expr: "se.batch_id::text"},
@@ -714,6 +751,7 @@ var exportDatasets = []exportDataset{
 		Desc:      "The outbound contact queue with priority, attempts and last disposition.",
 		From:      "app.call_center_contacts cc",
 		OrderBy:   "cc.priority NULLS LAST, cc.outstanding_kobo DESC NULLS LAST",
+		KeyCol:    "cc.id",
 		DateCol:   "cc.created_at::date",
 		DateLabel: "Added",
 		Cols: []exportCol{
@@ -749,8 +787,9 @@ var exportDatasets = []exportDataset{
 		Desc:      "Fee income postings by type, product and account.",
 		From:      "app.fee_income fi",
 		OrderBy:   "fi.fee_date DESC",
+		KeyCol:    "fi.id",
 		DateCol:   "fi.fee_date",
-		DateLabel: "Fee date",
+		DateLabel: "Fee Date",
 		Cols: []exportCol{
 			{Key: "fee_date", Label: "Fee Date", Type: colDate, Expr: "fi.fee_date"},
 			{Key: "fee_type", Label: "Fee Type", Type: colText, Expr: "fi.fee_type"},
@@ -775,8 +814,9 @@ var exportDatasets = []exportDataset{
 		Desc:      "Card fee, interest and penalty income by day, product and category — the live income book.",
 		From:      "app.income_daily id",
 		OrderBy:   "id.income_date DESC",
+		KeyCol:    "id.income_date, id.category, id.product_name",
 		DateCol:   "id.income_date",
-		DateLabel: "Income date",
+		DateLabel: "Income Date",
 		Cols: []exportCol{
 			{Key: "income_date", Label: "Date", Type: colDate, Expr: "id.income_date"},
 			{Key: "category", Label: "Category", Type: colText, Expr: "id.category"},
@@ -798,8 +838,9 @@ var exportDatasets = []exportDataset{
 		Desc:      "Per-installment principal, interest, fee and status from the Udara loan repayment schedule.",
 		From:      "app.cbs_loan_schedules s",
 		OrderBy:   "s.payment_date",
+		KeyCol:    "s.loan_account_number, s.payment_date",
 		DateCol:   "s.payment_date",
-		DateLabel: "Due date",
+		DateLabel: "Due Date",
 		Cols: []exportCol{
 			{Key: "loan_account", Label: "Loan Account", Type: colText, Expr: "s.loan_account_number"},
 			{Key: "cif", Label: "CIF", Type: colText, Expr: "s.cbs_customer_id"},
@@ -822,6 +863,7 @@ var exportDatasets = []exportDataset{
 		Desc:    "The SOC 2 control register with status, owner and evidence summary.",
 		From:    "app.soc2_controls sc",
 		OrderBy: "sc.sort_order NULLS LAST, sc.criteria_code",
+		KeyCol:  "sc.id",
 		Cols: []exportCol{
 			{Key: "criteria_code", Label: "Criteria Code", Type: colText, Expr: "sc.criteria_code"},
 			{Key: "criteria_group", Label: "Criteria Group", Type: colText, Expr: "sc.criteria_group"},
@@ -850,6 +892,7 @@ var exportDatasets = []exportDataset{
 		Desc:      "Audit findings with severity, owner, due date and closure state.",
 		From:      "app.audit_findings af",
 		OrderBy:   "af.created_at DESC",
+		KeyCol:    "af.id",
 		DateCol:   "af.created_at::date",
 		DateLabel: "Raised",
 		Cols: []exportCol{
@@ -879,6 +922,7 @@ var exportDatasets = []exportDataset{
 		Desc:      "Suppressed email addresses: bounces, complaints and unsubscribes.",
 		From:      "app.mail_suppressions ms",
 		OrderBy:   "ms.created_at DESC",
+		KeyCol:    "ms.email",
 		DateCol:   "ms.created_at::date",
 		DateLabel: "Suppressed",
 		Cols: []exportCol{
@@ -901,6 +945,7 @@ var exportDatasets = []exportDataset{
 		Desc:      "Who did what, where and from which address. Sourced from the activity log.",
 		From:      "app.o3c_activity_log al LEFT JOIN app.o3c_users u ON u.id = al.user_id",
 		OrderBy:   "al.ts DESC",
+		KeyCol:    "al.id",
 		DateCol:   "al.ts::date",
 		DateLabel: "Timestamp",
 		Cols: []exportCol{
@@ -932,8 +977,9 @@ var exportDatasets = []exportDataset{
 		Desc:      "Blink installs, sessions, loyal users and ad spend by day, platform, media source and campaign — from AppsFlyer.",
 		From:      "appsflyer_daily af",
 		OrderBy:   "af.activity_date DESC, af.installs DESC",
+		KeyCol:    "af.id",
 		DateCol:   "af.activity_date",
-		DateLabel: "Activity date",
+		DateLabel: "Activity Date",
 		Cols: []exportCol{
 			{Key: "activity_date", Label: "Date", Type: colDate, Expr: "af.activity_date"},
 			{Key: "platform", Label: "Platform", Type: colText, Expr: "af.platform"},
@@ -960,8 +1006,9 @@ var exportDatasets = []exportDataset{
 		Desc:      "Blink in-app funnel events (first_open → registration → KYC → onboarding) by day, platform and media source — from AppsFlyer.",
 		From:      "appsflyer_events ae",
 		OrderBy:   "ae.activity_date DESC, ae.unique_users DESC",
+		KeyCol:    "ae.id",
 		DateCol:   "ae.activity_date",
-		DateLabel: "Activity date",
+		DateLabel: "Activity Date",
 		Cols: []exportCol{
 			{Key: "activity_date", Label: "Date", Type: colDate, Expr: "ae.activity_date"},
 			{Key: "platform", Label: "Platform", Type: colText, Expr: "ae.platform"},

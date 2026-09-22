@@ -4,7 +4,7 @@ import { Page, SectionCard, Spinner, ErrBanner, Modal, DataTable, DateFilter } f
 import type { TableCol, FilterDef } from '../../components/UI'
 import LogCallModal from '../../components/LogCallModal'
 import { apiFetch, apiPost } from '../../lib/api'
-import { fmtNum, fmtDatetime } from '../../lib/fmt'
+import { fmtCount, fmtDatetime } from '../../lib/fmt'
 import { NAVY, RED, GREEN, AMBER, BLUE, NUM, INTER, FW, RADIUS, SP, TEXT } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -72,8 +72,18 @@ interface InboundSummary {
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-const TODAY = ymd(new Date())
-const WEEK_AGO = ymd(new Date(Date.now() - 6 * 864e5))
+// Computed when the page mounts, never at module load. As module constants these froze
+// the moment the bundle was evaluated, so a tab left open overnight kept yesterday's
+// window: "Owed a Call Back" excluded everything that came in today, and Queue Call-Backs
+// swept that same stale window server-side.
+function todayYmd(): string   { return ymd(new Date()) }
+function weekAgoYmd(): string { return ymd(new Date(Date.now() - 6 * 864e5)) }
+
+// The list endpoint returns at most this many rows (handlers/call_center_inbound.go).
+// The KPI strip is computed over the whole window regardless, so when the cap bites the
+// table is a subset of what the figures above it describe — say so on screen rather than
+// leave a supervisor reconciling two numbers that cannot agree.
+const ROW_CAP = 2000
 
 function Stat({ label, value, color, hint }: { label: string; value: string; color: string; hint?: string }) {
   return (
@@ -102,7 +112,7 @@ function StatusBadge({ call }: { call: InboundCall }) {
   if (call.abandoned) {
     return <span title="Caller hung up before any agent answered" style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', background: RED, padding: '2px 8px', borderRadius: RADIUS.full }}>Abandoned</span>
   }
-  return <span title="Missed, never returned, not queued" style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', background: RED, padding: '2px 8px', borderRadius: RADIUS.full }}>Owed a call</span>
+  return <span title="Missed, never returned, not queued" style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', background: RED, padding: '2px 8px', borderRadius: RADIUS.full }}>Owed a Call Back</span>
 }
 
 // The one-word status for a call — matches StatusBadge, and drives the Status filter
@@ -112,7 +122,10 @@ function statusLabel(c: InboundCall): string {
   if (c.returned) return 'Returned'
   if (c.queued) return 'Queued'
   if (c.abandoned) return 'Abandoned'
-  return 'Owed a call'
+  // One spelling of this status everywhere it appears — badge, table search and the KPI
+  // strip. It used to read "Owed a call" here, "Owed a Call Back" on the card and
+  // "Call-Back" on the button: three names for one thing on one screen.
+  return 'Owed a Call Back'
 }
 
 // Compact "1m 04s" / "12s" from seconds.
@@ -239,8 +252,12 @@ export default function CallCenterInbound() {
   const [summary, setSummary] = useState<InboundSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState(WEEK_AGO)
-  const [dateTo, setDateTo] = useState(TODAY)
+  const [dateFrom, setDateFrom] = useState(weekAgoYmd)
+  const [dateTo, setDateTo] = useState(todayYmd)
+  // Status is a SERVER filter — the backend takes status/outstanding. Filtering in the
+  // browser instead meant the table showed a subset of a 2,000-row cap while the KPI
+  // strip described the whole window, and the two openly disagreed.
+  const [statusFilter, setStatusFilter] = useState<'all' | 'answered' | 'missed' | 'outstanding'>('all')
   const [queueing, setQueueing] = useState(false)
   const [ticketFor, setTicketFor] = useState<InboundCall | null>(null)
   const [logFor, setLogFor] = useState<InboundCall | null>(null)
@@ -249,7 +266,11 @@ export default function CallCenterInbound() {
   const [legsCache, setLegsCache] = useState<Record<number, RingLeg[]>>({})
   const [legsLoading, setLegsLoading] = useState<number | null>(null)
 
-  async function openFlow(c: InboundCall) {
+  // Memoised on legsCache so the columns below can depend on it honestly. As a plain
+  // function inside a cols useMemo([]) it was captured from the first render, together
+  // with its then-empty legsCache — so re-opening a call's Flow always refetched and
+  // re-flashed the spinner over legs that were already in hand.
+  const openFlow = useCallback(async (c: InboundCall) => {
     setFlowFor(c)
     if (!legsCache[c.id]) {
       setLegsLoading(c.id)
@@ -259,18 +280,21 @@ export default function CallCenterInbound() {
       } catch { setLegsCache(m => ({ ...m, [c.id]: [] })) }
       finally { setLegsLoading(null) }
     }
-  }
+  }, [legsCache])
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     const params = new URLSearchParams({ from: dateFrom, to: dateTo })
+    // Push the status down into the query rather than filtering what came back.
+    if (statusFilter === 'outstanding') params.set('outstanding', '1')
+    else if (statusFilter !== 'all') params.set('status', statusFilter)
     try {
       const r = await apiFetch<{ data: InboundCall[]; summary: InboundSummary }>(`/api/call-center/inbound?${params}`)
       setCalls(r.data ?? [])
       setSummary(r.summary ?? null)
     } catch (e: any) { setErr(e.message ?? 'Failed to load inbound calls') }
     finally { setLoading(false) }
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, statusFilter])
 
   useEffect(() => { load() }, [load])
 
@@ -281,7 +305,7 @@ export default function CallCenterInbound() {
       const n = r?.queued ?? 0
       toast.success(n === 0
         ? 'Nothing to queue: every missed call has been returned or is already queued'
-        : `${fmtNum(n)} call-back${n === 1 ? '' : 's'} added to the outbound queue`)
+        : `${fmtCount(n)} call-back${n === 1 ? '' : 's'} added to the outbound queue`)
       await load()
     } catch (e: any) { toast.error(e?.message || 'Could not queue call-backs') }
     finally { setQueueing(false) }
@@ -293,13 +317,8 @@ export default function CallCenterInbound() {
   type Row = InboundCall & { _status: string }
   const rows: Row[] = useMemo(() => calls.map(c => ({ ...c, _status: statusLabel(c) })), [calls])
 
-  const STATUS_CHIP: Record<string, { bg: string; txt: string }> = {
-    Answered:      { bg: `${GREEN}18`, txt: GREEN },
-    Returned:      { bg: `${BLUE}18`,  txt: BLUE },
-    Queued:        { bg: `${AMBER}18`, txt: AMBER },
-    Abandoned:     { bg: RED,          txt: '#fff' },
-    'Owed a call': { bg: RED,          txt: '#fff' },
-  }
+  // True when the server-side cap truncated the list.
+  const capped = calls.length >= ROW_CAP
 
   const cols: TableCol<Row>[] = useMemo(() => [
     {
@@ -325,7 +344,7 @@ export default function CallCenterInbound() {
       ),
     },
     {
-      key: 'ring_legs', label: 'Ring / wait', sortable: true,
+      key: 'ring_legs', label: 'Ring / Wait', sortable: true,
       render: (c) => (
         <div style={{ fontSize: TEXT.xs }}>
           {c.ring_legs > 0
@@ -344,7 +363,7 @@ export default function CallCenterInbound() {
     },
     { key: '_status', label: 'Status', sortable: true, render: (c) => <StatusBadge call={c} /> },
     {
-      key: 'agent_name', label: 'Handled by', sortable: true,
+      key: 'agent_name', label: 'Handled By', sortable: true,
       render: (c) => (
         <span style={{ color: 'var(--txt2)', fontSize: TEXT.xs }}>
           {c.agent_name || <span style={{ color: 'var(--txt3)' }}>—</span>}
@@ -387,7 +406,7 @@ export default function CallCenterInbound() {
             }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 13 }}>call</span>
-            Call back
+            Call Back
           </button>
           <button
             onClick={() => setLogFor(c)}
@@ -397,7 +416,7 @@ export default function CallCenterInbound() {
               borderRadius: RADIUS.full, border: '1px solid var(--bdr)',
               background: 'transparent', color: 'var(--txt2)', cursor: 'pointer',
             }}
-          >Log call</button>
+          >Log Call</button>
           <button
             onClick={() => setTicketFor(c)}
             style={{
@@ -405,7 +424,7 @@ export default function CallCenterInbound() {
               borderRadius: RADIUS.full, border: '1px solid var(--bdr)',
               background: 'transparent', color: 'var(--txt2)', cursor: 'pointer',
             }}
-          >Raise ticket</button>
+          >Raise Ticket</button>
           {c.customer_cif && (
             <button
               onClick={() => navigate(`/customers/${c.customer_cif}`)}
@@ -419,12 +438,12 @@ export default function CallCenterInbound() {
         </div>
       ),
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [])
+  ], [openFlow, navigate])
 
+  // Status now lives in the server-side control above the table, so it is not repeated
+  // here — two status filters on one screen was the confusion, not the cure.
   const tableFilters: FilterDef<Row>[] = [
-    { key: '_status', label: 'Status', chipStyle: (v) => STATUS_CHIP[v] ?? { bg: 'var(--chip-bg)', txt: 'var(--txt2)' } },
-    { key: 'agent_name', label: 'Handled by' },
+    { key: 'agent_name', label: 'Handled By' },
   ]
 
   return (
@@ -439,21 +458,31 @@ export default function CallCenterInbound() {
 
       {/* Health strip */}
       <div style={{ display: 'flex', gap: SP[2], marginBottom: SP[4], flexWrap: 'wrap' }}>
-        <Stat label="Inbound calls" value={fmtNum(summary?.total ?? 0)} color={NAVY} hint="in the selected range" />
-        <Stat label="Answered" value={fmtNum(summary?.answered ?? 0)} color={GREEN}
+        <Stat label="Inbound Calls" value={fmtCount(summary?.total ?? 0)} color={NAVY} hint="in the selected range" />
+        <Stat label="Answered" value={fmtCount(summary?.answered ?? 0)} color={GREEN}
               hint={summary?.answer_rate_pct != null ? `${summary.answer_rate_pct}% answer rate` : undefined} />
-        <Stat label="Missed" value={fmtNum(summary?.missed ?? 0)} color={AMBER} />
-        <Stat label="Abandoned" value={fmtNum(summary?.abandoned ?? 0)} color={(summary?.abandoned ?? 0) > 0 ? RED : GREEN}
+        <Stat label="Missed" value={fmtCount(summary?.missed ?? 0)} color={AMBER} />
+        <Stat label="Abandoned" value={fmtCount(summary?.abandoned ?? 0)} color={(summary?.abandoned ?? 0) > 0 ? RED : GREEN}
               hint="caller hung up before pickup" />
-        <Stat label="Avg wait" value={fmtWait(summary?.avg_wait_sec ?? null)} color={NAVY}
+        <Stat label="Avg Wait" value={fmtWait(summary?.avg_wait_sec ?? null)} color={NAVY}
               hint="time on the line before answer" />
-        <Stat label="Owed a call back" value={fmtNum(outstanding)} color={outstanding > 0 ? RED : GREEN}
+        <Stat label="Owed a Call Back" value={fmtCount(outstanding)} color={outstanding > 0 ? RED : GREEN}
               hint="missed, not returned, not queued" />
       </div>
 
       {/* Controls — date range now lives in the page header (top-right); status & agent
           live in the table filter. This row is just the call-back action. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[3], flexWrap: 'wrap' }}>
+        <div role="group" aria-label="Filter By Status" style={{ display: 'flex', gap: 2, background: 'var(--chip-bg)', borderRadius: RADIUS.md, padding: 3, border: '1px solid var(--bdr)' }}>
+          {([['all', 'All'], ['answered', 'Answered'], ['missed', 'Missed'], ['outstanding', 'Owed a Call Back']] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setStatusFilter(k)} aria-pressed={statusFilter === k} style={{
+              padding: '5px 12px', borderRadius: 7, border: 'none', fontSize: TEXT.xs, fontFamily: INTER, cursor: 'pointer',
+              fontWeight: statusFilter === k ? FW.bold : FW.medium,
+              background: statusFilter === k ? 'var(--card)' : 'transparent',
+              color: statusFilter === k ? 'var(--txt)' : 'var(--txt2)',
+            }}>{label}</button>
+          ))}
+        </div>
         <button
           onClick={queueCallbacks}
           disabled={queueing || outstanding === 0}
@@ -468,12 +497,22 @@ export default function CallCenterInbound() {
           }}
         >
           {queueing ? <Spinner size={13} color="#fff" /> : <span className="material-symbols-rounded" style={{ fontSize: 16 }}>phone_forwarded</span>}
-          Queue {outstanding > 0 ? fmtNum(outstanding) : ''} call-back{outstanding === 1 ? '' : 's'}
+          Queue {outstanding > 0 ? fmtCount(outstanding) : ''} Call-Back{outstanding === 1 ? '' : 's'}
         </button>
       </div>
 
+      {capped && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', marginBottom: SP[3],
+          borderRadius: RADIUS.md, background: `${AMBER}14`, border: `1px solid ${AMBER}40` }}>
+          <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: 16, color: AMBER }}>info</span>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+            Showing the {fmtCount(ROW_CAP)} most recent calls in this range — the figures above still cover the whole window. Narrow the dates or pick a status to see the rest.
+          </span>
+        </div>
+      )}
+
       <SectionCard
-        title="Inbound calls"
+        title="Inbound Calls"
         subtitle="A missed call counts as returned once an outbound call reaches the same number within 48 hours"
         badge={rows.length}
         padding={false}
@@ -497,7 +536,7 @@ export default function CallCenterInbound() {
       <Modal
         open={!!flowFor}
         onClose={() => setFlowFor(null)}
-        title={flowFor ? `Call flow — ${flowFor.matched_customer || flowFor.customer_name || flowFor.customer_phone || 'inbound call'}` : 'Call flow'}
+        title={flowFor ? `Call Flow — ${flowFor.matched_customer || flowFor.customer_name || flowFor.customer_phone || 'inbound call'}` : 'Call Flow'}
         width={620}
       >
         {flowFor && <CallFlow call={flowFor} legs={legsCache[flowFor.id]} loading={legsLoading === flowFor.id} />}
@@ -558,15 +597,17 @@ function RaiseTicketModal({ call, onClose, onDone }: {
   }
 
   return (
-    <Modal open={!!call} onClose={onClose} title="Raise a ticket from this call" width={480}>
+    <Modal open={!!call} onClose={onClose} title="Raise a Ticket from This Call" width={480}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3] }}>
         <div>
-          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Subject</label>
-          <input value={subject} onChange={e => setSubject(e.target.value)} style={field} />
+          <label htmlFor="inbound-ticket-subject" style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Subject</label>
+          <input id="inbound-ticket-subject" value={subject} onChange={e => setSubject(e.target.value)} style={field} />
         </div>
         <div>
-          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>What did they call about?</label>
+          {/* A question makes a placeholder, not a label — the field already has one below. */}
+          <label htmlFor="inbound-ticket-body" style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>What They Called About</label>
           <textarea
+            id="inbound-ticket-body"
             spellCheck={false} rows={4} value={body} onChange={e => setBody(e.target.value)}
             placeholder="Optional: context for whoever picks this up"
             style={{ ...field, resize: 'vertical' }}
@@ -584,7 +625,7 @@ function RaiseTicketModal({ call, onClose, onDone }: {
           }}
         >
           {saving ? <Spinner size={14} color="#fff" /> : <span className="material-symbols-rounded" style={{ fontSize: 18 }}>confirmation_number</span>}
-          {saving ? 'Raising…' : 'Raise ticket'}
+          {saving ? 'Raising…' : 'Raise Ticket'}
         </button>
       </div>
     </Modal>

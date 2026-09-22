@@ -28,7 +28,7 @@ export default function CareThread({ ticket, messages }: { ticket: MailTicket; m
         const failed = m.send_state === 'failed'
         const accent = note ? AMBER : agent ? NAVY : BLUE
         const who = agent ? (m.author_user_name || m.author_name || 'O3 Care') : (ticket.customer_name || 'Customer')
-        const chip = note ? 'Internal note' : agent ? 'Outgoing reply' : 'Incoming'
+        const chip = note ? 'Internal Note' : agent ? 'Outgoing Reply' : 'Incoming'
 
         return (
           <div key={m.id} style={{
@@ -50,9 +50,9 @@ export default function CareThread({ ticket, messages }: { ticket: MailTicket; m
                 {chip}
               </span>
               <span style={{ flex: 1 }} />
-              {pending && <span style={{ fontSize: TEXT['2xs'], color: AMBER, fontWeight: FW.bold }}>sending…</span>}
-              {recalled && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontWeight: FW.bold }}>recalled</span>}
-              {failed && <span style={{ fontSize: TEXT['2xs'], color: RED, fontWeight: FW.bold }}>failed to send</span>}
+              {pending && <span style={{ fontSize: TEXT['2xs'], color: AMBER, fontWeight: FW.bold }}>Sending…</span>}
+              {recalled && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontWeight: FW.bold }}>Recalled</span>}
+              {failed && <span style={{ fontSize: TEXT['2xs'], color: RED, fontWeight: FW.bold }}>Failed to Send</span>}
               {!pending && !recalled && !failed && agent && <span className="material-symbols-rounded" title="Sent" style={{ fontSize: 15, color: GREEN }}>done_all</span>}
               <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', whiteSpace: 'nowrap' }}>{fmtDatetime(m.created_at)}</span>
             </div>

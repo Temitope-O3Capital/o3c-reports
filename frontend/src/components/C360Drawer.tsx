@@ -311,7 +311,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
               {/* Products & exposure */}
               {products.length > 0 && (
                 <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--bdr)' }}>
-                  <div style={SEC_TITLE}>Products &amp; exposure</div>
+                  <div style={SEC_TITLE}>Products &amp; Exposure</div>
                   {products.map((p, i) => (
                     <div key={i} style={{
                       display: 'flex', alignItems: 'baseline',
@@ -375,7 +375,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                           </div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 10.5, color: 'var(--txt3)' }}>Failed / abandoned</div>
+                          <div style={{ fontSize: 10.5, color: 'var(--txt3)' }}>Failed / Abandoned</div>
                           <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: payments.summary.funding_failed > 0 ? AMBER : 'var(--txt2)' }}>
                             {payments.summary.funding_failed}
                           </div>
@@ -428,7 +428,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                         padding: 0,
                       }}
                     >
-                      View all
+                      View All
                     </button>
                   )}
                 </div>
@@ -441,7 +441,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
 
                 {!evtLoading && events.length === 0 && (
                   <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: 12 }}>
-                    No credit events on record
+                    No Credit Events on Record
                   </div>
                 )}
 
@@ -506,7 +506,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
 
               {products.length === 0 && events.length === 0 && profileKVs.length === 0 && (
                 <div style={{ padding: '48px 24px', color: 'var(--txt3)', fontSize: 13, textAlign: 'center' }}>
-                  No additional data available
+                  No Additional Data Available
                 </div>
               )}
             </>
@@ -558,7 +558,7 @@ export default function C360Drawer({ open, onClose, initialCustomer }: {
                 fontFamily: SORA, cursor: 'pointer', whiteSpace: 'nowrap',
               }}
             >
-              Full profile
+              Full Profile
             </button>
           </div>
         )}

@@ -471,7 +471,7 @@ const FLAG_ICON: Record<Flag['tone'], string> = { stop: 'block', warn: 'warning'
 export function FlagList({ flags }: { flags: Flag[] }) {
   const stops = flags.filter(f => f.tone === 'stop').length
   return (
-    <Panel title="What could stop it" hint={stops ? `${stops} blocking · ${flags.length - stops} to note` : `${flags.length} to note`} flush>
+    <Panel title="What Could Stop It" hint={stops ? `${stops} blocking · ${flags.length - stops} to note` : `${flags.length} to note`} flush>
       <ul className="sd-flags">
         {flags.map((f, i) => (
           <li key={i} className={`sd-flag is-${f.tone}`}>
@@ -489,16 +489,16 @@ export function FlagList({ flags }: { flags: Flag[] }) {
 export function AffordabilityPanel({ facts }: { facts: MemoFacts }) {
   const rows: { k: string; v: ReactNode; note?: ReactNode; total?: boolean; color?: string }[] = []
   rows.push({
-    k: 'Monthly income',
+    k: 'Monthly Income',
     v: facts.incomeKobo !== null ? fmtKobo(facts.incomeKobo) : '—',
     note: facts.incomeSource || 'not recorded',
   })
   if (facts.declaredIncomeKobo !== null && facts.incomeKobo !== null && Math.abs(facts.declaredIncomeKobo - facts.incomeKobo) >= 100) {
-    rows.push({ k: 'Declared income', v: fmtKobo(facts.declaredIncomeKobo), note: 'what the applicant told us — not the figure Phoenix used' })
+    rows.push({ k: 'Declared Income', v: fmtKobo(facts.declaredIncomeKobo), note: 'what the applicant told us — not the figure Phoenix used' })
   }
   if (facts.obligationsKobo !== null) {
     rows.push({
-      k: 'Existing loan repayments',
+      k: 'Existing Loan Repayments',
       v: `${fmtKobo(facts.obligationsKobo)} / mo`,
       note: facts.repaymentCount !== null && facts.monthsOfData
         ? `average of ${facts.repaymentCount} repayments over ${facts.monthsOfData} months of statement`
@@ -506,11 +506,11 @@ export function AffordabilityPanel({ facts }: { facts: MemoFacts }) {
     })
   }
   if (facts.declaredObligationsKobo !== null) {
-    rows.push({ k: 'Declared obligations', v: `${fmtKobo(facts.declaredObligationsKobo)} / mo`, note: 'from the application form' })
+    rows.push({ k: 'Declared Obligations', v: `${fmtKobo(facts.declaredObligationsKobo)} / mo`, note: 'from the application form' })
   }
   const dti = facts.dtiPct
   rows.push({
-    k: 'Debt-to-income',
+    k: 'Debt-to-Income',
     v: dti !== null ? `${dti.toFixed(1)}%` : '—',
     total: true,
     color: dti === null ? undefined : dti > 50 ? 'var(--sd-red)' : dti > 33 ? 'var(--sd-amber)' : undefined,
@@ -519,13 +519,13 @@ export function AffordabilityPanel({ facts }: { facts: MemoFacts }) {
       : facts.dtiSource ? `from the ${facts.dtiSource}` : 'not assessed',
   })
   rows.push({
-    k: 'Exposure requested',
+    k: 'Exposure Requested',
     v: facts.requestedKobo !== null ? fmtKobo(facts.requestedKobo) : '—',
     note: facts.requestedKind === 'limit' ? 'a credit limit' : facts.requestedKind === 'amount' ? 'a loan amount' : undefined,
   })
   if (facts.maxLendKobo !== null) {
     rows.push({
-      k: 'Phoenix would lend up to',
+      k: 'Phoenix Would Lend Up To',
       v: fmtKobo(facts.maxLendKobo),
       note: facts.maxLendKobo === 0 && facts.hardGate ? 'nothing — the hard gate applies' : 'the affordability ceiling from the scorecard',
     })
@@ -568,11 +568,11 @@ export function BureauPanel({ facts }: { facts: MemoFacts }) {
             <tbody>
               {([
                 ['Status', (b: BureauLine) => humanise(b.status)],
-                ['Bureau score', (b: BureauLine) => n(b.score)],
+                ['Bureau Score', (b: BureauLine) => n(b.score)],
                 ['Facilities', (b: BureauLine) => n(b.facilities)],
                 ['Active', (b: BureauLine) => n(b.active)],
                 ['Delinquent', (b: BureauLine) => (b.delinquent ? <span style={{ color: 'var(--sd-red)' }}>{b.delinquent}</span> : n(b.delinquent))],
-                ['Worst overdue', (b: BureauLine) => (b.maxOverdueDays === null ? '—' : `${b.maxOverdueDays} days`)],
+                ['Worst Overdue', (b: BureauLine) => (b.maxOverdueDays === null ? '—' : `${b.maxOverdueDays} days`)],
               ] as const).map(([label, get]) => (
                 <tr key={label}>
                   <th scope="row">{label}</th>
@@ -585,10 +585,10 @@ export function BureauPanel({ facts }: { facts: MemoFacts }) {
       )}
       <div className="sd-panel-body">
         <div className="sd-fields">
-          <Field label="Payment-history rate" value={facts.paymentHistoryRate === null ? null : pct(facts.paymentHistoryRate)} mono />
-          <Field label="Outstanding debt" value={facts.outstandingMonths === null ? null : `${facts.outstandingMonths.toFixed(1)}× monthly income`} mono />
-          <Field label="Credit history" value={facts.creditAgeMonths === null ? null : `${facts.creditAgeMonths} months`} mono />
-          <Field label="Identity check" value={facts.identityStatus ? humanise(facts.identityStatus) : null} />
+          <Field label="Payment-History Rate" value={facts.paymentHistoryRate === null ? null : pct(facts.paymentHistoryRate)} mono />
+          <Field label="Outstanding Debt" value={facts.outstandingMonths === null ? null : `${facts.outstandingMonths.toFixed(1)}× monthly income`} mono />
+          <Field label="Credit History" value={facts.creditAgeMonths === null ? null : `${facts.creditAgeMonths} months`} mono />
+          <Field label="Identity Check" value={facts.identityStatus ? humanise(facts.identityStatus) : null} />
         </div>
       </div>
     </Panel>
@@ -616,17 +616,17 @@ export function StatementPanel({ facts }: { facts: MemoFacts }) {
   return (
     <Panel title="Statement" hint={period}>
       <div className="sd-fields">
-        <Field label="Read by" value={readBy} wide />
-        <Field label="Months of data" value={num(S.months_of_data)} mono />
-        <Field label="Predicted salary" value={money('predicted_average_salary_minor')} mono />
-        <Field label="Avg monthly credits" value={money('avg_monthly_credits_minor')} mono />
-        <Field label="Avg monthly debits" value={money('avg_monthly_debits_minor')} mono />
-        <Field label="Closing balance" value={money('closing_balance_minor')} mono />
+        <Field label="Read By" value={readBy} wide />
+        <Field label="Months of Data" value={num(S.months_of_data)} mono />
+        <Field label="Predicted Salary" value={money('predicted_average_salary_minor')} mono />
+        <Field label="Avg Monthly Credits" value={money('avg_monthly_credits_minor')} mono />
+        <Field label="Avg Monthly Debits" value={money('avg_monthly_debits_minor')} mono />
+        <Field label="Closing Balance" value={money('closing_balance_minor')} mono />
         <Field label="Payroll" value={S.payroll_detected === true ? `detected${salaryCount ? ` · ${salaryCount} payments` : ''}` : S.payroll_detected === false ? 'not detected' : null} />
-        <Field label="Overdrawn months" value={ratio('overdraft_frequency')} mono />
-        <Field label="Savings rate" value={ratio('savings_rate')} mono />
-        <Field label="Loan disbursements" value={num(S.loan_disbursement_count)} mono />
-        <Field label="Bounces per month" value={num(S.bounce_count_per_month)} mono />
+        <Field label="Overdrawn Months" value={ratio('overdraft_frequency')} mono />
+        <Field label="Savings Rate" value={ratio('savings_rate')} mono />
+        <Field label="Loan Disbursements" value={num(S.loan_disbursement_count)} mono />
+        <Field label="Bounces per Month" value={num(S.bounce_count_per_month)} mono />
         <Field label="Gambling" value={ratio('gambling_ratio')} mono />
       </div>
     </Panel>
@@ -638,11 +638,11 @@ export function StatementPanel({ facts }: { facts: MemoFacts }) {
 export function DriversPanel({ facts }: { facts: MemoFacts }) {
   const top = facts.drivers.slice(0, 10)
   if (!top.length) {
-    return <Panel title="What moved the score"><div className="sd-note">Phoenix recorded no feature contributions for this score.</div></Panel>
+    return <Panel title="What Moved the Score"><div className="sd-note">Phoenix recorded no feature contributions for this score.</div></Panel>
   }
   const max = Math.max(...top.map(d => Math.abs(d.points)), 1)
   return (
-    <Panel title="What moved the score" hint={`${facts.drivers.length} of ${facts.featureCount} features counted`} flush>
+    <Panel title="What Moved the Score" hint={`${facts.drivers.length} of ${facts.featureCount} features counted`} flush>
       {facts.hardGate && (
         <div className="sd-note is-warn" style={{ margin: '12px 18px 0' }}>
           <span className="material-symbols-rounded" aria-hidden="true">info</span>
@@ -672,12 +672,12 @@ export function DriversPanel({ facts }: { facts: MemoFacts }) {
 export function EyeUnavailable({ state }: { state: EyeState }) {
   if (state.detail) return null
   const [icon, title, body] = state.loading
-    ? ['hourglass_top', 'Reading Phoenix’s decision…', 'The engine’s view loads alongside the file.']
+    ? ['hourglass_top', 'Reading Phoenix’s Decision…', 'The engine’s view loads alongside the file.']
     : state.error
-      ? ['cloud_off', 'Could not reach Phoenix', `${state.error}. The figures below are the workspace’s own record, not the engine’s.`]
+      ? ['cloud_off', 'Could Not Reach Phoenix', `${state.error}. The figures below are the workspace’s own record, not the engine’s.`]
       : state.reason === 'not_submitted'
-        ? ['do_not_disturb_on', 'Not submitted to Phoenix', 'There is no engine decision for this application. Assess it from the documents and the bureau pull.']
-        : ['hourglass_empty', 'Not scored yet', 'Phoenix has the application but has not scored it. The memo fills in once it does.']
+        ? ['do_not_disturb_on', 'Not Submitted to Phoenix', 'There is no engine decision for this application. Assess it from the documents and the bureau pull.']
+        : ['hourglass_empty', 'Not Scored Yet', 'Phoenix has the application but has not scored it. The memo fills in once it does.']
   return (
     <div className="sd-band sd-band-wait">
       <div className="sd-band-icn"><span className="material-symbols-rounded">{icon}</span></div>
@@ -687,7 +687,7 @@ export function EyeUnavailable({ state }: { state: EyeState }) {
       </div>
       {state.error && (
         <button className="sd-btn" style={{ marginLeft: 'auto' }} onClick={state.reload}>
-          <span className="material-symbols-rounded">refresh</span>Try again
+          <span className="material-symbols-rounded">refresh</span>Try Again
         </button>
       )}
     </div>

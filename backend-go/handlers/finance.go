@@ -77,13 +77,21 @@ func finTreasury(db *core.DB) http.HandlerFunc {
 			FROM app.transactions
 			WHERE txn_date >= CURRENT_DATE - 30 AND txn_date <= CURRENT_DATE`)
 
-		// FD book as a deposit liability (kobo).
+		// FD book as a deposit liability (kobo). Scoped by status, not by
+		// maturity_date >= CURRENT_DATE: that proxy counted 21 Closed deposits whose
+		// maturity happens to be in the future as active, and dropped the 6 Active
+		// deposits that are already past maturity — the ones the treasury most needs
+		// to see, because they are payable now.
 		fdRows, _ := db.PGQuery(ctx, `
 			SELECT
-			    COALESCE(SUM(principal_kobo), 0)                                     AS fd_liabilities_kobo,
-			    COALESCE(SUM(accrued_interest_kobo), 0)                              AS fd_accrued_kobo,
-			    COUNT(*) FILTER (WHERE maturity_date >= CURRENT_DATE)                AS active_fds
-			FROM app.cbs_fixed_deposits`)
+			    COALESCE(SUM(principal_kobo), 0)        AS fd_liabilities_kobo,
+			    COALESCE(SUM(accrued_interest_kobo), 0) AS fd_accrued_kobo,
+			    COUNT(*)                                AS active_fds,
+			    COUNT(*) FILTER (WHERE maturity_date::date < CURRENT_DATE) AS past_due_fds,
+			    COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
+			             FILTER (WHERE maturity_date::date < CURRENT_DATE), 0) AS past_due_kobo
+			FROM app.cbs_fixed_deposits
+			WHERE status='Active' AND ` + sqlFDFunded)
 
 		// Loan book outstanding (kobo) from the latest CBS portfolio snapshot.
 		var loanBookKobo, nplKobo int64
@@ -101,6 +109,8 @@ func finTreasury(db *core.DB) http.HandlerFunc {
 			"fd_liabilities_kobo": int64(0),
 			"fd_accrued_kobo":     int64(0),
 			"active_fds":          int64(0),
+			"past_due_fds":        int64(0),
+			"past_due_kobo":       int64(0),
 			"loan_book_kobo":      loanBookKobo,
 			"npl_kobo":            nplKobo,
 		}
@@ -113,6 +123,8 @@ func finTreasury(db *core.DB) http.HandlerFunc {
 			out["fd_liabilities_kobo"] = toInt64(fdRows[0]["fd_liabilities_kobo"])
 			out["fd_accrued_kobo"] = toInt64(fdRows[0]["fd_accrued_kobo"])
 			out["active_fds"] = toInt64(fdRows[0]["active_fds"])
+			out["past_due_fds"] = toInt64(fdRows[0]["past_due_fds"])
+			out["past_due_kobo"] = toInt64(fdRows[0]["past_due_kobo"])
 		}
 
 		// Daily flow trend over the trailing 30 closed days (naira) for the
@@ -143,9 +155,20 @@ func finFDAccrual(db *core.DB) http.HandlerFunc {
 		}
 
 		// Live CBS fixed-deposit register; accrued interest is carried by the record.
+		//
+		// Scoped on status, not on maturity_date >= CURRENT_DATE. That proxy pulled in
+		// 21 Closed deposits (whose money fields Udara zeroes on closure, so they
+		// accrue nothing and only padded the report) and dropped the 6 Active deposits
+		// already past maturity — ₦497.2m principal on ₦58.6m accrued that is still
+		// accruing and still owed. Those now appear, flagged with days_overdue.
+		//
+		// daily_interest_kobo falls back to the measured accrual where the contract
+		// rate is missing (27 Active deposits, 25 of them visibly accruing), so the
+		// report does not show them earning the depositor nothing.
 		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
 			SELECT
 			    cf.cbs_id AS id,
+			    cf.cbs_account_number,
 			    cf.raw->>'name' AS customer_name, -- Udara's own name (cbs_customer_id != app.customers.cif)
 			    cf.principal_kobo AS principal,
 			    cf.interest_rate AS rate,
@@ -153,10 +176,18 @@ func finFDAccrual(db *core.DB) http.HandlerFunc {
 			    cf.maturity_date,
 			    cf.tenor_days,
 			    GREATEST(0, %s - cf.commencement_date::date) AS days_elapsed,
+			    GREATEST(0, CURRENT_DATE - cf.maturity_date::date) AS days_overdue,
+			    (cf.maturity_date::date < CURRENT_DATE) AS is_past_due,
 			    cf.accrued_interest_kobo,
-			    ROUND(cf.principal_kobo::numeric * COALESCE(cf.interest_rate,0) / 100 / 365)::bigint AS daily_interest_kobo
+			    ROUND(CASE
+			        WHEN COALESCE(cf.interest_rate,0) > 0
+			            THEN cf.principal_kobo::numeric * cf.interest_rate / 100 / 365
+			        WHEN COALESCE(cf.accrued_interest_kobo,0) > 0 AND cf.commencement_date IS NOT NULL
+			            THEN cf.accrued_interest_kobo::numeric
+			                 / GREATEST(1, CURRENT_DATE - cf.commencement_date::date)
+			        ELSE 0 END)::bigint AS daily_interest_kobo
 			FROM cbs_fixed_deposits cf
-			WHERE cf.maturity_date >= CURRENT_DATE
+			WHERE cf.status = 'Active'
 			  AND cf.principal_kobo IS NOT NULL AND cf.principal_kobo > 0
 			ORDER BY cf.accrued_interest_kobo DESC`, asOf))
 		if err != nil {
@@ -168,28 +199,51 @@ func finFDAccrual(db *core.DB) http.HandlerFunc {
 }
 
 /* ── FD KPIs ─────────────────────────────────────────────────────────────────
-   Headline metrics for the Fixed Deposit page. Reads fd_transactions.
+   Headline metrics for the Fixed Deposit page, from the live CBS register.
 */
 
 func finFDKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Live Udara/CBS fixed-deposit register. Accrued interest is carried by the CBS
 		// record directly (no per-day recompute needed).
+		//
+		// "Active" is the status, not maturity_date >= CURRENT_DATE. The old proxy
+		// counted 245 deposits — 21 Closed-but-future-dated in, 6 Active-but-past-due
+		// out — against a true Active book of 230 (213 of them funded). Past-due
+		// deposits are now reported on their own line instead of vanishing.
+		//
+		// avg_rate_pct is principal-weighted on the effective rate, the same basis as
+		// /api/fd-book/kpis and the executive FD page. The old unweighted
+		// AVG(interest_rate) ran over all 380 rows — including 150 Closed deposits
+		// zeroed on closure — and answered a question nobody asked: the average of the
+		// rate column rather than the rate the book is actually paying.
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-			    COUNT(*)                                                                 AS total_fds,
-			    COUNT(*) FILTER (WHERE maturity_date >= CURRENT_DATE)                     AS active_fds,
-			    COALESCE(SUM(principal_kobo) FILTER (WHERE maturity_date >= CURRENT_DATE), 0) AS total_principal_kobo,
-			    COALESCE(SUM(accrued_interest_kobo), 0)                                   AS total_interest_accrued_kobo,
-			    COUNT(*) FILTER (WHERE DATE_TRUNC('month', maturity_date) = DATE_TRUNC('month', CURRENT_DATE)) AS matured_this_month,
-			    COALESCE(AVG(tenor_days), 0)::bigint                                      AS avg_tenor_days,
-			    COALESCE(ROUND(AVG(interest_rate)::numeric, 1), 0)                        AS avg_rate_pct
-			FROM cbs_fixed_deposits`)
+			    COUNT(*)                                                     AS total_fds,
+			    COUNT(*) FILTER (WHERE book)                                 AS active_fds,
+			    COUNT(*) FILTER (WHERE status='Active' AND NOT funded)       AS unfunded_fds,
+			    COALESCE(SUM(principal_kobo) FILTER (WHERE book), 0)         AS total_principal_kobo,
+			    COALESCE(SUM(accrued_interest_kobo) FILTER (WHERE book), 0)  AS total_interest_accrued_kobo,
+			    COUNT(*) FILTER (WHERE book AND maturity_date::date < CURRENT_DATE) AS past_due_fds,
+			    COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
+			             FILTER (WHERE book AND maturity_date::date < CURRENT_DATE), 0) AS past_due_kobo,
+			    COUNT(*) FILTER (WHERE DATE_TRUNC('month', maturity_date::date) = DATE_TRUNC('month', CURRENT_DATE)) AS matured_this_month,
+			    COALESCE(AVG(tenor_days) FILTER (WHERE book), 0)::bigint     AS avg_tenor_days,
+			    COALESCE(ROUND(SUM(principal_kobo * eff_rate) FILTER (WHERE book AND eff_rate IS NOT NULL)
+			             / NULLIF(SUM(principal_kobo) FILTER (WHERE book AND eff_rate IS NOT NULL), 0), 1), 0) AS avg_rate_pct
+			FROM (
+			    SELECT *,
+			        (` + sqlFDFunded + `)                                      AS funded,
+			        status='Active' AND (` + sqlFDFunded + `)                  AS book,
+			        ` + sqlFDEffRate + `                                       AS eff_rate
+			    FROM cbs_fixed_deposits
+			) f`)
 		if err != nil || len(rows) == 0 {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-				"total_fds": 0, "active_fds": 0,
+				"total_fds": 0, "active_fds": 0, "unfunded_fds": 0,
 				"total_principal_kobo": 0, "total_interest_accrued_kobo": 0,
+				"past_due_fds": 0, "past_due_kobo": 0,
 				"matured_this_month": 0, "avg_tenor_days": 0, "avg_rate_pct": 0,
 			})
 			return

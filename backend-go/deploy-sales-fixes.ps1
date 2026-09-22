@@ -1,4 +1,4 @@
-# Deploys the Sales & CRM fixes. Run from an ELEVATED (Administrator) PowerShell —
+﻿# Deploys the Sales & CRM fixes. Run from an ELEVATED (Administrator) PowerShell —
 # the backend runs as SYSTEM, so a normal shell cannot stop it.
 #
 # Frontend and backend must land together: the new UI calls endpoints that only exist

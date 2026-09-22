@@ -27,10 +27,15 @@ const salesOfficerPredicate = `
 // crmLeadStageCase maps the stored lead_stage vocabulary onto the five display
 // stages the sales UI colours (Prospect/Qualified/Proposal/Negotiation/Won). Shared
 // by the officer dashboard and the supervisor funnel so both read the same way.
+// The post-qualification stages fold in by how far the deal has got: handed to sales
+// is still Qualified, documents requested is Proposal, and a submitted or approved
+// application is Negotiation (everything short of Won).
 const crmLeadStageCase = `CASE lower(COALESCE(lead_stage,'new'))
 	WHEN 'new' THEN 'Prospect' WHEN 'contacted' THEN 'Prospect'
-	WHEN 'qualified' THEN 'Qualified' WHEN 'proposal' THEN 'Proposal'
+	WHEN 'qualified' THEN 'Qualified' WHEN 'handed_to_sales' THEN 'Qualified'
+	WHEN 'proposal' THEN 'Proposal' WHEN 'documents_requested' THEN 'Proposal'
 	WHEN 'negotiation' THEN 'Negotiation'
+	WHEN 'application_submitted' THEN 'Negotiation' WHEN 'approved' THEN 'Negotiation'
 	WHEN 'converted' THEN 'Won' WHEN 'won' THEN 'Won'
 	ELSE initcap(COALESCE(lead_stage,'Prospect')) END`
 
@@ -145,7 +150,7 @@ func salesSupervisor(db *core.DB) http.HandlerFunc {
 			SELECT u.id, u.full_name, u.role, u.is_active,
 			  COUNT(c.id) FILTER (WHERE c.status='lead')                                          AS open_leads,
 			  COUNT(c.id) FILTER (WHERE c.status='lead' AND c.next_action_at::date < CURRENT_DATE) AS overdue,
-			  COUNT(c.id) FILTER (WHERE c.status='lead' AND c.lead_stage IN ('contacted','qualified')
+			  COUNT(c.id) FILTER (WHERE c.status='lead' AND c.lead_stage IN (`+workedLeadStagesSQL+`)
 			                      AND (c.last_activity_at IS NULL
 			                           OR c.last_activity_at < NOW()-INTERVAL '14 days'))          AS stalled,
 			  COUNT(c.id) FILTER (WHERE c.status='customer'
@@ -265,28 +270,45 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			    AND DATE_TRUNC('month',(period||'-01')::date) = DATE_TRUNC('month', NOW())
 			  LIMIT 1
 			),
+			-- btrim BOTH sides, deliberately. 7 of the 21 app.cbs_officer_map rows carry a
+			-- TRAILING SPACE ('Ojiako Ikechukwu ', 'Pinheiro Abimbola ', 'Nnakwe Doris ', …)
+			-- because Udara sends them that way and the map was hand-seeded from those exact
+			-- strings on 2026-09-08. A bare equality therefore matches only by luck. Trim one
+			-- side alone and 98 active deposits / 6 officers / N11.03bn fall out of officer
+			-- attribution silently — no error, just a smaller commission figure. Trimming
+			-- both sides is identical today (230 FDs / N19.26bn either way, verified) and
+			-- stays correct if the stored names are ever normalised. Do not reduce this to a
+			-- plain equality.
 			loan AS (
 			  SELECT COALESCE(SUM(l.loan_amount_kobo),0) AS kobo
 			  FROM cbs_loans l
-			  JOIN app.cbs_officer_map m ON m.udara_name = l.raw->>'accountOfficerName'
+			  JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(l.raw->>'accountOfficerName')
 			  WHERE m.officer_user_id = $1
 			    AND DATE_TRUNC('month', l.start_date) = DATE_TRUNC('month', NOW())
 			),
 			fd AS (
 			  SELECT COALESCE(SUM(f.principal_kobo),0) AS kobo
 			  FROM cbs_fixed_deposits f
-			  JOIN app.cbs_officer_map m ON m.udara_name = f.raw->>'accountOfficerName'
+			  JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
 			  WHERE m.officer_user_id = $1
 			    AND DATE_TRUNC('month', f.commencement_date) = DATE_TRUNC('month', NOW())
 			),
+			-- Cards resolve through app.v_card_sale_officer (migration 241), the one
+			-- place that decides who sold a card: an explicit attribution beats the
+			-- issuance record, which beats the legacy CIF book. Joining
+			-- customer_officers directly here was wrong twice over — it read the raw
+			-- legacy book (whose cif column is Udara-keyed today, so 184 of its 201
+			-- rows name a different person's officer), and it filtered on
+			-- product_line 'credit_card', A VALUE THAT DOES NOT EXIST. The real values
+			-- are 'card' (5,206 accounts) and 'prepaid' (12,985); the view already
+			-- restricts to those two, so the filter goes away with the join. On today's
+			-- data that typo alone was costing 173 of 185 attributed cards.
 			card AS (
-			  SELECT COUNT(a.account_id) AS n
-			  FROM customer_officers co
-			  JOIN app.accounts a ON a.cif = co.cif
-			  WHERE co.officer_id = $1
-			    AND a.product_line IN ('prepaid','credit_card')
-			    AND a.opened_date IS NOT NULL
-			    AND DATE_TRUNC('month', a.opened_date) = DATE_TRUNC('month', NOW())
+			  SELECT COUNT(*) AS n
+			  FROM app.v_card_sale_officer v
+			  WHERE v.officer_id = $1
+			    AND v.opened_date IS NOT NULL
+			    AND DATE_TRUNC('month', v.opened_date) = DATE_TRUNC('month', NOW())
 			)
 			SELECT
 			  COALESCE((SELECT target_kobo FROM tgt),0)                     AS target_kobo,
@@ -386,7 +408,7 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			SELECT
 			  COUNT(*) FILTER (WHERE next_action_at::date = CURRENT_DATE)                       AS followups_due,
 			  COUNT(*) FILTER (WHERE next_action_at::date < CURRENT_DATE)                       AS followups_overdue,
-			  COUNT(*) FILTER (WHERE lead_stage IN ('contacted','qualified')
+			  COUNT(*) FILTER (WHERE lead_stage IN (`+workedLeadStagesSQL+`)
 			                   AND (last_activity_at IS NULL
 			                        OR last_activity_at < NOW() - INTERVAL '14 days'))          AS stalled_leads
 			FROM crm_contacts
@@ -747,8 +769,12 @@ func salesAccountsTrend(db *core.DB) http.HandlerFunc {
 func salesByState(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT state AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers
-			 WHERE state IS NOT NULL AND state!='' GROUP BY state ORDER BY count DESC`)
+			// core.clean_state() collapses the spelling variants that used to split a
+			// single state across several rows (LAGOS/Lagos/LAGOS STATE; four
+			// spellings of Abuja). NULL = foreign or unusable, excluded as before.
+			// See migration 237.
+			`SELECT core.clean_state(state) AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers
+			 WHERE core.clean_state(state) IS NOT NULL GROUP BY 1 ORDER BY count DESC`)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
@@ -760,8 +786,11 @@ func salesByState(db *core.DB) http.HandlerFunc {
 func salesByCity(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, src, err := db.DualQuery(r.Context(),
-			`SELECT city AS "City", state AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers
-			 WHERE city IS NOT NULL AND city!='' GROUP BY city,state ORDER BY count DESC LIMIT 20`)
+			// The state half is normalised (migration 237); city is left raw
+			// deliberately — there is no city_map, and 662 distinct city spellings are
+			// a separate cleanup from the 37-value state problem.
+			`SELECT city AS "City", core.clean_state(state) AS "State", COUNT(DISTINCT COALESCE('p'||party_id,'c'||contact_id)) AS count FROM app.customers
+			 WHERE city IS NOT NULL AND city!='' GROUP BY 1,2 ORDER BY count DESC LIMIT 20`)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
 			return
@@ -1000,7 +1029,7 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			           COUNT(l.cbs_id)                     AS actual_loans,
 			           COALESCE(SUM(l.loan_amount_kobo),0) AS actual_kobo
 			    FROM cbs_loans l
-			    JOIN app.cbs_officer_map m ON m.udara_name = l.raw->>'accountOfficerName'
+			    JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(l.raw->>'accountOfficerName')
 			    WHERE DATE_TRUNC('month', l.start_date) = %s
 			      AND ($1 = '' OR l.start_date::date >= $1::date)
 			      AND ($2 = '' OR l.start_date::date <= $2::date)
@@ -1029,6 +1058,11 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			        LIMIT 1
 			    ) om ON TRUE
 			    WHERE ca.product_type='loan' AND ca.data_source='manual'
+			      -- Udara is the book of record. An uploaded row migration 268 proved to be
+			      -- the same facility Udara already carries is a mirror, and the Udara loan
+			      -- book credits the officer separately below — counting both would pay
+			      -- commission twice on one disbursement.
+			      AND ca.duplicate_of_cbs_id IS NULL
 			      AND ca.disbursement_date IS NOT NULL
 			      AND DATE_TRUNC('month', ca.disbursement_date) = %s
 			      AND ($1 = '' OR ca.disbursement_date >= $1::date)
@@ -1040,26 +1074,33 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			           COUNT(f.cbs_id)                   AS actual_fds,
 			           COALESCE(SUM(f.principal_kobo),0) AS actual_fd_kobo
 			    FROM cbs_fixed_deposits f
-			    JOIN app.cbs_officer_map m ON m.udara_name = f.raw->>'accountOfficerName'
+			    JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
 			    WHERE DATE_TRUNC('month', f.commencement_date) = %s
 			      AND ($1 = '' OR f.commencement_date::date >= $1::date)
 			      AND ($2 = '' OR f.commencement_date::date <= $2::date)
 			    GROUP BY m.officer_user_id
 			) fd ON fd.officer_id = u.id
 			LEFT JOIN (
-			    -- Cards issued in the period by the officer's customers. The card book is
-			    -- app.accounts (product_line 'prepaid'/'credit_card'), keyed by cif, dated
-			    -- on opened_date. Attribution flows through customer_officers like loans/FDs.
-			    SELECT co.officer_id,
-			           COUNT(a.account_id) AS actual_cards
-			    FROM customer_officers co
-			    JOIN app.accounts a ON a.cif = co.cif
-			    WHERE a.product_line IN ('prepaid','credit_card')
-			      AND a.opened_date IS NOT NULL
-			      AND DATE_TRUNC('month', a.opened_date) = %s
-			      AND ($1 = '' OR a.opened_date >= $1::date)
-			      AND ($2 = '' OR a.opened_date <= $2::date)
-			    GROUP BY co.officer_id
+			    -- Cards issued in the period, dated on opened_date. The seller is
+			    -- resolved by app.v_card_sale_officer (migration 241) — explicit
+			    -- attribution, else the issuance record, else the legacy CIF book —
+			    -- the same resolver the management report uses, so the page and the
+			    -- report cannot disagree about who sold a card.
+			    --
+			    -- The join this replaces read customer_officers directly (whose cif
+			    -- column is Udara-keyed today: 184 of its 201 rows name a different
+			    -- person's officer) AND filtered product_line IN ('prepaid','credit_card').
+			    -- There is no 'credit_card' product_line; the values are 'card' and
+			    -- 'prepaid'. That typo alone hid 173 of the 185 attributable cards.
+			    SELECT v.officer_id,
+			           COUNT(*) AS actual_cards
+			    FROM app.v_card_sale_officer v
+			    WHERE v.officer_id IS NOT NULL
+			      AND v.opened_date IS NOT NULL
+			      AND DATE_TRUNC('month', v.opened_date) = %s
+			      AND ($1 = '' OR v.opened_date >= $1::date)
+			      AND ($2 = '' OR v.opened_date <= $2::date)
+			    GROUP BY v.officer_id
 			) cd ON cd.officer_id = u.id
 			WHERE u.deleted_at IS NULL AND (`+salesOfficerPredicate+`)
 			ORDER BY actual_kobo DESC`, periodExpr, periodExpr, periodExpr, periodExpr, periodExpr), from, to)

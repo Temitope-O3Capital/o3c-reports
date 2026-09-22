@@ -219,15 +219,21 @@ func overviewKPIs(db *core.DB) http.HandlerFunc {
 		// accrual = principal × rate% ÷ 365, summed over the days each deposit was live
 		// inside the window — the same straight-line basis the CBS accrued figure uses
 		// (verified against cbs_fixed_deposits.accrued_interest_kobo).
+		//
+		// The filter used to be `interest_rate > 0`, which dropped the 25 Active
+		// deposits accruing on a rate Udara never supplied — ₦2.07bn of principal,
+		// 10.7% of the book, silently booked as free money. sqlFDDailyAccrualKobo
+		// carries those at the rate they are demonstrably accruing at (accrued to date
+		// ÷ days elapsed), so the cost of funds is no longer understated.
 		fdCost := func(s, e time.Time) int64 {
 			if rows, err := db.PGQuery(ctx, `
 				SELECT COALESCE(SUM(
-				         principal_kobo * (interest_rate/100.0) / 365.0
+				         (`+sqlFDDailyAccrualKobo+`)
 				         * GREATEST(0, LEAST($2::date, maturity_date::date)
 				                     - GREATEST($1::date, commencement_date::date) + 1)
 				       ), 0)::bigint AS v
 				  FROM cbs_fixed_deposits
-				 WHERE interest_rate > 0 AND principal_kobo > 0
+				 WHERE status='Active' AND principal_kobo > 0
 				   AND commencement_date::date <= $2 AND maturity_date::date >= $1`,
 				d(s), d(e)); err == nil && len(rows) > 0 {
 				return toInt64(rows[0]["v"])
@@ -322,6 +328,24 @@ func overviewMonthlyVolume(db *core.DB) http.HandlerFunc {
 		// Card spend is the third product line's monthly flow: card purchase volume
 		// (money_out) from app.transactions. Amounts there are in NAIRA, so ×100 → kobo
 		// to match the loan/FD series which are already kobo.
+		// FD payouts are reported ONLY for deposits still on the book. Udara zeroes
+		// principal, ledger and accrued the moment a deposit closes, so for a Closed
+		// deposit the payout value is unknown — not zero. Summing every status with no
+		// filter charted ₦0 for July 2026 (50 maturities) and August 2026 (56), which
+		// reads as "no deposits matured" when in fact ~106 did and the workspace simply
+		// cannot say for how much.
+		//
+		// So: a month with no maturities at all is an honest 0; a month whose
+		// maturities are all closed is NULL, a known-unknown the chart should render as
+		// a gap rather than a floor at zero; a month with some of each reports the
+		// known part, with fd_payouts_unknown_count saying how much of the bar is
+		// missing. fd_maturities_count carries the real number of deposits that
+		// matured regardless of what is still valued.
+		//
+		// NOTE for whoever owns Overview.tsx: line ~434 does
+		// `fd_payouts_kobo: Number(r.fd_payouts_kobo) || 0`, which coerces that NULL
+		// straight back to 0. The payload is now honest; the chart needs
+		// `r.fd_payouts_kobo == null ? null : Number(...)` to show it.
 		query := fmt.Sprintf(`
 			WITH months AS (SELECT generate_series(%s, %s, '1 month'::interval) AS m)
 			SELECT
@@ -329,9 +353,19 @@ func overviewMonthlyVolume(db *core.DB) http.HandlerFunc {
 				mo.m                    AS month_sort,
 				COALESCE((SELECT SUM(l.loan_amount_kobo) FROM cbs_loans l
 				          WHERE DATE_TRUNC('month', l.start_date) = mo.m), 0) AS disbursements_kobo,
-				COALESCE((SELECT SUM(f.principal_kobo + COALESCE(f.accrued_interest_kobo, 0))
-				          FROM cbs_fixed_deposits f
-				          WHERE DATE_TRUNC('month', f.maturity_date) = mo.m), 0) AS fd_payouts_kobo,
+				CASE WHEN (SELECT COUNT(*) FROM cbs_fixed_deposits f
+				           WHERE DATE_TRUNC('month', f.maturity_date) = mo.m) = 0
+				     THEN 0
+				     ELSE (SELECT SUM(f.principal_kobo + COALESCE(f.accrued_interest_kobo, 0))
+				           FROM cbs_fixed_deposits f
+				           WHERE f.status = 'Active'
+				             AND DATE_TRUNC('month', f.maturity_date) = mo.m)
+				END AS fd_payouts_kobo,
+				COALESCE((SELECT COUNT(*) FROM cbs_fixed_deposits f
+				          WHERE DATE_TRUNC('month', f.maturity_date) = mo.m), 0) AS fd_maturities_count,
+				COALESCE((SELECT COUNT(*) FROM cbs_fixed_deposits f
+				          WHERE f.status <> 'Active'
+				            AND DATE_TRUNC('month', f.maturity_date) = mo.m), 0) AS fd_payouts_unknown_count,
 				COALESCE((SELECT ROUND(SUM(ABS(t.amount)) * 100)
 				          FROM app.transactions t
 				          WHERE NOT t.money_in AND DATE_TRUNC('month', t.txn_date) = mo.m), 0)::bigint AS card_spend_kobo
@@ -442,9 +476,12 @@ func overviewAcquisitionFunnel(db *core.DB) http.HandlerFunc {
 // within the selected window, from the CBS loan book (officer_name).
 // overviewTopPerformers ranks the top 5 account/sales officers by total value
 // originated in the window across ALL THREE product lines — loans disbursed, FD
-// principal placed and cards opened. Officers are resolved through app.customer_officers
-// (cif→officer_id), since the FD/card feeds carry no agent of their own. An optional
-// ?region=lagos|abuja narrows by the customer's state so exec can compare the two hubs.
+// principal placed and cards opened. Loans and FDs resolve to the officer the Udara
+// record itself names (app.cbs_officer_map on accountOfficerName); cards resolve
+// through app.v_card_sale_officer. Neither reads app.customer_officers directly —
+// its cif column is Udara-keyed, so a CIF match there names the wrong person 91% of
+// the time. An optional ?region=lagos|abuja narrows by the customer's state so exec
+// can compare the two hubs.
 func overviewTopPerformers(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -477,11 +514,20 @@ func overviewTopPerformers(db *core.DB) http.HandlerFunc {
 		// app.customers join keyed on cbs_customer_id == cif, an invalid cross-namespace
 		// match. CBS records carry no app.customers.state, so they cannot be region-scoped
 		// and are attributed only when no region filter is active.
+		//
+		// The crosswalk join is btrim'd on BOTH sides. Udara sends 7 of the 21 officer
+		// names with a trailing space and cbs_officer_map was hand-seeded from those
+		// exact strings, so untrimmed equality matches by luck rather than design:
+		// trimming either side alone drops 173 of 380 deposits (98 on the active book,
+		// 6 officers, ₦11.03bn of principal) out of officer attribution silently — and
+		// that attribution feeds sales targets and commission. Trimming both sides
+		// matches identically today and survives a later normalisation of the stored
+		// names.
 		if regionClause == "" {
 			if rows, _ := db.PGQuery(ctx, `
 				SELECT m.officer_user_id AS oid, COALESCE(SUM(l.loan_amount_kobo),0) AS v, COUNT(*) AS c
 				FROM cbs_loans l
-				JOIN app.cbs_officer_map m ON m.udara_name = l.raw->>'accountOfficerName' AND m.officer_user_id IS NOT NULL
+				JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(l.raw->>'accountOfficerName') AND m.officer_user_id IS NOT NULL
 				WHERE l.start_date::date BETWEEN $1 AND $2
 				GROUP BY 1`, d(cs), d(ce)); rows != nil {
 				for _, row := range rows {
@@ -493,7 +539,7 @@ func overviewTopPerformers(db *core.DB) http.HandlerFunc {
 			if rows, _ := db.PGQuery(ctx, `
 				SELECT m.officer_user_id AS oid, COALESCE(SUM(f.principal_kobo),0) AS v, COUNT(*) AS c
 				FROM cbs_fixed_deposits f
-				JOIN app.cbs_officer_map m ON m.udara_name = f.raw->>'accountOfficerName' AND m.officer_user_id IS NOT NULL
+				JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName') AND m.officer_user_id IS NOT NULL
 				WHERE f.commencement_date::date BETWEEN $1 AND $2
 				GROUP BY 1`, d(cs), d(ce)); rows != nil {
 				for _, row := range rows {
@@ -503,13 +549,25 @@ func overviewTopPerformers(db *core.DB) http.HandlerFunc {
 				}
 			}
 		}
-		// Cards opened (opened_date).
+		// Cards opened (opened_date), attributed by app.v_card_sale_officer
+		// (migration 241) — the single resolver for who sold a card: an explicit
+		// attribution beats the issuance record, which beats the legacy CIF book.
+		//
+		// Two defects in the join this replaces. It read app.customer_officers
+		// directly, whose cif column is Udara-keyed today — all 201 rows hold a
+		// cbs_customer_id, 184 of which also exist as a cards CIF belonging to a
+		// DIFFERENT person — so a card inherited a stranger's officer. And it had no
+		// product_line filter at all, so a "cards opened" tile was counting deposit
+		// and other account lines too. The view is restricted to 'card'/'prepaid'.
+		//
+		// app.customers is still joined only to give the region filter c.state; the
+		// count is unchanged by it (every attributed card's CIF is in app.customers).
 		if rows, _ := db.PGQuery(ctx, `
-			SELECT co.officer_id AS oid, COUNT(*) AS c
-			FROM app.accounts a
-			JOIN app.customer_officers co ON co.cif = a.cif
-			JOIN app.customers c          ON c.cif  = a.cif
-			WHERE a.opened_date::date BETWEEN $1 AND $2`+regionClause+`
+			SELECT v.officer_id AS oid, COUNT(*) AS c
+			FROM app.v_card_sale_officer v
+			JOIN app.customers c ON c.cif = v.cif
+			WHERE v.officer_id IS NOT NULL
+			  AND v.opened_date::date BETWEEN $1 AND $2`+regionClause+`
 			GROUP BY 1`, d(cs), d(ce)); rows != nil {
 			for _, row := range rows {
 				get(toInt64(row["oid"])).cardsCount = toInt64(row["c"])
@@ -651,16 +709,31 @@ func overviewFDSummary(db *core.DB) http.HandlerFunc {
 		empty := map[string]any{
 			"total_fd_book_kobo": 0, "active_fd_count": 0,
 			"maturing_30d": 0, "new_this_month": 0,
+			"past_due_count": 0, "past_due_kobo": 0, "unfunded_count": 0,
 		}
+		// Same definition of "the book" as /api/fd-book/kpis and the executive FD
+		// page: Active AND funded. maturing_30d used to disagree with the FD Book page
+		// by one deposit (41 vs 42) purely over the ::date cast — maturity_date is a
+		// timestamptz sitting at 01:00:00+01, so an uncast BETWEEN against
+		// (NOW()+30 days)::date (midnight) dropped the deposit maturing on the final
+		// day of the window. With the cast and the funded filter all three pages now
+		// report the same 39.
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-				COUNT(*) FILTER (WHERE status = 'Active')                              AS active_fd_count,
-				COALESCE(SUM(principal_kobo) FILTER (WHERE status = 'Active'), 0)      AS total_fd_book_kobo,
-				COUNT(*) FILTER (WHERE status = 'Active'
-					AND maturity_date BETWEEN NOW()::date AND (NOW()+INTERVAL '30 days')::date) AS maturing_30d,
-				COUNT(*) FILTER (WHERE status = 'Active'
-					AND DATE_TRUNC('month', commencement_date) = DATE_TRUNC('month', NOW()))    AS new_this_month
-			FROM cbs_fixed_deposits`)
+				COUNT(*) FILTER (WHERE book)                              AS active_fd_count,
+				COALESCE(SUM(principal_kobo) FILTER (WHERE book), 0)      AS total_fd_book_kobo,
+				COUNT(*) FILTER (WHERE book
+					AND maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30) AS maturing_30d,
+				COUNT(*) FILTER (WHERE book
+					AND DATE_TRUNC('month', commencement_date::date) = DATE_TRUNC('month', CURRENT_DATE)) AS new_this_month,
+				COUNT(*) FILTER (WHERE book AND maturity_date::date < CURRENT_DATE) AS past_due_count,
+				COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
+					FILTER (WHERE book AND maturity_date::date < CURRENT_DATE), 0) AS past_due_kobo,
+				COUNT(*) FILTER (WHERE status='Active' AND NOT (` + sqlFDFunded + `)) AS unfunded_count
+			FROM (
+				SELECT *, status='Active' AND (` + sqlFDFunded + `) AS book
+				FROM cbs_fixed_deposits
+			) f`)
 		if err != nil || len(rows) == 0 {
 			respond(w, empty, "pg")
 			return
@@ -671,6 +744,9 @@ func overviewFDSummary(db *core.DB) http.HandlerFunc {
 			"active_fd_count":    toInt64(row["active_fd_count"]),
 			"maturing_30d":       toInt64(row["maturing_30d"]),
 			"new_this_month":     toInt64(row["new_this_month"]),
+			"past_due_count":     toInt64(row["past_due_count"]),
+			"past_due_kobo":      toInt64(row["past_due_kobo"]),
+			"unfunded_count":     toInt64(row["unfunded_count"]),
 		}, "pg")
 	}
 }

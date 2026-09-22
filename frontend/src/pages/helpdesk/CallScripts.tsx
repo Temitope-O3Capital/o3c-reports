@@ -230,7 +230,7 @@ export default function CallScripts() {
         {/* Left list */}
         <div style={{ flex: '1 1 300px', minWidth: 280, maxWidth: 380, display: 'flex', flexDirection: 'column', border: '1px solid var(--card-bdr)', borderRadius: 12, background: 'var(--card)', boxShadow: 'var(--card-shadow)', overflow: 'hidden', maxHeight: 'calc(100vh - 250px)' }}>
           <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bdr)', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between' }}>
-            <span>{activeCat || 'All scripts'}</span>
+            <span>{activeCat || 'All Scripts'}</span>
             <span style={{ fontFamily: MONO }}>{filtered.length}</span>
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>

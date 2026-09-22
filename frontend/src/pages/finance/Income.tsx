@@ -164,16 +164,16 @@ export default function FinanceIncome() {
       </div>
 
       {isEmpty ? (
-        <SectionCard title="Revenue trend">
-          <EmptyState icon="show_chart" title="No revenue in this period"
+        <SectionCard title="Revenue Trend">
+          <EmptyState icon="show_chart" title="No Revenue in This Period"
             description="No interest, fee or penalty transactions were posted in the selected window. Try widening the date range." />
         </SectionCard>
       ) : (
         <>
           {/* Revenue trend — stacked daily composition */}
-          <SectionCard title="Revenue trend" subtitle="Daily revenue by stream (interest · fees · penalty)" style={{ marginBottom: SP[5] }}>
+          <SectionCard title="Revenue Trend" subtitle="Daily revenue by stream (interest · fees · penalty)" style={{ marginBottom: SP[5] }}>
             {trendData.length === 0
-              ? <EmptyState icon="show_chart" title="No daily data" />
+              ? <EmptyState icon="show_chart" title="No Daily Data" />
               : (
                 <EArea
                   data={trendData}
@@ -193,9 +193,9 @@ export default function FinanceIncome() {
 
           {/* Composition + product breakdown */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: SP[4], marginBottom: SP[5] }}>
-            <SectionCard title="Revenue by category" subtitle="Share of total revenue">
+            <SectionCard title="Revenue by Category" subtitle="Share of total revenue">
               {catChartData.length === 0
-                ? <EmptyState icon="donut_small" title="No category data" />
+                ? <EmptyState icon="donut_small" title="No Category Data" />
                 : (
                   <>
                     <EBar
@@ -225,7 +225,7 @@ export default function FinanceIncome() {
                 )}
             </SectionCard>
 
-            <SectionCard title="Revenue by product" subtitle="Interest, fees and penalty per product line" padding={false}>
+            <SectionCard title="Revenue by Product" subtitle="Interest, fees and penalty per product line" padding={false}>
               <DataTable
                 cols={PRODUCT_COLS}
                 rows={productRows}

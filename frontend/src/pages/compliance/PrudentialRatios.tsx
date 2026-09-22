@@ -77,7 +77,7 @@ export default function PrudentialRatios() {
         <>
           {/* Key ratios */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[6] }}>
-            <RatioCard label="NPL Ratio" value={data.npl_ratio_pct} threshold={data.cbn_thresholds.npl_max_pct} thresholdLabel="CAR at risk" />
+            <RatioCard label="NPL Ratio" value={data.npl_ratio_pct} threshold={data.cbn_thresholds.npl_max_pct} thresholdLabel="CAR at Risk" />
             <RatioCard label="PAR 30" value={data.par30_pct} threshold={15} />
             <RatioCard label="PAR 60" value={data.par60_pct} threshold={10} />
             <RatioCard label="PAR 90" value={data.par90_pct} threshold={data.cbn_thresholds.par90_max_pct} />

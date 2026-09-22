@@ -117,7 +117,7 @@ export function CustomerSearch({
           ))}
           {onManual && (
             <button type="button" onClick={onManual} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', borderTop: '1px solid var(--bdr)', cursor: 'pointer', background: 'var(--th-bg)', fontSize: TEXT.sm, color: 'var(--txt2)', fontWeight: FW.semibold }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>edit</span>Enter manually (walk-in / no CIF)
+              <span className="material-symbols-rounded" style={{ fontSize: 16 }}>edit</span>Enter Manually (Walk-In / No CIF)
             </button>
           )}
         </div>

@@ -64,7 +64,18 @@ WITH assign AS (
        AND txn_date >= CURRENT_DATE - INTERVAL '12 months'
      GROUP BY 1
 ), cif_paid AS (
-    SELECT account_cif, SUM(amount_kobo) AS paid_kobo FROM collection_payments GROUP BY 1
+    -- 2026-09-21: this had NO status filter, so money still inside the HOP -> COO ->
+    -- CFO approval chain counted as repaid. Live that was 11 rows / N106,393,555.56 of
+    -- 'pending_hop' on top of 1,801 approved rows / N1,094,578,699.07, and it inflated
+    -- amount_paid_kobo, pct_paid and the 5-band tier on 11 uploaded loans. Only an
+    -- 'approved' receipt has been signed off and posted to the GL. Filtering TO
+    -- 'approved' rather than excluding 'pending_hop' also keeps a future 'rejected' row
+    -- out for good. Money still awaiting approval is kept as its own pool and reported
+    -- in its own column -- never blended into a paid or outstanding figure.
+    SELECT account_cif,
+           COALESCE(SUM(amount_kobo) FILTER (WHERE status = 'approved'), 0)                   AS paid_kobo,
+           COALESCE(SUM(amount_kobo) FILTER (WHERE status NOT IN ('approved','rejected')), 0) AS pending_kobo
+      FROM collection_payments GROUP BY 1
 ), udara_owner AS (
     -- Udara customer ids are their OWN namespace and COLLIDE with card CIFs (Udara
     -- 00000424 is FINTRAK; card CIF 00000424 is Adetunji Taiwo, an unrelated person).
@@ -78,6 +89,12 @@ WITH assign AS (
              ORDER BY (c2.cif IS NULL), c2.cif LIMIT 1) AS customer_key
       FROM app.cbs_links k
      WHERE k.entity_type = 'party'
+     -- NOTE (2026-09-21): the crosswalk itself is complete (295/295 links, 0 dangling),
+     -- but only 31 of those 295 parties have an app.customers row at all, and only 24 of
+     -- those carry a cif — so customer_key is NULL for the large majority. customer_key
+     -- is a CARDS-side lookup key and nothing more; it is NOT the identity, and its
+     -- absence must never be papered over with the raw cbs_customer_id. See cards_key
+     -- on the Udara arm below.
 ), udara_parties AS (
     SELECT DISTINCT o.party_id
       FROM cbs_loans cl
@@ -102,7 +119,8 @@ WITH assign AS (
     -- whole CIF total attaches to every loan (FINTRAK's three loans each claimed the
     -- full ₦75.4m).
     SELECT u.*,
-           COALESCE(pd.paid_kobo,0) AS cif_pool,
+           COALESCE(pd.paid_kobo,0)    AS cif_pool,
+           COALESCE(pd.pending_kobo,0) AS cif_pending_pool,
            -- Capped on the APPROVED amount: outstanding_kobo is net of receipts since
            -- migration 222, so capping on it would under-report what has been repaid.
            COALESCE(SUM(u.approved_kobo) OVER (
@@ -112,7 +130,14 @@ WITH assign AS (
            -- Udara is authoritative. An uploaded loan whose customer also has a live
            -- Udara facility of the SAME approved amount is that facility, re-keyed from
            -- a spreadsheet — a mirror, not a second loan.
-           (EXISTS (SELECT 1 FROM cbs_loans cl2
+           -- Migration 268 stamps the mirrors it could PROVE: an identical approved
+           -- amount plus an exact name, a rare shared word, or a high trigram score,
+           -- matched one-to-one between the books. That is stronger evidence than the
+           -- amount-and-party test below, which cannot fire at all on the many uploaded
+           -- rows carrying no party_id. It is checked first; the original test stays as
+           -- a fallback so nothing already deduplicated on this page can regress.
+           (u.duplicate_of_cbs_id IS NOT NULL
+            OR EXISTS (SELECT 1 FROM cbs_loans cl2
                       JOIN udara_owner o2 ON o2.cbs_customer_id = cl2.cbs_customer_id
                      WHERE o2.party_id = u.party_id
                        AND cl2.status NOT IN ('Closed','Revoked')
@@ -135,6 +160,16 @@ WITH assign AS (
       FROM uploaded u
       LEFT JOIN cif_paid pd ON pd.account_cif = u.account_cif
 ), facilities AS (
+    -- Every arm carries TWO identity columns and they must not be confused:
+    --   cif       — what the row IS CALLED. Displayed, searched, and used by the
+    --               frontend as the row key and the /collections/accounts/{id} link.
+    --               For a Udara facility this is legitimately a Udara customer id.
+    --   cards_key — what the row may be JOINED ON cards-side (collection_assignments,
+    --               collection_promises, collection_contacts, helpdesk_calls — all of
+    --               which are keyed by CARDS cif). NULL when no such key exists.
+    -- Keeping them apart is the whole point: the two id spaces collide (Udara 00000424
+    -- is FINTRAK, card CIF 00000424 is Adetunji Taiwo), so a single merged key silently
+    -- attaches a stranger's agent, stage and call history to a Udara loan.
     -- CARDS (CCS)
     SELECT a.cif                                                          AS cif,
            COALESCE(NULLIF(TRIM(c.first_name||' '||COALESCE(c.last_name,'')),''),
@@ -153,7 +188,12 @@ WITH assign AS (
            GREATEST(ROUND(COALESCE(a.card_limit,0)*100),0)::bigint         AS loc_kobo,
            GREATEST(ROUND(COALESCE(a.min_payment_due,0)*100),0)::bigint    AS min_repayment_kobo,
            GREATEST(ROUND(COALESCE(cp.paid_naira,0)*100),0)::bigint        AS amount_paid_kobo,
-           false                                                          AS superseded
+           -- Card repayments come off the settled transaction feed, not the collections
+           -- approval chain, so no card row can have money awaiting approval.
+           0::bigint                                                      AS pending_paid_kobo,
+           false                                                          AS superseded,
+           -- A card row IS a cards row: its own cif is the correct join key.
+           a.cif                                                          AS cards_key
       FROM app.accounts a
       LEFT JOIN app.customers c ON c.cif = a.cif
       LEFT JOIN card_paid cp    ON cp.account_id = a.account_id
@@ -163,7 +203,12 @@ WITH assign AS (
 
     -- LOANS from Udara core banking
     SELECT COALESCE(uo.customer_key, cl.cbs_customer_id),
-           COALESCE(NULLIF(TRIM(cl.raw->>'name'),''), cl.cbs_customer_id),
+           -- cbs_customers.name is the authoritative borrower name for a Udara
+           -- facility; the embedded raw->>'name' is the same string today (41/41 live
+           -- loans agree exactly) and stays as the backstop.
+           COALESCE((SELECT NULLIF(TRIM(cc.name),'') FROM cbs_customers cc
+                      WHERE cc.cbs_customer_id = cl.cbs_customer_id LIMIT 1),
+                    NULLIF(TRIM(cl.raw->>'name'),''), cl.cbs_customer_id),
            cl.cbs_account_number, 'loan', 'Udara',
            COALESCE(NULLIF(cl.product_name,''),'Loan'),
            COALESCE(cl.status,''),
@@ -178,7 +223,21 @@ WITH assign AS (
            COALESCE(NULLIF(cl.installment_amount_kobo,0),
                     COALESCE(cl.outstanding_principal_kobo,0)+COALESCE(cl.outstanding_interest_kobo,0)),
            GREATEST(COALESCE(cl.loan_amount_kobo,0)-COALESCE(cl.outstanding_principal_kobo,0),0),
-           false
+           -- Paydown on this arm is Udara's own outstanding principal, which carries no
+           -- approval chain. collection_payments is keyed by CARDS account_cif, a
+           -- different namespace that COLLIDES with cbs_customer_id (Udara 00000424 is
+           -- FINTRAK; card CIF 00000424 is Adetunji Taiwo), so it must not be reached
+           -- from this arm at all.
+           0::bigint,
+           false,
+           -- THE FIX (2026-09-21). The cif column above still COALESCEs to the raw
+           -- cbs_customer_id so the facility keeps a name to display and navigate by —
+           -- but that value is a UDARA id and must never reach a cards-keyed table.
+           -- cards_key therefore carries ONLY the crosswalked cards key and stays NULL
+           -- when the crosswalk yields none. Live, 34 of 41 Udara loans have no cards
+           -- key; all 34 collide with an unrelated card CIF, and 26 of them were
+           -- picking up that stranger's collection assignment, agent and stage.
+           uo.customer_key
       FROM cbs_loans cl
       LEFT JOIN udara_owner uo ON uo.cbs_customer_id = cl.cbs_customer_id
      WHERE cl.status NOT IN ('Closed','Revoked')
@@ -200,9 +259,19 @@ WITH assign AS (
            u.approved_kobo,
            COALESCE(u.repayment_kobo, u.outstanding_kobo, 0),
            LEAST(u.approved_kobo, GREATEST(u.cif_pool - u.claimed_before, 0)),
+           -- Receipts still inside the approval chain, run down the SAME oldest-first
+           -- waterfall and then netted of what approved money already claimed, so the
+           -- per-loan figures still sum to the CIF's pending pool. Reported beside
+           -- amount_paid_kobo, never inside it, and never into pct_paid or the tier.
+           LEAST(u.approved_kobo, GREATEST(u.cif_pool + u.cif_pending_pool - u.claimed_before, 0))
+             - LEAST(u.approved_kobo, GREATEST(u.cif_pool - u.claimed_before, 0)),
            -- The same debt is also booked in Udara: shown, but flagged so it is not
            -- read as extra exposure.
-           u.also_in_udara
+           u.also_in_udara,
+           -- Uploaded loans are keyed by the same account_cif the collections tables
+           -- use (cards CIFs, plus synthetic W-prefixed workspace keys that collide
+           -- with nothing), so the key is its own join key.
+           u.account_cif
       FROM uploaded_alloc u
      -- Superseded rows are pre-restructure history, and Udara mirrors are the same
      -- facility already carried by core banking. Neither is a second loan.
@@ -268,6 +337,10 @@ func collectionsPortfolioAccounts(db *core.DB) http.HandlerFunc {
 			        WHEN f.dpd <= 360 THEN '181-360'
 			        ELSE '360+' END AS dpd_bucket,
 			    f.outstanding_kobo, f.loc_kobo, f.min_repayment_kobo, f.amount_paid_kobo,
+			    -- Money received but NOT yet through HOP -> COO -> CFO. Surfaced as its
+			    -- own column and deliberately kept out of amount_paid_kobo, pct_paid and
+			    -- the tier below: it has not been signed off and has not posted to the GL.
+			    f.pending_paid_kobo,
 			    -- % of the credit extended that has come back. One definition for all
 			    -- three product types, so the column means the same thing on every row.
 			    CASE WHEN (f.amount_paid_kobo + f.outstanding_kobo) > 0
@@ -286,16 +359,16 @@ func collectionsPortfolioAccounts(db *core.DB) http.HandlerFunc {
 			    COALESCE(NULLIF(ass.current_stage,''),
 			        CASE
 			            WHEN ass.assignment_id IS NULL THEN 'unassigned'
-			            WHEN EXISTS (SELECT 1 FROM collection_promises cp WHERE cp.cif_number = f.cif AND cp.is_kept IS NULL) THEN 'promise'
-			            WHEN EXISTS (SELECT 1 FROM collection_contacts cc WHERE cc.cif_number = f.cif) THEN 'contacted'
+			            WHEN EXISTS (SELECT 1 FROM collection_promises cp WHERE cp.cif_number = f.cards_key AND cp.is_kept IS NULL) THEN 'promise'
+			            WHEN EXISTS (SELECT 1 FROM collection_contacts cc WHERE cc.cif_number = f.cards_key) THEN 'contacted'
 			            ELSE 'new' END) AS current_stage,
 			    lc.agent_name      AS last_call_agent,
 			    lc.started_at      AS last_call_at,
 			    lc.disposition     AS last_call_disposition
 			FROM ranked f
-			LEFT JOIN assign ass ON ass.account_cif = f.cif
+			LEFT JOIN assign ass ON ass.account_cif = f.cards_key
 			LEFT JOIN o3c_users u ON u.id = ass.agent_user_id
-			LEFT JOIN last_call lc ON lc.cif = f.cif
+			LEFT JOIN last_call lc ON lc.cif = f.cards_key
 			ORDER BY f.dpd DESC, f.outstanding_kobo DESC`
 
 		rows, err := db.PGQuery(ctx, query, args...)

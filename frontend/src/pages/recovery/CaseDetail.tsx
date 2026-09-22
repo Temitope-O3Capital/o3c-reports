@@ -6,6 +6,7 @@ import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { hasPage } from '../../hooks/useAuth'
 import { fmtKoboExact, fmtKobo, fmtExact, fmtDate, fmtDatetime, fmtNum } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM } from '../../lib/design'
+import { RECOVERY_PAYMENT_CHANNELS } from '../../lib/paymentChannels'
 import { toast } from 'sonner'
 
 const POLL_INTERVAL = 10_000
@@ -174,14 +175,13 @@ const STEP_TYPES: { value: string; label: string }[] = [
   { value: 'sms',         label: 'SMS' },
   { value: 'whatsapp',    label: 'WhatsApp' },
   { value: 'letter',      label: 'Letter' },
-  { value: 'field_visit', label: 'Field visit' },
-  { value: 'file',        label: 'File / document' },
+  { value: 'field_visit', label: 'Field Visit' },
+  { value: 'file',        label: 'File / Document' },
   { value: 'note',        label: 'Note' },
 ]
 
 const VISIT_TYPES    = ['Physical Visit', 'Phone Call', 'WhatsApp', 'Email', 'Legal Notice']
 const VISIT_OUTCOMES = ['Customer Met', 'Not Home', 'Promised to Pay', 'Refused to Pay', 'No Response', 'Other']
-const PAY_CHANNELS   = ['Bank Transfer', 'Cash', 'Cheque', 'TPA', 'Legal Settlement', 'Self-Cure']
 const LEGAL_TYPES    = ['Pre-Litigation Notice', 'Demand Letter', 'Court Filing', 'Judgment', 'Enforcement', 'Other']
 
 // ── Timeline activity entry ────────────────────────────────────────────────────
@@ -207,8 +207,8 @@ function ActivityDot({ color }: { color: string }) {
   )
 }
 
-function TimelineItem({ actor, label, detail, date, color }: {
-  actor?: string; label: string; detail?: string; date: string; color: string
+function TimelineItem({ actor, label, detail, date, color, dateOnly }: {
+  actor?: string; label: string; detail?: string; date: string; color: string; dateOnly?: boolean
 }) {
   return (
     <div style={{ display: 'flex', gap: 0, alignItems: 'flex-start' }}>
@@ -216,7 +216,7 @@ function TimelineItem({ actor, label, detail, date, color }: {
       <div style={{ flex: 1, paddingBottom: 16, paddingLeft: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{label}</span>
-          <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>{fmtDatetime(date)}</span>
+          <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>{dateOnly ? fmtDate(date) : fmtDatetime(date)}</span>
         </div>
         {actor && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{actor}</div>}
         {detail && <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 4, lineHeight: 1.5 }}>{detail}</div>}
@@ -266,7 +266,7 @@ function LogVisitModal({ caseId, open, onClose, onDone }: {
         <div>
           <label style={labelStyle}>Outcome *</label>
           <select value={outcome} onChange={e => setOutcome(e.target.value)} style={{ ...fieldStyle, height: 36 }}>
-            <option value="">Select outcome…</option>
+            <option value="">Select Outcome…</option>
             {VISIT_OUTCOMES.map(o => <option key={o}>{o}</option>)}
           </select>
         </div>
@@ -278,6 +278,55 @@ function LogVisitModal({ caseId, open, onClose, onDone }: {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Btn onClick={submit} loading={saving} disabled={!visitDate || !outcome}>Log Visit</Btn>
+          <Btn onClick={onClose} outline>Cancel</Btn>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ── Reverse Payment Modal ──────────────────────────────────────────────────────
+// Corrects an approved/posted payment: posts a compensating GL entry, gives the amount
+// back on the case, and keeps the original row for audit (status → 'reversed'). COO/admin
+// only, matching the backend gate.
+function ReversePaymentModal({ caseId, payment, open, onClose, onDone }: {
+  caseId: number; payment: Payment | null; open: boolean; onClose: () => void; onDone: () => void
+}) {
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err,    setErr]    = useState<string | null>(null)
+
+  useEffect(() => { if (open) { setReason(''); setErr(null) } }, [open])
+
+  async function submit() {
+    if (!payment || !reason.trim()) return
+    setSaving(true); setErr(null)
+    try {
+      await apiPut(`/api/recovery-ops/payments/${payment.id}/reverse`, { reason: reason.trim() })
+      toast.success('Payment reversed')
+      onDone()
+    } catch (e: any) { setErr(e.message ?? 'Reversal failed') } finally { setSaving(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Reverse Payment" width={460}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <ErrBanner error={err} />
+        {payment && (
+          <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
+            Reversing <strong style={{ ...NUM, color: 'var(--txt)' }}>{fmtKoboExact(payment.amount_kobo)}</strong>
+            {' '}({payment.channel} · {fmtDate(payment.payment_date)}). This posts a compensating
+            ledger entry and returns the amount to the case. The original payment is kept for audit.
+          </div>
+        )}
+        <div>
+          <label style={labelStyle}>Reason *</label>
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3}
+            spellCheck={false} data-gramm="false" placeholder="Why is this payment being reversed?"
+            style={{ ...fieldStyle, resize: 'vertical' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn onClick={submit} loading={saving} disabled={!reason.trim()} danger>Reverse Payment</Btn>
           <Btn onClick={onClose} outline>Cancel</Btn>
         </div>
       </div>
@@ -376,7 +425,7 @@ function LogPaymentModal({ caseId, open, onClose, onDone }: {
           <div>
             <label style={labelStyle}>Channel</label>
             <select value={channel} onChange={e => setChannel(e.target.value)} style={{ ...fieldStyle, height: 36 }}>
-              {PAY_CHANNELS.map(c => <option key={c}>{c}</option>)}
+              {RECOVERY_PAYMENT_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
           </div>
           <div>
@@ -409,6 +458,7 @@ function LegalModal({ caseId, open, onClose, onDone }: {
   const [filingDate,  setFilingDate]  = useState('')
   const [hearingDate, setHearingDate] = useState('')
   const [notes,       setNotes]       = useState('')
+  const [confirm,     setConfirm]     = useState(false)
   const [saving,      setSaving]      = useState(false)
   const [err,         setErr]         = useState<string | null>(null)
 
@@ -421,9 +471,9 @@ function LegalModal({ caseId, open, onClose, onDone }: {
         filing_date: filingDate, next_hearing_date: hearingDate, notes,
       })
       toast.success('Legal milestone added')
-      setType(''); setCourt(''); setCaseNum(''); setFilingDate(''); setHearingDate(''); setNotes('')
+      setType(''); setCourt(''); setCaseNum(''); setFilingDate(''); setHearingDate(''); setNotes(''); setConfirm(false)
       onDone()
-    } catch (e: any) { setErr(e.message ?? 'Failed') } finally { setSaving(false) }
+    } catch (e: any) { setErr(e.message ?? 'Failed'); setConfirm(false) } finally { setSaving(false) }
   }
 
   return (
@@ -466,9 +516,15 @@ function LegalModal({ caseId, open, onClose, onDone }: {
             style={{ ...fieldStyle, resize: 'vertical' }} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Btn onClick={submit} loading={saving} disabled={!type || !filingDate}>Add Milestone</Btn>
+          <Btn onClick={() => setConfirm(true)} disabled={!type || !filingDate}>Add Milestone</Btn>
           <Btn onClick={onClose} outline>Cancel</Btn>
         </div>
+        <ConfirmModal
+          open={confirm} title="Add Legal Milestone"
+          body={`Log "${type}" against this case${court ? ` at ${court}` : ''}, filed ${filingDate}.`}
+          confirmLabel="Add Milestone" loading={saving}
+          onConfirm={submit} onClose={() => setConfirm(false)}
+        />
       </div>
     </Modal>
   )
@@ -507,7 +563,7 @@ function ReassignModal({ caseId, agents, open, onClose, onDone }: {
         <div>
           <label style={labelStyle}>Agent *</label>
           <select value={agentId} onChange={e => setAgentId(e.target.value)} style={{ ...fieldStyle, height: 36 }}>
-            <option value="">Select agent…</option>
+            <option value="">Select Agent…</option>
             {recoveryAgents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
           </select>
         </div>
@@ -539,7 +595,13 @@ function WriteOffModal({ caseId, outstanding, open, onClose, onDone }: {
   const [err,     setErr]     = useState<string | null>(null)
 
   async function doWriteOff() {
-    const kobo = amount ? Math.round(parseFloat(amount) * 100) : outstanding
+    const parsed = amount ? Math.round(parseFloat(amount) * 100) : outstanding
+    if (!(parsed > 0)) {
+      setErr('Amount must be greater than zero — leave the field blank to write off the full outstanding balance')
+      setConfirm(false)
+      return
+    }
+    const kobo = parsed
     setSaving(true); setErr(null)
     try {
       await apiPost(`/api/recovery-ops/cases/${caseId}/write-off`, { amount_kobo: kobo, reason })
@@ -549,7 +611,7 @@ function WriteOffModal({ caseId, outstanding, open, onClose, onDone }: {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Request Write-off" width={480}>
+    <Modal open={open} onClose={onClose} title="Request Write-Off" width={480}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <ErrBanner error={err} />
         <div style={{
@@ -572,11 +634,11 @@ function WriteOffModal({ caseId, outstanding, open, onClose, onDone }: {
             style={{ ...fieldStyle, resize: 'vertical' }} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Btn onClick={() => setConfirm(true)} disabled={!reason.trim()} danger>Submit Write-off</Btn>
+          <Btn onClick={() => setConfirm(true)} disabled={!reason.trim()} danger>Submit Write-Off</Btn>
           <Btn onClick={onClose} outline>Cancel</Btn>
         </div>
         <ConfirmModal
-          open={confirm} title="Submit Write-off Request"
+          open={confirm} title="Submit Write-Off Request"
           body={`Submit write-off for approval. Reason: "${reason.slice(0, 100)}${reason.length > 100 ? '…' : ''}"`}
           confirmLabel="Submit" danger loading={saving}
           onConfirm={doWriteOff} onClose={() => setConfirm(false)}
@@ -618,10 +680,13 @@ export default function RecoveryCaseDetail() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const [activeModal, setActiveModal] = useState<ActionTab | null>(null)
+  const [reverseTarget, setReverseTarget] = useState<Payment | null>(null)
 
   // Reassigning is a supervisor capability — gate on the recovery_assign page (same as
   // the backend), so a plain agent sees the case but no Assign/Reassign control.
   const isHead = hasPage('recovery_assign')
+  // Reversing a posted payment is a COO/admin authority (matches the backend gate).
+  const canReverse = ['coo', 'admin'].includes(getStoredRole())
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -676,7 +741,7 @@ export default function RecoveryCaseDetail() {
   const promisesKept  = coll_promises.filter(p => p.is_kept).length
 
   // Build unified timeline: activity_log + recovery events merged and sorted
-  type TL = { date: string; label: string; actor?: string; detail?: string; color: string }
+  type TL = { date: string; label: string; actor?: string; detail?: string; color: string; dateOnly?: boolean }
   const timeline: TL[] = [
     ...activity_log.map(a => ({
       date:   a.created_at,
@@ -685,26 +750,32 @@ export default function RecoveryCaseDetail() {
       detail: a.detail ?? undefined,
       color:  MODULE_COLORS[a.module] ?? '#6B7280',
     })),
+    // Visits / proceedings / payments carry a date only (no clock component); render as a
+    // plain date rather than fmtDatetime, which would print a spurious local midnight and
+    // could roll the calendar day across the UTC boundary.
     ...visits.map(v => ({
-      date:   v.visit_date + 'T00:00:00Z',
+      date:   v.visit_date,
       label:  `Visit, ${v.visit_type}: ${v.outcome}`,
       actor:  v.agent_name ?? undefined,
       detail: v.notes ?? undefined,
       color:  AMBER,
+      dateOnly: true,
     })),
     ...proceedings.map(p => ({
-      date:   p.filing_date + 'T00:00:00Z',
+      date:   p.filing_date,
       label:  `Legal: ${p.proceeding_type}`,
       actor:  p.court_name ?? undefined,
       detail: p.notes ?? undefined,
       color:  RED,
+      dateOnly: true,
     })),
     ...payments.map(p => ({
-      date:   p.payment_date + 'T00:00:00Z',
+      date:   p.payment_date,
       label:  `Payment: ${fmtKoboExact(p.amount_kobo)}`,
       actor:  p.agent_name ?? undefined,
       detail: `${p.channel}${p.reference ? ' · ' + p.reference : ''}`,
       color:  GREEN,
+      dateOnly: true,
     })),
   ].sort((a, b) => b.date.localeCompare(a.date))
 
@@ -880,7 +951,7 @@ export default function RecoveryCaseDetail() {
             ) : (
               <div style={{ paddingTop: SP[2] }}>
                 {timeline.map((ev, i) => (
-                  <TimelineItem key={i} {...ev} />
+                  <TimelineItem key={`${ev.date}|${ev.label}|${i}`} {...ev} />
                 ))}
               </div>
             )}
@@ -1028,17 +1099,33 @@ export default function RecoveryCaseDetail() {
           {payments.length > 0 && (
             <SectionCard title="Payments Received" badge={payments.length}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {payments.map(p => (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', borderBottom: '1px solid var(--bdr)' }}>
+                {payments.map(p => {
+                  const reversed = p.status === 'reversed'
+                  return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', borderBottom: '1px solid var(--bdr)', opacity: reversed ? 0.55 : 1 }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: GREEN }}>{fmtKoboExact(p.amount_kobo)}</div>
+                      <div style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.semibold, color: reversed ? 'var(--txt3)' : GREEN, textDecoration: reversed ? 'line-through' : 'none' }}>{fmtKoboExact(p.amount_kobo)}</div>
                       <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
                         {p.channel} · {fmtDate(p.payment_date)}
                         {p.reference ? ` · ${p.reference}` : ''}
+                        {reversed ? ' · reversed' : ''}
                       </div>
                     </div>
+                    {canReverse && (p.status === 'approved' || p.status === 'posted') && (
+                      <button
+                        onClick={() => setReverseTarget(p)}
+                        style={{
+                          fontSize: TEXT.xs, fontWeight: FW.medium, color: RED,
+                          background: 'none', border: `1px solid ${RED}30`,
+                          borderRadius: RADIUS.sm, padding: '3px 9px', cursor: 'pointer', flexShrink: 0,
+                        }}
+                      >
+                        Reverse
+                      </button>
+                    )}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </SectionCard>
           )}
@@ -1072,6 +1159,7 @@ export default function RecoveryCaseDetail() {
       <LogPaymentModal caseId={caseId} open={activeModal === 'payment'} onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
       <LegalModal      caseId={caseId} open={activeModal === 'legal'}   onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
       <WriteOffModal   caseId={caseId} outstanding={net} open={activeModal === 'writeoff'} onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
+      <ReversePaymentModal caseId={caseId} payment={reverseTarget} open={reverseTarget !== null} onClose={() => setReverseTarget(null)} onDone={() => { setReverseTarget(null); load() }} />
       {isHead && (
         <ReassignModal caseId={caseId} agents={agents} open={activeModal === 'reassign'} onClose={() => setActiveModal(null)} onDone={() => { setActiveModal(null); load() }} />
       )}

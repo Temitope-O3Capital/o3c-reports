@@ -20,6 +20,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
+	"github.com/o3c/workspace/cbssync"
 	"github.com/o3c/workspace/core"
 	"github.com/o3c/workspace/handlers"
 	"github.com/o3c/workspace/udara"
@@ -83,6 +84,9 @@ func main() {
 	shutdownSig := make(chan os.Signal, 1)
 	signal.Notify(shutdownSig, syscall.SIGINT, syscall.SIGTERM)
 	handlers.RunBatchNightly(shutdownCtx, db)
+	// The 09:00 management and sales report emails. Lives in the service, not a desktop
+	// scheduled task, so it keeps sending when nobody is logged on to the server.
+	handlers.StartManagementReportScheduler(shutdownCtx, db)
 
 	// Resume any campaigns that were mid-dispatch when the pod last restarted.
 	handlers.ResumeInterruptedCampaigns(db)
@@ -149,6 +153,14 @@ func main() {
 	// Udara360 CBS — spool the core-banking book (products/loans/FDs) into the
 	// snapshot tables shortly after boot, then every CBS_SYNC_INTERVAL (default 1h).
 	go handlers.StartCBSSyncWorker(cbsClient, db)
+
+	// Udara360 GL — capture actual loan repayment postings from the call-over
+	// ledger into app.loan_repayments, hourly (CBS_REPAYMENT_INTERVAL). Until
+	// this ran, app.loan_repayments held 0 rows and every arrears figure in the
+	// product was model output — the schedule's expectation minus the snapshot's
+	// balance — with nothing recording what was actually paid. Insert-only and
+	// keyed on the GL entry, so the overlapping hourly windows never double-count.
+	go cbssync.StartRepaymentWorker(cbsClient, db)
 
 	// Customer feed — ingest the 15-minute cust_file drops into app.customers. This is
 	// where new customers come from; Udara holds only the loan and FD books. Without
@@ -406,15 +418,23 @@ func main() {
 	// Africa's Talking inbound webhook — no auth (AT posts here on every call event)
 	r.Post("/api/voice/at-inbound", handlers.VoiceATInbound(db))
 
-	// Voice — protected endpoints
+	// Voice — protected endpoints. The group is audited: these mutations decide who can
+	// place calls as whom, and until the September 2026 review they left no trace at all.
 	r.Group(func(r chi.Router) {
 		r.Use(core.AuthMiddleware)
+		r.Use(activityLogger(activityCh, auditCh))
 		// AT: browser capability token for agent WebRTC (inbound + outbound)
 		r.Get("/api/voice/at-token", handlers.VoiceATCapabilityToken(db))
 		// Telnyx (legacy SIP credential management)
 		r.Get("/api/voice/status", handlers.VoiceStatus(db))
 		r.Delete("/api/voice/disconnect", handlers.VoiceDisconnect(db))
-		r.Post("/api/voice/credentials", handlers.VoiceSetCredentials(db))
+		// Admin only. The request body names the user whose SIP credentials are written,
+		// so with only AuthMiddleware any logged-in account could repoint another agent's
+		// phone line at itself, or clear it and take them off the phones.
+		r.Group(func(r chi.Router) {
+			r.Use(core.RequirePages("admin"))
+			r.Post("/api/voice/credentials", handlers.VoiceSetCredentials(db))
+		})
 	})
 	r.Route("/api/mail", func(r chi.Router) {
 		handlers.RegisterMailPublic(r, db)
@@ -659,6 +679,9 @@ func main() {
 		r.Route("/api/bi", func(r chi.Router) {
 			handlers.RegisterBI(r, db)
 		})
+		r.Route("/api/management-reports", func(r chi.Router) {
+			handlers.RegisterManagementReports(r, db)
+		})
 		// Customer Growth & Activity monitor — registrations, transaction activity
 		// and churn. Access is gated per-endpoint (management + operating teams).
 		r.Route("/api/growth", func(r chi.Router) {
@@ -835,6 +858,10 @@ func activityLogger(ch chan<- activityLogEntry, auditCh chan<- auditLogEntry) fu
 				"credit-portfolio", "fixed-deposit", "settlement", "uploads",
 				"reconciliation", "kpi", "batch", "collections-ops", "recovery-ops",
 				"approvals", "customer360", "customer-service", "risk",
+				// Call centre. Without these every call-centre audit row was written
+				// with an empty entity_type and so was invisible to the Audit Trail
+				// screen's filter — the actions were logged but could not be found.
+				"call-center", "helpdesk", "qa", "voice", "zoho",
 			} {
 				if strings.Contains(path, "/api/"+seg) {
 					page = seg

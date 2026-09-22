@@ -57,7 +57,7 @@ const COUNTRY_NAME: Record<string, string> = {
 }
 const prettyCountry = (c: string) => c ? (COUNTRY_NAME[c] ?? c) : 'Unknown'
 const PLATFORMS = [
-  { key: '',        label: 'All platforms' },
+  { key: '',        label: 'All Platforms' },
   { key: 'ios',     label: 'iOS' },
   { key: 'android', label: 'Android' },
 ]
@@ -66,7 +66,7 @@ const SOURCE_LABEL: Record<string, string> = {
   googleadwords_int: 'Google Ads', restricted: 'Restricted (SKAN)',
 }
 const prettySource   = (s: string) => SOURCE_LABEL[s] ?? s.replace(/_int$/, '').replace(/_/g, ' ')
-const prettyCampaign = (c: string) => (!c || c === 'None') ? 'Direct / no campaign' : c
+const prettyCampaign = (c: string) => (!c || c === 'None') ? 'Direct / No Campaign' : c
 const prettyEvent    = (e: string) => e.replace(/^af_/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 const usd  = (n: number | null) => (n === null || !isFinite(n)) ? '—' : '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const isPaid = (s: string) => s !== 'Organic' && s !== 'None' && s !== ''
@@ -235,7 +235,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
     { key: 'cvr', label: 'Click→Install', align: 'right', render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{r.cvr === null ? '—' : fmtPct(r.cvr)}</span> },
     { key: 'cpi', label: 'CPI', align: 'right', render: r => <span style={{ ...NUM, color: r.cpi === null ? 'var(--txt3)' : NAVY }}>{usd(r.cpi)}</span> },
     { key: 'spi', label: 'Sess./Install', align: 'right', render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{r.spi.toFixed(1)}</span> },
-    { key: 'usage', label: 'Loyal-user rate', align: 'right', render: r => {
+    { key: 'usage', label: 'Loyal-User Rate', align: 'right', render: r => {
       const q = qualityTone(r.usage)
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
@@ -265,7 +265,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
   const overviewTab = (
     <>
       {insights.length > 0 && (
-        <SectionCard title="What to act on" subtitle="Generated from this window's data" style={{ marginBottom: 14 }}>
+        <SectionCard title="What to Act On" subtitle="Generated from this window's data" style={{ marginBottom: 14 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {insights.map((ins, i) => {
               const c = ins.tone === 'good' ? GREEN : ins.tone === 'bad' ? RED : BLUE
@@ -309,15 +309,15 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
               grid: { top: 16, right: 18, bottom: 26, left: 10, containLabel: true },
               tooltip: { trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: t.bdr, width: 1, type: 'dashed' } }, ...baseTooltip(t),
                 formatter: (ps: any[]) => tipCard(t, String(ps[0].axisValue), ps.map(p => ({ color: p.color, name: p.seriesName, value: fmtNum(Number(p.value)) }))) },
-              legend: { data: ['Daily installs', '7-day average'], right: 8, top: 0, textStyle: { color: t.txt2, fontFamily: CHART_FONT, fontSize: 11 }, icon: 'roundRect', itemWidth: 12, itemHeight: 4 },
+              legend: { data: ['Daily Installs', '7-Day Average'], right: 8, top: 0, textStyle: { color: t.txt2, fontFamily: CHART_FONT, fontSize: 11 }, icon: 'roundRect', itemWidth: 12, itemHeight: 4 },
               xAxis: { ...axisCat(t, series.map(s => s.date.slice(5))), boundaryGap: false, axisLabel: { color: t.txt3, fontSize: 10, fontFamily: CHART_FONT, hideOverlap: true } },
               yAxis: { ...axisVal(t), minInterval: 1 },
               series: [
-                { type: 'line', name: 'Daily installs', smooth: true, symbol: 'circle', symbolSize: 5, showSymbol: false,
+                { type: 'line', name: 'Daily Installs', smooth: true, symbol: 'circle', symbolSize: 5, showSymbol: false,
                   lineStyle: { width: 1.5, color: `${NAVY}80` }, itemStyle: { color: NAVY },
                   areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: `${NAVY}33` }, { offset: 1, color: `${NAVY}03` }] } },
                   data: series.map(s => s.installs), z: 1 },
-                { type: 'line', name: '7-day average', smooth: true, symbol: 'none', lineStyle: { width: 3, color: NAVY }, data: ma.map(v => Math.round(v * 10) / 10), z: 2 },
+                { type: 'line', name: '7-Day Average', smooth: true, symbol: 'none', lineStyle: { width: 3, color: NAVY }, data: ma.map(v => Math.round(v * 10) / 10), z: 2 },
               ],
               animationDuration: 700,
             })}
@@ -362,7 +362,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
                     formatter: (ps: any[]) => tipCard(t, String(ps[0].axisValue), [{ color: ps[0].color, value: fmtPct(Number(ps[0].value)) + ' loyal' }]) },
                   xAxis: { ...axisVal(t, (v: number) => v + '%'), max: 100 },
                   yAxis: { ...axisCat(t, rows.map(s => prettySource(s.key))), inverse: true, axisLabel: { color: t.txt2, fontSize: 11, fontFamily: CHART_FONT, interval: 0 } },
-                  series: [{ type: 'bar', name: 'Loyal rate', barMaxWidth: 24,
+                  series: [{ type: 'bar', name: 'Loyal Rate', barMaxWidth: 24,
                     label: { show: true, position: 'right', color: t.txt3, fontFamily: CHART_FONT, fontSize: 10, formatter: (p: any) => Number(p.value).toFixed(0) + '%' },
                     data: rows.map(s => ({ value: Math.round(s.usage * 10) / 10, itemStyle: { color: qualityTone(s.usage).color, borderRadius: [0, 4, 4, 0] } })) }],
                   animationDuration: 700,
@@ -390,7 +390,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
     { key: 'installs', label: 'Installs', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.installs)}</span> },
     { key: 'sessions', label: 'Sessions', align: 'right', render: r => <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtNum(r.sessions)}</span> },
     { key: 'loyal_users', label: 'Loyal Users', align: 'right', render: r => <span style={{ ...NUM }}>{fmtNum(r.loyal_users)}</span> },
-    { key: 'usage', label: 'Loyal-user rate', align: 'right', render: r => {
+    { key: 'usage', label: 'Loyal-User Rate', align: 'right', render: r => {
       const rate = r.installs > 0 ? r.loyal_users / r.installs * 100 : 0
       const q = qualityTone(rate)
       return (
@@ -464,8 +464,8 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
           cols={[
             { key: 'name', label: 'Step', render: (r: typeof funnelSteps[number]) => <span style={{ fontWeight: FW.semibold }}>{r.name}</span> },
             { key: 'users', label: 'Unique Users', align: 'right', render: (r: typeof funnelSteps[number]) => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.users)}</span> },
-            { key: 'fromPrev', label: 'From prev step', align: 'right', render: (r: typeof funnelSteps[number]) => <span style={{ ...NUM, color: r.fromPrev >= 80 ? GREEN : r.fromPrev >= 50 ? AMBER : RED }}>{fmtPct(r.fromPrev)}</span> },
-            { key: 'fromOpen', label: 'From first open', align: 'right', render: (r: typeof funnelSteps[number]) => <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtPct(r.fromOpen)}</span> },
+            { key: 'fromPrev', label: 'From Prev Step', align: 'right', render: (r: typeof funnelSteps[number]) => <span style={{ ...NUM, color: r.fromPrev >= 80 ? GREEN : r.fromPrev >= 50 ? AMBER : RED }}>{fmtPct(r.fromPrev)}</span> },
+            { key: 'fromOpen', label: 'From First Open', align: 'right', render: (r: typeof funnelSteps[number]) => <span style={{ ...NUM, color: 'var(--txt2)' }}>{fmtPct(r.fromOpen)}</span> },
           ] as TableCol<typeof funnelSteps[number]>[]}
           rows={funnelSteps} keyFn={r => r.name} emptyText="No funnel data yet"
         />

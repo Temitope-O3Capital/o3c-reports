@@ -218,7 +218,7 @@ export function WorkspaceHero({ presence, subline, ring, stats, aside, actions, 
 
 // ── Hourly activity sparkbars (optional hero aside) ─────────────────────────────
 
-export function HourlyActivity({ data, label = "Today's activity · by hour", from = 6, to = 20 }: {
+export function HourlyActivity({ data, label = "Today's Activity · by Hour", from = 6, to = 20 }: {
   data: { hour: number; total: number }[]; label?: string; from?: number; to?: number
 }) {
   const hourData = Array.from({ length: 24 }, (_, h) => {

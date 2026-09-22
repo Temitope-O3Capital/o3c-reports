@@ -136,7 +136,7 @@ export default function Surveys() {
       },
     },
     {
-      key: 'avg_score', label: 'Avg score', width: 110, align: 'right', render: r =>
+      key: 'avg_score', label: 'Avg Score', width: 110, align: 'right', render: r =>
         r.avg_score == null ? <span style={{ color: 'var(--txt3)' }}>—</span> : (
           <span style={{ fontWeight: FW.bold, fontVariantNumeric: 'tabular-nums', color: r.avg_score >= 7 ? GREEN : r.avg_score >= 5 ? AMBER : RED }}>
             {r.avg_score.toFixed(1)}<span style={{ color: 'var(--txt3)', fontWeight: FW.normal }}> / 10</span>
@@ -156,32 +156,32 @@ export default function Surveys() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 16 }}>
         <KpiCard label="Surveys" value={fmtNum(rows.length)} icon="reviews" accent={NAVY} sub={`${active} active`} />
-        <KpiCard label="Total responses" value={fmtNum(totalResponses)} icon="rate_review" accent={GREEN} />
-        <KpiCard label="Avg satisfaction" value={avgSat == null ? '—' : `${avgSat.toFixed(1)} / 10`} icon="sentiment_satisfied" accent={avgSat != null && avgSat >= 7 ? GREEN : AMBER} />
-        <KpiCard label="Active surveys" value={fmtNum(active)} icon="campaign" accent={RED} />
+        <KpiCard label="Total Responses" value={fmtNum(totalResponses)} icon="rate_review" accent={GREEN} />
+        <KpiCard label="Avg Satisfaction" value={avgSat == null ? '—' : `${avgSat.toFixed(1)} / 10`} icon="sentiment_satisfied" accent={avgSat != null && avgSat >= 7 ? GREEN : AMBER} />
+        <KpiCard label="Active Surveys" value={fmtNum(active)} icon="campaign" accent={RED} />
       </div>
 
-      <SectionCard title="All surveys" badge={rows.length} padding={false}>
+      <SectionCard title="All Surveys" badge={rows.length} padding={false}>
         {loading ? (
           <div style={{ padding: 40, display: 'grid', placeItems: 'center' }}><Spinner /></div>
         ) : rows.length === 0 ? (
-          <EmptyState icon="reviews" title="No surveys yet" description="Create your first customer feedback survey — start from a blank canvas or the seeded Card Services template."
+          <EmptyState icon="reviews" title="No Surveys Yet" description="Create your first customer feedback survey — start from a blank canvas or the seeded Card Services template."
             action={{ label: 'New Survey', icon: 'add', onClick: () => setShowNew(true) }} />
         ) : (
           <DataTable cols={cols} rows={rows} keyFn={r => r.id} onRowClick={r => nav(`/feedback/surveys/${r.id}`)} pageSize={15} />
         )}
       </SectionCard>
 
-      <Modal open={showNew} onClose={() => setShowNew(false)} title="New survey" width={560}
+      <Modal open={showNew} onClose={() => setShowNew(false)} title="New Survey" width={560}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Button variant="secondary" onClick={() => setShowNew(false)}>Cancel</Button>
-            <Button icon="arrow_forward" iconRight="arrow_forward" loading={saving} disabled={!form.title.trim()} onClick={create}>Create &amp; add questions</Button>
+            <Button icon="arrow_forward" iconRight="arrow_forward" loading={saving} disabled={!form.title.trim()} onClick={create}>Create &amp; Add Questions</Button>
           </div>
         }>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Start from</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)', display: 'block', marginBottom: 6 }}>Start From</label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
               {TEMPLATES.map(t => {
                 const on = tpl === t.key
@@ -197,17 +197,17 @@ export default function Surveys() {
               })}
             </div>
           </div>
-          <Input label="Survey title" required placeholder="e.g. Card Services Customer Satisfaction Survey" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
+          <Input label="Survey Title" required placeholder="e.g. Card Services Customer Satisfaction Survey" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Input label="Category" placeholder="card_services" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} />
             <Input label="Department" placeholder="Card Services" value={form.department} onChange={e => setForm({ ...form, department: e.target.value })} />
           </div>
-          <Textarea label="Intro message" hint="Shown at the top of the survey and email." rows={3} value={form.intro} onChange={e => setForm({ ...form, intro: e.target.value })} />
+          <Textarea label="Intro Message" hint="Shown at the top of the survey and email." rows={3} value={form.intro} onChange={e => setForm({ ...form, intro: e.target.value })} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Input label="Sign-off name" placeholder="Folusho Atobatele" value={form.signoff_name} onChange={e => setForm({ ...form, signoff_name: e.target.value })} />
-            <Input label="Sign-off title" placeholder="Head, Card Services" value={form.signoff_title} onChange={e => setForm({ ...form, signoff_title: e.target.value })} />
+            <Input label="Sign-Off Name" placeholder="Folusho Atobatele" value={form.signoff_name} onChange={e => setForm({ ...form, signoff_name: e.target.value })} />
+            <Input label="Sign-Off Title" placeholder="Head, Card Services" value={form.signoff_title} onChange={e => setForm({ ...form, signoff_title: e.target.value })} />
           </div>
-          <Field label="Accent colour">
+          <Field label="Accent Colour">
             <div style={{ display: 'flex', gap: 8 }}>
               {['#C00000', '#0E2841', '#16A34A', '#7C3AED', '#0891B2', '#D97706'].map(c => (
                 <button key={c} onClick={() => setForm({ ...form, accent_color: c })}

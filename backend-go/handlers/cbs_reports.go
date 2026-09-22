@@ -46,6 +46,21 @@ func custName(master bool, alias string) string {
 	return alias + `.raw->>'name' AS customer_name`
 }
 
+// cbsOfficerUserID resolves a Udara account-officer name to the workspace user id
+// through app.cbs_officer_map, as a correlated scalar subquery so it can never add
+// or drop a row (btrim(udara_name) is unique across all 21 map rows).
+//
+// btrim BOTH sides, always. 7 of the 21 map rows carry a TRAILING SPACE because Udara
+// sends them that way and the map was hand-seeded from those exact strings; both
+// cbs_loans.officer_name and cbs_fixed_deposits.officer_name store the name verbatim
+// to match. Trimming only ONE side is silent data loss, not a cosmetic difference:
+// on the deposit book it matches 207 of 380 rows instead of 380, dropping about
+// 11.03bn naira of principal out of officer attribution without raising any error.
+func cbsOfficerUserID(nameExpr string) string {
+	return `(SELECT m.officer_user_id FROM app.cbs_officer_map m
+		        WHERE btrim(m.udara_name) = btrim(` + nameExpr + `)) AS officer_user_id`
+}
+
 // cbsLoanBook returns the credit book: totals, breakdowns by status/product, and the loan list.
 func cbsLoanBook(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +85,8 @@ func cbsLoanBook(db *core.DB) http.HandlerFunc {
 			SELECT cl.cbs_account_number, cl.cbs_customer_id, `+custName(master, "cl")+`,
 			       cl.product_name, cl.status, cl.loan_amount_kobo, cl.outstanding_principal_kobo,
 			       cl.outstanding_interest_kobo, cl.interest_rate, cl.tenor_days,
-			       cl.date_booked, cl.start_date, cl.maturity_date, cl.officer_name
+			       cl.date_booked, cl.start_date, cl.maturity_date, cl.officer_name,
+			       `+cbsOfficerUserID("cl.officer_name")+`
 			FROM cbs_loans cl ORDER BY cl.outstanding_principal_kobo DESC`)
 
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
@@ -111,7 +127,8 @@ func cbsFDBook(db *core.DB) http.HandlerFunc {
 			SELECT cf.cbs_account_number, cf.cbs_customer_id, `+custName(master, "cf")+`,
 			       cf.product_name, cf.status, cf.principal_kobo, cf.accrued_interest_kobo,
 			       cf.ledger_balance_kobo, cf.interest_rate, cf.tenor_days,
-			       cf.date_booked, cf.commencement_date, cf.maturity_date
+			       cf.date_booked, cf.commencement_date, cf.maturity_date,
+			       cf.officer_name, `+cbsOfficerUserID("cf.officer_name")+`
 			FROM cbs_fixed_deposits cf ORDER BY cf.principal_kobo DESC`)
 
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
@@ -227,7 +244,7 @@ func cbsCustomerDetail(db *core.DB) http.HandlerFunc {
 			FROM cbs_loans WHERE cbs_customer_id = $1 ORDER BY outstanding_principal_kobo DESC`, cif)
 		fds := queryRows(ctx, db, `
 			SELECT cbs_account_number, product_name, status, principal_kobo,
-			       accrued_interest_kobo, maturity_date
+			       accrued_interest_kobo, maturity_date, officer_name
 			FROM cbs_fixed_deposits WHERE cbs_customer_id = $1 ORDER BY principal_kobo DESC`, cif)
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
 			"cbs":            cbs,

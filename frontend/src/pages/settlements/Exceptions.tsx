@@ -72,19 +72,19 @@ interface FailureSummary {
 // Resolution codes are fixed, not free text — a queue resolved with prose can never
 // answer "why do things go unmatched", which is the whole reason to keep the queue.
 const RESOLUTION_CODES: { value: string; label: string; hint: string }[] = [
-  { value: 'matched_manually',  label: 'Matched manually',   hint: 'Found the ledger entry by hand' },
-  { value: 'timing_difference', label: 'Timing difference',  hint: 'Will match in a later period' },
-  { value: 'fee_or_commission', label: 'Fee or commission',  hint: 'Difference is a charge, not missing money' },
-  { value: 'duplicate_in_feed', label: 'Duplicate in feed',  hint: 'Source sent it twice' },
-  { value: 'processor_error',   label: 'Processor error',    hint: 'Wrong on the processor side' },
-  { value: 'ledger_error',      label: 'Ledger error',       hint: 'Wrong on our side — needs a posting' },
-  { value: 'written_off',       label: 'Write off',          hint: 'Accepted as a loss; closes the item' },
+  { value: 'matched_manually',  label: 'Matched Manually',   hint: 'Found the ledger entry by hand' },
+  { value: 'timing_difference', label: 'Timing Difference',  hint: 'Will match in a later period' },
+  { value: 'fee_or_commission', label: 'Fee or Commission',  hint: 'Difference is a charge, not missing money' },
+  { value: 'duplicate_in_feed', label: 'Duplicate in Feed',  hint: 'Source sent it twice' },
+  { value: 'processor_error',   label: 'Processor Error',    hint: 'Wrong on the processor side' },
+  { value: 'ledger_error',      label: 'Ledger Error',       hint: 'Wrong on our side — needs a posting' },
+  { value: 'written_off',       label: 'Write Off',          hint: 'Accepted as a loss; closes the item' },
 ]
 
 const REASON_LABEL: Record<string, string> = {
-  no_candidate:    'No ledger match',
+  no_candidate:    'No Ledger Match',
   ambiguous:       'Ambiguous',
-  amount_mismatch: 'Amount differs',
+  amount_mismatch: 'Amount Differs',
 }
 
 const REASON_COLOR: Record<string, string> = {
@@ -207,8 +207,8 @@ export default function SettlementExceptions() {
 
       <Tabs
         tabs={[
-          { key: 'recon',    label: 'Reconciliation exceptions' },
-          { key: 'failures', label: 'Payment failures' },
+          { key: 'recon',    label: 'Reconciliation Exceptions' },
+          { key: 'failures', label: 'Payment Failures' },
         ]}
         active={tab}
         onChange={k => { setTab(k as 'recon' | 'failures'); setSelected(new Set()) }}
@@ -217,33 +217,33 @@ export default function SettlementExceptions() {
       {tab === 'recon' ? (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], margin: `${SP[4]} 0 ${SP[6]}` }}>
-            <KpiCard label="Open exceptions" value={fmtNum(summary?.open_n)} sub={fmtKobo(summary?.open_value_kobo)} icon="report" accent={RED} loading={loading && !summary} />
-            <KpiCard label="Aged over 30 days" value={fmtNum(summary?.aged_30d_n)} sub="Escalate these" icon="schedule" accent={AMBER} loading={loading && !summary} />
-            <KpiCard label="No ledger match" value={fmtNum(summary?.no_candidate_n)} sub="Nothing to pair against" icon="search_off" accent={NAVY} loading={loading && !summary} />
+            <KpiCard label="Open Exceptions" value={fmtNum(summary?.open_n)} sub={fmtKobo(summary?.open_value_kobo)} icon="report" accent={RED} loading={loading && !summary} />
+            <KpiCard label="Aged Over 30 Days" value={fmtNum(summary?.aged_30d_n)} sub="Escalate these" icon="schedule" accent={AMBER} loading={loading && !summary} />
+            <KpiCard label="No Ledger Match" value={fmtNum(summary?.no_candidate_n)} sub="Nothing to pair against" icon="search_off" accent={NAVY} loading={loading && !summary} />
             <KpiCard label="Resolved" value={fmtNum(summary?.resolved_n)} sub={`${fmtNum(summary?.written_off_n)} written off`} icon="check_circle" accent={GREEN} loading={loading && !summary} />
           </div>
 
           <SectionCard
-            title={runId ? `Exceptions from run #${runId}` : 'Exception queue'}
+            title={runId ? `Exceptions from Run #${runId}` : 'Exception Queue'}
             subtitle="Oldest first — age is the signal that matters"
             padding={false}
             actions={
               selected.size > 0
-                ? <Button size="sm" icon="done_all" onClick={() => setResolveOpen(true)}>Resolve {selected.size} selected</Button>
+                ? <Button size="sm" icon="done_all" onClick={() => setResolveOpen(true)}>Resolve {selected.size} Selected</Button>
                 : (
                   <div style={{ display: 'flex', gap: SP[2] }}>
                     <select value={reasonFilter} onChange={e => setReasonFilter(e.target.value)}
                       style={{ padding: '6px 10px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm }}>
-                      <option value="">All reasons</option>
-                      <option value="no_candidate">No ledger match</option>
+                      <option value="">All Reasons</option>
+                      <option value="no_candidate">No Ledger Match</option>
                       <option value="ambiguous">Ambiguous</option>
-                      <option value="amount_mismatch">Amount differs</option>
+                      <option value="amount_mismatch">Amount Differs</option>
                     </select>
                     <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                       style={{ padding: '6px 10px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm }}>
                       <option value="open,investigating">Open</option>
                       <option value="resolved">Resolved</option>
-                      <option value="written_off">Written off</option>
+                      <option value="written_off">Written Off</option>
                     </select>
                   </div>
                 )
@@ -252,7 +252,7 @@ export default function SettlementExceptions() {
             {loading && !rows.length ? (
               <div style={{ padding: SP[5] }}><Spinner /></div>
             ) : rows.length === 0 ? (
-              <EmptyState icon="check_circle" title="Queue is clear"
+              <EmptyState icon="check_circle" title="Queue Is Clear"
                 description="No exceptions match these filters. Run a reconciliation to populate it." />
             ) : (
               <div style={{ overflowX: 'auto' }}>
@@ -261,7 +261,7 @@ export default function SettlementExceptions() {
                     <tr style={{ background: 'var(--th-bg)' }}>
                       <th style={{ ...thBase, width: 36 }}></th>
                       <th style={thBase}>Reference</th>
-                      <th style={thBase}>Txn date</th>
+                      <th style={thBase}>Txn Date</th>
                       <th style={{ ...thBase, textAlign: 'right' }}>Amount</th>
                       <th style={thBase}>Reason</th>
                       <th style={thBase}>Detail</th>
@@ -320,22 +320,22 @@ export default function SettlementExceptions() {
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], margin: `${SP[4]} 0 ${SP[6]}` }}>
-            <KpiCard label="Failed transfers" value={fmtNum(failSummary?.failed_transfers)} sub={fmtKobo(failSummary?.failed_transfers_kobo)} icon="call_missed_outgoing" accent={RED} loading={loading && !failSummary} />
-            <KpiCard label="Failed fundings" value={fmtNum(failSummary?.failed_fundings)} sub={fmtKobo(failSummary?.failed_fundings_kobo)} icon="credit_card_off" accent={AMBER} loading={loading && !failSummary} />
+            <KpiCard label="Failed Transfers" value={fmtNum(failSummary?.failed_transfers)} sub={fmtKobo(failSummary?.failed_transfers_kobo)} icon="call_missed_outgoing" accent={RED} loading={loading && !failSummary} />
+            <KpiCard label="Failed Fundings" value={fmtNum(failSummary?.failed_fundings)} sub={fmtKobo(failSummary?.failed_fundings_kobo)} icon="credit_card_off" accent={AMBER} loading={loading && !failSummary} />
             <KpiCard label="Reversals" value={fmtNum(Number(failSummary?.reversed_transfers ?? 0) + Number(failSummary?.reversed_fundings ?? 0))} sub="Money returned" icon="undo" accent={NAVY} loading={loading && !failSummary} />
-            <KpiCard label="Open disputes" value={fmtNum(failSummary?.open_disputes)} sub="Chargebacks awaiting response" icon="gavel" accent={failSummary?.open_disputes ? RED : GREEN} loading={loading && !failSummary} />
+            <KpiCard label="Open Disputes" value={fmtNum(failSummary?.open_disputes)} sub="Chargebacks awaiting response" icon="gavel" accent={failSummary?.open_disputes ? RED : GREEN} loading={loading && !failSummary} />
           </div>
 
           <SectionCard
-            title="Payment failures"
+            title="Payment Failures"
             subtitle="Every one of these is a customer whose money moved wrong"
             padding={false}
             actions={
               <select value={failKind} onChange={e => setFailKind(e.target.value)}
                 style={{ padding: '6px 10px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm }}>
-                <option value="">All types</option>
-                <option value="transfer">Transfers out</option>
-                <option value="funding">Fundings in</option>
+                <option value="">All Types</option>
+                <option value="transfer">Transfers Out</option>
+                <option value="funding">Fundings In</option>
                 <option value="dispute">Disputes</option>
               </select>
             }
@@ -343,7 +343,7 @@ export default function SettlementExceptions() {
             {loading && !failures.length ? (
               <div style={{ padding: SP[5] }}><Spinner /></div>
             ) : failures.length === 0 ? (
-              <EmptyState icon="check_circle" title="No failures" description="Nothing has failed in this window." />
+              <EmptyState icon="check_circle" title="No Failures" description="Nothing has failed in this window." />
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -353,7 +353,7 @@ export default function SettlementExceptions() {
                       <th style={thBase}>Reference</th>
                       <th style={{ ...thBase, textAlign: 'right' }}>Amount</th>
                       <th style={thBase}>Counterparty</th>
-                      <th style={thBase}>Bank / card</th>
+                      <th style={thBase}>Bank / Card</th>
                       <th style={thBase}>Reason</th>
                       <th style={thBase}>Status</th>
                       <th style={thBase}>When</th>
@@ -390,7 +390,7 @@ export default function SettlementExceptions() {
       )}
 
       {/* Bulk resolve */}
-      <Modal open={resolveOpen} onClose={() => setResolveOpen(false)} title={`Resolve ${selected.size} exception(s)`} width={480}
+      <Modal open={resolveOpen} onClose={() => setResolveOpen(false)} title={`Resolve ${selected.size} Exception(s)`} width={480}
         footer={
           <>
             <Button variant="secondary" onClick={() => setResolveOpen(false)} disabled={resolving}>Cancel</Button>
@@ -402,7 +402,7 @@ export default function SettlementExceptions() {
             {RESOLUTION_CODES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
           </Select>
         </Field>
-        <Field label="Note (optional)">
+        <Field label="Note (Optional)">
           <textarea value={resolveNote} onChange={e => setResolveNote(e.target.value)} rows={3}
             style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontFamily: 'inherit' }} />
         </Field>

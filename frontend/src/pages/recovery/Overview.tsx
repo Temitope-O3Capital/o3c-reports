@@ -16,6 +16,7 @@ interface RecoveryKPIs {
   recovered_mtd_kobo: number
   success_rate_pct: number
   avg_days_in_recovery: number
+  over_recovered_cases: number
   by_product?: { product: string; open_cases: number; in_recovery_kobo: number; recovered_kobo: number }[]
 }
 
@@ -27,6 +28,7 @@ interface MonthlyPoint {
 
 interface ChannelRow {
   channel: string
+  product: string
   amount_kobo: number
   pct: number
 }
@@ -34,6 +36,8 @@ interface ChannelRow {
 interface AgentRow {
   agent_name: string
   case_count: number
+  card_kobo: number
+  loan_kobo: number
   recovered_kobo: number
   success_rate_pct: number
 }
@@ -50,40 +54,65 @@ const CHANNEL_COLORS: Record<string, string> = {
 // REMITA) still get distinct colours instead of all rendering grey.
 const CHANNEL_PALETTE = CHART_SERIES
 
+// Channels are grouped by product (Card / Loan) and each group scales to ITS OWN max.
+// Loan recovery is ~96% of the book and flows through a single 'loan repayment' channel;
+// scaled against it, every card channel collapsed to a sub-1% sliver. Grouping keeps card
+// channels legible against each other, and pct is already computed within-product server
+// side. Card is shown first (the panel's real subject); loan appears as its own group.
 function ChannelBars({ data }: { data: ChannelRow[] }) {
   if (!data.length) {
     return (
       <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
-        No channel data available
+        No Channel Data Available
       </div>
     )
   }
-  const maxKobo = Math.max(...data.map(d => d.amount_kobo), 1)
+  const groups = (['card', 'loan'] as const)
+    .map(product => ({
+      product,
+      label: product === 'loan' ? 'Loan' : 'Card',
+      rows: data.filter(d => (d.product ?? 'card') === product),
+    }))
+    .filter(g => g.rows.length > 0)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: `${SP[1]} 0` }}>
-      {data.map((d, i) => {
-        const barPct = (d.amount_kobo / maxKobo) * 100
-        const color = CHANNEL_COLORS[d.channel] ?? CHANNEL_PALETTE[i % CHANNEL_PALETTE.length]
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: `${SP[1]} 0` }}>
+      {groups.map(g => {
+        const maxKobo = Math.max(...g.rows.map(d => d.amount_kobo), 1)
         return (
-          <div key={d.channel}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
-              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', width: 90, flexShrink: 0 }}>
-                {d.channel}
-              </span>
-              <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: RADIUS.full, overflow: 'hidden' }}>
-                <div style={{
-                  width: `${barPct}%`, height: '100%',
-                  background: color, borderRadius: RADIUS.full, transition: 'width 0.4s',
-                }} />
+          <div key={g.product}>
+            {groups.length > 1 && (
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 8 }}>
+                {g.label} Recovery
               </div>
-              <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', width: 130, flexShrink: 0, justifyContent: 'flex-end' }}>
-                <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                  {fmtKoboExact(d.amount_kobo)}
-                </span>
-                <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
-                  {fmtPct(d.pct)}
-                </span>
-              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {g.rows.map((d, i) => {
+                const barPct = (d.amount_kobo / maxKobo) * 100
+                const color = CHANNEL_COLORS[d.channel] ?? CHANNEL_PALETTE[i % CHANNEL_PALETTE.length]
+                return (
+                  <div key={d.channel}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
+                      <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', width: 90, flexShrink: 0 }}>
+                        {d.channel}
+                      </span>
+                      <div style={{ flex: 1, height: 6, background: 'var(--bdr)', borderRadius: RADIUS.full, overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${barPct}%`, height: '100%',
+                          background: color, borderRadius: RADIUS.full, transition: 'width 0.4s',
+                        }} />
+                      </div>
+                      <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', width: 130, flexShrink: 0, justifyContent: 'flex-end' }}>
+                        <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                          {fmtKoboExact(d.amount_kobo)}
+                        </span>
+                        <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER }}>
+                          {fmtPct(d.pct)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )
@@ -109,11 +138,18 @@ const AGENT_COLS: TableCol<AgentRow>[] = [
     render: r => <span style={{ ...NUM, fontSize: TEXT.base }}>{fmtNum(r.case_count)}</span>,
   },
   {
-    key: 'recovered_kobo',
-    label: 'Recovered ₦',
+    key: 'card_kobo',
+    label: 'Card ₦',
     sortable: true,
     align: 'right',
-    render: r => <span style={{ ...NUM, fontWeight: FW.semibold }}>{fmtKoboExact(r.recovered_kobo)}</span>,
+    render: r => <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtKoboExact(r.card_kobo)}</span>,
+  },
+  {
+    key: 'loan_kobo',
+    label: 'Loan ₦',
+    sortable: true,
+    align: 'right',
+    render: r => <span style={{ ...NUM, color: NAVY, fontWeight: FW.semibold }}>{fmtKoboExact(r.loan_kobo)}</span>,
   },
   {
     key: 'success_rate_pct',
@@ -191,7 +227,7 @@ export default function RecoveryOverview() {
         <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
       }
     >
-      <ErrBanner error={err} onRetry={load} />
+      <ErrBanner error={err} onRetry={() => load()} />
 
       {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: SP[3], marginBottom: SP[5] }}>
@@ -212,7 +248,7 @@ export default function RecoveryOverview() {
           loading={kpiLoading}
         />
         <KpiCard
-          label="Recovered (period)"
+          label="Recovered (Period)"
           value={fmtKoboExact(kpis?.recovered_mtd_kobo)}
           sub="collected in selected range"
           icon="payments"
@@ -236,6 +272,23 @@ export default function RecoveryOverview() {
           loading={kpiLoading}
         />
       </div>
+
+      {/* Over-recovery watch: cases whose recovered total exceeds their outstanding. Shown
+          only when non-zero — these need a supervisor to confirm the extra (interest/fees)
+          or reverse an erroneous payment. */}
+      {kpis && kpis.over_recovered_cases > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 14px', marginBottom: SP[5], borderRadius: RADIUS.md,
+          background: `${AMBER}12`, border: `1px solid ${AMBER}40`,
+        }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 18, color: AMBER }}>error</span>
+          <span style={{ fontSize: TEXT.sm, color: 'var(--txt)' }}>
+            <strong style={NUM}>{fmtNum(kpis.over_recovered_cases)}</strong>{' '}
+            case{kpis.over_recovered_cases === 1 ? ' has' : 's have'} recovered more than the outstanding — review for a possible payment reversal.
+          </span>
+        </div>
+      )}
 
       {/* Card vs Loan split of the open recovery book */}
       {kpis?.by_product && kpis.by_product.length > 0 && (
@@ -288,7 +341,7 @@ export default function RecoveryOverview() {
         <div style={{ padding: '20px 20px 14px' }}>
           {trend.length === 0 ? (
             <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
-              No recovery activity in the selected range
+              No Recovery Activity in the Selected Range
             </div>
           ) : (
             <EBar
@@ -330,7 +383,7 @@ export default function RecoveryOverview() {
           keyFn={(r, i) => r.agent_name ?? i}
           loading={loading}
           skeletonRows={8}
-          emptyText="No agent data found"
+          emptyText="No Agent Data Found"
           searchKeys={['agent_name']}
           searchPlaceholder="Search by agent name…"
         />

@@ -129,7 +129,10 @@ export default function RecoverySupervisor() {
     try {
       const [d, c, act, pmts] = await Promise.all([
         apiFetch<any>('/api/recovery-ops/dashboard'),
-        apiFetch<any>('/api/recovery-ops/cases?limit=200'),
+        // Only OPEN cases — the caseload card is "Open cases grouped by agent" and must
+        // reconcile with the Open Cases KPI (active+legal). Without this it also counted
+        // closed/written-off cases, which never matched the KPI above it.
+        apiFetch<any>('/api/recovery-ops/cases?status=active,legal&limit=200'),
         apiFetch<any>('/api/collections/activity?module=recovery&page=1&size=20'),
         apiFetch<any>('/api/recovery-ops/payments/pending'),
       ])
@@ -188,7 +191,7 @@ export default function RecoverySupervisor() {
       render: r => (
         <button onClick={e => { e.stopPropagation(); navigate(r.agent_id != null ? `/recovery/cases?agent=${r.agent_id}` : '/recovery/cases') }}
           style={{ padding: '4px 11px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          View cases
+          View Cases
         </button>
       ),
     },
@@ -211,7 +214,7 @@ export default function RecoverySupervisor() {
         </div>
       }
     >
-      <ErrBanner error={error} onRetry={load} />
+      <ErrBanner error={error} onRetry={() => load()} />
 
       {/* ── KPI strip ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 18 }}>
@@ -221,7 +224,7 @@ export default function RecoverySupervisor() {
           sub="balance under recovery" icon="account_balance_wallet" accent={RED} loading={loading && !d} />
         <KpiCard label="Recovered" value={loading && !d ? '—' : fmtKoboExact(Number(d?.total_recovered_kobo ?? 0))}
           sub="collected on recovery cases" icon="savings" accent={GREEN} loading={loading && !d} />
-        <KpiCard label="Pending Write-offs" value={loading && !d ? '—' : fmtNum(pendingWriteOffs)}
+        <KpiCard label="Pending Write-Offs" value={loading && !d ? '—' : fmtNum(pendingWriteOffs)}
           sub="awaiting your decision" icon="request_quote" accent={pendingWriteOffs > 0 ? AMBER : GREEN} loading={loading && !d} />
         <KpiCard label="Visits This Month" value={loading && !d ? '—' : fmtNum(Number(d?.visits_this_month ?? 0))}
           sub="field visits logged" icon="pin_drop" accent={BLUE} loading={loading && !d} />
@@ -230,9 +233,9 @@ export default function RecoverySupervisor() {
       {/* ── Needs your decision ── */}
       <SectionCard title="Needs Your Decision" subtitle="Approvals waiting on a recovery head" badge={pmtCount + pendingWriteOffs} style={{ marginBottom: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-          <ApprovalCard icon="payments" label="Recovery payments" count={pmtCount} value={pmtValue} accent={GREEN}
+          <ApprovalCard icon="payments" label="Recovery Payments" count={pmtCount} value={pmtValue} accent={GREEN}
             onReview={() => navigate('/collections/recovery-approvals')} />
-          <ApprovalCard icon="gavel" label="Write-offs pending" count={pendingWriteOffs} value={0} accent={RED}
+          <ApprovalCard icon="gavel" label="Write-Offs Pending" count={pendingWriteOffs} value={0} accent={RED}
             onReview={() => navigate('/collections/writeoffs')} />
         </div>
       </SectionCard>
@@ -246,7 +249,7 @@ export default function RecoverySupervisor() {
             keyFn={r => (r.agent_id != null ? String(r.agent_id) : 'unassigned')}
             loading={loading && caseloads.length === 0}
             skeletonRows={6}
-            emptyText="No open cases yet"
+            emptyText="No Open Cases Yet"
             searchKeys={['agent_name']}
             searchPlaceholder="Search agent…"
             pageSize={12}

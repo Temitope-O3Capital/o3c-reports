@@ -92,6 +92,14 @@ export async function apiFetch<T = any>(
   const limitMs = timeoutMs ?? 30_000
   let timedOut = false
   const timeout = setTimeout(() => { timedOut = true; controller.abort() }, limitMs)
+  // A caller's own signal (a view cancelling a stale query) is chained into the internal
+  // controller rather than used in its place, so the request still gets the timeout.
+  const callerSignal = fetchInit.signal
+  const onCallerAbort = () => controller.abort()
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort()
+    else callerSignal.addEventListener('abort', onCallerAbort)
+  }
 
   const isFormData = fetchInit.body instanceof FormData
   const makeHeaders = (): HeadersInit => ({
@@ -106,7 +114,7 @@ export async function apiFetch<T = any>(
     const res = await fetch(`${API}${path}`, {
       ...fetchInit,
       credentials: 'include',
-      signal: fetchInit.signal ?? controller.signal,
+      signal: controller.signal,
       headers: makeHeaders(),
     })
 
@@ -151,7 +159,12 @@ export async function apiFetch<T = any>(
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error((err as any).detail || `Request failed (${res.status})`)
+      // Attach the status and parsed body so callers can act on structured errors
+      // (e.g. a 409 that asks the user to confirm). Existing callers keep using .message.
+      throw Object.assign(
+        new Error((err as any).detail || `Request failed (${res.status})`),
+        { status: res.status, body: err },
+      )
     }
     if (res.status === 204) return undefined as T
     return res.json()
@@ -164,6 +177,7 @@ export async function apiFetch<T = any>(
     throw e
   } finally {
     clearTimeout(timeout)
+    callerSignal?.removeEventListener('abort', onCallerAbort)
   }
 }
 

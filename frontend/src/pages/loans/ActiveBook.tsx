@@ -349,7 +349,7 @@ export default function ActiveLoanBook() {
           rows={loans}
           keyFn={r => r.id}
           loading={loading}
-          emptyText="No active loans found"
+          emptyText="No Active Loans Found"
           onRowClick={r => setSelected(r)}
         />
       </SectionCard>

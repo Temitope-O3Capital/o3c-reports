@@ -198,13 +198,22 @@ func runBatch(ctx context.Context, db *core.DB) error {
 		steps = append(steps, "fd_maturity_notifications:ok")
 	}
 
-	// 9. Monthly board pack email — fires only on 1st of the month
-	if time.Now().Day() == 1 {
+	// 9. Monthly board pack email.
+	//
+	// This was `if time.Now().Day() == 1`, which fires the wrong number of times in
+	// both directions: zero if the 1st is missed (RunBatchNightly always schedules for
+	// TOMORROW 00:05, so a restart after 00:05 skips that day entirely and the pack is
+	// lost for a whole month), and twice if anyone also triggers a manual run that day.
+	// Gate on what was actually last delivered, so a missed month still goes out late
+	// and a second run in the same month is a no-op.
+	if boardPackDue(ctx, db) {
 		if err := batchMonthlyBoardPack(ctx, db); err != nil {
 			slog.Error("Batch: monthly board pack failed", "err", err)
 			steps = append(steps, "board_pack:FAILED")
+			WorkerBeat(ctx, db, "board_pack", "error", "", err.Error())
 		} else {
 			steps = append(steps, "board_pack:ok")
+			WorkerBeat(ctx, db, "board_pack", "ok", "monthly board pack delivered", "")
 		}
 	}
 
@@ -819,40 +828,66 @@ func batchLOSSLACheck(ctx context.Context, db *core.DB) error {
 	return nil
 }
 
-// batchKPISnapshot writes a summary of today's key business metrics into kpi_daily_snapshot.
-// Uses INSERT … ON CONFLICT DO UPDATE so re-running the batch is idempotent.
+// batchKPISnapshot writes a summary of one day's key business metrics into
+// kpi_daily_snapshot. Uses INSERT … ON CONFLICT DO UPDATE so re-running is idempotent.
+//
+// It snapshots YESTERDAY, not today. runBatch fires at 00:05, so "today" was a
+// five-minute-old day and every windowed metric counted only what happened between
+// 00:00 and 00:05 — which is why all 57 daily rows written so far read 0. Yesterday is
+// both complete and fully landed: measured against the source tables, activity arrives
+// in real time and nothing backfills overnight.
 func batchKPISnapshot(ctx context.Context, db *core.DB) error {
-	today := time.Now().Format("2006-01-02")
+	target := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 
 	type metric struct {
 		col string
 		q   string
+		// pointInTime marks a metric describing the book as it stands rather than
+		// activity inside the day, so it takes no date parameter.
+		pointInTime bool
 	}
 	metrics := []metric{
-		{"new_applications",`SELECT COUNT(*) FROM loan_applications WHERE created_at::date = $1`},
-		{"approved_applications", `SELECT COUNT(*) FROM loan_applications WHERE status='approved' AND updated_at::date = $1`},
-		{"disbursements_count", `SELECT COUNT(*) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
-		{"disbursements_kobo", `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
-		{"repayments_count", `SELECT COUNT(*) FROM loan_repayments WHERE payment_date::date = $1`},
-		{"repayments_kobo", `SELECT COALESCE(SUM(amount_kobo),0) FROM loan_repayments WHERE payment_date::date = $1`},
-		{"ptp_set", `SELECT COUNT(*) FROM collection_promises WHERE created_at::date = $1`},
-		{"ptp_broken", `SELECT COUNT(*) FROM collection_promises WHERE status='broken' AND updated_at::date = $1`},
-		{"tickets_opened", `SELECT COUNT(*) FROM helpdesk_tickets WHERE created_at::date = $1`},
-		{"tickets_closed", `SELECT COUNT(*) FROM helpdesk_tickets WHERE status='resolved' AND updated_at::date = $1`},
-		{"active_loans", `SELECT COUNT(*) FROM loan_applications WHERE status='active'`},
-		{"total_book_kobo", `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='active'`},
+		{col: "new_applications", q: `SELECT COUNT(*) FROM loan_applications WHERE created_at::date = $1`},
+		{col: "approved_applications", q: `SELECT COUNT(*) FROM loan_applications WHERE status='approved' AND updated_at::date = $1`},
+		{col: "disbursements_count", q: `SELECT COUNT(*) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
+		{col: "disbursements_kobo", q: `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='disbursed' AND disbursed_at::date = $1`},
+		{col: "repayments_count", q: `SELECT COUNT(*) FROM loan_repayments WHERE payment_date::date = $1`},
+		{col: "repayments_kobo", q: `SELECT COALESCE(SUM(amount_kobo),0) FROM loan_repayments WHERE payment_date::date = $1`},
+		{col: "ptp_set", q: `SELECT COUNT(*) FROM collection_promises WHERE created_at::date = $1`},
+		// collection_promises has no `status` column — the outcome lives in the
+		// is_kept boolean. The old query selected status, so it errored on EVERY run
+		// and the error was swallowed below and stored as a plausible-looking 0.
+		// A promise is broken on the day it fell due, not the day the row was touched.
+		{col: "ptp_broken", q: `SELECT COUNT(*) FROM collection_promises WHERE is_kept = FALSE AND promised_date = $1`},
+		// collection_calls and npl_kobo exist on the table but were missing from the
+		// INSERT column list below, so they were 0 by construction whatever happened.
+		{col: "collection_calls", q: `SELECT COUNT(*) FROM collection_contacts WHERE created_at::date = $1`},
+		{col: "tickets_opened", q: `SELECT COUNT(*) FROM helpdesk_tickets WHERE created_at::date = $1`},
+		{col: "tickets_closed", q: `SELECT COUNT(*) FROM helpdesk_tickets WHERE status='resolved' AND updated_at::date = $1`},
+		{col: "active_loans", q: `SELECT COUNT(*) FROM loan_applications WHERE status='active'`, pointInTime: true},
+		{col: "total_book_kobo", q: `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='active'`, pointInTime: true},
+		{col: "npl_kobo", q: `SELECT COALESCE(SUM(outstanding_principal_kobo + outstanding_interest_kobo),0)
+			FROM cbs_loans
+			WHERE status NOT IN ('Closed','Revoked') AND app.is_npl(status, ` + cbsLoanDPDBare + `)`, pointInTime: true},
 	}
 
 	vals := map[string]int64{}
 	for _, m := range metrics {
 		var rows []map[string]any
 		var err error
-		if m.col == "active_loans" || m.col == "total_book_kobo" {
+		if m.pointInTime {
 			rows, err = db.PGQuery(ctx, m.q)
 		} else {
-			rows, err = db.PGQuery(ctx, m.q, today)
+			rows, err = db.PGQuery(ctx, m.q, target)
 		}
-		if err != nil || len(rows) == 0 {
+		if err != nil {
+			// Never let a broken query masquerade as a real zero — that is exactly
+			// how the ptp_broken defect survived unnoticed for the life of the table.
+			slog.Error("kpi snapshot: metric query failed", "metric", m.col, "date", target, "err", err)
+			vals[m.col] = 0
+			continue
+		}
+		if len(rows) == 0 {
 			vals[m.col] = 0
 			continue
 		}
@@ -867,10 +902,10 @@ func batchKPISnapshot(ctx context.Context, db *core.DB) error {
 			(snapshot_date, new_applications, approved_applications,
 			 disbursements_count, disbursements_kobo,
 			 repayments_count, repayments_kobo,
-			 ptp_set, ptp_broken,
+			 ptp_set, ptp_broken, collection_calls,
 			 tickets_opened, tickets_closed,
-			 active_loans, total_book_kobo)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			 active_loans, total_book_kobo, npl_kobo)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (snapshot_date) DO UPDATE SET
 			new_applications     = EXCLUDED.new_applications,
 			approved_applications= EXCLUDED.approved_applications,
@@ -880,17 +915,19 @@ func batchKPISnapshot(ctx context.Context, db *core.DB) error {
 			repayments_kobo      = EXCLUDED.repayments_kobo,
 			ptp_set              = EXCLUDED.ptp_set,
 			ptp_broken           = EXCLUDED.ptp_broken,
+			collection_calls     = EXCLUDED.collection_calls,
 			tickets_opened       = EXCLUDED.tickets_opened,
 			tickets_closed       = EXCLUDED.tickets_closed,
 			active_loans         = EXCLUDED.active_loans,
-			total_book_kobo      = EXCLUDED.total_book_kobo`,
-		today,
+			total_book_kobo      = EXCLUDED.total_book_kobo,
+			npl_kobo             = EXCLUDED.npl_kobo`,
+		target,
 		vals["new_applications"], vals["approved_applications"],
 		vals["disbursements_count"], vals["disbursements_kobo"],
 		vals["repayments_count"], vals["repayments_kobo"],
-		vals["ptp_set"], vals["ptp_broken"],
+		vals["ptp_set"], vals["ptp_broken"], vals["collection_calls"],
 		vals["tickets_opened"], vals["tickets_closed"],
-		vals["active_loans"], vals["total_book_kobo"])
+		vals["active_loans"], vals["total_book_kobo"], vals["npl_kobo"])
 	return err
 }
 
@@ -1010,65 +1047,135 @@ func batchPTPNotifications(ctx context.Context, db *core.DB) error {
 
 // batchFDMaturityNotifications fires daily notifications for:
 //   - FDs maturing in exactly 7 days → notify finance_officer role
-//   - FDs that matured yesterday with no liquidation/rollover → notify finance_head role
+//   - FDs past maturity but still Active → notify finance_head role
+//
+// Both queries used to read app.fd_transactions, which has 0 rows — so this
+// worker has never sent a single FD notification while cheerfully logging
+// "soon=0 unactioned=0". The live book is app.cbs_fixed_deposits.
+//
+// The "no liquidation/rollover recorded" NOT EXISTS sub-selects are gone with
+// it. They matched on customer_name against a table that does not populate, and
+// the CBS register has no action ledger to check: what it has instead is
+// status. A deposit that has been liquidated or rolled over leaves the Active
+// set on the next sync, so "still Active past its maturity date" IS the
+// unactioned condition, read straight off the book.
+//
+// Not attempted here (out of scope, needs a schema change): telling a genuine
+// new placement apart from a rollover of a maturing deposit. rollover_count
+// exists on the table but nothing populates it, so any maturity figure below
+// may double-count a deposit that simply rolls.
 func batchFDMaturityNotifications(ctx context.Context, db *core.DB) error {
-	// Maturing in 7 days
+	// Maturing in 7 days. The ::date cast is load-bearing — gts parses Udara's
+	// timestamps as UTC while the session is Africa/Lagos, so every maturity sits
+	// at 01:00:00+01 and a bare `= CURRENT_DATE + 7` matches nothing.
+	// Unfunded shells (hasDisbursed=false, ₦0) are excluded: nothing to pay out.
 	soonRows, err := db.PGQuery(ctx, `
-		SELECT f.id, f.customer_name, f.principal, f.maturity_date, f.currency
-		FROM fd_transactions f
-		WHERE f.transaction_type = 'inflow'
-		  AND f.maturity_date = CURRENT_DATE + 7
-		  AND NOT EXISTS (
-		    SELECT 1 FROM fd_transactions t2
-		    WHERE t2.customer_name = f.customer_name
-		      AND t2.transaction_type IN ('liquidation','rolled_over')
-		      AND t2.transaction_date >= f.maturity_date - 7)`)
+		SELECT f.cbs_account_number,
+		       COALESCE(NULLIF(btrim(f.raw->>'name'),''), f.cbs_customer_id) AS customer_name,
+		       f.principal_kobo,
+		       COALESCE(f.accrued_interest_kobo,0) AS accrued_interest_kobo,
+		       to_char(f.maturity_date,'YYYY-MM-DD') AS maturity_date
+		FROM cbs_fixed_deposits f
+		WHERE f.status = 'Active'
+		  AND f.raw->>'hasDisbursed' IS DISTINCT FROM 'false'
+		  AND f.maturity_date::date = CURRENT_DATE + 7
+		ORDER BY f.principal_kobo DESC`)
 	if err != nil {
 		return err
 	}
 	for _, row := range soonRows {
+		acct := str(row["cbs_account_number"])
+		amount := toInt64(row["principal_kobo"]) + toInt64(row["accrued_interest_kobo"])
 		p := NotifPayload{
 			EventType: EvtFDMaturing7Days,
 			Title:     "FD maturing in 7 days",
-			Body:      fmt.Sprintf("%s — %s principal matures on %s.", str(row["customer_name"]), str(row["currency"]), str(row["maturity_date"])),
-			ActionURL: "/finance/fd-maturity",
-			EntityRef: fmt.Sprintf("fd:%d", toInt64(row["id"])),
+			Body: fmt.Sprintf("%s (a/c %s) — %s principal and interest matures on %s. Confirm rollover or liquidation instructions with the customer.",
+				str(row["customer_name"]), acct, fmtKoboServer(amount), str(row["maturity_date"])),
+			ActionURL: fdDeepLink(acct),
+			EntityRef: "fd:" + acct,
 		}
 		go NotifyRole(ctx, db, "finance_officer", p)
 	}
 
-	// Matured yesterday with no action
+	// Past maturity and still on the book. Not just yesterday: the old query asked
+	// for maturity_date = CURRENT_DATE - 1, so a deposit that slipped through on day
+	// one was never mentioned again. Six deposits are overdue right now — ₦497.2m of
+	// principal on ₦58.6m of accrued interest, 1 to 4 days past — and nothing in the
+	// workspace has ever raised one of them.
+	//
+	// One grouped digest for the whole backlog rather than a notification per
+	// deposit per day: the GroupKey folds repeat sends into a single unread row that
+	// updates in place, so finance_head gets one standing item instead of six fresh
+	// alarms every morning until someone acts.
+	var unactionedCount int64
 	unactionedRows, err := db.PGQuery(ctx, `
-		SELECT f.id, f.customer_name, f.principal, f.maturity_date, f.currency
-		FROM fd_transactions f
-		WHERE f.transaction_type = 'inflow'
-		  AND f.maturity_date = CURRENT_DATE - 1
-		  AND NOT EXISTS (
-		    SELECT 1 FROM fd_transactions t2
-		    WHERE t2.customer_name = f.customer_name
-		      AND t2.transaction_type IN ('liquidation','rolled_over')
-		      AND t2.transaction_date >= f.maturity_date)`)
+		SELECT COUNT(*) AS n,
+		       COALESCE(SUM(f.principal_kobo),0) AS principal_kobo,
+		       COALESCE(SUM(f.accrued_interest_kobo),0) AS accrued_interest_kobo,
+		       COALESCE(MAX(CURRENT_DATE - f.maturity_date::date),0) AS oldest_days
+		FROM cbs_fixed_deposits f
+		WHERE f.status = 'Active'
+		  AND f.raw->>'hasDisbursed' IS DISTINCT FROM 'false'
+		  AND f.maturity_date::date < CURRENT_DATE`)
 	if err != nil {
 		return err
 	}
-	for _, row := range unactionedRows {
-		p := NotifPayload{
-			EventType: EvtFDMaturedUnactioned,
-			Title:     "FD matured — no action taken",
-			Body:      fmt.Sprintf("%s FD (matured %s) has not been liquidated or rolled over.", str(row["customer_name"]), str(row["maturity_date"])),
-			ActionURL: "/finance/fd-maturity",
-			EntityRef: fmt.Sprintf("fd:%d", toInt64(row["id"])),
+	if len(unactionedRows) > 0 {
+		row := unactionedRows[0]
+		unactionedCount = toInt64(row["n"])
+		if unactionedCount > 0 {
+			amount := toInt64(row["principal_kobo"]) + toInt64(row["accrued_interest_kobo"])
+			noun := "deposit has"
+			if unactionedCount > 1 {
+				noun = "deposits have"
+			}
+			p := NotifPayload{
+				EventType: EvtFDMaturedUnactioned,
+				Title:     fmt.Sprintf("%d matured FD(s) — no action taken", unactionedCount),
+				Body: fmt.Sprintf("%d fixed %s passed maturity and are still open — %s principal and interest, the oldest %d day(s) overdue. Neither liquidated nor rolled over.",
+					unactionedCount, noun, fmtKoboServer(amount), toInt64(row["oldest_days"])),
+				ActionURL: "/deposits",
+				EntityRef: "fd_past_due",
+				GroupKey:  "fd_past_due_finance",
+				Priority:  "urgent",
+			}
+			go NotifyRole(ctx, db, "finance_head", p)
 		}
-		go NotifyRole(ctx, db, "finance_head", p)
 	}
 
-	slog.Info("Batch: FD maturity notifications", "soon", len(soonRows), "unactioned", len(unactionedRows))
+	slog.Info("Batch: FD maturity notifications", "soon", len(soonRows), "unactioned", unactionedCount)
 	return nil
 }
 
 // batchMonthlyBoardPack assembles key KPIs and emails the board distribution list.
 // Called only on day 1 of each month from runBatch.
 // Recipients are read from the BOARD_EMAIL_LIST env var (comma-separated).
+// boardPackDue reports whether the monthly board pack still owes a delivery for the
+// current calendar month, judged by when one was last sent rather than by today's date.
+// The comparison is done in SQL so the answer does not depend on how the driver hands
+// back a timestamptz.
+//
+// A missed month therefore goes out on the next batch run instead of being lost, and a
+// second run in the same month sends nothing. Note the consequence on first deploy:
+// with no heartbeat recorded yet, the pack is considered owed and will send on the next
+// batch run. That is the intended reading of "this month has not been delivered".
+func boardPackDue(ctx context.Context, db *core.DB) bool {
+	rows, err := db.PGQuery(ctx, `
+		SELECT (last_ok_at IS NULL
+		        OR date_trunc('month', last_ok_at) < date_trunc('month', NOW())) AS due
+		FROM worker_heartbeats WHERE worker_key = 'board_pack'`)
+	if err != nil {
+		// Err toward silence: a duplicate board pack to the board is worse than a late one.
+		slog.Error("board pack: could not read last delivery — skipping", "err", err)
+		return false
+	}
+	if len(rows) == 0 {
+		return true // never delivered
+	}
+	due, _ := rows[0]["due"].(bool)
+	return due
+}
+
 func batchMonthlyBoardPack(ctx context.Context, db *core.DB) error {
 	boardList := resolveCredKey(ctx, db, "BOARD_EMAIL_LIST")
 	if boardList == "" {

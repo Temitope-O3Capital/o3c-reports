@@ -127,7 +127,7 @@ function OfferLetterModal({ appId, offer, onClose }: {
   }
 
   return (
-    <Modal open={!!offer} onClose={onClose} title={`Offer letter ${offer.reference} · version ${offer.version}`} width={900}>
+    <Modal open={!!offer} onClose={onClose} title={`Offer Letter ${offer.reference} · Version ${offer.version}`} width={900}>
       {!url && !error && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '60px 0', color: 'var(--txt2)', fontSize: 13.5 }}>
           <Spinner size={16} />Asking Phoenix for the letter…
@@ -146,7 +146,7 @@ function OfferLetterModal({ appId, offer, onClose }: {
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
             <a href={url} target="_blank" rel="noreferrer" style={linkStyle}>
-              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>Open in new tab
+              <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>Open in New Tab
             </a>
             <a href={url} download={`offer-${offer.reference}.pdf`} style={{ ...linkStyle, border: 'none', background: NAVY, color: '#fff' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 14 }}>download</span>Download
@@ -230,7 +230,7 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
   if (loading) {
     return (
       <div className="sd-panel">
-        <div className="sd-panel-head"><h2>Offer letter</h2></div>
+        <div className="sd-panel-head"><h2>Offer Letter</h2></div>
         <div className="sd-panel-body" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--txt2)', fontSize: 13 }}>
           <Spinner size={14} />Reading the offer from Phoenix…
         </div>
@@ -244,7 +244,7 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
     return (
       <div className="sd-panel">
         <div className="sd-panel-head">
-          <h2>Offer letter</h2>
+          <h2>Offer Letter</h2>
           <span className="sd-panel-hint">Phoenix</span>
         </div>
         <div className="sd-panel-body" style={{ fontSize: 13, color: 'var(--txt2)', lineHeight: 1.6 }}>
@@ -270,7 +270,7 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
     <div className="sd-panel">
       <OfferLetterModal appId={appId} offer={letter} onClose={() => setLetter(null)} />
       <div className="sd-panel-head">
-        <h2>Offer letter</h2>
+        <h2>Offer Letter</h2>
         <span className="sd-panel-hint">
           {current.reference}
           {offers.length > 1 ? ` · version ${current.version} of ${offers.length}` : ''}
@@ -304,17 +304,17 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
 
         {current.status === 'DECLINED' && current.decline_reason && (
           <div style={{ fontSize: 13, color: 'var(--txt)' }}>
-            <b style={{ color: RED }}>Reason given: </b>{current.decline_reason}
+            <b style={{ color: RED }}>Reason Given: </b>{current.decline_reason}
           </div>
         )}
 
         {/* The frozen terms. Phoenix fixes these when the offer is generated, so
             they are what the customer was actually promised — not today's figures. */}
         <div className="sd-fields">
-          <Field label="Amount offered" value={current.offered_amount_minor ? fmtKobo(current.offered_amount_minor) : null} />
-          <Field label="Limit offered" value={current.offered_limit_minor ? fmtKobo(current.offered_limit_minor) : null} />
+          <Field label="Amount Offered" value={current.offered_amount_minor ? fmtKobo(current.offered_amount_minor) : null} />
+          <Field label="Limit Offered" value={current.offered_limit_minor ? fmtKobo(current.offered_limit_minor) : null} />
           <Field label="Tenor" value={current.tenor_months ? `${current.tenor_months} months` : null} />
-          <Field label="Interest rate" value={current.interest_rate_bps ? `${(current.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} />
+          <Field label="Interest Rate" value={current.interest_rate_bps ? `${(current.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} />
           <Field label="Generated" value={current.generated_at ? fmtDatetime(current.generated_at) : null} />
           <Field label="Sent" value={current.sent_at ? fmtDatetime(current.sent_at) : null} />
           {current.accepted_at && <Field label="Accepted" value={fmtDatetime(current.accepted_at)} />}
@@ -329,28 +329,28 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
             <>
               <button className="sd-btn is-primary" disabled={busy} onClick={() => decide(current, 'accept')}>
                 {busy ? <Spinner size={13} color="#fff" /> : <span className="material-symbols-rounded">check_circle</span>}
-                Customer accepted
+                Customer Accepted
               </button>
               <button className="sd-btn is-danger" disabled={busy} onClick={() => setDeclining(true)}>
-                <span className="material-symbols-rounded">cancel</span>Customer declined
+                <span className="material-symbols-rounded">cancel</span>Customer Declined
               </button>
             </>
           )}
           {canAct && LIVE.has(current.status) && current.status !== 'DRAFT' && (
             <button className="sd-btn" disabled={busy} onClick={() => resend(current)}>
               {busy ? <Spinner size={13} /> : <span className="material-symbols-rounded">forward_to_inbox</span>}
-              Resend to customer
+              Resend to Customer
             </button>
           )}
           {/* Reading, so not gated on canAct: whoever can open the file can read
               what was put to the customer. */}
           <button className="sd-btn" onClick={() => setLetter(current)}>
-            <span className="material-symbols-rounded">description</span>View letter
+            <span className="material-symbols-rounded">description</span>View Letter
           </button>
           {older.length > 0 && (
             <button className="sd-btn" onClick={() => setShowAll(s => !s)}>
               <span className="material-symbols-rounded">{showAll ? 'expand_less' : 'history'}</span>
-              {showAll ? 'Hide' : `Earlier versions (${older.length})`}
+              {showAll ? 'Hide' : `Earlier Versions (${older.length})`}
             </button>
           )}
         </div>
@@ -366,7 +366,7 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
         {declining && (
           <div style={{ borderTop: '1px solid var(--bdr)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)' }}>
-              Why did the customer decline?
+              Why Did the Customer Decline?
             </label>
             <textarea
               rows={2} autoFocus value={declineReason} spellCheck={false}
@@ -381,7 +381,7 @@ export default function PhoenixOfferPanel({ appId, canAct, onRefresh }: {
               <button className="sd-btn is-danger" disabled={busy || !declineReason.trim()}
                 onClick={() => decide(current, 'decline')}>
                 {busy ? <Spinner size={13} /> : <span className="material-symbols-rounded">cancel</span>}
-                Record decline
+                Record Decline
               </button>
               <button className="sd-btn" disabled={busy}
                 onClick={() => { setDeclining(false); setDeclineReason('') }}>Cancel</button>

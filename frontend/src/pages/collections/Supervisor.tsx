@@ -208,7 +208,7 @@ export default function CollectionsSupervisor() {
       render: r => (
         <button onClick={e => { e.stopPropagation(); navigate(`/collections/queue?agent=${r.id}`) }}
           style={{ padding: '4px 11px', borderRadius: RADIUS.sm, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          View queue
+          View Queue
         </button>
       ),
     },
@@ -287,7 +287,7 @@ export default function CollectionsSupervisor() {
       {/* ── Needs your decision ── */}
       <SectionCard title="Needs Your Decision" subtitle="Approvals waiting on a collections head" badge={pendingApprovals} style={{ marginBottom: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-          <ApprovalCard icon="payments" label="Recovery payments" count={pmtCount} value={pmtValue} accent={GREEN}
+          <ApprovalCard icon="payments" label="Recovery Payments" count={pmtCount} value={pmtValue} accent={GREEN}
             onReview={() => navigate('/collections/recovery-approvals')} />
           {/* The "Write-off requests" card is gone. It polled
               collections_writeoff_requests — a table with 0 rows whose flow Writeoffs.tsx
@@ -309,7 +309,7 @@ export default function CollectionsSupervisor() {
             keyFn={r => r.id}
             loading={loading && agents.length === 0}
             skeletonRows={6}
-            emptyText="No agent activity yet"
+            emptyText="No Agent Activity Yet"
             searchKeys={['full_name']}
             searchPlaceholder="Search agent…"
             pageSize={12}
@@ -349,7 +349,7 @@ export default function CollectionsSupervisor() {
       <Modal
         open={distOpen}
         onClose={() => setDistOpen(false)}
-        title="Distribute unassigned accounts"
+        title="Distribute Unassigned Accounts"
         width={460}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

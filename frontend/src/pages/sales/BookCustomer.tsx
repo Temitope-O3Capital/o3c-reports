@@ -221,7 +221,7 @@ export default function SalesBookCustomer() {
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: 12 }}>
             A customer only opens for the officer who holds them, or for a sales head.
           </div>
-          <Button onClick={() => navigate('/sales/book')}>Back to my book</Button>
+          <Button onClick={() => navigate('/sales/book')}>Back to My Book</Button>
         </div>
       </Page>
     )
@@ -233,9 +233,9 @@ export default function SalesBookCustomer() {
       subtitle={`CIF ${cif}${c?.officer_name ? ` · Account officer: ${c.officer_name}` : ' · No account officer'}`}
       actions={
         <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="secondary" onClick={() => navigate('/sales/book')}>Back to book</Button>
+          <Button variant="secondary" onClick={() => navigate('/sales/book')}>Back to Book</Button>
           <Button onClick={() => navigate(`/sales/applications/new?cif=${encodeURIComponent(cif)}`)}>
-            Raise application
+            Raise Application
           </Button>
         </div>
       }
@@ -266,8 +266,8 @@ export default function SalesBookCustomer() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 14, marginBottom: SP[5] }}>
         <KpiCard label="Cards" value={fmtNum(accounts.length)} sub={fmtKobo(cardBalance)} />
         <KpiCard label="Loans" value={fmtNum(loans.length)} sub={`${fmtKobo(outstanding)} outstanding`} />
-        <KpiCard label="Fixed deposits" value={fmtNum(fds.length)} sub={fmtKobo(fdPrincipal)} />
-        <KpiCard label="Open applications" value={fmtNum(openApps.length)} sub={`${apps.length} all time`} />
+        <KpiCard label="Fixed Deposits" value={fmtNum(fds.length)} sub={fmtKobo(fdPrincipal)} />
+        <KpiCard label="Open Applications" value={fmtNum(openApps.length)} sub={`${apps.length} all time`} />
         <KpiCard
           label="Worst DPD"
           value={maxDpd > 0 ? `${fmtNum(maxDpd)}d` : '—'}
@@ -286,7 +286,7 @@ export default function SalesBookCustomer() {
       </SectionCard>
 
       <div style={{ height: SP[4] }} />
-      <SectionCard title="Fixed deposits" badge={fds.length} padding={false}>
+      <SectionCard title="Fixed Deposits" badge={fds.length} padding={false}>
         <DataTable cols={FD_COLS} rows={fds} keyFn={r => r.cbs_account_number} emptyText="No fixed deposits in Udara for this customer" />
       </SectionCard>
 
@@ -304,7 +304,7 @@ export default function SalesBookCustomer() {
       {/* Recent calls: telephony matched to this person by phone (last 10 digits),
           across every card they hold. Context for the officer's next conversation. */}
       <div style={{ height: SP[4] }} />
-      <SectionCard title="Recent calls" badge={recentCalls.length} padding={false}>
+      <SectionCard title="Recent Calls" badge={recentCalls.length} padding={false}>
         <DataTable cols={CALL_COLS} rows={recentCalls} keyFn={r => r.id} emptyText="No calls logged for this customer" />
       </SectionCard>
 
@@ -313,7 +313,7 @@ export default function SalesBookCustomer() {
       {tickets.length > 0 && (
         <>
           <div style={{ height: SP[4] }} />
-          <SectionCard title="Support history" badge={tickets.length} padding={false}>
+          <SectionCard title="Support History" badge={tickets.length} padding={false}>
             <DataTable cols={TICKET_COLS} rows={tickets} keyFn={r => r.id} emptyText="No tickets" />
           </SectionCard>
         </>

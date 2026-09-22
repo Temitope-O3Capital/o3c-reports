@@ -257,6 +257,17 @@ func raiseSalesAppFromLead(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// A submitted application moves the lead to application_submitted (never
+		// backwards, never out of approved/converted/disqualified). A draft is not a
+		// submission; it advances the lead when submitSalesAppDraft pushes it.
+		if !req.Draft {
+			if _, err := advanceLeadOnApplication(ctx, tx, leadID, user.ID,
+				fmt.Sprintf("Application %s submitted", ref)); err != nil {
+				respondErr(w, 500, "Could not advance the lead: "+err.Error())
+				return
+			}
+		}
+
 		if err := tx.Commit(); err != nil {
 			respondErr(w, 500, "Commit failed")
 			return
@@ -473,12 +484,49 @@ func createSalesApplication(db *core.DB) http.HandlerFunc {
 		// The customer must exist, and — unless the caller is a head — must be on the
 		// officer's own book. Raising credit for someone else's customer is a decision
 		// for a team lead, not a side effect of knowing a CIF.
+		//
+		// Ownership is resolved PER PARTY, not per CIF. $1 is a cards CIF and a CIF is
+		// a card, not a person (migration 130): one person can hold several, and
+		// assign_party_officer (migration 154) deliberately assigns all of them at
+		// once. Reading only the exact CIF's row meant an officer who owned the person
+		// was refused on their own customer's second card. Every CIF consulted here
+		// comes from app.customers, so the whole lookup stays inside the cards
+		// namespace — a Udara cbs_customer_id can never be the thing being matched.
 		var name, email, phone string
 		var ownerID sql.NullInt64
 		err := db.PG.QueryRowContext(ctx, `
-			SELECT c.full_name, COALESCE(c.email,''), COALESCE(c.phone,''), o.officer_id
+			SELECT c.full_name, COALESCE(c.email,''), COALESCE(c.phone,''),
+			       COALESCE(o.officer_id, po.officer_id, ps.officer_id) AS officer_id
 			  FROM app.customers c
-			  LEFT JOIN customer_officers o ON o.cif = c.cif
+			  -- Direct cards match, guarded by the prefix. app.customer_officers is keyed
+			  -- 'UD-<udara id>' for rows sourced from core banking (migration 269), because
+			  -- those customers have no CIF at all. Before that re-key this join read a
+			  -- Udara borrower's officer and pinned it to whichever CARD customer shared
+			  -- the digits: 184 of the 201 rows named a different real person. The prefix
+			  -- makes that impossible rather than merely discouraged; the guard states the
+			  -- intent even though the prefix already enforces it.
+			  LEFT JOIN customer_officers o
+			         ON o.cif = c.cif AND o.cif NOT LIKE 'UD-%'
+			  -- Then the party — the key that actually unifies a person across namespaces.
+			  -- This is what finds a Udara-sourced assignment for the right human.
+			  LEFT JOIN LATERAL (
+			      SELECT o2.officer_id
+			        FROM customer_officers o2
+			       WHERE c.party_id IS NOT NULL AND o2.party_id = c.party_id
+			       ORDER BY o2.assigned_at DESC, o2.cif
+			       LIMIT 1
+			  ) po ON TRUE
+			  -- Finally a sibling cards CIF of the same party: that is how an officer
+			  -- assigned through the CRM or the sales book is found, since those rows
+			  -- carry a real CIF and may predate party_id being populated.
+			  LEFT JOIN LATERAL (
+			      SELECT o3.officer_id
+			        FROM app.customers s
+			        JOIN customer_officers o3 ON o3.cif = s.cif AND o3.cif NOT LIKE 'UD-%'
+			       WHERE c.party_id IS NOT NULL AND s.party_id = c.party_id
+			       ORDER BY o3.assigned_at DESC, o3.cif
+			       LIMIT 1
+			  ) ps ON TRUE
 			 WHERE c.cif = $1`, req.CIF).Scan(&name, &email, &phone, &ownerID)
 		if err != nil {
 			respondErr(w, 404, "No customer with that CIF")
@@ -859,12 +907,14 @@ func submitSalesAppDraft(db *core.DB) http.HandlerFunc {
 
 		var appID, amount int64
 		var product, cif, name, ref string
+		var sourceLead sql.NullInt64
 		if err := db.PG.QueryRowContext(r.Context(), `
 			SELECT id, product_type, COALESCE(amount_requested_kobo,0),
-			       COALESCE(applicant_cif,''), COALESCE(applicant_name,''), reference
+			       COALESCE(applicant_cif,''), COALESCE(applicant_name,''), reference,
+			       source_lead_id
 			  FROM loan_applications
 			 WHERE id = $1 AND status = 'draft'`+scope, args...).
-			Scan(&appID, &product, &amount, &cif, &name, &ref); err != nil {
+			Scan(&appID, &product, &amount, &cif, &name, &ref, &sourceLead); err != nil {
 			respondErr(w, 404, "No draft you can submit with that id")
 			return
 		}
@@ -899,6 +949,14 @@ func submitSalesAppDraft(db *core.DB) http.HandlerFunc {
 			appID, routedStage, user.ID, "Submitted from draft by Sales"); err != nil {
 			respondErr(w, 500, "Could not record the event: "+err.Error())
 			return
+		}
+		// A draft raised from a lead advances that lead now that it is actually submitted.
+		if sourceLead.Valid {
+			if _, err := advanceLeadOnApplication(r.Context(), tx, sourceLead.Int64, user.ID,
+				fmt.Sprintf("Application %s submitted", ref)); err != nil && err != sql.ErrNoRows {
+				respondErr(w, 500, "Could not advance the lead: "+err.Error())
+				return
+			}
 		}
 		if err := tx.Commit(); err != nil {
 			respondErr(w, 500, "Commit failed")

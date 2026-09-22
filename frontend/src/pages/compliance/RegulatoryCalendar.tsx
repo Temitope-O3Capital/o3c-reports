@@ -211,9 +211,9 @@ export default function RegulatoryCalendar() {
             {
               key: 'horizon', label: 'Horizon',
               options: [
-                { value: '30', label: 'Next 30 days', count: rawItems.filter(r => daysRemaining(r.due_date) >= 0 && daysRemaining(r.due_date) <= 30).length },
-                { value: '60', label: 'Next 60 days', count: rawItems.filter(r => daysRemaining(r.due_date) >= 0 && daysRemaining(r.due_date) <= 60).length },
-                { value: '90', label: 'Next 90 days', count: rawItems.filter(r => daysRemaining(r.due_date) >= 0 && daysRemaining(r.due_date) <= 90).length },
+                { value: '30', label: 'Next 30 Days', count: rawItems.filter(r => daysRemaining(r.due_date) >= 0 && daysRemaining(r.due_date) <= 30).length },
+                { value: '60', label: 'Next 60 Days', count: rawItems.filter(r => daysRemaining(r.due_date) >= 0 && daysRemaining(r.due_date) <= 60).length },
+                { value: '90', label: 'Next 90 Days', count: rawItems.filter(r => daysRemaining(r.due_date) >= 0 && daysRemaining(r.due_date) <= 90).length },
               ],
               selected: fHorizon, onChange: (next: Set<string>) => setFHorizon(next),
             },
@@ -279,7 +279,7 @@ export default function RegulatoryCalendar() {
 
       <ConfirmModal
         open={!!doneEntry}
-        title="Mark as submitted?"
+        title="Mark as Submitted?"
         body={`Confirm that "${doneEntry?.report_name}" has been submitted to ${doneEntry?.regulatory_body ?? 'the regulator'}.`}
         confirmLabel="Mark Submitted"
         loading={doneing}

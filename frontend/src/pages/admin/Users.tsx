@@ -61,7 +61,7 @@ function roleTier(name: string): { k: number; label: string } {
   if (['it_admin', 'bi_head', 'bi_analyst'].includes(name)) return { k: 2, label: 'IT & Analytics' }
   if (/_head$/.test(name)) return { k: 3, label: 'Department Heads' }
   if (/(_officer|_agent)$/.test(name)) return { k: 4, label: 'Officers & Agents' }
-  return { k: 5, label: 'Other roles' }
+  return { k: 5, label: 'Other Roles' }
 }
 function buildRoleGroups(roles: RoleOpt[]): { label: string; roles: RoleOpt[] }[] {
   const byTier = new Map<number, { label: string; roles: RoleOpt[] }>()
@@ -322,7 +322,7 @@ function InviteModal({ onClose, onSaved }: {
           </div>
 
           <div>
-            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Additional teams <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(optional, for staff on more than one team)</span></div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Additional Teams <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(optional, for staff on more than one team)</span></div>
             <MultiRoleSelect value={extraRoles} exclude={form.role} onChange={setExtraRoles}
               style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             />
@@ -472,7 +472,7 @@ function EditUserModal({ user, onClose, onSaved }: {
           </div>
 
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Additional teams <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(for staff on more than one team)</span></div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Additional Teams <span style={{ fontWeight: FW.normal, textTransform: 'none', letterSpacing: 0 }}>(for staff on more than one team)</span></div>
             <MultiRoleSelect value={extraRoles} exclude={form.role} onChange={setExtraRoles}
               style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             />
@@ -503,7 +503,7 @@ function EditUserModal({ user, onClose, onSaved }: {
                 <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>Lifts on its own at {fmtDatetime(lockedUntil)}. Unlocking keeps their current password.</div>
               </div>
               <button onClick={unlock} disabled={unlocking} style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER, opacity: unlocking ? 0.7 : 1, flexShrink: 0 }}>
-                {unlocking ? 'Unlocking…' : 'Unlock now'}
+                {unlocking ? 'Unlocking…' : 'Unlock Now'}
               </button>
             </div>
           )}
@@ -511,7 +511,7 @@ function EditUserModal({ user, onClose, onSaved }: {
           {/* Temp PW display */}
           {newTempPw && (
             <div style={{ background: 'rgba(22,163,74,.08)', border: '1px solid rgba(22,163,74,.25)', borderRadius: RADIUS.md, padding: '12px 14px', marginBottom: 16 }}>
-              <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: GREEN, marginBottom: 6 }}>New temporary password (copy now):</div>
+              <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: GREEN, marginBottom: 6 }}>New Temporary Password (Copy Now):</div>
               <code style={{ fontSize: TEXT.md, fontWeight: FW.bold, color: GREEN, letterSpacing: 1 }}>{newTempPw}</code>
             </div>
           )}
@@ -611,7 +611,7 @@ function ApproveModal({ user, onClose, onDone }: {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
       <div style={{ background: 'var(--card)', borderRadius: RADIUS['2xl'], width: 460, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <h3 style={{ margin: 0, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>Approve access request</h3>
+          <h3 style={{ margin: 0, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>Approve Access Request</h3>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--txt2)' }}>
             <span className="material-symbols-rounded">close</span>
           </button>
@@ -624,7 +624,7 @@ function ApproveModal({ user, onClose, onDone }: {
           </div>
         </div>
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Assign role</div>
+          <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Assign Role</div>
           <RoleSelect value={role} onChange={setRole}
             style={{ display: 'block', width: '100%', padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
           />
@@ -635,7 +635,7 @@ function ApproveModal({ user, onClose, onDone }: {
         <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: RADIUS.md, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>Cancel</button>
           <button onClick={approve} disabled={saving} style={{ padding: '9px 20px', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER, opacity: saving ? 0.7 : 1 }}>
-            {saving ? 'Approving…' : 'Approve & send login'}
+            {saving ? 'Approving…' : 'Approve & Send Login'}
           </button>
         </div>
       </div>
@@ -805,7 +805,7 @@ export default function AdminUsers() {
           </div>
           <button onClick={() => setPendingOnly(v => !v)}
             style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: 'none', background: AMBER, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER }}>
-            {pendingOnly ? 'Show all users' : 'Review pending'}
+            {pendingOnly ? 'Show All Users' : 'Review Pending'}
           </button>
         </div>
       )}
@@ -823,7 +823,7 @@ export default function AdminUsers() {
           </div>
           <button onClick={() => unlockUsers(lockedUsers)}
             style={{ padding: '7px 14px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', fontFamily: INTER, flexShrink: 0 }}>
-            {lockedUsers.length === 1 ? 'Unlock' : 'Unlock all'}
+            {lockedUsers.length === 1 ? 'Unlock' : 'Unlock All'}
           </button>
         </div>
       )}
@@ -888,7 +888,7 @@ export default function AdminUsers() {
 
         <DataTable
           cols={COLS} rows={pageRows} keyFn={r => r.id}
-          loading={loading} emptyText="No users found"
+          loading={loading} emptyText="No Users Found"
           onRowClick={u => setEditing(u)}
           selectable selectedIds={selected} onSelect={setSelected}
         />

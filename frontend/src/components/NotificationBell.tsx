@@ -232,7 +232,7 @@ export default function NotificationBell() {
                   cursor: 'pointer', fontFamily: "var(--font-sans)", padding: 0, fontWeight: 500,
                 }}
               >
-                Mark all read
+                Mark All Read
               </button>
             )}
           </div>
@@ -241,7 +241,7 @@ export default function NotificationBell() {
           <div style={{ maxHeight: 400, overflowY: 'auto' }}>
             {items.length === 0 ? (
               <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
-                No notifications
+                No Notifications
               </div>
             ) : items.map(n => (
               <div
@@ -311,7 +311,7 @@ export default function NotificationBell() {
               style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt2)', fontSize: 11.5, fontFamily: "var(--font-sans)", padding: 0 }}
             >
               <span className="material-symbols-rounded" style={{ fontSize: 15 }}>tune</span>
-              Sound &amp; voice settings
+              Sound &amp; Voice Settings
             </button>
           </div>
         </div>

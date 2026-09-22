@@ -174,7 +174,10 @@ export default function EyeScore() {
       // full page load onto a blank screen. The score lives on the application's
       // own detail page, which is where "view" should go.
       render: r => <ActionRow actions={[
-        { icon: 'visibility', label: 'View Application', onClick: () => navigate(`/sales/applications/${r.application_id}`) },
+        // Was /risk/eye-score/{id} — a route that does not exist, so the only control
+        // on the row went to the 404 page. The score's actual reasoning (factor
+        // attribution, the Phoenix Eye report) lives on the application itself.
+        { icon: 'visibility', label: 'View Score', onClick: () => navigate(`/operations/risk/applications/${r.application_id}`) },
       ]} />,
     },
   ]

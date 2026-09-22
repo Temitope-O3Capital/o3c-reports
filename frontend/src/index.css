@@ -210,7 +210,9 @@ input.srch-input:focus-visible { box-shadow: none !important; }
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0);   }
 }
-.page-fade { animation: pageFadeIn var(--dur-enter) var(--ease) forwards; }
+/* No fill mode: a transform kept after the animation would make every position: fixed
+   popover inside the page position against the page instead of the window. */
+.page-fade { animation: pageFadeIn var(--dur-enter) var(--ease); }
 
 /* ── Skeleton pulse ───────────────────────────────────────────────────────── */
 @keyframes skPulse {

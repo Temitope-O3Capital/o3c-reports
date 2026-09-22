@@ -4,7 +4,7 @@ import { Page, SectionCard, ErrBanner, ExpandableFilterBar, filterInputStyle, Sp
 import type { FilterGroupDef } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
-import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, today, monthStart } from '../../lib/fmt'
+import { fmtKoboExact, fmtKobo, fmtDate, fmtNum, today } from '../../lib/fmt'
 import { BLUE, AMBER, GREEN, RED, PURPLE, NAVY, NUM, INTER, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { toast } from 'sonner'
 
@@ -331,7 +331,13 @@ export default function RecoveryLegal() {
 
   const [fMilestones, setFMilestones] = useState(new Set<string>())
   const [search,      setSearch]      = useState('')
-  const [dateFrom,    setDateFrom]    = useState(monthStart())
+  // Legal cases are long-running; a case opened before the 1st of the current month is
+  // still live litigation. Default to a trailing 12 months (opened_at drives this filter,
+  // and the KPI strip shares the same window) so the list isn't near-empty early in a month.
+  const [dateFrom,    setDateFrom]    = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 11); d.setDate(1)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  })
   const [dateTo,      setDateTo]      = useState(today())
 
   const [kpis, setKpis]         = useState<LegalKPIs | null>(null)
@@ -360,11 +366,14 @@ export default function RecoveryLegal() {
 
   useEffect(() => {
     setKpiLoading(true)
-    apiFetch<{ data: LegalKPIs }>('/api/recovery/legal-kpis')
+    const params = new URLSearchParams()
+    if (dateFrom) params.set('from', dateFrom)
+    if (dateTo)   params.set('to',   dateTo)
+    apiFetch<{ data: LegalKPIs }>(`/api/recovery/legal-kpis?${params}`)
       .then(r => setKpis(r.data))
       .catch(() => {})
       .finally(() => setKpiLoading(false))
-  }, [])
+  }, [dateFrom, dateTo])
 
   // Known solicitors for the assign modal's pick-or-type list.
   useEffect(() => {
@@ -469,7 +478,7 @@ export default function RecoveryLegal() {
           </div>
       }
     >
-      <ErrBanner error={err} onRetry={load} />
+      <ErrBanner error={err} onRetry={() => load()} />
 
       {/* KPI cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: SP[5] }}>
@@ -489,7 +498,7 @@ export default function RecoveryLegal() {
           onSearch={setSearch}
           groups={groups}
           onReset={resetFilters}
-          onApply={load}
+          onApply={() => load()}
           resultCount={filtered.length}
           totalCount={rows.length}
           placeholder="Search name, solicitor, CIF…"

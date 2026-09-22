@@ -47,7 +47,7 @@ const REASON_COLOR: Record<string, string> = {
   no_candidate: RED, ambiguous: AMBER, amount_mismatch: BLUE, unclassified: '#5B7A94',
 }
 const REASON_LABEL: Record<string, string> = {
-  no_candidate: 'No candidate', ambiguous: 'Ambiguous', amount_mismatch: 'Amount mismatch',
+  no_candidate: 'No Candidate', ambiguous: 'Ambiguous', amount_mismatch: 'Amount Mismatch',
   unclassified: 'Unclassified',
 }
 // Ageing runs fresh → stale, so colour runs calm → alarming in the same direction.
@@ -139,7 +139,7 @@ export default function ExecSettlements() {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginTop: SP[4] }}>
           <div>
-            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: SP[3] }}>Why they failed to match</div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: SP[3] }}>Why They Failed to Match</div>
             {data.exception_reasons.length === 0 ? (
               <Note tone={GREEN}>Nothing unmatched. Every item found its counterparty.</Note>
             ) : data.exception_reasons.map(x => (
@@ -163,7 +163,7 @@ export default function ExecSettlements() {
           </div>
 
           <div>
-            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: SP[3] }}>How long they have been sitting</div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', fontFamily: INTER, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: SP[3] }}>How Long They Have Been Sitting</div>
             <EBar
               data={data.exception_ageing}
               xKey="bucket"

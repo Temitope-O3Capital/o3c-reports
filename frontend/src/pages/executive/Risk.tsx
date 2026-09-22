@@ -84,7 +84,7 @@ export default function ExecRisk() {
   const exposure = [
     { line: 'Cards', value_kobo: data.card_exposure_kobo, tone: PURPLE },
     { line: 'Loans', value_kobo: data.portfolio_outstanding_kobo, tone: NAVY },
-    { line: 'FD (liability)', value_kobo: data.fd_liability_kobo, tone: AMBER },
+    { line: 'FD (Liability)', value_kobo: data.fd_liability_kobo, tone: AMBER },
   ]
 
   return (

@@ -7,6 +7,48 @@ import (
 	"github.com/o3c/workspace/core"
 )
 
+/*
+   Shared SQL fragments for the CBS/Udara fixed-deposit register.
+
+   They are written against UNQUALIFIED column names, so use them only where
+   cbs_fixed_deposits is the sole / unaliased table in the statement.
+
+   sqlFDFunded — Udara books the deposit record at instruction time and only
+   flips hasDisbursed once the money actually lands. 17 Active rows are unfunded
+   shells: principal, ledger and accrued are all 0, so they move no money total
+   but they DO inflate every count (active_count, unique_customers,
+   maturing_30d, new-this-month). "The book" therefore means Active AND funded
+   everywhere, and the shells are surfaced as unfunded_count rather than being
+   silently dropped. A missing flag counts as funded so an upstream change fails
+   safe. The flag lives only in raw — there is no column for it.
+
+   sqlFDEffRate / sqlFDDailyAccrualKobo — 27 Active deposits carry
+   interest_rate = 0 (₦2.07bn, 10.7% of the active book). The rate is genuinely
+   absent in Udara, not mis-mapped, yet 25 of them are visibly accruing.
+   Treating them as 0% books them as free money: it understates the cost of
+   funds and drags the headline rate down. Where the contract rate is missing we
+   fall back to what the deposit has actually accrued — accrued-to-date ÷ days
+   elapsed — a measured floor rather than an invented rate. Where there is
+   neither a rate nor any accrual the deposit contributes nothing and is left
+   out of the average (NULL) instead of being averaged in as a zero.
+*/
+const (
+	sqlFDFunded = `raw->>'hasDisbursed' IS DISTINCT FROM 'false'`
+
+	sqlFDEffRate = `CASE
+			WHEN COALESCE(interest_rate,0) > 0 THEN interest_rate
+			WHEN COALESCE(accrued_interest_kobo,0) > 0 AND COALESCE(principal_kobo,0) > 0 AND commencement_date IS NOT NULL
+				THEN (accrued_interest_kobo::numeric
+				      / GREATEST(1, CURRENT_DATE - commencement_date::date)) * 365.0 * 100.0 / principal_kobo
+			ELSE NULL END`
+
+	sqlFDDailyAccrualKobo = `CASE
+			WHEN COALESCE(interest_rate,0) > 0 THEN COALESCE(principal_kobo,0) * (interest_rate/100.0) / 365.0
+			WHEN COALESCE(accrued_interest_kobo,0) > 0 AND commencement_date IS NOT NULL
+				THEN accrued_interest_kobo::numeric / GREATEST(1, CURRENT_DATE - commencement_date::date)
+			ELSE 0 END`
+)
+
 // RegisterFDBook mounts the Fixed-Deposit book analytics under /api/fd-book.
 // Source of truth is the CBS/Udara-synced cbs_fixed_deposits register (not the
 // legacy native fd_transactions table). All routes require the fixed_deposit page.
@@ -16,8 +58,79 @@ func RegisterFDBook(r chi.Router, db *core.DB) {
 	r.With(access).Get("/maturity-ladder", fdBookMaturityLadder(db))
 	r.With(access).Get("/book-trend", fdBookTrend(db))
 	r.With(access).Get("/by-product", fdBookByProduct(db))
+	r.With(access).Get("/by-officer", fdBookByOfficer(db))
 	r.With(access).Get("/tenor-distribution", fdBookTenorDist(db))
 	r.With(access).Get("/list", fdBookList(db))
+}
+
+/*
+   Account officer on the deposit book.
+
+   cbs_fixed_deposits has NO officer column, which is why the FD book could not
+   answer "whose deposits are these" while the loan book could. Udara does send
+   one — raw->>'accountOfficerName', present on all 380 deposits across 20
+   distinct officers — and app.cbs_officer_map crosswalks all 21 known Udara
+   names to workspace users with 100% coverage of both books.
+
+   sqlFDOfficerName is the officer as Udara spells it, read out of raw. When the
+   officer_name column lands on the table these two consts are the ONLY switch
+   point in this file: change sqlFDOfficerName to `btrim(f.officer_name)` and
+   every query below follows. The equivalent switch points elsewhere are the
+   three joins in executive.go, the FD joins in overview.go, and the one in
+   account_alerts.go.
+
+   btrim matters. Udara pads 7 of the 21 officer names with a trailing space and
+   cbs_officer_map was hand-seeded from those exact strings, so plain equality
+   matches by luck: trim one side only and 173 of 380 deposits (98 on the active
+   book — 6 officers, ₦11.03bn of principal) fall out of officer attribution
+   with no error at all, and that attribution feeds sales targets and
+   commission. Trimming both sides is identical today and survives the cleanup.
+*/
+// Register paging bounds — see fdBookList for the contract.
+const (
+	fdBookListPageMax = 500   // largest explicit page
+	fdBookListHardCap = 10000 // backstop for limit=0 ("whole book")
+)
+
+const (
+	sqlFDOfficerName = `btrim(f.raw->>'accountOfficerName')`
+	sqlFDOfficerJoin = `LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = ` + sqlFDOfficerName + `
+				LEFT JOIN o3c_users u             ON u.id = m.officer_user_id`
+	// The officer as the workspace should show them: their o3c_users name when the
+	// crosswalk resolves, otherwise Udara's own spelling so nothing goes missing.
+	sqlFDOfficerLabel = `COALESCE(NULLIF(btrim(u.full_name),''), NULLIF(` + sqlFDOfficerName + `,''), 'Unassigned')`
+)
+
+// fdBookByOfficer — the funded Active book split by account officer, so the FD
+// book can answer "whose deposits are these" the way the loan book already does.
+func fdBookByOfficer(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, _ := db.PGQuery(r.Context(), `
+			SELECT `+sqlFDOfficerLabel+` AS officer,
+				m.officer_user_id,
+				COUNT(*)                                     AS count,
+				COUNT(DISTINCT f.cbs_customer_id)            AS unique_customers,
+				COALESCE(SUM(f.principal_kobo), 0)           AS principal_kobo,
+				COALESCE(SUM(f.accrued_interest_kobo), 0)    AS accrued_interest_kobo,
+				COALESCE(SUM(f.principal_kobo * f.eff_rate) FILTER (WHERE f.eff_rate IS NOT NULL)
+					/ NULLIF(SUM(f.principal_kobo) FILTER (WHERE f.eff_rate IS NOT NULL), 0), 0) AS avg_rate,
+				COUNT(*) FILTER (WHERE f.maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30) AS maturing_30d_count,
+				COALESCE(SUM(f.principal_kobo)
+					FILTER (WHERE f.maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30), 0) AS maturing_30d_kobo,
+				COUNT(*) FILTER (WHERE f.maturity_date::date < CURRENT_DATE) AS past_due_count
+			FROM (
+				SELECT *, `+sqlFDEffRate+` AS eff_rate
+				FROM cbs_fixed_deposits
+				WHERE status='Active' AND `+sqlFDFunded+`
+			) f
+			`+sqlFDOfficerJoin+`
+			GROUP BY 1, 2
+			ORDER BY principal_kobo DESC`)
+		if rows == nil {
+			rows = []core.Row{}
+		}
+		respond(w, rows, "pg")
+	}
 }
 
 // fdBookKPIs — headline deposit-book metrics from cbs_fixed_deposits (Active book).
@@ -35,25 +148,61 @@ func fdBookKPIs(db *core.DB) http.HandlerFunc {
 			"maturing_30d_count":               int64(0),
 			"maturing_30d_kobo":                int64(0),
 			"new_this_month_count":             int64(0),
+			"past_due_count":                   int64(0),
+			"past_due_kobo":                    int64(0),
+			"unfunded_count":                   int64(0),
+			"officer_count":                    int64(0),
+			"unmapped_officer_count":           int64(0),
 		}
+		// Every figure below is scoped to the funded Active book (see sqlFDFunded)
+		// so counts, customers and money all describe the same population, and the
+		// unfunded shells are reported on their own line instead of padding it.
+		// Date comparisons go through ::date: gts parses Udara timestamps as UTC
+		// while the session is Africa/Lagos, so each date sits at 01:00:00+01 and an
+		// uncast BETWEEN silently drops the far edge of the window.
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
-				COALESCE(SUM(principal_kobo)        FILTER (WHERE status='Active'), 0) AS total_principal_kobo,
-				COALESCE(SUM(ledger_balance_kobo)   FILTER (WHERE status='Active'), 0) AS total_ledger_kobo,
-				COALESCE(SUM(accrued_interest_kobo) FILTER (WHERE status='Active'), 0) AS total_accrued_interest_kobo,
-				COUNT(*)                            FILTER (WHERE status='Active')     AS active_count,
-				COUNT(DISTINCT cbs_customer_id)     FILTER (WHERE status='Active')     AS unique_customers,
-				-- weighted average interest rate, weighted by principal
-				COALESCE(SUM(principal_kobo * interest_rate) FILTER (WHERE status='Active' AND interest_rate IS NOT NULL)
-					/ NULLIF(SUM(principal_kobo) FILTER (WHERE status='Active' AND interest_rate IS NOT NULL), 0), 0) AS weighted_avg_rate,
-				COALESCE(SUM(principal_kobo * tenor_days) FILTER (WHERE status='Active' AND tenor_days IS NOT NULL)
-					/ NULLIF(SUM(principal_kobo) FILTER (WHERE status='Active' AND tenor_days IS NOT NULL), 0), 0) AS weighted_avg_tenor_days,
-				-- annualized interest-expense run-rate = principal * rate% per year
-				COALESCE(SUM(principal_kobo * interest_rate / 100.0) FILTER (WHERE status='Active'), 0)::bigint AS annualized_interest_expense_kobo,
-				COUNT(*)                     FILTER (WHERE status='Active' AND maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30) AS maturing_30d_count,
-				COALESCE(SUM(principal_kobo) FILTER (WHERE status='Active' AND maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30), 0) AS maturing_30d_kobo,
-				COUNT(*)                     FILTER (WHERE commencement_date >= DATE_TRUNC('month', CURRENT_DATE)) AS new_this_month_count
-			FROM cbs_fixed_deposits`)
+				COALESCE(SUM(principal_kobo)        FILTER (WHERE book), 0) AS total_principal_kobo,
+				COALESCE(SUM(ledger_balance_kobo)   FILTER (WHERE book), 0) AS total_ledger_kobo,
+				COALESCE(SUM(accrued_interest_kobo) FILTER (WHERE book), 0) AS total_accrued_interest_kobo,
+				COUNT(*)                            FILTER (WHERE book)     AS active_count,
+				COUNT(DISTINCT cbs_customer_id)     FILTER (WHERE book)     AS unique_customers,
+				-- Weighted by principal, on the effective rate: a deposit whose contract
+				-- rate is missing is carried at the rate it is actually accruing at, and
+				-- one that is neither rated nor accruing is left out instead of pulling
+				-- the average toward zero.
+				COALESCE(SUM(principal_kobo * eff_rate) FILTER (WHERE book AND eff_rate IS NOT NULL)
+					/ NULLIF(SUM(principal_kobo) FILTER (WHERE book AND eff_rate IS NOT NULL), 0), 0) AS weighted_avg_rate,
+				COALESCE(SUM(principal_kobo * tenor_days) FILTER (WHERE book AND tenor_days IS NOT NULL)
+					/ NULLIF(SUM(principal_kobo) FILTER (WHERE book AND tenor_days IS NOT NULL), 0), 0) AS weighted_avg_tenor_days,
+				-- Annualised interest-expense run-rate, from the daily accrual actually
+				-- being incurred (same effective-rate basis as above).
+				COALESCE(SUM(daily_accrual_kobo * 365.0) FILTER (WHERE book), 0)::bigint AS annualized_interest_expense_kobo,
+				COUNT(*)                     FILTER (WHERE book AND maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30) AS maturing_30d_count,
+				COALESCE(SUM(principal_kobo) FILTER (WHERE book AND maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30), 0) AS maturing_30d_kobo,
+				-- Past maturity but still on the book — payable now, and previously
+				-- invisible on every FD surface.
+				COUNT(*)                     FILTER (WHERE book AND maturity_date::date < CURRENT_DATE) AS past_due_count,
+				COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
+					FILTER (WHERE book AND maturity_date::date < CURRENT_DATE), 0) AS past_due_kobo,
+				COUNT(*) FILTER (WHERE book AND commencement_date::date >= DATE_TRUNC('month', CURRENT_DATE)::date) AS new_this_month_count,
+				COUNT(*) FILTER (WHERE status='Active' AND NOT funded) AS unfunded_count,
+				-- How many account officers hold the book, and how many deposits carry
+				-- an officer name Udara sends but cbs_officer_map does not know (0 today
+				-- — worth watching, because an unmapped officer is silently unattributed).
+				COUNT(DISTINCT officer_name) FILTER (WHERE book AND officer_name <> '') AS officer_count,
+				COUNT(*) FILTER (WHERE book AND officer_name <> '' AND officer_user_id IS NULL) AS unmapped_officer_count
+			FROM (
+				SELECT f.*,
+					(` + sqlFDFunded + `)                  AS funded,
+					status='Active' AND (` + sqlFDFunded + `) AS book,
+					` + sqlFDEffRate + `                   AS eff_rate,
+					` + sqlFDDailyAccrualKobo + `          AS daily_accrual_kobo,
+					COALESCE(NULLIF(btrim(u.full_name),''), NULLIF(` + sqlFDOfficerName + `,''), '') AS officer_name,
+					m.officer_user_id
+				FROM cbs_fixed_deposits f
+				` + sqlFDOfficerJoin + `
+			) f`)
 		if err == nil && len(rows) > 0 {
 			row := rows[0]
 			out["total_principal_kobo"] = toInt64(row["total_principal_kobo"])
@@ -67,6 +216,11 @@ func fdBookKPIs(db *core.DB) http.HandlerFunc {
 			out["maturing_30d_count"] = toInt64(row["maturing_30d_count"])
 			out["maturing_30d_kobo"] = toInt64(row["maturing_30d_kobo"])
 			out["new_this_month_count"] = toInt64(row["new_this_month_count"])
+			out["past_due_count"] = toInt64(row["past_due_count"])
+			out["past_due_kobo"] = toInt64(row["past_due_kobo"])
+			out["unfunded_count"] = toInt64(row["unfunded_count"])
+			out["officer_count"] = toInt64(row["officer_count"])
+			out["unmapped_officer_count"] = toInt64(row["unmapped_officer_count"])
 		}
 		respond(w, out, "pg")
 	}
@@ -89,7 +243,7 @@ func fdBookMaturityLadder(db *core.DB) http.HandlerFunc {
 					END AS bucket,
 					principal_kobo, accrued_interest_kobo
 				FROM cbs_fixed_deposits
-				WHERE status='Active' AND maturity_date IS NOT NULL
+				WHERE status='Active' AND ` + sqlFDFunded + ` AND maturity_date IS NOT NULL
 			)
 			SELECT bucket,
 				COUNT(*)                               AS count,
@@ -128,15 +282,23 @@ func fdBookTrend(db *core.DB) http.HandlerFunc {
 // fdBookByProduct — Active book split by FD product, with weighted rate.
 func fdBookByProduct(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Same effective-rate and funded-book basis as fdBookKPIs, so the per-product
+		// rates and annual interest add back up to the headline figures.
 		rows, _ := db.PGQuery(r.Context(), `
 			SELECT COALESCE(NULLIF(product_name,''), product_code, 'Unknown') AS product,
 				COUNT(*)                                AS count,
 				COALESCE(SUM(principal_kobo), 0)        AS principal_kobo,
 				COALESCE(SUM(accrued_interest_kobo), 0) AS accrued_interest_kobo,
-				COALESCE(SUM(principal_kobo * interest_rate) / NULLIF(SUM(principal_kobo), 0), 0) AS avg_rate,
-				COALESCE(SUM(principal_kobo * interest_rate / 100.0), 0)::bigint AS annual_interest_kobo
-			FROM cbs_fixed_deposits
-			WHERE status='Active'
+				COALESCE(SUM(principal_kobo * eff_rate) FILTER (WHERE eff_rate IS NOT NULL)
+					/ NULLIF(SUM(principal_kobo) FILTER (WHERE eff_rate IS NOT NULL), 0), 0) AS avg_rate,
+				COALESCE(SUM(daily_accrual_kobo * 365.0), 0)::bigint AS annual_interest_kobo
+			FROM (
+				SELECT product_name, product_code, principal_kobo, accrued_interest_kobo,
+					` + sqlFDEffRate + `          AS eff_rate,
+					` + sqlFDDailyAccrualKobo + ` AS daily_accrual_kobo
+				FROM cbs_fixed_deposits
+				WHERE status='Active' AND ` + sqlFDFunded + `
+			) f
 			GROUP BY 1
 			ORDER BY principal_kobo DESC`)
 		if rows == nil {
@@ -159,7 +321,7 @@ func fdBookTenorDist(db *core.DB) http.HandlerFunc {
 					ELSE '365d+'
 				END AS bucket, principal_kobo
 				FROM cbs_fixed_deposits
-				WHERE status='Active' AND tenor_days IS NOT NULL
+				WHERE status='Active' AND ` + sqlFDFunded + ` AND tenor_days IS NOT NULL
 			)
 			SELECT bucket, COUNT(*) AS count, COALESCE(SUM(principal_kobo),0) AS principal_kobo
 			FROM b GROUP BY bucket
@@ -172,30 +334,79 @@ func fdBookTenorDist(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// fdBookList — paginated Active deposit list for the book view.
+// fdBookList — paginated deposit register for the book view. This is the
+// register, so it deliberately keeps showing every row the KPIs exclude — the
+// 17 unfunded shells and the Closed deposits — and carries has_disbursed and
+// is_past_due so the row can be labelled rather than quietly dropped.
+//
+// It also carries the account officer (customer_name too, since the register
+// previously showed only Udara's customer ID). The loan export has had an
+// officer column all along; the FD export had none, because the officer lives
+// in raw and nothing here read it. `q` now searches the officer as well, so
+// "show me Jennifer's deposits" is one search box away.
+//
+// Paging contract:
+//
+//	limit=1..500  one page of that size (default 50)
+//	limit=0       the ENTIRE matching set in one response, offset ignored
+//
+// limit=0 exists because a grouped register has to total principal per customer
+// across the whole book, and it cannot do that from a page. The register is a
+// full DELETE+reload mirror of Udara's current FD book — 380 rows today, a few
+// hundred kilobytes — so serving all of it is cheap and bounded by the upstream
+// system, not by user input. fdBookListHardCap is the backstop if that book ever
+// grows; `total` in the response still reports the true match count, so a client
+// can always tell whether it received everything.
 func fdBookList(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		limit := qint(r, "limit", 50, 1, 200)
+		limit := qint(r, "limit", 50, 1, fdBookListPageMax)
 		offset := qint(r, "offset", 0, 0, 1<<30)
+		// qint clamps to its minimum, so limit=0 has to be read before it is clamped.
+		if r.URL.Query().Get("limit") == "0" {
+			limit, offset = fdBookListHardCap, 0
+		}
 		q := "%" + r.URL.Query().Get("q") + "%"
+
+		// One predicate, used by both the page query and the count, so they can never
+		// disagree about what the search matched.
+		where := `($1 = '%%'
+			OR f.cbs_account_number ILIKE $1
+			OR f.cbs_customer_id ILIKE $1
+			OR f.product_name ILIKE $1
+			OR f.raw->>'name' ILIKE $1
+			OR ` + sqlFDOfficerLabel + ` ILIKE $1)`
+
 		rows, _ := db.PGQuery(r.Context(), `
-			SELECT cbs_account_number, cbs_customer_id, product_name, status,
-				principal_kobo, accrued_interest_kobo, ledger_balance_kobo,
-				interest_rate, tenor_days,
-				TO_CHAR(commencement_date, 'YYYY-MM-DD') AS commencement_date,
-				TO_CHAR(date_booked, 'YYYY-MM-DD')       AS date_booked,
-				TO_CHAR(maturity_date, 'YYYY-MM-DD')     AS maturity_date
-			FROM cbs_fixed_deposits
-			WHERE ($1 = '%%' OR cbs_account_number ILIKE $1 OR cbs_customer_id ILIKE $1 OR product_name ILIKE $1)
-			ORDER BY (status='Active') DESC, maturity_date NULLS LAST
+			SELECT f.cbs_account_number, f.cbs_customer_id, f.product_name, f.status,
+				COALESCE(NULLIF(btrim(f.raw->>'name'),''), f.cbs_customer_id) AS customer_name,
+				`+sqlFDOfficerLabel+` AS officer_name,
+				m.officer_user_id,
+				f.principal_kobo, f.accrued_interest_kobo, f.ledger_balance_kobo,
+				f.interest_rate, f.tenor_days,
+				(f.`+sqlFDFunded+`) AS has_disbursed,
+				(f.status='Active' AND f.maturity_date::date < CURRENT_DATE) AS is_past_due,
+				TO_CHAR(f.commencement_date, 'YYYY-MM-DD') AS commencement_date,
+				TO_CHAR(f.date_booked, 'YYYY-MM-DD')       AS date_booked,
+				TO_CHAR(f.maturity_date, 'YYYY-MM-DD')     AS maturity_date
+			FROM cbs_fixed_deposits f
+			`+sqlFDOfficerJoin+`
+			WHERE `+where+`
+			-- cbs_account_number is the tiebreaker, and it is load-bearing. Ties on
+			-- maturity_date are common (6 active deposits share 2026-10-31; three more
+			-- dates carry 4 each), and without a unique final key Postgres may order
+			-- tied rows differently between two OFFSET pages — serving one deposit
+			-- twice and dropping another. Invisible when eyeballing a flat table,
+			-- corrupting once a page totals principal per customer across pages.
+			ORDER BY (f.status='Active') DESC, f.maturity_date NULLS LAST, f.cbs_account_number
 			LIMIT $2 OFFSET $3`, q, limit, offset)
 		if rows == nil {
 			rows = []core.Row{}
 		}
 		var total int64
 		if tr, err := db.PGQuery(r.Context(), `
-			SELECT COUNT(*) AS c FROM cbs_fixed_deposits
-			WHERE ($1 = '%%' OR cbs_account_number ILIKE $1 OR cbs_customer_id ILIKE $1 OR product_name ILIKE $1)`, q); err == nil && len(tr) > 0 {
+			SELECT COUNT(*) AS c FROM cbs_fixed_deposits f
+			`+sqlFDOfficerJoin+`
+			WHERE `+where, q); err == nil && len(tr) > 0 {
 			total = toInt64(tr[0]["c"])
 		}
 		respond(w, map[string]any{"data": rows, "total": total}, "pg")

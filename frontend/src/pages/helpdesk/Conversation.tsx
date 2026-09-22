@@ -57,7 +57,7 @@ function InlineImage({ url }: { url: string }) {
   if (failed) {
     return (
       <a href={url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: BLUE, fontWeight: FW.semibold }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 15 }}>image</span>View image
+        <span className="material-symbols-rounded" style={{ fontSize: 15 }}>image</span>View Image
       </a>
     )
   }
@@ -120,8 +120,8 @@ function MessageBubble({ msg, dense }: { msg: ConvMessage; dense?: boolean }) {
           <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{sender}</span>
           <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{fmtDatetime(msg.created_at)}</span>
           {msg.channel && !isNote && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'capitalize' }}>· {msg.channel}</span>}
-          {msg._opening && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 6px', borderRadius: RADIUS.lg, background: `${BLUE}14`, color: BLUE }}>Original request</span>}
-          {isNote && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 6px', borderRadius: RADIUS.lg, background: `${AMBER}18`, color: AMBER }}>Internal note</span>}
+          {msg._opening && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 6px', borderRadius: RADIUS.lg, background: `${BLUE}14`, color: BLUE }}>Original Request</span>}
+          {isNote && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, padding: '1px 6px', borderRadius: RADIUS.lg, background: `${AMBER}18`, color: AMBER }}>Internal Note</span>}
         </div>
         {hasHtml ? (
           <div style={{ display: 'flex', justifyContent: isAgent ? 'flex-end' : 'flex-start' }}>
@@ -150,7 +150,7 @@ export function Conversation({ ticket, messages, dense }: { ticket: ConvTicket; 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '44px 20px', textAlign: 'center' }}>
         <span className="material-symbols-rounded" style={{ fontSize: 38, color: 'var(--txt3)' }}>forum</span>
-        <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>No messages yet</div>
+        <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>No Messages Yet</div>
         <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', maxWidth: 260 }}>Start the conversation below, or add an internal note.</div>
       </div>
     )

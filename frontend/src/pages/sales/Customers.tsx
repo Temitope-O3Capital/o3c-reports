@@ -296,7 +296,7 @@ export default function CRMContacts() {
                 { value: 'campaign',  label: 'Campaign',  color: AMBER },
                 { value: 'digital',   label: 'Digital',   color: BLUE },
                 { value: 'corporate', label: 'Corporate', color: PURPLE },
-                { value: 'walk_in',   label: 'Walk-in',   color: NAVY },
+                { value: 'walk_in',   label: 'Walk-In',   color: NAVY },
               ],
               selected: fSources,
               onChange: setFSources,
@@ -382,7 +382,7 @@ export default function CRMContacts() {
       </Modal>
 
       {/* Bulk-assign modal */}
-      <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title={`Assign ${bulkSel.size} contact${bulkSel.size > 1 ? 's' : ''}`} width={420}
+      <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title={`Assign ${bulkSel.size} Contact${bulkSel.size > 1 ? 's' : ''}`} width={420}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button onClick={() => setAssignOpen(false)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
@@ -396,7 +396,7 @@ export default function CRMContacts() {
           <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Officer</label>
           <select value={assignTo} onChange={e => setAssignTo(e.target.value)}
             style={{ width: '100%', padding: `${SP[2]} 10px`, border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', boxSizing: 'border-box' }}>
-            <option value="">— Select officer —</option>
+            <option value="">— Select Officer —</option>
             {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
           </select>
         </div>
@@ -404,7 +404,7 @@ export default function CRMContacts() {
 
       <ConfirmModal
         open={!!archiving}
-        title="Archive contact"
+        title="Archive Contact"
         body={archiving ? `Archive ${`${archiving.first_name} ${archiving.last_name}`.trim()}? This removes them from the contact list.` : ''}
         confirmLabel="Archive"
         danger

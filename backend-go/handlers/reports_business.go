@@ -260,7 +260,11 @@ func reportCustomerAcquisition(db *core.DB) http.HandlerFunc {
 
 		byState, _ := db.PGQuery(ctx, `
 			WITH fa AS (`+firstAcct+`)
-			SELECT COALESCE(NULLIF(c.state,''),'Unknown') AS state,
+			-- core.clean_state() collapses the spelling variants (LAGOS/Lagos/
+			-- LAGOS STATE, and four spellings of Abuja) that used to split one state
+			-- across several rows here. It returns NULL for foreign and unusable
+			-- values, which land in 'Unknown' — see migration 237.
+			SELECT COALESCE(core.clean_state(c.state),'Unknown') AS state,
 			       COUNT(DISTINCT fa.cif)                 AS new_customers
 			FROM fa LEFT JOIN app.customers c ON c.cif = fa.cif
 			WHERE fa.first_open BETWEEN $1::date AND $2::date

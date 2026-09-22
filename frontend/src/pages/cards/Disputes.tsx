@@ -1,5 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Fragment, useEffect, useState, useCallback, useMemo } from 'react'
 import { Page, SectionCard, DataTable, ErrBanner, ExpandableFilterBar, DateFilter, NameCell, StatusBadge } from '../../components/UI'
 import type { TableCol, FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
@@ -82,10 +82,18 @@ function AdvanceBtn({ dispute, onReload }: { dispute: Dispute; onReload: () => v
 
 function NewDisputeModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({
-    cif_number: '', customer_name: '', card_type: 'PREP', amount_kobo: '', dispute_type: DISPUTE_TYPES[0], notes: '',
+    cif_number: '', customer_name: '', card_type: '', amount_kobo: '', dispute_type: DISPUTE_TYPES[0], notes: '',
   })
   const [saving, setSaving] = useState(false)
   const { products } = useCardProducts()
+  // Default the product to the first catalogue entry once it loads, so the <select>
+  // and the form state agree — the old 'PREP' default was a product code, not a
+  // product_name, so it matched no <option> and an untouched form POSTed a bad value.
+  useEffect(() => {
+    if (products.length > 0) {
+      setForm(f => (f.card_type ? f : { ...f, card_type: products[0].product_name }))
+    }
+  }, [products])
 
   async function submit() {
     if (!form.customer_name.trim()) { toast.error('Customer name required'); return }
@@ -123,7 +131,7 @@ function NewDisputeModal({ onClose, onCreated }: { onClose: () => void; onCreate
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {[
             { label: 'Customer Name', key: 'customer_name', placeholder: 'Full name' },
-            { label: 'CIF Number (optional)', key: 'cif_number', placeholder: 'e.g. CIF-00123' },
+            { label: 'CIF Number (Optional)', key: 'cif_number', placeholder: 'e.g. CIF-00123' },
           ].map(({ label, key, placeholder }) => (
             <div key={key}>
               <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</label>
@@ -138,7 +146,7 @@ function NewDisputeModal({ onClose, onCreated }: { onClose: () => void; onCreate
               </select>
             </div>
             <div>
-              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Amount (kobo)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Amount (Kobo)</label>
               <input type="number" value={form.amount_kobo} onChange={e => setForm(f => ({ ...f, amount_kobo: e.target.value }))} style={inputStyle} placeholder="e.g. 1500000" />
             </div>
           </div>
@@ -298,7 +306,7 @@ export default function CardsDisputes() {
           rows={displayed}
           keyFn={r => r.id}
           loading={loading}
-          emptyText="No disputes filed yet"
+          emptyText="No Disputes Filed Yet"
           pageSize={20}
           selectable
           selectedIds={sel}
@@ -316,14 +324,14 @@ export default function CardsDisputes() {
       <SectionCard title="Status Flow" style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {STATUS_FLOW.map((s, i) => (
-            <>
-              <span key={s} style={{ padding: '4px 14px', borderRadius: RADIUS['2xl'], fontSize: TEXT.sm, fontWeight: FW.semibold, background: STATUS_COLORS[s].bg, color: STATUS_COLORS[s].txt }}>
+            <Fragment key={s}>
+              <span style={{ padding: '4px 14px', borderRadius: RADIUS['2xl'], fontSize: TEXT.sm, fontWeight: FW.semibold, background: STATUS_COLORS[s].bg, color: STATUS_COLORS[s].txt }}>
                 {STATUS_LABELS[s]}
               </span>
               {i < STATUS_FLOW.length - 1 && (
-                <span key={`arr-${i}`} className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: 'var(--txt3)' }}>arrow_forward</span>
+                <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg, color: 'var(--txt3)' }}>arrow_forward</span>
               )}
-            </>
+            </Fragment>
           ))}
         </div>
       </SectionCard>

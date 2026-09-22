@@ -359,7 +359,7 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
             <div style={{ flex: 1 }}>
               {cfData.eye_rating    && <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 6 }}>Rating: {cfData.eye_rating}</div>}
               {cfData.bureau_summary && <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>{cfData.bureau_summary}</div>}
-              {!cfData.eye_score && !cfData.bureau_summary && <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No score on file</div>}
+              {!cfData.eye_score && !cfData.bureau_summary && <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No Score on File</div>}
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
@@ -487,7 +487,7 @@ function ConditionsInline({ appId, conditions, onRefresh, canManage }: {
       {conditions.length === 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: 8 }}>
           <span className="material-symbols-rounded" style={{ fontSize: 34, color: 'var(--txt3)', opacity: 0.5 }}>fact_check</span>
-          <div style={{ fontSize: 13, color: 'var(--txt2)' }}>No conditions set</div>
+          <div style={{ fontSize: 13, color: 'var(--txt2)' }}>No Conditions Set</div>
         </div>
       )}
     </div>
@@ -589,7 +589,7 @@ function DocPreviewModal({ doc, onClose }: { doc: LosDoc | null; onClose: () => 
         {url && (
           <a href={url} target="_blank" rel="noreferrer"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 13px', borderRadius: 7, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, textDecoration: 'none', fontWeight: 600 }}>
-            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>Open in new tab
+            <span className="material-symbols-rounded" style={{ fontSize: 14 }}>open_in_new</span>Open in New Tab
           </a>
         )}
         {url && (
@@ -608,7 +608,7 @@ function DocPreviewModal({ doc, onClose }: { doc: LosDoc | null; onClose: () => 
 const DOC_SLOTS = [
   { key: 'government_id',  label: 'Government-Issued ID',      icon: 'badge' },
   { key: 'payslip',        label: 'Latest Payslip',            icon: 'receipt_long' },
-  { key: 'bank_statement', label: 'Bank Statement (6 months)', icon: 'account_balance' },
+  { key: 'bank_statement', label: 'Bank Statement (6 Months)', icon: 'account_balance' },
   { key: 'offer_letter',   label: 'Employment Offer Letter',   icon: 'description' },
 ]
 
@@ -723,7 +723,7 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
                     ))}
                   </div>
                 ) : readOnly ? (
-                  <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 1, fontStyle: 'italic' }}>Not yet uploaded</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 1, fontStyle: 'italic' }}>Not Yet Uploaded</div>
                 ) : null}
               </div>
               <div style={{ flexShrink: 0 }}>
@@ -978,7 +978,7 @@ function InternalThread({ appId, readOnly = false }: { appId: number; readOnly?:
                 </div>
                 <div style={{ maxHeight: 180, overflowY: 'auto' }}>
                   {filteredUsers.length === 0
-                    ? <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--txt2)' }}>No results</div>
+                    ? <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--txt2)' }}>No Results</div>
                     : filteredUsers.map(u => (
                       <button key={u.id} onClick={() => insertMention(u)}
                         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}
@@ -1061,7 +1061,7 @@ function PhoenixDecisionBanner({ app }: { app: Application }) {
   // beside it. It stated nothing, twice. A pending assessment should say it is
   // pending; where the application came from is provenance, not a verdict.
   const failed = !hasDecision && app.phoenix_sync_state === 'failed'
-  const title = hasDecision ? `Credit decision: ${d.label}` : failed ? 'Not sent for a credit decision' : 'Awaiting credit decision'
+  const title = hasDecision ? `Credit Decision: ${d.label}` : failed ? 'Not Sent for a Credit Decision' : 'Awaiting Credit Decision'
   const body = hasDecision
     ? 'Advisory recommendation. A credit approver still decides — advancing or declining remains a human action.'
     : failed
@@ -1138,7 +1138,7 @@ function PhoenixSendFailure({ app }: { app: Application }) {
               ? (
                 <button className="sd-btn" disabled={state === 'busy'} onClick={resend}>
                   {state === 'busy' ? <Spinner size={13} /> : <span className="material-symbols-rounded">send</span>}
-                  Send to Phoenix again
+                  Send to Phoenix Again
                 </button>
               )
               : 'Someone in Risk can send it to Phoenix again.'}
@@ -1151,8 +1151,8 @@ function PhoenixSendFailure({ app }: { app: Application }) {
 // is the system of record, so this records terms + acceptance and never gates the stage.
 // offer_source shows whether it came from Phoenix or was captured here.
 const OFFER_META: Record<string, { label: string; txt: string; bg: string }> = {
-  none:     { label: 'No offer captured', txt: '#6B7280', bg: 'rgba(75,85,99,.10)' },
-  issued:   { label: 'Offer issued',      txt: '#2563EB', bg: 'rgba(37,99,235,.12)' },
+  none:     { label: 'No Offer Captured', txt: '#6B7280', bg: 'rgba(75,85,99,.10)' },
+  issued:   { label: 'Offer Issued',    txt: '#2563EB', bg: 'rgba(37,99,235,.12)' },
   accepted: { label: 'Accepted',          txt: GREEN,     bg: 'rgba(22,163,74,.12)' },
   declined: { label: 'Declined',          txt: RED,       bg: 'rgba(192,0,0,.10)' },
   expired:  { label: 'Expired',           txt: AMBER,     bg: 'rgba(217,119,6,.12)' },
@@ -1195,7 +1195,7 @@ function OfferPanel({ app, onRefresh }: { app: Application; onRefresh: () => voi
   return (
     <div className="sd-panel">
       <div className="sd-panel-head">
-        <h2>Offer and acceptance</h2>
+        <h2>Offer and Acceptance</h2>
         <span className="sd-panel-hint">Phoenix owns this step — recorded here for the file</span>
       </div>
       <div className="sd-panel-body">
@@ -1208,7 +1208,7 @@ function OfferPanel({ app, onRefresh }: { app: Application; onRefresh: () => voi
       {status !== 'none' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 12 }}>
           {[
-            { label: 'Offered amount', value: app.offered_amount_kobo ? fmtKobo(app.offered_amount_kobo) : '—' },
+            { label: 'Offered Amount', value: app.offered_amount_kobo ? fmtKobo(app.offered_amount_kobo) : '—' },
             { label: 'Rate', value: app.offered_rate_bps ? `${(app.offered_rate_bps / 100).toFixed(2)}%` : '—' },
             { label: 'Tenor', value: app.offered_tenor_months ? `${app.offered_tenor_months}m` : '—' },
             { label: status === 'accepted' ? 'Accepted' : 'Expires', value: status === 'accepted' ? (app.offer_accepted_at ? fmtDate(app.offer_accepted_at) : '—') : (app.offer_expires_at ? fmtDate(app.offer_expires_at) : '—') },
@@ -1226,15 +1226,15 @@ function OfferPanel({ app, onRefresh }: { app: Application; onRefresh: () => voi
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {(status === 'none' || status === 'expired' || status === 'declined') && (
             <button onClick={() => setEditing(true)} className="sd-btn is-primary">
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>description</span>Issue offer
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>description</span>Issue Offer
             </button>
           )}
           {status === 'issued' && <>
-            <button onClick={() => setEditing(true)} className="sd-btn">Update terms</button>
+            <button onClick={() => setEditing(true)} className="sd-btn">Update Terms</button>
             <button disabled={busy} onClick={() => act('accept')} className="sd-btn" style={{ color: GREEN, borderColor: GREEN }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check_circle</span>Record acceptance
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check_circle</span>Record Acceptance
             </button>
-            <button disabled={busy} onClick={() => act('decline')} className="sd-btn is-danger">Mark declined</button>
+            <button disabled={busy} onClick={() => act('decline')} className="sd-btn is-danger">Mark Declined</button>
           </>}
         </div>
       )}
@@ -1243,11 +1243,11 @@ function OfferPanel({ app, onRefresh }: { app: Application; onRefresh: () => voi
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
             <label style={lbl}>Amount (₦)<input type="number" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} /></label>
             <label style={lbl}>Rate (% p.a.)<input type="number" step="0.01" value={rate} onChange={e => setRate(e.target.value)} style={inputStyle} /></label>
-            <label style={lbl}>Tenor (months)<input type="number" value={tenor} onChange={e => setTenor(e.target.value)} style={inputStyle} /></label>
+            <label style={lbl}>Tenor (Months)<input type="number" value={tenor} onChange={e => setTenor(e.target.value)} style={inputStyle} /></label>
             <label style={lbl}>Expires<input type="date" value={expiry} onChange={e => setExpiry(e.target.value)} style={inputStyle} /></label>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button disabled={busy} onClick={saveOffer} className="sd-btn is-primary">Save offer</button>
+            <button disabled={busy} onClick={saveOffer} className="sd-btn is-primary">Save Offer</button>
             <button onClick={() => setEditing(false)} className="sd-btn">Cancel</button>
           </div>
         </div>
@@ -1288,16 +1288,16 @@ function salesNextStep(app: Application): { tone: 'act' | 'wait' | 'done' | 'sto
     }
   }
   if (s === 'active' || s === 'booked') {
-    return { tone: 'done', icon: 'check_circle', title: 'Booked and live', body: 'The facility has been disbursed. Nothing further is needed from Sales on this application.' }
+    return { tone: 'done', icon: 'check_circle', title: 'Booked and Live', body: 'The facility has been disbursed. Nothing further is needed from Sales on this application.' }
   }
   if (s === 'draft') {
-    return { tone: 'act', icon: 'edit_note', title: 'Finish and submit', body: 'This has not been submitted yet. Complete the applicant record and the document checklist, then send it for review.' }
+    return { tone: 'act', icon: 'edit_note', title: 'Finish and Submit', body: 'This has not been submitted yet. Complete the applicant record and the document checklist, then send it for review.' }
   }
   if (s === 'submitted' || s === 'document_collection') {
-    return { tone: 'act', icon: 'folder_open', title: 'Collect the outstanding documents', body: 'Work the checklist below. Once every required document is in, move the application on to risk review.' }
+    return { tone: 'act', icon: 'folder_open', title: 'Collect the Outstanding Documents', body: 'Work the checklist below. Once every required document is in, move the application on to risk review.' }
   }
   if (s === 'pending_conditions') {
-    return { tone: 'act', icon: 'rule', title: 'Conditions to clear', body: 'Credit has attached conditions to this approval. Chase the customer for what is outstanding, then hand it back.' }
+    return { tone: 'act', icon: 'rule', title: 'Conditions to Clear', body: 'Credit has attached conditions to this approval. Chase the customer for what is outstanding, then hand it back.' }
   }
   return {
     tone: 'wait',
@@ -1454,7 +1454,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
         <div className="sd-actions">
           {app.applicant_cif && (
             <button className="sd-btn" onClick={onCreditFile}>
-              <span className="material-symbols-rounded">folder_shared</span>Credit file
+              <span className="material-symbols-rounded">folder_shared</span>Credit File
             </button>
           )}
           {app.applicant_cif && (
@@ -1464,7 +1464,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
           )}
           {app.stage === 'draft' && (
             <button className="sd-btn" onClick={() => setDraftModal({ draft: asDraft(), title: `Edit ${app.reference}`, resubmit: false })}>
-              <span className="material-symbols-rounded">edit</span>Edit draft
+              <span className="material-symbols-rounded">edit</span>Edit Draft
             </button>
           )}
           {app.stage === 'declined' && (
@@ -1481,7 +1481,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
               owns draft and submitted, and nothing after that. */}
           {salesOwnsStage && canAdvance(app.stage) && (
             <button className="sd-btn is-warn" onClick={onReqInfo}>
-              <span className="material-symbols-rounded">help</span>Request info
+              <span className="material-symbols-rounded">help</span>Request Info
             </button>
           )}
           {salesOwnsStage && canDecline(app.stage) && (
@@ -1542,15 +1542,15 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
 
       {/* The numbers that decide the case */}
       <div className="sd-stats">
-        <SDStat label="Amount requested" value={fmtKobo(app.amount_requested_kobo)}
+        <SDStat label="Amount Requested" value={fmtKobo(app.amount_requested_kobo)}
           sub={app.tenor_months ? `over ${app.tenor_months} months` : 'revolving — no term'} />
-        <SDStat label="Monthly income" value={income ? fmtKobo(income) : '—'}
+        <SDStat label="Monthly Income" value={income ? fmtKobo(income) : '—'}
           tone={income === 0 ? AMBER : undefined} sub={income === 0 ? 'not captured' : undefined} />
-        <SDStat label="Existing obligations" value={app.monthly_obligation_kobo == null ? '—' : fmtKobo(oblig)} />
+        <SDStat label="Existing Obligations" value={app.monthly_obligation_kobo == null ? '—' : fmtKobo(oblig)} />
         <SDStat label="Disposable" value={income ? fmtKobo(disposable) : '—'}
           tone={income > 0 && disposable <= 0 ? RED : undefined}
           sub={income > 0 && disposable <= 0 ? 'obligations exceed income' : undefined} />
-        <SDStat label="Debt-to-income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiTone}
+        <SDStat label="Debt-to-Income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiTone}
           sub={dtiPct == null ? 'awaiting assessment' : dtiPct > 40 ? 'above policy' : undefined} />
       </div>
 
@@ -1566,7 +1566,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
 
       {/* Conditions — credit sets them, Sales is who chases them */}
       {openConditions.length > 0 && (
-        <SDPanel title="Conditions to clear" hint={`${openConditions.length} outstanding`} flush>
+        <SDPanel title="Conditions to Clear" hint={`${openConditions.length} outstanding`} flush>
           <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={false} />
         </SDPanel>
       )}
@@ -1579,9 +1579,9 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
             <SDField label="Email" value={app.applicant_email} />
             <SDField label="BVN" value={maskId(app.bvn)} mono />
             <SDField label="NIN" value={maskId(app.nin)} mono />
-            <SDField label="Date of birth" value={fmtDateOnly(app.date_of_birth)} />
+            <SDField label="Date of Birth" value={fmtDateOnly(app.date_of_birth)} />
             <SDField label="CIF" value={app.applicant_cif} mono />
-            <SDField label="Residential address" value={app.residential_address} wide />
+            <SDField label="Residential Address" value={app.residential_address} wide />
           </div>
         </SDPanel>
 
@@ -1595,9 +1595,9 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
         <SDPanel title="Employment">
           <div className="sd-fields">
             <SDField label="Employer" value={app.employer} />
-            <SDField label="Job title" value={app.job_title} />
-            <SDField label="Employment type" value={titleCaseCode(app.employment_type)} />
-            <SDField label="Employed since" value={fmtDateOnly(app.employment_start_date)} />
+            <SDField label="Job Title" value={app.job_title} />
+            <SDField label="Employment Type" value={titleCaseCode(app.employment_type)} />
+            <SDField label="Employed Since" value={fmtDateOnly(app.employment_start_date)} />
           </div>
         </SDPanel>
 
@@ -1606,7 +1606,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
             <SDField label="Reference" value={app.reference} mono />
             <SDField label="Source" value={app.source_lead_id ? `Lead #${app.source_lead_id}` : (app.lead_source || titleCaseCode(app.source_system))} />
             <SDField label="Submitted" value={app.submitted_at ? fmtDatetime(app.submitted_at) : null} />
-            <SDField label="Last updated" value={app.updated_at ? fmtDatetime(app.updated_at) : null} />
+            <SDField label="Last Updated" value={app.updated_at ? fmtDatetime(app.updated_at) : null} />
           </div>
         </SDPanel>
       </div>
@@ -1616,17 +1616,17 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
         <div className="sd-fields">
           <SDField label="Product" value={titleCaseCode(app.product_type)} />
           <SDField label="Purpose" value={app.purpose} />
-          <SDField label="Amount requested" value={fmtKobo(app.amount_requested_kobo)} mono />
-          <SDField label="Amount approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
+          <SDField label="Amount Requested" value={fmtKobo(app.amount_requested_kobo)} mono />
+          <SDField label="Amount Approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
           {/* A revolving product has no tenor. NULL says so — migration 217 removed
               the 0 sentinel that used to claim a zero-month term. */}
           <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving — no term'} />
-          <SDField label="Interest rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
+          <SDField label="Interest Rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
         </div>
       </SDPanel>
 
       {/* Where it is */}
-      <SDPanel title="Where is this application?" flush>
+      <SDPanel title="Where Is This Application?" flush>
         <ApprovalChainCompact app={app} events={events} />
       </SDPanel>
 
@@ -1665,18 +1665,18 @@ function riskNextStep(app: Application, unmet: number, engine?: { outcome: strin
     return { tone: 'stop', icon: 'cancel', title: 'Declined', body: app.decline_reason || 'This application was declined.' }
   }
   if (s === 'active' || s === 'booked') {
-    return { tone: 'done', icon: 'check_circle', title: 'Booked and live', body: 'The facility has been disbursed. Nothing further is needed from the credit desk.' }
+    return { tone: 'done', icon: 'check_circle', title: 'Booked and Live', body: 'The facility has been disbursed. Nothing further is needed from the credit desk.' }
   }
   if (s === 'risk_review') {
-    return { tone: 'act', icon: 'fact_check', title: 'Assess and recommend', body: 'Read the engine’s view, the affordability and the bureau position, attach any conditions, then recommend to the risk head or decline.' + eng }
+    return { tone: 'act', icon: 'fact_check', title: 'Assess and Recommend', body: 'Read the engine’s view, the affordability and the bureau position, attach any conditions, then recommend to the risk head or decline.' + eng }
   }
   if (s === 'risk_head_review') {
-    return { tone: 'act', icon: 'gavel', title: 'Credit approval', body: 'The officer has recommended this. Approve it on credit grounds, or send it back.' + eng }
+    return { tone: 'act', icon: 'gavel', title: 'Credit Approval', body: 'The officer has recommended this. Approve it on credit grounds, or send it back.' + eng }
   }
   if (s === 'pending_conditions') {
     return unmet > 0
-      ? { tone: 'act', icon: 'rule', title: `${unmet} condition${unmet === 1 ? '' : 's'} outstanding`, body: 'Approval is conditional. It cannot move to finance until every condition is cleared.' }
-      : { tone: 'done', icon: 'check_circle', title: 'Conditions cleared', body: 'Every condition has been met. This can go to finance.' }
+      ? { tone: 'act', icon: 'rule', title: `${unmet} Condition${unmet === 1 ? '' : 's'} Outstanding`, body: 'Approval is conditional. It cannot move to finance until every condition is cleared.' }
+      : { tone: 'done', icon: 'check_circle', title: 'Conditions Cleared', body: 'Every condition has been met. This can go to finance.' }
   }
   if (s === 'draft' || s === 'submitted' || s === 'document_collection') {
     return { tone: 'wait', icon: 'hourglass_top', title: 'With Sales', body: 'Still in origination — documents are being collected. It reaches this desk at risk review.' }
@@ -1778,7 +1778,7 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
 
         <div className="sd-actions">
           <button className="sd-btn" onClick={onCreditFile}>
-            <span className="material-symbols-rounded">folder_shared</span>Credit file
+            <span className="material-symbols-rounded">folder_shared</span>Credit File
           </button>
           {app.applicant_cif && (
             <button className="sd-btn" onClick={() => navigate(`/contacts/${app.applicant_cif}`)}>
@@ -1787,7 +1787,7 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
           )}
           {canRequestInfo(app.stage) && (
             <button className="sd-btn is-warn" onClick={onReqInfo}>
-              <span className="material-symbols-rounded">help</span>Request info
+              <span className="material-symbols-rounded">help</span>Request Info
             </button>
           )}
           {canDecline(app.stage) && (
@@ -1823,15 +1823,15 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
 
       {/* The numbers a credit decision turns on, as Phoenix used them */}
       <div className="sd-stats">
-        <SDStat label="Engine score" value={facts.score ?? '—'} tone={facts.hardGate ? RED : undefined}
+        <SDStat label="Engine Score" value={facts.score ?? '—'} tone={facts.hardGate ? RED : undefined}
           sub={facts.hardGate ? 'hard-gate zero, not a score' : facts.band ? `band ${facts.band}` : 'not scored'} />
-        <SDStat label="Default probability" value={pd === null ? '—' : pct(pd)} tone={pdColor}
+        <SDStat label="Default Probability" value={pd === null ? '—' : pct(pd)} tone={pdColor}
           sub={pd === null ? 'not scored' : pd >= 0.2 ? 'high' : pd >= 0.08 ? 'elevated' : 'low'} />
-        <SDStat label="Debt-to-income" value={dtiPct === null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiColor}
+        <SDStat label="Debt-to-Income" value={dtiPct === null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiColor}
           sub={dtiPct === null ? 'not assessed' : facts.dtiExplained ? 'repayments ÷ income' : facts.dtiSource ? `per ${facts.dtiSource}` : undefined} />
-        <SDStat label="Monthly income" value={facts.incomeKobo === null ? '—' : fmtKobo(facts.incomeKobo)}
+        <SDStat label="Monthly Income" value={facts.incomeKobo === null ? '—' : fmtKobo(facts.incomeKobo)}
           sub={facts.incomeKobo === null ? 'not recorded' : facts.incomeFromPhoenix ? 'as Phoenix used it' : facts.incomeSource} />
-        <SDStat label="Exposure requested" value={exposureKobo === null ? '—' : fmtKobo(exposureKobo)}
+        <SDStat label="Exposure Requested" value={exposureKobo === null ? '—' : fmtKobo(exposureKobo)}
           sub={app.amount_approved_kobo ? `approved ${fmtKobo(app.amount_approved_kobo)}` : facts.requestedKind === 'limit' ? 'credit limit' : undefined} />
       </div>
 
@@ -1866,23 +1866,23 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
       {/* The officer's assessment — secondary to the engine's, and overriding it is
           recorded as an override. */}
       <SDPanel
-        title="Your assessment"
+        title="Your Assessment"
         hint={phoenixScored
           ? <span style={{ color: AMBER }}>scored by Phoenix — editing overrides it</span>
           : 'entered manually'}>
         {!editing ? (
           <>
             <div className="sd-fields">
-              <SDField label="Recorded score" value={score ?? null} mono />
-              <SDField label="Recorded rating" value={rating ? <span style={{ color: RATING_COLORS[rating] ?? 'var(--txt)' }}>{rating}</span> : null} />
+              <SDField label="Recorded Score" value={score ?? null} mono />
+              <SDField label="Recorded Rating" value={rating ? <span style={{ color: RATING_COLORS[rating] ?? 'var(--txt)' }}>{rating}</span> : null} />
               <SDField label="Recorded DTI" value={storedDti == null ? null : `${storedDti.toFixed(2)}%`} mono />
-              <SDField label="Bureau summary" value={app.bureau_summary} wide />
+              <SDField label="Bureau Summary" value={app.bureau_summary} wide />
             </div>
             {canAssess && !isTerminal && (
               <div style={{ marginTop: 12 }}>
                 <button className="sd-btn" onClick={() => setEditing(true)}>
                   <span className="material-symbols-rounded">edit</span>
-                  {phoenixScored ? 'Override assessment' : 'Enter assessment'}
+                  {phoenixScored ? 'Override Assessment' : 'Enter Assessment'}
                 </button>
               </div>
             )}
@@ -1896,30 +1896,30 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
               </div>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
-              <label style={fieldLabel}>Eye score
+              <label style={fieldLabel}>Eye Score
                 <input style={fieldInput} type="number" min={0} max={850} value={form.eye_score}
                   onChange={e => setForm(f => ({ ...f, eye_score: e.target.value }))} />
               </label>
               <label style={fieldLabel}>Rating
                 <select style={{ ...fieldInput, cursor: 'pointer' }} value={form.eye_rating}
                   onChange={e => setForm(f => ({ ...f, eye_rating: e.target.value }))}>
-                  <option value="">— select —</option>
+                  <option value="">— Select —</option>
                   {['Excellent', 'Good', 'Fair', 'Poor', 'Bad'].map(r => <option key={r}>{r}</option>)}
                 </select>
               </label>
-              <label style={fieldLabel}>Debt-to-income (%)
+              <label style={fieldLabel}>Debt-to-Income (%)
                 <input style={fieldInput} type="number" step="0.01" value={form.dti_pct}
                   onChange={e => setForm(f => ({ ...f, dti_pct: e.target.value }))} />
               </label>
             </div>
-            <label style={{ ...fieldLabel, display: 'block', marginTop: 12 }}>Bureau summary
+            <label style={{ ...fieldLabel, display: 'block', marginTop: 12 }}>Bureau Summary
               <textarea rows={3} spellCheck={false} data-gramm="false" value={form.bureau_summary}
                 onChange={e => setForm(f => ({ ...f, bureau_summary: e.target.value }))}
                 style={{ ...fieldInput, minHeight: 64, resize: 'vertical', fontFamily: 'inherit' }} />
             </label>
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <button className="sd-btn is-primary" onClick={saveAssessment} disabled={saving || !form.eye_score}>
-                {saving ? 'Saving…' : 'Save assessment'}
+                {saving ? 'Saving…' : 'Save Assessment'}
               </button>
               <button className="sd-btn" onClick={() => setEditing(false)}>Cancel</button>
             </div>
@@ -1932,16 +1932,16 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
         <SDPanel title="Applicant">
           <div className="sd-fields">
             <SDField label="Employer" value={app.employer} />
-            <SDField label="Job title" value={app.job_title} />
-            <SDField label="Declared monthly income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
-            <SDField label="Declared obligations" value={app.monthly_obligation_kobo == null ? null : fmtKobo(app.monthly_obligation_kobo)} mono />
+            <SDField label="Job Title" value={app.job_title} />
+            <SDField label="Declared Monthly Income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
+            <SDField label="Declared Obligations" value={app.monthly_obligation_kobo == null ? null : fmtKobo(app.monthly_obligation_kobo)} mono />
             <SDField label="BVN" value={maskId(app.bvn)} mono />
-            <SDField label="Date of birth" value={fmtDateOnly(app.date_of_birth)} />
+            <SDField label="Date of Birth" value={fmtDateOnly(app.date_of_birth)} />
             <SDField label="Purpose" value={app.purpose} wide />
           </div>
         </SDPanel>
 
-        <SDPanel title="Supporting documents" flush>
+        <SDPanel title="Supporting Documents" flush>
           <DocumentsInline appId={app.id} readOnly={isTerminal} />
         </SDPanel>
       </div>
@@ -1949,7 +1949,7 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
       {offerStage && <PhoenixOfferPanel appId={app.id} canAct={true} onRefresh={onRefresh} />}
 
       {/* Approval chain */}
-      <SDPanel title="Approval chain" flush>
+      <SDPanel title="Approval Chain" flush>
         <ApprovalChainCompact app={app} events={events} />
       </SDPanel>
 
@@ -1974,8 +1974,8 @@ function kycAudit(app: Application): { label: string; value: React.ReactNode; ok
   return [
     { label: 'BVN', value: maskId(app.bvn), ok: !!(app.bvn ?? '').trim() },
     { label: 'NIN', value: maskId(app.nin), ok: !!(app.nin ?? '').trim() },
-    { label: 'Date of birth', value: app.date_of_birth ? fmtDate(app.date_of_birth) : null, ok: !!app.date_of_birth },
-    { label: 'Residential address', value: app.residential_address, ok: !!(app.residential_address ?? '').trim() },
+    { label: 'Date of Birth', value: app.date_of_birth ? fmtDate(app.date_of_birth) : null, ok: !!app.date_of_birth },
+    { label: 'Residential Address', value: app.residential_address, ok: !!(app.residential_address ?? '').trim() },
   ]
 }
 
@@ -2016,7 +2016,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
 
         <div className="sd-actions">
           <span className="sd-btn" style={{ cursor: 'default', color: PURPLE, borderColor: 'color-mix(in srgb, currentColor 34%, transparent)' }}>
-            <span className="material-symbols-rounded">visibility</span>Read only
+            <span className="material-symbols-rounded">visibility</span>Read Only
           </span>
         </div>
       </div>
@@ -2035,7 +2035,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
         <div className="sd-band sd-band-stop">
           <div className="sd-band-icn"><span className="material-symbols-rounded">badge</span></div>
           <div style={{ minWidth: 0 }}>
-            <b>Identification incomplete — {kyc.length - kycOk} of {kyc.length} missing</b>
+            <b>Identification Incomplete — {kyc.length - kycOk} of {kyc.length} Missing</b>
             <span>{kyc.filter(k => !k.ok).map(k => k.label).join(', ')} not captured on this application.</span>
           </div>
         </div>
@@ -2043,7 +2043,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
         <div className="sd-band sd-band-wait">
           <div className="sd-band-icn"><span className="material-symbols-rounded">rule</span></div>
           <div style={{ minWidth: 0 }}>
-            <b>{unmetCount} condition{unmetCount === 1 ? '' : 's'} outstanding</b>
+            <b>{unmetCount} Condition{unmetCount === 1 ? '' : 's'} Outstanding</b>
             <span>Identification is complete. The file cannot be disbursed until finance clears the remaining conditions.</span>
           </div>
         </div>
@@ -2051,7 +2051,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
         <div className="sd-band sd-band-done">
           <div className="sd-band-icn"><span className="material-symbols-rounded">verified</span></div>
           <div style={{ minWidth: 0 }}>
-            <b>File is complete</b>
+            <b>File Is Complete</b>
             <span>Identification captured in full and every condition of approval cleared.</span>
           </div>
         </div>
@@ -2071,10 +2071,10 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
         <SDStat label="Conditions" value={conditions.length === 0 ? 'None' : `${conditions.length - unmetCount}/${conditions.length}`}
           sub={conditions.length === 0 ? 'none attached' : unmetCount > 0 ? `${unmetCount} outstanding` : 'all cleared'}
           tone={unmetCount > 0 ? AMBER : conditions.length > 0 ? GREEN : undefined} />
-        <SDStat label="Eye score" value={score ?? '—'} tone={scoreColor} sub={app.eye_rating ?? 'not rated'} />
-        <SDStat label="Debt-to-income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`}
+        <SDStat label="Eye Score" value={score ?? '—'} tone={scoreColor} sub={app.eye_rating ?? 'not rated'} />
+        <SDStat label="Debt-to-Income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`}
           sub={dtiPct == null ? 'not computed' : 'of monthly income'} />
-        <SDStat label="Days on file" value={daysOpen == null ? '—' : daysOpen}
+        <SDStat label="Days on File" value={daysOpen == null ? '—' : daysOpen}
           sub={app.submitted_at ? 'since submission' : 'since created — not submitted'} />
       </div>
 
@@ -2089,7 +2089,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
         <div className="sd-fields">
           {kyc.map(k => (
             <SDField key={k.label} label={k.label} value={k.value}
-              wide={k.label === 'Residential address'} mono={k.label === 'BVN' || k.label === 'NIN'} />
+              wide={k.label === 'Residential Address'} mono={k.label === 'BVN' || k.label === 'NIN'} />
           ))}
         </div>
       </SDPanel>
@@ -2097,14 +2097,14 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
       <div className="sd-grid2">
         <SDPanel title="Applicant">
           <div className="sd-fields">
-            <SDField label="Full name" value={app.applicant_name} />
+            <SDField label="Full Name" value={app.applicant_name} />
             <SDField label="CIF" value={app.applicant_cif} mono />
             <SDField label="Phone" value={app.applicant_phone} mono />
             <SDField label="Email" value={app.applicant_email} />
             <SDField label="Employer" value={app.employer} />
-            <SDField label="Job title" value={app.job_title} />
-            <SDField label="Employment type" value={titleCaseCode(app.employment_type)} />
-            <SDField label="Employed since" value={app.employment_start_date ? fmtDate(app.employment_start_date) : null} />
+            <SDField label="Job Title" value={app.job_title} />
+            <SDField label="Employment Type" value={titleCaseCode(app.employment_type)} />
+            <SDField label="Employed Since" value={app.employment_start_date ? fmtDate(app.employment_start_date) : null} />
           </div>
         </SDPanel>
 
@@ -2112,37 +2112,37 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
           <div className="sd-fields">
             <SDField label="Product" value={titleCaseCode(app.product_type)} />
             <SDField label="Purpose" value={app.purpose} />
-            <SDField label="Amount requested" value={fmtKobo(app.amount_requested_kobo)} mono />
-            <SDField label="Amount approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
+            <SDField label="Amount Requested" value={fmtKobo(app.amount_requested_kobo)} mono />
+            <SDField label="Amount Approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
             <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving — no term'} />
-            <SDField label="Interest rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
-            <SDField label="Monthly income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
-            <SDField label="Existing obligations" value={app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : null} mono />
+            <SDField label="Interest Rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
+            <SDField label="Monthly Income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
+            <SDField label="Existing Obligations" value={app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : null} mono />
           </div>
         </SDPanel>
       </div>
 
-      <SDPanel title="Documents on file" hint="read only" flush>
+      <SDPanel title="Documents on File" hint="read only" flush>
         <DocumentsInline appId={app.id} readOnly />
       </SDPanel>
 
       <div className="sd-grid2">
-        <SDPanel title="Conditions of approval" flush>
+        <SDPanel title="Conditions of Approval" flush>
           <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={false} />
         </SDPanel>
 
-        <SDPanel title="Approval chain" hint="who signed off, and when" flush>
+        <SDPanel title="Approval Chain" hint="who signed off, and when" flush>
           <ApprovalChainCompact app={app} events={events} />
         </SDPanel>
       </div>
 
-      <SDPanel title="Credit decision" hint={`current owner: ${meta.owner}`}>
+      <SDPanel title="Credit Decision" hint={`current owner: ${meta.owner}`}>
         <div className="sd-fields">
-          <SDField label="Eye score" value={score === null ? null : <span style={{ color: scoreColor, fontWeight: 800 }}>{score}</span>} mono />
+          <SDField label="Eye Score" value={score === null ? null : <span style={{ color: scoreColor, fontWeight: 800 }}>{score}</span>} mono />
           <SDField label="Rating" value={app.eye_rating} />
-          <SDField label="Debt-to-income" value={dtiPct == null ? null : `${dtiPct.toFixed(2)}%`} mono />
-          <SDField label="Decline reason" value={app.decline_reason} />
-          <SDField label="Bureau summary" value={app.bureau_summary} wide />
+          <SDField label="Debt-to-Income" value={dtiPct == null ? null : `${dtiPct.toFixed(2)}%`} mono />
+          <SDField label="Decline Reason" value={app.decline_reason} />
+          <SDField label="Bureau Summary" value={app.bureau_summary} wide />
         </div>
       </SDPanel>
 
@@ -2169,31 +2169,31 @@ function financeNextStep(app: Application, unmet: number, total: number): { tone
     return { tone: 'stop', icon: 'cancel', title: 'Declined', body: app.decline_reason || 'This application was declined. Nothing to disburse.' }
   }
   if (s === 'active') {
-    return { tone: 'done', icon: 'check_circle', title: 'Booked and disbursed', body: 'The facility is live. Servicing and collections take it from here.' }
+    return { tone: 'done', icon: 'check_circle', title: 'Booked and Disbursed', body: 'The facility is live. Servicing and collections take it from here.' }
   }
   if (s === 'pending_conditions') {
     return unmet > 0
       ? {
-        tone: 'act', icon: 'rule', title: `Clear ${unmet} outstanding condition${unmet === 1 ? '' : 's'}`,
+        tone: 'act', icon: 'rule', title: `Clear ${unmet} Outstanding Condition${unmet === 1 ? '' : 's'}`,
         body: 'Credit approved this subject to conditions. Tick each one off as the evidence lands, then send it to finance approval.',
       }
       : {
-        tone: 'act', icon: 'task_alt', title: 'Conditions cleared',
+        tone: 'act', icon: 'task_alt', title: 'Conditions Cleared',
         body: total > 0 ? 'Every condition has been met. Send it to finance approval.' : 'No conditions were attached. Send it to finance approval.',
       }
   }
   if (s === 'finance_approval') {
     return unmet > 0
       ? {
-        tone: 'stop', icon: 'block', title: `Blocked — ${unmet} condition${unmet === 1 ? '' : 's'} outstanding`,
+        tone: 'stop', icon: 'block', title: `Blocked — ${unmet} Condition${unmet === 1 ? '' : 's'} Outstanding`,
         body: 'This cannot be approved for disbursement until every condition of the credit approval is cleared.',
       }
-      : { tone: 'act', icon: 'account_balance_wallet', title: 'Approve disbursement', body: 'Check the terms against the credit approval, then release it for booking.' }
+      : { tone: 'act', icon: 'account_balance_wallet', title: 'Approve Disbursement', body: 'Check the terms against the credit approval, then release it for booking.' }
   }
   if (s === 'booking') {
     return unmet > 0
-      ? { tone: 'stop', icon: 'block', title: `Blocked — ${unmet} condition${unmet === 1 ? '' : 's'} outstanding`, body: 'Do not book this facility while conditions of the approval remain unmet.' }
-      : { tone: 'act', icon: 'inventory', title: 'Book and disburse', body: 'Finance has approved. Create the facility on the core and release the funds.' }
+      ? { tone: 'stop', icon: 'block', title: `Blocked — ${unmet} Condition${unmet === 1 ? '' : 's'} Outstanding`, body: 'Do not book this facility while conditions of the approval remain unmet.' }
+      : { tone: 'act', icon: 'inventory', title: 'Book and Disburse', body: 'Finance has approved. Create the facility on the core and release the funds.' }
   }
   const owner = stageMeta(s).owner
   return {
@@ -2253,7 +2253,7 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
         <div className="sd-actions">
           {canRequestInfo(app.stage) && (
             <button className="sd-btn is-warn" onClick={onReqInfo}>
-              <span className="material-symbols-rounded">help</span>Request info
+              <span className="material-symbols-rounded">help</span>Request Info
             </button>
           )}
           {canDecline(app.stage) && (
@@ -2293,17 +2293,17 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
       {/* The money, as finance reads it */}
       <div className="sd-stats">
         <SDStat
-          label={app.amount_approved_kobo ? 'Amount approved' : 'Amount requested'}
+          label={app.amount_approved_kobo ? 'Amount Approved' : 'Amount Requested'}
           value={fmtKobo(principalKobo)}
           sub={app.amount_approved_kobo ? 'to disburse' : 'not yet approved by credit'}
           tone={app.amount_approved_kobo ? undefined : AMBER} />
-        <SDStat label="Monthly repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : '—'}
+        <SDStat label="Monthly Repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : '—'}
           sub={app.tenor_months ? `over ${app.tenor_months} months` : 'revolving — no term'} />
-        <SDStat label="Interest rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}%` : '—'} sub="per annum" />
+        <SDStat label="Interest Rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}%` : '—'} sub="per annum" />
         <SDStat label="Conditions" value={conditions.length === 0 ? 'None' : `${conditions.length - unmetCount}/${conditions.length}`}
           sub={conditions.length === 0 ? 'none attached' : unmetCount > 0 ? `${unmetCount} outstanding` : 'all cleared'}
           tone={unmetCount > 0 ? RED : conditions.length > 0 ? GREEN : undefined} />
-        <SDStat label="Debt-to-income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiColor}
+        <SDStat label="Debt-to-Income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`} tone={dtiColor}
           sub={dtiPct == null ? 'not computed' : 'of monthly income'} />
       </div>
 
@@ -2311,7 +2311,7 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
 
       {/* The gate */}
       <SDPanel
-        title="Conditions of approval"
+        title="Conditions of Approval"
         hint={conditions.length === 0 ? 'none attached'
           : unmetCount > 0 ? <span style={{ color: RED, fontWeight: 700 }}>{unmetCount} outstanding — cannot proceed</span>
             : <span style={{ color: GREEN, fontWeight: 700 }}>all cleared</span>}
@@ -2320,25 +2320,25 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
       </SDPanel>
 
       <div className="sd-grid2">
-        <SDPanel title="Terms to book">
+        <SDPanel title="Terms to Book">
           <div className="sd-fields">
             <SDField label="Product" value={titleCaseCode(app.product_type)} />
             <SDField label="Purpose" value={app.purpose} />
-            <SDField label="Amount requested" value={fmtKobo(app.amount_requested_kobo)} mono />
-            <SDField label="Amount approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
+            <SDField label="Amount Requested" value={fmtKobo(app.amount_requested_kobo)} mono />
+            <SDField label="Amount Approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
             <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving — no term'} />
-            <SDField label="Interest rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
-            <SDField label="Monthly repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : null} mono />
-            <SDField label="Monthly income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
+            <SDField label="Interest Rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
+            <SDField label="Monthly Repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : null} mono />
+            <SDField label="Monthly Income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
           </div>
         </SDPanel>
 
-        <SDPanel title="Credit decision" hint="set by the credit desk">
+        <SDPanel title="Credit Decision" hint="set by the credit desk">
           <div className="sd-fields">
-            <SDField label="Eye score" value={score === null ? null : <span style={{ color: scoreColor, fontWeight: 800 }}>{score}</span>} mono />
+            <SDField label="Eye Score" value={score === null ? null : <span style={{ color: scoreColor, fontWeight: 800 }}>{score}</span>} mono />
             <SDField label="Rating" value={rating} />
-            <SDField label="Debt-to-income" value={dtiPct == null ? null : `${dtiPct.toFixed(2)}%`} mono />
-            <SDField label="Bureau summary" value={app.bureau_summary} wide />
+            <SDField label="Debt-to-Income" value={dtiPct == null ? null : `${dtiPct.toFixed(2)}%`} mono />
+            <SDField label="Bureau Summary" value={app.bureau_summary} wide />
           </div>
         </SDPanel>
       </div>
@@ -2354,17 +2354,17 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
           </div>
         </SDPanel>
 
-        <SDPanel title="Key dates">
+        <SDPanel title="Key Dates">
           <div className="sd-fields">
             <SDField label="Submitted" value={app.submitted_at ? fmtDatetime(app.submitted_at) : null} />
-            <SDField label="Finance approved" value={app.finance_approved_at ? fmtDatetime(app.finance_approved_at) : null} />
+            <SDField label="Finance Approved" value={app.finance_approved_at ? fmtDatetime(app.finance_approved_at) : null} />
             <SDField label="Booked" value={app.booked_at ? fmtDatetime(app.booked_at) : null} />
-            <SDField label="Last updated" value={app.updated_at ? fmtDatetime(app.updated_at) : null} />
+            <SDField label="Last Updated" value={app.updated_at ? fmtDatetime(app.updated_at) : null} />
           </div>
         </SDPanel>
       </div>
 
-      <SDPanel title="Approval chain" hint="who signed off, and when" flush>
+      <SDPanel title="Approval Chain" hint="who signed off, and when" flush>
         <ApprovalChainCompact app={app} events={events} />
       </SDPanel>
 
@@ -2439,7 +2439,7 @@ function TimelineTab({ events, notes }: { events: AppEvent[]; notes: AppNote[] }
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
                     {isStage && ev.from_stage && ev.to_stage ? (
                       <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
-                        Stage moved: <StagePill stage={ev.from_stage} size="sm" /> to <StagePill stage={ev.to_stage} size="sm" />
+                        Stage Moved: <StagePill stage={ev.from_stage} size="sm" /> to <StagePill stage={ev.to_stage} size="sm" />
                       </span>
                     ) : (
                       <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', textTransform: 'capitalize' }}>
@@ -2563,7 +2563,7 @@ function ApprovalChainTab({ app, events }: { app: Application; events: AppEvent[
                       )}
                       {ev.actor_source && ev.actor_source !== 'workspace' && (
                         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 5, background: 'var(--chip-bg)', color: 'var(--txt3)' }}>
-                          {ev.actor_source === 'system' ? 'automated' : ev.actor_source}
+                          {ev.actor_source === 'system' ? 'Automated' : ev.actor_source}
                         </span>
                       )}
                       <span style={{ fontSize: 12, color: 'var(--txt3)' }}>{fmtDatetime(ev.created_at)}</span>
@@ -2692,7 +2692,7 @@ function EyeTab({ app }: { app: Application }) {
             </span>
           )}
           {score === null && (
-            <span style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: 'rgba(217,119,6,.12)', color: AMBER }}>Not assessed</span>
+            <span style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: 'rgba(217,119,6,.12)', color: AMBER }}>Not Assessed</span>
           )}
           {score !== null && (
             <div style={{ width: '80%', marginTop: 8 }}>
@@ -2790,10 +2790,10 @@ function EyeTab({ app }: { app: Application }) {
               <div style={{ paddingTop: 8 }}>
                 <div style={{ display: 'flex', gap: 20, marginBottom: 10, fontSize: 11, color: 'var(--txt2)' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 2, background: GREEN, display: 'inline-block' }} />Positive influence
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: GREEN, display: 'inline-block' }} />Positive Influence
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 2, background: RED, display: 'inline-block' }} />Negative influence
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: RED, display: 'inline-block' }} />Negative Influence
                   </span>
                 </div>
                 <EBarH
@@ -2818,7 +2818,7 @@ function EyeTab({ app }: { app: Application }) {
                 <span style={{ ...NUM, fontSize: 36, fontWeight: 900, color: dcafoColor, lineHeight: 1 }}>
                   {dcafo !== null ? `${dcafo.toFixed(2)}×` : '—'}
                 </span>
-                <span style={{ fontSize: 11, color: 'var(--txt3)', fontWeight: 600 }}>DCAFO ratio</span>
+                <span style={{ fontSize: 11, color: 'var(--txt3)', fontWeight: 600 }}>DCAFO Ratio</span>
               </div>
               {/* DCAFO bar — 1.0 is breakeven */}
               {dcafo !== null && (
@@ -3086,7 +3086,7 @@ function CustomerCreditPortfolio({ cif }: { cif: string }) {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.extrabold, color: sc, letterSpacing: '-0.4px' }}>{fmtKobo(l.total_outstanding_kobo)}</div>
-                      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>outstanding</div>
+                      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Outstanding</div>
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12 }}>
@@ -3377,9 +3377,9 @@ export default function ApplicationDetail() {
             </div>
           )}
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Move to stage</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Move to Stage</div>
             <select value={toStage} onChange={e => setToStage(e.target.value)} style={inputStyle}>
-              <option value="">Select next stage</option>
+              <option value="">Select Next Stage</option>
               {nextStages.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
             </select>
           </div>
@@ -3402,7 +3402,7 @@ export default function ApplicationDetail() {
             </div>
           )}
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Notes (optional)</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Notes (Optional)</div>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={advanceNotes} onChange={e => setAdvanceNotes(e.target.value)}
               style={textareaStyle} placeholder="Add notes about this stage transition…" />

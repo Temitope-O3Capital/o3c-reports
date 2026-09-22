@@ -140,11 +140,11 @@ function BlinkFace({ totals }: { totals: Totals | null }) {
 
       <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 10 }}>
         <div>
-          <div style={{ fontSize: 7.5, color: 'rgba(255,255,255,0.72)', letterSpacing: 1, textTransform: 'uppercase' }}>Funded in</div>
+          <div style={{ fontSize: 7.5, color: 'rgba(255,255,255,0.72)', letterSpacing: 1, textTransform: 'uppercase' }}>Funded In</div>
           <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, letterSpacing: 0.4 }}>FX → NGN</div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 7.5, color: 'rgba(255,255,255,0.72)', letterSpacing: 1, textTransform: 'uppercase' }}>Still live</div>
+          <div style={{ fontSize: 7.5, color: 'rgba(255,255,255,0.72)', letterSpacing: 1, textTransform: 'uppercase' }}>Still Live</div>
           <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold }}>
             {fmtNum(live)} <span style={{ fontSize: TEXT.xs, fontWeight: FW.normal, color: 'rgba(255,255,255,0.72)' }}>of {fmtNum(total)}</span>
           </div>
@@ -207,13 +207,13 @@ function Pill({ label, color }: { label: string; color: string }) {
 const COLS: TableCol<BlinkCardRow>[] = [
   { key: 'cif', label: 'CIF',
     render: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: TEXT.sm, color: 'var(--txt)' }}>{r.cif}</span> },
-  { key: 'name_on_card', label: 'Name on card',
+  { key: 'name_on_card', label: 'Name on Card',
     render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.medium }}>{r.name_on_card || '—'}</span> },
   { key: 'card_state', label: 'Status',
     render: r => <Pill label={r.card_state} color={CARD_STATE_COLORS[r.card_state] ?? 'var(--chart-lbl)'} /> },
   { key: 'activity_class', label: 'Activity',
     render: r => <Pill label={r.activity_class} color={CARD_ACTIVITY_COLORS[r.activity_class] ?? 'var(--chart-lbl)'} /> },
-  { key: 'last_txn_date', label: 'Last used', sortable: true,
+  { key: 'last_txn_date', label: 'Last Used', sortable: true,
     render: r => r.last_txn_date
       ? <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{fmtDate(r.last_txn_date)}</span>
       : <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>never</span> },
@@ -365,10 +365,10 @@ export default function BlinkCard() {
       {/* The two axes */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
         <SectionCard title="Status" subtitle="Lifecycle — where the card is in its life">
-          <BreakdownBars rows={statusRows} colors={CARD_STATE_COLORS} emptyText="No status data" />
+          <BreakdownBars rows={statusRows} colors={CARD_STATE_COLORS} emptyText="No Status Data" />
         </SectionCard>
         <SectionCard title="Activity" subtitle="Usage — how recently the card was spent on">
-          <BreakdownBars rows={activityRows} colors={CARD_ACTIVITY_COLORS} hints={CARD_ACTIVITY_HINTS} emptyText="No activity data" />
+          <BreakdownBars rows={activityRows} colors={CARD_ACTIVITY_COLORS} hints={CARD_ACTIVITY_HINTS} emptyText="No Activity Data" />
         </SectionCard>
       </div>
 
@@ -380,12 +380,12 @@ export default function BlinkCard() {
         style={{ marginBottom: SP[5] }}
       >
         {trend.length === 0 ? (
-          <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base, padding: '24px 0' }}>No issuance history</div>
+          <div style={{ textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base, padding: '24px 0' }}>No Issuance History</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['Month', 'Issued', 'Still live', 'Used recently'].map((h, i) => (
+                {['Month', 'Issued', 'Still Live', 'Used Recently'].map((h, i) => (
                   <th key={h} style={{
                     padding: '10px 14px', textAlign: i === 0 ? 'left' : 'right',
                     fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase',
@@ -443,7 +443,7 @@ export default function BlinkCard() {
           rows={rows}
           keyFn={r => r.account_no}
           loading={loading}
-          emptyText="No Blink cards match these filters"
+          emptyText="No Blink Cards Match These Filters"
         />
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>

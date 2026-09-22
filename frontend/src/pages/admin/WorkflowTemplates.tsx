@@ -57,7 +57,7 @@ function RolePicker({ label, hint, value, onChange }: {
       <div style={{ border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md, overflow: 'hidden' }}>
         {/* Selected tags */}
         <div style={{ minHeight: 36, padding: '6px 8px', display: 'flex', flexWrap: 'wrap', gap: SP[1], borderBottom: value.length > 0 ? '1px solid var(--bdr)' : 'none', background: 'var(--input-bg)' }}>
-          {value.length === 0 && <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', lineHeight: '24px' }}>None selected</span>}
+          {value.length === 0 && <span style={{ fontSize: TEXT.sm, color: 'var(--txt3)', lineHeight: '24px' }}>None Selected</span>}
           {value.map(r => (
             <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: SP[1], fontSize: TEXT.sm, fontWeight: FW.semibold, padding: '2px 6px 2px 8px', borderRadius: RADIUS.sm, background: `${NAVY}12`, color: NAVY }}>
               {roleLabel(r)}
@@ -171,11 +171,11 @@ function TemplateForm({ open, editing, onClose, onSaved }: TemplateFormProps) {
           <span><strong style={{ color: 'var(--txt)' }}>Flow:</strong> Settlement officer raises posting, <strong style={{ color: 'var(--txt)' }}>Approver</strong> approves or rejects, <strong style={{ color: 'var(--txt)' }}>Poster</strong> posts to ledger or returns for revision</span>
         </div>
 
-        <RolePicker label="Notify on creation" hint="These roles receive a notification when a new posting is raised under this template."
+        <RolePicker label="Notify on Creation" hint="These roles receive a notification when a new posting is raised under this template."
           value={notifyRoles} onChange={setNotifyRoles} />
-        <RolePicker label="Approver roles *" hint="Roles that can approve or reject the posting. Any one approver is sufficient."
+        <RolePicker label="Approver Roles *" hint="Roles that can approve or reject the posting. Any one approver is sufficient."
           value={approverRoles} onChange={setApproverRoles} />
-        <RolePicker label="Poster roles *" hint="Roles that can execute the posting to the ledger after approval, or return it."
+        <RolePicker label="Poster Roles *" hint="Roles that can execute the posting to the ledger after approval, or return it."
           value={posterRoles} onChange={setPosterRoles} />
       </div>
     </Modal>
@@ -314,7 +314,7 @@ export default function WorkflowTemplates() {
       <div style={{ display: 'flex', gap: SP[2], padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.lg, background: `${NAVY}06`, border: `1px solid ${NAVY}14`, marginBottom: 20 }}>
         <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: NAVY, flexShrink: 0, marginTop: 1 }}>schema</span>
         <div>
-          <p style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 3px' }}>Three-stage approval flow</p>
+          <p style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 3px' }}>Three-Stage Approval Flow</p>
           <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>
             When a settlement officer raises a manual posting, they pick a template. The template determines:
             <strong style={{ color: 'var(--txt)' }}> who gets notified</strong>,
@@ -330,7 +330,7 @@ export default function WorkflowTemplates() {
         ) : templates.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 40, color: 'var(--txt3)', display: 'block', marginBottom: 10 }}>schema</span>
-            <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 4px' }}>No workflow templates yet</p>
+            <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 4px' }}>No Workflow Templates Yet</p>
             <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', margin: '0 0 16px' }}>Create your first template to define an approval chain for manual postings.</p>
             <button onClick={() => { setEditing(null); setFormOpen(true) }} style={btnPrimary}>
               <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add</span>

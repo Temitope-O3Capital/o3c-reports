@@ -99,7 +99,7 @@ function SenderModal({ sender, onClose, onSaved }: {
 
           <label style={{ display: 'flex', alignItems: 'center', gap: SP[2], cursor: 'pointer', fontSize: TEXT.base }}>
             <input type="checkbox" checked={form.is_default} onChange={e => field('is_default', e.target.checked)} />
-            Set as default for this purpose
+            Set as Default for This Purpose
           </label>
         </div>
 
@@ -187,7 +187,7 @@ export default function AdminEmailSenders() {
         <div style={{ display: 'flex', gap: SP[1] }}>
           {!r.is_default && (
             <button onClick={e => { e.stopPropagation(); setDefault(r.id) }} style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: '1.5px solid var(--bdr)', background: 'transparent', color: 'var(--txt2)', fontSize: TEXT.xs, cursor: 'pointer' }}>
-              Set default
+              Set Default
             </button>
           )}
           <button onClick={e => { e.stopPropagation(); setEditing(r) }} style={{ padding: '3px 8px', borderRadius: RADIUS.sm, border: 'none', background: `${NAVY}12`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>Edit</button>
@@ -218,7 +218,7 @@ export default function AdminEmailSenders() {
       <ErrBanner error={error} onRetry={load} />
 
       <SectionCard title="Configured Senders" badge={rows.length} padding={false}>
-        <DataTable cols={COLS} rows={rows} keyFn={r => r.id} loading={loading} emptyText="No email senders configured" />
+        <DataTable cols={COLS} rows={rows} keyFn={r => r.id} loading={loading} emptyText="No Email Senders Configured" />
       </SectionCard>
 
       {editing !== false && (

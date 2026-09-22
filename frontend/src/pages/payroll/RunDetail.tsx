@@ -262,7 +262,7 @@ export default function RunDetail() {
     { key: '_actions', label: '', sortable: false,
       render: r => {
         const actions: RowAction[] = [
-          { icon: 'receipt_long', label: 'View payslip', onClick: () => viewPayslip(r) },
+          { icon: 'receipt_long', label: 'View Payslip', onClick: () => viewPayslip(r) },
           { icon: 'download', label: 'Download PDF', onClick: () => downloadPayslipPdf(r) },
         ]
         return <ActionRow actions={actions} />
@@ -377,7 +377,7 @@ export default function RunDetail() {
       {/* Confirm modals */}
       <ConfirmModal
         open={submitOpen}
-        title="Submit for approval?"
+        title="Submit for Approval?"
         body={`This will submit the ${period} payroll run for manager approval. You will not be able to edit items after submission.`}
         confirmLabel={actioning ? 'Submitting…' : 'Submit'}
         loading={actioning}
@@ -386,7 +386,7 @@ export default function RunDetail() {
       />
       <ConfirmModal
         open={approveOpen}
-        title="Approve payroll run?"
+        title="Approve Payroll Run?"
         body={`Approve the ${period} payroll run for ${run?.headcount} employees? Net total: ${fmtKobo(run?.total_net_kobo ?? 0)}`}
         confirmLabel={actioning ? 'Approving…' : 'Approve'}
         loading={actioning}
@@ -395,7 +395,7 @@ export default function RunDetail() {
       />
       <ConfirmModal
         open={payOpen}
-        title="Mark as paid?"
+        title="Mark as Paid?"
         body={`Confirm that ${period} payroll (${fmtKobo(run?.total_net_kobo ?? 0)} net) has been disbursed to all ${run?.headcount} employees.`}
         confirmLabel={actioning ? 'Processing…' : 'Mark Paid'}
         loading={actioning}

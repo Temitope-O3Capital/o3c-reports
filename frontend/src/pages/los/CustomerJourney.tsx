@@ -86,8 +86,8 @@ function reached(stage: string | null | undefined, mark: string): boolean | null
 const MANDATE_TONE: Record<string, { label: string; tone: 'good' | 'warn' | 'bad' | 'idle' }> = {
   ACTIVE: { label: 'Active', tone: 'good' },
   APPROVED: { label: 'Active', tone: 'good' },
-  PENDING: { label: 'Awaiting the customer', tone: 'warn' },
-  PENDING_APPROVAL: { label: 'Awaiting the customer', tone: 'warn' },
+  PENDING: { label: 'Awaiting the Customer', tone: 'warn' },
+  PENDING_APPROVAL: { label: 'Awaiting the Customer', tone: 'warn' },
   FAILED: { label: 'Failed', tone: 'bad' },
   CANCELLED: { label: 'Cancelled', tone: 'bad' },
   EXPIRED: { label: 'Expired', tone: 'bad' },
@@ -275,7 +275,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
   return (
     <div className="sd-panel">
       <div className="sd-panel-head">
-        <h2>Customer journey</h2>
+        <h2>Customer Journey</h2>
         <span className="sd-panel-hint">
           {phoenixStage
             ? <>Phoenix stage: <b style={{ color: "var(--txt)" }}>{phoenixStage.replace(/_/g, " ").toLowerCase()}</b></>
@@ -295,9 +295,9 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
               ? 'Phoenix has no NDPA consent for this applicant. It will not run a bureau check against them without it — capture it when the customer gives it.'
               : `Consent could not be confirmed${consent?.note ? ` — ${consent.note}` : ''}.`}
           status={
-            consentDone === true ? <Pill text="On file" tone="good" />
-              : consentDone === false ? <Pill text="Not on file" tone="warn" />
-                : <Pill text="Not verifiable" tone="idle" />
+            consentDone === true ? <Pill text="On File" tone="good" />
+              : consentDone === false ? <Pill text="Not on File" tone="warn" />
+                : <Pill text="Not Verifiable" tone="idle" />
           }>
           {/* Withheld once the ledger shows consent. Every press writes another row into
               a legal record of consent, so a second one is not harmless once the first
@@ -306,7 +306,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
             <button className="sd-btn" disabled={busy !== null}
               onClick={() => run('consent', () => apiPost(`/api/los/${appId}/consent`, { channel: 'phone' }), 'Consent recorded')}>
               <span className="material-symbols-rounded">how_to_reg</span>
-              {busy === 'consent' ? 'Recording…' : 'Record consent'}
+              {busy === 'consent' ? 'Recording…' : 'Record Consent'}
             </button>
           )}
         </Step>
@@ -314,7 +314,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
         {/* Amount the customer accepted */}
         <Step
           icon="price_check"
-          title="Amount confirmed"
+          title="Amount Confirmed"
           sub={amountConfirmed === true
             ? 'The customer has accepted an amount. Phoenix holds the figure.'
             : approvedKobo
@@ -322,17 +322,17 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
               : 'Phoenix approves a ceiling; the customer then chooses what to take. Record their choice here.'}
           status={
             amountConfirmed === true ? <Pill text="Confirmed" tone="good" />
-              : amountConfirmed === false ? <Pill text="Awaiting the customer" tone="warn" />
-                : <Pill text="Not reported yet" tone="idle" />
+              : amountConfirmed === false ? <Pill text="Awaiting the Customer" tone="warn" />
+                : <Pill text="Not Reported Yet" tone="idle" />
           }>
           <button className="sd-btn" disabled={busy !== null} onClick={() => { setAmount(''); setShowAmount(v => !v) }}>
-            <span className="material-symbols-rounded">edit</span>Confirm amount
+            <span className="material-symbols-rounded">edit</span>Confirm Amount
           </button>
         </Step>
 
         {showAmount && (
           <div style={{ padding: '12px 4px 16px', borderBottom: '1px solid var(--bdr)' }}>
-            <label style={label}>Amount the customer accepted (₦)
+            <label style={label}>Amount the Customer Accepted (₦)
               <input style={input} type="number" value={amount} onChange={e => setAmount(e.target.value)}
                 placeholder={approvedKobo ? String(approvedKobo / 100) : requestedKobo ? String(requestedKobo / 100) : ''} />
             </label>
@@ -351,7 +351,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
         {/* Direct debit mandate */}
         <Step
           icon="account_balance"
-          title="Direct debit mandate"
+          title="Direct Debit Mandate"
           sub={
             reason ? <span style={{ color: 'var(--sd-amber)' }}>{reason}</span>
               : latest
@@ -367,14 +367,14 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
             latest
               ? <Pill text={mMeta?.label ?? (latest.status ?? 'Unknown')} tone={mMeta?.tone ?? 'idle'} />
               : ddAvailable === false
-                ? <Pill text="No provider" tone="warn" />
-                : <Pill text="Not set up" tone="idle" />
+                ? <Pill text="No Provider" tone="warn" />
+                : <Pill text="Not Set Up" tone="idle" />
           }>
           {!active && (
             <button className="sd-btn" disabled={busy !== null || ddAvailable === false}
               title={ddAvailable === false ? ddNote : undefined}
               onClick={() => setShowMandate(v => !v)}>
-              <span className="material-symbols-rounded">add</span>Set up
+              <span className="material-symbols-rounded">add</span>Set Up
             </button>
           )}
           {latest && !active && (
@@ -385,13 +385,13 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
               </button>
               <button className="sd-btn" disabled={busy !== null}
                 onClick={() => run('check', () => apiPost(`/api/los/${appId}/mandate/${latest.id}/check-status`, {}), 'Status re-checked')}>
-                {busy === 'check' ? 'Checking…' : 'Re-check'}
+                {busy === 'check' ? 'Checking…' : 'Re-Check'}
               </button>
             </>
           )}
           {latest && (
             <button className="sd-btn" disabled={busy !== null} onClick={() => toggleDebits(latest.id)}>
-              <span className="material-symbols-rounded">receipt_long</span>{showDebits ? 'Hide debits' : 'Debits'}
+              <span className="material-symbols-rounded">receipt_long</span>{showDebits ? 'Hide Debits' : 'Debits'}
             </button>
           )}
           {latest && !MANDATE_ENDED.has(mStatus) && (
@@ -408,7 +408,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
               Cancelling tells the bank to stop debiting account <b>{latest.account_number ?? '—'}</b>. Repayments
               cannot be collected automatically again until a new mandate is active.
             </div>
-            <label style={label}>Why is it being cancelled?
+            <label style={label}>Why Is It Being Cancelled?
               <input style={input} value={cancelReason} onChange={e => setCancelReason(e.target.value)}
                 placeholder="Recorded in Phoenix and on this application's trail" />
             </label>
@@ -417,9 +417,9 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
                 onClick={() => run('cancel', () => apiPost(`/api/los/${appId}/mandate/${latest.id}/cancel`, {
                   reason: cancelReason.trim(),
                 }), 'Mandate cancelled').then(ok => { if (ok) setShowCancel(false) })}>
-                {busy === 'cancel' ? 'Cancelling…' : 'Cancel mandate'}
+                {busy === 'cancel' ? 'Cancelling…' : 'Cancel Mandate'}
               </button>
-              <button className="sd-btn" onClick={() => setShowCancel(false)}>Keep it</button>
+              <button className="sd-btn" onClick={() => setShowCancel(false)}>Keep It</button>
             </div>
           </div>
         )}
@@ -454,13 +454,13 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
         {showMandate && ddAvailable !== false && (
           <div style={{ padding: '12px 4px 16px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
-              <label style={label}>Account number
+              <label style={label}>Account Number
                 <input style={input} value={acct} onChange={e => setAcct(e.target.value)} inputMode="numeric" />
               </label>
-              <label style={label}>Account name
+              <label style={label}>Account Name
                 <input style={input} value={acctName} onChange={e => setAcctName(e.target.value)} placeholder="defaults to the applicant" />
               </label>
-              <label style={label}>Bank code
+              <label style={label}>Bank Code
                 <input style={input} value={bank} onChange={e => setBank(e.target.value)} placeholder="optional" />
               </label>
             </div>
@@ -471,7 +471,7 @@ export default function CustomerJourney({ appId, phoenixStage, approvedKobo, req
                   account_name: acctName.trim(),
                   institution_code: bank.trim(),
                 }), 'Mandate registered').then(ok => { if (ok) setShowMandate(false) })}>
-                {busy === 'mandate' ? 'Registering…' : 'Register mandate'}
+                {busy === 'mandate' ? 'Registering…' : 'Register Mandate'}
               </button>
               <button className="sd-btn" onClick={() => setShowMandate(false)}>Cancel</button>
             </div>

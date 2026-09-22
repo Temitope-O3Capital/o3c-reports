@@ -59,7 +59,7 @@ function DynamicFields({
   if (type === 'Card Dispute') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Field label="Card Number (last 4 digits)">
+        <Field label="Card Number (Last 4 Digits)">
           <input
             type="text" maxLength={4} placeholder="e.g. 4242"
             value={custom.card_number ?? ''}
@@ -102,7 +102,7 @@ function DynamicFields({
   if (type === 'Balance Enquiry') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Field label="Account Number (optional)">
+        <Field label="Account Number (Optional)">
           <input
             type="text" placeholder="e.g. 0123456789"
             value={custom.account_number ?? ''}
@@ -212,7 +212,7 @@ function DynamicFields({
   if (type === 'FD Enquiry') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Field label="FD Reference (optional)">
+        <Field label="FD Reference (Optional)">
           <input
             type="text" placeholder="e.g. FD-000456"
             value={custom.fd_reference ?? ''}
@@ -485,7 +485,7 @@ export default function NewTicketForm({
             </div>
             <button type="button" onClick={() => setManual(false)}
               style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, padding: 0, border: 'none', background: 'none', color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>search</span>Search for an existing customer instead
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>search</span>Search for an Existing Customer Instead
             </button>
           </div>
         ) : (
@@ -519,7 +519,7 @@ export default function NewTicketForm({
                 <option value="urgent">Urgent</option>
               </select>
             </Field>
-            <Field label="Assign to Agent (optional)">
+            <Field label="Assign to Agent (Optional)">
               <select
                 value={agentId ?? ''}
                 onChange={e => setAgentId(e.target.value ? Number(e.target.value) : null)}

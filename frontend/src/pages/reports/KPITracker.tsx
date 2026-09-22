@@ -169,7 +169,7 @@ function KPICard({ def, values, loading }: { def: KPIDef; values: KPIValues; loa
         }}>{def.label}</span>
         {def.snapshot && (
           <span title="Point-in-time — the live book right now, not a sum over the selected period"
-            style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>now</span>
+            style={{ fontSize: TEXT['2xs'], fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Now</span>
         )}
         {!loading && <RagDot value={val} target={target} lowerIsBetter={def.lowerIsBetter} />}
       </div>
@@ -426,7 +426,7 @@ export default function KPITracker() {
             height: 28, padding: '0 8px', border: '1px solid var(--input-bdr)',
             borderRadius: RADIUS.sm, fontSize: TEXT.sm, background: 'var(--input-bg)', color: 'var(--txt)',
           }}>
-            {[6, 12, 24].map(m => <option key={m} value={m}>{m} months</option>)}
+            {[6, 12, 24].map(m => <option key={m} value={m}>{m} Months</option>)}
           </select>
         }
       >

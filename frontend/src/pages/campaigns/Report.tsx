@@ -55,8 +55,8 @@ const CH_META: Record<string, { c: string; i: string; l: string }> = {
 
 const STEP_STATUS_COLOR: Record<string, string> = { pending: '#8A95A1', sending: BLUE, sent: GREEN, skipped: AMBER }
 const AUDIENCE_LABEL: Record<string, string> = {
-  all: 'Everyone', delivered: 'Prev. delivered', not_delivered: 'Prev. not delivered',
-  opened: 'Opened prev.', not_opened: "Didn't open prev.", clicked: 'Clicked prev.',
+  all: 'Everyone', delivered: 'Prev. Delivered', not_delivered: 'Prev. Not Delivered',
+  opened: 'Opened Prev.', not_opened: "Didn't Open Prev.", clicked: 'Clicked Prev.',
 }
 
 // Per-step results shown on the Results tab for sequence campaigns.
@@ -71,7 +71,7 @@ function StepResults({ campaignId }: { campaignId: string }) {
   }, [campaignId])
   if (!loaded || steps.length === 0) return null
   return (
-    <SectionCard title="Sequence steps" subtitle="Per-step send results" padding={false}>
+    <SectionCard title="Sequence Steps" subtitle="Per-step send results" padding={false}>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: TEXT.sm }}>
           <thead>
@@ -381,7 +381,7 @@ function SMSBuilder({ value, onChange, canEdit, senderName }: { value: string; o
 
       {/* Phone preview */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-        <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', letterSpacing: '.05em', textTransform: 'uppercase' }}>Live Preview <span style={{ color: 'var(--txt3)', textTransform: 'none', fontWeight: FW.normal }}>· sample data</span></div>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', letterSpacing: '.05em', textTransform: 'uppercase' }}>Live Preview <span style={{ color: 'var(--txt3)', textTransform: 'none', fontWeight: FW.normal }}>· Sample Data</span></div>
         <IPhoneMockup>
           <SmsAppPreview text={previewText} sender={senderName || 'O3 Capital'} />
         </IPhoneMockup>
@@ -499,7 +499,7 @@ function WhatsAppComposer({ waBody, setWaBody, waTplName, setWaTplName, canEdit 
       </div>
       {/* Live WhatsApp preview (sample data + formatting) */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 8 }}>Live Preview <span style={{ textTransform: 'none', fontWeight: FW.normal }}>· sample data</span></div>
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 8 }}>Live Preview <span style={{ textTransform: 'none', fontWeight: FW.normal }}>· Sample Data</span></div>
         <div style={{ width: '100%', maxWidth: 280, background: '#E5DDD5', borderRadius: 12, padding: 12, minHeight: 120 }}>
           <div style={{ background: WA_GREEN, borderRadius: '8px 8px 0 0', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -712,10 +712,10 @@ function TemplatePickerModal({ open, onClose, onApply, channel }: {
 // ── Push to Telemarketers Modal ────────────────────────────────────────────────
 
 const SEGMENTS = [
-  { value: 'all',           label: 'All contacts' },
-  { value: 'email_opened',  label: 'Email opened only' },
-  { value: 'email_clicked', label: 'Email clicked only' },
-  { value: 'sms_delivered', label: 'SMS delivered only' },
+  { value: 'all',           label: 'All Contacts' },
+  { value: 'email_opened',  label: 'Email Opened Only' },
+  { value: 'email_clicked', label: 'Email Clicked Only' },
+  { value: 'sms_delivered', label: 'SMS Delivered Only' },
 ]
 
 function PushToCallCenterModal({ campaignId, open, onClose }: { campaignId: string; open: boolean; onClose: () => void }) {
@@ -769,8 +769,8 @@ function PushToCallCenterModal({ campaignId, open, onClose }: { campaignId: stri
         <div>
           <label style={lbl}>Call Center Campaign</label>
           <select value={selectedCampaignId} onChange={e => setSelectedCampaignId(e.target.value)} style={fld}>
-            <option value="">Auto-create from campaign name</option>
-            <option value="new">Create new…</option>
+            <option value="">Auto-Create from Campaign Name</option>
+            <option value="new">Create New…</option>
             {ccCampaigns.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
           </select>
         </div>
@@ -781,9 +781,9 @@ function PushToCallCenterModal({ campaignId, open, onClose }: { campaignId: stri
           </div>
         )}
         <div>
-          <label style={lbl}>Assign to Agent <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+          <label style={lbl}>Assign to Agent <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span></label>
           <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)} style={fld}>
-            <option value="">Unassigned: pool pickup</option>
+            <option value="">Unassigned: Pool Pickup</option>
             {agents.map(a => <option key={a.id} value={String(a.id)}>{a.full_name}</option>)}
           </select>
         </div>
@@ -1195,16 +1195,16 @@ export default function CampaignDetail() {
       : activeEmail ? 'email' : activeSMS ? 'sms' : 'whatsapp'
 
   const checks = [
-    { label: 'Campaign name',   ok: name.trim().length > 0,                   hint: 'Enter a name in Setup' },
-    { label: 'Contact list',    ok: listId !== '',                             hint: 'Choose a list in Setup' },
+    { label: 'Campaign Name',   ok: name.trim().length > 0,                   hint: 'Enter a name in Setup' },
+    { label: 'Contact List',    ok: listId !== '',                            hint: 'Choose a list in Setup' },
     ...(isMulti && !enableSMS && !enableEmail && !enableWhatsApp
-      ? [{ label: 'At least one channel enabled', ok: false, hint: 'Enable at least one channel in Content' }]
+      ? [{ label: 'At Least One Channel Enabled', ok: false, hint: 'Enable at least one channel in Content' }]
       : []),
-    ...(activeSMS        ? [{ label: 'SMS body',          ok: smsBody.trim().length > 0,      hint: 'Write your SMS in Content' }]  : []),
-    ...(activeWhatsApp   ? [{ label: 'WhatsApp body',     ok: waBody.trim().length > 0,       hint: 'Write your WhatsApp message in Content' }]  : []),
+    ...(activeSMS        ? [{ label: 'SMS Body',         ok: smsBody.trim().length > 0,      hint: 'Write your SMS in Content' }]  : []),
+    ...(activeWhatsApp   ? [{ label: 'WhatsApp Body',    ok: waBody.trim().length > 0,       hint: 'Write your WhatsApp message in Content' }]  : []),
     ...(activeEmail ? [
-      { label: 'Email subject', ok: emailSubject.trim().length > 0, hint: 'Enter a subject in Content' },
-      { label: 'Email body',    ok: emailBlocks.blocks.length > 0,  hint: 'Build your email in Content' },
+      { label: 'Email Subject', ok: emailSubject.trim().length > 0, hint: 'Enter a subject in Content' },
+      { label: 'Email Body',   ok: emailBlocks.blocks.length > 0,  hint: 'Build your email in Content' },
     ] : []),
   ]
   const allChecksPass = checks.every(c => c.ok)
@@ -1292,7 +1292,7 @@ export default function CampaignDetail() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: GREEN, display: 'inline-block' }} />
-              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Sending live</span>
+              <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Sending Live</span>
             </div>
             {progress && (
               <span style={{ fontSize: TEXT.sm, ...NUM, color: 'var(--txt2)' }}>
@@ -1362,7 +1362,7 @@ export default function CampaignDetail() {
                     placeholder="e.g. Q3 Customer Re-engagement" style={{ ...fld, opacity: canEdit ? 1 : .85 }} />
                 </div>
                 <div>
-                  <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(internal notes)</span></label>
+                  <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Internal Notes)</span></label>
                   <textarea value={description} onChange={e => setDescription(e.target.value)} disabled={!canEdit}
                     placeholder="What is this campaign for?" rows={3}
                     style={{ ...fld, resize: 'vertical', lineHeight: 1.6, opacity: canEdit ? 1 : .85 }} />
@@ -1376,7 +1376,7 @@ export default function CampaignDetail() {
                   <label style={lbl}>Contact List *</label>
                   {canEdit ? (
                     <select value={String(listId)} onChange={e => setListId(e.target.value ? Number(e.target.value) : '')} style={fld}>
-                      <option value="">No list selected</option>
+                      <option value="">No List Selected</option>
                       {contactLists.map(cl => (
                         <option key={cl.id} value={String(cl.id)}>{cl.name}{cl.total ? ` (${fmtNum(cl.total)})` : ''}</option>
                       ))}
@@ -1404,7 +1404,7 @@ export default function CampaignDetail() {
                 ['Audience',   <span style={NUM}>{fmtNum(toN(campaign.total_contacts))}</span>],
                 ...(campaign.started_at   ? [['Started',   fmtDatetime(campaign.started_at)]]   : []),
                 ...(campaign.completed_at ? [['Completed', fmtDatetime(campaign.completed_at)]] : []),
-                ['Created by', campaign.created_by_name ?? '—'],
+                ['Created By', campaign.created_by_name ?? '—'],
                 ['Created',    fmtDate(campaign.created_at)],
               ] as [string, React.ReactNode][]).map(([label, value]) => (
                 <div key={String(label)} style={{ display: 'flex', justifyContent: 'space-between', gap: SP[3], fontSize: TEXT.sm }}>
@@ -1562,19 +1562,19 @@ export default function CampaignDetail() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr '.repeat(Math.max(1, (isEmail ? 1 : 0) + (isSMS ? 1 : 0) + (isWhatsApp ? 1 : 0))) + 'auto', gap: 10, alignItems: 'flex-end' }}>
               {isEmail && (
                 <div>
-                  <label style={lbl}>Test email address</label>
+                  <label style={lbl}>Test Email Address</label>
                   <input type="email" value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="you@example.com" style={fld} />
                 </div>
               )}
               {isSMS && (
                 <div>
-                  <label style={lbl}>Test phone number</label>
+                  <label style={lbl}>Test Phone Number</label>
                   <input type="tel" value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="+2348012345678" style={fld} />
                 </div>
               )}
               {isWhatsApp && (
                 <div>
-                  <label style={lbl}>Test WhatsApp number</label>
+                  <label style={lbl}>Test WhatsApp Number</label>
                   <input type="tel" value={testWhatsApp} onChange={e => setTestWhatsApp(e.target.value)} placeholder="+2348012345678" style={fld} />
                 </div>
               )}
@@ -1596,7 +1596,7 @@ export default function CampaignDetail() {
       {tab === 'review' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <SectionCard title="Pre-flight Checklist" padding>
+            <SectionCard title="Pre-Flight Checklist" padding>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {checks.map(c => (
                   <div key={c.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -1616,14 +1616,14 @@ export default function CampaignDetail() {
               <div style={{ padding: '12px 16px', background: `${BLUE}08`, border: `1px solid ${BLUE}30`, borderRadius: RADIUS.md, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 18, color: BLUE, flexShrink: 0 }}>schedule</span>
                 <div>
-                  <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Scheduled send</div>
+                  <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>Scheduled Send</div>
                   <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>{fmtDatetime(new Date(scheduledAt).toISOString())}</div>
                 </div>
               </div>
             )}
 
             {/* Content summary */}
-            <SectionCard title="What will be sent" padding>
+            <SectionCard title="What Will Be Sent" padding>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {isMulti && (
                   <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--bdr)', flexWrap: 'wrap' }}>
@@ -1735,12 +1735,12 @@ export default function CampaignDetail() {
                         <span style={{ ...NUM, color: len > 160 ? RED : 'var(--txt)', fontWeight: FW.semibold }}>{len} / 160</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--txt2)' }}>SMS parts</span>
+                        <span style={{ color: 'var(--txt2)' }}>SMS Parts</span>
                         <span style={{ ...NUM, fontWeight: FW.semibold }}>{segs}</span>
                       </div>
                       {listSize > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid var(--bdr)', marginTop: 2 }}>
-                          <span style={{ color: 'var(--txt2)' }}>Est. total credits</span>
+                          <span style={{ color: 'var(--txt2)' }}>Est. Total Credits</span>
                           <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY }}>{fmtNum(segs * listSize)}</span>
                         </div>
                       )}
@@ -1772,7 +1772,7 @@ export default function CampaignDetail() {
           {!hasSendData && (
             <div style={{ padding: 48, textAlign: 'center', background: 'var(--card)', borderRadius: RADIUS.lg, border: '1px solid var(--bdr)', color: 'var(--txt3)' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 48, display: 'block', marginBottom: 12 }}>bar_chart</span>
-              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, marginBottom: 4, color: 'var(--txt2)' }}>No send data yet</div>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, marginBottom: 4, color: 'var(--txt2)' }}>No Send Data Yet</div>
               <div style={{ fontSize: TEXT.sm }}>
                 {canEdit ? 'Launch the campaign to see results here.' : 'No messages were recorded for this campaign.'}
               </div>
@@ -1804,7 +1804,7 @@ export default function CampaignDetail() {
 
               {/* Per-channel breakdown */}
               {(report?.channels?.length ?? 0) > 1 && (
-                <SectionCard title="By channel" subtitle="Performance for each channel in this campaign" padding>
+                <SectionCard title="By Channel" subtitle="Performance for each channel in this campaign" padding>
                   <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(200px, 1fr))`, gap: 12 }}>
                     {report!.channels!.map(ch => {
                       const meta = CH_META[ch.channel] ?? { c: NAVY, i: 'campaign', l: ch.channel }
@@ -1896,7 +1896,7 @@ export default function CampaignDetail() {
                 <InsightTile label="Conversions" value={fmtNum(attribution.conversions)} sub="recipients who borrowed" accent={GREEN} />
                 <InsightTile label="Conversion Rate" value={fmtPct(attribution.contacts_reached > 0 ? attribution.conversions / attribution.contacts_reached * 100 : 0)} accent={AMBER} />
                 <InsightTile label="Attributed ₦" value={fmtKobo(attribution.attributed_disbursement_kobo)} sub="originated value" accent={NAVY} />
-                <InsightTile label="Matched by" value={`${attribution.matched_cif} CIF · ${attribution.matched_phone} ph · ${attribution.matched_email} em`} />
+                <InsightTile label="Matched By" value={`${attribution.matched_cif} CIF · ${attribution.matched_phone} ph · ${attribution.matched_email} em`} />
               </div>
               <div style={{ marginTop: 10, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5 }}>
                 Estimated attribution: a correlation (matched by CIF, phone or email), not proven causation.

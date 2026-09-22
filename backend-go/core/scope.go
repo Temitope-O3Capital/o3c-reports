@@ -58,6 +58,10 @@ var managementRoles = map[string]bool{
 	"cmo":           true,
 	"head_ops":      true, // Head of Operations — cross-operations executive tier
 	"exec_overview": true, // scoped exec — sees the Overview cockpit, no module edit
+	// Head of Internal Control audits the whole company, so it reads the cross-company
+	// dashboards the executive tier reads. It changes nothing: every write is refused in
+	// AuthMiddleware (WriteBlocked), which is what makes this breadth safe to grant.
+	"internal_control_head": true,
 }
 
 // IsManagement reports whether a role belongs to the executive/management tier

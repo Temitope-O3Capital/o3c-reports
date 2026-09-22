@@ -21,6 +21,10 @@ export default defineConfig({
           if (id.includes('@tiptap/') || id.includes('prosemirror')) return 'tiptap'
           if (id.includes('recharts') || id.includes('d3-')) return 'charts'
           if (id.includes('react-router')) return 'react-router'
+          // The softphone SDK is ~235 kB and only two call-centre roles ever load the
+          // widget. Without its own chunk it falls into `vendor`, which every member of
+          // staff downloads — lazy-loading the component alone doesn't move it.
+          if (id.includes('@telnyx')) return 'telnyx'
           if (id.includes('node_modules')) return 'vendor'
         },
       },

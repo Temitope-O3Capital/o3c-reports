@@ -20,6 +20,9 @@ declare global {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CALL_ROLES = new Set(['call_center_agent', 'call_center_head', 'admin', 'super_admin', 'md', 'head_it'])
+// Who sees the raw SDK trace: the people who can act on it. An agent on a call cannot
+// do anything with a SIP code, and it was being rendered to them at 9px.
+const TRACE_ROLES = new Set(['admin', 'super_admin', 'head_it'])
 const PAD_KEYS   = ['1','2','3','4','5','6','7','8','9','*','0','#']
 
 type CallState = 'idle' | 'dialing' | 'active' | 'incoming' | 'ended'
@@ -34,7 +37,12 @@ function fmtElapsed(s: number): string {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CallWidget({ user }: { user: AuthUser }) {
-  if (!CALL_ROLES.has(user.role as string)) return null
+  // Whether this user gets a softphone at all — and whether they get the SDK trace.
+  // Both are decided AFTER every hook has run: returning early above the hooks changes
+  // the hook count between renders, which React throws on ("Rendered more hooks than
+  // during the previous render") the moment anything re-renders this component.
+  const canCall   = CALL_ROLES.has(user.role as string)
+  const showTrace = TRACE_ROLES.has(user.role as string)
 
   const navigate = useNavigate()
 
@@ -60,6 +68,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   const esRef       = useRef<EventSource | null>(null)
   const cleanupRef  = useRef(false)
   const reconnecting = useRef(false)
+  const answerRef   = useRef<HTMLButtonElement | null>(null)
 
   function addLog(msg: string) {
     const ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -69,6 +78,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   // ── Telnyx SDK init ────────────────────────────────────────────────────────
 
   useEffect(() => {
+    if (!canCall) return
     apiFetch<{
       configured: boolean
       sip_username?: string
@@ -84,7 +94,8 @@ export default function CallWidget({ user }: { user: AuthUser }) {
         }
       })
       .catch(() => {})
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canCall])
 
   function initSDK(sipUsername: string, sipPassword: string, _agentName: string) {
     if (clientRef.current) return
@@ -200,7 +211,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   // ── SSE — inbound notification fallback ──────────────────────────────────
 
   const connectSSE = useCallback(async () => {
-    if (cleanupRef.current) return
+    if (!canCall || cleanupRef.current) return
     try {
       const base = (import.meta.env.VITE_API_URL as string) ?? ''
       const res = await fetch(`${base}/api/notifications/sse-ticket`, {
@@ -240,7 +251,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
     } catch {
       if (!cleanupRef.current) setTimeout(connectSSE, 12000)
     }
-  }, [callState])
+  }, [callState, canCall])
 
   useEffect(() => {
     cleanupRef.current = false
@@ -258,6 +269,12 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [callState])
+
+  // A ringing phone has to reach someone using a screen reader, and the thing they
+  // need is Answer — so move focus onto it as the panel appears.
+  useEffect(() => {
+    if (callState === 'incoming') answerRef.current?.focus()
   }, [callState])
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -349,35 +366,47 @@ export default function CallWidget({ user }: { user: AuthUser }) {
   const isEnded    = callState === 'ended'
 
   const sipTimedOut  = sdkError.includes('timed out')
-  const statusColor  = sdkReady ? GREEN : sdkError ? RED : configured ? '#F59E0B' : 'rgba(255,255,255,0.25)'
-  const statusLabel  = sdkReady ? 'Ready' : sdkError ? (sipTimedOut ? 'SIP registration failed' : sdkError) : configured ? 'Connecting…' : 'Not configured'
+  const statusColor  = sdkReady ? GREEN : sdkError ? RED : configured ? '#F59E0B' : 'rgba(255,255,255,0.55)'
+  // What the agent is told. A raw SDK string — a SIP code, "ws closed" — is nothing an
+  // agent can act on, so each state maps to plain words with the action attached. The
+  // verbatim error stays in the trace, which only the people who debug it can see.
+  const statusLabel  = sdkReady ? 'Ready'
+    : sdkError ? (sipTimedOut ? 'Phone not connected — use Retry Connection' : 'Phone unavailable — contact IT')
+    : configured ? 'Connecting…'
+    : 'Phone not set up — contact IT'
+
+  // Every hook above has run, so leaving now cannot change the hook count.
+  if (!canCall) return null
 
   return (
     <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 9100, fontFamily: INTER }}>
 
       {/* Incoming call panel */}
       {isIncoming && incoming && (
-        <div style={{
-          position: 'absolute', bottom: 62, right: 0, width: 290,
-          background: NAVY, borderRadius: 16, overflow: 'hidden',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-          border: '1px solid rgba(255,255,255,0.12)',
-        }}>
+        <div
+          role="alertdialog"
+          aria-label={`Incoming call from ${incoming.phone}`}
+          style={{
+            position: 'absolute', bottom: 62, right: 0, width: 290,
+            background: NAVY, borderRadius: 16, overflow: 'hidden',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+            border: '1px solid rgba(255,255,255,0.12)',
+          }}>
           <div style={{ padding: '22px 20px 18px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
             <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-              <div style={{ position: 'absolute', width: 56, height: 56, borderRadius: '50%', background: `${GREEN}30`, animation: 'callPulse 1.4s ease-out infinite' }} />
+              <div className="o3c-call-pulse" style={{ position: 'absolute', width: 56, height: 56, borderRadius: '50%', background: `${GREEN}30` }} />
               <div style={{ width: 44, height: 44, borderRadius: '50%', background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 22, color: '#fff' }}>call</span>
               </div>
             </div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Incoming call</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Incoming Call</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{incoming.phone}</div>
           </div>
           <div style={{ display: 'flex' }}>
-            <button onClick={declineOrEnd} style={{ flex: 1, padding: '13px 0', border: 'none', cursor: 'pointer', background: 'transparent', color: RED, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRight: '1px solid rgba(255,255,255,0.1)', transition: 'background 120ms' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(192,0,0,0.15)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+            <button onClick={declineOrEnd} aria-label="Decline this call" style={{ flex: 1, padding: '13px 0', border: 'none', cursor: 'pointer', background: 'transparent', color: RED, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRight: '1px solid rgba(255,255,255,0.1)', transition: 'background 120ms' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(192,0,0,0.15)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 18 }}>call_end</span>Decline
             </button>
-            <button onClick={answerIncoming} style={{ flex: 1, padding: '13px 0', border: 'none', cursor: 'pointer', background: 'transparent', color: GREEN, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background 120ms' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(22,163,74,0.15)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+            <button ref={answerRef} onClick={answerIncoming} aria-label={`Answer the call from ${incoming.phone}`} style={{ flex: 1, padding: '13px 0', border: 'none', cursor: 'pointer', background: 'transparent', color: GREEN, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background 120ms' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(22,163,74,0.15)' }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 18 }}>call</span>Answer
             </button>
           </div>
@@ -391,27 +420,27 @@ export default function CallWidget({ user }: { user: AuthUser }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: isEnded ? 'rgba(255,255,255,0.3)' : GREEN }} />
               <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
-                {isEnded ? 'Call ended' : callState === 'dialing' ? 'Dialling…' : fmtElapsed(elapsed)}
+                {isEnded ? 'Call Ended' : callState === 'dialing' ? 'Dialling…' : fmtElapsed(elapsed)}
               </span>
             </div>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{activePhone}</div>
             {activeTicketId && (
               <button onClick={() => navigate(`/helpdesk/${activeTicketId}`)} style={{ marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
-                View ticket #{activeTicketId}
+                View Ticket #{activeTicketId}
               </button>
             )}
           </div>
 
           {callState === 'active' && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, padding: '12px 18px' }}>
-              <button onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'} style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: 'pointer', background: muted ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.09)', color: muted ? '#fff' : 'rgba(255,255,255,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 120ms' }}>
+              <button onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'} aria-label={muted ? 'Unmute' : 'Mute'} style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: 'pointer', background: muted ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.09)', color: muted ? '#fff' : 'rgba(255,255,255,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 120ms' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 18 }}>{muted ? 'mic_off' : 'mic'}</span>
               </button>
-              <button onClick={declineOrEnd} title="End call" style={{ width: 48, height: 48, borderRadius: '50%', border: 'none', cursor: 'pointer', background: RED, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 4px 16px ${RED}60` }}>
+              <button onClick={declineOrEnd} title="End call" aria-label="End call" style={{ width: 48, height: 48, borderRadius: '50%', border: 'none', cursor: 'pointer', background: RED, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 4px 16px ${RED}60` }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 22 }}>call_end</span>
               </button>
               {activeTicketId ? (
-                <button onClick={() => navigate(`/helpdesk/${activeTicketId}`)} title="View ticket" style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.09)', color: 'rgba(255,255,255,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <button onClick={() => navigate(`/helpdesk/${activeTicketId}`)} title="View ticket" aria-label={`View ticket #${activeTicketId}`} style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.09)', color: 'rgba(255,255,255,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 18 }}>open_in_new</span>
                 </button>
               ) : <div style={{ width: 40 }} />}
@@ -433,7 +462,8 @@ export default function CallWidget({ user }: { user: AuthUser }) {
                 style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 18, fontWeight: 700, color: '#fff', fontFamily: INTER, letterSpacing: '0.04em' }}
               />
               {dialNum && (
-                <button onClick={() => setDialNum(n => n.slice(0,-1))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', padding: 4 }}>
+                <button onClick={() => setDialNum(n => n.slice(0,-1))} title="Delete last digit" aria-label="Delete last digit"
+                  style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.75)', padding: 0 }}>
                   <span className="material-symbols-rounded" style={{ fontSize: 18 }}>backspace</span>
                 </button>
               )}
@@ -442,7 +472,7 @@ export default function CallWidget({ user }: { user: AuthUser }) {
             {/* SDK status */}
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, marginTop: 6 }}>
               <div style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, flexShrink: 0, marginTop: 3 }} />
-              <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', wordBreak: 'break-word', lineHeight: 1.4 }}>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', letterSpacing: '0.05em', wordBreak: 'break-word', lineHeight: 1.4 }}>
                 {statusLabel}
               </span>
             </div>
@@ -456,11 +486,12 @@ export default function CallWidget({ user }: { user: AuthUser }) {
               </button>
             )}
 
-            {/* On-screen debug log */}
-            {sdkLogs.length > 0 && (
+            {/* SDK trace — for whoever is debugging the telephony, never for the agent
+                on the phone (see TRACE_ROLES). */}
+            {showTrace && sdkLogs.length > 0 && (
               <div style={{ marginTop: 6, padding: '5px 6px', background: 'rgba(0,0,0,0.4)', borderRadius: 5, maxHeight: 90, overflowY: 'auto' }}>
                 {sdkLogs.map((line, i) => (
-                  <div key={i} style={{ fontSize: 9, color: line.includes('ERROR') || line.includes('TIMEOUT') || line.includes('error') ? '#FF8080' : 'rgba(255,255,255,0.45)', fontFamily: 'monospace', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line}</div>
+                  <div key={i} style={{ fontSize: 11, color: line.includes('ERROR') || line.includes('TIMEOUT') || line.includes('error') ? '#FF8080' : 'rgba(255,255,255,0.75)', fontFamily: 'monospace', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line}</div>
                 ))}
               </div>
             )}
@@ -491,7 +522,9 @@ export default function CallWidget({ user }: { user: AuthUser }) {
       {/* Toggle button */}
       <button
         onClick={() => { if (!isIncoming) setExpanded(e => !e) }}
-        style={{ width: 48, height: 48, borderRadius: '50%', border: 'none', cursor: isIncoming ? 'default' : 'pointer', background: isIncoming || isActive || isEnded ? GREEN : NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: isIncoming ? `0 0 0 4px ${GREEN}40, 0 4px 20px rgba(0,0,0,0.35)` : '0 4px 20px rgba(0,0,0,0.35)', transition: 'box-shadow 200ms, background 200ms', animation: isIncoming ? 'ringShake 0.5s ease-in-out infinite' : 'none', position: 'relative' }}
+        className={isIncoming ? 'o3c-ring-shake' : undefined}
+        aria-label={isIncoming ? 'Incoming call' : expanded ? 'Close the dialler' : 'Open the dialler'}
+        style={{ width: 48, height: 48, borderRadius: '50%', border: 'none', cursor: isIncoming ? 'default' : 'pointer', background: isIncoming || isActive || isEnded ? GREEN : NAVY, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: isIncoming ? `0 0 0 4px ${GREEN}40, 0 4px 20px rgba(0,0,0,0.35)` : '0 4px 20px rgba(0,0,0,0.35)', transition: 'box-shadow 200ms, background 200ms', position: 'relative' }}
       >
         <span className="material-symbols-rounded" style={{ fontSize: 22 }}>
           {isActive || isEnded ? 'call' : 'phone_in_talk'}
@@ -513,6 +546,13 @@ export default function CallWidget({ user }: { user: AuthUser }) {
           40%      { transform: rotate(12deg); }
           60%      { transform: rotate(-8deg); }
           80%      { transform: rotate(8deg); }
+        }
+        .o3c-call-pulse { animation: callPulse 1.4s ease-out infinite; }
+        .o3c-ring-shake { animation: ringShake 0.5s ease-in-out infinite; }
+        /* Both of these run forever, so they answer to the same preference the rest of
+           the app honours in index.css. */
+        @media (prefers-reduced-motion: reduce) {
+          .o3c-call-pulse, .o3c-ring-shake { animation: none; }
         }
       `}</style>
     </div>

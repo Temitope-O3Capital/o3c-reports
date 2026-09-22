@@ -53,9 +53,9 @@ function toneFor(priority: string, overdue: boolean) {
 // Snooze offsets, in hours. Anything longer than a week is really a re-plan, which
 // belongs on the task's own due-date field rather than behind a one-click button.
 const SNOOZE = [
-  { label: '1 hour', hours: 1 },
+  { label: '1 Hour', hours: 1 },
   { label: 'Tomorrow', hours: 24 },
-  { label: 'Next week', hours: 24 * 7 },
+  { label: 'Next Week', hours: 24 * 7 },
 ]
 
 export default function TaskModal() {
@@ -166,7 +166,7 @@ export default function TaskModal() {
             ))}
             {canGoToRecord && (
               <Button variant="secondary" onClick={() => { close(); navigate(task.action_url!) }}>
-                Open record
+                Open Record
               </Button>
             )}
           </div>
@@ -213,8 +213,8 @@ export default function TaskModal() {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 14, padding: '12px 0', borderTop: '1px solid var(--bdr)', borderBottom: '1px solid var(--bdr)' }}>
             {[
-              ['Assigned to', task.assignee_name || 'Unassigned'],
-              ['Raised by', task.creator_name || '—'],
+              ['Assigned To', task.assignee_name || 'Unassigned'],
+              ['Raised By', task.creator_name || '—'],
               ['About', task.contact_name || task.deal_title || '—'],
             ].map(([label, value]) => (
               <div key={label}>

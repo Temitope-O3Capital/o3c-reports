@@ -416,7 +416,7 @@ export default function AMLRules() {
                 />
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Time Window (hours) *</label>
+                <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Time Window (Hours) *</label>
                 <input
                   type="number"
                   min="1"
@@ -451,7 +451,7 @@ export default function AMLRules() {
               onChange={e => setForm(f => ({ ...f, active: e.target.checked }))}
               style={{ width: 15, height: 15, cursor: 'pointer' }}
             />
-            Active: rule fires immediately
+            Active: Rule Fires Immediately
           </label>
         </div>
       </Modal>
@@ -459,7 +459,7 @@ export default function AMLRules() {
       {/* Delete Confirm */}
       <ConfirmModal
         open={!!deleteTarget}
-        title={`Delete rule '${deleteTarget?.name}'?`}
+        title={`Delete Rule '${deleteTarget?.name}'?`}
         body="Active rules will stop firing immediately."
         confirmLabel="Delete"
         loading={deleting}

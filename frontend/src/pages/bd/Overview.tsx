@@ -322,7 +322,7 @@ export default function BDOverview() {
           padding={false}
           actions={
             <button onClick={() => navigate('/bd/pipeline')} style={{ fontSize: TEXT.sm, fontWeight: FW.medium, color: RED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              View all <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>arrow_forward</span>
+              View All <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>arrow_forward</span>
             </button>
           }
         >

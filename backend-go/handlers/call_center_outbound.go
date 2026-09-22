@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,11 @@ import (
 // stamps callback_notified_at so the alarm fires exactly once per callback.
 func StartCallbackReminderWorker(db *core.DB) {
 	run := func() {
+		// On the CYCLE, not the ticker goroutine: a panic here ends this cycle and the
+		// loop runs again in a minute. Without it one malformed row killed the worker
+		// for the life of the process while WorkerBeat left the hub showing "running"
+		// forever — the alarm stops and nothing says so.
+		defer recoverPanic("callback_reminders")
 		ctx := context.Background()
 		WorkerBeat(ctx, db, "callback_reminders", "running", "", "")
 		// Stamp every freshly-due call-back as alerted in ONE atomic step and get back
@@ -136,7 +142,7 @@ func ccStampQueueForPhone(ctx context.Context, db *core.DB, phone string) {
 	if strings.TrimSpace(phone) == "" {
 		return
 	}
-	db.PGExec(ctx, //nolint:errcheck
+	if _, err := db.PGExec(ctx,
 		`UPDATE call_center_contacts c
 		    SET attempts          = t.n,
 		        connects          = t.conn,
@@ -148,6 +154,12 @@ func ccStampQueueForPhone(ctx context.Context, db *core.DB, phone string) {
 		        -- number lingering forever in the "callback due" / ready bucket.
 		        callback_at       = CASE WHEN c.callback_at IS NOT NULL AND t.last_at >= c.callback_at
 		                                 THEN NULL ELSE c.callback_at END,
+		        -- Drop the alarm stamp with the call-back it belonged to. The reminder
+		        -- worker only ever fires where callback_notified_at IS NULL, so leaving a
+		        -- fulfilled call-back's stamp behind is half of why a contact's SECOND
+		        -- call-back never alerted anyone.
+		        callback_notified_at = CASE WHEN c.callback_at IS NOT NULL AND t.last_at >= c.callback_at
+		                                    THEN NULL ELSE c.callback_notified_at END,
 		        updated_at        = NOW()
 		   FROM (
 		     SELECT COUNT(*)                                            AS n,
@@ -159,7 +171,87 @@ func ccStampQueueForPhone(ctx context.Context, db *core.DB, phone string) {
 		        AND merged_into_call_id IS NULL AND voided_at IS NULL
 		   ) t
 		  WHERE norm_phone(c.phone) = norm_phone($1)
-		    AND norm_phone($1) <> ''`, phone)
+		    AND length(norm_phone($1)) = 10`, phone); err != nil {
+		slog.Error("ccStampQueueForPhone: refresh queue counters", "err", err)
+	}
+
+	// The LEAD book gets the same treatment, from the same ledger, in the same call.
+	// Migration 254 gave call_center_leads the attempts/connects columns and seeded
+	// them; without this they would be a one-off snapshot that silently went stale,
+	// and the workable predicate below (which decides what may be redistributed)
+	// reads them. Every path that logs a call already funnels through here — the
+	// in-queue log, the Leads form via helpdesk, and the Zoho Desk sync — so this is
+	// the one place that keeps both books honest.
+	//
+	// RECOMPUTED, never incremented, for the same reason as above: the Zoho importer
+	// re-upserts calls it has already seen on every deep reconcile, so an increment
+	// would inflate the counters without limit on each sweep.
+	if _, err := db.PGExec(ctx,
+		`UPDATE call_center_leads l
+		    SET attempts = t.n,
+		        connects = t.conn,
+		        updated_at = NOW()
+		   FROM (
+		     SELECT COUNT(*)                                     AS n,
+		            COUNT(*) FILTER (WHERE outcome = 'completed') AS conn
+		       FROM helpdesk_calls
+		      WHERE norm_phone(customer_phone) = norm_phone($1)
+		        AND direction = 'outbound'
+		        AND merged_into_call_id IS NULL AND voided_at IS NULL
+		   ) t
+		  WHERE norm_phone(l.customer_phone) = norm_phone($1)
+		    AND length(norm_phone($1)) = 10
+		    AND (l.attempts, l.connects) IS DISTINCT FROM (t.n, t.conn)`, phone); err != nil {
+		slog.Error("ccStampQueueForPhone: refresh lead counters", "err", err)
+	}
+}
+
+// ccNotOnDNCExpr renders "this number is not on the Do Not Call list", for a phone
+// column or expression.
+//
+// Six separate suppression checks had drifted into three different shapes — three
+// compared app.norm_phone()'s form against the RAW stored value, two compared raw
+// text to raw text — and not one of them could match a listed number, because the
+// column held whatever the agent typed ('+2348033153664' vs '08033153664'). The
+// list suppressed nothing. Migration 254 normalised the column; this makes every
+// reader compare the same way, through one expression rather than six copies.
+//
+// The length()=10 guard is load-bearing, not tidiness: app.norm_phone returns ''
+// (never NULL) for anything it cannot parse, so a bare equality is TRUE when both
+// sides are blank — which would suppress every contact with no phone on file.
+func ccNotOnDNCExpr(phoneCol string) string {
+	return `NOT EXISTS (SELECT 1 FROM dnc_list d
+	                     WHERE norm_phone(d.phone) = norm_phone(` + phoneCol + `)
+	                       AND length(norm_phone(d.phone)) = 10)`
+}
+
+// ccLeadWorkableExpr renders "this lead is worth handing to an agent": not already
+// worked to a conclusion, not resting inside the cool-down, and not past the attempt
+// cap with nothing to show for it. alias is the table alias ("" for a bare table).
+//
+// Assignment, distribution and recall all filtered status='pending', but the FIRST
+// dial moves a lead to 'no_answer' or 'called' permanently — so a lead could be
+// handed out exactly once and then never again, by anyone. 9,126 of 13,042 leads
+// were stuck at 'no_answer', unreachable by every supervisor action on the page.
+//
+// The queue has always had this discipline (ccCooldownDays / ccExhaustedAttempts);
+// migration 254 gave the lead book the counters needed to share it, so an unreached
+// lead recycles after the cool-down while an exhausted one stops costing agent time.
+//
+// 'called' is deliberately NOT workable. leadStatusFromCall files "Not Interested"
+// under 'called', so recycling it would put people who have already declined back
+// on the dialler. 'interested' and 'callback' are excluded for the opposite reason:
+// they are live, owned work awaiting a forward or a promised time.
+func ccLeadWorkableExpr(alias string) string {
+	p := ""
+	if alias != "" {
+		p = alias + "."
+	}
+	return fmt.Sprintf(`(%[1]sstatus IN ('pending','no_answer','not_ready')
+	     AND (%[1]slast_called_at IS NULL
+	          OR %[1]slast_called_at <= NOW() - INTERVAL '%[2]d days')
+	     AND NOT (COALESCE(%[1]sattempts,0) >= %[3]d AND COALESCE(%[1]sconnects,0) = 0))`,
+		p, ccCooldownDays, ccExhaustedAttempts)
 }
 
 func RegisterCallCenterOutbound(r chi.Router, db *core.DB) {
@@ -311,7 +403,12 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 		// Scope = every filter EXCEPT status. The mini status-breakdown cards read this
 		// scope, so clicking a status chip narrows the list without zeroing the other
 		// cards. The list + count add the status filter on top of the scope.
-		scopeCond := ""
+		//
+		// A listed number is never served from the lead book. This check did not exist
+		// here at all — only the outbound queue filtered DNC — so a customer who opted
+		// out still appeared in an agent's Leads list and was dialled from it. Applied
+		// to the scope so the list, the count and the status tiles all agree.
+		scopeCond := " AND " + ccNotOnDNCExpr("l.customer_phone")
 		var scopeArgs []any
 		n := 1
 
@@ -371,6 +468,7 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 		// pagination) so the KPI cards show real totals, not just the current page.
 		// distributable / recallable drive the Distribute / Recall buttons.
 		var sumPending, sumInterested, sumCallbacks, sumConverted, sumUnassigned, sumDistributable, sumRecallable int64
+		var sumCalled, sumNoAnswer, sumNotReady, sumClosed, sumInvalid, sumDNC int64
 		db.PG.QueryRowContext(r.Context(), `
 			SELECT
 			  COUNT(*) FILTER (WHERE status='pending'),
@@ -378,10 +476,24 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 			  COUNT(*) FILTER (WHERE status='callback'),
 			  COUNT(*) FILTER (WHERE status='converted'),
 			  COUNT(*) FILTER (WHERE assigned_to IS NULL),
-			  COUNT(*) FILTER (WHERE assigned_to IS NULL AND status='pending'),
-			  COUNT(*) FILTER (WHERE assigned_to IS NOT NULL AND status='pending')
+			  -- Distributable / recallable now mean what Distribute and Recall will
+			  -- actually move, so the buttons stop promising work they cannot hand out.
+			  COUNT(*) FILTER (WHERE assigned_to IS NULL AND `+ccLeadWorkableExpr("")+`),
+			  COUNT(*) FILTER (WHERE assigned_to IS NOT NULL AND `+ccLeadWorkableExpr("")+`),
+			  -- The rest of the vocabulary. 'called', 'no_answer', 'closed' and 'invalid'
+			  -- are the MAJORITY of the book — 9,126 of 13,042 leads sit at no_answer
+			  -- alone — and appeared in no tile at all, so the cards never added up to
+			  -- the lead count displayed beside them.
+			  COUNT(*) FILTER (WHERE status='called'),
+			  COUNT(*) FILTER (WHERE status='no_answer'),
+			  COUNT(*) FILTER (WHERE status='not_ready'),
+			  COUNT(*) FILTER (WHERE status='closed'),
+			  COUNT(*) FILTER (WHERE status='invalid'),
+			  COUNT(*) FILTER (WHERE status='dnc')
 			FROM call_center_leads l WHERE 1=1`+scopeCond, scopeArgs...).
-			Scan(&sumPending, &sumInterested, &sumCallbacks, &sumConverted, &sumUnassigned, &sumDistributable, &sumRecallable) //nolint:errcheck
+			Scan(&sumPending, &sumInterested, &sumCallbacks, &sumConverted, &sumUnassigned,
+				&sumDistributable, &sumRecallable,
+				&sumCalled, &sumNoAnswer, &sumNotReady, &sumClosed, &sumInvalid, &sumDNC) //nolint:errcheck
 
 		q := `SELECT l.id, l.campaign_id, l.customer_cif, l.customer_name,
 		             l.customer_phone, l.employer, l.email, l.address, l.state, l.lead_score, l.status,
@@ -442,8 +554,15 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 				"callbacks":     sumCallbacks,
 				"converted":     sumConverted,
 				"unassigned":    sumUnassigned,
-				"distributable": sumDistributable, // unassigned + pending → Distribute
-				"recallable":    sumRecallable,     // assigned + pending → Recall
+				"distributable": sumDistributable, // unassigned + workable → Distribute
+				"recallable":    sumRecallable,    // assigned + workable  → Recall
+				// Previously uncounted, and between them most of the book.
+				"called":    sumCalled,
+				"no_answer": sumNoAnswer,
+				"not_ready": sumNotReady,
+				"closed":    sumClosed,
+				"invalid":   sumInvalid,
+				"dnc":       sumDNC,
 			},
 		})
 	}
@@ -456,6 +575,22 @@ func ccListLeads(db *core.DB) http.HandlerFunc {
 func ccLeadCalls(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		// Scope the PARENT row exactly as the list endpoint scopes its rows. Without
+		// this, any lead id returned that customer's whole call history — name, number,
+		// notes — to any agent, which defeats the row scoping ccListLeads applies.
+		// 404 rather than 403, so the endpoint does not confirm which ids exist.
+		if !ccIsSupervisor(user) {
+			if own, _ := db.PGQuery(r.Context(),
+				`SELECT 1 FROM call_center_leads WHERE id=$1 AND assigned_to=$2`, id, user.ID); len(own) == 0 {
+				respondErr(w, 404, "Lead not found")
+				return
+			}
+		}
 		rows, err := db.PGQuery(r.Context(), `
 			WITH lp AS (
 			  SELECT NULLIF(right(regexp_replace(COALESCE(customer_phone,''),'\D','','g'),10),'') AS ph
@@ -639,6 +774,12 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		sup := ccIsSupervisor(user)
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			respondErr(w, 400, "Invalid JSON")
@@ -679,8 +820,17 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if b.Status != nil {
+			// Validated against the same vocabulary call_center_leads_status_chk
+			// enforces. This wrote the request body straight through, so a typo now
+			// trips the constraint and reaches the agent as a bare 500 — a clean 400
+			// naming the problem is the difference between fixable and baffling.
+			st := strings.ToLower(strings.TrimSpace(*b.Status))
+			if !ccLeadStatuses[st] {
+				respondErr(w, 400, "unknown status: "+*b.Status)
+				return
+			}
 			q += fmt.Sprintf(", status=$%d", n)
-			args = append(args, *b.Status)
+			args = append(args, st)
 			n++
 		}
 		if b.Notes != nil {
@@ -694,16 +844,33 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if b.AssignedTo != nil {
+			// Reassignment is a supervisor action. With this field writable and no
+			// check of any kind, any agent could move any lead — including a colleague's
+			// converted one — onto herself and take the conversion credit.
+			if !sup {
+				respondErr(w, 403, "Only a call-centre supervisor can reassign a lead")
+				return
+			}
 			q += fmt.Sprintf(", assigned_to=$%d", n)
 			args = append(args, *b.AssignedTo)
 			n++
 		}
 		args = append(args, id)
-		q += fmt.Sprintf(" WHERE id=$%d RETURNING *", n)
+		q += fmt.Sprintf(" WHERE id=$%d", n)
+		n++
+		// Ownership enforced in the WHERE, so a lead that is not yours simply does not
+		// match — the pattern ccSnoozeCallback uses, 404 on no rows. There was no
+		// ownership check here at all.
+		if !sup {
+			q += fmt.Sprintf(" AND assigned_to=$%d", n)
+			args = append(args, user.ID)
+			n++
+		}
+		q += " RETURNING *"
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 404, "Lead not found")
+			respondErrLog(w, 404, "Lead not found or not assigned to you", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -711,9 +878,27 @@ func ccUpdateLead(db *core.DB) http.HandlerFunc {
 	}
 }
 
+// ccLastDispositionOnLead is the predicate "this disposition is the LAST one recorded
+// against its lead" — the agent who actually closed it.
+//
+// Conversion was credited to EVERY agent who had ever dispositioned the lead, so one
+// converted lead worked by three agents produced three conversions and the per-agent
+// column summed to more conversions than the book contains. Attributing it to the last
+// toucher is the rule the floor already works to: whoever got them over the line.
+const ccLastDispositionOnLead = `d.id = (SELECT d2.id FROM call_center_dispositions d2
+	                                       WHERE d2.lead_id = d.lead_id
+	                                       ORDER BY d2.created_at DESC, d2.id DESC LIMIT 1)`
+
 func ccStats(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		// Floor-wide, per-agent performance is supervisor data. This endpoint and the
+		// four Performance ones below were registered with no gate of any kind, so any
+		// agent could read every colleague's call and conversion counts.
+		if !ccIsSupervisor(core.UserFromCtx(ctx)) {
+			respondErr(w, 403, "Supervisors only")
+			return
+		}
 
 		totals, _ := db.PGQuery(ctx, `
 			SELECT
@@ -728,7 +913,8 @@ func ccStats(db *core.DB) http.HandlerFunc {
 		agents, _ := db.PGQuery(ctx, `
 			SELECT u.id, u.full_name,
 			       COUNT(d.id)                                        AS calls_made,
-			       COUNT(DISTINCT d.lead_id) FILTER (WHERE l.status='converted') AS conversions,
+			       COUNT(DISTINCT d.lead_id) FILTER (
+			         WHERE l.status='converted' AND `+ccLastDispositionOnLead+`) AS conversions,
 			       COUNT(d.id) FILTER (WHERE d.created_at::date = CURRENT_DATE) AS calls_today
 			FROM o3c_users u
 			JOIN call_center_dispositions d ON d.agent_id = u.id
@@ -801,20 +987,37 @@ func ccAddDNC(db *core.DB) http.HandlerFunc {
 		Reason *string `json:"reason"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		// The opt-out list is a regulatory record, and this was the only mutation on
+		// the page with no role check at all — every comparable bulk action gates on
+		// supervisor, so any agent could add or wipe opt-outs.
+		if !ccIsSupervisor(user) {
+			respondErr(w, 403, "Only a call-centre supervisor can change the Do Not Call list")
+			return
+		}
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Phone == "" {
 			respondErr(w, 400, "phone is required")
 			return
 		}
-		user := core.UserFromCtx(r.Context())
+		// Store the canonical form app.norm_phone() produces, and conflict on it, so
+		// the list holds one row per number rather than the same number in several
+		// shapes — which is what stopped the suppression checks matching anything.
+		// A number we cannot normalise is refused outright: writing it would create an
+		// entry that silently suppresses nothing while looking like an opt-out.
+		np := normalizePhone(b.Phone)
+		if len(np) != 10 {
+			respondErr(w, 422, "That is not a number we can suppress — 10 digits are required")
+			return
+		}
 		rows, err := db.PGQuery(r.Context(),
 			`INSERT INTO dnc_list (phone, reason, added_by)
 			 VALUES ($1,$2,$3)
 			 ON CONFLICT (phone) DO UPDATE SET reason=$2, added_by=$3, added_at=NOW()
 			 RETURNING *`,
-			b.Phone, b.Reason, user.ID)
-		if err != nil {
-			respondErr(w, 500, "Insert failed")
+			np, b.Reason, user.ID)
+		if err != nil || len(rows) == 0 {
+			respondErrLog(w, 500, "Insert failed", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -825,13 +1028,62 @@ func ccAddDNC(db *core.DB) http.HandlerFunc {
 
 func ccRemoveDNC(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		_, err := db.PGExec(r.Context(), `DELETE FROM dnc_list WHERE id=$1`, id)
-		if err != nil {
-			respondErr(w, 500, "Delete failed")
+		user := core.UserFromCtx(r.Context())
+		if !ccIsSupervisor(user) {
+			respondErr(w, 403, "Only a call-centre supervisor can change the Do Not Call list")
 			return
 		}
+		id := chi.URLParam(r, "id")
+		// DELETE ... RETURNING captures the entry in the same statement that removes
+		// it, so the tombstone can never disagree with what was actually deleted.
+		// Taking a number OFF the opt-out list is the change on this page most likely
+		// to be questioned later, and it left no trace whatsoever — the ccDNCKPIs
+		// comment admits as much ("nothing tracked deletes").
+		rows, err := db.PGQuery(r.Context(),
+			`DELETE FROM dnc_list WHERE id=$1 RETURNING phone, reason, added_by, added_at`, id)
+		if err != nil {
+			respondErrLog(w, 500, "Delete failed", err)
+			return
+		}
+		if len(rows) == 0 {
+			respondErr(w, 404, "Not on the Do Not Call list")
+			return
+		}
+		ccAuditDNCRemoval(r.Context(), db, user, rows)
 		w.WriteHeader(204)
+	}
+}
+
+// ccAuditDNCRemoval records who took numbers off the opt-out list and what those
+// entries said.
+//
+// dnc_list has no tombstone column and adding one needs a migration this change set
+// does not own, so the durable record goes to audit_logs — the table the rest of the
+// app already uses for actor/action history, and which is partitioned for exactly
+// this kind of append. A soft-delete column would be the better home if one is ever
+// added; until then this is the difference between an auditable removal and none.
+func ccAuditDNCRemoval(ctx context.Context, db *core.DB, user *core.Claims, removed []core.Row) {
+	var actorID int64
+	actorRole, actorName := "", ""
+	if user != nil {
+		actorID, actorRole, actorName = user.ID, user.Role, user.FullName
+	}
+	for _, row := range removed {
+		changes, _ := json.Marshal(map[string]any{
+			"phone":    str(row["phone"]),
+			"reason":   str(row["reason"]),
+			"added_by": toInt64(row["added_by"]),
+			"added_at": row["added_at"],
+		})
+		if _, err := db.PGExec(ctx,
+			`INSERT INTO audit_logs (actor_id, actor_role, actor_name, action, entity_type, entity_id, changes, ip_address, created_at)
+			 VALUES ($1,$2,$3,'dnc_removed','dnc_list',$4,$5,'',NOW())`,
+			actorID, actorRole, actorName, str(row["phone"]), string(changes)); err != nil {
+			// The row is already gone; losing the audit trail silently would be the
+			// worst of both outcomes, so say so loudly.
+			slog.Error("ccAuditDNCRemoval: DNC removal NOT audited",
+				"phone", str(row["phone"]), "actor", actorID, "err", err)
+		}
 	}
 }
 
@@ -858,7 +1110,7 @@ func ccListAgents(db *core.DB) http.HandlerFunc {
 // Head/supervisor only (call_center_stats).
 func ccAssignBatch(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if u := core.UserFromCtx(r.Context()); u != nil && !u.HasPage("call_center_stats") && !u.CanSeeAllRows() {
+		if !ccIsSupervisor(core.UserFromCtx(r.Context())) {
 			respondErr(w, 403, "Only team heads can assign the queue")
 			return
 		}
@@ -902,7 +1154,13 @@ func ccAssignBatch(db *core.DB) http.HandlerFunc {
 			  WHERE %s
 			  ORDER BY CASE lower(priority) WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, created_at
 			  LIMIT $%d
-			) RETURNING id`, where, n), args...)
+			)
+			  -- Re-check in the WRITE, not only in the read. Two supervisors assigning
+			  -- at the same moment each selected the same top N and each wrote them, so
+			  -- one agent received everything while the other was told "100 assigned"
+			  -- and opened an empty queue. ccDistributeQueue already claims this way.
+			  AND assigned_to IS NULL AND status='pending'
+			RETURNING id`, where, n), args...)
 		if err != nil {
 			respondErr(w, 500, "Assign failed")
 			return
@@ -936,7 +1194,7 @@ func ccDistributeQueue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
-		if user == nil || (user.Role != "call_center_head" && !core.IsManagement(user.Role)) {
+		if !ccIsSupervisor(user) {
 			respondErr(w, 403, "Only team heads can distribute the queue")
 			return
 		}
@@ -1023,13 +1281,9 @@ func ccBulkAssign(db *core.DB) http.HandlerFunc {
 		LeadIDs []int64 `json:"lead_ids"`
 		AgentID int64   `json:"agent_id"`
 	}
-	mgmtRoles := map[string]bool{
-		"md": true, "coo": true, "cfo": true, "cmo": true,
-		"admin": true, "management": true, "head_ops": true, "head_it": true,
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		if user.Role != "call_center_head" && !mgmtRoles[user.Role] {
+		if !ccIsSupervisor(user) {
 			respondErr(w, 403, "Only team heads can assign leads")
 			return
 		}
@@ -1042,19 +1296,20 @@ func ccBulkAssign(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "agent_id and lead_ids are required")
 			return
 		}
-
-		// Build IN clause dynamically — avoids driver array-type uncertainty
-		clause := "$2"
-		args := []any{b.AgentID, b.LeadIDs[0]}
-		for i, id := range b.LeadIDs[1:] {
-			clause += fmt.Sprintf(",$%d", i+3)
-			args = append(args, id)
+		if len(b.LeadIDs) > ccMaxBulkIDs {
+			respondErr(w, 422, fmt.Sprintf("too many leads in one request (max %d)", ccMaxBulkIDs))
+			return
 		}
+
+		// ONE array parameter instead of a bind parameter per lead. The old form built
+		// "$2,$3,…" across the whole selection, which Postgres refuses beyond 65,535
+		// parameters — a big enough selection failed inside the driver.
 		rows, err := db.PGQuery(r.Context(),
-			fmt.Sprintf(`UPDATE call_center_leads SET assigned_to=$1, updated_at=NOW() WHERE id IN (%s) RETURNING id`, clause),
-			args...)
+			`UPDATE call_center_leads SET assigned_to=$1, updated_at=NOW()
+			  WHERE id = ANY($2) RETURNING id`,
+			b.AgentID, b.LeadIDs)
 		if err != nil {
-			respondErr(w, 500, "Assign failed")
+			respondErrLog(w, 500, "Assign failed", err)
 			return
 		}
 		if len(rows) > 0 {
@@ -1175,13 +1430,9 @@ func ccPresenceOffline(db *core.DB) http.HandlerFunc {
 // leads analogue of ccAssignBatch, so Leads and the Outbound Queue offer the same
 // "Assign to agent" action. Head/management only.
 func ccAssignLeadsBatch(db *core.DB) http.HandlerFunc {
-	mgmtRoles := map[string]bool{
-		"md": true, "coo": true, "cfo": true, "cmo": true,
-		"admin": true, "management": true, "head_ops": true, "head_it": true,
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		if user == nil || (user.Role != "call_center_head" && !mgmtRoles[user.Role]) {
+		if !ccIsSupervisor(user) {
 			respondErr(w, 403, "Only team heads can assign leads")
 			return
 		}
@@ -1208,7 +1459,7 @@ func ccAssignLeadsBatch(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Unknown agent")
 			return
 		}
-		where := "assigned_to IS NULL AND status='pending'"
+		where := "assigned_to IS NULL AND " + ccLeadWorkableExpr("")
 		args := []any{b.AgentID}
 		n := 2
 		if b.CampaignID != nil {
@@ -1224,7 +1475,11 @@ func ccAssignLeadsBatch(db *core.DB) http.HandlerFunc {
 			    WHERE %s
 			    ORDER BY lead_score DESC, created_at ASC
 			    LIMIT $%d
-			 ) RETURNING id`, where, n), args...)
+			 )
+			   -- Same atomic claim as the queue: without it two concurrent assignments
+			   -- both wrote the same leads.
+			   AND assigned_to IS NULL
+			 RETURNING id`, where, n), args...)
 		if err != nil {
 			respondErr(w, 500, "Assign failed")
 			return
@@ -1253,13 +1508,9 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 		AgentIDs   []int64 `json:"agent_ids"`   // nil = all call-center agents
 		IncludeMe  bool    `json:"include_me"`  // supervisor opts in to take a share too
 	}
-	mgmtRoles := map[string]bool{
-		"md": true, "coo": true, "cfo": true, "cmo": true,
-		"admin": true, "management": true, "head_ops": true, "head_it": true,
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		if user.Role != "call_center_head" && !mgmtRoles[user.Role] {
+		if !ccIsSupervisor(user) {
 			respondErr(w, 403, "Only team heads can distribute leads")
 			return
 		}
@@ -1303,14 +1554,17 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Fetch unassigned pending leads
-		q := `SELECT id FROM call_center_leads WHERE assigned_to IS NULL AND status='pending'`
+		// Fetch the workable, unassigned pool — BOUNDED. This had no limit at all: it
+		// loaded every matching lead and then built one bind parameter per lead, and
+		// Postgres refuses a statement carrying more than 65,535 of them, so a large
+		// pool failed outright. The cap matches ccDistributeQueue's.
+		q := `SELECT id FROM call_center_leads WHERE assigned_to IS NULL AND ` + ccLeadWorkableExpr("")
 		var args []any
 		if b.CampaignID != nil {
 			q += " AND campaign_id=$1"
 			args = append(args, *b.CampaignID)
 		}
-		q += " ORDER BY lead_score DESC, created_at ASC"
+		q += fmt.Sprintf(" ORDER BY lead_score DESC, created_at ASC LIMIT %d", ccMaxDistribute)
 		leadRows, err := db.PGQuery(ctx, q, args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
@@ -1344,19 +1598,22 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 			return
 		}
 		defer tx.Rollback() //nolint:errcheck
+		assignedPerAgent := make(map[int64]int64, len(groups))
+		var totalAssigned int64
 		for agentID, ids := range groups {
-			clause := "$2"
-			upArgs := []any{agentID, ids[0]}
-			for i, id := range ids[1:] {
-				clause += fmt.Sprintf(",$%d", i+3)
-				upArgs = append(upArgs, id)
-			}
-			if _, err := tx.ExecContext(ctx,
-				fmt.Sprintf(`UPDATE call_center_leads SET assigned_to=$1, updated_at=NOW() WHERE id IN (%s)`, clause),
-				upArgs...); err != nil {
-				respondErr(w, 500, "Distribute failed")
+			// ONE array parameter instead of a parameter per lead, and the same
+			// assigned_to re-check ccDistributeQueue makes, so a lead another
+			// supervisor claimed in the meantime is not silently taken from them.
+			res, err := tx.ExecContext(ctx,
+				`UPDATE call_center_leads SET assigned_to=$1, updated_at=NOW()
+				  WHERE id = ANY($2) AND assigned_to IS NULL`, agentID, ids)
+			if err != nil {
+				respondErrLog(w, 500, "Distribute failed", err)
 				return
 			}
+			cnt, _ := res.RowsAffected()
+			assignedPerAgent[agentID] = cnt
+			totalAssigned += cnt
 		}
 		if err := tx.Commit(); err != nil {
 			respondErr(w, 500, "Distribute failed")
@@ -1364,15 +1621,8 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 		}
 
 		// Fetch agent names for the response breakdown
-		nameClause := "$1"
-		nameArgs := []any{agentIDs[0]}
-		for i, id := range agentIDs[1:] {
-			nameClause += fmt.Sprintf(",$%d", i+2)
-			nameArgs = append(nameArgs, id)
-		}
 		nameRows, _ := db.PGQuery(ctx,
-			fmt.Sprintf(`SELECT id, full_name FROM o3c_users WHERE id IN (%s)`, nameClause),
-			nameArgs...)
+			`SELECT id, full_name FROM o3c_users WHERE id = ANY($1)`, agentIDs)
 		nameMap := map[int64]string{}
 		for _, row := range nameRows {
 			var uid int64
@@ -1386,19 +1636,26 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 		}
 
 		breakdown := make([]map[string]any, 0, len(groups))
-		for agentID, ids := range groups {
+		for agentID := range groups {
+			cnt := assignedPerAgent[agentID]
+			// Report what each agent ACTUALLY received. This counted the leads dealt
+			// into their bucket, not the rows updated, so a partially-applied
+			// distribute still told the supervisor every lead had landed.
 			breakdown = append(breakdown, map[string]any{
 				"agent_id":   agentID,
 				"agent_name": nameMap[agentID],
-				"count":      len(ids),
+				"count":      cnt,
 			})
+			if cnt == 0 {
+				continue // nothing landed — don't announce an empty hand-out
+			}
 			// Tell each agent leads landed in their list — the whole point of a
 			// distribution is that the agent starts working it, and they won't unless
 			// they know. Fire-and-forget so a slow notify never blocks the response.
 			go Notify(context.WithoutCancel(ctx), db, NotifPayload{
 				EventType: "leads_assigned",
 				UserID:    agentID,
-				Title:     fmt.Sprintf("%d lead(s) assigned to you", len(ids)),
+				Title:     fmt.Sprintf("%d lead(s) assigned to you", cnt),
 				Body:      "New leads are waiting in your list.",
 				ActionURL: "/call-center/leads",
 				EntityRef: "leads:assigned",
@@ -1408,7 +1665,8 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"distributed": len(leadRows),
+			// Rows actually updated, not rows selected.
+			"distributed": totalAssigned,
 			"breakdown":   breakdown,
 			"online_only": onlineOnly,
 		})
@@ -1422,13 +1680,9 @@ func ccDistribute(db *core.DB) http.HandlerFunc {
 // called, booked a call-back on, or converted keeps its owner and is never yanked
 // mid-conversation. Optional campaign_id / agent_id narrow the recall. Head/mgmt only.
 func ccRecallLeads(db *core.DB) http.HandlerFunc {
-	mgmtRoles := map[string]bool{
-		"md": true, "coo": true, "cfo": true, "cmo": true,
-		"admin": true, "management": true, "head_ops": true, "head_it": true,
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		if user == nil || (user.Role != "call_center_head" && !mgmtRoles[user.Role]) {
+		if !ccIsSupervisor(user) {
 			respondErr(w, 403, "Only team heads can recall leads")
 			return
 		}
@@ -1438,7 +1692,12 @@ func ccRecallLeads(db *core.DB) http.HandlerFunc {
 		}
 		json.NewDecoder(r.Body).Decode(&b) //nolint:errcheck
 
-		where := "assigned_to IS NOT NULL AND status='pending'"
+		// Workable, not merely 'pending': a lead was recallable exactly once, because
+		// the first dial moved it to 'no_answer' permanently and no supervisor action
+		// could reach it again. The cool-down inside the predicate also preserves the
+		// original intent better than status alone did — a freshly-dialled lead is not
+		// yanked out from under the agent mid-conversation.
+		where := "assigned_to IS NOT NULL AND " + ccLeadWorkableExpr("")
 		var args []any
 		n := 1
 		if b.CampaignID != nil {
@@ -1470,13 +1729,9 @@ func ccRecallLeads(db *core.DB) http.HandlerFunc {
 // how many leads they hold and what has become of them, plus whether they're at their
 // desk right now — the panel agents themselves don't see. Head/management only.
 func ccLeadsTeam(db *core.DB) http.HandlerFunc {
-	mgmtRoles := map[string]bool{
-		"md": true, "coo": true, "cfo": true, "cmo": true,
-		"admin": true, "management": true, "head_ops": true, "head_it": true,
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		if user == nil || (user.Role != "call_center_head" && !mgmtRoles[user.Role]) {
+		if !ccIsSupervisor(user) {
 			respondErr(w, 403, "Supervisors only")
 			return
 		}
@@ -1495,6 +1750,13 @@ func ccLeadsTeam(db *core.DB) http.HandlerFunc {
 			       COUNT(l.id) FILTER (WHERE l.status='pending')         AS pending,
 			       COUNT(l.id) FILTER (WHERE l.status='callback')        AS callbacks,
 			       COUNT(l.id) FILTER (WHERE l.status='converted')       AS converted,
+			       -- Without these the wallboard accounted for a fraction of each
+			       -- agent's book: 'assigned' counted every lead she holds while the
+			       -- breakdown beside it covered only four statuses, so the columns
+			       -- visibly failed to reconcile.
+			       COUNT(l.id) FILTER (WHERE l.status='interested')      AS interested,
+			       COUNT(l.id) FILTER (WHERE l.status IN ('called','no_answer','not_ready')) AS worked,
+			       COUNT(l.id) FILTER (WHERE l.status IN ('closed','invalid','dnc'))         AS closed,
 			       -- LEADS called today, not raw dials: a support call, an inbound, or three
 			       -- retries on one number were all counting as "called" next to a lead-book
 			       -- "pending", so 87 dials sat beside 515 pending and read as broken. Count
@@ -1531,7 +1793,9 @@ func ccLeadsTeam(db *core.DB) http.HandlerFunc {
 			       COUNT(*) FILTER (WHERE status='pending')    AS pending,
 			       COUNT(*) FILTER (WHERE status='interested') AS interested,
 			       COUNT(*) FILTER (WHERE status='callback')   AS callbacks,
-			       COUNT(*) FILTER (WHERE status='converted')  AS converted
+			       COUNT(*) FILTER (WHERE status='converted')  AS converted,
+			       COUNT(*) FILTER (WHERE status IN ('called','no_answer','not_ready')) AS worked,
+			       COUNT(*) FILTER (WHERE status IN ('closed','invalid','dnc'))         AS closed
 			  FROM call_center_leads l
 			 WHERE TRUE%s`, campFilter), args...)
 		var totals any = map[string]any{}
@@ -1549,13 +1813,9 @@ func ccLeadsTeam(db *core.DB) http.HandlerFunc {
 // set — a supervisor watches who is dialling, how much of their book is still pending,
 // how many call-backs are due, and how many dials landed today.
 func ccQueueTeam(db *core.DB) http.HandlerFunc {
-	mgmtRoles := map[string]bool{
-		"md": true, "coo": true, "cfo": true, "cmo": true,
-		"admin": true, "management": true, "head_ops": true, "head_it": true,
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
-		if user == nil || (user.Role != "call_center_head" && !mgmtRoles[user.Role]) {
+		if !ccIsSupervisor(user) {
 			respondErr(w, 403, "Supervisors only")
 			return
 		}
@@ -1572,9 +1832,15 @@ func ccQueueTeam(db *core.DB) http.HandlerFunc {
 			       (u.helpdesk_last_seen > NOW() - INTERVAL '5 minutes') AS online,
 			       COUNT(c.id)                                                   AS assigned,
 			       COUNT(c.id) FILTER (WHERE c.status='pending')                 AS pending,
+			       -- "Not called since it came due" is the same guard ccMyCallbacksDue
+			       -- and ccDueCallbackCount both apply. Without it the wallboard counted
+			       -- call-backs the agent had already returned, so her number never
+			       -- dropped no matter how many she worked.
 			       COUNT(c.id) FILTER (WHERE c.status='pending'
 			                             AND c.callback_at IS NOT NULL
-			                             AND c.callback_at <= NOW())             AS callbacks_due,
+			                             AND c.callback_at <= NOW()
+			                             AND (c.last_called_at IS NULL
+			                                  OR c.last_called_at < c.callback_at))  AS callbacks_due,
 			       COUNT(c.id) FILTER (WHERE c.status IN ('closed','invalid','skipped')) AS closed,
 			       -- Distinct contacts in HER book she actually reached today, matched to
 			       -- the real call ledger by normalised phone (contacts carry no lead_id).
@@ -1607,7 +1873,9 @@ func ccQueueTeam(db *core.DB) http.HandlerFunc {
 			       COUNT(*) FILTER (WHERE assigned_to IS NULL) AS unassigned,
 			       COUNT(*) FILTER (WHERE status='pending')    AS pending,
 			       COUNT(*) FILTER (WHERE status='pending' AND callback_at IS NOT NULL
-			                          AND callback_at <= NOW())AS callbacks_due,
+			                          AND callback_at <= NOW()
+			                          AND (last_called_at IS NULL
+			                               OR last_called_at < callback_at)) AS callbacks_due,
 			       COUNT(*) FILTER (WHERE status IN ('closed','invalid','skipped')) AS closed
 			  FROM call_center_contacts c
 			 WHERE TRUE%s`, purpFilter), args...)
@@ -1650,7 +1918,7 @@ func ccSyncQueueFromCRM(db *core.DB) http.HandlerFunc {
 			  WHERE source='zoho_desk' AND status='lead' AND COALESCE(phone,'') <> ''
 			) x
 			WHERE length(norm_phone) = 10
-			  AND norm_phone NOT IN (SELECT phone FROM dnc_list WHERE phone IS NOT NULL)
+			  AND ` + ccNotOnDNCExpr("x.phone") + `
 			  AND NOT EXISTS (
 			    SELECT 1 FROM call_center_contacts t
 			    WHERE right(regexp_replace(COALESCE(t.phone,''), '\D', '', 'g'), 10) = x.norm_phone
@@ -1742,10 +2010,7 @@ func ccSyncCollections(db *core.DB) http.HandlerFunc {
 			  WHERE d.dpd > 0 AND d.outstanding_kobo > 0
 			) x
 			WHERE length(norm_phone) = 10
-			  AND NOT EXISTS (
-			    SELECT 1 FROM dnc_list dn
-			    WHERE right(regexp_replace(COALESCE(dn.phone,''),'\D','','g'),10) = x.norm_phone
-			  )
+			  AND ` + ccNotOnDNCExpr("x.phone") + `
 			  AND NOT EXISTS (
 			    SELECT 1 FROM call_center_contacts t
 			    WHERE right(regexp_replace(COALESCE(t.phone,''),'\D','','g'),10) = x.norm_phone
@@ -1784,6 +2049,12 @@ func ccImportContacts(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "contacts are required")
 			return
 		}
+		// Bounded: this loops one DB round-trip per element, so an unbounded upload
+		// holds a request open for as long as the file is large.
+		if len(b.Contacts) > ccMaxBulkIDs {
+			respondErr(w, 422, fmt.Sprintf("too many contacts in one upload (max %d)", ccMaxBulkIDs))
+			return
+		}
 		purpose := b.Purpose
 		switch purpose {
 		case "marketing", "collections", "support":
@@ -1805,7 +2076,7 @@ func ccImportContacts(db *core.DB) http.HandlerFunc {
 				   (customer_name, phone, cif, product_name, state, priority, is_existing_customer, status, purpose, source)
 				 SELECT $1,$2,NULLIF($3,''),$4,NULLIF($6,''),'Medium',(NULLIF($3,'') IS NOT NULL),'pending',$5,'manual'
 				 WHERE length(right(regexp_replace($2,'\D','','g'),10))=10
-				   AND right(regexp_replace($2,'\D','','g'),10) NOT IN (SELECT phone FROM dnc_list WHERE phone IS NOT NULL)
+				   AND `+ccNotOnDNCExpr("$2")+`
 				   AND NOT EXISTS (
 				     SELECT 1 FROM call_center_contacts t
 				     WHERE right(regexp_replace(COALESCE(t.phone,''),'\D','','g'),10) = right(regexp_replace($2,'\D','','g'),10)
@@ -1860,6 +2131,11 @@ func ccImportLeads(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "leads are required")
 			return
 		}
+		// Bounded for the same reason as the contact import: one round-trip per lead.
+		if len(b.Leads) > ccMaxBulkIDs {
+			respondErr(w, 422, fmt.Sprintf("too many leads in one upload (max %d)", ccMaxBulkIDs))
+			return
+		}
 		inserted, attached, skipped, noPhone := 0, 0, 0, 0
 		for _, l := range b.Leads {
 			name := strings.TrimSpace(l.Name)
@@ -1886,7 +2162,12 @@ func ccImportLeads(db *core.DB) http.HandlerFunc {
 				      SELECT 1 FROM call_center_leads t
 				      WHERE right(regexp_replace(COALESCE(t.customer_phone,''),'\D','','g'),10)
 				          = right(regexp_replace($3,'\D','','g'),10)
-				    )`,
+				    )
+				   -- A number that has opted out must not re-enter the book through an
+				   -- upload. The lead book had no DNC check anywhere: only the queue
+				   -- filtered the list, so a listed number could be imported freely and
+				   -- then served to an agent from Leads.
+				   AND `+ccNotOnDNCExpr("$3")+``,
 				b.CampaignID, name, phone, strings.TrimSpace(l.Email), strings.TrimSpace(l.Address), strings.TrimSpace(l.State))
 			if err != nil {
 				skipped++
@@ -1992,6 +2273,19 @@ func ccAddCallback(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "phone is required (or a ticket_id with a phone on file)")
 			return
 		}
+		// A number that has opted out must not be injected back into the dial queue,
+		// whatever screen asks for it. This endpoint had no suppression check at all,
+		// so it was a way to put a listed number in front of an agent.
+		np := normalizePhone(phone)
+		if len(np) != 10 {
+			respondErr(w, 422, "That is not a number we can call — 10 digits are required")
+			return
+		}
+		if listed, _ := db.PGQuery(r.Context(),
+			`SELECT 1 FROM dnc_list WHERE norm_phone(phone) = $1 LIMIT 1`, np); len(listed) > 0 {
+			respondErr(w, 422, "That number is on the Do Not Call list")
+			return
+		}
 		// Carry the call's purpose so a collections/marketing call-back isn't dumped into
 		// the support queue and mis-routed. Default to support (the ticket/customer path).
 		purpose := strings.ToLower(strings.TrimSpace(b.Purpose))
@@ -1999,14 +2293,21 @@ func ccAddCallback(db *core.DB) http.HandlerFunc {
 			purpose = "support"
 		}
 		label := map[string]string{"marketing": "Marketing Call-back", "sales": "Sales Call-back", "collections": "Collections Call-back", "support": "Support Call-back"}[purpose]
+		// source is PROVENANCE, not purpose. The insert bound $9 (the purpose) into
+		// both columns, so every call-back's source read "support"/"marketing" and the
+		// queue could not tell one raised from a ticket from one typed in by hand.
+		source := "manual"
+		if b.TicketID != 0 {
+			source = "ticket"
+		}
 		rows, err := db.PGQuery(r.Context(),
 			`INSERT INTO call_center_contacts
 			   (customer_name, phone, cif, product_name, priority, is_existing_customer, status, purpose, source, ref, callback_at, notes, assigned_to)
-			 VALUES ($1,$2,NULLIF($3,''),$8,'High',(NULLIF($3,'') IS NOT NULL),'pending',$9,$9,NULLIF($4,''),NULLIF($5,'')::timestamptz,NULLIF($6,''),$7)
+			 VALUES ($1,$2,NULLIF($3,''),$8,'High',(NULLIF($3,'') IS NOT NULL),'pending',$9,$10,NULLIF($4,''),NULLIF($5,'')::timestamptz,NULLIF($6,''),$7)
 			 RETURNING id`,
-			name, phone, cif, ref, strings.TrimSpace(b.CallbackAt), strings.TrimSpace(b.Notes), assignedTo, label, purpose)
-		if err != nil {
-			respondErr(w, 500, "Could not add call-back: "+err.Error())
+			name, phone, cif, ref, strings.TrimSpace(b.CallbackAt), strings.TrimSpace(b.Notes), assignedTo, label, purpose, source)
+		if err != nil || len(rows) == 0 {
+			respondErrLog(w, 500, "Could not add call-back", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -2026,6 +2327,47 @@ const ccCooldownDays = 7
 // were past it at backfill, one collections number at 229 attempts.
 const ccExhaustedAttempts = 6
 
+// ccMaxBulkIDs caps one bulk action. Every bulk endpoint here built a bind parameter
+// per element with no limit, and Postgres refuses a statement carrying more than
+// 65,535 of them — so a large selection failed inside the driver with nothing the
+// supervisor could act on. The array form these now use removes the parameter cap
+// entirely; this bounds the work (and, for DNC removals, the audit volume).
+const ccMaxBulkIDs = 5000
+
+// ccMaxDistribute bounds one round-robin distribution, matching the queue's own cap
+// in ccDistributeQueue. The lead distributor had no bound at all.
+const ccMaxDistribute = 20000
+
+// ccLeadStatuses is the vocabulary call_center_leads_status_chk enforces (migration
+// 254). Validated in Go so a typo comes back as a clean 400 rather than tripping the
+// constraint and reaching the agent as an uninterpretable 500.
+var ccLeadStatuses = map[string]bool{
+	"pending": true, "called": true, "interested": true, "not_ready": true,
+	"callback": true, "no_answer": true, "converted": true, "closed": true,
+	"invalid": true, "dnc": true,
+}
+
+// ccLeadStatusRank orders lead statuses by how far through the funnel they are, so a
+// later call can advance a lead but never walk it backwards. Terminal outcomes share
+// the top rank: a customer who has converted may still ask never to be called again.
+var ccLeadStatusRank = map[string]int{
+	"pending": 0, "no_answer": 1, "called": 1, "not_ready": 2,
+	"callback": 3, "interested": 4,
+	"converted": 5, "closed": 5, "invalid": 5, "dnc": 5,
+}
+
+// ccLeadStatusRankSQL mirrors ccLeadStatusRank inside the UPDATE, so the forward-only
+// comparison happens in the statement and cannot race a concurrent writer.
+const ccLeadStatusRankSQL = `CASE status
+	                           WHEN 'pending'    THEN 0
+	                           WHEN 'no_answer'  THEN 1
+	                           WHEN 'called'     THEN 1
+	                           WHEN 'not_ready'  THEN 2
+	                           WHEN 'callback'   THEN 3
+	                           WHEN 'interested' THEN 4
+	                           ELSE 5
+	                         END`
+
 func ccListQueue(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		priority := qstr(r, "priority")
@@ -2035,6 +2377,9 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		purpose := qstr(r, "purpose")
 		bucket := qstr(r, "bucket")
 		limit := qint(r, "limit", 200, 1, 500)
+		// Paging. The queue capped at 500 rows with no OFFSET, so 14,751 of 14,951
+		// contacts were simply unreachable through the UI.
+		offset := qint(r, "offset", 0, 0, 100_000_000)
 		cooldown := qint(r, "cooldown_days", ccCooldownDays, 0, 90)
 
 		// Derived flags travel with each row so the UI can badge a contact without
@@ -2049,23 +2394,33 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		             COALESCE(purpose,'marketing') AS purpose, COALESCE(source,'zoho_crm') AS source, ref
 		      FROM call_center_contacts
 		      WHERE status = 'pending'
-		        AND phone NOT IN (SELECT phone FROM dnc_list)`, cooldown, ccExhaustedAttempts)
+		        AND `+ccNotOnDNCExpr("phone"), cooldown, ccExhaustedAttempts)
 		q := sel
 		var args []any
 		n := 1
 		cond := ""
 
 		// Row scope: an agent's queue shows ONLY the contacts assigned to her; heads
-		// (call_center_stats) see the whole queue and may focus one agent via ?agent_id=.
-		if user := core.UserFromCtx(r.Context()); user != nil && !user.HasPage("call_center_stats") && !user.CanSeeAllRows() {
-			cond += fmt.Sprintf(" AND assigned_to=$%d", n)
-			args = append(args, user.ID)
+		// see the whole queue and may focus one agent via ?agent_id=.
+		//
+		// Held SEPARATELY from the other filters because the per-purpose tab counts
+		// below must apply the scope while dropping everything else. They were applying
+		// neither, so an agent's tabs showed floor-wide totals that could never match
+		// the list underneath them.
+		user := core.UserFromCtx(r.Context())
+		scopeCond := ""
+		var scopeArgs []any
+		if user != nil && !ccIsSupervisor(user) {
+			scopeCond = fmt.Sprintf(" AND assigned_to=$%d", n)
+			scopeArgs = append(scopeArgs, user.ID)
 			n++
 		} else if av := qstr(r, "agent_id"); av != "" {
-			cond += fmt.Sprintf(" AND assigned_to=$%d", n)
-			args = append(args, av)
+			scopeCond = fmt.Sprintf(" AND assigned_to=$%d", n)
+			scopeArgs = append(scopeArgs, av)
 			n++
 		}
+		cond += scopeCond
+		args = append(args, scopeArgs...)
 
 		if priority != "" {
 			cond += fmt.Sprintf(" AND priority=$%d", n)
@@ -2164,17 +2519,18 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 			        COUNT(*) FILTER (WHERE callback_at IS NOT NULL AND callback_at <= NOW()) AS callbacks_due,
 			        COUNT(*) FILTER (WHERE callback_at IS NOT NULL)       AS callbacks
 			 FROM call_center_contacts
-			 WHERE status = 'pending' AND phone NOT IN (SELECT phone FROM dnc_list)`,
+			 WHERE status = 'pending' AND `+ccNotOnDNCExpr("phone"),
 				cooldown, ccExhaustedAttempts, cooldown, ccExhaustedAttempts)+cond, args...); len(sr) > 0 {
 			summary = sr[0]
 		}
-		// Per-purpose backlog is computed WITHOUT the purpose filter so the
-		// segmentation tabs always show each segment's count, even when one is active.
+		// Per-purpose backlog drops the purpose filter so the segmentation tabs always
+		// show each segment's count even when one is active — but it KEEPS the agent
+		// row scope, or an agent's tabs report the whole floor's backlog.
 		if pr, _ := db.PGQuery(r.Context(),
 			`SELECT COALESCE(purpose,'marketing') AS purpose, COUNT(*) AS n
 			 FROM call_center_contacts
-			 WHERE status='pending' AND phone NOT IN (SELECT phone FROM dnc_list)
-			 GROUP BY 1`); len(pr) > 0 {
+			 WHERE status='pending' AND `+ccNotOnDNCExpr("phone")+scopeCond+`
+			 GROUP BY 1`, scopeArgs...); len(pr) > 0 {
 			for _, row := range pr {
 				switch str(row["purpose"]) {
 				case "marketing":
@@ -2202,13 +2558,16 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		// A due callback outranks everything: the customer named a time and we agreed to
 		// it, so it must beat even a never-called contact, and must not be held back by
 		// the cooldown the call that scheduled it just started.
+		// The order already terminates in `id`, which is what makes paging safe: every
+		// preceding key can tie, and without a unique final key two pages could repeat
+		// or skip rows as contacts are worked between requests.
 		q += fmt.Sprintf(` ORDER BY (callback_at IS NULL OR callback_at > NOW()),
 		         (attempts >= %d AND connects = 0),
 		         COALESCE(last_called_at > NOW() - INTERVAL '%d days', FALSE),
 		         last_called_at ASC NULLS FIRST,
 		         CASE priority WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END,
-		         dpd DESC, id LIMIT $%d`, ccExhaustedAttempts, cooldown, n)
-		args = append(args, limit)
+		         dpd DESC, id LIMIT $%d OFFSET $%d`, ccExhaustedAttempts, cooldown, n, n+1)
+		args = append(args, limit, offset)
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
@@ -2231,6 +2590,20 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 func ccContactCalls(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
+		// Same parent-row scope the queue list applies — this returned any contact's
+		// full call trail to any agent for the asking.
+		if !ccIsSupervisor(user) {
+			if own, _ := db.PGQuery(r.Context(),
+				`SELECT 1 FROM call_center_contacts WHERE id=$1 AND assigned_to=$2`, id, user.ID); len(own) == 0 {
+				respondErr(w, 404, "Contact not found")
+				return
+			}
+		}
 		rows, err := db.PGQuery(r.Context(),
 			`WITH c AS (
 			   SELECT right(regexp_replace(COALESCE(phone,''),'\D','','g'),10) AS np
@@ -2293,13 +2666,18 @@ func ccLogCall(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 		user := core.UserFromCtx(ctx)
 
-		// Pull the contact so the call lands in the ledger with customer context.
+		// Pull the contact so the call lands in the ledger with customer context — and
+		// the lead it belongs to, which migration 254 added. That link is what lets a
+		// call logged from the QUEUE qualify a lead; without it the queue was a
+		// dead end.
 		var name, phone, cif, purpose string
+		var leadID int64
 		if rows, _ := db.PGQuery(ctx,
 			`SELECT COALESCE(customer_name,'') n, COALESCE(phone,'') p, COALESCE(cif,'') c,
-			        COALESCE(NULLIF(purpose,''),'marketing') pu
+			        COALESCE(NULLIF(purpose,''),'marketing') pu, COALESCE(lead_id,0) lid
 			 FROM call_center_contacts WHERE id=$1`, id); len(rows) > 0 {
 			name, phone, cif, purpose = str(rows[0]["n"]), str(rows[0]["p"]), str(rows[0]["c"]), str(rows[0]["pu"])
+			leadID = toInt64(rows[0]["lid"])
 		}
 		var agentID *int64
 		agentName := ""
@@ -2317,20 +2695,30 @@ func ccLogCall(db *core.DB) http.HandlerFunc {
 		// as outcome='completed'. Writing "Answered — Interested" here would make a
 		// connected call read as a non-connect everywhere. The richer label rides in
 		// notes and on the contact row, so nothing is lost.
-		outcome := "missed"
-		if disp.Connected {
-			outcome = "completed"
-		}
+		outcome := ccCallOutcome(disp)
 		notes := strings.TrimSpace(disp.Label + " — " + b.Notes)
-		if _, err := db.PGExec(ctx,
+		// disposition and lead_id are written HERE, not left blank. Omitting them is
+		// what made a queue "Interested" produce nothing downstream: no CRM stage move,
+		// no hand-off row, no party, and a blank disposition on every export. Live data
+		// confirmed it — 0 of 44 queue-logged calls carried a disposition.
+		//
+		// duration_sec is NULL, never 0. Migration 159 settled that the column means
+		// TALK TIME and must be NULL when unknown: 0 says "connected, said nothing",
+		// which is a measurement we did not take, and it dragged the average talk time
+		// down on every surface that averages duration BETWEEN 0 AND 14400.
+		callRows, err := db.PGQuery(ctx,
 			`INSERT INTO helpdesk_calls
 			   (agent_id, agent_name, customer_name, customer_cif, customer_phone,
-			    direction, duration_sec, outcome, notes, purpose, source_system)
-			 VALUES ($1,$2,$3,$4,$5,'outbound',0,$6,$7,$8,'call_center')`,
-			agentID, agentName, name, cif, phone, outcome, notes, purpose); err != nil {
-			respondErr(w, 500, "Insert failed")
+			    direction, duration_sec, outcome, disposition, notes, purpose,
+			    source_system, lead_id)
+			 VALUES ($1,$2,$3,$4,$5,'outbound',NULL,$6,$7,$8,$9,'call_center',NULLIF($10,0))
+			 RETURNING id`,
+			agentID, agentName, name, cif, phone, outcome, disp.Label, notes, purpose, leadID)
+		if err != nil || len(callRows) == 0 {
+			respondErrLog(w, 500, "Insert failed", err)
 			return
 		}
+		callID := toInt64(callRows[0]["id"])
 
 		// A promise-to-pay belongs in the Collections promise book, not a call log —
 		// route it there (keyed by CIF) so it actually reaches Collections.
@@ -2355,6 +2743,26 @@ func ccLogCall(db *core.DB) http.HandlerFunc {
 		}
 		ccApplyDisposition(ctx, db, id, disp, phone, b.CallbackAt, userID)
 
+		// Take the queue call all the way through qualification, exactly as the Leads
+		// path does. syncLeadFromCall is the ONE place that advances the lead, writes
+		// call_center_dispositions (so the Performance screens stop disagreeing with the
+		// Call Log), moves the CRM stage, creates the party and records the hand-off.
+		// Calling it here is what closes the gap between "an agent marked them
+		// Interested" and anything happening as a result.
+		//
+		// No double-write: this is the only path that runs for a queue log, and the
+		// tables it touches (the lead book, the disposition ledger) are ones ccLogCall
+		// never wrote. ccApplyDisposition above owns the CONTACT row; this owns the LEAD.
+		if leadID > 0 {
+			callbackAt := ""
+			if b.CallbackAt != nil {
+				callbackAt = *b.CallbackAt
+			}
+			// durationSec is nil — a queue call has no measured talk time, and
+			// syncLeadFromCall keeps a NULL out of the handle-time average.
+			syncLeadFromCall(ctx, db, leadID, outcome, &disp.Label, callbackAt, agentID, nil, callID)
+		}
+
 		// The call above went into helpdesk_calls, so recompute the counters from it
 		// rather than stamping last_called_at here — one source of truth, one path.
 		ccStampQueueForPhone(ctx, db, phone)
@@ -2368,27 +2776,43 @@ func ccBulkSkip(db *core.DB) http.HandlerFunc {
 		IDs []int64 `json:"ids"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if user == nil {
+			respondErr(w, 401, "Unauthorized")
+			return
+		}
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || len(b.IDs) == 0 {
 			respondErr(w, 400, "ids are required")
 			return
 		}
-
-		clause := "$1"
-		args := []any{b.IDs[0]}
-		for i, id := range b.IDs[1:] {
-			clause += fmt.Sprintf(",$%d", i+2)
-			args = append(args, id)
+		if len(b.IDs) > ccMaxBulkIDs {
+			respondErr(w, 422, fmt.Sprintf("too many contacts in one request (max %d)", ccMaxBulkIDs))
+			return
 		}
-		if _, err := db.PGExec(r.Context(),
-			fmt.Sprintf(`UPDATE call_center_contacts SET status='skipped', updated_at=NOW() WHERE id IN (%s)`, clause),
-			args...); err != nil {
-			respondErr(w, 500, "Skip failed")
+
+		// Skipping is bounded three ways it previously was not: to contacts the agent
+		// actually owns, to ones still 'pending' (skipping an already closed or invalid
+		// contact would overwrite a real resolution with a shrug), and by one array
+		// parameter rather than a bind parameter per id.
+		where := "id = ANY($1) AND status='pending'"
+		args := []any{b.IDs}
+		if !ccIsSupervisor(user) {
+			where += " AND assigned_to=$2"
+			args = append(args, user.ID)
+		}
+		rows, err := db.PGQuery(r.Context(),
+			`UPDATE call_center_contacts SET status='skipped', updated_at=NOW()
+			  WHERE `+where+` RETURNING id`, args...)
+		if err != nil {
+			respondErrLog(w, 500, "Skip failed", err)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"skipped": len(b.IDs)}) //nolint:errcheck
+		// Rows actually skipped, not the size of the request — these differ whenever a
+		// contact is someone else's or already resolved.
+		json.NewEncoder(w).Encode(map[string]any{"skipped": len(rows)}) //nolint:errcheck
 	}
 }
 
@@ -2419,34 +2843,57 @@ func ccBulkRemoveDNC(db *core.DB) http.HandlerFunc {
 		Phones []string `json:"phones"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
+		user := core.UserFromCtx(r.Context())
+		if !ccIsSupervisor(user) {
+			respondErr(w, 403, "Only a call-centre supervisor can change the Do Not Call list")
+			return
+		}
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil || len(b.Phones) == 0 {
 			respondErr(w, 400, "phones are required")
 			return
 		}
-
-		clause := "$1"
-		args := []any{b.Phones[0]}
-		for i, phone := range b.Phones[1:] {
-			clause += fmt.Sprintf(",$%d", i+2)
-			args = append(args, phone)
-		}
-		res, err := db.PGExec(r.Context(),
-			fmt.Sprintf(`DELETE FROM dnc_list WHERE phone IN (%s)`, clause),
-			args...)
-		if err != nil {
-			respondErr(w, 500, "Delete failed")
+		if len(b.Phones) > ccMaxBulkIDs {
+			respondErr(w, 422, fmt.Sprintf("too many numbers in one request (max %d)", ccMaxBulkIDs))
 			return
 		}
-		removed, _ := res.RowsAffected()
+
+		// Match on the canonical form, passed as ONE array parameter. The old code
+		// compared the caller's raw text against the raw stored value with a bind
+		// parameter per number, so it both capped out at Postgres's parameter limit
+		// and failed to match any number stored in a different shape.
+		norm := make([]string, 0, len(b.Phones))
+		for _, phone := range b.Phones {
+			if np := normalizePhone(phone); len(np) == 10 {
+				norm = append(norm, np)
+			}
+		}
+		if len(norm) == 0 {
+			respondErr(w, 422, "None of those are numbers we can match")
+			return
+		}
+		rows, err := db.PGQuery(r.Context(),
+			`DELETE FROM dnc_list
+			  WHERE norm_phone(phone) = ANY($1)
+			 RETURNING phone, reason, added_by, added_at`, norm)
+		if err != nil {
+			respondErrLog(w, 500, "Delete failed", err)
+			return
+		}
+		ccAuditDNCRemoval(r.Context(), db, user, rows)
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"removed": removed}) //nolint:errcheck
+		// What was actually removed, not how many were asked for.
+		json.NewEncoder(w).Encode(map[string]any{"removed": len(rows)}) //nolint:errcheck
 	}
 }
 
 func ccPerformanceKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !ccIsSupervisor(core.UserFromCtx(r.Context())) {
+			respondErr(w, 403, "Supervisors only")
+			return
+		}
 		dateFrom, _ := validDate(r, "date_from")
 		dateTo, _ := validDate(r, "date_to")
 		agent := qstr(r, "agent")
@@ -2457,9 +2904,18 @@ func ccPerformanceKPIs(db *core.DB) http.HandlerFunc {
 		n := 1
 
 		if agent != "" {
-			from += " LEFT JOIN o3c_users u ON u.id = d.agent_id"
-			where += fmt.Sprintf(" AND u.full_name ILIKE $%d", n)
-			args = append(args, "%"+agent+"%")
+			// Prefer an agent id; fall back to an EXACT name. The old '%name%' match
+			// merged every agent whose name contains another's — two staff called
+			// "Chidi" reported as one row, with one figure standing for both — and a
+			// KPI tile is exactly where nobody notices that.
+			if id, perr := strconv.ParseInt(agent, 10, 64); perr == nil && id > 0 {
+				where += fmt.Sprintf(" AND d.agent_id = $%d", n)
+				args = append(args, id)
+			} else {
+				from += " LEFT JOIN o3c_users u ON u.id = d.agent_id"
+				where += fmt.Sprintf(" AND u.full_name = $%d", n)
+				args = append(args, agent)
+			}
 			n++
 		}
 		if dateFrom != "" {
@@ -2498,6 +2954,10 @@ func ccPerformanceKPIs(db *core.DB) http.HandlerFunc {
 
 func ccByDisposition(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !ccIsSupervisor(core.UserFromCtx(r.Context())) {
+			respondErr(w, 403, "Supervisors only")
+			return
+		}
 		dateFrom, _ := validDate(r, "date_from")
 		dateTo, _ := validDate(r, "date_to")
 
@@ -2533,6 +2993,10 @@ func ccByDisposition(db *core.DB) http.HandlerFunc {
 
 func ccHourlyVolume(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !ccIsSupervisor(core.UserFromCtx(r.Context())) {
+			respondErr(w, 403, "Supervisors only")
+			return
+		}
 		date := qstr(r, "date")
 		var rows []map[string]any
 		var err error
@@ -2560,6 +3024,10 @@ func ccHourlyVolume(db *core.DB) http.HandlerFunc {
 
 func ccAgentPerformance(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !ccIsSupervisor(core.UserFromCtx(r.Context())) {
+			respondErr(w, 403, "Supervisors only")
+			return
+		}
 		dateFrom, _ := validDate(r, "date_from")
 		dateTo, _ := validDate(r, "date_to")
 
@@ -2584,9 +3052,12 @@ func ccAgentPerformance(db *core.DB) http.HandlerFunc {
 			  COUNT(d.id)                                                              AS calls,
 			  COUNT(d.id) FILTER (WHERE app.cc_disposition_connected(d.outcome))       AS connected,
 			  COUNT(d.id) FILTER (WHERE d.outcome = 'ptp')                            AS ptp_count,
-			  -- Conversion measured from the lead's actual status, not a phantom disposition.
+			  -- Conversion measured from the lead's actual status, not a phantom disposition,
+			  -- and credited only to the agent who closed it (see ccLastDispositionOnLead) —
+			  -- otherwise three agents on one converted lead each scored a conversion.
 			  CASE WHEN COUNT(DISTINCT d.lead_id) > 0 THEN
-			    ROUND(100.0 * COUNT(DISTINCT d.lead_id) FILTER (WHERE l.status = 'converted')
+			    ROUND(100.0 * COUNT(DISTINCT d.lead_id) FILTER (
+			            WHERE l.status = 'converted' AND `+ccLastDispositionOnLead+`)
 			          / COUNT(DISTINCT d.lead_id), 1)
 			  ELSE 0 END                                                               AS conversion_pct,
 			  -- Handle time over calls that actually recorded one (NULLs excluded), not 0-filled.
@@ -2685,7 +3156,7 @@ func leadStatusFromCall(outcome string, disposition *string) string {
 func advanceLeadStatus(ctx context.Context, db *core.DB, leadID int64, status, disposition string, calledAt any) {
 	// Stamps last_disposition (durably) + last_called_at; stamping last_called_at is
 	// also what drops the lead out of the worker's candidate query on the next sweep.
-	db.PGExec(ctx, //nolint:errcheck
+	if _, err := db.PGExec(ctx,
 		`UPDATE call_center_leads
 		    SET status           = $1,
 		        last_disposition = COALESCE(NULLIF($4,''), last_disposition),
@@ -2693,7 +3164,12 @@ func advanceLeadStatus(ctx context.Context, db *core.DB, leadID int64, status, d
 		        callback_at      = CASE WHEN $1 IN ('callback','not_ready') THEN callback_at ELSE NULL END,
 		        updated_at       = NOW()
 		  WHERE id = $3 AND status = 'pending'`,
-		status, calledAt, leadID, disposition)
+		status, calledAt, leadID, disposition); err != nil {
+		// The rescue worker advances thousands of leads per sweep; a discarded error
+		// here meant a systematic failure (a bad cast, a constraint) looked exactly
+		// like "nothing needed advancing".
+		slog.Error("advanceLeadStatus: update lead", "lead", leadID, "status", status, "err", err)
+	}
 }
 
 // StartLeadAdvanceWorker fixes the 97% of calls that carry no lead_id. A call from Zoho
@@ -2707,6 +3183,9 @@ func advanceLeadStatus(ctx context.Context, db *core.DB, leadID int64, status, d
 // live by syncLeadFromCall on the explicit log.
 func StartLeadAdvanceWorker(db *core.DB) {
 	run := func() {
+		// Same containment as the call-back worker: one bad lead must not retire the
+		// rescue sweep permanently while the hub still reports it running.
+		defer recoverPanic("lead_advance")
 		ctx := context.Background()
 		WorkerBeat(ctx, db, "lead_advance", "running", "", "")
 		total := 0
@@ -2790,9 +3269,24 @@ func StartLeadAdvanceWorker(db *core.DB) {
 // to advance is a smaller problem than an error thrown back at an agent who has
 // just finished a conversation.
 func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
-	outcome string, disposition *string, callbackAt string, agentID *int64, durationSec *int) {
+	outcome string, disposition *string, callbackAt string, agentID *int64, durationSec *int, callID int64) {
 
 	status := leadStatusFromCall(outcome, disposition)
+
+	// Did this call establish an outcome at all? Everything leadStatusFromCall can
+	// return does, EXCEPT 'pending' — the code for "Call Dropped", where the line
+	// picked up and died within seconds so nothing was established. Recording that as
+	// the lead's status would read as "never worked" and lose what we knew before.
+	//
+	// 'no_answer' deliberately COUNTS as an outcome: nobody picked up is a fact about
+	// the last call, and the status field is what the Leads screen shows. The promise
+	// itself is not lost with it — callback_at below is left standing on a no-answer,
+	// and the outbound queue dials from the CONTACT row's callback_at, never from this
+	// status, so the customer is still rung back.
+	//
+	// Derived from the mapped status rather than re-matching the label, so it cannot
+	// drift out of step with the mapping above.
+	outcomeKnown := status != "pending"
 
 	// The business disposition (falling back to the raw outcome) — now stored durably
 	// on the lead itself, so its history survives a later void/merge of the call.
@@ -2804,76 +3298,167 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 	// while the lead keeps the human label above for display.
 	dispoCode := ccDispositionCode(dispo)
 
-	if _, err := db.PGExec(ctx, `
+	res, err := db.PGExec(ctx, `
 		UPDATE call_center_leads
-		   SET status           = $1,
+		   -- Forward-only: status alone stays behind the rank guard, so a no-answer
+		   -- logged against a CONVERTED lead can't knock it back to 'no_answer' —
+		   -- dropping it out of the converted count and blocking forwardLeadToSales,
+		   -- which accepts only 'interested'. Compared inside the statement so it
+		   -- cannot race another writer.
+		   -- An OPEN PROMISE is not funnel progress. 'callback' ranks 3 and
+		   -- 'not_ready' 2, above 'called' (1) and 'no_answer' (1), so a promised call
+		   -- that was actually made lost the rank comparison and the lead stayed on
+		   -- 'callback' — reading as still-owed a call that had already been made.
+		   -- 25 leads were frozen that way on 2026-09-22 (migration 275), and 48 more
+		   -- sat on 'callback' whose last call was a plain no-answer (migration 278).
+		   --
+		   -- So while a lead is merely HOLDING a promise, the status follows whatever
+		   -- the last call established ($6) — including "nobody answered", which is a
+		   -- fact about that call and what the Leads screen should show.
+		   --
+		   -- Two things this deliberately does NOT do. It does not discard the promise:
+		   -- callback_at below still stands on a no-answer, and the outbound queue
+		   -- dials from the CONTACT row's callback_at rather than this status, so the
+		   -- customer is still rung back. And it is not a general escape from the rank
+		   -- guard: 'interested' and 'converted' are earned, and still cannot be walked
+		   -- backwards, which is what that guard was built to protect.
+		   SET status           = CASE
+		                            WHEN $5::int >= `+ccLeadStatusRankSQL+` THEN $1
+		                            WHEN $6::boolean AND status IN ('callback','not_ready') THEN $1
+		                            ELSE status END,
 		       last_disposition = COALESCE(NULLIF($4,''), last_disposition),
 		       last_called_at   = NOW(),
 		       updated_at       = NOW(),
-		       -- Keep/refresh the due time while the lead is still a callback, or a
-		       -- "not ready yet" lead carrying an optional try-again date; once a call
-		       -- resolves it to any other status, drop the stale time so the lead
-		       -- doesn't read "Callback At …" after it has been dealt with.
+		       -- callback_at is a live operational promise, not funnel progress, so it
+		       -- is NOT behind the rank guard above — a call that actually happens
+		       -- must always be allowed to resolve it. Refreshed/kept while the call
+		       -- IS itself a callback/"not ready yet" promise; left untouched on a
+		       -- no-answer or a dropped line (nothing was discussed, so the earlier
+		       -- promise still stands — a bare no-answer used to wipe it out here,
+		       -- same bug ccApplyDisposition had for the outbound queue); cleared
+		       -- everywhere else, because every other status means the promised call
+		       -- happened and was resolved one way or another. Previously this whole
+		       -- statement was skipped outright whenever the new status ranked below
+		       -- the lead's current one (e.g. a promised callback answered "Not
+		       -- Interested" ranks BELOW 'callback'), which silently froze
+		       -- last_called_at and callback_at too — so the lead kept showing an
+		       -- overdue callback for a call that had already happened and been logged.
 		       callback_at      = CASE WHEN $1 IN ('callback','not_ready')
 		                               THEN CASE WHEN $3 <> '' THEN $3::timestamptz ELSE callback_at END
+		                               WHEN $1 IN ('pending','no_answer') THEN callback_at
 		                               ELSE NULL END
-		 WHERE id = $2`, status, leadID, callbackAt, dispo); err != nil {
+		 WHERE id = $2`,
+		status, leadID, callbackAt, dispo, ccLeadStatusRank[status], outcomeKnown)
+	if err != nil {
 		slog.Error("syncLeadFromCall: update lead", "lead", leadID, "err", err)
 		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// The lead id itself did not match any row — status/callback tracking for
+		// this call was lost. The call itself is still recorded below.
+		slog.Warn("syncLeadFromCall: lead not found", "lead", leadID, "proposed_status", status)
 	}
 
 	// Keep the lead-funnel table in step — canonical code + handle time, so connect
 	// rate, PTP and avg-handle report correctly (see migration 193). NULLIF keeps a
 	// no-duration dial out of the average rather than dragging it to zero.
 	if _, err := db.PGExec(ctx, `
-		INSERT INTO call_center_dispositions (lead_id, agent_id, outcome, duration_sec)
-		VALUES ($1, $2, $3, NULLIF($4,0))`, leadID, agentID, dispoCode, durationSec); err != nil {
+		INSERT INTO call_center_dispositions (lead_id, agent_id, outcome, duration_sec, call_id)
+		VALUES ($1, $2, $3, NULLIF($4,0), NULLIF($5,0))`, leadID, agentID, dispoCode, durationSec, callID); err != nil {
 		slog.Error("syncLeadFromCall: insert disposition", "lead", leadID, "err", err)
 	}
 
 	// Carry the progress into the sales pipeline. Without this the call centre's
 	// work stays in its own book and Sales keeps seeing 'new'.
-	syncCRMContactStage(ctx, db, leadID, status, agentID)
+	syncCRMContactStage(ctx, db, leadID, status, dispo, agentID)
 
 	// A lead marked do-not-call goes on the DNC list, exactly as the old Leads
 	// form did — that obligation does not depend on which screen logged the call.
 	if status == "dnc" {
 		if rows, _ := db.PGQuery(ctx,
 			`SELECT customer_phone FROM call_center_leads WHERE id=$1`, leadID); len(rows) > 0 {
-			if phone := str(rows[0]["customer_phone"]); phone != "" {
-				db.PGExec(ctx, //nolint:errcheck
+			// Canonical form on write, like every other DNC writer — storing the lead's
+			// raw phone is how the list ended up holding the same number in several
+			// shapes, which is why none of the suppression checks matched.
+			if np := normalizePhone(str(rows[0]["customer_phone"])); len(np) == 10 {
+				if _, err := db.PGExec(ctx,
 					`INSERT INTO dnc_list (phone, reason, added_by)
 					 VALUES ($1, 'Customer requested', $2) ON CONFLICT (phone) DO NOTHING`,
-					phone, agentID)
+					np, agentID); err != nil {
+					slog.Error("syncLeadFromCall: add to DNC", "lead", leadID, "err", err)
+				}
+			} else {
+				slog.Warn("syncLeadFromCall: do-not-call NOT suppressed — unusable phone",
+					"lead", leadID)
 			}
 		}
 	}
 }
 
-// crmStageForLeadStatus maps a call-centre lead status to the sales pipeline
+// crmStageForCall maps what happened on a call-centre call to the sales pipeline
 // stage, and the rank used to keep movement forward-only.
 //
-// The two lead books were unconnected: the call centre worked
-// call_center_leads while Sales read crm_contacts.lead_stage, so an agent could
-// reach and qualify a lead all day and the pipeline would still show 'new'. That
-// is why 'contacted' and 'qualified' had never once been used.
-func crmStageForLeadStatus(status string) (stage string, rank int) {
+// The two lead books were unconnected: the call centre worked call_center_leads while
+// Sales read crm_contacts.lead_stage, so the pipeline showed 'new' no matter what the
+// agents did. Joining them first qualified anyone an agent reached, which filled the
+// qualified book with refusals: of the 603 leads qualified in the week to 13 Sept 2026,
+// 288 had said Not Interested and 51 Interested.
+//
+// So, as agreed with the business on 14 Sept 2026: only a lead who says they are
+// interested is qualified (shown to people as "Interested"). A scheduled callback is not
+// interest — the person could not talk — and neither is "not ready yet"; both stay
+// contacted, as does anyone reached with no outcome or not reached at all. A refusal
+// (not interested, not eligible, do not call, wrong number) disqualifies.
+func crmStageForCall(status, disposition string) (stage string, rank int) {
+	d := strings.ToLower(strings.TrimSpace(disposition))
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "converted":
 		return "converted", 3
+	case "interested":
+		return "qualified", 2
 	case "dnc", "closed", "invalid":
 		return "disqualified", 3
-	case "callback", "called", "interested", "not_ready":
-		// Someone was reached and the lead is still worth working.
-		return "qualified", 2
-	case "no_answer", "pending":
-		// Dialled, nobody reached — the lead has been touched, nothing more.
+	case "called":
+		// "called" covers every connected call without a status of its own, and
+		// leadStatusFromCall files "Not Interested" here, so the disposition decides.
+		if strings.Contains(d, "not interested") {
+			return "disqualified", 3
+		}
+		return "contacted", 1
+	case "callback", "not_ready", "no_answer", "pending":
 		return "contacted", 1
 	}
 	return "", 0
 }
 
-var crmStageRank = map[string]int{"new": 0, "contacted": 1, "qualified": 2, "converted": 3, "disqualified": 3}
+// crmCallDisqualifyPrefix marks a disqualification made by a call rather than a person,
+// so a later call can undo what an earlier call did without overruling a human decision.
+const crmCallDisqualifyPrefix = "Call centre: "
+
+// crmCallMoveAllowed decides whether a call may move a lead from its current stage.
+//
+// Forward-only, with two exceptions. A lead a call disqualified ("not interested" in
+// March) is reopened by a later call where they say they are interested — but a lead a
+// person disqualified is not. And a refusal on the phone never closes a lead Sales is
+// already working past Interested; Sales decides those.
+func crmCallMoveAllowed(current, disqualifyReason, stage string, rank int) bool {
+	if current == "disqualified" && stage == "qualified" {
+		return strings.HasPrefix(disqualifyReason, crmCallDisqualifyPrefix)
+	}
+	if stage == "disqualified" && crmStageRank[current] == 2 && current != "qualified" {
+		return false
+	}
+	return crmStageRank[current] < rank
+}
+
+// The stages after qualified (handed_to_sales … approved) are Sales' own progress; a
+// later dial must never pull them back to 'qualified', so they rank with qualified.
+// A call can still close them out (converted/disqualified, rank 3).
+var crmStageRank = map[string]int{
+	"new": 0, "contacted": 1, "qualified": 2,
+	"handed_to_sales": 2, "documents_requested": 2, "application_submitted": 2, "approved": 2,
+	"converted": 3, "disqualified": 3,
+}
 
 // syncCRMContactStage advances the linked CRM contact so call-centre work shows
 // up in the sales pipeline, and records the move in crm_lead_events.
@@ -2882,15 +3467,16 @@ var crmStageRank = map[string]int{"new": 0, "contacted": 1, "qualified": 2, "con
 // dial. Fire-and-forget, like the rest of syncLeadFromCall — the call is already
 // recorded, and a pipeline that lags is a smaller problem than an error thrown at
 // an agent who has just finished a conversation.
-func syncCRMContactStage(ctx context.Context, db *core.DB, leadID int64, status string, agentID *int64) {
-	stage, rank := crmStageForLeadStatus(status)
+func syncCRMContactStage(ctx context.Context, db *core.DB, leadID int64, status, disposition string, agentID *int64) {
+	stage, rank := crmStageForCall(status, disposition)
 	if stage == "" {
 		return
 	}
-	rows, err := db.PGQuery(ctx, `
-		SELECT c.id, c.lead_stage
+	const contactSQL = `
+		SELECT c.id, c.lead_stage, COALESCE(c.disqualify_reason, '') AS disqualify_reason
 		  FROM call_center_leads l JOIN crm_contacts c ON c.id = l.contact_id
-		 WHERE l.id = $1`, leadID)
+		 WHERE l.id = $1`
+	rows, err := db.PGQuery(ctx, contactSQL, leadID)
 	if err != nil {
 		return
 	}
@@ -2901,27 +3487,108 @@ func syncCRMContactStage(ctx context.Context, db *core.DB, leadID int64, status 
 		if !crmLinkLeadToContact(ctx, db, leadID) {
 			return
 		}
-		if rows, err = db.PGQuery(ctx, `
-			SELECT c.id, c.lead_stage
-			  FROM call_center_leads l JOIN crm_contacts c ON c.id = l.contact_id
-			 WHERE l.id = $1`, leadID); err != nil || len(rows) == 0 {
+		if rows, err = db.PGQuery(ctx, contactSQL, leadID); err != nil || len(rows) == 0 {
 			return
 		}
 	}
 	contactID, current := toInt64(rows[0]["id"]), str(rows[0]["lead_stage"])
-	if crmStageRank[current] >= rank {
+	if !crmCallMoveAllowed(current, str(rows[0]["disqualify_reason"]), stage, rank) {
 		return
 	}
-	if _, err := db.PGExec(ctx,
-		`UPDATE crm_contacts SET lead_stage = $2, updated_at = NOW() WHERE id = $1`,
-		contactID, stage); err != nil {
+
+	outcome := strings.TrimSpace(disposition)
+	if outcome == "" {
+		outcome = status
+	}
+	// The dates and reason follow the stage, so a lead reopened by an "interested" call
+	// no longer carries the disqualification it has just left.
+	if _, err := db.PGExec(ctx, `
+		UPDATE crm_contacts
+		   SET lead_stage        = $2,
+		       stage_changed_at  = NOW(),
+		       updated_at        = NOW(),
+		       qualified_at      = CASE WHEN $2 = 'qualified' AND qualified_at IS NULL THEN NOW() ELSE qualified_at END,
+		       disqualified_at   = CASE WHEN $2 = 'disqualified' THEN NOW() WHEN $2 = 'qualified' THEN NULL ELSE disqualified_at END,
+		       disqualify_reason = CASE WHEN $2 = 'disqualified' THEN $3 WHEN $2 = 'qualified' THEN NULL ELSE disqualify_reason END
+		 WHERE id = $1`,
+		contactID, stage, crmCallDisqualifyPrefix+outcome); err != nil {
 		slog.Error("syncCRMContactStage: update", "contact", contactID, "err", err)
 		return
 	}
 	db.PGExec(ctx, //nolint:errcheck
 		`INSERT INTO crm_lead_events (contact_id, event, from_stage, to_stage, note, created_by)
-		 VALUES ($1,'stage_changed',$2,$3,'Advanced by a call-centre call',$4)`,
-		contactID, current, stage, agentID)
+		 VALUES ($1,'stage_changed',$2,$3,$4,$5)`,
+		contactID, current, stage, "Moved by a call-centre call: "+outcome, agentID)
+
+	// The moment a call first qualifies a not-yet-qualified lead IS the hand-off to Sales.
+	// Historically this path moved the lead silently and the audited forwards ledger
+	// (call_center_lead_forwards) stayed empty because the interactive forwardLeadToSales
+	// action was never used. Record the hand-off here so the durable trail — a forwards
+	// row, forwarded_at, and a 'forwarded_to_sales' event (which the activities trigger
+	// fans onto the timeline as a hand-off) — is produced on the path leads actually take.
+	if stage == "qualified" && crmStageRank[current] < 2 {
+		// A qualified lead has entered the sales pipeline, so it earns a durable canonical
+		// party (an existing customer if one matches, else a fresh prospect party). Cold,
+		// un-qualified dials never reach here, so app.parties is not inflated.
+		db.PGExec(ctx, `SELECT app.ensure_lead_party($1)`, contactID) //nolint:errcheck
+		recordCallHandoff(ctx, db, leadID, contactID, current, outcome, agentID)
+	}
+}
+
+// recordCallHandoff writes the call-centre -> Sales hand-off record when a call first
+// qualifies a lead. Idempotent (one open forward per lead) and fire-and-forget, matching
+// the rest of syncLeadFromCall: a missed ledger row must never throw back at an agent who
+// has just finished a call. The lead's own fields (name, phone, campaign, product
+// interest) populate the forward, so Sales sees where it came from.
+func recordCallHandoff(ctx context.Context, db *core.DB, leadID, contactID int64, fromStage, outcome string, agentID *int64) {
+	if rows, _ := db.PGQuery(ctx,
+		`SELECT 1 FROM call_center_lead_forwards WHERE lead_id=$1 AND resolved_at IS NULL LIMIT 1`, leadID); len(rows) > 0 {
+		return // already handed off and not yet resolved
+	}
+	// Errors are logged, not discarded: this is the ledger Sales works from, and a
+	// hand-off that silently failed to record is indistinguishable from one that was
+	// never qualified.
+	res, err := db.PGExec(ctx,
+		`INSERT INTO call_center_lead_forwards
+		   (lead_id, contact_id, forwarded_by, customer_name, customer_phone, customer_cif,
+		    cc_campaign_id, marketing_campaign_id, product_interest, status, notes)
+		 SELECT l.id, l.contact_id, $2, l.customer_name, l.customer_phone, NULLIF(l.customer_cif,''),
+		        l.campaign_id, l.marketing_campaign_id, c.product_interest, 'forwarded',
+		        'Auto: qualified by a call-centre call'
+		   FROM call_center_leads l LEFT JOIN crm_contacts c ON c.id = l.contact_id
+		  WHERE l.id = $1`, leadID, agentID)
+	if err != nil {
+		slog.Error("recordCallHandoff: forward not recorded", "lead", leadID, "err", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return // nothing inserted — no hand-off to announce
+	}
+	if _, err := db.PGExec(ctx,
+		`UPDATE call_center_leads SET forwarded_at = COALESCE(forwarded_at, NOW()) WHERE id=$1`, leadID); err != nil {
+		slog.Error("recordCallHandoff: stamp forwarded_at", "lead", leadID, "err", err)
+	}
+	if _, err := db.PGExec(ctx,
+		`INSERT INTO crm_lead_events (contact_id, event, from_stage, to_stage, note, created_by)
+		 VALUES ($1,'forwarded_to_sales',$2,'qualified',$3,$4)`,
+		contactID, fromStage, "Auto hand-off: qualified by a call-centre call ("+outcome+")", agentID); err != nil {
+		slog.Error("recordCallHandoff: timeline event", "contact", contactID, "err", err)
+	}
+
+	// Tell Sales. ccDistribute announces every hand-out, but this path — the one
+	// leads actually take — notified nobody, so a qualified lead could sit unclaimed
+	// indefinitely with nothing escalating. Grouped, so a busy afternoon collapses
+	// into one digest rather than a ping per lead, and fire-and-forget like the rest
+	// of this function.
+	go NotifyRoles(context.WithoutCancel(ctx), db, []string{"sales_head"}, NotifPayload{
+		EventType: "cc_lead_forwarded",
+		Title:     "Lead forwarded from the call centre",
+		Body:      "A call-centre call qualified a lead. Open the hand-off tracker to assign it.",
+		ActionURL: "/call-center/forwards",
+		EntityRef: fmt.Sprintf("cc_forward:lead:%d", leadID),
+		GroupKey:  "cc:forwarded",
+		Priority:  "high",
+	})
 }
 
 // crmLinkLeadToContact gives a worked lead its place in the CRM book: an existing

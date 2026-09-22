@@ -2,11 +2,11 @@ import { useLiveData } from "../../hooks/useRealtime"
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Page, SectionCard, DataTable, ExpandableFilterBar, Modal, ConfirmModal, KpiCard,
-  ErrBanner, btnPrimary, btnSecondary, Spinner, DateFilter, NameCell, ActionRow,
+  ErrBanner, btnPrimary, btnSecondary, Spinner, NameCell, ActionRow,
 } from '../../components/UI'
 import type { TableCol, RowAction } from '../../components/UI'
 import { apiFetch, apiPost, apiPut, apiDelete, API, getCsrfToken } from '../../lib/api'
-import { fmtNum, fmtDatetime, monthStart, today } from '../../lib/fmt'
+import { fmtNum, fmtDatetime } from '../../lib/fmt'
 import { NAVY, GREEN, RED, AMBER, BLUE, SORA, INTER, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 import { filterInputStyle } from '../../components/UI'
 import { toast } from 'sonner'
@@ -322,7 +322,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                     placeholder="e.g. Lagos" style={inp()} />
                 </div>
                 <div>
-                  <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+                  <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span></label>
                   <input value={form.cifNumber} onChange={e => setForm(f => ({ ...f, cifNumber: e.target.value }))}
                     placeholder="Existing customers" style={inp()} />
                 </div>
@@ -430,7 +430,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
             </div>
             {preflight.errors && preflight.errors.length > 0 && (
               <div style={{ background: '#FFF1F1', borderRadius: RADIUS.md, padding: 12, border: `1px solid ${RED}30` }}>
-                <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: RED, marginBottom: 6 }}>Issues found:</div>
+                <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: RED, marginBottom: 6 }}>Issues Found:</div>
                 <ul style={{ margin: 0, padding: '0 0 0 16px', fontSize: TEXT.sm, color: '#7F1D1D', lineHeight: 1.7 }}>
                   {preflight.errors.slice(0, 8).map((e, i) => <li key={i}>{e}</li>)}
                   {preflight.errors.length > 8 && <li>…and {preflight.errors.length - 8} more</li>}
@@ -492,7 +492,7 @@ function MemberDrawer({ list, onClose, canWrite }: { list: ContactList; onClose:
                 placeholder="e.g. Lagos" style={inp()} />
             </div>
             <div>
-              <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+              <label style={lbl}>CIF Number <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span></label>
               <input value={editForm.cifNumber} onChange={e => setEditForm(f => ({ ...f, cifNumber: e.target.value }))}
                 placeholder="Existing customers" style={inp()} />
             </div>
@@ -535,19 +535,17 @@ export default function ContactLists() {
   const [editErr,      setEditErr]      = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ContactList | null>(null)
   const [openList,     setOpenList]     = useState<ContactList | null>(null)
-  const [dateFrom,     setDateFrom]     = useState(monthStart())
-  const [dateTo,       setDateTo]       = useState(today())
   const [listSearch,   setListSearch]   = useState('')
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); setErr(null)
     try {
-      const res = await apiFetch<ContactList[] | { data: ContactList[] }>(`/api/contact-lists?from=${dateFrom}&to=${dateTo}`)
+      const res = await apiFetch<ContactList[] | { data: ContactList[] }>(`/api/contact-lists?limit=500`)
       const arr = Array.isArray(res) ? res : ((res as any)?.data ?? [])
       setLists(Array.isArray(arr) ? arr : [])
     } catch (ex: any) { setErr(ex.message) }
     finally { setLoading(false) }
-  }, [dateFrom, dateTo])
+  }, [])
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true))
@@ -621,7 +619,7 @@ export default function ContactLists() {
     { key: '_actions', label: '', sortable: false,
       render: r => {
         const actions: RowAction[] = [
-          { icon: 'group', label: 'View contacts', onClick: () => setOpenList(r) },
+          { icon: 'group', label: 'View Contacts', onClick: () => setOpenList(r) },
           ...(canWrite ? [
             { icon: 'edit', label: 'Edit', onClick: () => openEdit(r) },
             { icon: 'delete', label: 'Delete', onClick: () => setDeleteTarget(r), danger: true },
@@ -640,7 +638,6 @@ export default function ContactLists() {
       skeletonKpis={3}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
           {canWrite && (
             <button onClick={() => setShowCreate(true)} style={btnPrimary}>
               <span className="material-symbols-rounded" style={{ fontSize: 16 }}>add</span>
@@ -654,9 +651,9 @@ export default function ContactLists() {
 
       {/* Summary KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
-        <KpiCard label="Contact lists" value={fmtNum(lists.length)} icon="format_list_bulleted" accent={NAVY} loading={loading} />
-        <KpiCard label="Total contacts" value={fmtNum(totalMembers)} icon="groups" accent={BLUE} loading={loading} />
-        <KpiCard label="Largest list" value={fmtNum(largestList)} icon="trending_up" accent={GREEN}
+        <KpiCard label="Contact Lists" value={fmtNum(lists.length)} icon="format_list_bulleted" accent={NAVY} loading={loading} />
+        <KpiCard label="Total Contacts" value={fmtNum(totalMembers)} icon="groups" accent={BLUE} loading={loading} />
+        <KpiCard label="Largest List" value={fmtNum(largestList)} icon="trending_up" accent={GREEN}
           sub={lists.length ? 'contacts in one list' : undefined} loading={loading} />
       </div>
 
@@ -708,7 +705,7 @@ export default function ContactLists() {
             </button>
             <button onClick={() => create(true)} disabled={saving || !name.trim()} style={{ ...btnPrimary, opacity: saving || !name.trim() ? 0.6 : 1 }}>
               <span className="material-symbols-rounded" style={{ fontSize: 16 }}>group_add</span>
-              Create &amp; add contacts
+              Create &amp; Add Contacts
             </button>
           </div>
         }
@@ -722,7 +719,7 @@ export default function ContactLists() {
               placeholder="e.g. Active Prospects Q3" style={fieldInput} />
           </div>
           <div>
-            <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+            <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span></label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={desc} onChange={e => setDesc(e.target.value)} rows={3}
               placeholder="What this list is for"
@@ -760,7 +757,7 @@ export default function ContactLists() {
               placeholder="List name" style={fieldInput} />
           </div>
           <div>
-            <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+            <label style={lbl}>Description <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span></label>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
               value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3}
               placeholder="What this list is for"

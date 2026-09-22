@@ -122,15 +122,15 @@ export default function BIMyDashboard() {
 
       {/* ── My Day ── */}
       <MyDaySection hint="analytics work waiting on you">
-        <MyDayTile icon="alarm" count={fmtNum(schedDue)} label="Schedules due"
+        <MyDayTile icon="alarm" count={fmtNum(schedDue)} label="Schedules Due"
           sub={schedDue > 0 ? 'due to run now' : 'all on schedule'}
           color={AMBER} urgent={schedDue > 0} onClick={goSchedules} />
-        <MyDayTile icon="error" count={fmtNum(failed)} label="Failed sends (7d)"
+        <MyDayTile icon="error" count={fmtNum(failed)} label="Failed Sends (7d)"
           sub={failed > 0 ? 'investigate & re-run' : 'no failures'}
           color={failed > 0 ? RED : GREEN} urgent={failed > 0} onClick={goSchedules} />
-        <MyDayTile icon="mark_email_read" count={fmtNum(deliveredToday)} label="Sent today"
+        <MyDayTile icon="mark_email_read" count={fmtNum(deliveredToday)} label="Sent Today"
           sub="reports emailed today" color={BLUE} onClick={goSchedules} />
-        <MyDayTile icon="bookmarks" count={fmtNum(myReports)} label="My reports"
+        <MyDayTile icon="bookmarks" count={fmtNum(myReports)} label="My Reports"
           sub="saved report definitions" color={PURPLE} onClick={goSaved} />
       </MyDaySection>
 

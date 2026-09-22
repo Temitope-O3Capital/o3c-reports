@@ -54,7 +54,7 @@ export default function PersonalizeMenu({
           } as React.CSSProperties}
         >
           <div style={{ fontSize: 10, fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.08em', padding: '6px 8px 4px' }}>
-            Insert field
+            Insert Field
           </div>
           {MERGE_FIELDS.map(f => (
             <div

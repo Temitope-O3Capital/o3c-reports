@@ -108,11 +108,11 @@ function LogActivityModal({ lead, onClose, onSaved }: {
   const lbl: React.CSSProperties = { fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 4, display: 'block' }
 
   return (
-    <Modal open onClose={onClose} title={`Log activity: ${lead.name ?? 'lead'}`} width={480}
+    <Modal open onClose={onClose} title={`Log Activity: ${lead.name ?? 'Lead'}`} width={480}
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={save} disabled={saving} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Log activity'}</button>
+          <button onClick={save} disabled={saving} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Log Activity'}</button>
         </div>
       }>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -129,7 +129,7 @@ function LogActivityModal({ lead, onClose, onSaved }: {
             </select>
           </div>
           <div>
-            <label style={lbl}>Next follow-up</label>
+            <label style={lbl}>Next Follow-Up</label>
             <input type="date" value={nextFollow} onChange={e => setNextFollow(e.target.value)} style={field} />
           </div>
         </div>
@@ -272,18 +272,18 @@ export default function SalesMyDashboard() {
 
       {/* ── My Day ─────────────────────────────────────────────────────────── */}
       <MyDaySection hint="your day at a glance">
-        <MyDayTile icon="event_upcoming" count={fmtNum(data.followups_due)} label="Follow-ups due today"
+        <MyDayTile icon="event_upcoming" count={fmtNum(data.followups_due)} label="Follow-Ups Due Today"
           sub={data.followups_due > 0 ? 'reach out today' : 'nothing due today'}
           color={BLUE} urgent={data.followups_due > 0} onClick={() => navigate('/sales/leads?due=1')} />
-        <MyDayTile icon="alarm" count={fmtNum(data.followups_overdue)} label="Overdue follow-ups"
+        <MyDayTile icon="alarm" count={fmtNum(data.followups_overdue)} label="Overdue Follow-Ups"
           sub={data.followups_overdue > 0 ? 'past their date' : 'all caught up'}
           color={RED} urgent={data.followups_overdue > 0} onClick={() => navigate('/sales/leads?due=overdue')} />
-        <MyDayTile icon="pause_circle" count={fmtNum(data.stalled_leads)} label="Stalled leads"
+        <MyDayTile icon="pause_circle" count={fmtNum(data.stalled_leads)} label="Stalled Leads"
           sub="untouched 14+ days" color={AMBER} urgent={data.stalled_leads > 0} onClick={() => navigate('/sales/leads?stage=qualified')} />
-        <MyDayTile icon="handshake" count={fmtNum(stageCount('negotiation'))} label="In negotiation"
+        <MyDayTile icon="handshake" count={fmtNum(stageCount('negotiation'))} label="In Negotiation"
           sub={stageCount('negotiation') > 0 ? 'close these to win' : 'nothing in negotiation'}
           color={PURPLE} urgent={stageCount('negotiation') > 0} onClick={() => navigate('/sales/leads?stage=qualified')} />
-        <MyDayTile icon="flag" count={data.target_pct >= 100 ? 'Met' : fmtKobo(remaining)} label="Gap to target"
+        <MyDayTile icon="flag" count={data.target_pct >= 100 ? 'Met' : fmtKobo(remaining)} label="Gap to Target"
           sub={data.target_pct >= 100 ? 'target achieved' : 'still to book this month'}
           color={tColor} urgent={data.target_pct < 70} onClick={() => navigate('/sales/targets')} />
       </MyDaySection>
@@ -304,7 +304,7 @@ export default function SalesMyDashboard() {
 
       {/* ── My Follow-ups + Recent Activity ─────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: SP[4] }}>
-        <SectionCard title="My Follow-ups" subtitle="Soonest first, overdue at the top" badge={data.next_followups.length || undefined}>
+        <SectionCard title="My Follow-Ups" subtitle="Soonest first, overdue at the top" badge={data.next_followups.length || undefined}>
           {data.next_followups.length === 0 ? (
             <EmptyHint icon="event_available" text="No follow-ups scheduled. Log an activity on a lead and set its next date to build your queue." />
           ) : (
@@ -315,7 +315,7 @@ export default function SalesMyDashboard() {
                   <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: `${SP[2]} 0`, borderBottom: '1px solid var(--bdr)' }}>
                     <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate(`/sales/customers/${f.id}`)}>
                       <div style={{ fontWeight: FW.semibold, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name ?? 'Unknown lead'}</div>
-                      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{f.lead_stage}{f.phone ? ` · ${f.phone}` : ''}</div>
+                      <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{f.lead_stage === 'qualified' ? 'interested' : f.lead_stage?.replace(/_/g, ' ')}{f.phone ? ` · ${f.phone}` : ''}</div>
                     </div>
                     <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: m.color, whiteSpace: 'nowrap' }}>{m.label}</span>
                     <button onClick={() => setLogLead({ id: f.id, name: f.name })}
@@ -394,7 +394,7 @@ export default function SalesMyDashboard() {
 
       {/* Draft applications — parked, waiting to be completed and submitted */}
       {drafts.length > 0 && (
-        <SectionCard title="Draft applications" badge={drafts.length} style={{ marginTop: SP[4] }}
+        <SectionCard title="Draft Applications" badge={drafts.length} style={{ marginTop: SP[4] }}
           subtitle="Parked applications — resume to complete and submit">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {drafts.map(d => (
@@ -427,14 +427,14 @@ export default function SalesMyDashboard() {
         onSaved={() => { setAppOpen(false); setEditDraft(null); load() }}
       />
 
-      <Modal open={taskOpen} onClose={() => setTaskOpen(false)} title="New task" width={460}
+      <Modal open={taskOpen} onClose={() => setTaskOpen(false)} title="New Task" width={460}
         footer={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <button onClick={() => { setTaskOpen(false); navigate('/sales/tasks') }}
-              style={{ background: 'none', border: 'none', color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', padding: 0 }}>See all tasks</button>
+              style={{ background: 'none', border: 'none', color: NAVY, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', padding: 0 }}>See All Tasks</button>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setTaskOpen(false)} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={saveTask} disabled={tSaving} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: tSaving ? 'wait' : 'pointer', opacity: tSaving ? 0.7 : 1 }}>{tSaving ? 'Saving…' : 'Create task'}</button>
+              <button onClick={saveTask} disabled={tSaving} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: tSaving ? 'wait' : 'pointer', opacity: tSaving ? 0.7 : 1 }}>{tSaving ? 'Saving…' : 'Create Task'}</button>
             </div>
           </div>
         }
@@ -456,7 +456,7 @@ export default function SalesMyDashboard() {
               </select>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 4 }}>Due date</label>
+              <label style={{ display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 4 }}>Due Date</label>
               <input type="date" value={tDue} onChange={e => setTDue(e.target.value)}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, fontSize: TEXT.base, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box' }} />
             </div>

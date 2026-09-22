@@ -94,7 +94,7 @@ function ResolveManuallyModal({ open, rowId, onClose, onSuccess }: ResolveModalP
 // ── Main component ────────────────────────────────────────────────────────────
 
 const REASON_OPTIONS = [
-  { value: '', label: 'All reasons' },
+  { value: '', label: 'All Reasons' },
   { value: 'Insufficient Funds', label: 'Insufficient Funds' },
   { value: 'Account Not Found', label: 'Account Not Found' },
   { value: 'System Error', label: 'System Error' },

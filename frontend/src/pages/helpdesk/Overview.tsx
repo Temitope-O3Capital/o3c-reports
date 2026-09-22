@@ -133,8 +133,8 @@ export default function CallCenterOverview() {
   // (Connected + Missed-inbound + No-answer-outbound) instead of a single 'missed' blob.
   const outcomeBreakdown = [
     { key: 'connected', label: 'Connected',            count: connected,     color: GREEN },
-    { key: 'missed_in', label: 'Missed (inbound)',     count: inboundMissed, color: RED },
-    { key: 'noans_out', label: 'No answer (outbound)', count: outboundNoAns, color: AMBER },
+    { key: 'missed_in', label: 'Missed (Inbound)',     count: inboundMissed, color: RED },
+    { key: 'noans_out', label: 'No Answer (Outbound)', count: outboundNoAns, color: AMBER },
   ].filter(o => o.count > 0)
 
   // Fill all 24 hours so gaps render as zero.
@@ -198,7 +198,7 @@ export default function CallCenterOverview() {
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
             <SectionCard title="Call Volume" subtitle="Inbound vs outbound per day">
               {byDay.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls in this range</div>
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No Calls in This Range</div>
               ) : (
                 <EBar
                   data={byDay.map(x => ({ label: fmtDate(x.day, { month: 'short', day: 'numeric' }), inbound: Number(x.inbound), outbound: Number(x.outbound) }))}
@@ -225,7 +225,7 @@ export default function CallCenterOverview() {
           {/* ── Busiest hours (inbound + outbound stacked) ─────────────────── */}
           <SectionCard title="Busiest Hours" subtitle="Inbound & outbound by hour of day: plan staffing around the peaks" style={{ marginBottom: SP[4] }}>
             {total === 0 ? (
-              <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No calls in this range</div>
+              <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No Calls in This Range</div>
             ) : (
               <ELine
                 data={hourData}
@@ -244,7 +244,7 @@ export default function CallCenterOverview() {
           {/* ── Calls by type / purpose ───────────────────────────────────── */}
           <SectionCard title="Calls by Type" subtitle="What the calls were for — volume, mix & connect rate per book" style={{ marginBottom: SP[4] }}>
             {byPurpose.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No calls in this range</div>
+              <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--txt2)' }}>No Calls in This Range</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], paddingTop: 4 }}>
                 {byPurpose.map((p) => {
@@ -272,7 +272,7 @@ export default function CallCenterOverview() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: SP[4] }}>
             <SectionCard title="Call Outcomes" subtitle="Connected vs unanswered, by direction">
               {donutTotal === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls yet</div>
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No Calls Yet</div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: SP[4] }}>
                   <div style={{ flexShrink: 0, width: 160 }}>
@@ -304,7 +304,7 @@ export default function CallCenterOverview() {
 
             <SectionCard title="Agent Performance" subtitle={`${agentPerf.length} agent${agentPerf.length === 1 ? '' : 's'} · calls + tickets`}>
               {agentPerf.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No agent activity yet</div>
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No Agent Activity Yet</div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 60px 70px 64px 72px 64px 76px', gap: SP[2], padding: '5px 10px', background: 'var(--th-bg)', borderRadius: RADIUS.md, marginBottom: SP[1], minWidth: 560 }}>

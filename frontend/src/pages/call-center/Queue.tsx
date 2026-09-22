@@ -1,6 +1,6 @@
 import { useLiveData } from "../../hooks/useRealtime"
 import { useDebouncedValue } from '../../hooks/useDebounce'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Page, ErrBanner, Spinner, ConfirmModal, Modal, TblSearch, NameCell,
@@ -12,6 +12,16 @@ import { toast } from 'sonner'
 import CallLogEditModal, { type EditableCall } from '../../components/CallLogEditModal'
 import { RecordingModal } from '../../components/RecordingPlayer'
 import { CallLogForm } from '../../components/LogCallModal'
+import { isCallCentreSupervisor } from '../../lib/roles'
+
+// Dial through the in-app softphone (CallWidget listens for 'o3c:dial'), the same way
+// the Inbound page calls back. A tel: link handed the number to the OS, so the call
+// never reached the ledger and the queue stayed blind to it.
+function dialNumber(phone: string) {
+  const n = (phone || '').trim()
+  if (!n) { toast.error('No number to call'); return }
+  window.dispatchEvent(new CustomEvent('o3c:dial', { detail: { phoneNumber: n, autoStart: true } }))
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -203,7 +213,7 @@ function CallHistoryList({ calls, contact, onEdit, onPlay }: {
             <span className="material-symbols-rounded" style={{ fontSize: 18, color: col, flexShrink: 0, marginTop: 1 }}>{inbound ? 'call_received' : 'call_made'}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{c.disposition || (connected ? 'Connected' : 'No answer')}</span>
+                <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>{c.disposition || (connected ? 'Connected' : 'No Answer')}</span>
                 {dur && <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', ...NUM }}>{dur}</span>}
                 {c.purpose && <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', textTransform: 'capitalize' }}>{c.purpose}</span>}
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
@@ -337,7 +347,7 @@ function DetailPanel({ contact, onAction, onRefresh }: { contact: CallCenterCont
                 <DispositionPill disp={contact.last_disposition} code={contact.disposition_code} size="sm" />
               ) : (
                 <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: BLUE, background: `${BLUE}14`, padding: '1px 8px', borderRadius: RADIUS.full }}>
-                  Not yet called
+                  Not Yet Called
                 </span>
               )}
             </div>
@@ -358,18 +368,18 @@ function DetailPanel({ contact, onAction, onRefresh }: { contact: CallCenterCont
           </div>
 
           {/* Call button */}
-          <a
-            href={`tel:${contact.phone}`}
+          <button
+            onClick={() => dialNumber(contact.phone)}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '9px 16px', background: GREEN, color: '#fff',
               borderRadius: RADIUS.md, fontSize: TEXT.base, fontWeight: FW.bold,
-              textDecoration: 'none', flexShrink: 0,
+              border: 'none', cursor: 'pointer', fontFamily: INTER, flexShrink: 0,
             }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 17 }}>call</span>
             Call
-          </a>
+          </button>
         </div>
       </div>
 
@@ -386,12 +396,12 @@ function DetailPanel({ contact, onAction, onRefresh }: { contact: CallCenterCont
           <InfoField label="Attempts" value={
             contact.attempts > 0
               ? <span style={{ ...NUM, color: contact.is_exhausted ? RED : 'var(--txt)' }}>{contact.attempts} · {contact.connects} answered</span>
-              : 'Never called'
+              : 'Never Called'
           } />
           <InfoField label="Dial Status" value={
-            contact.is_exhausted ? <span style={{ color: RED, fontWeight: FW.bold }}>Exhausted: 6+ tries, no answer</span>
-            : contact.is_cooling ? <span style={{ color: AMBER, fontWeight: FW.bold }}>Cooling: called in last 7 days</span>
-            : <span style={{ color: GREEN, fontWeight: FW.bold }}>Ready to call</span>
+            contact.is_exhausted ? <span style={{ color: RED, fontWeight: FW.bold }}>Exhausted: 6+ Tries, No Answer</span>
+            : contact.is_cooling ? <span style={{ color: AMBER, fontWeight: FW.bold }}>Cooling: Called in Last 7 Days</span>
+            : <span style={{ color: GREEN, fontWeight: FW.bold }}>Ready to Call</span>
           } />
           {contact.is_existing_customer && <InfoField label="Outstanding" value={<span style={NUM}>{fmtKobo(contact.outstanding_kobo)}</span>} />}
           {contact.is_existing_customer && <InfoField label="Next Payment" value={fmtDate(contact.next_payment_date)} />}
@@ -434,7 +444,7 @@ function DetailPanel({ contact, onAction, onRefresh }: { contact: CallCenterCont
           <button onClick={() => setLogOpen(true)}
             style={{ width: '100%', padding: `${SP[3]} ${SP[4]}`, borderRadius: RADIUS.md, border: `1px solid ${NAVY}`, background: 'var(--card)', color: NAVY, fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: INTER }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT.lg }}>add_call</span>
-            Log another call
+            Log Another Call
           </button>
         )}
       </div>
@@ -442,7 +452,7 @@ function DetailPanel({ contact, onAction, onRefresh }: { contact: CallCenterCont
       {/* ── Call history — every log, record and recording, like Leads ──── */}
       <div style={{ padding: `0 ${SP[5]} ${SP[5]}` }}>
         <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: SP[2] }}>
-          Call history{calls.length ? ` (${calls.length})` : ''}
+          Call History{calls.length ? ` (${calls.length})` : ''}
         </div>
         <CallHistoryList calls={calls} contact={contact} onEdit={setEditCall} onPlay={setPlayCallId} />
       </div>
@@ -457,7 +467,7 @@ function DetailPanel({ contact, onAction, onRefresh }: { contact: CallCenterCont
 
       <RecordingModal
         callId={playCallId}
-        title="Call recording"
+        title="Call Recording"
         subtitle={contact.customer_name || contact.phone}
         onClose={() => setPlayCallId(null)}
       />
@@ -468,17 +478,48 @@ function DetailPanel({ contact, onAction, onRefresh }: { contact: CallCenterCont
 // ── Filter constants ──────────────────────────────────────────────────────────
 
 // One fetch of the server vocabulary, shared by the log form and the queue filter.
-function useDispositions() {
+// A failed fetch is reported, not swallowed: an empty outcome dropdown reads as "this
+// queue has no outcomes to filter by", which is a different — and wrong — story.
+function useDispositions(): { options: DispositionOption[]; error: string | null } {
   const [options, setOptions] = useState<DispositionOption[]>([])
+  const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     apiFetch<{ data: DispositionOption[] }>('/api/call-center/dispositions')
-      .then(res => setOptions(res.data ?? []))
-      .catch(() => setOptions([]))
+      .then(res => { setOptions(res.data ?? []); setError(null) })
+      .catch(e => { setOptions([]); setError(e.message ?? 'Failed to load the outcome list') })
   }, [])
-  return options
+  return { options, error }
 }
 
 // ── Import modal ──────────────────────────────────────────────────────────────
+
+// A header row is optional in a pasted list — drop it so it isn't imported as a contact.
+// Same rule as the Leads page's uploader, so the two behave identically.
+function isHeaderLine(line: string): boolean {
+  return /(^|,)\s*"?phone"?\s*(,|$)/i.test(line) || (/name/i.test(line) && /phone/i.test(line))
+}
+
+// Split one CSV line, honouring double quotes so a product or address containing a
+// comma survives. Splitting on every comma turned "Loan follow-up, second notice" into
+// two columns and shifted state into nothing.
+function splitCSVLine(line: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { cur += '"'; i++ }
+      else inQuotes = !inQuotes
+    } else if (ch === ',' && !inQuotes) {
+      out.push(cur.trim()); cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  out.push(cur.trim())
+  return out
+}
 
 function ImportContactsModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
   const [purpose, setPurpose] = useState<Purpose>('marketing')
@@ -487,10 +528,12 @@ function ImportContactsModal({ open, onClose, onDone }: { open: boolean; onClose
   const [err, setErr] = useState<string | null>(null)
 
   // One contact per line: "name, phone, cif?, product?, state?" — phone is required.
-  const parsed = raw.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
-    const [name = '', phone = '', cif = '', product = '', state = ''] = line.split(',').map(s => s.trim())
-    return { name, phone, cif, product, state }
-  }).filter(c => c.phone)
+  const parsed = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    .filter(l => !isHeaderLine(l))
+    .map(line => {
+      const [name = '', phone = '', cif = '', product = '', state = ''] = splitCSVLine(line)
+      return { name, phone, cif, product, state }
+    }).filter(c => c.phone)
 
   async function submit() {
     if (parsed.length === 0) { setErr('Add at least one row with a phone number'); return }
@@ -517,7 +560,7 @@ function ImportContactsModal({ open, onClose, onDone }: { open: boolean; onClose
       <ErrBanner error={err} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
-          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Add to</label>
+          <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>Add To</label>
           <select value={purpose} onChange={e => setPurpose(e.target.value as Purpose)} style={{ ...fieldStyle, height: 38 }}>
             <option value="marketing">Marketing</option>
             <option value="collections">Collections</option>
@@ -526,7 +569,7 @@ function ImportContactsModal({ open, onClose, onDone }: { open: boolean; onClose
         </div>
         <div>
           <label style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-            Contacts, one per line: name, phone, cif, product, state
+            Contacts, One Per Line: Name, Phone, CIF, Product, State
           </label>
           <textarea
             spellCheck={false}
@@ -557,7 +600,7 @@ interface QueueTeamTotals { total: number; unassigned: number; pending: number; 
 
 function qPresence(a: QueueTeamAgent): { dot: string; label: string } {
   if (a.online && a.status === 'available') return { dot: GREEN, label: 'Online' }
-  if (a.status === 'break') return { dot: AMBER, label: 'On break' }
+  if (a.status === 'break') return { dot: AMBER, label: 'On Break' }
   return { dot: 'var(--txt3)', label: 'Offline' }
 }
 
@@ -565,12 +608,15 @@ function QueueTeamPanel({ purpose }: { purpose: '' | Purpose }) {
   const [agents, setAgents] = useState<QueueTeamAgent[]>([])
   const [totals, setTotals] = useState<QueueTeamTotals | null>(null)
   const [loading, setLoading] = useState(true)
+  // A failed fetch must not read "No agents on the team yet" — that is a claim about
+  // the floor, not about the request.
+  const [teamErr, setTeamErr] = useState<string | null>(null)
 
   const load = useCallback(() => {
     const p = purpose ? `?purpose=${purpose}` : ''
     apiFetch<{ agents: QueueTeamAgent[]; totals: QueueTeamTotals }>(`/api/call-center/queue/team${p}`)
-      .then(r => { setAgents(Array.isArray(r?.agents) ? r.agents : []); setTotals(r?.totals ?? null) })
-      .catch(() => {})
+      .then(r => { setAgents(Array.isArray(r?.agents) ? r.agents : []); setTotals(r?.totals ?? null); setTeamErr(null) })
+      .catch(e => setTeamErr(e.message ?? 'Failed to load the team'))
       .finally(() => setLoading(false))
   }, [purpose])
 
@@ -582,10 +628,10 @@ function QueueTeamPanel({ purpose }: { purpose: '' | Purpose }) {
   const head: React.CSSProperties = { padding: '8px 10px', textAlign: 'right', fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.03em', position: 'sticky', top: 0, background: 'var(--card)' }
 
   const totalCards: { label: string; value: number; color: string }[] = totals ? [
-    { label: 'In queue',      value: totals.total,         color: 'var(--txt)' },
+    { label: 'In Queue',      value: totals.total,         color: 'var(--txt)' },
     { label: 'Unassigned',    value: totals.unassigned,    color: RED },
     { label: 'Pending',       value: totals.pending,       color: '#6B7280' },
-    { label: 'Callbacks due',  value: totals.callbacks_due, color: AMBER },
+    { label: 'Callbacks Due',  value: totals.callbacks_due, color: AMBER },
     { label: 'Closed',        value: totals.closed,        color: GREEN },
   ] : []
 
@@ -611,11 +657,12 @@ function QueueTeamPanel({ purpose }: { purpose: '' | Purpose }) {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
+        {teamErr && <div style={{ padding: '12px 20px 0' }}><ErrBanner error={teamErr} onRetry={load} /></div>}
         {loading && agents.length === 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
             <Spinner size={16} color={NAVY} /> Loading team…
           </div>
-        ) : agents.length === 0 ? (
+        ) : teamErr && agents.length === 0 ? null : agents.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt3)', fontSize: TEXT.base }}>No agents on the team yet.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -624,7 +671,7 @@ function QueueTeamPanel({ purpose }: { purpose: '' | Purpose }) {
                 <th style={{ ...head, textAlign: 'left' }}>Agent</th>
                 <th style={head}>Assigned</th>
                 <th style={head}>Pending</th>
-                <th style={head}>Called today</th>
+                <th style={head}>Called Today</th>
                 <th style={head}>Closed</th>
               </tr>
             </thead>
@@ -662,6 +709,14 @@ function QueueTeamPanel({ purpose }: { purpose: '' | Purpose }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 200
+
+// Seeking a deep-linked contact that isn't on the page in view. A call-back deep link
+// points at a contact the queue's ordering floats to the top, so a few pages is plenty;
+// walking all 14,951 rows to prove the point is not.
+const SEEK_PAGE = 500
+const SEEK_PAGES = 4
+
 export default function CallCenterQueue() {
   const [items, setItems] = useState<CallCenterContact[]>([])
   const [summary, setSummary] = useState<QueueSummary | null>(null)
@@ -670,12 +725,15 @@ export default function CallCenterQueue() {
   const [selected, setSelected] = useState<CallCenterContact | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
 
-  const dispositionOptions = useDispositions()
+  const { options: dispositionOptions, error: dispositionErr } = useDispositions()
   const [purposeF, setPurposeF] = useState<'' | Purpose>('')
   const [bucket, setBucket] = useState<Bucket>('ready')
   const [disposition, setDisposition] = useState('All')
   const [search, setSearch] = useState('')
   const dq = useDebouncedValue(search, 300) // one request per pause, not per keystroke
+  // Server-side paging over the whole bucket — one 200-row page left the other 14,751
+  // pending contacts unreachable.
+  const [offset, setOffset] = useState(0)
 
   const [skipConfirm, setSkipConfirm] = useState(false)
   const [skipLoading, setSkipLoading] = useState(false)
@@ -685,11 +743,16 @@ export default function CallCenterQueue() {
   const [distributeConfirm, setDistributeConfirm] = useState(false)
   const isHead = isHeadRole()
 
+  // Overlapping loads are routine here — live events on top of a 15s poll — so a slower
+  // earlier response must never land last and paint another bucket's rows under the
+  // current chip. Only the newest request may write to the view.
+  const loadSeq = useRef(0)
   const load = useCallback(async (silent = false): Promise<CallCenterContact[]> => {
+    const seq = ++loadSeq.current
     if (!silent) setLoading(true)
     setErr(null)
     // A work queue is a live list, not a date-bounded report — no date filter.
-    const params = new URLSearchParams({ limit: '200' })
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) })
     if (purposeF) params.set('purpose', purposeF)
     if (bucket) params.set('bucket', bucket)
     if (disposition !== 'All') params.set('disposition', disposition)
@@ -697,31 +760,67 @@ export default function CallCenterQueue() {
     try {
       const res = await apiFetch<{ data: CallCenterContact[]; summary?: QueueSummary }>(`/api/call-center/queue?${params}`)
       const fresh = res.data ?? []
+      if (seq !== loadSeq.current) return fresh // superseded — a newer load owns the view
       setItems(fresh)
       setSummary(res.summary ?? null)
       return fresh
     } catch (e: any) {
+      if (seq !== loadSeq.current) return []
       setErr(e.message ?? 'Failed to load queue')
       return []
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
-  }, [purposeF, bucket, disposition, dq])
+  }, [purposeF, bucket, disposition, dq, offset])
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['calls', 'crm', 'cc_contacts'] })
+
+  // Any filter change is a different list — start it at the first page rather than on
+  // page 5 of a bucket that may not have one.
+  useEffect(() => { setOffset(0) }, [purposeF, bucket, disposition, dq])
 
   // Deep-link from the call-back popup: ?open=<contactId> selects that contact so the
   // agent lands straight on the call to make (its detail + log-call form).
   const [sp] = useSearchParams()
   const openId = sp.get('open')
+  const [openMiss, setOpenMiss] = useState<string | null>(null)
+  const sought = useRef<string | null>(null)
   useEffect(() => {
-    if (!openId || !items.length) return
+    if (!openId) return
     const m = items.find(i => String(i.id) === openId)
-    if (m) setSelected(m)
+    if (m) { setSelected(m); setOpenMiss(null); sought.current = openId; return }
+    // Not on the page in view — the filters or the page the agent is on can hide it.
+    // Seek it over the first few pages of the unfiltered queue instead of silently
+    // doing nothing, and if it genuinely isn't in the queue any more, say so rather
+    // than dropping the agent on an ordinary list with no explanation.
+    if (sought.current === openId) return
+    sought.current = openId
+    let cancelled = false
+    ;(async () => {
+      for (let page = 0; page < SEEK_PAGES; page++) {
+        try {
+          const res = await apiFetch<{ data: CallCenterContact[] }>(
+            `/api/call-center/queue?limit=${SEEK_PAGE}&offset=${page * SEEK_PAGE}`)
+          if (cancelled) return
+          const rows = res.data ?? []
+          const hit = rows.find(c => String(c.id) === openId)
+          if (hit) { setSelected(hit); setOpenMiss(null); return }
+          if (rows.length < SEEK_PAGE) break
+        } catch { break }
+      }
+      if (!cancelled) setOpenMiss(`That call-back's contact (#${openId}) is no longer in the queue — it may have been called, skipped or reassigned.`)
+    })()
+    return () => { cancelled = true }
   }, [openId, items])
 
-  const anyFilter = disposition !== 'All' || search !== ''
+  // The bucket in view, not the whole backlog: the list is bucket-filtered, so the
+  // pager and the count chip are both bounded by the number its chip reports.
+  const bucketTotal = (bucket ? summary?.[bucket] : summary?.total) ?? items.length
+
+  // The bucket and purpose tabs are filters too. Leaving them out meant that after
+  // clicking Exhausted no reset ever appeared, so there was no way back.
+  const anyFilter = disposition !== 'All' || search !== '' || bucket !== 'ready' || purposeF !== ''
 
   function toggleCheck(id: number, e: React.MouseEvent) {
     e.stopPropagation()
@@ -733,6 +832,23 @@ export default function CallCenterQueue() {
   }
 
   function clearChecked() { setCheckedIds(new Set()) }
+
+  // Keyboard access to the list. The rows were <div onClick> only, so an agent working
+  // without a mouse could not reach a contact — and therefore could not log a call at
+  // all. Up/Down walk the rows, Enter opens one. Arrowing deliberately doesn't open:
+  // every open refetches that contact's call history.
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([])
+  function onRowKey(e: React.KeyboardEvent, idx: number) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      rowRefs.current[idx + (e.key === 'ArrowDown' ? 1 : -1)]?.focus()
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      setSelected(items[idx])
+    }
+  }
+  // Roving tabIndex — one tab stop for the whole list, landing on the open contact.
+  const rovingIdx = Math.max(0, items.findIndex(i => i.id === selected?.id))
 
   // Auto-advance: after a call is logged, drop the just-worked contact and jump the
   // agent straight to the next number, so the queue plays like a dialer instead of
@@ -757,11 +873,16 @@ export default function CallCenterQueue() {
       }
     }
     if (!next) next = fresh.find(c => c.id !== prev?.id) ?? null
-    setSelected(next)
     if (!next) {
+      // Nothing left on THIS page is not nothing left: step to the next page rather
+      // than telling an agent the queue is clear while thousands wait behind it.
+      if (offset + PAGE_SIZE < bucketTotal) { setSelected(null); setOffset(offset + PAGE_SIZE); return }
+      setSelected(null)
       setQueueDone(true)
       toast.success('Queue cleared — nothing left to call right now')
+      return
     }
+    setSelected(next)
   }
 
   // New work arriving (a distribution, a filter change, a fresh load) clears the
@@ -807,7 +928,7 @@ export default function CallCenterQueue() {
   }
 
   return (
-    <Page title="Outbound Queue" subtitle={isHead ? 'Marketing, collections & support calls: from Zoho, our accounts, and manual lists' : 'Your assigned calls to make: dial through your list'} noPad
+    <Page title="Outbound Queue" subtitle={isHead ? 'Marketing, collections and support calls drawn from the CRM, our own accounts and uploaded lists' : 'Your assigned calls to make: dial through your list'} noPad
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
           {(() => {
@@ -830,7 +951,7 @@ export default function CallCenterQueue() {
                 <button onClick={() => setAssignOpen(true)} title="Assign a batch of the queue to one agent"
                   style={{ ...feedBtn, background: NAVY, color: '#fff', border: `1px solid ${NAVY}` }}>
                   <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>assignment_ind</span>
-                  Assign to agent
+                  Assign to Agent
                 </button>
               </>
             )
@@ -851,11 +972,13 @@ export default function CallCenterQueue() {
           <div style={{ padding: '14px 14px 12px', borderBottom: '1px solid var(--bdr)', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: 10 }}>
               <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)', flex: 1 }}>Call Queue</span>
-              {/* Count the bucket in view, not the whole backlog — the list is
-                  bucket-filtered, so "of 14,708" would overstate what is loaded. */}
-              <span title={`Showing ${items.length} of ${((bucket ? summary?.[bucket] : summary?.total) ?? items.length).toLocaleString()}`}
+              {/* The bucket in view, not the whole backlog — and it counts exactly what
+                  the pager below walks, so the chip and the rows can't contradict. */}
+              <span title={items.length
+                ? `Showing ${(offset + 1).toLocaleString()}–${(offset + items.length).toLocaleString()} of ${bucketTotal.toLocaleString()}`
+                : `${bucketTotal.toLocaleString()} in this view`}
                 style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.semibold, background: 'var(--chip-bg)', color: 'var(--chip-txt)', padding: '1px 7px', borderRadius: RADIUS['2xl'] }}>
-                {((bucket ? summary?.[bucket] : summary?.total) ?? items.length).toLocaleString()}
+                {bucketTotal.toLocaleString()}
               </span>
             </div>
 
@@ -922,7 +1045,10 @@ export default function CallCenterQueue() {
               {/* Last outcome — a dropdown, not a chip stack: ten dispositions as
                   chips was a wall of buttons taller than the result list it filters. */}
               <div>
-                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Last outcome</div>
+                <div style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Last Outcome</div>
+                {/* An outcome list that failed to load says so — an empty dropdown reads
+                    as "this queue has no outcomes", which is a different story. */}
+                <ErrBanner error={dispositionErr} />
                 <select value={disposition} onChange={e => setDisposition(e.target.value)} style={{
                   width: '100%', height: 32, padding: '0 8px',
                   fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer',
@@ -930,14 +1056,14 @@ export default function CallCenterQueue() {
                   background: disposition !== 'All' ? `${NAVY}0c` : 'var(--card)',
                   color: disposition !== 'All' ? NAVY : 'var(--txt2)',
                 }}>
-                  <option value="All">All outcomes</option>
+                  <option value="All">All Outcomes</option>
                   {dispositionOptions.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
                 </select>
               </div>
 
               {anyFilter && (
                 <button
-                  onClick={() => { setDisposition('All'); setSearch('') }}
+                  onClick={() => { setDisposition('All'); setSearch(''); setBucket('ready'); setPurposeF('') }}
                   style={{
                     alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4,
                     fontSize: TEXT.xs, fontWeight: FW.medium, padding: '3px 10px', borderRadius: RADIUS.full,
@@ -946,7 +1072,7 @@ export default function CallCenterQueue() {
                   }}
                 >
                   <span className="material-symbols-rounded" style={{ fontSize: 14 }}>close</span>
-                  Clear filters
+                  Clear Filters
                 </button>
               )}
             </div>
@@ -969,27 +1095,35 @@ export default function CallCenterQueue() {
             </div>
           )}
 
-          {/* Error */}
-          {err && <div style={{ padding: '10px 14px' }}><ErrBanner error={err} onRetry={load} /></div>}
+          {/* Error. onRetry is called with no argument on purpose: passing it straight to
+              load() handed the click event in as `silent`, so Retry looked inert. */}
+          {err && <div style={{ padding: '10px 14px' }}><ErrBanner error={err} onRetry={() => load()} /></div>}
+          {/* A deep link that could not be honoured explains itself. */}
+          {openMiss && <div style={{ padding: '10px 14px' }}><ErrBanner error={openMiss} /></div>}
 
-          {/* Contact list */}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          {/* Contact list — a listbox, so it can be worked from the keyboard */}
+          <div role="listbox" aria-label="Call queue" style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10, color: 'var(--txt2)', fontSize: TEXT.base }}>
                 <Spinner size={16} color={NAVY} /> Loading…
               </div>
-            ) : items.length === 0 ? (
+            ) : err ? null : items.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--txt2)', fontSize: TEXT.base }}>
                 No contacts match the current filters.
               </div>
             ) : (
-              items.map(item => {
+              items.map((item, idx) => {
                 const isSelected = selected?.id === item.id
                 const isChecked = checkedIds.has(item.id)
                 return (
                   <div
                     key={item.id}
+                    ref={el => { rowRefs.current[idx] = el }}
+                    role="option"
+                    aria-selected={isSelected}
+                    tabIndex={idx === rovingIdx ? 0 : -1}
                     onClick={() => setSelected(item)}
+                    onKeyDown={e => onRowKey(e, idx)}
                     style={{
                       display: 'flex', alignItems: 'stretch',
                       borderBottom: '1px solid var(--bdr)',
@@ -1064,12 +1198,12 @@ export default function CallCenterQueue() {
                                 color: item.is_exhausted ? RED : 'var(--txt2)',
                               }}
                             >
-                              {item.attempts}× · {item.connects} ans
+                              {item.attempts}× · {item.connects} answered
                             </span>
                           )}
                           {item.callback_due ? (
                             <span title={`Callback agreed for ${fmtDatetime(item.callback_at!)}`} style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: '#fff', background: AMBER, padding: '1px 7px', borderRadius: RADIUS.full }}>
-                              Callback due
+                              Callback Due
                             </span>
                           ) : item.is_exhausted ? (
                             <span title="6+ attempts, never answered" style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: RED, background: `${RED}14`, padding: '1px 7px', borderRadius: RADIUS.full }}>
@@ -1096,6 +1230,22 @@ export default function CallCenterQueue() {
               })
             )}
           </div>
+
+          {/* Pagination — the queue holds 14,951 pending contacts, so a single page of
+              200 left 14,751 of them unreachable. Same pager as the Leads page. */}
+          {bucketTotal > PAGE_SIZE && (
+            <div style={{ flexShrink: 0, borderTop: '1px solid var(--bdr)', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', ...NUM }}>
+                {(offset + 1).toLocaleString()}–{Math.min(offset + PAGE_SIZE, bucketTotal).toLocaleString()} of {bucketTotal.toLocaleString()}
+              </span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                  style={{ padding: '4px 10px', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: offset === 0 ? 'default' : 'pointer', border: '1px solid var(--bdr)', background: 'var(--card)', color: offset === 0 ? 'var(--txt3)' : 'var(--txt)', opacity: offset === 0 ? 0.5 : 1 }}>Prev</button>
+                <button disabled={offset + PAGE_SIZE >= bucketTotal} onClick={() => setOffset(offset + PAGE_SIZE)}
+                  style={{ padding: '4px 10px', borderRadius: RADIUS.md, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: offset + PAGE_SIZE >= bucketTotal ? 'default' : 'pointer', border: '1px solid var(--bdr)', background: 'var(--card)', color: offset + PAGE_SIZE >= bucketTotal ? 'var(--txt3)' : 'var(--txt)', opacity: offset + PAGE_SIZE >= bucketTotal ? 0.5 : 1 }}>Next</button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Right panel ────────────────────────────────────────────────── */}
@@ -1111,7 +1261,7 @@ export default function CallCenterQueue() {
               <div style={{ width: 72, height: 72, borderRadius: '50%', background: `${GREEN}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 42, color: GREEN }}>task_alt</span>
               </div>
-              <span style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>You're all caught up</span>
+              <span style={{ fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>You're All Caught Up</span>
               <span style={{ fontSize: TEXT.md, maxWidth: 320 }}>
                 Every contact in this list has been worked. New calls will appear here as they're assigned or become due.
               </span>
@@ -1157,8 +1307,12 @@ export default function CallCenterQueue() {
 // Hand a chunk of the queue to one agent by count — 20/50/100 or a custom number,
 // optionally scoped to a purpose. Assigns the still-pending, unassigned contacts.
 
+// Supervisors see the whole floor and feed the queue; agents work the book they were
+// given. Answered once for the whole module in lib/roles — the regex this replaced
+// matched on the word "head", so md/coo/cfo/cmo fell through it and the COO was shown
+// an agent's view.
 function isHeadRole(): boolean {
-  try { return /head|admin|super|manager|lead|supervisor/i.test(String(JSON.parse(localStorage.getItem('o3c_user') || '{}').role || '')) } catch { return false }
+  return isCallCentreSupervisor()
 }
 
 // My display name, used to decide which logged calls I may correct: my own, or —
@@ -1191,12 +1345,12 @@ function AssignBatchModal({ open, onClose, onDone, defaultPurpose, available }: 
       .catch(() => setAgents([]))
   }, [open, defaultPurpose])
 
-  // Best-effort "available" count for the chosen purpose, from the queue summary.
+  // What is actually assignable, read from what the summary really returns: the whole
+  // pending pool, or one purpose's slice of it. This used to read summary.by_purpose /
+  // summary.pending — the endpoint sends neither, so the hint vanished for any purpose.
   const availText = (() => {
-    const s = available as any
-    if (!s) return ''
-    const per = s.by_purpose as Record<string, number> | undefined
-    const n = purpose === 'all' ? (s.pending ?? s.total) : per?.[purpose]
+    if (!available) return ''
+    const n = purpose === 'all' ? available.total : available[purpose as Purpose]
     return n != null ? `${Number(n).toLocaleString()} pending available` : ''
   })()
 
@@ -1220,7 +1374,7 @@ function AssignBatchModal({ open, onClose, onDone, defaultPurpose, available }: 
   const lbl: React.CSSProperties = { display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.03em' }
 
   return (
-    <Modal open={open} onClose={onClose} title="Assign queue to an agent" width={460}
+    <Modal open={open} onClose={onClose} title="Assign Queue to an Agent" width={460}
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.medium, cursor: 'pointer' }}>Cancel</button>
@@ -1233,12 +1387,12 @@ function AssignBatchModal({ open, onClose, onDone, defaultPurpose, available }: 
         <div>
           <label style={lbl}>Agent</label>
           <select value={agentId} onChange={e => setAgentId(e.target.value)} style={fld}>
-            <option value="">Select an agent…</option>
+            <option value="">Select an Agent…</option>
             {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
           </select>
         </div>
         <div>
-          <label style={lbl}>How many</label>
+          <label style={lbl}>How Many</label>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             {ASSIGN_PRESETS.map(p => (
               <button key={p} onClick={() => setCount(p)} style={{
@@ -1253,7 +1407,7 @@ function AssignBatchModal({ open, onClose, onDone, defaultPurpose, available }: 
         <div>
           <label style={lbl}>Purpose</label>
           <select value={purpose} onChange={e => setPurpose(e.target.value)} style={fld}>
-            <option value="all">All purposes</option>
+            <option value="all">All Purposes</option>
             <option value="marketing">Marketing</option>
             <option value="collections">Collections</option>
             <option value="support">Support</option>

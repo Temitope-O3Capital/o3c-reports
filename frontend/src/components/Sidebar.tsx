@@ -36,6 +36,9 @@ const SECTIONS: Section[] = [
       // General Overview is the executive dashboard — management staff only.
       // (canSee also short-circuits MGMT roles, but list them for intent.)
       { icon: 'space_dashboard', label: 'Overview', to: '/', vis: [...MGMT] },
+      // Hand-offs are cross-team by nature — any team can be handed a customer — so
+      // this one is visible to everybody and scoped to your own team by the server.
+      { icon: 'swap_horiz', label: 'Hand-Offs', to: '/handoffs', vis: 'all' },
     ],
   },
   {
@@ -128,8 +131,10 @@ const SECTIONS: Section[] = [
           { label: 'Leads',            to: '/call-center/leads' },
           { label: 'Forwarded to Sales', to: '/call-center/forwards' },
           { label: 'DNC List',         to: '/call-center/dnc' },
-          // leadership — Performance now lives inside the Supervisor view (not a standalone nav page).
-          // Agent Matching is now a modal inside the Supervisor view (not a nav page).
+          // leadership — Performance is a real route (/call-center/performance) that had no
+          // way in but typing the URL. PAGE_FOR gates it on call_center_stats, so an agent
+          // never sees it. Agent Matching is a modal inside the Supervisor view, not a page.
+          { label: 'Performance',      to: '/call-center/performance' },
           { label: 'Supervisor View',  to: '/helpdesk/supervisor',      vis: ['call_center_head'] },
           // resources
           { label: 'Knowledge Base',   to: '/helpdesk/knowledge-base' },
@@ -238,7 +243,7 @@ const SECTIONS: Section[] = [
           { label: 'Agent Queue',          to: '/collections/queue' },
           { label: 'Promises to Pay',      to: '/collections/promises' },
           { label: 'Repayment Plans',      to: '/collections/repayment-plans' },
-          { label: 'Write-offs',           to: '/collections/writeoffs' },
+          { label: 'Write-Offs',           to: '/collections/writeoffs' },
           { label: 'Payment Approvals',    to: '/collections/payment-approvals' },
           { label: 'Recovery Approvals',   to: '/collections/recovery-approvals' },
           { label: 'My Dashboard',         to: '/collections-ops/agent', vis: ['collections_agent'] },
@@ -350,6 +355,10 @@ const SECTIONS: Section[] = [
               'care_head','bd_head','settlement_head','coo','cfo','cmo','md'],
         subs: [
           { label: 'My Dashboard',       to: '/reports/my-dashboard', vis: ['bi_analyst'] },
+          { label: 'KPI Tracker',        to: '/reports/kpi',
+            vis: ['bi_analyst','bi_head','sales_head','collections_head','recovery_head',
+                  'finance_head','compliance_head','cards_head','risk_head','call_center_head',
+                  'care_head','bd_head','coo','cfo','cmo','md'] },
           { label: 'Report Builder',     to: '/reports/builder',
             vis: ['bi_analyst','bi_head','sales_head','bd_head','collections_head','recovery_head',
                   'cards_head','finance_head','settlement_head','call_center_head','care_head',
@@ -361,6 +370,15 @@ const SECTIONS: Section[] = [
             vis: ['bi_analyst','bi_head','sales_head','collections_head','recovery_head',
                   'finance_head','compliance_head','cards_head','risk_head','call_center_head',
                   'care_head','bd_head','coo','cfo','cmo','md'] },
+          // The scheduled management and sales emails: status, previews, recipients. Every
+          // head can read it; changing recipients or sending is management and BI only.
+          { label: 'Email Reports', to: '/reports/management',
+            vis: ['bi_analyst','bi_head','sales_head','collections_head','recovery_head',
+                  'finance_head','compliance_head','cards_head','risk_head','call_center_head',
+                  'care_head','bd_head','coo','cfo','cmo','md'] },
+          // Who sold each card. Cards are not in core banking, so the seller is recorded here.
+          { label: 'Card Sales Credit',  to: '/reports/card-credit',
+            vis: ['bi_analyst','bi_head','sales_head','cards_head','coo','cfo','cmo','md'] },
           // Growth & Activity now lives INSIDE Reports & BI (moved out of a standalone
           // Analytics item). Surfaced to operating HEADS (not agents) + BI + management;
           // route guard/PAGE_FOR gate on kpi_dashboard/reports/executive.
@@ -487,6 +505,8 @@ const PAGE_FOR: Record<string, string | string[]> = {
   // management, who lack the 'reports' page) can open the module; ReportsHome routes
   // them to a page they can access. The individual subs below still enforce pages.
   '/reports/my-dashboard': 'reports', '/reports/behaviour': 'reports', '/reports/builder': ['reports', 'report_builder'], '/reports/kpi': 'kpi_dashboard', '/reports/uploads': 'uploads', '/reports/merchant-names': 'uploads', '/compliance/cbn-complaints': 'cbn_reports',
+  '/reports/management': ['reports', 'executive'],
+  '/reports/card-credit': ['cards', 'reports', 'executive', 'sales'],
   '/growth': ['kpi_dashboard', 'reports', 'executive'],
   '/statements': 'statements', '/statements/credit-cards': 'statements', '/core-banking': 'core-banking',
   // Admin

@@ -77,7 +77,7 @@ function titleCase(s: string) { return s.replace(/[-_]/g, " ").replace(/\b\w/g, 
 function displaySource(s: string | null | undefined) { return s ? titleCase(s) : "—"; }
 function hardGateDisplay(scoring: EyeDecisionDetail["scoring_record"] | null | undefined) {
   if (!scoring?.hard_gate_triggered) return null;
-  return scoring.hard_gate_label ?? scoring.hard_gate_reason ?? "Policy gate triggered";
+  return scoring.hard_gate_label ?? scoring.hard_gate_reason ?? "Policy Gate Triggered";
 }
 function relativeDate(v: string | null | undefined) {
   if (!v) return "Not pulled";
@@ -317,7 +317,7 @@ function CashFlowTrendChart({ monthlyInflow, monthlyOutflow, weeklyInflow, weekl
     <div style={{ marginBottom: 18 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <div style={{ color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-          Cash flow trend
+          Cash Flow Trend
         </div>
         {monthly.length > 0 && weekly.length > 0 && (
           <div style={{ display: "flex", gap: 2, padding: 2, borderRadius: "var(--r-pill)", background: "var(--rule-soft)" }}>
@@ -436,18 +436,18 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
   // visible before is lost by folding the two panels into one.
   const periculumOnlyRows: { label: string; value: string }[] = [];
   const pNetEarning = periculumMinor(pIncome.netAverageMonthlyEarning);
-  if (pNetEarning != null) periculumOnlyRows.push({ label: "Net average monthly earning", value: formatMoney(pNetEarning, currency) });
-  if (pCashFlow.numberOfTransactingMonths != null) periculumOnlyRows.push({ label: "Transacting months", value: String(pCashFlow.numberOfTransactingMonths) });
-  if (pBehavioral.gamblingStatus) periculumOnlyRows.push({ label: "Gambling status", value: String(pBehavioral.gamblingStatus) });
-  if (pBehavioral.accountActivity != null) periculumOnlyRows.push({ label: "Account activity", value: pct(num(pBehavioral.accountActivity)) });
-  if (pSpend.mostFrequentSpendCategory) periculumOnlyRows.push({ label: "Most frequent spend category", value: String(pSpend.mostFrequentSpendCategory).replace(/_/g, " ") });
+  if (pNetEarning != null) periculumOnlyRows.push({ label: "Net Average Monthly Earning", value: formatMoney(pNetEarning, currency) });
+  if (pCashFlow.numberOfTransactingMonths != null) periculumOnlyRows.push({ label: "Transacting Months", value: String(pCashFlow.numberOfTransactingMonths) });
+  if (pBehavioral.gamblingStatus) periculumOnlyRows.push({ label: "Gambling Status", value: String(pBehavioral.gamblingStatus) });
+  if (pBehavioral.accountActivity != null) periculumOnlyRows.push({ label: "Account Activity", value: pct(num(pBehavioral.accountActivity)) });
+  if (pSpend.mostFrequentSpendCategory) periculumOnlyRows.push({ label: "Most Frequent Spend Category", value: String(pSpend.mostFrequentSpendCategory).replace(/_/g, " ") });
   const pHighestSpend = periculumMinor(pSpend.highestSpend);
-  if (pHighestSpend != null && pSpend.monthWithHighestSpend) periculumOnlyRows.push({ label: `Highest-spend month (${pSpend.monthWithHighestSpend})`, value: formatMoney(pHighestSpend, currency) });
-  if (periculum?.confidenceOnParsing != null) periculumOnlyRows.push({ label: "Periculum parsing confidence", value: pct(num(periculum.confidenceOnParsing)) });
+  if (pHighestSpend != null && pSpend.monthWithHighestSpend) periculumOnlyRows.push({ label: `Highest-Spend Month (${pSpend.monthWithHighestSpend})`, value: formatMoney(pHighestSpend, currency) });
+  if (periculum?.confidenceOnParsing != null) periculumOnlyRows.push({ label: "Periculum Parsing Confidence", value: pct(num(periculum.confidenceOnParsing)) });
 
   return (
     <Card>
-      <Kicker>Statement insights</Kicker>
+      <Kicker>Statement Insights</Kicker>
       {periculum && (
         <p style={{ margin: "0 0 16px", color: "var(--ink-faint)", font: "400 12px/1.5 var(--font)" }}>
           Tiles marked <span style={{ font: "700 9px/1 var(--font)", padding: "2px 5px", borderRadius: 4, background: "var(--accent-2)", color: "#fff" }}>P</span> include a Periculum cross-check alongside our own parse.
@@ -468,7 +468,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
         {statement.predicted_average_salary_minor != null && (
           <div style={{ padding: "12px 14px", borderRadius: "var(--r-md)", background: "var(--paper)", border: "1px solid var(--rule)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
-              <Wallet size={12} /> Predicted salary
+              <Wallet size={12} /> Predicted Salary
             </div>
             <div style={{ color: "var(--ink)", font: "700 17px/1.2 var(--font-mono)" }}>
               {formatMoney(statement.predicted_average_salary_minor, currency)}
@@ -488,7 +488,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
         {selfTransferCount > 0 && (
           <div style={{ padding: "12px 14px", borderRadius: "var(--r-md)", background: "var(--paper)", border: "1px solid var(--rule)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
-              <CornerDownRight size={12} /> Self-transfers
+              <CornerDownRight size={12} /> Self-Transfers
             </div>
             <div style={{ color: "var(--ink)", font: "700 17px/1.2 var(--font-mono)" }}>
               {selfTransferCount} txn{selfTransferCount === 1 ? "" : "s"}
@@ -505,7 +505,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
         {statement.account_sweep_detected && (
           <div style={{ padding: "12px 14px", borderRadius: "var(--r-md)", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--warn)", font: "700 12px/1 var(--font)" }}>
-              <AlertTriangle size={13} /> Account sweep pattern
+              <AlertTriangle size={13} /> Account Sweep Pattern
             </div>
             <div style={{ marginTop: 6, color: "var(--ink-faint)", font: "500 11.5px/1.4 var(--font)" }}>
               Balance regularly drained to near-zero right after each credit.
@@ -519,7 +519,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
         {hasOtherIncome && (
           <div style={{ padding: "12px 14px", borderRadius: "var(--r-md)", background: "var(--paper)", border: "1px solid var(--rule)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
-              <Wallet size={12} /> Other recurring income
+              <Wallet size={12} /> Other Recurring Income
             </div>
             <div style={{ color: "var(--ink)", font: "700 17px/1.2 var(--font-mono)" }}>
               {formatMoney(statement.other_income_total_minor ?? 0, currency)}
@@ -536,7 +536,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
         {(loanDisbursementCount > 0 || loanRepaymentCount > 0) && (
           <div style={{ padding: "12px 14px", borderRadius: "var(--r-md)", background: "var(--paper)", border: "1px solid var(--rule)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
-              <Landmark size={12} /> Loan activity
+              <Landmark size={12} /> Loan Activity
             </div>
             <div style={{ color: "var(--ink)", font: "700 17px/1.2 var(--font-mono)" }}>
               {formatMoney(statement.total_loan_repayment_minor ?? 0, currency)} repaid
@@ -553,7 +553,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
         {(mostFrequentCreditCounterparty || mostFrequentDebitCounterparty) && (
           <div style={{ padding: "12px 14px", borderRadius: "var(--r-md)", background: "var(--paper)", border: "1px solid var(--rule)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
-              <Building2 size={12} /> Most frequent counterparty
+              <Building2 size={12} /> Most Frequent Counterparty
             </div>
             {mostFrequentCreditCounterparty && (
               <div style={{ color: "var(--ink)", font: "600 12.5px/1.4 var(--font)", overflowWrap: "anywhere" }} title={mostFrequentCreditCounterparty}>
@@ -574,7 +574,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
         {mostRecurringExpenseDescription && (
           <div style={{ padding: "12px 14px", borderRadius: "var(--r-md)", background: "var(--paper)", border: "1px solid var(--rule)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
-              <Tag size={12} /> Most recurring expense
+              <Tag size={12} /> Most Recurring Expense
             </div>
             <div style={{ color: "var(--ink)", font: "700 17px/1.2 var(--font-mono)" }}>
               {formatMoney(statement.total_recurring_expense_minor ?? 0, currency)}
@@ -591,7 +591,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
         {totalCreditTurnover != null && (
           <div style={{ padding: "12px 14px", borderRadius: "var(--r-md)", background: "var(--paper)", border: "1px solid var(--rule)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
-              <TrendingUp size={12} /> Lifetime turnover
+              <TrendingUp size={12} /> Lifetime Turnover
             </div>
             <div style={{ color: "var(--ink)", font: "700 17px/1.2 var(--font-mono)" }}>
               {formatMoney(totalCreditTurnover, currency)}
@@ -609,7 +609,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
       {categoryEntries.length > 0 && (
         <div style={{ marginBottom: 18 }}>
           <div style={{ color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
-            Spend by category
+            Spend by Category
           </div>
           <div style={{ display: "grid", gap: 8 }}>
             {categoryEntries.map(({ cat, total }) => (
@@ -632,7 +632,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
           {Object.keys(txnDist).length > 0 && (
             <div>
               <div style={{ color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
-                Transaction size
+                Transaction Size
               </div>
               {SIZE_BUCKET_ORDER.filter((b) => txnDist[b] != null).map((b) => (
                 <div key={b} style={{ display: "grid", gridTemplateColumns: "90px 1fr 36px", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -648,7 +648,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
           {Object.keys(balDist).length > 0 && (
             <div>
               <div style={{ color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
-                Balance distribution
+                Balance Distribution
               </div>
               {SIZE_BUCKET_ORDER.filter((b) => balDist[b] != null).map((b) => (
                 <div key={b} style={{ display: "grid", gridTemplateColumns: "90px 1fr 36px", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -667,7 +667,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
       {Object.keys(incomeByChannel).length > 0 && (
         <div>
           <div style={{ color: "var(--ink-faint)", font: "650 10px/1 var(--font)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
-            Income by channel
+            Income by Channel
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
             {Object.entries(incomeByChannel).map(([ch, v]) => (
@@ -797,7 +797,7 @@ function RiskDistribution({ pd }: { pd?: number | null }) {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-        <Kicker>Risk distribution</Kicker>
+        <Kicker>Risk Distribution</Kicker>
         <span style={{ font: "600 12px/1 var(--font-mono)", color: "var(--ink-faint)" }}>PD {pct(pd)}</span>
       </div>
       <div style={{ position: "relative", height: 44 }}>
@@ -822,7 +822,7 @@ function BureauSelectorCard({ name, score, enq30d, openLoans, defaults, quality,
   quality: "clean" | "has-defaults" | "thin"; selected: boolean; onClick: () => void;
 }) {
   const chipTone = quality === "has-defaults" ? "danger" : quality === "clean" ? "success" : "warn";
-  const chipLabel = quality === "has-defaults" ? "Has defaults" : quality === "clean" ? "Clean" : "Thin file";
+  const chipLabel = quality === "has-defaults" ? "Has Defaults" : quality === "clean" ? "Clean" : "Thin File";
   return (
     <button onClick={onClick} style={{ display: "block", width: "100%", textAlign: "left", border: `2px solid ${selected ? "var(--accent)" : "var(--rule)"}`, borderRadius: "var(--r-lg)", padding: "16px 18px", background: selected ? "var(--accent-wash)" : "var(--panel)", cursor: "pointer", transition: "all var(--dur-fast) var(--ease)", boxShadow: selected ? "var(--shadow-accent)" : "var(--shadow-sm)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
@@ -857,7 +857,7 @@ function PaymentTimeline({ schedule }: { schedule: Array<{ month?: string; statu
   };
   const labelOf: Record<string, string> = {
     paid: "Paid", ok: "Paid", overdue: "Overdue", missed: "Missed",
-    late: "Late", pending: "Pending", nd: "No data",
+    late: "Late", pending: "Pending", nd: "No Data",
   };
   if (!schedule.length) return null;
   const now = new Date();
@@ -875,7 +875,7 @@ function PaymentTimeline({ schedule }: { schedule: Array<{ month?: string; statu
   return (
     <div style={{ padding: "14px 18px", borderTop: "1px solid var(--rule-soft)", background: "rgba(0,0,0,0.02)" }}>
       <div style={{ font: "700 10px/1 var(--font)", letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 10 }}>
-        Payment history
+        Payment History
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
         {schedule.map((s, i) => {
@@ -892,7 +892,7 @@ function PaymentTimeline({ schedule }: { schedule: Array<{ month?: string; statu
         })}
       </div>
       <div style={{ display: "flex", gap: 12, marginTop: 10, font: "500 11px/1 var(--font)", color: "var(--ink-faint)", flexWrap: "wrap" }}>
-        {([["Paid", "#10B981"], ["Late", "#F59E0B"], ["Overdue", "#DC2626"], ["No data", "var(--rule)"]] as [string, string][]).map(([label, c]) => (
+        {([["Paid", "#10B981"], ["Late", "#F59E0B"], ["Overdue", "#DC2626"], ["No Data", "var(--rule)"]] as [string, string][]).map(([label, c]) => (
           <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
             <span style={{ width: 9, height: 9, borderRadius: 2, background: c, display: "block" }} />
             {label}
@@ -925,7 +925,7 @@ function FacilityCard({ item, currency, bureauName = "Bureau" }: { item: Record<
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ color: "var(--ink)", font: "600 14px/1.3 var(--font)" }}>
-              {text(item.institution ?? item.lender ?? item.bank) ?? "Credit facility"}
+              {text(item.institution ?? item.lender ?? item.bank) ?? "Credit Facility"}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}>
               {text(item.performance_status) && (
@@ -999,7 +999,7 @@ function SendModal({ decisionId, onClose }: { decisionId: string; onClose: () =>
   };
 
   return (
-    <Modal title="Send to borrower" subtitle="Deliver the credit decision report directly to the applicant." onClose={onClose}>
+    <Modal title="Send to Borrower" subtitle="Deliver the credit decision report directly to the applicant." onClose={onClose}>
       <div style={{ display: "grid", gap: 14 }}>
         <div>
           <FieldLabel>Channel</FieldLabel>
@@ -1013,16 +1013,16 @@ function SendModal({ decisionId, onClose }: { decisionId: string; onClose: () =>
           </div>
         </div>
         <div>
-          <FieldLabel>Recipient {channel === "email" ? "(email address)" : "(phone number)"}</FieldLabel>
+          <FieldLabel>Recipient {channel === "email" ? "(Email Address)" : "(Phone Number)"}</FieldLabel>
           <input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder={channel === "email" ? "applicant@example.com" : "0801 234 5678"} style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid var(--rule)", background: "var(--paper)", font: "500 13px/1 var(--font)", color: "var(--ink)", boxSizing: "border-box" }} />
         </div>
         <div>
-          <FieldLabel>Note to borrower (optional)</FieldLabel>
+          <FieldLabel>Note to Borrower (Optional)</FieldLabel>
           <textarea rows={3} value={message} onChange={e => setMessage(e.target.value)} placeholder="Please find attached your credit decision report…" style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid var(--rule)", background: "var(--paper)", font: "400 13px/1.5 var(--font)", color: "var(--ink)", resize: "vertical", boxSizing: "border-box" }} />
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy} onClick={submit}>{busy ? "Sending…" : "Send report"}</button>
+          <button className="btn primary" disabled={busy} onClick={submit}>{busy ? "Sending…" : "Send Report"}</button>
         </div>
       </div>
     </Modal>
@@ -1059,10 +1059,10 @@ function OverrideModal({ decisionId, currentOutcome, onClose, onDone }: { decisi
   ];
 
   return (
-    <Modal title="Override decision" subtitle="Manually change the model outcome. A documented reason is mandatory and forms part of the audit trail." onClose={onClose}>
+    <Modal title="Override Decision" subtitle="Manually change the model outcome. A documented reason is mandatory and forms part of the audit trail." onClose={onClose}>
       <div style={{ display: "grid", gap: 14 }}>
         <div>
-          <FieldLabel>New outcome</FieldLabel>
+          <FieldLabel>New Outcome</FieldLabel>
           <div style={{ display: "flex", gap: 8 }}>
             {OUTCOMES.map(o => (
               <button key={o.value} onClick={() => setOutcome(o.value)}
@@ -1074,12 +1074,12 @@ function OverrideModal({ decisionId, currentOutcome, onClose, onDone }: { decisi
         </div>
         {outcome === "APPROVE" && (
           <div>
-            <FieldLabel>Approved limit (optional)</FieldLabel>
+            <FieldLabel>Approved Limit (Optional)</FieldLabel>
             <input value={limitStr} onChange={e => setLimitStr(e.target.value)} placeholder="e.g. 500,000" style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid var(--rule)", background: "var(--paper)", font: "500 13px/1 var(--font)", color: "var(--ink)", boxSizing: "border-box" }} />
           </div>
         )}
         <div>
-          <FieldLabel>Reason for override *</FieldLabel>
+          <FieldLabel>Reason for Override *</FieldLabel>
           <textarea rows={4} value={reason} onChange={e => setReason(e.target.value)} placeholder="Document the specific basis for overriding the model decision — e.g. additional collateral, verified income not captured in statement, policy exception approved by credit committee…" style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid var(--rule)", background: "var(--paper)", font: "400 13px/1.5 var(--font)", color: "var(--ink)", resize: "vertical", boxSizing: "border-box" }} />
         </div>
         <div style={{ padding: "8px 12px", background: "var(--warn-wash)", border: "1px solid var(--warn)", borderRadius: 8, font: "400 12px/1.45 var(--font)", color: "var(--ink)" }}>
@@ -1087,7 +1087,7 @@ function OverrideModal({ decisionId, currentOutcome, onClose, onDone }: { decisi
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy || !reason.trim()} onClick={submit}>{busy ? "Overriding…" : "Confirm override"}</button>
+          <button className="btn primary" disabled={busy || !reason.trim()} onClick={submit}>{busy ? "Overriding…" : "Confirm Override"}</button>
         </div>
       </div>
     </Modal>
@@ -1102,7 +1102,7 @@ function OutcomeModal({ scoreId, onClose, onDone }: { scoreId: string; onClose: 
     { value: "paid" as const, label: "Paid", description: "Loan was fully repaid on schedule" },
     { value: "prepaid" as const, label: "Prepaid", description: "Loan repaid early" },
     { value: "defaulted" as const, label: "Defaulted", description: "Customer defaulted on repayment" },
-    { value: "written_off" as const, label: "Written off", description: "Balance written off as unrecoverable" },
+    { value: "written_off" as const, label: "Written Off", description: "Balance written off as unrecoverable" },
   ];
 
   const submit = async () => {
@@ -1119,7 +1119,7 @@ function OutcomeModal({ scoreId, onClose, onDone }: { scoreId: string; onClose: 
   };
 
   return (
-    <Modal title="Record outcome" subtitle="Link the actual loan result to this scoring record — improves future model accuracy." onClose={onClose}>
+    <Modal title="Record Outcome" subtitle="Link the actual loan result to this scoring record — improves future model accuracy." onClose={onClose}>
       <div style={{ display: "grid", gap: 12 }}>
         {OUTCOMES.map(o => (
           <label key={o.value} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${outcome === o.value ? "var(--accent)" : "var(--rule)"}`, background: outcome === o.value ? "var(--accent-wash)" : "var(--panel)", cursor: "pointer" }}>
@@ -1132,7 +1132,7 @@ function OutcomeModal({ scoreId, onClose, onDone }: { scoreId: string; onClose: 
         ))}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy} onClick={submit}>{busy ? "Recording…" : "Record outcome"}</button>
+          <button className="btn primary" disabled={busy} onClick={submit}>{busy ? "Recording…" : "Record Outcome"}</button>
         </div>
       </div>
     </Modal>
@@ -1232,7 +1232,7 @@ export function EyeDecisionPanel({ decisionDetail, loading = false, onRefresh }:
   if (loading && !decisionDetail) {
     return (
       <div className="panel">
-        <div className="panel-head"><h2>Eye decision</h2></div>
+        <div className="panel-head"><h2>Eye Decision</h2></div>
         <div style={{ padding: 24 }}>
           <SkeletonText lines={5} />
         </div>
@@ -1243,8 +1243,8 @@ export function EyeDecisionPanel({ decisionDetail, loading = false, onRefresh }:
   if (!decisionDetail) {
     return (
       <div className="panel">
-        <div className="panel-head"><h2>Eye decision</h2></div>
-        <EmptyState icon={<Gauge size={24} />} title="No decision on record" description="This applicant hasn't been evaluated by Eye yet." />
+        <div className="panel-head"><h2>Eye Decision</h2></div>
+        <EmptyState icon={<Gauge size={24} />} title="No Decision on Record" description="This applicant hasn't been evaluated by Eye yet." />
       </div>
     );
   }
@@ -1439,18 +1439,18 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
   const ewsSignals: EwsSignal[] = [];
   let _ec = 1;
   const eid = () => `EWS-${900 + _ec++}`;
-  if (gateActive) ewsSignals.push({ id: eid(), severity: "High", status: "Pending", title: hardGateDisplay(scoring) ?? "Policy gate triggered", description: "Score hard gate blocked approval. Manual review required before proceeding." });
-  if (delinquentAccounts > 0) ewsSignals.push({ id: eid(), severity: "High", status: "Pending", title: `Delinquent accounts — ${delinquentAccounts} on bureau`, description: `Bureau report shows ${delinquentAccounts} delinquent account${delinquentAccounts > 1 ? "s" : ""}. Outstanding overdue balance detected.` });
+  if (gateActive) ewsSignals.push({ id: eid(), severity: "High", status: "Pending", title: hardGateDisplay(scoring) ?? "Policy Gate Triggered", description: "Score hard gate blocked approval. Manual review required before proceeding." });
+  if (delinquentAccounts > 0) ewsSignals.push({ id: eid(), severity: "High", status: "Pending", title: `Delinquent Accounts — ${delinquentAccounts} on Bureau`, description: `Bureau report shows ${delinquentAccounts} delinquent account${delinquentAccounts > 1 ? "s" : ""}. Outstanding overdue balance detected.` });
   if (statement?.bounce_count_per_month && statement.bounce_count_per_month >= 1) {
     const c = Math.round(statement.bounce_count_per_month);
-    ewsSignals.push({ id: eid(), severity: statement.bounce_count_per_month >= 3 ? "High" : "Medium", status: "Pending", title: `Bounce frequency — ~${c} per month`, description: `Statement shows ~${c} returned debit${c > 1 ? "s" : ""} per month. Possible insufficient funds pattern.` });
+    ewsSignals.push({ id: eid(), severity: statement.bounce_count_per_month >= 3 ? "High" : "Medium", status: "Pending", title: `Bounce Frequency — ~${c} per Month`, description: `Statement shows ~${c} returned debit${c > 1 ? "s" : ""} per month. Possible insufficient funds pattern.` });
   }
   if (statement?.gambling_ratio && statement.gambling_ratio > 0.05) {
     const gp = (statement.gambling_ratio * 100).toFixed(1);
-    ewsSignals.push({ id: eid(), severity: statement.gambling_ratio >= 0.15 ? "High" : "Medium", status: "Pending", title: `Gambling transactions — ${gp}% of debits`, description: `${gp}% of debit transactions matched gambling merchant patterns.` });
+    ewsSignals.push({ id: eid(), severity: statement.gambling_ratio >= 0.15 ? "High" : "Medium", status: "Pending", title: `Gambling Transactions — ${gp}% of Debits`, description: `${gp}% of debit transactions matched gambling merchant patterns.` });
   }
-  if ((enquiries3m ?? 0) >= 2) ewsSignals.push({ id: eid(), severity: (enquiries3m ?? 0) >= 4 ? "Medium" : "Low", status: "Open", title: `Multiple bureau enquiries — ${enquiries3m} in 3 months`, description: `${enquiries3m} bureau enquiries in the last 3 months. May indicate credit-seeking activity.` });
-  if (pepFlagged || watchlistHit) ewsSignals.push({ id: eid(), severity: "High", status: "Pending", title: "PEP / watchlist flag detected", description: "Applicant matched a politically exposed person or sanctions watchlist entry. Compliance review required." });
+  if ((enquiries3m ?? 0) >= 2) ewsSignals.push({ id: eid(), severity: (enquiries3m ?? 0) >= 4 ? "Medium" : "Low", status: "Open", title: `Multiple Bureau Enquiries — ${enquiries3m} in 3 Months`, description: `${enquiries3m} bureau enquiries in the last 3 months. May indicate credit-seeking activity.` });
+  if (pepFlagged || watchlistHit) ewsSignals.push({ id: eid(), severity: "High", status: "Pending", title: "PEP / Watchlist Flag Detected", description: "Applicant matched a politically exposed person or sanctions watchlist entry. Compliance review required." });
   const ewsHighCount = ewsSignals.filter(s => s.severity === "High").length;
 
   function ewsSevColor(sev: string) { return sev === "High" ? "var(--bad)" : sev === "Medium" ? "var(--warn)" : "var(--accent)"; }
@@ -1461,19 +1461,19 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
     APPROVE:  { bg: "var(--good-wash)",  border: "color-mix(in srgb, var(--good) 22%, transparent)",  text: "var(--good)",  dot: "var(--good)",  label: "Approved" },
     DECLINE:  { bg: "var(--bad-wash)",   border: "color-mix(in srgb, var(--bad) 22%, transparent)",   text: "var(--bad)",   dot: "var(--bad)",   label: "Declined" },
     REFER:    { bg: "var(--warn-wash)",  border: "color-mix(in srgb, var(--warn) 26%, transparent)",  text: "var(--warn)",  dot: "var(--warn)",  label: "Referred" },
-    REQUEST_MORE_INFORMATION: { bg: "var(--warn-wash)", border: "color-mix(in srgb, var(--warn) 26%, transparent)", text: "var(--warn)", dot: "var(--warn)", label: "More info needed" },
-    ERROR: { bg: "var(--bad-wash)", border: "color-mix(in srgb, var(--bad) 22%, transparent)", text: "var(--bad)", dot: "var(--bad)", label: "Could not be scored" },
+    REQUEST_MORE_INFORMATION: { bg: "var(--warn-wash)", border: "color-mix(in srgb, var(--warn) 26%, transparent)", text: "var(--warn)", dot: "var(--warn)", label: "More Info Needed" },
+    ERROR: { bg: "var(--bad-wash)", border: "color-mix(in srgb, var(--bad) 22%, transparent)", text: "var(--bad)", dot: "var(--bad)", label: "Could Not Be Scored" },
   };
   const oc = outcomeConf[outcome];
 
   const tabs: [Tab, string, number?][] = [
     ["summary",   "Summary"],
-    ["risk",      "Risk factors", meaningful.length || undefined],
+    ["risk",      "Risk Factors", meaningful.length || undefined],
     ["bureau",    "Bureau"],
     ["statement", "Statement"],
-    ["limit",     "Credit limit"],
+    ["limit",     "Credit Limit"],
     ["ews",       "EWS", gateActive ? 1 : undefined],
-    ["policy",    "Policy & audit"],
+    ["policy",    "Policy & Audit"],
   ];
 
   const downloadReport = async () => {
@@ -1526,7 +1526,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
             <div style={{ "--ink": "#E9EAF5", "--rule": "rgba(255,255,255,0.14)" } as React.CSSProperties}>
               {scoring
                 ? <ScoreGauge score={scoring.score} label={scoring.band} size={170} />
-                : <div style={{ width: 170, height: 110, display: "grid", placeItems: "center", color: "rgba(255,255,255,0.4)", fontSize: 13 }}>No score on file</div>
+                : <div style={{ width: 170, height: 110, display: "grid", placeItems: "center", color: "rgba(255,255,255,0.4)", fontSize: 13 }}>No Score on File</div>
               }
             </div>
             {/* Right: outcome chip + mini-stats grid */}
@@ -1550,7 +1550,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               </div>
               {maxLoanMinor != null && (
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                  <div style={{ color: "rgba(255,255,255,0.38)", font: "650 10px/1 var(--font)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 5 }}>Approved limit</div>
+                  <div style={{ color: "rgba(255,255,255,0.38)", font: "650 10px/1 var(--font)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 5 }}>Approved Limit</div>
                   <div style={{ color: "var(--gold-2)", font: "750 18px/1 var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>{formatMoney(maxLoanMinor, currency)}</div>
                   {eligibleCeilingMinor != null && eligibleCeilingMinor > maxLoanMinor && (
                     <div style={{ marginTop: 6, color: "rgba(255,255,255,0.5)", font: "500 11.5px/1.4 var(--font)" }}>
@@ -1649,7 +1649,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
           )}
           <button onClick={() => setShowSend(true)}
             style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 13px", borderRadius: "var(--r-lg)", border: "1px solid rgba(10,126,118,0.45)", background: "rgba(10,126,118,0.22)", color: "#92D9D4", font: "700 12px/1 var(--font)", cursor: "pointer", marginLeft: "auto" }}>
-            <Send size={13} /> Send to borrower
+            <Send size={13} /> Send to Borrower
           </button>
         </div>
       </div>
@@ -1691,7 +1691,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               {/* Applicant identity */}
               {(profileName || profileBvn || profileDob || profileGender) && (
                 <Card>
-                  <Kicker>Applicant identity</Kicker>
+                  <Kicker>Applicant Identity</Kicker>
                   <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
                     <div style={{ width: 42, height: 42, borderRadius: "50%", flexShrink: 0, display: "grid", placeItems: "center", background: "linear-gradient(135deg, var(--accent-2), var(--accent))", color: "#fff", font: "750 15px/1 var(--font)" }}>
                       {(profileName ?? "A").split(" ").map((p: string) => p[0]).slice(0, 2).join("").toUpperCase()}
@@ -1712,7 +1712,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0 24px" }}>
                     {[
                       { label: "Gender", value: profileGender ? titleCase(profileGender) : "—" },
-                      { label: "Date of birth", value: (() => { if (!profileDob) return "—"; const age = ageFromDOB(profileDob); return age != null ? `${formatDate(profileDob)} (${age} yrs)` : formatDate(profileDob); })() },
+                      { label: "Date of Birth", value: (() => { if (!profileDob) return "—"; const age = ageFromDOB(profileDob); return age != null ? `${formatDate(profileDob)} (${age} yrs)` : formatDate(profileDob); })() },
                       { label: "Phone", value: profilePhone ?? "—" },
                     ].map(f => (
                       <div key={f.label} style={{ padding: "8px 0", borderBottom: "1px solid var(--rule-soft)" }}>
@@ -1726,7 +1726,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
 
               {/* Why strip */}
               <div style={{ background: oc.bg, border: `1px solid ${oc.border}`, borderLeft: `3px solid ${oc.text}`, borderRadius: "var(--r-lg)", padding: "18px 20px" }}>
-                <Kicker>{outcome === "APPROVE" ? "Why this was approved" : outcome === "DECLINE" ? "Why this was declined" : "Why this was referred"}</Kicker>
+                <Kicker>{outcome === "APPROVE" ? "Why This Was Approved" : outcome === "DECLINE" ? "Why This Was Declined" : "Why This Was Referred"}</Kicker>
                 <div style={{ display: "grid", gap: 10 }}>
                   {(outcome === "DECLINE" ? negatives : positives).slice(0, 4).map((f, i) => {
                     const pos = contributionTone(f) === "positive";
@@ -1756,7 +1756,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               {allContribs.length > 0 && (
                 <Card>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                    <Kicker>Signal coverage</Kicker>
+                    <Kicker>Signal Coverage</Kicker>
                     <span style={{ font: "600 12px/1 var(--font-mono)", color: coveragePct >= 70 ? "var(--good)" : coveragePct >= 40 ? "var(--warn)" : "var(--bad)" }}>{coveredSignals}/{totalSignals} ({coveragePct}%)</span>
                   </div>
                   <div style={{ height: 8, background: "var(--rule)", borderRadius: "var(--r-pill)", overflow: "hidden" }}>
@@ -1769,7 +1769,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               {scoreHistory.length > 1 && (
                 <Card>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                    <Kicker>Score history ({scoreHistory.length} scores)</Kicker>
+                    <Kicker>Score History ({scoreHistory.length} Scores)</Kicker>
                     <span style={{ font: "600 12px/1 var(--font-mono)", color: "var(--ink-faint)" }}>
                       {scoreHistory[0].score} → {scoreHistory[scoreHistory.length - 1].score}
                       {scoreHistory[scoreHistory.length - 1].score > scoreHistory[0].score
@@ -1839,7 +1839,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
                 <Card>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                    <Kicker>Feature contributions</Kicker>
+                    <Kicker>Feature Contributions</Kicker>
                     <div style={{ display: "flex", gap: 10, font: "600 11.5px/1 var(--font)" }}>
                       <span style={{ color: "var(--good)" }}>+{positives.length}</span>
                       <span style={{ color: "var(--bad)" }}>−{negatives.length}</span>
@@ -1851,7 +1851,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                   }
                 </Card>
                 <div>
-                  <Kicker>Recommended terms</Kicker>
+                  <Kicker>Recommended Terms</Kicker>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <MetricCard label="Limit" value={maxLoanMinor != null ? formatMoney(maxLoanMinor, currency) : "—"} />
                     <MetricCard label="PD" value={pd != null ? pct(pd) : "—"} valueColor={pd != null && pd > 0.3 ? "var(--bad)" : undefined} />
@@ -1871,7 +1871,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               <Card>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
                   <div>
-                    <Kicker>Feature contributions</Kicker>
+                    <Kicker>Feature Contributions</Kicker>
                     <p style={{ margin: 0, color: "var(--ink-faint)", font: "400 12.5px/1.5 var(--font)" }}>Green bars improve the score; red bars increase risk.</p>
                   </div>
                   <div style={{ display: "flex", gap: 12, font: "600 12px/1 var(--font)", flexShrink: 0 }}>
@@ -1881,7 +1881,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                 </div>
                 {meaningful.length > 0
                   ? meaningful.map((f, i) => <ContributionBar key={f.feature ?? i} factor={f} max={maxPts} />)
-                  : <EmptyState icon={<Gauge size={22} />} title="No contributions" description="The backend stored a score but no non-zero contribution rows." />
+                  : <EmptyState icon={<Gauge size={22} />} title="No Contributions" description="The backend stored a score but no non-zero contribution rows." />
                 }
               </Card>
 
@@ -1890,7 +1890,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                   feature_contributions above. */}
               {explanation && explanation.hard_gate_triggered && (
                 <Card>
-                  <Kicker>ML attribution (SHAP) — live cross-check</Kicker>
+                  <Kicker>ML Attribution (SHAP) — Live Cross-Check</Kicker>
                   <p style={{ margin: 0, color: "var(--ink-faint)", font: "400 13px/1.5 var(--font)" }}>
                     This application was declined by a hard gate
                     {decisionDetail.reasons.length > 0 ? ` (${decisionDetail.reasons.join(", ")})` : ""} before
@@ -1905,7 +1905,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                   <Card>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
                       <div>
-                        <Kicker>ML attribution (SHAP) — live cross-check</Kicker>
+                        <Kicker>ML Attribution (SHAP) — Live Cross-Check</Kicker>
                         <p style={{ margin: 0, color: "var(--ink-faint)", font: "400 12.5px/1.5 var(--font)" }}>Live explanation from the intelligence service's own model — separate from the scorecard weights above.</p>
                       </div>
                       <span style={{ font: "500 11px/1 var(--font)", color: "var(--ink-faint)", background: "var(--paper)", padding: "3px 8px", borderRadius: 4, flexShrink: 0 }}>
@@ -1933,13 +1933,13 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               })()}
 
               <Card>
-                <Kicker>Policy checks</Kicker>
-                <PolicyCheck label="DTI (gate ≤ 70%)" value={dtiRaw != null ? `${(dtiRaw * 100).toFixed(1)}%` : "Not available"} pass={dtiRaw != null ? dtiRaw <= 0.70 : undefined} />
-                <PolicyCheck label="Bureau pulled within 30d" value={bureauFetched ? `${bureauDaysAgo}d ago` : "Not pulled"} pass={bureauDaysAgo != null ? bureauDaysAgo <= 30 : undefined} />
-                <PolicyCheck label="No active delinquencies" value={delinquentAccounts > 0 ? `${delinquentAccounts} delinquent` : "Confirmed"} pass={delinquentAccounts === 0} />
-                <PolicyCheck label="Active loans (gate ≤ 5)" value={activeLoans > 0 ? String(activeLoans) : "None on bureau"} pass={activeLoans <= 5} />
-                <PolicyCheck label="PEP / sanctions clear" value={pepFlagged || watchlistHit ? "Flagged — review required" : "Clear"} pass={!pepFlagged && !watchlistHit} />
-                <PolicyCheck label="Hard gate" value={gateActive ? (scoring?.hard_gate_reason ?? "Triggered") : "Passed"} pass={!gateActive} />
+                <Kicker>Policy Checks</Kicker>
+                <PolicyCheck label="DTI (Gate ≤ 70%)" value={dtiRaw != null ? `${(dtiRaw * 100).toFixed(1)}%` : "Not available"} pass={dtiRaw != null ? dtiRaw <= 0.70 : undefined} />
+                <PolicyCheck label="Bureau Pulled Within 30d" value={bureauFetched ? `${bureauDaysAgo}d ago` : "Not pulled"} pass={bureauDaysAgo != null ? bureauDaysAgo <= 30 : undefined} />
+                <PolicyCheck label="No Active Delinquencies" value={delinquentAccounts > 0 ? `${delinquentAccounts} delinquent` : "Confirmed"} pass={delinquentAccounts === 0} />
+                <PolicyCheck label="Active Loans (Gate ≤ 5)" value={activeLoans > 0 ? String(activeLoans) : "None on bureau"} pass={activeLoans <= 5} />
+                <PolicyCheck label="PEP / Sanctions Clear" value={pepFlagged || watchlistHit ? "Flagged — review required" : "Clear"} pass={!pepFlagged && !watchlistHit} />
+                <PolicyCheck label="Hard Gate" value={gateActive ? (scoring?.hard_gate_reason ?? "Triggered") : "Passed"} pass={!gateActive} />
               </Card>
 
               {/* All signals — categorised tab-panel */}
@@ -1996,7 +1996,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                     {/* ── Toolbar ── */}
                     <div style={{ padding: "14px 18px 12px", borderBottom: "1px solid var(--rule)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <Kicker>All signals</Kicker>
+                        <Kicker>All Signals</Kicker>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ color: "var(--good)", font: "700 11.5px/1 var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>+{totalPosPts.toFixed(0)}</span>
                           <div style={{ width: 100, height: 5, borderRadius: "var(--r-pill)", overflow: "hidden", background: "var(--rule)", display: "flex" }}>
@@ -2075,7 +2075,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                                 ? (
                                   <div key={f.feature ?? i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--rule-soft)", opacity: 0.6 }}>
                                     <span style={{ color: "var(--ink-soft)", font: "600 12px/1 var(--font)" }}>{f.label}</span>
-                                    <span style={{ color: "var(--ink-faint)", font: "500 11px/1 var(--font-mono)" }}>No data</span>
+                                    <span style={{ color: "var(--ink-faint)", font: "500 11px/1 var(--font-mono)" }}>No Data</span>
                                   </div>
                                 )
                                 : <SignalRow key={f.feature ?? i} f={f} barColor={contributionTone(f) === "positive" ? "var(--good)" : "var(--bad)"} maxPts={maxPts} placement={i < 2 ? "down" : "up"} />
@@ -2105,7 +2105,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
           {tab === "bureau" && (
             <div style={{ display: "grid", gap: 16 }}>
               {!bureau && Object.keys(crcPayload).length === 0
-                ? <EmptyState icon={<Gauge size={22} />} title="No bureau pull" description="No bureau query was triggered for this decision." />
+                ? <EmptyState icon={<Gauge size={22} />} title="No Bureau Pull" description="No bureau query was triggered for this decision." />
                 : <>
                     {/* Dual-bureau selector */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -2137,14 +2137,14 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                         when the truth may be "the bureau call errored". */}
                     {!hasActiveFull && bureauTab === "crc" && (
                       <EmptyState
-                        title={crcErrored ? "CRC lookup failed" : "No CRC data"}
+                        title={crcErrored ? "CRC Lookup Failed" : "No CRC Data"}
                         description={crcEmptyBody}
                       />
                     )}
 
                     {/* FC empty state */}
                     {!hasActiveFull && bureauTab === "firstcentral" && (
-                      <EmptyState title="No FirstCentral data" description={firstCentralEmptyBody} />
+                      <EmptyState title="No FirstCentral Data" description={firstCentralEmptyBody} />
                     )}
 
                     {/* Bureau content */}
@@ -2162,7 +2162,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
 
                         {/* Profile */}
                         <Card>
-                          <Kicker>Profile (as reported by {activeName})</Kicker>
+                          <Kicker>Profile (As Reported by {activeName})</Kicker>
                           <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16, paddingBottom: 14, borderBottom: "1px solid var(--rule)" }}>
                             <div style={{ width: 46, height: 46, borderRadius: "50%", flexShrink: 0, display: "grid", placeItems: "center", background: "linear-gradient(135deg, var(--accent-2), var(--accent))", color: "#fff", font: "750 16px/1 var(--font)", boxShadow: "var(--shadow-accent)" }}>
                               {(pickName(activeIdentity) ?? "A").split(" ").map((p: string) => p[0]).slice(0, 2).join("").toUpperCase()}
@@ -2183,7 +2183,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "0 24px" }}>
                             {[
                               { label: "Gender", value: activeIdText("gender", "sex", "gender_code") ? titleCase(activeIdText("gender", "sex", "gender_code")!) : "—" },
-                              { label: "Date of birth", value: (() => { const dob = activeIdText("date_of_birth", "dob", "birth_date", "birthdate", "dateofbirth"); if (!dob) return "—"; const age = ageFromDOB(dob); return age != null ? `${formatDate(dob)} (${age} yrs)` : formatDate(dob); })() },
+                              { label: "Date of Birth", value: (() => { const dob = activeIdText("date_of_birth", "dob", "birth_date", "birthdate", "dateofbirth"); if (!dob) return "—"; const age = ageFromDOB(dob); return age != null ? `${formatDate(dob)} (${age} yrs)` : formatDate(dob); })() },
                               { label: "Nationality", value: activeIdText("nationality", "country", "country_of_birth", "resident_country") ? titleCase(activeIdText("nationality", "country", "country_of_birth", "resident_country")!) : "—" },
                               { label: "Phone", value: activeIdText("phone", "phone_number", "mobile", "mobile_number", "telephone", "gsm", "msisdn") ?? "—" },
                               { label: "Email", value: activeIdText("email", "email_address") ?? "—" },
@@ -2196,7 +2196,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                           </div>
                           {addressHistory.length > 0 && (
                             <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--rule-soft)" }}>
-                              <div style={{ color: "var(--ink-faint)", font: "600 10px/1 var(--font)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Address history</div>
+                              <div style={{ color: "var(--ink-faint)", font: "600 10px/1 var(--font)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Address History</div>
                               {addressHistory.slice(0, 3).map((addr, i) => (
                                 <div key={i} style={{ color: i === 0 ? "var(--ink)" : "var(--ink-soft)", font: `${i === 0 ? "600" : "500"} 12.5px/1.4 var(--font)`, marginBottom: 4 }}>
                                   {i === 0 ? "● " : "○ "}{addr}
@@ -2247,7 +2247,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                         {/* Stats grid */}
                         <Card>
                           <div style={{ color: "var(--ink-faint)", font: "600 11px/1 var(--font-mono)", marginBottom: 14 }}>
-                            CIR: {cirNumber} · Report date {reportDate}
+                            CIR: {cirNumber} · Report Date {reportDate}
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16 }}>
                             {/* Accounts */}
@@ -2330,7 +2330,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                             </div>
                             {/* Max DPD */}
                             <div>
-                              <div style={{ color: "var(--ink-faint)", font: "700 10px/1 var(--font)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Max DPD (ever)</div>
+                              <div style={{ color: "var(--ink-faint)", font: "700 10px/1 var(--font)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Max DPD (Ever)</div>
                               <div style={{ font: "760 22px/1 var(--font-mono)", fontVariantNumeric: "tabular-nums", color: (num(deepFind(activePayload, ["max_overdue_days","max_dpd","max_days_past_due","highest_dpd"])) ?? 0) > 0 ? "var(--bad)" : "var(--ink)" }}>
                                 {text(deepFind(activePayload, ["max_overdue_days","max_dpd","max_days_past_due","highest_dpd"])) != null ? `${text(deepFind(activePayload, ["max_overdue_days","max_dpd","max_days_past_due","highest_dpd"]))}d` : "—"}
                               </div>
@@ -2342,7 +2342,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                         {institutionRows.length > 0 && (
                           <Card noPad>
                             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--rule)", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                              <Kicker>Performance by institution</Kicker>
+                              <Kicker>Performance by Institution</Kicker>
                             </div>
                             <div style={{ overflowX: "auto" }}>
                               <table style={{ width: "100%", borderCollapse: "collapse", font: "500 12.5px/1.35 var(--font)", minWidth: 480 }}>
@@ -2384,7 +2384,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                           return (
                             <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 16, alignItems: "center", padding: "14px 18px", background: "var(--panel)", border: "1px solid var(--rule)", borderRadius: "var(--r-lg)" }}>
                               <div>
-                                <div style={{ color: "var(--ink-faint)", font: "600 10px/1 var(--font)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Overall repayment rate</div>
+                                <div style={{ color: "var(--ink-faint)", font: "600 10px/1 var(--font)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Overall Repayment Rate</div>
                                 <div style={{ font: "700 26px/1 var(--font-mono)", color: rateCol, fontVariantNumeric: "tabular-nums" }}>{aggRate}%</div>
                               </div>
                               <div style={{ height: 10, background: "var(--rule)", borderRadius: "var(--r-pill)", overflow: "hidden" }}>
@@ -2401,7 +2401,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                         {activeFacilities.length > 0 && (
                           <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-                              <Kicker>Credit facilities ({activeFacilities.length})</Kicker>
+                              <Kicker>Credit Facilities ({activeFacilities.length})</Kicker>
                               <span style={{ color: "var(--ink-faint)", font: "500 11px/1 var(--font)" }}>Click ▼ Payments to see history</span>
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2414,7 +2414,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                                 onClick={() => setShowAllFacilities(v => !v)}
                                 style={{ marginTop: 10, border: "1px solid var(--rule)", background: "var(--panel)", color: "var(--accent)", borderRadius: "var(--r-lg)", padding: "9px 16px", font: "600 13px/1 var(--font)", cursor: "pointer", width: "100%" }}
                               >
-                                {showAllFacilities ? "Show fewer" : `Show all ${activeFacilities.length} facilities`}
+                                {showAllFacilities ? "Show Fewer" : `Show All ${activeFacilities.length} Facilities`}
                               </button>
                             )}
                           </div>
@@ -2448,7 +2448,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                           return (
                             <Card noPad>
                               <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--rule)" }}>
-                                <Kicker>Reported contact details ({deduped.length})</Kicker>
+                                <Kicker>Reported Contact Details ({deduped.length})</Kicker>
                               </div>
                               <div style={{ padding: "0 18px" }}>
                                 {deduped.map((c, i) => (
@@ -2467,13 +2467,13 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                         {cohortData.length > 0 && (
                           <Card noPad>
                             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--rule)" }}>
-                              <Kicker>Cohort comparison</Kicker>
+                              <Kicker>Cohort Comparison</Kicker>
                             </div>
                             <div style={{ overflowX: "auto" }}>
                               <table style={{ width: "100%", borderCollapse: "collapse", font: "500 12.5px/1.35 var(--font)", minWidth: 400 }}>
                                 <thead>
                                   <tr style={{ background: "var(--paper)" }}>
-                                    {["Feature", "This customer", "Cohort median", "Cohort P90"].map(h => (
+                                    {["Feature", "This Customer", "Cohort Median", "Cohort P90"].map(h => (
                                       <th key={h} style={{ textAlign: "left", padding: "9px 14px", borderBottom: "1px solid var(--rule)", color: "var(--ink-faint)", font: "700 10px/1 var(--font)", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</th>
                                     ))}
                                   </tr>
@@ -2497,7 +2497,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                         {bvnInquiryHistory.length > 0 && (
                           <Card noPad>
                             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--rule)" }}>
-                              <Kicker>BVN enquiry history ({bvnInquiryHistory.length})</Kicker>
+                              <Kicker>BVN Enquiry History ({bvnInquiryHistory.length})</Kicker>
                             </div>
                             <div style={{ overflowX: "auto" }}>
                               <table style={{ width: "100%", borderCollapse: "collapse", font: "500 12.5px/1.35 var(--font)", minWidth: 440 }}>
@@ -2529,10 +2529,10 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                             <Kicker>CRC Corporate</Kicker>
                             <div style={{ display: "grid", gap: 0 }}>
                               {[
-                                ["RC number", text(deepFind(crcCorporate, ["rc_number", "rc"]))],
-                                ["Company name", text(deepFind(crcCorporate, ["company_name", "name"]))],
+                                ["RC Number", text(deepFind(crcCorporate, ["rc_number", "rc"]))],
+                                ["Company Name", text(deepFind(crcCorporate, ["company_name", "name"]))],
                                 ["Status", text(deepFind(crcCorporate, ["status", "company_status"]))],
-                                ["Outstanding (corporate)", bureauMoney(deepFind(crcCorporate, ["outstanding", "total_outstanding"]), currency)],
+                                ["Outstanding (Corporate)", bureauMoney(deepFind(crcCorporate, ["outstanding", "total_outstanding"]), currency)],
                               ].map(([label, value]) => value ? <InfoRow key={label as string} label={label as string} value={value as string} /> : null)}
                             </div>
                           </Card>
@@ -2541,11 +2541,11 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                         {/* Query metadata */}
                         {bureau && (
                           <Card>
-                            <Kicker>Query metadata</Kicker>
-                            <InfoRow label="Query type" value={bureau.query_type} />
+                            <Kicker>Query Metadata</Kicker>
+                            <InfoRow label="Query Type" value={bureau.query_type} />
                             <InfoRow label="Fetched" value={formatDateTime(bureau.fetched_at)} />
-                            <InfoRow label="Bureau charged" value={bureau.charged ? "Yes" : "No"} />
-                            <InfoRow label="Data age" value={relativeDate(bureauFetched)} />
+                            <InfoRow label="Bureau Charged" value={bureau.charged ? "Yes" : "No"} />
+                            <InfoRow label="Data Age" value={relativeDate(bureauFetched)} />
                           </Card>
                         )}
                       </>
@@ -2559,7 +2559,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
           {tab === "statement" && (
             <div style={{ display: "grid", gap: 16 }}>
               {!statement
-                ? <EmptyState icon={<Gauge size={22} />} title="No bank statement" description="No statement is linked — scored on bureau and declared data only." />
+                ? <EmptyState icon={<Gauge size={22} />} title="No Bank Statement" description="No statement is linked — scored on bureau and declared data only." />
                 : <>
                     {/* Flagged patterns */}
                     {(() => {
@@ -2569,27 +2569,27 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
 
                       // ── Positive signals ──────────────────────────────────
                       if (s.salary_regularity_score != null && s.salary_regularity_score > 0.3)
-                        flags.push({ icon: <CheckCircle2 size={14} />, label: "Salary detected", value: `${pct(s.salary_regularity_score)} regularity`, tone: "good" });
+                        flags.push({ icon: <CheckCircle2 size={14} />, label: "Salary Detected", value: `${pct(s.salary_regularity_score)} regularity`, tone: "good" });
                       if (s.loan_repayment_detected)
-                        flags.push({ icon: <Landmark size={14} />, label: "Loan repayments", value: "Detected in transactions", tone: "good" });
+                        flags.push({ icon: <Landmark size={14} />, label: "Loan Repayments", value: "Detected in transactions", tone: "good" });
                       if (s.savings_rate != null && s.savings_rate > 0.15)
-                        flags.push({ icon: <TrendingUp size={14} />, label: "Consistent saver", value: `${pct(s.savings_rate)} savings rate`, tone: "good" });
+                        flags.push({ icon: <TrendingUp size={14} />, label: "Consistent Saver", value: `${pct(s.savings_rate)} savings rate`, tone: "good" });
 
                       // ── Risk signals ──────────────────────────────────────
                       if (s.bounce_count_per_month != null && s.bounce_count_per_month >= 1)
-                        flags.push({ icon: <AlertTriangle size={14} />, label: "Returned debits", value: `~${s.bounce_count_per_month.toFixed(1)} / month`, tone: "bad" });
+                        flags.push({ icon: <AlertTriangle size={14} />, label: "Returned Debits", value: `~${s.bounce_count_per_month.toFixed(1)} / month`, tone: "bad" });
                       if (s.gambling_ratio != null && s.gambling_ratio > 0.05)
-                        flags.push({ icon: <AlertTriangle size={14} />, label: "Gambling spend", value: `${pct(s.gambling_ratio)} of debits`, tone: "bad" });
+                        flags.push({ icon: <AlertTriangle size={14} />, label: "Gambling Spend", value: `${pct(s.gambling_ratio)} of debits`, tone: "bad" });
                       if (s.avg_monthly_credits_minor != null && s.avg_monthly_debits_minor != null && s.avg_monthly_debits_minor > s.avg_monthly_credits_minor)
-                        flags.push({ icon: <TrendingDown size={14} />, label: "Spending exceeds income", value: `outflow ${pct(s.avg_monthly_credits_minor > 0 ? s.avg_monthly_debits_minor / s.avg_monthly_credits_minor - 1 : 1)} above inflow`, tone: "bad" });
+                        flags.push({ icon: <TrendingDown size={14} />, label: "Spending Exceeds Income", value: `outflow ${pct(s.avg_monthly_credits_minor > 0 ? s.avg_monthly_debits_minor / s.avg_monthly_credits_minor - 1 : 1)} above inflow`, tone: "bad" });
                       if (s.dscr != null && s.dscr < 1.0)
-                        flags.push({ icon: <XCircle size={14} />, label: "DSCR below 1.0", value: `${pct(s.dscr)} — income may not cover debt`, tone: "bad" });
+                        flags.push({ icon: <XCircle size={14} />, label: "DSCR Below 1.0", value: `${pct(s.dscr)} — income may not cover debt`, tone: "bad" });
                       if (s.closing_balance_minor != null && s.closing_balance_minor < 0)
-                        flags.push({ icon: <XCircle size={14} />, label: "Account overdrawn", value: `${formatMoney(Math.abs(s.closing_balance_minor), currency)} deficit at close`, tone: "bad" });
+                        flags.push({ icon: <XCircle size={14} />, label: "Account Overdrawn", value: `${formatMoney(Math.abs(s.closing_balance_minor), currency)} deficit at close`, tone: "bad" });
 
                       // ── Data quality ──────────────────────────────────────
                       if (s.months_of_data != null && s.months_of_data < 3)
-                        flags.push({ icon: <Clock size={14} />, label: "Thin statement", value: `Only ${s.months_of_data} month${s.months_of_data === 1 ? "" : "s"} of data`, tone: "warn" });
+                        flags.push({ icon: <Clock size={14} />, label: "Thin Statement", value: `Only ${s.months_of_data} month${s.months_of_data === 1 ? "" : "s"} of data`, tone: "warn" });
 
                       if (flags.length === 0) return null;
 
@@ -2599,7 +2599,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
 
                       return (
                         <Card>
-                          <Kicker>Flagged patterns</Kicker>
+                          <Kicker>Flagged Patterns</Kicker>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(185px, 1fr))", gap: 10 }}>
                             {flags.map((f, i) => (
                               <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: "var(--r-md)", background: bgOf(f.tone), border: `1px solid ${bdrOf(f.tone)}` }}>
@@ -2638,17 +2638,17 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                           )}
                         </div>
                         <div style={{ textAlign: "right", color: "var(--ink-faint)", font: "600 12px/1.45 var(--font)" }}>
-                          {statement.period_start && statement.period_end ? `${formatDate(statement.period_start)} → ${formatDate(statement.period_end)}` : "Statement summary"}
+                          {statement.period_start && statement.period_end ? `${formatDate(statement.period_start)} → ${formatDate(statement.period_end)}` : "Statement Summary"}
                           <div style={{ marginTop: 2, font: "500 11.5px/1.4 var(--font)" }}>parsed at scoring time</div>
                         </div>
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, paddingTop: 16, borderTop: "1px solid var(--rule)" }}>
-                        <TonedStat label="Avg monthly inflow" value={statement.avg_monthly_credits_minor != null ? formatMoney(statement.avg_monthly_credits_minor, currency) : "—"} tone="good" />
-                        <TonedStat label="Avg monthly outflow" value={statement.avg_monthly_debits_minor != null ? formatMoney(statement.avg_monthly_debits_minor, currency) : "—"} />
-                        <TonedStat label="Avg balance" value={statement.closing_balance_minor != null ? formatMoney(statement.closing_balance_minor, currency) : "—"} />
+                        <TonedStat label="Avg Monthly Inflow" value={statement.avg_monthly_credits_minor != null ? formatMoney(statement.avg_monthly_credits_minor, currency) : "—"} tone="good" />
+                        <TonedStat label="Avg Monthly Outflow" value={statement.avg_monthly_debits_minor != null ? formatMoney(statement.avg_monthly_debits_minor, currency) : "—"} />
+                        <TonedStat label="Avg Balance" value={statement.closing_balance_minor != null ? formatMoney(statement.closing_balance_minor, currency) : "—"} />
                         <TonedStat label="Salary" value={statement.salary_regularity_score != null && statement.salary_regularity_score > 0.3 ? "Detected" : "—"} tone={statement.salary_regularity_score != null && statement.salary_regularity_score > 0.3 ? "good" : undefined} />
-                        <TonedStat label="Income stability" value={statement.salary_regularity_score != null ? pct(statement.salary_regularity_score) : "—"} tone={statement.salary_regularity_score != null ? (statement.salary_regularity_score >= 0.7 ? "good" : statement.salary_regularity_score >= 0.4 ? "warn" : "bad") : undefined} />
-                        <TonedStat label="Months overdrawn" value={statement.bounce_count_per_month != null && statement.bounce_count_per_month > 0 ? String(Math.round(statement.bounce_count_per_month)) : "None"} tone={statement.bounce_count_per_month != null && statement.bounce_count_per_month > 0 ? "warn" : "good"} />
+                        <TonedStat label="Income Stability" value={statement.salary_regularity_score != null ? pct(statement.salary_regularity_score) : "—"} tone={statement.salary_regularity_score != null ? (statement.salary_regularity_score >= 0.7 ? "good" : statement.salary_regularity_score >= 0.4 ? "warn" : "bad") : undefined} />
+                        <TonedStat label="Months Overdrawn" value={statement.bounce_count_per_month != null && statement.bounce_count_per_month > 0 ? String(Math.round(statement.bounce_count_per_month)) : "None"} tone={statement.bounce_count_per_month != null && statement.bounce_count_per_month > 0 ? "warn" : "good"} />
                       </div>
                     </Card>
 
@@ -2656,7 +2656,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                     {monthlyBreakdown.length > 0 ? (
                       <Card>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18 }}>
-                          <Kicker>Monthly cash flow</Kicker>
+                          <Kicker>Monthly Cash Flow</Kicker>
                           <span style={{ color: "var(--ink-faint)", font: "500 12.5px/1 var(--font)" }}>{bankName ?? "Bank"}</span>
                         </div>
                         <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 120, padding: "8px 0" }}>
@@ -2686,12 +2686,12 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                       </Card>
                     ) : statement.avg_monthly_credits_minor != null && statement.avg_monthly_debits_minor != null ? (
                       <Card>
-                        <Kicker>Cashflow summary</Kicker>
+                        <Kicker>Cashflow Summary</Kicker>
                         <div style={{ display: "grid", gap: 14 }}>
                           {[
-                            { label: "Avg monthly inflow", value: statement.avg_monthly_credits_minor, color: "var(--good)", glow: "rgba(34,122,91,0.35)" },
-                            { label: "Avg monthly outflow", value: statement.avg_monthly_debits_minor, color: "var(--bad)", glow: "rgba(176,59,51,0.35)" },
-                            ...(statement.closing_balance_minor != null ? [{ label: "Closing balance", value: statement.closing_balance_minor, color: "var(--accent)", glow: "rgba(69,82,160,0.35)" }] : []),
+                            { label: "Avg Monthly Inflow", value: statement.avg_monthly_credits_minor, color: "var(--good)", glow: "rgba(34,122,91,0.35)" },
+                            { label: "Avg Monthly Outflow", value: statement.avg_monthly_debits_minor, color: "var(--bad)", glow: "rgba(176,59,51,0.35)" },
+                            ...(statement.closing_balance_minor != null ? [{ label: "Closing Balance", value: statement.closing_balance_minor, color: "var(--accent)", glow: "rgba(69,82,160,0.35)" }] : []),
                           ].map(bar => {
                             const maxVal = Math.max(1, statement.avg_monthly_credits_minor!, statement.avg_monthly_debits_minor!, statement.closing_balance_minor ?? 0);
                             return (
@@ -2724,15 +2724,15 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
 
                     {/* Detail rows */}
                     <Card>
-                      <Kicker>Statement details</Kicker>
+                      <Kicker>Statement Details</Kicker>
                       <InfoRow label="Period" value={`${formatDate(statement.period_start)} — ${formatDate(statement.period_end)}`} />
                       <InfoRow label="Source" value={displaySource(statement.source)} />
-                      <InfoRow label="Loan repayment detected" value={statement.loan_repayment_detected != null ? (statement.loan_repayment_detected ? "Yes" : "No") : "—"} />
-                      {statement.salary_regularity_score != null && <InfoRow label="Income stability score" value={pct(statement.salary_regularity_score)} />}
-                      {statement.savings_rate != null && <InfoRow label="Savings rate" value={pct(statement.savings_rate)} />}
-                      {statement.gambling_ratio != null && <InfoRow label="Gambling ratio" value={pct(statement.gambling_ratio)} />}
+                      <InfoRow label="Loan Repayment Detected" value={statement.loan_repayment_detected != null ? (statement.loan_repayment_detected ? "Yes" : "No") : "—"} />
+                      {statement.salary_regularity_score != null && <InfoRow label="Income Stability Score" value={pct(statement.salary_regularity_score)} />}
+                      {statement.savings_rate != null && <InfoRow label="Savings Rate" value={pct(statement.savings_rate)} />}
+                      {statement.gambling_ratio != null && <InfoRow label="Gambling Ratio" value={pct(statement.gambling_ratio)} />}
                       {statement.dscr != null && <InfoRow label="DSCR" value={pct(statement.dscr)} />}
-                      {statement.bounce_count_per_month != null && <InfoRow label="Returned debits / month" value={`${statement.bounce_count_per_month.toFixed(1)}`} />}
+                      {statement.bounce_count_per_month != null && <InfoRow label="Returned Debits / Month" value={`${statement.bounce_count_per_month.toFixed(1)}`} />}
                     </Card>
 
                     <StatementInsightsPanel statement={statement} currency={currency} periculum={statement.periculum} />
@@ -2753,7 +2753,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                               aria-label="Filter transactions by category"
                               style={{ padding: "5px 10px", borderRadius: "var(--r-sm)", border: "1px solid var(--rule)", background: "var(--paper)", font: "600 12px/1 var(--font)", color: "var(--ink-soft)" }}
                             >
-                              <option value="all">All categories</option>
+                              <option value="all">All Categories</option>
                               {txCategories.map(c => <option key={c} value={c}>{displaySource(c)}</option>)}
                             </select>
                           )}
@@ -2787,7 +2787,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                         {filteredTransactions.length > txVisibleCount && (
                           <div style={{ textAlign: "center", padding: "10px 0", borderTop: "1px solid var(--rule)" }}>
                             <button className="btn" onClick={() => setTxVisibleCount(c => c + 50)}>
-                              Load {Math.min(50, filteredTransactions.length - txVisibleCount)} more
+                              Load {Math.min(50, filteredTransactions.length - txVisibleCount)} More
                             </button>
                           </div>
                         )}
@@ -2806,7 +2806,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                 <div style={{ position: "absolute", inset: 0, pointerEvents: "none", backgroundImage: "linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px)", backgroundSize: "44px 44px", WebkitMaskImage: "radial-gradient(800px 400px at 80% 0%, #000, transparent 60%)", maskImage: "radial-gradient(800px 400px at 80% 0%, #000, transparent 60%)" }} />
                 <div style={{ position: "absolute", top: -80, right: -40, width: 320, height: 320, background: "radial-gradient(closest-side, rgba(214,167,88,0.22), transparent 70%)", filter: "blur(12px)" }} />
                 <div style={{ position: "relative" }}>
-                  <div style={{ color: "rgba(255,255,255,0.38)", font: "650 10px/1 var(--font)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 10 }}>Approved credit limit</div>
+                  <div style={{ color: "rgba(255,255,255,0.38)", font: "650 10px/1 var(--font)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 10 }}>Approved Credit Limit</div>
                   <div style={{ color: "var(--gold-2)", font: "820 44px/0.95 var(--font-mono)", fontVariantNumeric: "tabular-nums", textShadow: "0 0 40px rgba(214,167,88,0.35)" }}>
                     {maxLoanMinor != null ? formatMoney(maxLoanMinor, currency) : "—"}
                   </div>
@@ -2829,27 +2829,27 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               </div>
 
               <Card>
-                <Kicker>Recommended terms</Kicker>
+                <Kicker>Recommended Terms</Kicker>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
                   <MetricCard label="Limit" value={maxLoanMinor != null ? formatMoney(maxLoanMinor, currency) : "—"} />
                   <MetricCard label="PD" value={pd != null ? pct(pd) : "—"} valueColor={pd != null && pd > 0.3 ? "var(--bad)" : undefined} />
                   <MetricCard label="Tenor" value={tenureMonths != null ? `${tenureMonths} months` : "—"} />
                   <MetricCard label="EMI" value={emi != null ? formatMoney(emi, currency) : "—"} />
                   <MetricCard label="DSR" value={dsr != null ? pct(dsr) : "—"} valueColor={dsr != null && dsr > 0.5 ? "var(--warn)" : undefined} />
-                  <MetricCard label="Risk band" value={scoring?.band ?? decisionDetail.risk_band ?? "—"} />
+                  <MetricCard label="Risk Band" value={scoring?.band ?? decisionDetail.risk_band ?? "—"} />
                 </div>
               </Card>
 
               {(incomeMinor != null || emi != null) && (
                 <Card>
-                  <Kicker>Income vs. obligations</Kicker>
+                  <Kicker>Income vs. Obligations</Kicker>
                   {(() => {
                     const remaining = incomeMinor != null && emi != null ? incomeMinor - emi : null;
                     const maxVal = Math.max(1, incomeMinor ?? 0, emi ?? 0, Math.abs(remaining ?? 0));
                     const steps: Array<{ label: string; value: number; color: string }> = [
-                      ...(incomeMinor != null ? [{ label: "Monthly income", value: incomeMinor, color: "var(--good)" }] : []),
+                      ...(incomeMinor != null ? [{ label: "Monthly Income", value: incomeMinor, color: "var(--good)" }] : []),
                       ...(emi != null ? [{ label: "Proposed EMI", value: emi, color: "var(--bad)" }] : []),
-                      ...(remaining != null ? [{ label: "Remaining income", value: remaining, color: remaining >= 0 ? "var(--accent)" : "var(--bad)" }] : []),
+                      ...(remaining != null ? [{ label: "Remaining Income", value: remaining, color: remaining >= 0 ? "var(--accent)" : "var(--bad)" }] : []),
                     ];
                     return (
                       <div style={{ display: "grid", gap: 10 }}>
@@ -2878,11 +2878,11 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               )}
 
               <Card>
-                <Kicker>Limit policy compliance</Kicker>
-                <PolicyCheck label="Hard gate clear" value={gateActive ? (scoring?.hard_gate_reason ?? "Triggered") : "Passed"} pass={!gateActive} />
-                <PolicyCheck label="DSR within policy (≤ 50%)" value={dsr != null ? pct(dsr) : "Not computed"} pass={dsr != null ? dsr <= 0.5 : undefined} />
-                <PolicyCheck label="PD within band (≤ 40%)" value={pd != null ? pct(pd) : "—"} pass={pd != null ? pd <= 0.4 : undefined} />
-                <PolicyCheck label="No active delinquencies" value={delinquentAccounts > 0 ? `${delinquentAccounts} on bureau` : "Confirmed"} pass={delinquentAccounts === 0} />
+                <Kicker>Limit Policy Compliance</Kicker>
+                <PolicyCheck label="Hard Gate Clear" value={gateActive ? (scoring?.hard_gate_reason ?? "Triggered") : "Passed"} pass={!gateActive} />
+                <PolicyCheck label="DSR Within Policy (≤ 50%)" value={dsr != null ? pct(dsr) : "Not computed"} pass={dsr != null ? dsr <= 0.5 : undefined} />
+                <PolicyCheck label="PD Within Band (≤ 40%)" value={pd != null ? pct(pd) : "—"} pass={pd != null ? pd <= 0.4 : undefined} />
+                <PolicyCheck label="No Active Delinquencies" value={delinquentAccounts > 0 ? `${delinquentAccounts} on bureau` : "Confirmed"} pass={delinquentAccounts === 0} />
               </Card>
             </div>
           )}
@@ -2893,9 +2893,9 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               {/* Stat cards */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14 }}>
                 {[
-                  { label: "Active signals", value: String(ewsSignals.length), sub: ewsHighCount > 0 ? `${ewsHighCount} high severity` : ewsSignals.length > 0 ? "None critical" : "All clear", icon: <ShieldAlert size={16} />, danger: ewsHighCount > 0 },
+                  { label: "Active Signals", value: String(ewsSignals.length), sub: ewsHighCount > 0 ? `${ewsHighCount} high severity` : ewsSignals.length > 0 ? "None critical" : "All clear", icon: <ShieldAlert size={16} />, danger: ewsHighCount > 0 },
                   { label: "Cleared (30d)", value: "—", sub: "No 30-day history", icon: <Activity size={16} />, danger: false },
-                  { label: "PD at scoring", value: pd != null ? pct(pd) : "—", sub: pd != null ? (pd <= 0.25 ? "Low risk" : pd <= 0.4 ? "Moderate risk" : "High risk") : undefined, icon: <Clock size={16} />, danger: pd != null && pd > 0.4 },
+                  { label: "PD at Scoring", value: pd != null ? pct(pd) : "—", sub: pd != null ? (pd <= 0.25 ? "Low risk" : pd <= 0.4 ? "Moderate risk" : "High risk") : undefined, icon: <Clock size={16} />, danger: pd != null && pd > 0.4 },
                 ].map(s => (
                   <div key={s.label} style={{ padding: "16px 18px", border: "1px solid var(--rule)", borderRadius: "var(--r-lg)", background: "var(--panel)", boxShadow: "var(--shadow-sm)", position: "relative", overflow: "hidden" }}>
                     <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: s.danger ? "linear-gradient(90deg, var(--bad), transparent)" : "linear-gradient(90deg, var(--accent-2), transparent)" }} />
@@ -2912,7 +2912,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
               {/* Signal cards */}
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-                  <Kicker>Signal stream</Kicker>
+                  <Kicker>Signal Stream</Kicker>
                   <span style={{ color: "var(--ink-faint)", font: "500 12.5px/1 var(--font)" }}>{ewsSignals.length} signal{ewsSignals.length !== 1 ? "s" : ""} · last 90 days</span>
                 </div>
                 {ewsSignals.length > 0 ? (
@@ -2938,7 +2938,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                   </div>
                 ) : (
                   <Card>
-                    <EmptyState icon={<CheckCircle size={22} />} title="No active EWS signals" description="No hard gate, bounce, delinquency, or high-risk behavioural signal was detected for this score." />
+                    <EmptyState icon={<CheckCircle size={22} />} title="No Active EWS Signals" description="No hard gate, bounce, delinquency, or high-risk behavioural signal was detected for this score." />
                   </Card>
                 )}
               </div>
@@ -2949,22 +2949,22 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
           {tab === "policy" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
               <Card>
-                <Kicker>Policy checks</Kicker>
-                <PolicyCheck label="DTI (gate ≤ 70%)" value={dtiRaw != null ? `${(dtiRaw * 100).toFixed(1)}%` : "Not available"} pass={dtiRaw != null ? dtiRaw <= 0.70 : undefined} />
-                <PolicyCheck label="Income verification" value={incomeSource} pass={!!(statement || Object.keys(accountSummary).length > 0)} />
-                <PolicyCheck label="Bureau pulled within 30d" value={bureauFetched ? relativeDate(bureauFetched) : "Not pulled"} pass={bureauFresh} />
-                <PolicyCheck label="No active defaults" value={delinquentAccounts > 0 ? `${delinquentAccounts} delinquent` : "Confirmed"} pass={delinquentAccounts === 0} />
-                <PolicyCheck label="Active loans (gate ≤ 5)" value={activeLoans > 0 ? String(activeLoans) : "None on bureau"} pass={activeLoans <= 5} />
-                <PolicyCheck label="Bureau enquiries 3m" value={(enquiries3m ?? 0) > 0 ? String(enquiries3m) : "None"} />
-                <PolicyCheck label="PEP / sanctions" value={pepFlagged || watchlistHit ? "Flagged — review required" : "Clear"} pass={!pepFlagged && !watchlistHit} />
-                <PolicyCheck label="Hard gate" value={gateActive ? (scoring?.hard_gate_reason ?? "Triggered") : "Passed"} pass={!gateActive} />
+                <Kicker>Policy Checks</Kicker>
+                <PolicyCheck label="DTI (Gate ≤ 70%)" value={dtiRaw != null ? `${(dtiRaw * 100).toFixed(1)}%` : "Not available"} pass={dtiRaw != null ? dtiRaw <= 0.70 : undefined} />
+                <PolicyCheck label="Income Verification" value={incomeSource} pass={!!(statement || Object.keys(accountSummary).length > 0)} />
+                <PolicyCheck label="Bureau Pulled Within 30d" value={bureauFetched ? relativeDate(bureauFetched) : "Not pulled"} pass={bureauFresh} />
+                <PolicyCheck label="No Active Defaults" value={delinquentAccounts > 0 ? `${delinquentAccounts} delinquent` : "Confirmed"} pass={delinquentAccounts === 0} />
+                <PolicyCheck label="Active Loans (Gate ≤ 5)" value={activeLoans > 0 ? String(activeLoans) : "None on bureau"} pass={activeLoans <= 5} />
+                <PolicyCheck label="Bureau Enquiries 3m" value={(enquiries3m ?? 0) > 0 ? String(enquiries3m) : "None"} />
+                <PolicyCheck label="PEP / Sanctions" value={pepFlagged || watchlistHit ? "Flagged — review required" : "Clear"} pass={!pepFlagged && !watchlistHit} />
+                <PolicyCheck label="Hard Gate" value={gateActive ? (scoring?.hard_gate_reason ?? "Triggered") : "Passed"} pass={!gateActive} />
               </Card>
 
               <Card>
-                <Kicker>Decision audit trail</Kicker>
-                <TimelineItem icon={<FileText size={14} />} title="Application received" body={displaySource(scoring?.scoring_method ?? "credit request")} at={formatDateTime(decisionDetail.created_at)} />
-                {bureau && <TimelineItem icon={<Landmark size={14} />} title="Bureau enquiries triggered" body={`CRC · ${bureau.query_type}`} at={formatDateTime(bureau.fetched_at)} />}
-                {scoring && <TimelineItem icon={<Zap size={14} />} title="Eye scored" body={`${displaySource(scoring.model_version ?? "model")} · score ${scoring.score}`} at={formatDateTime(scoring.scored_at)} />}
+                <Kicker>Decision Audit Trail</Kicker>
+                <TimelineItem icon={<FileText size={14} />} title="Application Received" body={displaySource(scoring?.scoring_method ?? "credit request")} at={formatDateTime(decisionDetail.created_at)} />
+                {bureau && <TimelineItem icon={<Landmark size={14} />} title="Bureau Enquiries Triggered" body={`CRC · ${bureau.query_type}`} at={formatDateTime(bureau.fetched_at)} />}
+                {scoring && <TimelineItem icon={<Zap size={14} />} title="Eye Scored" body={`${displaySource(scoring.model_version ?? "model")} · score ${scoring.score}`} at={formatDateTime(scoring.scored_at)} />}
                 <TimelineItem icon={<CheckCircle size={14} />} title={`Decision: ${titleCase(decisionDetail.outcome)}`} body={(decisionDetail.reasons ?? []).join(" · ") || "Automatic — within decisioning corridor."} at={formatDateTime(decisionDetail.created_at)} last />
               </Card>
             </div>

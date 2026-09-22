@@ -103,6 +103,11 @@ func RegisterCustomer360(r chi.Router, db *core.DB) {
 	r.With(access).Get("/directory/facets", c360DirectoryFacets(db))
 	r.With(access).Get("/search", c360Search(db))
 	r.With(access).Get("/{cif}", c360Profile(db))
+	r.With(access).Get("/{cif}/identity", c360Identity(db))
+	// One sensitive field, disclosed only after the disclosure is recorded. POST
+	// because it writes to the audit trail and must carry the CSRF token — see
+	// identity_reveal.go.
+	r.With(access).Post("/{cif}/identity/reveal", c360IdentityReveal(db))
 	r.With(access).Get("/{cif}/transactions", c360Transactions(db))
 	r.With(access).Get("/{cif}/transaction-analytics", c360TransactionAnalytics(db))
 	r.With(access).Get("/{cif}/loans", c360Loans(db))
@@ -915,13 +920,26 @@ func c360Activity(db *core.DB) http.HandlerFunc {
 				LEFT JOIN app.o3c_users vu ON vu.id = v.officer_id, ids
 				WHERE rvc.cif_number = ANY(ids.cifs)
 				UNION ALL
-				-- Collections payments (CIF-keyed ledger)
+				-- Collections payments (CIF-keyed ledger — app.customers.cif, the CARDS
+				-- namespace, never cbs_customer_id).
+				--
+				-- 2026-09-21: the status column reported reconciliation ('reconciled' /
+				-- 'unreconciled') and said nothing about the HOP -> COO -> CFO approval
+				-- chain, so a 'pending_hop' receipt appeared on the timeline as an
+				-- ordinary inbound payment of that amount — money the GL has not taken.
+				-- Live that is 11 rows / ₦106,393,555.56. The row is NOT filtered out
+				-- (the timeline is a history and a lodged payment is a real event); it is
+				-- labelled instead, so nothing reads as received until it is approved.
+				-- Reconciliation is kept in the detail text so no information is lost.
 				SELECT 'payment', cpm.created_at,
 				       'inbound', 'collections_payment',
-				       NULL, CASE WHEN cpm.reconciled THEN 'reconciled' ELSE 'unreconciled' END,
+				       NULL, COALESCE(NULLIF(cpm.status,''),'unknown'),
 				       cpu.full_name,
-				       '₦'||to_char(cpm.amount_kobo/100.0,'FM999,999,990.00')||COALESCE(' · '||NULLIF(cpm.channel,''),'')||COALESCE(' · ref '||cpm.reference,''),
-				       'Collections payment', NULL::int, cpm.id::text
+				       CASE WHEN cpm.status = 'approved' THEN '' ELSE 'AWAITING APPROVAL · ' END
+				       ||'₦'||to_char(cpm.amount_kobo/100.0,'FM999,999,990.00')||COALESCE(' · '||NULLIF(cpm.channel,''),'')||COALESCE(' · ref '||cpm.reference,'')
+				       ||CASE WHEN cpm.reconciled THEN ' · reconciled' ELSE ' · unreconciled' END,
+				       CASE WHEN cpm.status = 'approved' THEN 'Collections payment'
+				            ELSE 'Collections payment (awaiting approval)' END, NULL::int, cpm.id::text
 				FROM app.collection_payments cpm
 				LEFT JOIN app.o3c_users cpu ON cpu.id = cpm.received_by, ids
 				WHERE cpm.account_cif = ANY(ids.cifs)
@@ -1022,4 +1040,327 @@ func firstOrNil(rows []core.Row) any {
 		return nil
 	}
 	return rows[0]
+}
+
+// ── Identity / KYC ───────────────────────────────────────────────────────────
+//
+// Migration 258 carried the Udara360 core-banking customer master onto
+// app.customers: NIN, TIN, means of ID, next of kin, employment, the corporate
+// registration details and a PEP flag. c360Identity is the one place that reads
+// them and the one place that decides what Customer 360 shows.
+//
+// Provenance matters. None of this comes from the CARDS feed that fills the rest
+// of the profile — it is the core-banking record, reached through app.cbs_links
+// (party -> cbs_customer_id). The response carries that source so the page can
+// say where the data came from rather than implying the card feed knows a
+// customer's NIN.
+//
+// Keyed on party_id, NEVER on cif. app.customers.cif is a CARDS id and
+// cbs_customers.cbs_customer_id is Udara-only; the two namespaces collide on
+// real people, and joining one to the other returns a different human being.
+//
+// ── MASKING SEAM — NOW LIVE ──────────────────────────────────────────────────
+// Every identity value the page renders is emitted by c360IdentityGroups below,
+// and the sensitive ones are declared with `sensitive: true` on the field spec.
+// The masking rule lives in that one function: a sensitive field's Value is
+// REPLACED by its mask before the response is serialised, so the full value is
+// never in the payload, never in devtools and never in a proxy log.
+//
+// The full value is obtained one field at a time from the reveal endpoint,
+// POST /api/customer360/{key}/identity/reveal, which writes an audit row before
+// it discloses anything. Masks, the revealable whitelist and that handler all
+// live in identity_reveal.go; the declaration of WHICH fields are sensitive
+// stays here, in c360IdentityLayout, as the single source both halves read.
+
+// c360IDField is one label/value pair on the Identity & KYC block. Value is
+// always a pre-formatted, non-empty string: empty fields are dropped rather than
+// rendered as a blank row, because this data is sparse (NIN reaches 91 of 294
+// Udara customers, occupation 63, TIN 9).
+//
+// For a sensitive field Value is the MASK, not the value — see the masking seam
+// note above. Masked marks that substitution so the page can offer a reveal
+// affordance instead of a copy button.
+type c360IDField struct {
+	Key       string `json:"key"`
+	Label     string `json:"label"`
+	Value     string `json:"value"`
+	Mono      bool   `json:"mono,omitempty"`      // render in the mono face (ids/numbers)
+	Icon      string `json:"icon,omitempty"`      // material-symbols name shown beside the label
+	Copy      bool   `json:"copy,omitempty"`      // offer copy-to-clipboard, as the page does for BVN/NIN
+	Sensitive bool   `json:"sensitive,omitempty"` // declared in c360IdentityLayout — see MASKING SEAM
+	Masked    bool   `json:"masked,omitempty"`    // Value is a mask; the real value needs a logged reveal
+}
+
+// c360IDGroup is one titled cluster of fields. A group with no populated field is
+// dropped, so an individual never shows an empty "Business Details" heading and a
+// corporate never shows "Next Of Kin".
+type c360IDGroup struct {
+	Key    string        `json:"key"`
+	Title  string        `json:"title"`
+	Icon   string        `json:"icon"` // material-symbols name, as used across the page
+	Fields []c360IDField `json:"fields"`
+}
+
+// c360IDSpec declares one field: the column it reads, how it is labelled (Title
+// Case, per the workspace convention) and how it renders.
+type c360IDSpec struct {
+	col       string
+	label     string
+	icon      string
+	mono      bool
+	copy      bool
+	sensitive bool
+}
+
+// c360IDGroupSpec declares one group and the entity type it applies to.
+// scope: "" = both, "individual", "corporate".
+type c360IDGroupSpec struct {
+	key, title, icon, scope string
+	fields                  []c360IDSpec
+}
+
+// c360IdentityLayout is the whole Identity & KYC block, declaratively. Individuals
+// and corporates carry genuinely different records in the Udara master — of the 71
+// corporates not one has a date of birth, marital status, occupation or next of
+// kin, and of the 222 individuals not one has a registration number or a nature of
+// business — so each entity type is offered only the groups that can hold
+// anything, and within those, empty fields still drop out.
+//
+// `sensitive` is the classification, and it is the ONLY place the set is
+// declared: the mask, the reveal whitelist and the audit trail are all derived
+// from it. What earns the flag is a value that identifies or authenticates the
+// person — a government identifier, a date of birth used as a verification
+// answer, a third party's personal phone number, or the PEP determination.
+// Descriptive attributes (means-of-ID TYPE, nationality, occupation, marital
+// status, hometown, a company's public RC number and its business contact
+// lines) do not: masking those adds friction to every call without withholding
+// anything an impersonator could use.
+var c360IdentityLayout = []c360IDGroupSpec{
+	{key: "documents", title: "Identity & Documents", icon: "badge", fields: []c360IDSpec{
+		{col: "bvn", label: "BVN", icon: "fingerprint", copy: true, mono: true, sensitive: true},
+		{col: "nin", label: "NIN", icon: "badge", copy: true, mono: true, sensitive: true},
+		// TIN and ID Number are government identifiers in exactly the sense BVN and
+		// NIN are — a passport or driver's licence number opens the same doors.
+		{col: "tin", label: "TIN", icon: "receipt_long", copy: true, mono: true, sensitive: true},
+		{col: "means_of_id", label: "Means Of ID", icon: "contact_page"}, // the TYPE ("Passport") — a category, not an identifier
+		{col: "id_number", label: "ID Number", icon: "pin", copy: true, mono: true, sensitive: true},
+	}},
+	{key: "personal", title: "Personal Details", icon: "person", scope: "individual", fields: []c360IDSpec{
+		{col: "date_of_birth", label: "Date Of Birth", icon: "cake", sensitive: true},
+		{col: "marital_status", label: "Marital Status", icon: "favorite"},
+		{col: "nationality", label: "Nationality", icon: "public"},
+		{col: "religion", label: "Religion", icon: "diversity_3"},
+		{col: "hometown", label: "Hometown", icon: "home_pin"},
+		{col: "lga", label: "LGA", icon: "map"},
+	}},
+	{key: "business", title: "Business Details", icon: "domain", scope: "corporate", fields: []c360IDSpec{
+		{col: "registration_number", label: "Registration Number", icon: "verified", copy: true, mono: true},
+		{col: "nature_of_business", label: "Nature Of Business", icon: "storefront"},
+		{col: "industrial_sector", label: "Industrial Sector", icon: "factory"},
+		{col: "state_of_operation", label: "State Of Operation", icon: "map"},
+		{col: "lga", label: "LGA", icon: "map"},
+	}},
+	{key: "employment", title: "Employment", icon: "work", scope: "individual", fields: []c360IDSpec{
+		{col: "occupation", label: "Occupation", icon: "work"},
+		{col: "employer_name", label: "Employer", icon: "apartment"},
+		{col: "employer_address", label: "Employer Address", icon: "location_on"},
+	}},
+	{key: "contact", title: "Contact", icon: "call", fields: []c360IDSpec{
+		{col: "office_phone", label: "Office Phone", icon: "call", copy: true, mono: true},
+		{col: "business_phone", label: "Business Phone", icon: "call", copy: true, mono: true},
+		{col: "contact_person_name", label: "Contact Person", icon: "person"},
+		{col: "contact_person_phone", label: "Contact Person Phone", icon: "call", copy: true, mono: true},
+	}},
+	{key: "nok", title: "Next Of Kin", icon: "diversity_1", scope: "individual", fields: []c360IDSpec{
+		{col: "nok_name", label: "Name", icon: "person"},
+		// The next of kin is an uninvolved third party who never banked with us.
+		// Their personal line is masked; the name and relationship stay visible so
+		// staff can still see WHO the next of kin is without dialling them.
+		{col: "nok_phone", label: "Phone", icon: "call", copy: true, mono: true, sensitive: true},
+		{col: "nok_relationship", label: "Relationship", icon: "diversity_1"},
+	}},
+}
+
+// c360IdentityGroups turns one aggregated app.customers row into the block the
+// page renders. THIS IS THE MASKING SEAM — see the note above. corporate selects
+// the corporate layout (Corporate and GroupJoint customers both read as
+// corporate).
+func c360IdentityGroups(row core.Row, corporate bool) []c360IDGroup {
+	scope := "individual"
+	if corporate {
+		scope = "corporate"
+	}
+	groups := []c360IDGroup{}
+	for _, gs := range c360IdentityLayout {
+		if gs.scope != "" && gs.scope != scope {
+			continue
+		}
+		g := c360IDGroup{Key: gs.key, Title: gs.title, Icon: gs.icon, Fields: []c360IDField{}}
+		for _, fs := range gs.fields {
+			v := strings.TrimSpace(rowStr(row[fs.col]))
+			if v == "" {
+				continue // sparse by nature — omit rather than render a blank label
+			}
+			masked := false
+			if fs.sensitive {
+				// The substitution that makes this masking rather than styling: the
+				// full value is dropped here and never reaches the response. A
+				// reveal fetches it again, one field at a time, on the record.
+				v = c360MaskValue(fs.col, v)
+				masked = true
+			}
+			g.Fields = append(g.Fields, c360IDField{
+				Key: fs.col, Label: fs.label, Value: v,
+				Icon: fs.icon, Mono: fs.mono,
+				// A masked value is not worth copying, and offering the button would
+				// put the mask on the clipboard where a real number is expected.
+				Copy:      fs.copy && !masked,
+				Sensitive: fs.sensitive, Masked: masked,
+			})
+		}
+		if len(g.Fields) > 0 {
+			groups = append(groups, g)
+		}
+	}
+	return groups
+}
+
+// c360Identity serves the Identity & KYC block for one PERSON.
+//
+// One party can hold several app.customers rows (a card row, plus the Udara row
+// migration 258 created for the 263 customers that had no workspace profile), and
+// 258's backfill is blank-only, so the identity record is spread across them.
+// max(NULLIF(btrim(col),'')) collapses the party's rows to the first populated
+// value per field — deterministic, and NULL when no row carries one.
+func c360Identity(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := chi.URLParam(r, "cif")
+		ctx := r.Context()
+
+		// The route key is the universal customer handle: a real card CIF where the
+		// customer holds a card, else the workspace contact_id — the same match
+		// contactProfileHandler and c360Search use. Everything after it is party_id.
+		rows, err := db.PGQuery(ctx, `
+			WITH k AS (
+			    SELECT party_id, contact_id
+			      FROM app.customers
+			     WHERE COALESCE(NULLIF(cif,''), contact_id) = $1
+			     LIMIT 1
+			),
+			prof AS (
+			    SELECT max(NULLIF(btrim(c.bvn),''))                  AS bvn,
+			           max(NULLIF(btrim(c.nin),''))                  AS nin,
+			           max(NULLIF(btrim(c.tin),''))                  AS tin,
+			           max(NULLIF(btrim(c.lga),''))                  AS lga,
+			           max(NULLIF(btrim(c.nationality),''))          AS nationality,
+			           max(NULLIF(btrim(c.marital_status),''))       AS marital_status,
+			           max(NULLIF(btrim(c.occupation),''))           AS occupation,
+			           max(NULLIF(btrim(c.employer_name),''))        AS employer_name,
+			           max(NULLIF(btrim(c.employer_address),''))     AS employer_address,
+			           max(NULLIF(btrim(c.office_phone),''))         AS office_phone,
+			           max(NULLIF(btrim(c.means_of_id),''))          AS means_of_id,
+			           max(NULLIF(btrim(c.id_number),''))            AS id_number,
+			           max(NULLIF(btrim(c.nok_name),''))             AS nok_name,
+			           max(NULLIF(btrim(c.nok_phone),''))            AS nok_phone,
+			           max(NULLIF(btrim(c.nok_relationship),''))     AS nok_relationship,
+			           max(NULLIF(btrim(c.business_phone),''))       AS business_phone,
+			           max(NULLIF(btrim(c.nature_of_business),''))   AS nature_of_business,
+			           max(NULLIF(btrim(c.industrial_sector),''))    AS industrial_sector,
+			           max(NULLIF(btrim(c.registration_number),''))  AS registration_number,
+			           max(NULLIF(btrim(c.contact_person_name),''))  AS contact_person_name,
+			           max(NULLIF(btrim(c.contact_person_phone),'')) AS contact_person_phone,
+			           max(NULLIF(btrim(c.state_of_operation),''))   AS state_of_operation,
+			           max(NULLIF(btrim(c.religion),''))             AS religion,
+			           max(NULLIF(btrim(c.hometown),''))             AS hometown,
+			           to_char(max(c.birthday),'DD Mon YYYY')        AS date_of_birth,
+			           bool_or(COALESCE(c.pep,false))                AS pep,
+			           count(*) FILTER (WHERE c.pep IS NOT NULL)     AS pep_known
+			      FROM app.customers c, k
+			     WHERE (k.party_id IS NOT NULL AND c.party_id = k.party_id)
+			        OR (k.party_id IS NULL AND c.contact_id = k.contact_id)
+			)
+			SELECT prof.*,
+			       k.party_id         AS party_id,
+			       p.party_type       AS party_type,
+			       lk.cbs_customer_id AS cbs_customer_id,
+			       cc.customer_type   AS customer_type,
+			       cc.synced_at       AS synced_at
+			  FROM prof
+			  LEFT JOIN k ON TRUE
+			  LEFT JOIN app.parties p        ON p.party_id = k.party_id
+			  LEFT JOIN app.cbs_links lk     ON lk.entity_type = 'party' AND lk.entity_id = k.party_id
+			  LEFT JOIN app.cbs_customers cc ON cc.cbs_customer_id = lk.cbs_customer_id`, key)
+		if err != nil {
+			respondErrLog(w, 500, "Query failed", err)
+			return
+		}
+
+		empty := map[string]any{"entity_type": "individual", "groups": []c360IDGroup{}, "field_count": 0,
+			"pep": nil, "pep_known": false, "pep_masked": false, "linked": false}
+		if len(rows) == 0 {
+			respond(w, empty, "pg")
+			return
+		}
+		row := rows[0]
+
+		// Not in app.cbs_links: core banking has no record of this customer, so there
+		// is no core-banking identity record to show. Every column migration 258 added
+		// is backfilled through that bridge and would be NULL here anyway; only the
+		// card-fed bvn/birthday could survive, and serving those under a "from core
+		// banking" heading would misattribute them.
+		cbsID := strings.TrimSpace(rowStr(row["cbs_customer_id"]))
+		if cbsID == "" {
+			respond(w, empty, "pg")
+			return
+		}
+
+		// Entity type: the Udara master's own classification where the customer is
+		// linked (Corporate and the one GroupJoint both read as corporate), else the
+		// workspace party_type.
+		ct := strings.ToLower(strings.TrimSpace(rowStr(row["customer_type"])))
+		corporate := ct == "corporate" || ct == "groupjoint"
+		if ct == "" {
+			corporate = strings.EqualFold(strings.TrimSpace(rowStr(row["party_type"])), "organization")
+		}
+		entity := "individual"
+		if corporate {
+			entity = "corporate"
+		}
+
+		groups := c360IdentityGroups(row, corporate)
+		n := 0
+		for _, g := range groups {
+			n += len(g.Fields)
+		}
+
+		// PEP is tri-state: true (flagged), false (checked and clear), null (never
+		// carried a flag — a card-only customer the core-banking master has never
+		// seen). The page must not read "not politically exposed" off an absence.
+		//
+		// It is also sensitive, so the DETERMINATION is masked exactly like the
+		// other sensitive fields: the response says whether one exists, never what
+		// it says. "pep" therefore always leaves here as null; the value comes back
+		// from the reveal endpoint under field "pep", with an audit row attached.
+		// That is a feature for compliance as well as the customer — the trail now
+		// shows who checked a customer's PEP status before acting.
+		pepKnown := toInt64(row["pep_known"]) > 0
+
+		respond(w, map[string]any{
+			"entity_type": entity,
+			"groups":      groups,
+			"field_count": n,
+			"pep":         nil, // never disclosed unmasked — reveal field "pep"
+			"pep_known":   pepKnown,
+			"pep_masked":  pepKnown,
+			"linked":      true, // short-circuited above when core banking has no record
+			// Provenance — this block is core banking, not the card feed.
+			"source": map[string]any{
+				"system":          "udara360",
+				"label":           "Udara360 Core Banking",
+				"cbs_customer_id": cbsID,
+				"synced_at":       row["synced_at"],
+				"party_id":        row["party_id"],
+			},
+		}, "pg")
+	}
 }

@@ -106,13 +106,13 @@ export default function SalesSupervisor() {
 
       {/* Team KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 14, marginBottom: SP[4] }}>
-        <KpiCard label="Open leads" value={fmtNum(t.total_leads)} icon="filter_alt" accent={NAVY} />
+        <KpiCard label="Open Leads" value={fmtNum(t.total_leads)} icon="filter_alt" accent={NAVY} />
         <KpiCard label="Unowned" value={fmtNum(t.unowned_leads)} sub="need an officer"
           icon="person_off" accent={unowned > 0 ? RED : GREEN} />
-        <KpiCard label="Overdue follow-ups" value={fmtNum(t.overdue_followups)}
+        <KpiCard label="Overdue Follow-Ups" value={fmtNum(t.overdue_followups)}
           icon="alarm" accent={Number(t.overdue_followups) > 0 ? AMBER : NAVY} />
         <KpiCard label="Converted MTD" value={fmtNum(t.converted_mtd)} icon="verified" accent={GREEN} />
-        <KpiCard label="Open pipeline" value={fmtKobo(t.pipeline_kobo)} icon="payments" accent={PURPLE} />
+        <KpiCard label="Open Pipeline" value={fmtKobo(t.pipeline_kobo)} icon="payments" accent={PURPLE} />
       </div>
 
       {/* Agent wallboard */}
@@ -287,11 +287,11 @@ function SetTargetsModal({ officers, onClose, onDone }: {
   const lbl: React.CSSProperties = { display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }
 
   return (
-    <Modal open onClose={onClose} title="Set sales target" width={460}
+    <Modal open onClose={onClose} title="Set Sales Target" width={460}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={save} disabled={saving} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1 }}>{saving ? 'Saving…' : 'Save target'}</button>
+          <button onClick={save} disabled={saving} style={{ padding: '8px 18px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.base, fontWeight: FW.bold, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1 }}>{saving ? 'Saving…' : 'Save Target'}</button>
         </div>
       }
     >
@@ -299,7 +299,7 @@ function SetTargetsModal({ officers, onClose, onDone }: {
         <div style={{ gridColumn: '1 / -1' }}>
           <label style={lbl}>Officer</label>
           <select value={officer} onChange={e => setOfficer(e.target.value)} style={inp}>
-            <option value="">— Select officer —</option>
+            <option value="">— Select Officer —</option>
             {officers.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
           </select>
         </div>
@@ -308,11 +308,11 @@ function SetTargetsModal({ officers, onClose, onDone }: {
           <input type="month" value={period} onChange={e => setPeriod(e.target.value)} style={inp} />
         </div>
         <div />
-        <div><label style={lbl}>Loan count</label><input type="number" value={loans} onChange={e => setLoans(e.target.value)} placeholder="0" style={inp} /></div>
+        <div><label style={lbl}>Loan Count</label><input type="number" value={loans} onChange={e => setLoans(e.target.value)} placeholder="0" style={inp} /></div>
         <div><label style={lbl}>Disbursement (₦)</label><input type="number" value={disb} onChange={e => setDisb(e.target.value)} placeholder="0.00" style={inp} /></div>
-        <div><label style={lbl}>FD count</label><input type="number" value={fds} onChange={e => setFds(e.target.value)} placeholder="0" style={inp} /></div>
-        <div><label style={lbl}>FD amount (₦)</label><input type="number" value={fdAmt} onChange={e => setFdAmt(e.target.value)} placeholder="0.00" style={inp} /></div>
-        <div><label style={lbl}>Card count</label><input type="number" value={cards} onChange={e => setCards(e.target.value)} placeholder="0" style={inp} /></div>
+        <div><label style={lbl}>FD Count</label><input type="number" value={fds} onChange={e => setFds(e.target.value)} placeholder="0" style={inp} /></div>
+        <div><label style={lbl}>FD Amount (₦)</label><input type="number" value={fdAmt} onChange={e => setFdAmt(e.target.value)} placeholder="0.00" style={inp} /></div>
+        <div><label style={lbl}>Card Count</label><input type="number" value={cards} onChange={e => setCards(e.target.value)} placeholder="0" style={inp} /></div>
       </div>
     </Modal>
   )
@@ -395,13 +395,13 @@ function DistributeModal({ unowned, onClose, onDone }: { unowned: number; onClos
   const lbl: React.CSSProperties = { fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 4, display: 'block' }
 
   return (
-    <Modal open onClose={onClose} title="Distribute unowned leads" width={560} maxHeight="80vh"
+    <Modal open onClose={onClose} title="Distribute Unowned Leads" width={560} maxHeight="80vh"
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>{fmtNum(unowned)} unowned · {selected.size} selected</span>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={doPreview} disabled={busy || selected.size === 0}
-              style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: busy ? 'default' : 'pointer', opacity: busy || selected.size === 0 ? 0.6 : 1 }}>Preview split</button>
+              style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.base, cursor: busy ? 'default' : 'pointer', opacity: busy || selected.size === 0 ? 0.6 : 1 }}>Preview Split</button>
             <button onClick={doDistribute} disabled={busy || selected.size === 0}
               style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: 'none', background: RED, color: '#fff', fontSize: TEXT.base, fontWeight: FW.semibold, cursor: busy ? 'default' : 'pointer', opacity: busy || selected.size === 0 ? 0.6 : 1 }}>{busy ? 'Working…' : 'Distribute'}</button>
           </div>
@@ -412,12 +412,12 @@ function DistributeModal({ unowned, onClose, onDone }: { unowned: number; onClos
           <div>
             <label style={lbl}>Strategy</label>
             <select value={strategy} onChange={e => { setStrategy(e.target.value as any); setPreview(null) }} style={field}>
-              <option value="round_robin">Round-robin (even split)</option>
-              <option value="by_state">By state (keep states together)</option>
+              <option value="round_robin">Round-Robin (Even Split)</option>
+              <option value="by_state">By State (Keep States Together)</option>
             </select>
           </div>
           <div>
-            <label style={lbl}>Limit (blank = all)</label>
+            <label style={lbl}>Limit (Blank = All)</label>
             <input value={limit} onChange={e => { setLimit(e.target.value.replace(/[^0-9]/g, '')); setPreview(null) }} placeholder="e.g. 500" style={field} />
           </div>
         </div>
@@ -434,7 +434,7 @@ function DistributeModal({ unowned, onClose, onDone }: { unowned: number; onClos
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: `1px solid ${includeSelf ? NAVY : 'var(--bdr)'}`, borderRadius: RADIUS.md, background: includeSelf ? `${NAVY}0a` : 'var(--card)', cursor: 'pointer' }}>
             <input type="checkbox" checked={includeSelf} onChange={e => toggleSelf(e.target.checked)} style={{ width: 16, height: 16, accentColor: NAVY }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Include me in the distribution</div>
+              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Include Me in the Distribution</div>
               <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
                 {includeSelf ? 'You’ll take a share of the leads to call.' : 'Leads go only to the agents you pick below.'}
               </div>
@@ -443,7 +443,7 @@ function DistributeModal({ unowned, onClose, onDone }: { unowned: number; onClos
         )}
 
         <div>
-          <label style={lbl}>Officers ({selected.size} selected)</label>
+          <label style={lbl}>Officers ({selected.size} Selected)</label>
           <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }}>
             {officers.length === 0 ? (
               <div style={{ padding: 16, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>Loading officers…</div>
@@ -456,7 +456,7 @@ function DistributeModal({ unowned, onClose, onDone }: { unowned: number; onClos
                   <div style={{ fontSize: TEXT.base }}>{o.full_name}</div>
                   <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>{o.role}{o.book_size > 0 ? ` · ${fmtNum(o.book_size)} in book` : ''}</div>
                 </div>
-                {o.already_officer && <span style={{ fontSize: TEXT['2xs'], color: GREEN, fontWeight: FW.semibold }}>officer</span>}
+                {o.already_officer && <span style={{ fontSize: TEXT['2xs'], color: GREEN, fontWeight: FW.semibold }}>Officer</span>}
               </label>
             ))}
           </div>

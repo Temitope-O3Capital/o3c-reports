@@ -148,16 +148,16 @@ export default function RiskMyDashboard() {
 
       {/* ── My Day — the action list, each tile wired to where the work is ── */}
       <MyDaySection hint="the accounts that need action today">
-        <MyDayTile icon="warning_amber" count={fmtNum(pastDue)} label="Loans past due"
+        <MyDayTile icon="warning_amber" count={fmtNum(pastDue)} label="Loans Past Due"
           sub={pastDue > 0 ? 'open the overdue book' : 'book is current'}
           color={AMBER} urgent={pastDue > 0} onClick={() => toPortfolioFiltered(OVERDUE)} />
-        <MyDayTile icon="error_outline" count={fmtNum(npl)} label="NPL loans"
+        <MyDayTile icon="error_outline" count={fmtNum(npl)} label="NPL Loans"
           sub={npl > 0 ? `${fmtKoboExact(N(d.npl_kobo))} at risk` : 'none over 90 DPD'}
           color={npl > 0 ? RED : GREEN} urgent={npl > 0} onClick={() => toPortfolioFiltered('npl')} />
         <MyDayTile icon="hourglass_bottom" count={worstDpd > 0 ? `${fmtNum(worstDpd)}d` : '0'} label="Worst DPD"
           sub={worstDpd > 90 ? 'in NPL territory' : worstDpd > 30 ? 'past 30 days' : 'within 30 days'}
           color={worstDpd > 90 ? RED : worstDpd > 30 ? AMBER : GREEN} urgent={worstDpd > 90} onClick={toPortfolio} />
-        <MyDayTile icon="pending_actions" count={live ? fmtNum(pending) : '—'} label="Applications to review"
+        <MyDayTile icon="pending_actions" count={live ? fmtNum(pending) : '—'} label="Applications to Review"
           sub={live ? (pending > 0 ? 'decisions on your desk' : 'queue clear') : 'none raised yet'}
           color={BLUE} urgent={live && pending > 0} onClick={toAppReview} />
       </MyDaySection>
@@ -189,7 +189,7 @@ export default function RiskMyDashboard() {
       {/* ── DPD distribution ── */}
       <SectionCard title="Delinquency Distribution" subtitle="Your book by days past due (schedule-derived)" style={{ marginBottom: 14 }}>
         {bookLoans === 0
-          ? <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No active loans on your book</div>
+          ? <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No Active Loans on Your Book</div>
           : <DpdBar buckets={buckets} />}
       </SectionCard>
 
@@ -220,11 +220,11 @@ export default function RiskMyDashboard() {
               keyFn={r => r.reference}
               onRowClick={toAppReview}
               pageSize={8}
-              emptyText="Nothing awaiting your review"
+              emptyText="Nothing Awaiting Your Review"
             />
           </SectionCard>
           <SectionCard title="Pending by Band" badge={d.pending_by_band?.length ?? 0}>
-            <DataTable cols={bandCols} rows={d.pending_by_band ?? []} keyFn={r => r.band} pageSize={8} emptyText="Nothing pending" />
+            <DataTable cols={bandCols} rows={d.pending_by_band ?? []} keyFn={r => r.band} pageSize={8} emptyText="Nothing Pending" />
           </SectionCard>
         </div>
       ) : (
@@ -232,7 +232,7 @@ export default function RiskMyDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 4px' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 34, color: 'var(--txt3)' }}>fact_check</span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>No applications in the review pipeline yet</div>
+              <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>No Applications in the Review Pipeline Yet</div>
               <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>
                 New applications raised here or synced from Phoenix will land in Loan/Credit Card Review. Open it to see the queue and take decisions.
               </div>

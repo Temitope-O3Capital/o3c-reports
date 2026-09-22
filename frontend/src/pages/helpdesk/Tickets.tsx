@@ -77,12 +77,12 @@ const SCOPE_TABS = [
   { value: 'mine',      label: 'Mine',       icon: 'assignment_ind' },
   { value: 'unassigned',label: 'Unclaimed',  icon: 'person_off' },
   { value: 'assisting', label: 'Assisting',  icon: 'volunteer_activism' },
-  { value: 'all',       label: 'All tickets',icon: 'inbox' },
+  { value: 'all',       label: 'All Tickets',icon: 'inbox' },
 ] as const
 const CHANNEL_CHIPS = [{ value: '', label: 'All' }, { value: 'web', label: 'Web' }, { value: 'social', label: 'Social' }]
 const SORT_OPTS = [
-  { value: 'waiting', label: 'Longest waiting on us' }, { value: 'newest', label: 'Newest first' },
-  { value: 'oldest', label: 'Oldest first' }, { value: 'updated', label: 'Recently updated' },
+  { value: 'waiting', label: 'Longest Waiting on Us' }, { value: 'newest', label: 'Newest First' },
+  { value: 'oldest', label: 'Oldest First' }, { value: 'updated', label: 'Recently Updated' },
 ]
 
 // ── Triage KPI card (clickable filter) ───────────────────────────────────────────
@@ -223,7 +223,7 @@ function TicketPreview({ ticketId, onChanged, onFull }: { ticketId: number; onCh
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
             {canResolve && <button className="hd-press" onClick={resolve} disabled={busy} style={{ padding: '5px 12px', borderRadius: RADIUS.md, border: 'none', background: GREEN, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}>Resolve</button>}
             {t.customer_phone && <button className="hd-press" onClick={callback} disabled={busy} title="Add to outbound Support queue" style={{ padding: '5px 11px', borderRadius: RADIUS.md, border: `1px solid ${GREEN}40`, background: 'none', color: GREEN, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'inline-flex', alignItems: 'center', gap: 4 }}><span className="material-symbols-rounded" style={{ fontSize: 15 }}>phone_forwarded</span></button>}
-            <button className="hd-press" onClick={onFull} title="Open full page" style={{ padding: '5px 11px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'inline-flex', alignItems: 'center', gap: 4 }}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>open_in_full</span>Full page</button>
+            <button className="hd-press" onClick={onFull} title="Open full page" style={{ padding: '5px 11px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA, display: 'inline-flex', alignItems: 'center', gap: 4 }}><span className="material-symbols-rounded" style={{ fontSize: 16 }}>open_in_full</span>Full Page</button>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: TEXT.xs, color: 'var(--txt2)' }}>
@@ -403,10 +403,10 @@ export default function Tickets() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: SP[3], padding: '16px 24px 0', flexShrink: 0 }}>
         <TriageCard icon="inbox" label="Open" value={summary?.open} color={NAVY} active={!bucket && view === 'all' && !agentFilter} onClick={() => pickView('all')} />
         <TriageCard icon="alarm" label="Overdue" value={summary?.overdue} color={RED} active={bucket === 'overdue'} onClick={() => pickBucket('overdue')} />
-        <TriageCard icon="mark_chat_unread" label="Awaiting us" value={summary?.awaiting_us} color={RED} active={bucket === 'awaiting_us'} onClick={() => pickBucket('awaiting_us')} />
-        <TriageCard icon="schedule_send" label="Awaiting customer" value={summary?.awaiting_customer} color={BLUE} active={bucket === 'awaiting_customer'} onClick={() => pickBucket('awaiting_customer')} />
+        <TriageCard icon="mark_chat_unread" label="Awaiting Us" value={summary?.awaiting_us} color={RED} active={bucket === 'awaiting_us'} onClick={() => pickBucket('awaiting_us')} />
+        <TriageCard icon="schedule_send" label="Awaiting Customer" value={summary?.awaiting_customer} color={BLUE} active={bucket === 'awaiting_customer'} onClick={() => pickBucket('awaiting_customer')} />
         <TriageCard icon="person_off" label="Unassigned" value={summary?.unassigned} color={AMBER} active={view === 'unassigned'} onClick={() => pickView(view === 'unassigned' ? 'all' : 'unassigned')} />
-        <TriageCard icon="assignment_ind" label="Assigned to me" value={summary?.mine} color={PURPLE} active={view === 'mine'} onClick={() => pickView(view === 'mine' ? 'all' : 'mine')} />
+        <TriageCard icon="assignment_ind" label="Assigned to Me" value={summary?.mine} color={PURPLE} active={view === 'mine'} onClick={() => pickView(view === 'mine' ? 'all' : 'mine')} />
       </div>
       )}
 
@@ -460,7 +460,7 @@ export default function Tickets() {
             </select>
             {privileged && (
               <select value={agentFilter} onChange={e => { setAgentFilter(e.target.value); setView('all'); setPage(1) }} style={{ ...selCss, maxWidth: 150, textOverflow: 'ellipsis' }} title="Filter by agent">
-                <option value="">Everyone’s tickets</option>
+                <option value="">Everyone’s Tickets</option>
                 {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
               </select>
             )}
@@ -479,7 +479,7 @@ export default function Tickets() {
           )}
 
           <div style={{ padding: '6px 13px', borderBottom: '1px solid var(--bdr)', flexShrink: 0, display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.08em', fontFamily: MONO }}>{hasFilters ? 'Filtered' : 'All tickets'}</span>
+            <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '.08em', fontFamily: MONO }}>{hasFilters ? 'Filtered' : 'All Tickets'}</span>
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: MONO }}>{tickets.length} of {total}</span>
           </div>
 

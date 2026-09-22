@@ -118,6 +118,13 @@ func taskActionURL(tc *taskContext) string {
 		if tc.LinkedID > 0 {
 			return "/sales/crm" + suffix
 		}
+	case "lead":
+		// A follow-up raised from the call-centre lead pane belongs back on that lead,
+		// with its detail panel already open. Without this case it fell through to
+		// /sales/tasks — a list the agent who raised it may not even have access to.
+		if tc.LinkedID > 0 {
+			return fmt.Sprintf("/call-center/leads?open=%d&task=%d", tc.LinkedID, tc.ID)
+		}
 	}
 
 	if tc.ContactCIF != "" {

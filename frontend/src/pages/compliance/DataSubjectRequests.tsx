@@ -144,7 +144,7 @@ export default function DataSubjectRequests() {
           {fmtDatetime(r.processed_at)}
         </span>
       )
-      : <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontStyle: 'italic' }}>Pending erasure</span>
+      : <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontStyle: 'italic' }}>Pending Erasure</span>
     },
     { key: 'assigned_to_name', label: 'Handler', render: r => <span style={{ fontSize: TEXT.sm }}>{r.assigned_to_name ?? '—'}</span> },
     {
@@ -237,7 +237,7 @@ export default function DataSubjectRequests() {
             resultCount={filtered.length} totalCount={items.length}
             placeholder="Search by name, type or status…"
           />
-          <DataTable cols={COLS} rows={filtered} keyFn={r => r.id} emptyText="No data subject requests recorded" />
+          <DataTable cols={COLS} rows={filtered} keyFn={r => r.id} emptyText="No Data Subject Requests Recorded" />
         </SectionCard>
       )}
 

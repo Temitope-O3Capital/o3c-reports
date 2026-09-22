@@ -2027,8 +2027,64 @@ func complianceConcentrationRisk(db *core.DB) http.HandlerFunc {
 
 // ── NDPR Erasure Worker ───────────────────────────────────────────────────────
 
+// ndprSubjectPhones returns the subject's phone numbers in app.norm_phone() form —
+// exactly 10 digits, nothing else.
+//
+// This guard matters more than it looks. app.norm_phone() returns '' (never NULL) for
+// anything it cannot parse, so a naive `norm_phone(col) = norm_phone($subject)` match
+// degenerates to '' = '' and hits EVERY row with a blank or malformed phone — of which
+// the call tables hold plenty. Mass-anonymising unrelated customers inside a compliance
+// worker is irreversible, so: every number is length-checked here, every query below
+// re-checks the column side with length(...) = 10, and the phone branch is skipped
+// entirely when this returns empty.
+//
+// Called BEFORE anything is anonymised — the tables queried here are exactly the ones
+// the same worker is about to erase the subject's number from.
+func ndprSubjectPhones(ctx context.Context, db *core.DB, cif string) []string {
+	seen := map[string]bool{}
+	var out []string
+	// Each source is queried separately and failures ignored: a column absent in one
+	// deployment must not cost us the numbers the other sources can still supply.
+	for _, q := range []string{
+		`SELECT app.norm_phone(phone)            AS ph FROM app.customers          WHERE cif          = $1`,
+		`SELECT app.norm_phone(phone)            AS ph FROM app.crm_contacts       WHERE cif_number   = $1`,
+		`SELECT app.norm_phone(customer_phone)   AS ph FROM app.helpdesk_calls     WHERE customer_cif = $1`,
+		`SELECT app.norm_phone(phone)            AS ph FROM app.campaign_contacts  WHERE cif_number   = $1`,
+	} {
+		rows, err := db.PGQuery(ctx, q, cif)
+		if err != nil {
+			continue
+		}
+		for _, row := range rows {
+			ph := strings.TrimSpace(str(row["ph"]))
+			if len(ph) != 10 || seen[ph] {
+				continue
+			}
+			digits := true
+			for _, c := range ph {
+				if c < '0' || c > '9' {
+					digits = false
+					break
+				}
+			}
+			if !digits {
+				continue
+			}
+			seen[ph] = true
+			out = append(out, ph)
+		}
+	}
+	return out
+}
+
 // StartNDPRErasureWorker processes approved data erasure DSARs daily at midnight.
-// It anonymizes PII in crm_contacts for the subject CIF and marks each request processed.
+//
+// It anonymises the subject's PII across the customer, loan, ticket, campaign AND
+// call-centre tables, deletes their cached call audio, and marks each request
+// processed. Matching is by CIF and, for the call tables that are keyed by phone with
+// no CIF at all, by the subject's normalised phone under the 10-digit guard described
+// on ndprSubjectPhones. The convention throughout is anonymise, not delete: the
+// operational fact that a call or a ticket happened survives; who it was about does not.
 func StartNDPRErasureWorker(db *core.DB) {
 	for {
 		now := time.Now()
@@ -2059,6 +2115,21 @@ func runNDPRErasure(db *core.DB) {
 		cif := str(row["subject_cif"])
 
 		if cif != "" {
+			// Call-centre rows are overwhelmingly keyed by PHONE with an empty CIF, so a
+			// CIF-only erasure misses nearly all of them. Resolve the subject's numbers
+			// BEFORE the transaction anonymises the very tables that hold them.
+			phones := ndprSubjectPhones(ctx, db, cif)
+			phoneCSV := strings.Join(phones, ",")
+			if phoneCSV == "" {
+				slog.Warn("ndpr_erasure: no usable 10-digit phone for subject — erasing on CIF "+
+					"only; call-centre rows keyed by phone will NOT be reached",
+					"dsar_id", id, "cif", cif)
+			}
+			// Call ids are captured before the anonymise destroys the keys that find
+			// them: the rows hanging off a call (edits, QA) are then reached by id, and
+			// the cached audio is deleted once the transaction has committed.
+			var callIDs []string
+
 			// C4: anonymise all PII tables inside a single transaction.
 			tx, txErr := db.PG.BeginTx(ctx, nil)
 			if txErr != nil {
@@ -2077,17 +2148,24 @@ func runNDPRErasure(db *core.DB) {
 					WHERE cif_number = $1`, cif); err != nil {
 					return fmt.Errorf("crm_contacts: %w", err)
 				}
-				// customers: full_name, phone, email, bvn confirmed from schema.
-				// NOTE: bvn_hash, nin_hash, bvn_encrypted, nin_encrypted not found in schema — skipped.
+				// customers: full_name, phone, email, bvn all verified against the live
+				// schema on 2026-09-17. The key is `cif` — this said `cif_number`, which
+				// app.customers has never had, so the statement failed outright. Because a
+				// failed statement writes NONE of its columns and the error below was only
+				// a warning, every erasure request ever processed left the customer's name,
+				// phone, email and BVN intact while reporting success.
 				if _, err := tx.ExecContext(ctx, `
 					UPDATE customers
 					SET full_name = '[ERASED]',
 					    phone     = '[ERASED]',
 					    email     = '[ERASED]',
 					    bvn       = '[ERASED]'
-					WHERE cif_number = $1`, cif); err != nil {
-					// Non-fatal: columns may not all exist in all deployments.
-					slog.Warn("ndpr_erasure: customers anonymize warning", "dsar_id", id, "cif", cif, "error", err)
+					WHERE cif = $1`, cif); err != nil {
+					// Still non-fatal, so one column drifting in some deployment can't block
+					// the rest of an erasure — but at Error, and saying plainly that the
+					// record was NOT anonymised, so this can never again read as success.
+					slog.Error("ndpr_erasure: customer record NOT anonymised — erasure incomplete",
+						"dsar_id", id, "cif", cif, "error", err)
 				}
 				// loan_applications: applicant_name, applicant_phone confirmed in migration 004.
 				// NOTE: applicant_bvn_hash not found in schema — skipped.
@@ -2128,6 +2206,120 @@ func runNDPRErasure(db *core.DB) {
 					WHERE cif_number = $1`, cif); err != nil {
 					slog.Warn("ndpr_erasure: campaign_contacts warning", "dsar_id", id, "cif", cif, "error", err)
 				}
+
+				// ── Call centre ──────────────────────────────────────────────────────
+				// None of the following was erased before, which meant an erasure request
+				// removed no call data and no recordings at all. Every predicate here is
+				// "CIF or normalised phone", and the phone side is guarded twice: the
+				// column must itself normalise to 10 digits, and $2 is non-empty only when
+				// ndprSubjectPhones found real 10-digit numbers. Without both, norm_phone's
+				// '' return for unparseable input would match every blank-phone row.
+
+				// The call ids, captured while the keys that find them still exist.
+				crows, cerr := tx.QueryContext(ctx, `
+					SELECT id::text
+					  FROM helpdesk_calls
+					 WHERE (($1 <> '' AND customer_cif = $1)
+					     OR ($2 <> '' AND length(app.norm_phone(customer_phone)) = 10
+					         AND app.norm_phone(customer_phone) = ANY(string_to_array($2, ','))))`,
+					cif, phoneCSV)
+				if cerr != nil {
+					return fmt.Errorf("helpdesk_calls select: %w", cerr)
+				}
+				for crows.Next() {
+					var cid string
+					if err := crows.Scan(&cid); err == nil && cid != "" {
+						callIDs = append(callIDs, cid)
+					}
+				}
+				crows.Close() //nolint:errcheck
+				callIDCSV := strings.Join(callIDs, ",")
+
+				// helpdesk_calls: the record of the conversation. Identity, the notes and
+				// resolution the agent typed, the transcript, and the pointer to the audio
+				// all go. The call FACT stays — when, which agent, how long, the outcome —
+				// because agent performance and call volumes are not the subject's data.
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE helpdesk_calls
+					   SET customer_name      = '[ERASED]',
+					       customer_phone     = '',
+					       customer_email     = '',
+					       customer_cif       = '',
+					       notes              = NULL,
+					       resolution         = NULL,
+					       transcript         = NULL,
+					       recording_filename = NULL,
+					       recording_url      = NULL
+					 WHERE (($1 <> '' AND customer_cif = $1)
+					     OR ($2 <> '' AND length(app.norm_phone(customer_phone)) = 10
+					         AND app.norm_phone(customer_phone) = ANY(string_to_array($2, ','))))`,
+					cif, phoneCSV); err != nil {
+					return fmt.Errorf("helpdesk_calls: %w", err)
+				}
+
+				if callIDCSV != "" {
+					// helpdesk_call_edits.changes holds the BEFORE/AFTER of the conversation
+					// notes — a verbatim second copy of what was just erased from the call.
+					// The audit row itself survives (who corrected what, and when, is the
+					// whole point of the trail); only the copied content is redacted.
+					if _, err := tx.ExecContext(ctx, `
+						UPDATE helpdesk_call_edits SET changes = '{}'::jsonb
+						 WHERE call_id::text = ANY(string_to_array($1, ','))`, callIDCSV); err != nil {
+						slog.Warn("ndpr_erasure: helpdesk_call_edits warning", "dsar_id", id, "error", err)
+					}
+					// qa_evaluations: the scorecard is agent-performance data and stays; the
+					// customer's name printed on it does not.
+					if _, err := tx.ExecContext(ctx, `
+						UPDATE qa_evaluations SET customer_name = '[ERASED]'
+						 WHERE call_id::text = ANY(string_to_array($1, ','))`, callIDCSV); err != nil {
+						slog.Warn("ndpr_erasure: qa_evaluations warning", "dsar_id", id, "error", err)
+					}
+				}
+
+				// call_center_leads — the lead book. Contact details go; the campaign,
+				// status and attempt counters stay, so funnel reporting is not rewritten.
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE call_center_leads
+					   SET customer_name  = '[ERASED]',
+					       customer_phone = '',
+					       email          = NULL,
+					       address        = NULL,
+					       customer_cif   = NULL
+					 WHERE (($1 <> '' AND customer_cif = $1)
+					     OR ($2 <> '' AND length(app.norm_phone(customer_phone)) = 10
+					         AND app.norm_phone(customer_phone) = ANY(string_to_array($2, ','))))`,
+					cif, phoneCSV); err != nil {
+					slog.Warn("ndpr_erasure: call_center_leads warning", "dsar_id", id, "error", err)
+				}
+
+				// call_center_contacts — the dialler queue. notes is free text an agent
+				// typed about the person, so it goes with the identity fields.
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE call_center_contacts
+					   SET customer_name = '[ERASED]',
+					       phone         = '',
+					       cif           = NULL,
+					       notes         = NULL
+					 WHERE (($1 <> '' AND cif = $1)
+					     OR ($2 <> '' AND length(app.norm_phone(phone)) = 10
+					         AND app.norm_phone(phone) = ANY(string_to_array($2, ','))))`,
+					cif, phoneCSV); err != nil {
+					slog.Warn("ndpr_erasure: call_center_contacts warning", "dsar_id", id, "error", err)
+				}
+
+				// zoho_webhook_events.raw is the provider's verbatim payload, names and
+				// numbers included. There is no key to join on, so it is matched on the
+				// subject's 10-digit number appearing in the payload text. The CIF is
+				// deliberately NOT used here: a short identifier matches incidentally.
+				// Only the payload is cleared — the event record (type, when) survives.
+				for _, ph := range phones {
+					if _, err := tx.ExecContext(ctx, `
+						UPDATE zoho_webhook_events SET raw = NULL
+						 WHERE raw IS NOT NULL AND raw::text LIKE '%' || $1 || '%'`, ph); err != nil {
+						slog.Warn("ndpr_erasure: zoho_webhook_events warning", "dsar_id", id, "error", err)
+						break
+					}
+				}
 				return nil
 			}()
 
@@ -2139,6 +2331,18 @@ func runNDPRErasure(db *core.DB) {
 			if err := tx.Commit(); err != nil {
 				slog.Error("ndpr_erasure: commit failed", "dsar_id", id, "cif", cif, "error", err)
 				continue
+			}
+
+			// Only now the audio. A filesystem delete cannot be rolled back, so doing it
+			// before the commit would destroy recordings a failed transaction still
+			// referred to. The rows' pointers are already cleared, so nothing can re-pull
+			// these from the provider.
+			for _, cid := range callIDs {
+				deleteCachedRecording(cid)
+			}
+			if len(callIDs) > 0 {
+				slog.Info("ndpr_erasure: erased call records and deleted cached audio",
+					"dsar_id", id, "cif", cif, "calls", len(callIDs), "phones", len(phones))
 			}
 		}
 

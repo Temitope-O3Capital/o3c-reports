@@ -288,10 +288,17 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 				zoho[job] = st{status, tsPtr(x["last_success_at"]), tsPtr(x["last_success_at"]), strPtr(x["last_error"]), &d}
 			}
 		}
+		// hbStarted is kept alongside hb rather than inside st: only the staleness
+		// check below needs it, and st is built positionally from six other sources.
 		hb := map[string]st{}
-		if rows, _ := db.PGQuery(ctx, `SELECT worker_key, status, last_finished_at, last_ok_at, last_error, detail FROM worker_heartbeats`); len(rows) > 0 {
+		hbStarted := map[string]time.Time{}
+		if rows, _ := db.PGQuery(ctx, `SELECT worker_key, status, last_started_at, last_finished_at, last_ok_at, last_error, detail FROM worker_heartbeats`); len(rows) > 0 {
 			for _, x := range rows {
-				hb[str(x["worker_key"])] = st{norm(str(x["status"])), tsPtr(x["last_finished_at"]), tsPtr(x["last_ok_at"]), strPtr(x["last_error"]), strPtr(x["detail"])}
+				key := str(x["worker_key"])
+				hb[key] = st{norm(str(x["status"])), tsPtr(x["last_finished_at"]), tsPtr(x["last_ok_at"]), strPtr(x["last_error"]), strPtr(x["detail"])}
+				if t, okStart := dateOf(x["last_started_at"]); okStart {
+					hbStarted[key] = t
+				}
 			}
 		}
 
@@ -300,9 +307,9 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 		// A feed worker reports "ok" when its last RUN succeeded — and a run over a
 		// folder containing no new files succeeds. So a dead upstream reads as
 		// healthy indefinitely, which is precisely what happened: the CCS export
-		// stopped producing on 2026-09-08 and every stream reported ok every
-		// 15 minutes afterwards, while the older PowerShell ingester has reported ok
-		// on an empty folder since April 2026 without ever loading a single row.
+		// stopped producing on 2026-09-08 and every stream has reported ok every
+		// 15 minutes since, while the older PowerShell ingester has reported ok on
+		// an empty folder since April 2026 without ever loading a single row.
 		//
 		// What matters is the age of the newest DROP, not the age of the last run.
 		// Only files that CARRIED ROWS count as data. A zero-byte drop legitimately
@@ -346,8 +353,10 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 			case "appsflyer":
 				s, ok = af[d.Key]
 			case "zoho":
-				// registry key → zoho_sync_state job name
-				job := map[string]string{"zoho_voice": "calls", "zoho_desk": "desk"}[d.Key]
+				// registry key → zoho_sync_state job name. Only 'calls' is ever written
+				// (recordZohoSyncResult is called with nothing else); zoho_desk reports
+				// through its worker heartbeat instead, so mapping it here was dead.
+				job := map[string]string{"zoho_voice": "calls"}[d.Key]
 				s, ok = zoho[job]
 			default:
 				s, ok = hb[d.Key]
@@ -357,6 +366,30 @@ func workersStatus(db *core.DB) http.HandlerFunc {
 					o.Status = s.status
 				}
 				o.LastRunAt, o.LastOKAt, o.LastError, o.Detail = s.lastRun, s.lastOK, s.err, s.detail
+			}
+
+			// Stale-heartbeat override. 'running' is the one status that is written at
+			// the START of a cycle and only ever cleared at the end, so a worker killed
+			// mid-cycle (redeploy, panic, OOM) keeps saying "running" forever — and the
+			// hub renders that as a working worker. Age it instead: past a generous
+			// multiple of the worker's own cadence it has plainly not finished, and the
+			// operator needs to see that rather than a permanent green spinner.
+			if o.Status == "running" {
+				if started, seen := hbStarted[d.Key]; seen {
+					limit := 3 * time.Duration(cadenceSecs(d.Cadence)) * time.Second
+					if limit < 15*time.Minute { // floor covers on-demand/always-on workers
+						limit = 15 * time.Minute
+					}
+					if age := time.Since(started); age > limit {
+						o.Status = "stale"
+						msg := fmt.Sprintf("started %s ago and never reported finishing",
+							age.Truncate(time.Minute))
+						if o.Detail != nil && *o.Detail != "" {
+							msg += " · last detail: " + *o.Detail
+						}
+						o.Detail = &msg
+					}
+				}
 			}
 			// Stale-drop override. Deliberately applied AFTER the run status: a
 			// successful run over a folder that has received nothing is not health,

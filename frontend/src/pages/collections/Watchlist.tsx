@@ -10,6 +10,7 @@ import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { CustomerSearch, cleanName } from '../../components/CustomerSearch'
 import { fmtDate, fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
 import { NAVY, RED, AMBER, GREEN, BLUE, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
+import { idCaption } from '../../components/CreditFile'
 import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -106,7 +107,7 @@ function AddModal({ open, onClose, onDone }: {
         scenario,
         notes,
         dpd_at_flag:      Number(dpd) || 0,
-        outstanding_kobo: Number(outstanding) || 0,
+        outstanding_kobo: outstanding ? Math.round(parseFloat(outstanding) * 100) : 0,
       })
       toast.success('Added to watchlist')
       onDone()
@@ -179,7 +180,7 @@ function AddModal({ open, onClose, onDone }: {
             <input type="number" value={dpd} onChange={e => setDpd(e.target.value)} placeholder="0" style={field} />
           </div>
           <div>
-            <label style={lbl}>Outstanding (kobo)</label>
+            <label style={lbl}>Outstanding (₦)</label>
             <input type="number" value={outstanding} onChange={e => setOutstanding(e.target.value)} placeholder="0" style={field} />
           </div>
         </div>
@@ -352,10 +353,14 @@ export default function Watchlist() {
 
   const cols: TableCol<WatchlistEntry>[] = useMemo(() => [
     {
-      key: 'account_cif', label: 'CIF',
+      // Not labelled "CIF": this column carries whichever namespace the row came from,
+      // and a Udara-sourced row is keyed 'UD-<udara id>'. CIF is a CARDS identifier, and
+      // 94% of the Udara ids that also exist as a CIF belong to a different person — so
+      // naming the namespace per row is the only safe rendering.
+      key: 'account_cif', label: 'Identifier',
       render: r => (
         <span style={{ ...NUM, fontWeight: FW.bold, color: NAVY, fontSize: TEXT.sm }}>
-          {r.account_cif}
+          {idCaption(r.account_cif) || r.account_cif}
         </span>
       ),
     },

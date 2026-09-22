@@ -69,40 +69,44 @@ func cardCycleData(db *core.DB) http.HandlerFunc {
 		var args []any
 		n := 1
 
+		// Every filter column is qualified with the `d` alias: the data query below joins
+		// card_products p, which also carries product_code and currency, so an unqualified
+		// column there is "ambiguous" and 500s. The COUNT query aliases the table `d` too
+		// (below) so this same WHERE string is valid in both.
 		if v := qstr(r, "cycle_date"); v != "" {
-			where += fmt.Sprintf(" AND cycle_date=$%d::date", n)
+			where += fmt.Sprintf(" AND d.cycle_date=$%d::date", n)
 			args = append(args, v)
 			n++
 		}
 		if v := qstr(r, "product_code"); v != "" {
-			where += fmt.Sprintf(" AND product_code=$%d", n)
+			where += fmt.Sprintf(" AND d.product_code=$%d", n)
 			args = append(args, v)
 			n++
 		}
 		if v := qstr(r, "cif"); v != "" {
-			where += fmt.Sprintf(" AND cif=$%d", n)
+			where += fmt.Sprintf(" AND d.cif=$%d", n)
 			args = append(args, v)
 			n++
 		}
 		if v := qstr(r, "account_number"); v != "" {
-			where += fmt.Sprintf(" AND account_number ILIKE $%d", n)
+			where += fmt.Sprintf(" AND d.account_number ILIKE $%d", n)
 			args = append(args, "%"+v+"%")
 			n++
 		}
 		if v := qstr(r, "currency"); v != "" {
-			where += fmt.Sprintf(" AND currency=$%d", n)
+			where += fmt.Sprintf(" AND d.currency=$%d", n)
 			args = append(args, v)
 			n++
 		}
 		if qstr(r, "overdue_only") == "true" {
-			where += " AND overdue_amount_kobo > 0"
+			where += " AND d.overdue_amount_kobo > 0"
 		}
 
 		limit := qint(r, "limit", 200, 1, 1000)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
 		countRows, _ := db.PGQuery(r.Context(),
-			fmt.Sprintf(`SELECT COUNT(*) AS total FROM card_cycle_data WHERE %s`, where), args...)
+			fmt.Sprintf(`SELECT COUNT(*) AS total FROM card_cycle_data d WHERE %s`, where), args...)
 		total := int64(0)
 		if len(countRows) > 0 {
 			total = toInt64(countRows[0]["total"])

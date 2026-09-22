@@ -88,17 +88,17 @@ export default function MailOverview() {
           <KpiCard label="Drafts" value={fmtNum(c?.drafts_total ?? 0)} icon="draft" accent={AMBER}
             sub="Saved, not sent" loading={loading} />
         </div>
-        <KpiCard label="Delivery rate" value={p ? pct(p.delivery_rate) : '—'} icon="mark_email_read" accent={GREEN}
+        <KpiCard label="Delivery Rate" value={p ? pct(p.delivery_rate) : '—'} icon="mark_email_read" accent={GREEN}
           sub={p ? `${fmtNum(p.delivered)} delivered` : undefined} loading={loading} />
       </div>
 
       {/* Charts row */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 16 }}>
-        <SectionCard title="Send activity" subtitle="Last 14 days">
+        <SectionCard title="Send Activity" subtitle="Last 14 days">
           {loading ? (
             <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner /></div>
           ) : daily.length === 0 ? (
-            <EmptyState icon="mail" title="No mail sent yet" description="Your send activity will appear here once you send email." />
+            <EmptyState icon="mail" title="No Mail Sent Yet" description="Your send activity will appear here once you send email." />
           ) : (
             <EArea
               data={daily}
@@ -116,7 +116,7 @@ export default function MailOverview() {
           )}
         </SectionCard>
 
-        <SectionCard title="Status breakdown" subtitle="Your sent mail">
+        <SectionCard title="Status Breakdown" subtitle="Your sent mail">
           {loading ? (
             <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner /></div>
           ) : donut.length === 0 ? (
@@ -173,11 +173,11 @@ export default function MailOverview() {
 
       {/* Recent activity */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <SectionCard title="Recent inbox" badge={c?.inbox_unread || undefined} padding={false}
-          actions={<button onClick={() => navigate('/mail/inbox')} style={linkBtn}>View all</button>}>
+        <SectionCard title="Recent Inbox" badge={c?.inbox_unread || undefined} padding={false}
+          actions={<button onClick={() => navigate('/mail/inbox')} style={linkBtn}>View All</button>}>
           <RecentList
             loading={loading}
-            empty="No inbound messages"
+            empty="No Inbound Messages"
             rows={(data?.recent_inbound ?? []).map(m => ({
               id: m.id, onClick: () => navigate(`/mail/${m.id}`),
               primary: m.from_name || m.from_email, secondary: m.subject || '(no subject)',
@@ -186,11 +186,11 @@ export default function MailOverview() {
           />
         </SectionCard>
 
-        <SectionCard title="Recent sent" padding={false}
-          actions={<button onClick={() => navigate('/mail/sent')} style={linkBtn}>View all</button>}>
+        <SectionCard title="Recent Sent" padding={false}
+          actions={<button onClick={() => navigate('/mail/sent')} style={linkBtn}>View All</button>}>
           <RecentList
             loading={loading}
-            empty="No sent messages"
+            empty="No Sent Messages"
             rows={(data?.recent_sent ?? []).map(m => ({
               id: m.id, onClick: () => navigate(`/mail/${m.id}`),
               primary: m.recipient ? `To: ${m.recipient}` : '(no recipient)', secondary: m.subject || '(no subject)',

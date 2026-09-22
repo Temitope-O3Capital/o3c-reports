@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -38,6 +39,35 @@ func ensureCardOpsSchema(ctx context.Context, db *core.DB) error {
 		  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_card_iss_status ON card_issuance_requests(status, created_at DESC)`,
+		// Card sale attribution (migration 241). Repeated here because this bootstrap is
+		// what a fresh environment runs -- without it the two paths drift and a new box
+		// comes up with an issuance table that cannot record who sold the card.
+		`ALTER TABLE card_issuance_requests
+		  ADD COLUMN IF NOT EXISTS sales_officer_id BIGINT REFERENCES o3c_users(id) ON DELETE SET NULL,
+		  ADD COLUMN IF NOT EXISTS introducer       TEXT NOT NULL DEFAULT '',
+		  ADD COLUMN IF NOT EXISTS account_no       TEXT,
+		  ADD COLUMN IF NOT EXISTS card_pan         TEXT`,
+		`CREATE INDEX IF NOT EXISTS idx_card_iss_officer
+		  ON card_issuance_requests(sales_officer_id) WHERE sales_officer_id IS NOT NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_card_iss_account
+		  ON card_issuance_requests(account_no) WHERE account_no IS NOT NULL`,
+		`CREATE TABLE IF NOT EXISTS card_sale_attributions (
+		  id               BIGSERIAL PRIMARY KEY,
+		  account_no       TEXT NOT NULL UNIQUE,
+		  cif              TEXT,
+		  sales_officer_id BIGINT REFERENCES o3c_users(id) ON DELETE SET NULL,
+		  introducer       TEXT NOT NULL DEFAULT '',
+		  basis_source     TEXT NOT NULL DEFAULT 'manual',
+		  issuance_id      BIGINT REFERENCES card_issuance_requests(id) ON DELETE SET NULL,
+		  note             TEXT NOT NULL DEFAULT '',
+		  attributed_by    BIGINT REFERENCES o3c_users(id) ON DELETE SET NULL,
+		  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_card_sale_attr_officer
+		  ON card_sale_attributions(sales_officer_id) WHERE sales_officer_id IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_card_sale_attr_cif
+		  ON card_sale_attributions(cif) WHERE cif IS NOT NULL`,
 		`CREATE TABLE IF NOT EXISTS card_disputes (
 		  id BIGSERIAL PRIMARY KEY,
 		  cif_number TEXT NOT NULL DEFAULT '',
@@ -166,33 +196,37 @@ func cardListIssuance(db *core.DB) http.HandlerFunc {
 		to := qstr(r, "to")
 		limit := qint(r, "limit", 100, 1, 500)
 
+		// Columns are qualified with the i. alias now that o3c_users is joined: both
+		// tables carry created_at, so an unqualified filter would be ambiguous.
 		where := "1=1"
 		args := []any{}
 		n := 1
 
 		if status != "" {
-			where += fmt.Sprintf(" AND status=$%d", n)
+			where += fmt.Sprintf(" AND i.status=$%d", n)
 			args = append(args, status)
 			n++
 		}
 		if from != "" {
-			where += fmt.Sprintf(" AND created_at::date >= $%d::date", n)
+			where += fmt.Sprintf(" AND i.created_at::date >= $%d::date", n)
 			args = append(args, from)
 			n++
 		}
 		if to != "" {
-			where += fmt.Sprintf(" AND created_at::date <= $%d::date", n)
+			where += fmt.Sprintf(" AND i.created_at::date <= $%d::date", n)
 			args = append(args, to)
 			n++
 		}
 		args = append(args, limit)
 
-		q := fmt.Sprintf(`SELECT id, 'ISS-' || LPAD(id::TEXT, 5, '0') AS ref,
-		       cif_number, customer_name, card_type, status,
-		       TO_CHAR(created_at, 'YYYY-MM-DD') AS submitted_date,
-		       EXTRACT(EPOCH FROM (NOW() - created_at))::INT / 86400 AS days_pending
-		      FROM card_issuance_requests
-		      WHERE %s ORDER BY created_at DESC LIMIT $%d`, where, n)
+		q := fmt.Sprintf(`SELECT i.id, 'ISS-' || LPAD(i.id::TEXT, 5, '0') AS ref,
+		       i.cif_number, i.customer_name, i.card_type, i.status, i.introducer,
+		       i.sales_officer_id, COALESCE(u.full_name, '') AS sales_officer_name,
+		       TO_CHAR(i.created_at, 'YYYY-MM-DD') AS submitted_date,
+		       EXTRACT(EPOCH FROM (NOW() - i.created_at))::INT / 86400 AS days_pending
+		      FROM card_issuance_requests i
+		      LEFT JOIN o3c_users u ON u.id = i.sales_officer_id
+		      WHERE %s ORDER BY i.created_at DESC LIMIT $%d`, where, n)
 
 		rows, err := db.PGQuery(r.Context(), q, args...)
 		if err != nil {
@@ -214,6 +248,13 @@ func cardCreateIssuance(db *core.DB) http.HandlerFunc {
 			CustomerName string `json:"customer_name"`
 			CardType     string `json:"card_type"`
 			Notes        string `json:"notes"`
+			// Who sold it. Defaults to the person raising the request, which is the
+			// common case; ops staff raising one for a walk-in set it explicitly.
+			SalesOfficerID *int64 `json:"sales_officer_id"`
+			// Free text, mirroring credit_applications.introducer: whoever brought the
+			// business when they are not the booking officer. This is how staff outside
+			// sales get credited without being handed a sales target.
+			Introducer string `json:"introducer"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondErr(w, 400, "invalid JSON")
@@ -228,17 +269,37 @@ func cardCreateIssuance(db *core.DB) http.HandlerFunc {
 			return
 		}
 		user := core.UserFromCtx(r.Context())
+		officerID := req.SalesOfficerID
+		if officerID == nil {
+			id := user.ID
+			officerID = &id
+		}
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO card_issuance_requests (cif_number, customer_name, card_type, notes, submitted_by)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO card_issuance_requests
+			       (cif_number, customer_name, card_type, notes, submitted_by, sales_officer_id, introducer)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			RETURNING id, 'ISS-' || LPAD(id::TEXT, 5, '0') AS ref,
-			          cif_number, customer_name, card_type, status,
+			          cif_number, customer_name, card_type, status, introducer,
 			          TO_CHAR(created_at, 'YYYY-MM-DD') AS submitted_date, 0 AS days_pending`,
-			req.CIFNumber, req.CustomerName, req.CardType, req.Notes, user.ID)
+			req.CIFNumber, req.CustomerName, req.CardType, req.Notes, user.ID,
+			officerID, req.Introducer)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 500, "create failed")
 			return
 		}
+		aid, aname, ateam := actorOf(user)
+		logActivitySafe(r.Context(), db, Activity{
+			CIF: req.CIFNumber, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "note", Outcome: "raised",
+			Subject: "Card issuance raised — " + req.CardType, Body: req.Notes,
+			Source: "card_ops", EntityType: "card_issuance",
+			EntityID: fmt.Sprintf("%v", rows[0]["id"]),
+			Metadata: map[string]any{
+				"card_type":        req.CardType,
+				"sales_officer_id": officerID,
+				"introducer":       req.Introducer,
+			},
+		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
@@ -271,24 +332,29 @@ func cardAdvanceIssuance(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "invalid status")
 			return
 		}
+		// Terminal-state guard: a rejected or dispatched issuance is final and must not be
+		// moved backwards; a missing id must 409, not report a phantom success.
 		urows, err := db.PGQuery(r.Context(),
-			`UPDATE card_issuance_requests SET status=$1, updated_at=NOW() WHERE id=$2
+			`UPDATE card_issuance_requests SET status=$1, updated_at=NOW()
+			 WHERE id=$2 AND status NOT IN ('rejected','dispatched')
 			 RETURNING cif_number, card_type`,
 			req.Status, id)
 		if err != nil {
 			respondErr(w, 500, "update failed")
 			return
 		}
-		if len(urows) > 0 {
-			aid, aname, ateam := actorOf(core.UserFromCtx(r.Context()))
-			logActivitySafe(r.Context(), db, Activity{
-				CIF: str(urows[0]["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
-				Type: "stage_change", Outcome: req.Status,
-				Subject: "Card issuance — " + req.Status, Source: "card_ops",
-				EntityType: "card_issuance", EntityID: strconv.FormatInt(id, 10),
-				Metadata: map[string]any{"card_type": str(urows[0]["card_type"])},
-			})
+		if len(urows) == 0 {
+			respondErr(w, 409, "issuance not found or already in a terminal state")
+			return
 		}
+		aid, aname, ateam := actorOf(core.UserFromCtx(r.Context()))
+		logActivitySafe(r.Context(), db, Activity{
+			CIF: str(urows[0]["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "stage_change", Outcome: req.Status,
+			Subject: "Card issuance — " + req.Status, Source: "card_ops",
+			EntityType: "card_issuance", EntityID: strconv.FormatInt(id, 10),
+			Metadata: map[string]any{"card_type": str(urows[0]["card_type"])},
+		})
 		writeJSON(w, map[string]any{"id": id, "status": req.Status})
 	}
 }
@@ -367,24 +433,32 @@ func cardCreateDispute(db *core.DB) http.HandlerFunc {
 			return
 		}
 		user := core.UserFromCtx(r.Context())
-		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO card_disputes
-			  (cif_number, customer_name, card_type, amount_kobo, dispute_type, notes)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			RETURNING id, 'DSP-' || LPAD(id::TEXT, 4, '0') AS ref,
-			          cif_number, customer_name, card_type, amount_kobo,
-			          dispute_type, status,
-			          TO_CHAR(filed_at, 'YYYY-MM-DD') AS filed_date, 0 AS days_open`,
-			req.CIFNumber, req.CustomerName, req.CardType,
-			req.AmountKobo, req.DisputeType, req.Notes)
-		if err != nil || len(rows) == 0 {
+		ctx := r.Context()
+		// The dispute row and its provisional-credit GL entry must land together: a
+		// dispute that inserts but whose journal fails (or vice-versa) leaves the books
+		// and the case out of step, with a retry creating a duplicate dispute. One
+		// transaction makes it all-or-nothing.
+		tx, err := db.PG.BeginTx(ctx, nil)
+		if err != nil {
 			respondErr(w, 500, "create failed")
 			return
 		}
-		// C5: provisional credit GL entry for the dispute
+		var newID int64
+		if err := tx.QueryRowContext(ctx, `
+			INSERT INTO card_disputes
+			  (cif_number, customer_name, card_type, amount_kobo, dispute_type, notes)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING id`,
+			req.CIFNumber, req.CustomerName, req.CardType,
+			req.AmountKobo, req.DisputeType, req.Notes).Scan(&newID); err != nil {
+			_ = tx.Rollback()
+			respondErr(w, 500, "create failed")
+			return
+		}
+		// C5: provisional credit GL entry for the dispute — same transaction.
 		if req.AmountKobo > 0 {
-			ref := fmt.Sprintf("DSP-%04v", rows[0]["id"])
-			if glErr := postJournal(r.Context(), db, glEntry{
+			ref := fmt.Sprintf("DSP-%04d", newID)
+			if glErr := postJournalTx(ctx, tx, glEntry{
 				Date:          time.Now(),
 				Description:   "Card dispute provisional credit - " + ref,
 				Reference:     ref,
@@ -392,21 +466,38 @@ func cardCreateDispute(db *core.DB) http.HandlerFunc {
 				CreditAccount: "card_liability",
 				AmountKobo:    req.AmountKobo,
 				SourceType:    "card_dispute",
-				SourceID:      toInt64(rows[0]["id"]),
+				SourceID:      newID,
 				PostedBy:      user.ID,
 			}); glErr != nil {
+				_ = tx.Rollback()
 				respondErr(w, 500, "GL entry failed: "+glErr.Error())
 				return
 			}
 		}
-		NotifyRoles(r.Context(), db, []string{"cards_ops_officer", "cards_ops_head"}, NotifPayload{
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "create failed")
+			return
+		}
+		// Project the persisted row for the response (post-commit; same shape as the list).
+		rows, qErr := db.PGQuery(ctx, `
+			SELECT id, 'DSP-' || LPAD(id::TEXT, 4, '0') AS ref,
+			       cif_number, customer_name, card_type, amount_kobo,
+			       dispute_type, status,
+			       TO_CHAR(filed_at, 'YYYY-MM-DD') AS filed_date, 0 AS days_open
+			FROM card_disputes WHERE id=$1`, newID)
+		NotifyRoles(ctx, db, []string{"cards_ops_officer", "cards_ops_head"}, NotifPayload{
 			EventType: EvtCardDisputeFiled,
 			Title:     "New Card Dispute Filed",
-			Body:      fmt.Sprintf("DSP-%v — %s for %s (%s)", rows[0]["id"], req.DisputeType, req.CustomerName, req.CardType),
+			Body:      fmt.Sprintf("DSP-%d — %s for %s (%s)", newID, req.DisputeType, req.CustomerName, req.CardType),
 			ActionURL: "/cards/disputes",
 		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
+		if qErr != nil || len(rows) == 0 {
+			// The dispute is committed; only the response projection failed.
+			json.NewEncoder(w).Encode(map[string]any{"id": newID, "status": "open"}) //nolint:errcheck
+			return
+		}
 		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
 	}
 }
@@ -440,34 +531,39 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 		if req.Status == "resolved" || req.Status == "declined" {
 			resolvedClause = ", resolved_at = NOW()"
 		}
-		// Guard: prevent re-advancing already-terminal disputes (race-safe via WHERE).
-		res, err := db.PGQuery(r.Context(),
-			fmt.Sprintf(`UPDATE card_disputes SET status=$1%s, updated_at=NOW()
-			 WHERE id=$2 AND status NOT IN ('resolved','declined')
-			 RETURNING id, amount_kobo, cif_number`, resolvedClause),
-			req.Status, id)
+		ctx := r.Context()
+		user := core.UserFromCtx(ctx)
+		// The status change and the chargeback-outcome journal must commit together. The
+		// old code committed the terminal status first, then posted the journal separately;
+		// a journal failure returned 500 while the dispute was already 'resolved', and the
+		// terminal-state guard then made the retry a no-op — so the customer payout journal
+		// (dispute_suspense → cash) was silently never posted. One transaction fixes that.
+		tx, err := db.PG.BeginTx(ctx, nil)
 		if err != nil {
 			respondErr(w, 500, "update failed")
 			return
 		}
-		if len(res) == 0 {
+		// Guard: prevent re-advancing already-terminal disputes (race-safe via WHERE).
+		var updID, disputeAmount int64
+		var cif string
+		err = tx.QueryRowContext(ctx,
+			fmt.Sprintf(`UPDATE card_disputes SET status=$1%s, updated_at=NOW()
+			 WHERE id=$2 AND status NOT IN ('resolved','declined')
+			 RETURNING id, amount_kobo, cif_number`, resolvedClause),
+			req.Status, id).Scan(&updID, &disputeAmount, &cif)
+		if err == sql.ErrNoRows {
+			_ = tx.Rollback()
 			respondErr(w, 409, "dispute is already in a terminal state")
 			return
 		}
-		{
-			aid, aname, ateam := actorOf(core.UserFromCtx(r.Context()))
-			logActivitySafe(r.Context(), db, Activity{
-				CIF: str(res[0]["cif_number"]), ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
-				Type: "stage_change", Outcome: req.Status, Subject: "Card dispute — " + req.Status,
-				Source: "card_ops", EntityType: "card_dispute", EntityID: strconv.FormatInt(id, 10),
-				Metadata: map[string]any{"amount_kobo": toInt64(res[0]["amount_kobo"])},
-			})
+		if err != nil {
+			_ = tx.Rollback()
+			respondErr(w, 500, "update failed")
+			return
 		}
-		// C6: GL entry for chargeback outcome
-		disputeAmount := toInt64(res[0]["amount_kobo"])
+		// C6: GL entry for chargeback outcome — same transaction.
 		if disputeAmount > 0 && (req.Status == "resolved" || req.Status == "declined") {
 			ref := fmt.Sprintf("DSP-%04d", id)
-			user := core.UserFromCtx(r.Context())
 			var drAcct, crAcct string
 			if req.Status == "resolved" {
 				// Customer wins: pay out from suspense
@@ -476,7 +572,7 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 				// Dispute declined (bank wins): reverse provisional credit
 				drAcct, crAcct = "card_liability", "dispute_suspense"
 			}
-			if glErr := postJournal(r.Context(), db, glEntry{
+			if glErr := postJournalTx(ctx, tx, glEntry{
 				Date:          time.Now(),
 				Description:   fmt.Sprintf("Card dispute %s - %s", req.Status, ref),
 				Reference:     ref,
@@ -487,10 +583,23 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 				SourceID:      id,
 				PostedBy:      user.ID,
 			}); glErr != nil {
+				_ = tx.Rollback()
 				respondErr(w, 500, "GL entry failed: "+glErr.Error())
 				return
 			}
 		}
+		if err := tx.Commit(); err != nil {
+			respondErr(w, 500, "update failed")
+			return
+		}
+		// Activity log is best-effort and non-critical — record it after the commit.
+		aid, aname, ateam := actorOf(user)
+		logActivitySafe(ctx, db, Activity{
+			CIF: cif, ActorUserID: aid, ActorName: aname, ActorTeam: ateam,
+			Type: "stage_change", Outcome: req.Status, Subject: "Card dispute — " + req.Status,
+			Source: "card_ops", EntityType: "card_dispute", EntityID: strconv.FormatInt(id, 10),
+			Metadata: map[string]any{"amount_kobo": disputeAmount},
+		})
 		writeJSON(w, map[string]any{"id": id, "status": req.Status})
 	}
 }
@@ -710,8 +819,11 @@ func cardGenerateBilling(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "schema init failed")
 			return
 		}
-		now := time.Now().UTC()
-		cycleStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		// Anchor the billing month to West Africa Time, not UTC: run just after midnight
+		// on the 1st in Lagos and UTC is still on the last day of the prior month, which
+		// would generate the wrong period.
+		now := time.Now().In(mrWAT)
+		cycleStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, mrWAT)
 		cycleEnd := cycleStart.AddDate(0, 1, -1)
 
 		// H7: idempotency check — block if cycles for this period already exist

@@ -33,7 +33,11 @@ var liveTopics = []struct{ Name, SQL string }{
 	{"recovery_payments", `SELECT COALESCE(md5(string_agg(id::text||status, ',' ORDER BY id)),'-')||':'||COUNT(*) FROM recovery_payments WHERE status NOT IN ('approved','rejected')`},
 	{"collection_payments", `SELECT COALESCE(md5(string_agg(id::text||status, ',' ORDER BY id)),'-')||':'||COUNT(*) FROM app.collection_payments WHERE status NOT IN ('approved','rejected')`},
 	{"debt_sales", `SELECT COALESCE(md5(string_agg(id::text||status, ',' ORDER BY id)),'-')||':'||COUNT(*) FROM debt_sales WHERE deleted_at IS NULL AND status NOT IN ('approved','rejected')`},
-	{"cards", `SELECT COUNT(*)||':'||COALESCE(MAX(id)::text,'0') FROM card_cycle_data`},
+	// Cards watched only the cycle feed, so the Issuance page — which subscribes to
+	// this topic — never went live: raising a request or crediting a seller left every
+	// other viewer stale until they clicked away and back. Widened rather than split
+	// into a new topic so the existing subscribers pick it up with no frontend change.
+	{"cards", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(id)::text,'0') FROM card_cycle_data)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM card_issuance_requests)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM card_sale_attributions)`},
 	{"fixed_deposits", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM fd_transactions`},
 	{"mail", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(received_at)::text,'') FROM inbound_mail)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM mail_messages)`},
 	{"cbs", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(synced_at)::text,'') FROM cbs_loans)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(synced_at)::text,'') FROM cbs_fixed_deposits)`},
@@ -47,7 +51,19 @@ var liveTopics = []struct{ Name, SQL string }{
 	// Calls were not a live topic at all, so the Call Log only ever refreshed when a
 	// TICKET changed or the window regained focus — a call landing from Zoho Voice
 	// left the page stale until the agent clicked away and back.
-	{"calls", `SELECT COUNT(*)||':'||COALESCE(MAX(started_at)::text,'') FROM helpdesk_calls`},
+	//
+	// Every part of this signature is index-served. COUNT(*) over the whole ledger was
+	// not: no index can answer it, so 171k+ rows were sequentially scanned every 4s for
+	// as long as any Call Log tab was open. MAX(id) replaces it — the id is monotonic,
+	// so it moves on every insert exactly as the count did, and it comes off the primary
+	// key. The two partial indexes (voided_at, needs_review) then make voids, restores
+	// and review-flag changes signal too, which the old count-and-max never did.
+	{"calls", `SELECT COALESCE(MAX(id),0)::text
+	             ||':'||COALESCE(MAX(started_at)::text,'')
+	             ||':'||(SELECT COUNT(*)||'/'||COALESCE(MAX(voided_at)::text,'')
+	                       FROM helpdesk_calls WHERE voided_at IS NOT NULL)
+	             ||':'||(SELECT COUNT(*) FROM helpdesk_calls WHERE needs_review)
+	           FROM helpdesk_calls`},
 	// The call-centre lead book and outbound queue are their own tables — a lead's
 	// status/assignment moving (syncLeadFromCall runs async, just after the call
 	// event) and a queue contact's disposition changing were invisible to the
@@ -56,6 +72,9 @@ var liveTopics = []struct{ Name, SQL string }{
 	// focus-refresh. Watch the tables themselves so those moves push too.
 	{"cc_leads", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM call_center_leads`},
 	{"cc_contacts", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM call_center_contacts`},
+	// Management reports: a send starting or finishing, or recipients changing, pushes to
+	// the Reports page so a "Sending" badge turns to "Sent" without a refresh.
+	{"management_reports", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM management_reports)||'|'||(SELECT COUNT(*)||':'||COUNT(*) FILTER (WHERE status = 'running')||':'||COALESCE(MAX(COALESCE(finished_at, started_at))::text,'') FROM management_report_runs)`},
 }
 
 // ── Event hub — one poller, many subscribers ────────────────────────────────

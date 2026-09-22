@@ -349,7 +349,7 @@ function MailThread({ ticketId, onReplied, onBack, onOpenTicket, isMobile }: { t
               <StatusBadge status={t.status} size="sm" />
               <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt2)' }}>{t.assigned_to_name ? `Assigned to ${t.assigned_to_name}` : 'Unassigned'}</span>
               {t.mail_subgroup && <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: NAVY, background: `${NAVY}0f`, padding: '2px 8px', borderRadius: RADIUS.full }}>{t.mail_subgroup}</span>}
-              {t.delete_requested && <span style={{ fontSize: TEXT['2xs'], color: RED, background: `${RED}12`, border: `1px solid ${RED}30`, borderRadius: RADIUS.full, padding: '2px 8px', fontWeight: FW.bold }}>Deletion pending approval</span>}
+              {t.delete_requested && <span style={{ fontSize: TEXT['2xs'], color: RED, background: `${RED}12`, border: `1px solid ${RED}30`, borderRadius: RADIUS.full, padding: '2px 8px', fontWeight: FW.bold }}>Deletion Pending Approval</span>}
             </div>
           </div>
 
@@ -363,7 +363,7 @@ function MailThread({ ticketId, onReplied, onBack, onOpenTicket, isMobile }: { t
             )}
             {!t.assigned_to && (
               <button onClick={claim} style={{ ...ghostBtn, color: NAVY, borderColor: `${NAVY}30` }}>
-                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>person_add</span>Assign to me
+                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>person_add</span>Assign to Me
               </button>
             )}
             {terminal ? (
@@ -382,11 +382,11 @@ function MailThread({ ticketId, onReplied, onBack, onOpenTicket, isMobile }: { t
             {menuOpen && (
               <OverflowMenu onClose={() => setMenuOpen(false)} items={
                 <>
-                  <MenuItem icon="flag" label={t.is_flagged ? 'Remove flag' : 'Flag this mail'} onClick={toggleFlag} />
-                  {isMobile && <MenuItem icon="history" label="Customer context" onClick={() => { setHistoryOpen(o => !o); setMenuOpen(false) }} />}
+                  <MenuItem icon="flag" label={t.is_flagged ? 'Remove Flag' : 'Flag This Mail'} onClick={toggleFlag} />
+                  {isMobile && <MenuItem icon="history" label="Customer Context" onClick={() => { setHistoryOpen(o => !o); setMenuOpen(false) }} />}
                   {t.customer_cif && <MenuItem icon="person" label="Open Customer 360" onClick={() => { setMenuOpen(false); navigate(`/customers/${t.customer_cif}`) }} />}
-                  <MenuItem icon="open_in_full" label="Open full page" onClick={() => { setMenuOpen(false); navigate(`/care/mail/${t.id}`) }} />
-                  <MenuLabel>Move to folder</MenuLabel>
+                  <MenuItem icon="open_in_full" label="Open Full Page" onClick={() => { setMenuOpen(false); navigate(`/care/mail/${t.id}`) }} />
+                  <MenuLabel>Move to Folder</MenuLabel>
                   <MenuItem icon="inbox" label="Unsorted" onClick={() => changeSubgroup('')} checked={!t.mail_subgroup} />
                   {CARE_SUBGROUPS.map(s => (
                     <MenuItem key={s} icon={SUBGROUP_ICON[s] || 'label'} label={s} onClick={() => changeSubgroup(s)} checked={t.mail_subgroup === s} />
@@ -394,7 +394,7 @@ function MailThread({ ticketId, onReplied, onBack, onOpenTicket, isMobile }: { t
                   {!t.delete_requested && t.status !== 'closed' && (
                     <>
                       <div style={{ height: 1, background: 'var(--bdr)', margin: '4px 0' }} />
-                      <MenuItem icon="delete" label="Request deletion" onClick={requestDelete} danger />
+                      <MenuItem icon="delete" label="Request Deletion" onClick={requestDelete} danger />
                     </>
                   )}
                 </>
@@ -535,9 +535,9 @@ export default function CareInbox() {
   // Active filters → chips shown above the list (and the count on the Filters button).
   const activeFilters: { key: string; label: string; onClear: () => void }[] = []
   if (status) activeFilters.push({ key: 'status', label: `Status: ${STATUS_FILTERS.find(s => s.key === status)?.label ?? status}`, onClear: () => setStatus('') })
-  if (owner !== 'all') activeFilters.push({ key: 'owner', label: owner === 'mine' ? 'Assigned to me' : 'Unassigned', onClear: () => setOwner('all') })
+  if (owner !== 'all') activeFilters.push({ key: 'owner', label: owner === 'mine' ? 'Assigned to Me' : 'Unassigned', onClear: () => setOwner('all') })
   if (subgroup) activeFilters.push({ key: 'subgroup', label: subgroup, onClear: () => setSubgroup('') })
-  if (flagged) activeFilters.push({ key: 'flagged', label: 'Flagged only', onClear: () => setFlagged(false) })
+  if (flagged) activeFilters.push({ key: 'flagged', label: 'Flagged Only', onClear: () => setFlagged(false) })
 
   function resetFilters() { setStatus('open'); setOwner('all'); setSubgroup(''); setFlagged(false); setSearch('') }
 
@@ -577,7 +577,7 @@ export default function CareInbox() {
               {activeFilters.length > 0 && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
                   {activeFilters.map(f => <FilterChip key={f.key} label={f.label} onClear={f.onClear} />)}
-                  <button onClick={resetFilters} style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear all</button>
+                  <button onClick={resetFilters} style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: 'var(--txt3)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear All</button>
                 </div>
               )}
             </div>
@@ -617,7 +617,7 @@ export default function CareInbox() {
                         <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
                           {!subgroup && m.mail_subgroup && <span style={{ fontSize: 9, fontWeight: FW.bold, color: NAVY, background: `${NAVY}0f`, padding: '1px 6px', borderRadius: RADIUS.full }}>{m.mail_subgroup}</span>}
                           {m.escalated && <span style={{ fontSize: 9, fontWeight: FW.bold, color: RED, background: `${RED}12`, padding: '1px 6px', borderRadius: RADIUS.full }}>Escalated</span>}
-                          {m.delete_requested && <span style={{ fontSize: 9, fontWeight: FW.bold, color: RED, background: `${RED}12`, padding: '1px 6px', borderRadius: RADIUS.full }}>Delete pending</span>}
+                          {m.delete_requested && <span style={{ fontSize: 9, fontWeight: FW.bold, color: RED, background: `${RED}12`, padding: '1px 6px', borderRadius: RADIUS.full }}>Delete Pending</span>}
                         </div>
                       )}
                     </div>
@@ -644,7 +644,7 @@ export default function CareInbox() {
       </div>
 
       {/* Filter modal — every filter lives here; the active ones show as chips above the list */}
-      <Modal open={filterOpen} onClose={() => setFilterOpen(false)} title="Filter mail" width={460}
+      <Modal open={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Mail" width={460}
         footer={
           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', gap: 8 }}>
             <button onClick={resetFilters} style={{ padding: '8px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>Reset</button>
@@ -662,13 +662,13 @@ export default function CareInbox() {
             <button onClick={() => setFlagged(f => !f)}
               style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: RADIUS.md, border: `1px solid ${flagged ? AMBER : 'var(--bdr)'}`, background: flagged ? `${AMBER}10` : 'transparent', cursor: 'pointer' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 20, color: flagged ? AMBER : 'var(--txt3)', fontVariationSettings: flagged ? "'FILL' 1" : undefined }}>flag</span>
-              <span style={{ flex: 1, fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)' }}>Only show flagged mail{flaggedCount ? ` (${flaggedCount})` : ''}</span>
+              <span style={{ flex: 1, fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt)' }}>Only Show Flagged Mail{flaggedCount ? ` (${flaggedCount})` : ''}</span>
               <span className="material-symbols-rounded" style={{ fontSize: 22, color: flagged ? AMBER : 'var(--txt3)' }}>{flagged ? 'toggle_on' : 'toggle_off'}</span>
             </button>
           </FilterSection>
           <FilterSection label="Folder">
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <FolderOption icon="all_inbox" label="All folders" active={!subgroup} onClick={() => setSubgroup('')} />
+              <FolderOption icon="all_inbox" label="All Folders" active={!subgroup} onClick={() => setSubgroup('')} />
               {CARE_SUBGROUPS.map(s => (
                 <FolderOption key={s} icon={SUBGROUP_ICON[s] || 'label'} label={s} count={sgCounts[s]} active={subgroup === s} onClick={() => setSubgroup(subgroup === s ? '' : s)} />
               ))}

@@ -1,5 +1,5 @@
 import { useLiveData } from "../../hooks/useRealtime"
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -164,7 +164,7 @@ function ReviewModal({
             <button onClick={() => navigate(`/customers/${payment.account_cif}`)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: RADIUS.md, border: `1px solid ${NAVY}30`, background: `${NAVY}08`, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
               <span className="material-symbols-rounded" style={{ fontSize: 14 }}>person_search</span>
-              Review debtor (Customer 360)
+              Review Debtor (Customer 360)
             </button>
           </div>
 
@@ -247,13 +247,17 @@ export default function RecoveryPaymentApprovals() {
   }, [statusTab])
 
   useEffect(() => { load() }, [load])
-  useLiveData(() => load(true), { topics: ['recovery_payments', 'recovery'] })
+  useLiveData(() => load(true), { topics: ['recovery'] })
 
-  // Deep-link from a notification: open the Review modal on the exact payment.
+  // Deep-link from a notification: open the Review modal on the exact payment, once.
+  // `focus` stays in the URL after the modal opens, and rows gets a new reference on
+  // every live-data poll — without this guard the effect would reopen the modal on
+  // the next tick even after the reviewer cancelled out of it.
+  const openedFocusRef = useRef<string | null>(null)
   useEffect(() => {
-    if (focus && rows.length) {
+    if (focus && focus !== openedFocusRef.current && rows.length) {
       const r = rows.find(x => String(x.id) === String(focus))
-      if (r) setReviewing(r)
+      if (r) { setReviewing(r); openedFocusRef.current = focus }
     }
   }, [focus, rows])
 
@@ -402,7 +406,7 @@ export default function RecoveryPaymentApprovals() {
           skeletonRows={6}
           pageSize={20}
           focusId={focus}
-          emptyText="No recovery payments pending approval"
+          emptyText="No Recovery Payments Pending Approval"
         />
       </SectionCard>
 

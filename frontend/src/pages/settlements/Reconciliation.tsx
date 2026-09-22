@@ -124,7 +124,7 @@ function DeltaBadge({ apiVal, eodVal, isCount = false }: { apiVal: number; eodVa
       <span className="material-symbols-rounded" style={{ fontSize: TEXT.base }}>{ok ? 'check_circle' : 'warning'}</span>
       {label}
       {pct !== null && <span style={{ fontWeight: FW.normal, opacity: 0.75 }}>({pct.toFixed(1)}%)</span>}
-      <span style={{ fontWeight: FW.normal }}>{ok ? '· Balanced' : warn ? '· Minor gap' : '· Mismatch'}</span>
+      <span style={{ fontWeight: FW.normal }}>{ok ? '· Balanced' : warn ? '· Minor Gap' : '· Mismatch'}</span>
     </span>
   )
 }
@@ -281,7 +281,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
     return (
       <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, padding: 48, textAlign: 'center' }}>
         <span className="material-symbols-rounded" style={{ fontSize: TEXT['3xl'], color: 'var(--txt3)', display: 'block', marginBottom: 10 }}>payments</span>
-        <p style={{ fontSize: 15, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 6px' }}>Paystack not configured</p>
+        <p style={{ fontSize: 15, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 6px' }}>Paystack Not Configured</p>
         <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', margin: 0 }}>{summary.message || 'Set PAYSTACK_SECRET_KEY in backend environment'}</p>
       </div>
     )
@@ -816,7 +816,7 @@ function InterswitchTab({ from, to }: { from: string; to: string }) {
       {!data?.has_data ? (
         <div style={{ padding: '36px 24px', textAlign: 'center', border: '1px dashed var(--bdr)', borderRadius: RADIUS.xl, background: 'var(--card)' }}>
           <span className="material-symbols-rounded" style={{ fontSize: 44, color: 'var(--txt3)', display: 'block', marginBottom: 8 }}>upload_file</span>
-          <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 4px' }}>No Interswitch EOD uploaded for {from} → {to}</p>
+          <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 4px' }}>No Interswitch EOD Uploaded for {from} → {to}</p>
           <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: '0 0 16px' }}>Upload the Interswitch EOD file to reconcile it against the internal ledger.</p>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
             <a href="/reports/uploads/interswitch" style={btn(NAVY, '#fff')}>Import EOD</a>
@@ -837,11 +837,11 @@ function InterswitchTab({ from, to }: { from: string; to: string }) {
               Interswitch EOD vs Internal Ledger — {from} to {to}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--bdr)' }}>
-              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Transaction count difference</span>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Transaction Count Difference</span>
               <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: deltaColor(cntDelta) }}>{cntDelta === 0 ? 'Match' : (cntDelta > 0 ? `+${cntDelta}` : cntDelta)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--bdr)' }}>
-              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Volume difference</span>
+              <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Volume Difference</span>
               <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: deltaColor(volDelta) }}>{volDelta === 0 ? 'Match' : fmtKobo(volDelta)}</span>
             </div>
           </div>

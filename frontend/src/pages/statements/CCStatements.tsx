@@ -95,7 +95,7 @@ export default function CCStatements() {
           />
         </div>
         <Select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}>
-          <option value="">All sources</option>
+          <option value="">All Sources</option>
           <option value="upload">File Upload</option>
           <option value="db">From DB</option>
         </Select>
@@ -107,13 +107,13 @@ export default function CCStatements() {
         ) : rows.length === 0 ? (
           <div style={{ textAlign: 'center', padding: SP[12] }}>
             <span className="material-symbols-rounded" style={{ fontSize: 40, color: 'var(--txt3)', display: 'block', marginBottom: SP[3] }}>receipt_long</span>
-            <div style={{ fontSize: TEXT.md, color: 'var(--txt2)' }}>No statements yet</div>
+            <div style={{ fontSize: TEXT.md, color: 'var(--txt2)' }}>No Statements Yet</div>
             <Button
               variant="danger"
               onClick={() => navigate('/statements/credit-cards/new')}
               style={{ marginTop: SP[4] }}
             >
-              Add first statement
+              Add First Statement
             </Button>
           </div>
         ) : (

@@ -71,7 +71,7 @@ const AGENT_COLS: TableCol<AgentRow>[] = [
 function RollBars({ data }: { data: RollBucket[] }) {
   if (!data.length) return (
     <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>
-      No DPD data available
+      No DPD Data Available
     </div>
   )
   const maxKobo = Math.max(...data.map(d => Number(d.outstanding_kobo)), 1)
@@ -182,7 +182,7 @@ export default function CollectionsOverview() {
           loading={kpiLoading}
         />
         <KpiCard
-          label="Collected (period)"
+          label="Collected (Period)"
           value={fmtKoboExact(collectedMTD)}
           sub={`${fmtNum(kpis?.collected_count ?? 0)} payments`}
           icon="payments"
@@ -205,7 +205,7 @@ export default function CollectionsOverview() {
             balance snapshots the book doesn't retain — the old time-series was an
             artefact of assignment updated_at months, showing 5 empty months + a spike.
             This shows the true current cumulative PAR exposure instead.) */}
-        <SectionCard title="PAR Exposure (current)" subtitle="Cumulative outstanding past each DPD threshold" padding={false}>
+        <SectionCard title="PAR Exposure (Current)" subtitle="Cumulative outstanding past each DPD threshold" padding={false}>
           <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
             {(() => {
               const bands = [
@@ -255,7 +255,7 @@ export default function CollectionsOverview() {
           keyFn={(r, i) => r.Agent ?? i}
           loading={loading}
           skeletonRows={8}
-          emptyText="No agent data found"
+          emptyText="No Agent Data Found"
         />
       </SectionCard>
 

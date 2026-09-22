@@ -126,7 +126,7 @@ const SG_TABS = [
   { key: 'unsubscribes', label: 'Unsubscribes' },
   { key: 'bounces',      label: 'Bounces' },
   { key: 'blocks',       label: 'Blocks' },
-  { key: 'spam',         label: 'Spam reports' },
+  { key: 'spam',         label: 'Spam Reports' },
   { key: 'invalid',      label: 'Invalid' },
 ]
 
@@ -187,7 +187,7 @@ function SendGridSuppressions() {
   const cols: TableCol<SGItem>[] = [
     { key: 'email', label: 'Email',
       render: r => <span style={{ fontSize: TEXT.sm, fontFamily: 'monospace', color: 'var(--txt)' }}>{r.email}</span> },
-    { key: 'reason', label: 'Reason / status',
+    { key: 'reason', label: 'Reason / Status',
       render: r => <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.reason || r.status || '—'}</span> },
     { key: 'created', label: 'Since', width: 150,
       render: r => <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>{sgCreated(r.created)}</span> },
@@ -201,10 +201,10 @@ function SendGridSuppressions() {
   ]
 
   return (
-    <SectionCard title="SendGrid suppressions" subtitle="Live from SendGrid — addresses it will not deliver to until removed" badge={shown.length} padding={false}>
+    <SectionCard title="SendGrid Suppressions" subtitle="Live from SendGrid — addresses it will not deliver to until removed" badge={shown.length} padding={false}>
       {/* Lookup */}
       <div style={{ display: 'flex', gap: SP[2], alignItems: 'center', padding: `${SP[3]} ${SP[4]}`, borderBottom: '1px solid var(--card-bdr)', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Check an address:</span>
+        <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Check an Address:</span>
         <input value={lookup} onChange={e => setLookup(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') runLookup() }}
           placeholder="customer@example.com"
           style={{ flex: '1 1 220px', minWidth: 180, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', outline: 'none' }} />
@@ -216,7 +216,7 @@ function SendGridSuppressions() {
           <div style={{ flexBasis: '100%', display: 'flex', gap: SP[2], flexWrap: 'wrap', alignItems: 'center', paddingTop: SP[1] }}>
             <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'monospace' }}>{lookupRes.email}:</span>
             {!lookupRes.suppressed
-              ? <span style={{ fontSize: TEXT.sm, color: GREEN, fontWeight: FW.bold }}>Clear — not suppressed</span>
+              ? <span style={{ fontSize: TEXT.sm, color: GREEN, fontWeight: FW.bold }}>Clear — Not Suppressed</span>
               : SG_TABS.filter(t => lookupRes.on[t.key]).map(t => (
                   <span key={t.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, background: 'var(--chip-bg)', color: RED, borderRadius: RADIUS.sm, padding: '3px 10px', fontWeight: FW.bold }}>
                     {t.label}
@@ -336,7 +336,7 @@ export default function AdminMailHealth() {
             </div>
           ) : (
             <div style={{ color: 'var(--txt3)', fontSize: TEXT.base, textAlign: 'center', padding: '12px 0' }}>
-              {loading ? 'Loading…' : 'No deliverability data'}
+              {loading ? 'Loading…' : 'No Deliverability Data'}
             </div>
           )}
         </SectionCard>
@@ -359,7 +359,7 @@ export default function AdminMailHealth() {
           rows={displayedSups}
           keyFn={r => r.email}
           loading={loading}
-          emptyText="No suppressions found"
+          emptyText="No Suppressions Found"
         />
       </SectionCard>
 

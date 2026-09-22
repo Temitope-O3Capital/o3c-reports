@@ -114,7 +114,7 @@ function pct(num: number, denom: number) {
 // A small MoM delta pill for the hero stats (white-on-navy).
 function moMDelta(cur: number, prev: number): React.ReactNode {
   const c = changePct(cur, prev)
-  if (c == null) return <span style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.5)' }}>new</span>
+  if (c == null) return <span style={{ fontSize: TEXT.xs, color: 'rgba(255,255,255,.5)' }}>New</span>
   const up = c >= 0
   return <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: up ? '#4ADE80' : '#FCA5A5' }}>{up ? '▲' : '▼'} {Math.abs(Math.round(c))}%</span>
 }
@@ -626,14 +626,14 @@ export default function BDMyDashboard() {
       {/* ── My Day ── */}
       {data && k && (
         <MyDaySection hint="relationships that need action">
-          <MyDayTile icon="warning" count={fmtNum(k.mou_expiring_soon)} label="MOUs expiring soon"
+          <MyDayTile icon="warning" count={fmtNum(k.mou_expiring_soon)} label="MOUs Expiring Soon"
             sub={k.mou_expiring_soon > 0 ? 'renew before they lapse' : 'none expiring'}
             color={k.mou_expiring_soon > 0 ? RED : GREEN} urgent={k.mou_expiring_soon > 0} onClick={() => navigate('/bd/employers')} />
-          <MyDayTile icon="schedule" count={fmtNum(data.urgency.stale_assignments.length)} label="Sales not engaged"
+          <MyDayTile icon="schedule" count={fmtNum(data.urgency.stale_assignments.length)} label="Sales Not Engaged"
             sub="assignments going cold" color={AMBER} urgent={data.urgency.stale_assignments.length > 0} onClick={() => navigate('/bd/assignments')} />
-          <MyDayTile icon="bedtime" count={fmtNum(data.urgency.dormant.length)} label="Dormant partnerships"
+          <MyDayTile icon="bedtime" count={fmtNum(data.urgency.dormant.length)} label="Dormant Partnerships"
             sub="signed but no referrals" color={PURPLE} urgent={data.urgency.dormant.length > 0} onClick={() => navigate('/bd/employers')} />
-          <MyDayTile icon="person_add" count={fmtNum(k.staff_referred_mtd)} label="Referred this month"
+          <MyDayTile icon="person_add" count={fmtNum(k.staff_referred_mtd)} label="Referred This Month"
             sub="staff sent to sales" color={BLUE} onClick={() => navigate('/bd/pipeline')} />
         </MyDaySection>
       )}

@@ -208,13 +208,36 @@ export function isInternalId(id: string | null | undefined): boolean {
   return /^[WZwz][0-9]+$/.test(s)
 }
 
+// A Udara-sourced collections row is keyed 'UD-<udara customer id>' (migration 267).
+export function isUdaraKey(id: string | null | undefined): boolean {
+  return /^UD-/i.test((id ?? '').trim())
+}
+
+// Caption an identifier with the namespace it ACTUALLY belongs to.
+//
+// CIF is a CARDS identifier. A Udara customer id is a different namespace that happens
+// to use the same 8-digit shape, and 289 of the 295 Udara ids also exist as a real card
+// CIF — 94% of them belonging to a DIFFERENT PERSON. So printing a Udara id as "CIF"
+// is not a cosmetic slip: it invites someone to look that number up in the cards system
+// and act on a stranger's record. Udara customers do not have a CIF at all; their
+// workspace profiles carry cif = NULL, which is correct and must stay that way.
+//
+// Returns '' for synthetic workspace handles, which mean nothing to a reader.
+export function idCaption(id: string | null | undefined): string {
+  const s = (id ?? '').trim()
+  if (!s) return ''
+  if (isUdaraKey(s)) return `Udara ID ${s.slice(3)}`
+  if (isInternalId(s)) return ''
+  return `CIF ${s}`
+}
+
 // ── Shared bits ───────────────────────────────────────────────────────────────
 
 const STATUS_META: Record<SchedRow['status'], { label: string; color: string }> = {
   paid:     { label: 'Paid',     color: GREEN },
-  partial:  { label: 'Part-paid',color: AMBER },
+  partial:  { label: 'Part-Paid',color: AMBER },
   overdue:  { label: 'Overdue',  color: RED   },
-  due:      { label: 'Due today',color: BLUE  },
+  due:      { label: 'Due Today',color: BLUE  },
   upcoming: { label: 'Upcoming', color: '#64748B' },
 }
 
@@ -278,9 +301,9 @@ export function CustomerDetails({ c }: { c: CreditDossier['customer'] }) {
     ['home_pin', 'Address', c.address || line([c.address_line, c.city, c.state, c.country])],
     ['work', 'Occupation', c.employer],
     ['fingerprint', 'BVN', c.bvn],
-    ['cake', 'Date of birth', c.date_of_birth ? fmtDate(c.date_of_birth) : ''],
+    ['cake', 'Date of Birth', c.date_of_birth ? fmtDate(c.date_of_birth) : ''],
     ['wc', 'Gender', c.gender],
-    ['verified_user', 'Account status', c.account_status],
+    ['verified_user', 'Account Status', c.account_status],
   ]
   const shown = primary.filter(([, , v]) => v && v.trim() !== '')
 
@@ -308,7 +331,7 @@ export function CustomerDetails({ c }: { c: CreditDossier['customer'] }) {
       <div style={{
         fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.07em',
         textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: SP[3],
-      }}>Customer details</div>
+      }}>Customer Details</div>
 
       <div style={{
         display: 'grid', gap: `${SP[3]} ${SP[5]}`,
@@ -339,7 +362,7 @@ export function CustomerDetails({ c }: { c: CreditDossier['customer'] }) {
           <div style={{
             fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.06em',
             textTransform: 'uppercase', color: 'var(--txt3)', marginBottom: SP[2],
-          }}>Other numbers on file ({others.length})</div>
+          }}>Other Numbers on File ({others.length})</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: `${SP[2]} ${SP[4]}` }}>
             {others.map((p, i) => (
               <div key={`${p.source_id}-${i}`} style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
@@ -352,7 +375,7 @@ export function CustomerDetails({ c }: { c: CreditDossier['customer'] }) {
                 {p.phone && p.email ? ' · ' : ''}
                 {p.email && <span style={{ wordBreak: 'break-all' }}>{p.email}</span>}
                 <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
-                  {isInternalId(p.source_id) ? '' : ` · from CIF ${p.source_id}`}
+                  {idCaption(p.source_id) ? ` · from ${idCaption(p.source_id)}` : ''}
                 </span>
               </div>
             ))}
@@ -404,7 +427,7 @@ export function CaseContext({
                 marginLeft: 'auto', padding: '5px 12px', borderRadius: RADIUS.md, cursor: 'pointer',
                 border: 'none', background: RED, color: '#fff', fontSize: TEXT.xs, fontWeight: FW.semibold,
               }}
-            >Open Recovery case</button>
+            >Open Recovery Case</button>
           )}
         </div>
       )}
@@ -449,26 +472,26 @@ export function ExposureStrip({ t }: { t: CreditDossier['totals'] }) {
       display: 'grid', gap: SP[5],
       gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', alignItems: 'end',
     }}>
-      <Figure label="Total exposure" value={fmtKoboExact(t.exposure_kobo)} color={RED} size={24}
+      <Figure label="Total Exposure" value={fmtKoboExact(t.exposure_kobo)} color={RED} size={24}
               sub={`${t.facility_count} ${t.facility_count === 1 ? 'facility' : 'facilities'}`} />
       <Figure label="Scheduled" value={fmtKoboExact(t.scheduled_kobo)}
               sub={`Due to date ${fmtKoboExact(t.expected_kobo)}`} size={20} />
       <div>
-        <Figure label="Paid against schedule" value={fmtKoboExact(t.schedule_paid_kobo)} color={GREEN} size={20}
+        <Figure label="Paid Against Schedule" value={fmtKoboExact(t.schedule_paid_kobo)} color={GREEN} size={20}
                 sub={`${recovered.toFixed(1)}% of the schedule`} />
         <div style={{ marginTop: 8 }}><Meter pct={recovered} color={meterColor} /></div>
       </div>
       <Figure label="Arrears" value={fmtKoboExact(t.arrears_kobo)}
               color={t.arrears_kobo > 0 ? RED : GREEN} size={20}
               sub={t.arrears_kobo > 0 ? 'Behind the schedule' : 'On or ahead of schedule'} />
-      <Figure label="Next instalment"
+      <Figure label="Next Instalment"
               value={t.next_due_date ? fmtKoboExact(t.next_due_kobo) : '—'}
               sub={t.next_due_date ? `Due ${fmtDate(t.next_due_date)}` : 'Nothing scheduled ahead'}
               size={20} />
-      <Figure label="Payments received" value={fmtKoboExact(t.paid_kobo)} color={GREEN} size={20}
+      <Figure label="Payments Received" value={fmtKoboExact(t.paid_kobo)} color={GREEN} size={20}
               sub="Logged to collections" />
       {t.unallocated_kobo > 0 && (
-        <Figure label="Beyond schedule" value={fmtKoboExact(t.unallocated_kobo)} color={AMBER} size={20}
+        <Figure label="Beyond Schedule" value={fmtKoboExact(t.unallocated_kobo)} color={AMBER} size={20}
                 sub="Received but not matched to any instalment — check the tenor or a restructure" />
       )}
     </div>
@@ -507,7 +530,7 @@ export function FacilityRail({
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
                 <Chip label={f.kind} color={c} solid={on} />
                 <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontWeight: FW.semibold }}>{f.origin}</span>
-                {f.is_subject && <Chip label="This account" color={NAVY} />}
+                {f.is_subject && <Chip label="This Account" color={NAVY} />}
                 {SETTLED_STATUS.has((f.status ?? '').toLowerCase()) && (
                   <Chip label={f.status.toLowerCase() === 'closed' ? 'Settled' : f.status} color={GREEN} />
                 )}
@@ -530,7 +553,7 @@ export function FacilityRail({
               <div style={{
                 ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 8,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>{f.ref || '—'}{f.cif && !isInternalId(f.cif) ? ` · CIF ${f.cif}` : ''}</div>
+              }}>{f.ref || '—'}{idCaption(f.cif) ? ` · ${idCaption(f.cif)}` : ''}</div>
               <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', lineHeight: 1.1 }}>
                 {fmtKoboExact(f.outstanding_kobo)}
               </div>
@@ -543,7 +566,7 @@ export function FacilityRail({
                   </div>
                 </>
               ) : (
-                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>No schedule on file</div>
+                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>No Schedule on File</div>
               )}
             </div>
           </button>
@@ -576,29 +599,29 @@ export function FacilityTerms({ f }: { f: Facility }) {
     ? [
         ['Card', f.pan_masked],
         ['Account', f.ref],
-        ['Credit limit', f.limit_kobo ? fmtKoboExact(f.limit_kobo) : ''],
-        ['Current balance', fmtKoboExact(f.outstanding_kobo)],
-        ['Cycle balance', f.cycle_balance_kobo ? fmtKoboExact(f.cycle_balance_kobo) : ''],
-        ['Minimum due', f.min_payment_kobo ? fmtKoboExact(f.min_payment_kobo) : ''],
+        ['Credit Limit', f.limit_kobo ? fmtKoboExact(f.limit_kobo) : ''],
+        ['Current Balance', fmtKoboExact(f.outstanding_kobo)],
+        ['Cycle Balance', f.cycle_balance_kobo ? fmtKoboExact(f.cycle_balance_kobo) : ''],
+        ['Minimum Due', f.min_payment_kobo ? fmtKoboExact(f.min_payment_kobo) : ''],
         ['Utilisation', pctTxt(f.utilisation)],
-        ['Payment due', f.next_due_date ? fmtDate(f.next_due_date) : ''],
-        ['Days overdue', f.dpd > 0 ? `${f.dpd}` : ''],
-        ['Last payment', f.last_payment_kobo ? `${fmtKoboExact(f.last_payment_kobo)}${f.last_payment_date ? ` on ${fmtDate(f.last_payment_date)}` : ''}` : ''],
+        ['Payment Due', f.next_due_date ? fmtDate(f.next_due_date) : ''],
+        ['Days Overdue', f.dpd > 0 ? `${f.dpd}` : ''],
+        ['Last Payment', f.last_payment_kobo ? `${fmtKoboExact(f.last_payment_kobo)}${f.last_payment_date ? ` on ${fmtDate(f.last_payment_date)}` : ''}` : ''],
         ['Opened', f.opened_date ? fmtDate(f.opened_date) : ''],
         ['Expires', f.expiry_date ? fmtDate(f.expiry_date) : ''],
         ['Status', f.status],
       ]
     : [
-        ['Mandate / account', f.ref],
+        ['Mandate / Account', f.ref],
         ['Principal', f.principal_kobo ? fmtKoboExact(f.principal_kobo) : ''],
         ['Outstanding', fmtKoboExact(f.outstanding_kobo)],
-        ['Monthly repayment', f.instalment_kobo ? fmtKoboExact(f.instalment_kobo) : ''],
+        ['Monthly Repayment', f.instalment_kobo ? fmtKoboExact(f.instalment_kobo) : ''],
         ['Rate', f.rate ? `${f.rate}%` : ''],
         ['Tenor', f.tenor && !/months|days/.test(f.tenor) ? `${f.tenor} months` : f.tenor],
         ['Disbursed', f.opened_date ? fmtDate(f.opened_date) : ''],
         ['Matures', f.maturity_date ? fmtDate(f.maturity_date) : ''],
-        ['Debit day', f.debit_day],
-        ['Account officer', f.officer_name],
+        ['Debit Day', f.debit_day],
+        ['Account Officer', f.officer_name],
         ['Guarantor', f.guarantor_name],
         ['Collateral', f.collateral_type ? `${f.collateral_type}${f.collateral_valuation_kobo ? ` · ${fmtKoboExact(f.collateral_valuation_kobo)}` : ''}` : ''],
         ['Sector', f.economic_sector],
@@ -669,7 +692,7 @@ export function ScheduleTable({ f }: { f: Facility }) {
     return (
       <EmptyState
         icon="event_busy"
-        title="No repayment schedule"
+        title="No Repayment Schedule"
         description={f.schedule_note || 'Nothing on file for this facility.'}
       />
     )
@@ -691,15 +714,15 @@ export function ScheduleTable({ f }: { f: Facility }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: hasSplit ? 860 : 680 }}>
           <thead>
             <tr>
-              <th style={{ ...th, textAlign: 'left', paddingLeft: SP[5] }}>{isCycle ? 'Billing period' : 'Instalment'}</th>
-              <th style={{ ...th, textAlign: 'left' }}>{isCycle ? 'Month' : 'Due date'}</th>
+              <th style={{ ...th, textAlign: 'left', paddingLeft: SP[5] }}>{isCycle ? 'Billing Period' : 'Instalment'}</th>
+              <th style={{ ...th, textAlign: 'left' }}>{isCycle ? 'Month' : 'Due Date'}</th>
               {!isCycle && <th style={{ ...th, textAlign: 'left', minWidth: 118 }}>Timing</th>}
               {hasSplit && <th style={th}>Principal</th>}
               {hasSplit && <th style={th}>Interest</th>}
               {hasSplit && <th style={th}>Fees</th>}
               <th style={th}>{isCycle ? 'Billed' : 'Due'}</th>
               <th style={th}>Paid</th>
-              <th style={{ ...th, textAlign: 'left', minWidth: 130 }}>% paid</th>
+              <th style={{ ...th, textAlign: 'left', minWidth: 130 }}>% Paid</th>
               <th style={{ ...th, textAlign: 'left', paddingRight: SP[5] }}>Status</th>
             </tr>
           </thead>
@@ -770,7 +793,7 @@ export function RepaymentLedger({ repayments }: { repayments: Repayment[] }) {
   const total = useMemo(() => rows.reduce((s, r) => s + r.amount_kobo, 0), [rows])
 
   if (repayments.length === 0) {
-    return <EmptyState icon="payments" title="No repayments recorded" description="Nothing has been received on this customer's credit yet." />
+    return <EmptyState icon="payments" title="No Repayments Recorded" description="Nothing has been received on this customer's credit yet." />
   }
 
   const counts = {
@@ -787,8 +810,8 @@ export function RepaymentLedger({ repayments }: { repayments: Repayment[] }) {
       }}>
         {([
           ['all', 'All'],
-          ['collections', 'Logged to collections'],
-          ['card', 'Card ledger'],
+          ['collections', 'Logged to Collections'],
+          ['card', 'Card Ledger'],
         ] as const).map(([k, label]) => (
           <button
             key={k}
@@ -818,7 +841,7 @@ export function RepaymentLedger({ repayments }: { repayments: Repayment[] }) {
                 <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.bold, color: GREEN }}>
                   {fmtKoboExact(p.amount_kobo)}
                 </span>
-                <Chip label={p.source === 'card' ? 'Card ledger' : 'Collections'} color={p.source === 'card' ? PURPLE : NAVY} />
+                <Chip label={p.source === 'card' ? 'Card Ledger' : 'Collections'} color={p.source === 'card' ? PURPLE : NAVY} />
                 {p.status && p.status !== 'posted' && <Chip label={p.status.replace(/_/g, ' ')} color={p.status === 'approved' ? GREEN : AMBER} />}
               </div>
               <div style={{

@@ -67,22 +67,22 @@ export default function MarketingOverview() {
             sub={c ? `${c.active} active · ${c.scheduled} scheduled` : undefined} loading={loading} />
         </div>
         <div onClick={() => navigate('/campaigns/lists')} style={{ cursor: 'pointer' }}>
-          <KpiCard label="Contacts reached" value={fmtNum(aud?.contacts ?? 0)} icon="groups" accent={BLUE}
+          <KpiCard label="Contacts Reached" value={fmtNum(aud?.contacts ?? 0)} icon="groups" accent={BLUE}
             sub={aud ? `${aud.lists} lists · ${aud.segments} segments` : undefined} loading={loading} />
         </div>
         <div onClick={() => navigate('/campaigns/templates')} style={{ cursor: 'pointer' }}>
           <KpiCard label="Templates" value={fmtNum(data?.templates_total ?? 0)} icon="dashboard_customize" accent={AMBER}
             sub={(data?.templates ?? []).map(t => `${t.count} ${t.channel}`).join(' · ') || 'None yet'} loading={loading} />
         </div>
-        <KpiCard label="30-day open rate" value={p30 ? pct(p30.open_rate) : '—'} icon="drafts" accent={GREEN}
+        <KpiCard label="30-Day Open Rate" value={p30 ? pct(p30.open_rate) : '—'} icon="drafts" accent={GREEN}
           sub={p30 ? `${fmtNum(p30.sent)} sent (30d)` : undefined} loading={loading} />
       </div>
 
       {/* Charts + status */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14, marginBottom: 16 }}>
-        <SectionCard title="Channel mix" subtitle="Messages sent by channel">
+        <SectionCard title="Channel Mix" subtitle="Messages sent by channel">
           {loading ? <ChartLoad /> : mix.length === 0 ? (
-            <EmptyState icon="bar_chart" title="No sends yet" description="Channel volume appears once campaigns go out." />
+            <EmptyState icon="bar_chart" title="No Sends Yet" description="Channel volume appears once campaigns go out." />
           ) : (
             <EBar
               data={mix}
@@ -96,7 +96,7 @@ export default function MarketingOverview() {
           )}
         </SectionCard>
 
-        <SectionCard title="Campaign status" subtitle="Across all campaigns">
+        <SectionCard title="Campaign Status" subtitle="Across all campaigns">
           {loading ? <ChartLoad /> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
@@ -125,7 +125,7 @@ export default function MarketingOverview() {
       </div>
 
       {/* 30-day funnel */}
-      <SectionCard title="Last 30 days" subtitle="Delivery funnel across all channels" style={{ marginBottom: 16 }}>
+      <SectionCard title="Last 30 Days" subtitle="Delivery funnel across all channels" style={{ marginBottom: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>
           {[
             { label: 'Sent', value: p30?.sent ?? 0, color: NAVY },
@@ -146,8 +146,8 @@ export default function MarketingOverview() {
       </SectionCard>
 
       {/* Recent campaigns */}
-      <SectionCard title="Recent campaigns" padding={false}
-        actions={<button onClick={() => navigate('/campaigns')} style={{ fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', fontWeight: FW.semibold }}>View all</button>}>
+      <SectionCard title="Recent Campaigns" padding={false}
+        actions={<button onClick={() => navigate('/campaigns')} style={{ fontSize: TEXT.sm, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', fontWeight: FW.semibold }}>View All</button>}>
         {loading ? (
           <div style={{ padding: 24, display: 'flex', justifyContent: 'center' }}><Spinner /></div>
         ) : (data?.recent_campaigns ?? []).length === 0 ? (

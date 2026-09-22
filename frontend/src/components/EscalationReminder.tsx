@@ -70,7 +70,7 @@ export default function EscalationReminder({ enabled, offset = 0 }: { enabled: b
 
   const overdue = cb.seconds_left <= 0
   const accent = overdue ? RED : AMBER
-  const title = overdue ? 'Escalation overdue' : 'Escalation response due'
+  const title = overdue ? 'Escalation Overdue' : 'Escalation Response Due'
 
   function respond() {
     dismiss(cb.id)

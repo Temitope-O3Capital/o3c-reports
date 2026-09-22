@@ -722,29 +722,29 @@ func hdCallerLookup(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "phone is required")
 			return
 		}
-		var name, cif, email, phone string
+		var name, cif, phone string
 		found, existing := false, false
 
 		// 1. Accounts — identity source of truth (an existing customer).
 		if rows, _ := db.PGQuery(ctx, `
-			SELECT first_name AS fn, last_name AS ln, cif, email, phone
+			SELECT first_name AS fn, last_name AS ln, cif, phone
 			FROM app.customers
 			WHERE right(regexp_replace(COALESCE(phone,''), '\D', '', 'g'), 10) = $1
 			LIMIT 1`, norm); len(rows) > 0 {
 			name = strings.TrimSpace(str(rows[0]["fn"]) + " " + str(rows[0]["ln"]))
-			cif, email, phone = str(rows[0]["cif"]), str(rows[0]["email"]), str(rows[0]["phone"])
+			cif, phone = str(rows[0]["cif"]), str(rows[0]["phone"])
 			found, existing = true, true
 		}
 		// 2. CRM leads fallback.
 		if !found {
 			if rows, _ := db.PGQuery(ctx, `
 				SELECT trim(concat(coalesce(first_name,''),' ',coalesce(last_name,''))) AS name,
-				       coalesce(cif_number,'') AS cif, coalesce(email,'') AS email, coalesce(phone,'') AS phone
+				       coalesce(cif_number,'') AS cif, coalesce(phone,'') AS phone
 				FROM crm_contacts
 				WHERE right(regexp_replace(coalesce(phone,''), '\D', '', 'g'), 10) = $1
 				LIMIT 1`, norm); len(rows) > 0 {
 				name = strings.TrimSpace(str(rows[0]["name"]))
-				cif, email, phone = str(rows[0]["cif"]), str(rows[0]["email"]), str(rows[0]["phone"])
+				cif, phone = str(rows[0]["cif"]), str(rows[0]["phone"])
 				found = true
 			}
 		}
@@ -762,12 +762,26 @@ func hdCallerLookup(db *core.DB) http.HandlerFunc {
 			     OR right(regexp_replace(COALESCE(customer_phone,''), '\D', '', 'g'), 10) = $2 )
 			ORDER BY created_at DESC LIMIT 10`, cif, norm)
 
-		// Recent calls to/from this number.
+		// Recent calls to/from this number. An agent sees their own; supervisors and
+		// compliance see the floor's. Unscoped, the screen pop doubled as a way to read
+		// another agent's call history for any number the user cared to type.
+		u := core.UserFromCtx(ctx)
+		callArgs := []any{norm}
+		callScope := " AND FALSE" // no identified user → no call history
+		if u != nil {
+			if hdCanHearAnyRecording(u) {
+				callScope = ""
+			} else {
+				callScope = ` AND (agent_id = $2 OR lower(btrim(agent_name)) = lower(btrim($3)))`
+				callArgs = append(callArgs, u.ID, u.FullName)
+			}
+		}
 		calls, _ := db.PGQuery(ctx, `
 			SELECT id, INITCAP(direction) AS direction, outcome, duration_sec, started_at, agent_name
 			FROM helpdesk_calls
-			WHERE right(regexp_replace(COALESCE(customer_phone,''), '\D', '', 'g'), 10) = $1
-			ORDER BY started_at DESC LIMIT 10`, norm)
+			WHERE right(regexp_replace(COALESCE(customer_phone,''), '\D', '', 'g'), 10) = $1`+
+			callScope+`
+			ORDER BY started_at DESC LIMIT 10`, callArgs...)
 
 		if tickets == nil {
 			tickets = []core.Row{}
@@ -775,12 +789,16 @@ func hdCallerLookup(db *core.DB) http.HandlerFunc {
 		if calls == nil {
 			calls = []core.Row{}
 		}
+		// A screen pop, not a lookup service: this answers for ANY number anyone cares
+		// to type, so it returns only what an agent needs to greet and route the caller
+		// — who they are, whether they're a customer, and their open work. The email
+		// address is not that; nobody handling a phone call needs it, and returning it
+		// turned an arbitrary probed number into a contact-details harvest.
 		respond(w, map[string]any{
 			"found":                found,
 			"is_existing_customer": existing,
 			"name":                 name,
 			"cif":                  cif,
-			"email":                email,
 			"phone":                phone,
 			"open_tickets":         tickets,
 			"recent_calls":         calls,
@@ -3855,46 +3873,19 @@ func round2(f float64) float64 {
 
 // ── Call Log ──────────────────────────────────────────────────────────────────
 
-func ensureCallLogSchema(ctx context.Context, db *core.DB) error {
-	_, err := db.PGExec(ctx, `
-		CREATE TABLE IF NOT EXISTS helpdesk_calls (
-		  id             BIGSERIAL PRIMARY KEY,
-		  agent_id       BIGINT REFERENCES o3c_users(id),
-		  agent_name     TEXT NOT NULL DEFAULT '',
-		  customer_name  TEXT NOT NULL DEFAULT '',
-		  customer_cif   TEXT NOT NULL DEFAULT '',
-		  customer_email TEXT NOT NULL DEFAULT '',
-		  customer_phone TEXT NOT NULL DEFAULT '',
-		  direction      TEXT NOT NULL DEFAULT 'inbound',
-		  duration_sec   INT,
-		  outcome        TEXT NOT NULL DEFAULT 'resolved',
-		  notes          TEXT,
-		  ticket_id      BIGINT REFERENCES helpdesk_tickets(id) ON DELETE SET NULL,
-		  ticket_ref     TEXT,
-		  started_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)`)
-	if err != nil {
-		return err
-	}
-	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_started ON helpdesk_calls(started_at DESC)`)
-	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_agent ON helpdesk_calls(agent_id, started_at DESC)`)
-	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS customer_cif TEXT NOT NULL DEFAULT ''`)
-	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS customer_email TEXT NOT NULL DEFAULT ''`)
-	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS call_to TEXT`)
-	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS recording_url TEXT`)
-	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS ticket_type TEXT`)
-	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS transcript TEXT`)
-	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_call_id TEXT`)
-	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS zoho_voice_id TEXT`)
-	// Agent-logged call disposition (business result) + the agent's resolution note.
-	// The customer complaint/summary continues to live in `notes` (already read by
-	// the list, export and Customer360 activity), so old rows keep displaying.
-	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS disposition TEXT`)
-	db.PGExec(ctx, `ALTER TABLE helpdesk_calls ADD COLUMN IF NOT EXISTS resolution TEXT`)
-	db.PGExec(ctx, `CREATE INDEX IF NOT EXISTS idx_helpdesk_calls_cif ON helpdesk_calls(customer_cif, started_at DESC)`)
-	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_calls_zoho_id ON helpdesk_calls(zoho_call_id) WHERE zoho_call_id IS NOT NULL`)
-	db.PGExec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_calls_zoho_voice ON helpdesk_calls(zoho_voice_id) WHERE zoho_voice_id IS NOT NULL`)
+// ensureCallLogSchema no longer issues any DDL, and must not start again.
+//
+// It used to CREATE and ALTER helpdesk_calls on the REQUEST path, from five-plus
+// handlers — a third source of truth for the call ledger's schema alongside the
+// migrations and the Zoho importer. Its CREATE TABLE still carried the pre-141 shape
+// with `customer_cif TEXT NOT NULL`, the very constraint that once silently dropped
+// ~96% of calls; on a fresh or partially-migrated database it would have recreated it.
+// Each ALTER also took an ACCESS EXCLUSIVE lock on a 171k-row table while a user waited.
+//
+// Migrations own this schema now (see 141, 157, 225, 254). The function stays so the
+// call sites that guard on it keep compiling and keep their error handling — it simply
+// has nothing to do, and returns nil.
+func ensureCallLogSchema(_ context.Context, _ *core.DB) error {
 	return nil
 }
 
@@ -3918,7 +3909,7 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		// from the Leads page, which used to have its own reduced form writing to a
 		// different endpoint — so a lead call never carried a CIF, a disposition or
 		// a ticket, and the two pages could drift apart indefinitely.
-		LeadID     *int64 `json:"lead_id"`
+		LeadID *int64 `json:"lead_id"`
 		// ContactID links the call to an outbound-queue contact (call_center_contacts).
 		// Set when the call is logged from the Outbound Queue, which now uses the SAME
 		// shared call form as the Leads page instead of its own. With it, logging a call
@@ -4066,17 +4057,30 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 				 WHERE id = $1
 				   AND merged_into_call_id IS NULL
 				   AND voided_at IS NULL
+				   -- Only onto a call THIS agent could legitimately be writing up. The
+				   -- comment above has always claimed that; nothing enforced it, so two
+				   -- agents dialling the same customer inside the candidate window could
+				   -- land B's notes and disposition on A's row — which the call log and QA
+				   -- still attribute to A. agent_id where the import linked one, else the
+				   -- name match the call list uses for name-only imported calls. A target
+				   -- that fails this falls through to an INSERT below, so the agent's
+				   -- write-up becomes their own row rather than being silently dropped.
+				   AND ($12::bigint IS NOT NULL
+				        AND (agent_id = $12
+				             OR (agent_id IS NULL
+				                 AND lower(btrim(agent_name)) = lower(btrim($13)))))
 				 RETURNING id`,
 				*b.MergeCallID, b.Notes, b.Resolution, ptrOrNilStr(b.Disposition),
 				ptrOrNilStr(purpose), b.CustomerName, b.CustomerCIF,
-				ticketID, ptrOrNilStr(b.TicketRef), ptrOrNilStr(b.TicketType), b.LeadID)
+				ticketID, ptrOrNilStr(b.TicketRef), ptrOrNilStr(b.TicketType), b.LeadID,
+				agentID, agentName)
 			if err != nil {
 				respondErrLog(w, 500, "Could not attach the call notes", err)
 				return
 			}
 			if len(upd) > 0 {
 				if b.LeadID != nil {
-					syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID, durationSec)
+					syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID, durationSec, toInt64(upd[0]["id"]))
 				}
 				ccStampQueueForPhone(r.Context(), db, b.CustomerPhone) // clear a fulfilled queue call-back
 				applyQueueContact()
@@ -4145,7 +4149,7 @@ func hdLogCall(db *core.DB) http.HandlerFunc {
 		// different ways; now there is one write path and the lead is a side-effect
 		// of it. Failures here are logged, never fatal: the call itself is recorded.
 		if b.LeadID != nil {
-			syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID, durationSec)
+			syncLeadFromCall(r.Context(), db, *b.LeadID, outcome, nullStr(b.Disposition), b.CallbackAt, agentID, durationSec, toInt64(rows[0]["id"]))
 		}
 		// Any call to a number in the outbound queue updates that contact's last-called
 		// stamp and clears a fulfilled call-back — no matter which screen logged it. This
@@ -4576,6 +4580,100 @@ func recordingContentType(fname string) string {
 	return "audio/wav"
 }
 
+// ── Recording access control ─────────────────────────────────────────────────
+//
+// Who may hear a recorded conversation is a far narrower question than who may open
+// the Helpdesk. These routes sit behind RequirePages("helpdesk"), and that page is
+// held by cards, finance, settlement and care staff as well as the contact centre —
+// so the page gate alone let any of them walk the id space and download every
+// recorded customer call in the company, and reads leave no audit trail. Entitlement
+// is therefore decided per CALL: the agent who handled it, a contact-centre/helpdesk
+// supervisor, or compliance, who audit recordings as part of the job.
+
+// hdCanHearAnyRecording reports whether the user's role entitles them to a call's
+// audio regardless of who handled it.
+func hdCanHearAnyRecording(u *core.Claims) bool {
+	if u == nil {
+		return false
+	}
+	// Supervisors already hold the "every agent's row" scope the call LIST applies.
+	if hdCanSuperviseCalls(u) {
+		return true
+	}
+	// Compliance investigate complaints and audit conduct from the recordings.
+	return u.HasPage("compliance_all") || u.HasPage("audit_trail")
+}
+
+// hdRecordingCall loads the recording fields for a call the user is entitled to hear.
+//
+// ok=false covers BOTH "no such call" and "not entitled", deliberately
+// indistinguishable: answering them differently would turn these endpoints into a way
+// to discover which call ids exist. expired reports that the call is past the
+// retention horizon, so callers can refuse rather than re-pull audio that policy says
+// is gone.
+func hdRecordingCall(ctx context.Context, db *core.DB, u *core.Claims, id string) (fname, day string, expired, ok bool) {
+	if u == nil || strings.TrimSpace(id) == "" {
+		return "", "", false, false
+	}
+	q := `SELECT COALESCE(recording_filename,'')                  AS fname,
+	             COALESCE(to_char(started_at,'YYYY-MM-DD'),'')     AS day,
+	             (started_at < NOW() - make_interval(days => $2))  AS expired
+	        FROM helpdesk_calls
+	       WHERE id = $1`
+	args := []any{id, recordingRetentionDays()}
+	if !hdCanHearAnyRecording(u) {
+		// The same row scope the call list uses: agent_id where the import linked one,
+		// else a case/whitespace-insensitive name match, so a call carrying only the
+		// agent's name still reads as their own.
+		q += ` AND (agent_id = $3 OR lower(btrim(agent_name)) = lower(btrim($4)))`
+		args = append(args, u.ID, u.FullName)
+	}
+	rows, err := db.PGQuery(ctx, q, args...)
+	if err != nil || len(rows) == 0 {
+		return "", "", false, false
+	}
+	exp, _ := rows[0]["expired"].(bool)
+	return str(rows[0]["fname"]), str(rows[0]["day"]), exp, true
+}
+
+// hdAuditRecordingAccess records who listened to which call.
+//
+// Recording fetches are GETs, and the audit middleware records only mutations, so
+// without this the most sensitive read in the workspace left no trace of who took a
+// copy. Written from the handler onto the same append-only audit_logs the rest of the
+// trail uses.
+func hdAuditRecordingAccess(r *http.Request, db *core.DB, u *core.Claims, callID string) {
+	if u == nil {
+		return
+	}
+	ip := r.Header.Get("X-Forwarded-For")
+	if i := strings.LastIndex(ip, ","); i >= 0 {
+		ip = ip[i+1:]
+	}
+	if ip = strings.TrimSpace(ip); ip == "" {
+		ip = r.RemoteAddr
+	}
+	blob, err := json.Marshal(map[string]any{"call_id": callID, "path": r.URL.Path})
+	if err != nil {
+		blob = []byte("{}")
+	}
+	// Detached context on its own goroutine: the row must land even when the player
+	// disconnects mid-stream, and auditing must never slow or fail the playback itself.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+	go func() {
+		defer cancel()
+		if _, err := db.PGExec(ctx, `
+			INSERT INTO audit_logs (actor_id, actor_role, actor_name, action, entity_type,
+			                        entity_id, changes, ip_address, created_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
+			u.ID, u.Role, u.FullName, "PLAY call recording", "helpdesk_call", callID,
+			string(blob), ip); err != nil {
+			slog.Error("call recording playback was NOT audited",
+				"call", callID, "actor", u.ID, "err", err)
+		}
+	}()
+}
+
 // hdCallFetchRecording is the manual "pull it live from Zoho now" action. Normally the
 // 60-second call sync attaches a recording's filename and the prefetch caches it, but a
 // provider publishing lag or a missed auto-match can leave a real conversation with no
@@ -4583,17 +4681,24 @@ func recordingContentType(fname string) string {
 //   - filename already known → (re)warm the local cache from Zoho.
 //   - filename missing → run a targeted Zoho voice import for that call's day (idempotent,
 //     only fills NULL filenames), then re-check and warm.
+//
 // Returns {status, attached} so the player can react. No-answer/too-short calls (never
 // recorded by the provider) come back attached:false — nothing to fetch.
 func hdCallFetchRecording(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		ctx := r.Context()
-		var fname, day string
-		if err := db.PG.QueryRowContext(ctx,
-			`SELECT COALESCE(recording_filename,''), to_char(started_at,'YYYY-MM-DD') FROM helpdesk_calls WHERE id=$1`, id,
-		).Scan(&fname, &day); err != nil {
+		fname, day, expired, ok := hdRecordingCall(ctx, db, core.UserFromCtx(ctx), id)
+		if !ok {
 			respondErr(w, 404, "Call not found")
+			return
+		}
+		// Past the retention horizon the audio is gone by policy. Without this guard a
+		// click here would run a provider import for the call's day and re-attach a
+		// filename, quietly undoing the retirement.
+		if expired {
+			respond(w, map[string]any{"status": "unavailable", "attached": false,
+				"message": "This call is past O3's recording retention period — its audio has been deleted."}, "")
 			return
 		}
 		if !zohoVoiceConfigured(ctx, db) {
@@ -4630,10 +4735,14 @@ func hdCallFetchRecording(db *core.DB) http.HandlerFunc {
 func hdCallRecordingStatus(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		var fname string
-		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT COALESCE(recording_filename,'') FROM helpdesk_calls WHERE id=$1`, id).Scan(&fname); err != nil || fname == "" {
+		fname, _, expired, ok := hdRecordingCall(r.Context(), db, core.UserFromCtx(r.Context()), id)
+		if !ok || fname == "" {
 			respond(w, map[string]any{"status": "missing"}, "")
+			return
+		}
+		if expired {
+			respond(w, map[string]any{"status": "unavailable",
+				"message": "This call is past O3's recording retention period — its audio has been deleted."}, "")
 			return
 		}
 		// Already cached whole?
@@ -4678,15 +4787,21 @@ func hdCallRecordingStatus(db *core.DB) http.HandlerFunc {
 func hdCallRecording(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		var fname string
-		if err := db.PG.QueryRowContext(r.Context(),
-			`SELECT COALESCE(recording_filename,'') FROM helpdesk_calls WHERE id=$1`, id).Scan(&fname); err != nil {
+		user := core.UserFromCtx(r.Context())
+		fname, _, expired, ok := hdRecordingCall(r.Context(), db, user, id)
+		if !ok {
 			respondErr(w, 404, "Call not found")
 			return
 		}
-		if fname == "" {
+		if fname == "" || expired {
 			respondErr(w, 404, "No recording for this call")
 			return
+		}
+		// Audit before a byte is served — this is the read the trail most needs, and
+		// reads bypass the audit middleware entirely. A Range request continuing a
+		// playback already recorded is the same access seeking, not a new one.
+		if rng := r.Header.Get("Range"); rng == "" || strings.HasPrefix(rng, "bytes=0-") {
+			hdAuditRecordingAccess(r, db, user, id)
 		}
 		ct := recordingContentType(fname)
 
@@ -4725,10 +4840,11 @@ func hdCallRecording(db *core.DB) http.HandlerFunc {
 	}
 }
 
-// recordingCacheDays is the rolling retention window (days). Recent calls' recordings
-// are pre-warmed into the local cache and kept this long; older cached audio is purged.
-// Anything purged or outside the window still plays — it's fetched from Zoho on demand
-// and re-cached. Tunable via RECORDING_CACHE_DAYS (default 14).
+// recordingCacheDays is the local PREFETCH window (days): recordings for calls inside
+// it are pre-warmed onto disk so playback is instant. This is a cache policy, NOT a
+// retention limit — audio outside the window is re-fetched from the provider on demand
+// for as long as the call is inside the retention horizon below. Tunable via
+// RECORDING_CACHE_DAYS (default 90).
 func recordingCacheDays() int {
 	if v := strings.TrimSpace(os.Getenv("RECORDING_CACHE_DAYS")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 400 {
@@ -4736,6 +4852,105 @@ func recordingCacheDays() int {
 		}
 	}
 	return 90
+}
+
+// recordingRetentionDaysDefault is how long O3 keeps call audio, measured from the
+// CALL's date — not the cache file's mtime, which is what the old prune used and which
+// retired nothing, because the next click simply re-fetched and re-cached the file.
+//
+// 365 days is a PLACEHOLDER: the business has not yet confirmed the figure. It is
+// deliberately this one constant, overridable at runtime with RECORDING_RETENTION_DAYS,
+// so changing the number is a one-line change with nothing else to keep in step.
+const recordingRetentionDaysDefault = 365
+
+// recordingRetentionDays is the retention horizon in days. See the constant above.
+func recordingRetentionDays() int {
+	if v := strings.TrimSpace(os.Getenv("RECORDING_RETENTION_DAYS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 3650 {
+			return n
+		}
+	}
+	return recordingRetentionDaysDefault
+}
+
+// recordingPrefetchDays is the window actually swept: the cache window, never beyond
+// the retention horizon. Warming audio that is about to be retired is wasted work, and
+// would briefly re-create a file retention had just deleted.
+func recordingPrefetchDays() int {
+	days := recordingCacheDays()
+	if rt := recordingRetentionDays(); days > rt {
+		return rt
+	}
+	return days
+}
+
+// deleteCachedRecording removes a call's cached audio from disk, plus any in-progress
+// .part twin. Both extensions are tried because the cache is keyed by call id +
+// extension, so a provider filename whose extension differs from the one cached
+// earlier must not strand the old file.
+func deleteCachedRecording(callID string) {
+	safe := make([]rune, 0, len(callID))
+	for _, r := range callID {
+		if r >= '0' && r <= '9' {
+			safe = append(safe, r)
+		}
+	}
+	if len(safe) == 0 {
+		return
+	}
+	dir := filepath.Join(UploadRoot(), "call-recordings")
+	for _, ext := range []string{".wav", ".mp3"} {
+		p := filepath.Join(dir, string(safe)+ext)
+		os.Remove(p)        //nolint:errcheck // absent is the desired end state
+		os.Remove(p + ".part") //nolint:errcheck
+	}
+}
+
+// enforceRecordingRetention retires audio for calls past the retention horizon.
+//
+// This is the real limit the workers registry has always claimed existed. The old
+// behaviour was a cache prune keyed on FILE mtime, which retired nothing: a purged
+// recording was re-fetched from the provider on the next click and re-cached, so the
+// only actual limit was the provider's own retention — which O3 neither controls nor
+// records. Here the local copy is deleted AND the row's pointer to it cleared, in that
+// order, so the audio is gone and a click cannot re-pull it.
+//
+// Idempotent: a row whose recording_filename is already NULL is never selected again.
+func enforceRecordingRetention(db *core.DB) {
+	ctx := context.Background()
+	days := recordingRetentionDays()
+	rows, err := db.PGQuery(ctx, `
+		SELECT id::text AS id
+		  FROM helpdesk_calls
+		 WHERE recording_filename IS NOT NULL
+		   AND started_at < NOW() - make_interval(days => $1)
+		 ORDER BY started_at
+		 LIMIT 5000`, days)
+	if err != nil {
+		slog.Warn("recording retention: query", "err", err)
+		return
+	}
+	var retired int
+	for _, row := range rows {
+		id := str(row["id"])
+		if id == "" {
+			continue
+		}
+		deleteCachedRecording(id)
+		// Clear the pointer only after the file is gone: a crash in between leaves the
+		// row selectable next sweep, rather than orphaning audio nothing points at.
+		if _, err := db.PGExec(ctx, `
+			UPDATE helpdesk_calls SET recording_filename = NULL, recording_url = NULL
+			 WHERE id = $1`, id); err != nil {
+			slog.Warn("recording retention: clear reference", "call", id, "err", err)
+			continue
+		}
+		retired++
+	}
+	if retired > 0 {
+		slog.Info("recording retention: retired audio past the horizon",
+			"retired", retired, "older_than_days", days)
+	}
 }
 
 // StartRecordingPrefetch pre-downloads recent calls' recordings into local storage in
@@ -4746,14 +4961,25 @@ func StartRecordingPrefetch(db *core.DB) {
 	go func() {
 		time.Sleep(90 * time.Second) // let startup + the first call sync settle
 		for {
-			days := recordingCacheDays()
-			pruneRecordingCache(days)
-			// Cover the WHOLE window each sweep (already-cached files are cheap stat-skips,
-			// so once caught up a sweep is fast). The first sweep back-fills the window.
-			prefetchRecentRecordings(db, days, 12000)
+			recordingMaintenanceCycle(db)
 			time.Sleep(15 * time.Minute) // sweep for newly-arrived recordings every 15 min
 		}
 	}()
+}
+
+// recordingMaintenanceCycle is one sweep: retire audio past the retention horizon,
+// bound the local cache, then warm the prefetch window.
+//
+// Guarded by recoverPanic so a panic ends one cycle rather than killing the worker for
+// the life of the process — which the Workers hub would go on reporting as "running".
+func recordingMaintenanceCycle(db *core.DB) {
+	defer recoverPanic("recordingMaintenanceCycle")
+	enforceRecordingRetention(db)
+	days := recordingPrefetchDays()
+	pruneRecordingCache(days)
+	// Cover the WHOLE window each sweep (already-cached files are cheap stat-skips,
+	// so once caught up a sweep is fast). The first sweep back-fills the window.
+	prefetchRecentRecordings(db, days, 12000)
 }
 
 // prefetchMu ensures only one sweep runs at a time — the 15-min ticker and the manual
@@ -4769,6 +4995,9 @@ func prefetchRecentRecordings(db *core.DB, days, limit int) {
 		return // a sweep is already in progress (ticker or manual trigger)
 	}
 	defer prefetchMu.Unlock()
+	// Also reachable straight from the HTTP trigger's goroutine, which has no other
+	// guard. Deferred AFTER the unlock so it runs first and the mutex is still released.
+	defer recoverPanic("prefetchRecentRecordings")
 
 	ctx := context.Background()
 	if !zohoVoiceConfigured(ctx, db) {
@@ -4869,16 +5098,18 @@ func hdRecordingsPrefetchTrigger(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, "Supervisor access required")
 			return
 		}
-		days := recordingCacheDays()
+		days := recordingPrefetchDays()
 		go prefetchRecentRecordings(db, days, 5000)
 		respond(w, map[string]any{"status": "started", "window_days": days,
 			"message": fmt.Sprintf("Downloading the last %d days of recordings in the background.", days)}, "")
 	}
 }
 
-// pruneRecordingCache removes cached recordings older than the retention window (by
-// file modification time) to keep disk bounded, plus any stale .part leftovers. A
-// purged recording still plays — it's re-fetched from Zoho on demand and re-cached.
+// pruneRecordingCache bounds DISK USE by evicting cache files not touched within the
+// prefetch window, plus any stale .part leftovers. It is not a retention control and
+// never was: an evicted recording still plays, because it is re-fetched from the
+// provider on demand and re-cached. Retiring audio for good is enforceRecordingRetention,
+// which works from the CALL's date and clears the row's pointer as well as the file.
 func pruneRecordingCache(days int) {
 	dir := filepath.Join(UploadRoot(), "call-recordings")
 	entries, err := os.ReadDir(dir)
@@ -5003,7 +5234,7 @@ func hdListCalls(db *core.DB) http.HandlerFunc {
 			       b.duration_sec AS duration_seconds,
 			       b.outcome, b.notes, b.resolution, b.disposition,
 			       LOWER(COALESCE(NULLIF(b.purpose,''),'')) AS purpose,
-			       b.ticket_id, b.ticket_ref, b.recording_url, b.ticket_type,
+			       b.ticket_id, b.ticket_ref, b.ticket_type,
 			       b.recording_filename,
 			       (b.recording_filename IS NOT NULL) AS has_recording,
 			       b.source_system,
@@ -5934,7 +6165,6 @@ func hdTicketCalls(db *core.DB) http.HandlerFunc {
 			       COALESCE(NULLIF(hc.agent_name,''),'Unknown')         AS agent_name,
 			       hc.direction                                         AS direction,
 			       hc.purpose                                           AS purpose,
-			       hc.recording_url                                     AS recording_url,
 			       hc.notes                                             AS notes
 			FROM helpdesk_calls hc, t
 			WHERE (t.cif <> '' AND hc.customer_cif = t.cif)
@@ -6960,13 +7190,15 @@ func StartGraphInboxPoller(db *core.DB) {
 			token, err := graphToken(ctx, db)
 			if err != nil {
 				slog.Info("GraphInboxPoller: Graph not configured, skipping")
-				WorkerBeat(ctx, db, "graph_inbox", "ok", "Graph not configured", "")
+				// 'idle', not 'ok' — same fix as care_mail.go. This beat reported green
+				// "Healthy" across 14,888 runs while ingesting nothing.
+				WorkerBeat(ctx, db, "graph_inbox", "idle", "Graph not configured — no mail is being ingested", "")
 				continue
 			}
 			inbox := resolveCredKey(ctx, db, "HELPDESK_INBOX_ADDRESS")
 			if inbox == "" {
 				slog.Info("GraphInboxPoller: HELPDESK_INBOX_ADDRESS not set, skipping")
-				WorkerBeat(ctx, db, "graph_inbox", "ok", "inbox address not set", "")
+				WorkerBeat(ctx, db, "graph_inbox", "idle", "HELPDESK_INBOX_ADDRESS not set — no mail is being ingested", "")
 				continue
 			}
 			processed, skipped, newTickets := hdPollGraphInbox(ctx, db, token, inbox)

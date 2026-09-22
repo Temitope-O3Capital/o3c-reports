@@ -146,7 +146,7 @@ function ProfileTab({ local, me, onGoSecurity }: {
           <span className="material-symbols-rounded" style={{ fontSize: TEXT.xl, color: AMBER }}>warning</span>
           <span style={{ fontSize: TEXT.base, color: AMBER, fontWeight: FW.semibold }}>Your temporary password must be changed before you continue.</span>
           <button onClick={onGoSecurity} style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: 7, border: 'none', background: AMBER, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.bold, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-            Change now
+            Change Now
           </button>
         </div>
       )}
@@ -172,7 +172,7 @@ function ProfileTab({ local, me, onGoSecurity }: {
 
         <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[2] }}>
           {[
-            { label: 'Full name',   value: name },
+            { label: 'Full Name',   value: name },
             { label: 'Email',       value: email },
             { label: 'Role',        value: roleLabel(role) },
             { label: 'Department',  value: department || '—' },
@@ -214,7 +214,7 @@ function ChangePasswordSection() {
 
   function strength(pw: string): { score: 0 | 1 | 2 | 3; label: string; color: string } {
     if (pw.length === 0) return { score: 0, label: '', color: 'transparent' }
-    if (pw.length < 8)   return { score: 1, label: 'Too short', color: RED }
+    if (pw.length < 8)   return { score: 1, label: 'Too Short', color: RED }
     const passed = [/[A-Z]/, /[a-z]/, /[0-9]/, /[^A-Za-z0-9]/].filter(re => re.test(pw)).length
     if (pw.length < 12 || passed < 2) return { score: 1, label: 'Weak', color: RED }
     if (passed < 3)                   return { score: 2, label: 'Fair', color: AMBER }
@@ -393,7 +393,7 @@ function TOTPSection() {
           background: enabled ? `${GREEN}18` : 'var(--chip-bg, #F0F4FF)',
           color: enabled ? GREEN : 'var(--txt2)',
         }}>
-          {enabled ? 'Enabled' : 'Not enabled'}
+          {enabled ? 'Enabled' : 'Not Enabled'}
         </span>
       </div>
 
@@ -401,7 +401,7 @@ function TOTPSection() {
         <button onClick={startSetup} disabled={loading} style={{ ...BTN_PRIMARY, opacity: loading ? 0.7 : 1, alignSelf: 'flex-start' }}>
           {loading && <Spinner size={14} color="#fff" />}
           <span className="material-symbols-rounded" style={{ fontSize: 17 }}>security</span>
-          Set up Two-Factor Authentication
+          Set Up Two-Factor Authentication
         </button>
       )}
 
@@ -543,7 +543,7 @@ function SignOutEverywhereSection() {
             fontSize: TEXT.base, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: 'inherit',
           }}
         >
-          Sign out everywhere
+          Sign Out Everywhere
         </button>
       ) : (
         <div style={{
@@ -552,7 +552,7 @@ function SignOutEverywhereSection() {
           background: `${RED}0F`, border: `1px solid ${RED}33`,
         }}>
           <span style={{ fontSize: TEXT.sm, color: 'var(--txt)', fontWeight: FW.semibold }}>
-            End every session now?
+            End Every Session Now?
           </span>
           <button
             onClick={run}
@@ -565,7 +565,7 @@ function SignOutEverywhereSection() {
             }}
           >
             {loading && <Spinner size={13} color="#fff" />}
-            Yes, sign out everywhere
+            Yes, Sign Out Everywhere
           </button>
           <button
             onClick={() => setConfirming(false)}
@@ -603,7 +603,7 @@ function SecurityTab() {
 // ── Notifications Tab ─────────────────────────────────────────────────────────
 
 const CHANNEL_ICON: Record<string, string> = { in_app: 'notifications', email: 'mail', sms: 'sms', push: 'phone_iphone' }
-const CHANNEL_LABEL: Record<string, string> = { in_app: 'In-app', email: 'Email', sms: 'SMS', push: 'Push' }
+const CHANNEL_LABEL: Record<string, string> = { in_app: 'In-App', email: 'Email', sms: 'SMS', push: 'Push' }
 const PREF_CHANNELS = ['in_app', 'email', 'sms']
 
 // Sound + spoken-alert opt-in (saved on this device). Mirrors the effects in
@@ -625,7 +625,7 @@ function SoundVoiceSettings() {
         {/* Sound */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div>
-            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Notification sound</div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Notification Sound</div>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>A soft chime on each new notification.</div>
           </div>
           <button
@@ -637,7 +637,7 @@ function SoundVoiceSettings() {
         {/* Voice */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Spoken announcement</div>
+            <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Spoken Announcement</div>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Reads each alert aloud in a Nigerian voice: Ezinne (female) or Abeo (male).</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -930,7 +930,7 @@ function CallScriptsPref() {
     <SectionCard title="Call Scripts Button" subtitle="The floating Scripts launcher on the Call Centre pages. Saved on this device.">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
         <div>
-          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Show the Scripts button</div>
+          <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>Show the Scripts Button</div>
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>Drag it anywhere on screen; hide it from the button's ✕. It only appears on Call Centre pages.</div>
         </div>
         <button
@@ -999,7 +999,7 @@ function VoiceTab() {
             </div>
             <div>
               <div style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-                {status?.connected ? 'Connected' : 'Not connected'}
+                {status?.connected ? 'Connected' : 'Not Connected'}
               </div>
               <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginTop: 2 }}>
                 {status?.connected
@@ -1053,7 +1053,7 @@ function VoiceTab() {
 
             <div>
               <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 6 }}>
-                Zoho Voice Agent ID (optional)
+                Zoho Voice Agent ID (Optional)
               </label>
               <input
                 type="text"
@@ -1076,7 +1076,7 @@ function VoiceTab() {
       )}
 
       {/* How-to guide */}
-      <SectionCard title="How to get your refresh token">
+      <SectionCard title="How to Get Your Refresh Token">
         <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.65 }}>
           {[
             { n: 1, text: 'Go to api-console.zoho.com and sign in with your Zoho account' },
@@ -1098,7 +1098,7 @@ function VoiceTab() {
       </SectionCard>
 
       {/* How the dialer works */}
-      <SectionCard title="How the dialer works">
+      <SectionCard title="How the Dialer Works">
         <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.7 }}>
           <p style={{ marginTop: 0 }}>
             Once connected, the workspace predictive dialer automatically calls contacts in your campaign queue via Zoho Voice.

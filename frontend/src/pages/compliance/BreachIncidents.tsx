@@ -245,8 +245,8 @@ export default function BreachIncidents() {
           </div>
           {([
             ['Incident Title *', 'title', 'text'],
-            ['Affected Records (estimate)', 'affected_records', 'number'],
-            ['Data Categories (comma-separated, e.g. BVN, email)', 'data_categories', 'text'],
+            ['Affected Records (Estimate)','affected_records', 'number'],
+            ['Data Categories (Comma-separated, e.g. BVN, email)','data_categories', 'text'],
           ] as [string, keyof typeof form, string][]).map(([label, key, type]) => (
             <div key={key}>
               <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: SP[1] }}>{label}</label>

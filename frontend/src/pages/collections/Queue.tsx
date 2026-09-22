@@ -132,7 +132,7 @@ function SourceBadge({ source, product }: { source: string | null; product?: str
   const uploaded = source === 'manual'
   let label: string, color: string, txt: string, icon: string, title: string
   if (uploaded) {
-    label = product === 'loan' ? 'Uploaded loan' : 'Manual upload'
+    label = product === 'loan' ? 'Uploaded Loan' : 'Manual Upload'
     color = AMBER; txt = DARKRED; icon = 'upload_file'
     title = 'Uploaded from a spreadsheet — not from CCS or Udara'
   } else if (product === 'card') {
@@ -487,7 +487,7 @@ function LogPaymentTab({ assignmentId, onDone }: { assignmentId: number; onDone:
       </div>
       <div>
         <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
-          Reference <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span>
+          Reference <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span>
         </label>
         <input
           type="text" placeholder="e.g. TRF-2025-00123"
@@ -653,13 +653,16 @@ function DetailPanel({
   const [payments,        setPayments]        = useState<PaymentEntry[]>([])
   const [paymentsLoading, setPaymentsLoading] = useState(true)
 
-  const loadHistory = useCallback(async (id: number) => {
+  // Payments are CIF-keyed, not assignment-id-keyed (see AccountDetail.tsx's
+  // PaymentsTab) — most rows carry no assignment_id, so the {id}/payments endpoint
+  // only ever surfaces a small minority of an account's history.
+  const loadHistory = useCallback(async (id: number, cif: string) => {
     setContactsLoading(true)
     setPaymentsLoading(true)
     try {
       const [cRes, pRes] = await Promise.all([
         apiFetch<{ data: ContactEntry[] }>(`/api/collections-ops/${id}/contacts`),
-        apiFetch<{ data: PaymentEntry[] }>(`/api/collections-ops/${id}/payments`),
+        apiFetch<{ data: PaymentEntry[] }>(`/api/collections-ops/payments/by-cif?cif=${encodeURIComponent(cif)}`),
       ])
       setContacts(Array.isArray(cRes.data) ? cRes.data : [])
       setPayments(Array.isArray(pRes.data) ? pRes.data : [])
@@ -670,10 +673,10 @@ function DetailPanel({
     }
   }, [])
 
-  useEffect(() => { loadHistory(assignment.id) }, [assignment.id, loadHistory])
+  useEffect(() => { loadHistory(assignment.id, assignment.account_cif) }, [assignment.id, assignment.account_cif, loadHistory])
 
   function refreshHistory() {
-    loadHistory(assignment.id)
+    loadHistory(assignment.id, assignment.account_cif)
     onAction()
   }
 
@@ -734,7 +737,7 @@ function DetailPanel({
         <LV label="Recovery Agent" value={
           assignment.recovery_agent_name
             ? <span>{assignment.recovery_agent_name}{assignment.recovery_status ? ` · ${assignment.recovery_status}` : ''}</span>
-            : <span style={{ color: 'var(--txt3)' }}>Not in recovery</span>
+            : <span style={{ color: 'var(--txt3)' }}>Not in Recovery</span>
         } />
         {cleanNote(assignment.notes) && (
           <div style={{
@@ -878,10 +881,10 @@ function DistributeModal({ open, onClose, agents, unassignedCount, onDone }: {
         </p>
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Agents on shift</label>
+            <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>Agents on Shift</label>
             <button onClick={() => setPicked(picked.size === pool.length ? new Set() : new Set(pool.map(a => a.id)))}
               style={{ background: 'none', border: 'none', color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer' }}>
-              {picked.size === pool.length && pool.length > 0 ? 'Clear all' : 'Select all'}
+              {picked.size === pool.length && pool.length > 0 ? 'Clear All' : 'Select All'}
             </button>
           </div>
           <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--bdr)', borderRadius: RADIUS.md }}>
@@ -903,7 +906,7 @@ function DistributeModal({ open, onClose, agents, unassignedCount, onDone }: {
               cursor: picked.size === 0 || saving ? 'not-allowed' : 'pointer', opacity: picked.size === 0 || saving ? 0.6 : 1,
             }}>
             {saving && <Spinner size={13} color="#fff" />}
-            Distribute to {picked.size} agent{picked.size !== 1 ? 's' : ''}
+            Distribute to {picked.size} Agent{picked.size !== 1 ? 's' : ''}
           </button>
           <button onClick={onClose} style={{
             padding: '7px 14px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)',
@@ -918,7 +921,7 @@ function DistributeModal({ open, onClose, agents, unassignedCount, onDone }: {
 // ── Left panel: queue list ────────────────────────────────────────────────────
 
 const DPD_VALUES    = ['0', '1-30', '31-60', '61-90', '91-180', '181-360']
-const CONTACT_VALUES = ['Today', 'This week', 'This month']
+const CONTACT_VALUES = ['Today', 'This Week', 'This Month']
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -1008,8 +1011,8 @@ export default function CollectionsQueue() {
         const cd = new Date(r.last_contact_at)
         return (
           (fContact.has('Today')      && cd >= startOf('day'))   ||
-          (fContact.has('This week')  && cd >= startOf('week'))  ||
-          (fContact.has('This month') && cd >= startOf('month'))
+          (fContact.has('This Week')  && cd >= startOf('week'))  ||
+          (fContact.has('This Month') && cd >= startOf('month'))
         )
       })
     }
@@ -1190,7 +1193,7 @@ export default function CollectionsQueue() {
                 onChange={e => setBulkAgentId(e.target.value)}
                 style={{ ...filterInputStyle, height: 30, minWidth: 0, flex: 1 }}
               >
-                <option value="">Assign to…</option>
+                <option value="">Assign To…</option>
                 {collectionAgents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
               </select>
               <button
@@ -1285,7 +1288,7 @@ export default function CollectionsQueue() {
                       </div>
                       {item.last_payment_amount != null && (
                         <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>
-                          Last paid <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtExact(item.last_payment_amount)}</span>
+                          Last Paid <span style={{ ...NUM, color: GREEN, fontWeight: FW.semibold }}>{fmtExact(item.last_payment_amount)}</span>
                           {item.last_payment_date ? ` · ${fmtDate(item.last_payment_date)}` : ''}
                         </div>
                       )}

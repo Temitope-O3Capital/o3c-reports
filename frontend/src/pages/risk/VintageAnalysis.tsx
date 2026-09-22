@@ -169,8 +169,8 @@ export default function VintageAnalysis() {
       {/* KPI strip — honest book-level current state */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: SP[3], marginBottom: SP[5] }}>
         <KpiCard label="Loans in Book" value={loading ? '…' : fmtNum(totalLoans)} accent={NAVY} icon="account_balance" sub={`${fmtNum(rows.length)} booking cohorts`} />
-        <KpiCard label="PAR30 (current)" value={kpis?.par30 != null ? fmtPct(kpis.par30, 1) : 'N/A'} loading={kpiLoading} accent={parAccent(kpis?.par30)} icon="monitoring" sub="30+ days past due" />
-        <KpiCard label="NPL (current)" value={kpis?.npl != null ? fmtPct(kpis.npl, 1) : 'N/A'} loading={kpiLoading} accent={parAccent(kpis?.npl)} icon="error_outline" sub="90+ days past due" />
+        <KpiCard label="PAR30 (Current)" value={kpis?.par30 != null ? fmtPct(kpis.par30, 1) : 'N/A'} loading={kpiLoading} accent={parAccent(kpis?.par30)} icon="monitoring" sub="30+ days past due" />
+        <KpiCard label="NPL (Current)" value={kpis?.npl != null ? fmtPct(kpis.npl, 1) : 'N/A'} loading={kpiLoading} accent={parAccent(kpis?.npl)} icon="error_outline" sub="90+ days past due" />
         <KpiCard label="At Risk" value={fmtKoboExact(kpis?.par30_outstanding_kobo ?? 0)} loading={kpiLoading} accent={RED} icon="warning" sub="outstanding on PAR30 loans" />
       </div>
 
@@ -217,7 +217,7 @@ export default function VintageAnalysis() {
               {loading ? (
                 <SkeletonRows count={6} />
               ) : filteredRows.length === 0 ? (
-                <tr><td colSpan={9} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No loans in the book for this filter</td></tr>
+                <tr><td colSpan={9} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--txt2)', fontSize: 13 }}>No Loans in the Book for This Filter</td></tr>
               ) : (
                 filteredRows.map(row => {
                   const isWorst = row.booking_month === worstMonth

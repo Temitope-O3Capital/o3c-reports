@@ -64,7 +64,7 @@ export default function SurveyResults() {
   const nps = sum.nps
 
   return (
-    <Page title={s.title} subtitle={`${s.category || 'General'}${s.department ? ` · ${s.department}` : ''}`} back={{ to: '/feedback', label: 'All surveys' }}
+    <Page title={s.title} subtitle={`${s.category || 'General'}${s.department ? ` · ${s.department}` : ''}`} back={{ to: '/feedback', label: 'All Surveys' }}
       actions={<>
         <StatusBadge status={s.status} />
         <Button variant="secondary" icon="visibility" onClick={openPreview}>Preview</Button>
@@ -81,7 +81,7 @@ export default function SurveyResults() {
         <KpiCard label="Responses" value={fmtNum(sum.responses)} icon="rate_review" accent={NAVY} />
         <KpiCard label="Sent" value={fmtNum(sum.sent)} icon="outgoing_mail" accent={PURPLE}
           sub={sum.response_rate != null ? `${Math.round(sum.response_rate)}% response rate` : 'not sent yet'} />
-        <KpiCard label="Avg satisfaction" value={sum.avg_overall != null ? `${sum.avg_overall.toFixed(1)} / 10` : '—'} icon="sentiment_satisfied"
+        <KpiCard label="Avg Satisfaction" value={sum.avg_overall != null ? `${sum.avg_overall.toFixed(1)} / 10` : '—'} icon="sentiment_satisfied"
           accent={sum.avg_overall != null && sum.avg_overall >= 7 ? GREEN : AMBER} />
         <KpiCard label="Net Promoter Score" value={nps.score != null ? String(nps.score) : '—'} icon="recommend"
           accent={nps.score != null && nps.score >= 0 ? GREEN : RED} sub={`${nps.count} rated`} />
@@ -112,14 +112,14 @@ function SummaryTab({ data }: { data: Results }) {
   const ratingBars = ratingQs.map(q => ({ name: q.label.length > 42 ? q.label.slice(0, 40) + '…' : q.label, avg: Number((q.avg || 0).toFixed(2)) }))
 
   if (data.summary.responses === 0) {
-    return <EmptyState icon="insights" title="No responses yet" description="Once customers start completing the survey, their ratings and comments appear here — and on each customer's 360 timeline." />
+    return <EmptyState icon="insights" title="No Responses Yet" description="Once customers start completing the survey, their ratings and comments appear here — and on each customer's 360 timeline." />
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)', gap: 16 }} className="fb-grid">
         {ratingBars.length > 0 && (
-          <SectionCard title="Average rating by service area" subtitle="Scale of 1–10">
+          <SectionCard title="Average Rating by Service Area" subtitle="Scale of 1–10">
             <EBarH data={ratingBars} catKey="name" series={[{ key: 'avg', name: 'Average', color: NAVY }]}
               height={Math.max(180, ratingBars.length * 34)} valueFmt={v => `${v.toFixed(1)}`} axisFmt={v => String(v)} />
           </SectionCard>
@@ -223,14 +223,14 @@ function ResponsesTab({ id, nav }: { id: string; nav: (to: string) => void }) {
 
   return (
     <>
-      <SectionCard title="Individual responses" badge={rows.length} padding={false}>
+      <SectionCard title="Individual Responses" badge={rows.length} padding={false}>
         {loading ? <div style={{ padding: 40, display: 'grid', placeItems: 'center' }}><Spinner /></div>
-          : rows.length === 0 ? <EmptyState icon="inbox" title="No responses yet" />
+          : rows.length === 0 ? <EmptyState icon="inbox" title="No Responses Yet" />
             : <DataTable cols={cols} rows={rows} keyFn={r => r.id} pageSize={20}
               onRowClick={r => openDetail(r.id)} />}
       </SectionCard>
 
-      <Modal open={detailLoading || !!detail} onClose={() => setDetail(null)} title="Response detail" width={560} maxHeight="86vh"
+      <Modal open={detailLoading || !!detail} onClose={() => setDetail(null)} title="Response Detail" width={560} maxHeight="86vh"
         footer={detail?.response?.customer_cif ? (
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Button variant="secondary" icon="person" onClick={() => nav(`/customers/${detail!.response.customer_cif}`)}>Open Customer 360</Button>
@@ -338,16 +338,16 @@ function DistributeTab({ id, onChange }: { id: string; onChange: () => void }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <SectionCard title="Send a test" subtitle="Email yourself a live copy to preview the invitation and the survey.">
+      <SectionCard title="Send a Test" subtitle="Email yourself a live copy to preview the invitation and the survey.">
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 240 }}>
-            <Input label="Test email" placeholder="you@o3cards.com" value={testEmail} onChange={e => setTestEmail(e.target.value)} prefix="mail" />
+            <Input label="Test Email" placeholder="you@o3cards.com" value={testEmail} onChange={e => setTestEmail(e.target.value)} prefix="mail" />
           </div>
-          <Button variant="secondary" icon="send" loading={testing} onClick={testSend}>Send test</Button>
+          <Button variant="secondary" icon="send" loading={testing} onClick={testSend}>Send Test</Button>
         </div>
       </SectionCard>
 
-      <SectionCard title="Add recipients" subtitle="Search customers with an email on file, then stage them for sending.">
+      <SectionCard title="Add Recipients" subtitle="Search customers with an email on file, then stage them for sending.">
         <Input placeholder="Search by name, CIF or email…" value={q} onChange={e => setQ(e.target.value)} prefix="search" />
         {found.length > 0 && (
           <div style={{ marginTop: 8, border: '1px solid var(--bdr)', borderRadius: RADIUS.md, maxHeight: 240, overflow: 'auto' }}>
@@ -372,12 +372,12 @@ function DistributeTab({ id, onChange }: { id: string; onChange: () => void }) {
                 </span>
               ))}
             </div>
-            <Button icon="group_add" loading={staging} onClick={stage}>Stage {pickedList.length} recipient{pickedList.length > 1 ? 's' : ''}</Button>
+            <Button icon="group_add" loading={staging} onClick={stage}>Stage {pickedList.length} Recipient{pickedList.length > 1 ? 's' : ''}</Button>
           </div>
         )}
       </SectionCard>
 
-      <SectionCard title="Distribution status">
+      <SectionCard title="Distribution Status">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
           {['draft', 'queued', 'sent', 'opened', 'responded', 'failed'].map(st => (
             <div key={st} style={{ padding: '8px 14px', borderRadius: RADIUS.md, background: 'var(--th-bg)', minWidth: 90 }}>
@@ -394,11 +394,11 @@ function DistributeTab({ id, onChange }: { id: string; onChange: () => void }) {
             </div>
             <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Nothing is emailed until you send. Each recipient gets a unique, one-time link.</div>
           </div>
-          <Button icon="send" disabled={!draftCount} onClick={() => setConfirmSend(true)}>Send now</Button>
+          <Button icon="send" disabled={!draftCount} onClick={() => setConfirmSend(true)}>Send Now</Button>
         </div>
       </SectionCard>
 
-      <Modal open={confirmSend} onClose={() => setConfirmSend(false)} title="Send survey invitations" width={440}
+      <Modal open={confirmSend} onClose={() => setConfirmSend(false)} title="Send Survey Invitations" width={440}
         footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={() => setConfirmSend(false)}>Cancel</Button>
           <Button icon="send" loading={dispatching} onClick={dispatch}>Send to {draftCount}</Button>

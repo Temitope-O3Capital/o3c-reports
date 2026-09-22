@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDebouncedValue } from '../../hooks/useDebounce'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Page, KpiCard, SectionCard, DataTable, Modal, Button, Input, Select, Field,
 } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import NewApplicationModal from '../../components/NewApplicationModal'
 import { apiFetch, apiPost } from '../../lib/api'
-import { currentUser, isSalesHead, allRoles } from '../../hooks/useAuth'
+import { currentUser, isSalesHead, allRoles, hasPage } from '../../hooks/useAuth'
 import { MGMT } from '../../lib/roles'
 import { toast } from 'sonner'
 import { fmtKobo, fmtNum, fmtDate, fmtDatetime, n } from '../../lib/fmt'
@@ -17,8 +17,12 @@ import { PRODUCT_LINES, PRODUCT_SUBS, productLabel, lineOfCode, lineColor } from
 // Lead capture and the lead queue.
 //
 // Leads arrive from Business Development, campaigns, the call centre, and from officers
-// profiling a walk-in or referral themselves. They move new → contacted → qualified →
-// converted, or leave via disqualified. Conversion needs a real CIF, because customers
+// profiling a walk-in or referral themselves. They move new → contacted → interested →
+// handed to sales → documents requested → application submitted → approved → converted,
+// or leave via disqualified from any open stage. "Interested" is stored as lead_stage
+// 'qualified' (only a call where the customer said they are interested puts a lead there).
+// Sales moves a lead forward by logging an activity — what happened — and the stage
+// follows (POST /api/sales/leads/{id}/activity). Conversion needs a real CIF, because customers
 // are created in the card system and arrive through the feed, not here — that is what
 // stops the book filling with conversions pointing at nothing.
 
@@ -38,6 +42,9 @@ interface Lead {
   created_at: string
   already_customer?: boolean
   matched_customer_cif?: string | null
+  converted_cif?: string | null
+  // The CIF to open in Customer 360 — set only when that customer exists.
+  customer360_cif?: string | null
 }
 
 interface Funnel {
@@ -47,13 +54,44 @@ interface Funnel {
 interface Source { code: string; label: string }
 interface Officer { id: number; full_name: string; is_active: boolean }
 
+// In lifecycle order; matches crm_contacts_lead_stage_chk (migration 246).
 const STAGES = [
-  { key: 'new',          label: 'New',          color: '#6B7280' },
-  { key: 'contacted',    label: 'Contacted',    color: BLUE },
-  { key: 'qualified',    label: 'Qualified',    color: '#7C3AED' },
-  { key: 'converted',    label: 'Converted',    color: GREEN },
-  { key: 'disqualified', label: 'Disqualified', color: RED },
+  { key: 'new',                   label: 'New',                   color: '#6B7280' },
+  { key: 'contacted',             label: 'Contacted',             color: BLUE },
+  { key: 'qualified',             label: 'Interested',            color: '#7C3AED' }, // stored key stays 'qualified'
+  { key: 'handed_to_sales',       label: 'Handed to Sales',       color: '#0891B2' },
+  { key: 'documents_requested',   label: 'Documents Requested',   color: AMBER },
+  { key: 'application_submitted', label: 'Application Submitted', color: '#4F46E5' },
+  { key: 'approved',              label: 'Approved',              color: '#059669' },
+  { key: 'converted',             label: 'Converted',             color: GREEN },
+  { key: 'disqualified',          label: 'Disqualified',          color: RED },
 ]
+
+// Open = still being worked: every stage except converted and disqualified.
+const OPEN_STAGES = STAGES.map(s => s.key).filter(k => k !== 'converted' && k !== 'disqualified')
+
+// Log activity — "what happened". Forward kinds move the lead to their stage and are only
+// offered when that stage is later than the lead's current one; record kinds only add to
+// the timeline and are allowed on any lead, converted and disqualified included.
+// Converted keeps its own Convert action and disqualified its own path.
+const FORWARD_KINDS = [
+  { kind: 'interested',            stage: 'qualified',             label: 'Interested' },
+  { kind: 'handed_to_sales',       stage: 'handed_to_sales',       label: 'Handed to Sales' },
+  { kind: 'documents_requested',   stage: 'documents_requested',   label: 'Documents Requested' },
+  { kind: 'application_submitted', stage: 'application_submitted', label: 'Application Submitted' },
+  { kind: 'approved',              stage: 'approved',              label: 'Approved' },
+]
+const RECORD_KINDS = [
+  { kind: 'call',    label: 'Call' },
+  { kind: 'meeting', label: 'Meeting' },
+  { kind: 'email',   label: 'Email' },
+  { kind: 'note',    label: 'Note' },
+]
+function forwardKinds(current: string) {
+  const i = OPEN_STAGES.indexOf(current)
+  return i < 0 ? [] : FORWARD_KINDS.filter(k => OPEN_STAGES.indexOf(k.stage) > i)
+}
+const defaultKind = (current: string) => forwardKinds(current)[0]?.kind ?? RECORD_KINDS[0].kind
 
 const stageColor = (s: string) => STAGES.find(x => x.key === s)?.color ?? '#6B7280'
 const stageLabel = (s: string) => STAGES.find(x => x.key === s)?.label ?? s
@@ -127,10 +165,10 @@ export default function SalesLeads() {
   const [groupView, setGroupView] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
-  // Stage / convert / disqualify
+  // Log activity / convert / disqualify
   const [acting, setActing] = useState<Lead | null>(null)
-  const [action, setAction] = useState<'stage' | 'convert' | 'disqualify'>('stage')
-  const [actionStage, setActionStage] = useState('contacted')
+  const [action, setAction] = useState<'activity' | 'convert' | 'disqualify'>('activity')
+  const [actionKind, setActionKind] = useState('call')
   const [actionCIF, setActionCIF] = useState('')
   const [actionNote, setActionNote] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
@@ -224,14 +262,20 @@ export default function SalesLeads() {
           method: 'POST', body: JSON.stringify({ reason: actionNote }),
         })
       } else {
-        await apiFetch(`/api/sales/leads/${acting.id}/stage`, {
-          method: 'POST', body: JSON.stringify({ stage: actionStage, note: actionNote }),
-        })
+        // Log what happened; the server moves the stage when the kind is a forward one.
+        const note = actionNote.trim()
+        const res = await apiPost<{ ok: boolean; moved: boolean; from?: string; to?: string; activity_id?: number }>(
+          `/api/sales/leads/${acting.id}/activity`,
+          note ? { kind: actionKind, note } : { kind: actionKind },
+        )
+        const fwd = FORWARD_KINDS.find(k => k.kind === actionKind)
+        toast.success(res?.moved ? `Moved to ${stageLabel(res.to ?? fwd?.stage ?? actionKind)}` : 'Activity logged')
       }
       setActing(null); setActionCIF(''); setActionNote('')
       await load()
     } catch (e: any) {
-      setErr(e?.message ?? 'That did not work')
+      if (action === 'activity') toast.error(e?.message ?? 'Could not log the activity')
+      else setErr(e?.message ?? 'That did not work')
     } finally {
       setActionBusy(false)
     }
@@ -247,6 +291,14 @@ export default function SalesLeads() {
     } catch (e: any) { toast.error(e?.message ?? 'Could not claim') }
   }
   const meId = currentUser()?.id
+  const navigate = useNavigate()
+  // Customer 360 is guarded by the 'customer360' page; management can always open it.
+  const canC360 = hasPage('customer360', me) || (!!me && allRoles(me).some(r => MGMT.has(r)))
+
+  function openLogActivity(r: Lead) {
+    setActing(r); setAction('activity')
+    setActionKind(defaultKind(r.lead_stage)); setActionNote('')
+  }
 
   const cols: TableCol<Lead>[] = [
     {
@@ -258,7 +310,7 @@ export default function SalesLeads() {
             {r.already_customer && (
               <span title={r.matched_customer_cif ? `Already customer CIF ${r.matched_customer_cif}` : 'Already a customer'}
                 style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: AMBER, background: `${AMBER}1A`, padding: '1px 7px', borderRadius: RADIUS['2xl'], whiteSpace: 'nowrap' }}>
-                Already a customer
+                Already a Customer
               </span>
             )}
           </div>
@@ -271,7 +323,7 @@ export default function SalesLeads() {
     {
       key: 'lead_stage', label: 'Stage', sortable: true,
       render: r => {
-        const open = ['new', 'contacted', 'qualified'].includes(r.lead_stage)
+        const open = OPEN_STAGES.includes(r.lead_stage)
         const since = r.last_activity_at || r.created_at
         const idle = open && since ? Math.floor((Date.now() - new Date(since).getTime()) / 864e5) : -1
         const c = idle > 14 ? RED : idle > 7 ? AMBER : GREEN
@@ -323,7 +375,7 @@ export default function SalesLeads() {
       render: r => <span style={NUM}>{r.estimated_value_kobo ? fmtKobo(r.estimated_value_kobo) : '—'}</span>,
     },
     {
-      key: 'next_action_at', label: 'Next action', sortable: true,
+      key: 'next_action_at', label: 'Next Action', sortable: true,
       render: r => {
         if (!r.next_action_at) return <span style={{ color: 'var(--txt3)' }}>—</span>
         const overdue = new Date(r.next_action_at) <= new Date()
@@ -338,6 +390,15 @@ export default function SalesLeads() {
       key: 'actions', label: '', sortable: false, width: 270,
       render: r => (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}>
+          {/* Converted, or matched to an existing customer: open them in Customer 360.
+              customer360_cif is only set when that customer actually exists. */}
+          {r.customer360_cif && canC360 && (
+            <Button size="sm" variant="secondary" icon="person"
+              title={`Open customer ${r.customer360_cif} in Customer 360`}
+              onClick={e => { e.stopPropagation(); navigate(`/customers/${encodeURIComponent(r.customer360_cif ?? '')}`) }}>
+              Customer 360
+            </Button>
+          )}
           {r.lead_source === 'call_centre' && r.lead_owner_id !== meId
             && r.lead_stage !== 'converted' && r.lead_stage !== 'disqualified' && (
             <Button size="sm" variant="secondary" onClick={() => claim(r.id)}>Claim</Button>
@@ -345,15 +406,14 @@ export default function SalesLeads() {
           {isHead && r.lead_stage !== 'converted' && r.lead_stage !== 'disqualified' && (
             <Button size="sm" variant="secondary" onClick={() => setAssignLead(r)}>Assign</Button>
           )}
+          {/* Log activity replaces Advance: record what happened and the stage follows.
+              On converted/disqualified leads it offers only the record-only kinds. */}
+          <Button size="sm" variant="secondary" onClick={() => openLogActivity(r)}>Log Activity</Button>
           {r.lead_stage !== 'converted' && r.lead_stage !== 'disqualified' && (
             <>
-              <Button size="sm" variant="secondary" onClick={() => {
-                setActing(r); setAction('stage')
-                setActionStage(r.lead_stage === 'new' ? 'contacted' : 'qualified')
-              }}>Advance</Button>
               {/* Origination on-ramp: raise a loan/card/FD application straight from the
                   lead. A prospect with no CIF yet lands provisional and links later. */}
-              <Button size="sm" variant="secondary" onClick={() => setRaiseLead(r)}>Raise app</Button>
+              <Button size="sm" variant="secondary" onClick={() => setRaiseLead(r)}>Raise App</Button>
               <Button size="sm" variant="primary" onClick={() => { setActing(r); setAction('convert') }}>
                 Convert
               </Button>
@@ -364,7 +424,8 @@ export default function SalesLeads() {
     },
   ]
 
-  const openLeads = n(funnel?.counts?.new) + n(funnel?.counts?.contacted) + n(funnel?.counts?.qualified)
+  const openLeads = OPEN_STAGES.reduce((sum, k) => sum + n(funnel?.counts?.[k]), 0)
+  const openValue = OPEN_STAGES.reduce((sum, k) => sum + n(funnel?.value_kobo?.[k]), 0)
 
   return (
     <Page
@@ -385,7 +446,7 @@ export default function SalesLeads() {
             }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{groupView ? 'view_list' : 'category'}</span>
-            {groupView ? 'Flat list' : 'By product'}
+            {groupView ? 'Flat List' : 'By Product'}
           </button>
           <input
             placeholder="Search name, phone, email…"
@@ -401,8 +462,8 @@ export default function SalesLeads() {
               onChange={e => { const p = new URLSearchParams(params); e.target.value ? p.set('owner_id', e.target.value) : p.delete('owner_id'); setParams(p) }}
               title="Filter by owner"
               style={{ padding: '7px 12px', borderRadius: RADIUS.md, fontSize: TEXT.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', maxWidth: 180 }}>
-              <option value="">All officers</option>
-              <option value="unassigned">Unassigned pool</option>
+              <option value="">All Officers</option>
+              <option value="unassigned">Unassigned Pool</option>
               {officers.map(o => <option key={o.id} value={String(o.id)}>{o.full_name}</option>)}
             </select>
           )}
@@ -423,23 +484,19 @@ export default function SalesLeads() {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: SP[4] }}>
-        <KpiCard label="Open leads" value={fmtNum(openLeads)} icon="filter_alt" accent={BLUE} loading={loading} />
-        <KpiCard label="Qualified" value={fmtNum(funnel?.counts?.qualified ?? 0)} icon="verified" accent={NAVY} loading={loading} />
+        <KpiCard label="Open Leads" value={fmtNum(openLeads)} icon="filter_alt" accent={BLUE} loading={loading} />
+        <KpiCard label="Interested" value={fmtNum(funnel?.counts?.qualified ?? 0)} icon="verified" accent={NAVY} loading={loading} />
         <KpiCard label="Converted" value={fmtNum(funnel?.counts?.converted ?? 0)} icon="handshake" accent={GREEN} loading={loading} />
-        <KpiCard label="Pipeline value"
-          value={fmtKobo(n(funnel?.value_kobo?.new) + n(funnel?.value_kobo?.contacted) + n(funnel?.value_kobo?.qualified))}
+        <KpiCard label="Pipeline Value"
+          value={fmtKobo(openValue)}
           icon="payments" accent={AMBER} loading={loading} />
       </div>
 
       {/* Conversion funnel — how leads narrow from new to converted */}
-      <SectionCard title="Conversion funnel" subtitle="Progression from new to converted, with step conversion" style={{ marginBottom: SP[4] }}>
+      <SectionCard title="Conversion Funnel" subtitle="Progression from new to converted, with step conversion" style={{ marginBottom: SP[4] }}>
         {(() => {
-          const steps = [
-            { key: 'new',       label: 'New',       color: '#6B7280' },
-            { key: 'contacted', label: 'Contacted', color: BLUE },
-            { key: 'qualified', label: 'Qualified', color: '#7C3AED' },
-            { key: 'converted', label: 'Converted', color: GREEN },
-          ]
+          // Every lifecycle step in order, new through converted (disqualified is an exit, not a step).
+          const steps = STAGES.filter(s => s.key !== 'disqualified')
           const vals = steps.map(s => n(funnel?.counts?.[s.key]))
           const max = Math.max(1, ...vals)
           const top = vals[0] || 0
@@ -451,7 +508,7 @@ export default function SalesLeads() {
                 const conv = top > 0 ? Math.round((v / top) * 100) : 0
                 return (
                   <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ width: 84, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', flexShrink: 0 }}>{s.label}</span>
+                    <span style={{ width: 150, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', flexShrink: 0 }}>{s.label}</span>
                     <div style={{ flex: 1, height: 22, background: 'var(--th-bg)', borderRadius: RADIUS.md, overflow: 'hidden', position: 'relative' }}>
                       <div style={{ width: `${w}%`, height: '100%', background: s.color, borderRadius: RADIUS.md, transition: 'width .4s', opacity: 0.92 }} />
                       <span style={{ position: 'absolute', left: 10, top: 0, height: '100%', display: 'flex', alignItems: 'center', fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,.35)' }}>{fmtNum(v)}</span>
@@ -487,7 +544,7 @@ export default function SalesLeads() {
             due === '1' ? p.delete('due') : p.set('due', '1')
             setParams(p)
           }} />
-        <FilterChip label="Already customers" color={AMBER} active={includeCustomers}
+        <FilterChip label="Already Customers" color={AMBER} active={includeCustomers}
           onClick={() => {
             const p = new URLSearchParams(params)
             includeCustomers ? p.delete('include_customers') : p.set('include_customers', '1')
@@ -550,7 +607,7 @@ export default function SalesLeads() {
         </div>
       ) : (
         <SectionCard
-          title="Lead queue"
+          title="Lead Queue"
           subtitle={loading ? undefined : `${fmtNum(total)} lead${total === 1 ? '' : 's'}`}
           padding={false}
         >
@@ -580,27 +637,27 @@ export default function SalesLeads() {
 
       {/* New lead */}
       <Modal
-        open={newOpen} onClose={() => { setNewOpen(false); setMoreOpen(false) }} title="New lead" width={620}
+        open={newOpen} onClose={() => { setNewOpen(false); setMoreOpen(false) }} title="New Lead" width={620}
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Button variant="secondary" onClick={() => { setNewOpen(false); setMoreOpen(false) }}>Cancel</Button>
             <Button variant="primary" loading={saving}
               disabled={(!form.first_name && !form.last_name) || (!form.phone && !form.email) || !form.lead_source}
-              onClick={createLead}>Create lead</Button>
+              onClick={createLead}>Create Lead</Button>
           </div>
         }
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Input label="First name" value={form.first_name} onChange={e => setForm({ ...form, first_name: e.target.value })} />
-          <Input label="Last name" value={form.last_name} onChange={e => setForm({ ...form, last_name: e.target.value })} />
+          <Input label="First Name" value={form.first_name} onChange={e => setForm({ ...form, first_name: e.target.value })} />
+          <Input label="Last Name" value={form.last_name} onChange={e => setForm({ ...form, last_name: e.target.value })} />
           <Input label="Phone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
           <Input label="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
-          <Select label="Lead source" value={form.lead_source} onChange={e => setForm({ ...form, lead_source: e.target.value })}>
-            <option value="">Choose a source…</option>
+          <Select label="Lead Source" value={form.lead_source} onChange={e => setForm({ ...form, lead_source: e.target.value })}>
+            <option value="">Choose a Source…</option>
             {sources.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
           </Select>
-          <Select label="Product interest" value={form.product_interest} onChange={e => setForm({ ...form, product_interest: e.target.value })}>
-            <option value="">Which product…</option>
+          <Select label="Product Interest" value={form.product_interest} onChange={e => setForm({ ...form, product_interest: e.target.value })}>
+            <option value="">Which Product…</option>
             {PRODUCT_LINES.map(pl => (
               <optgroup key={pl.line} label={pl.label}>
                 {PRODUCT_SUBS.filter(s => s.line === pl.line).map(s => (
@@ -619,13 +676,13 @@ export default function SalesLeads() {
             }}
           >
             <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{moreOpen ? 'expand_less' : 'expand_more'}</span>
-            {moreOpen ? 'Fewer details' : 'More details'}
+            {moreOpen ? 'Fewer Details' : 'More Details'}
           </button>
 
           {moreOpen && (<>
-            <Input label="Estimated value (₦)" type="number" value={form.estimated_value}
+            <Input label="Estimated Value (₦)" type="number" value={form.estimated_value}
               onChange={e => setForm({ ...form, estimated_value: e.target.value })} />
-            <Input label="Next action" type="date" value={form.next_action_at}
+            <Input label="Next Action" type="date" value={form.next_action_at}
               onChange={e => setForm({ ...form, next_action_at: e.target.value })} />
             <Input label="State" value={form.state} onChange={e => setForm({ ...form, state: e.target.value })} />
             <Input label="City" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} />
@@ -653,18 +710,18 @@ export default function SalesLeads() {
         </div>
       </Modal>
 
-      {/* Advance / convert / disqualify */}
+      {/* Log activity / convert / disqualify */}
       <Modal
         open={!!acting}
         onClose={() => setActing(null)}
         title={
-          action === 'convert' ? 'Convert to customer'
-            : action === 'disqualify' ? 'Disqualify lead'
-              : 'Advance lead'
+          action === 'convert' ? 'Convert to Customer'
+            : action === 'disqualify' ? 'Disqualify Lead'
+              : 'Log Activity'
         }
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', width: '100%' }}>
-            {action !== 'disqualify' ? (
+            {action !== 'disqualify' && !!acting && acting.lead_stage !== 'converted' && acting.lead_stage !== 'disqualified' ? (
               <Button variant="danger" onClick={() => { setAction('disqualify'); setActionNote('') }}>
                 Disqualify
               </Button>
@@ -675,11 +732,12 @@ export default function SalesLeads() {
                 variant="primary" loading={actionBusy}
                 disabled={
                   (action === 'convert' && !actionCIF.trim()) ||
-                  (action === 'disqualify' && !actionNote.trim())
+                  (action === 'disqualify' && !actionNote.trim()) ||
+                  (action === 'activity' && (!actionKind || actionNote.length > 2000))
                 }
                 onClick={runAction}
               >
-                {action === 'convert' ? 'Convert' : action === 'disqualify' ? 'Disqualify' : 'Move'}
+                {action === 'convert' ? 'Convert' : action === 'disqualify' ? 'Disqualify' : 'Log Activity'}
               </Button>
             </div>
           </div>
@@ -692,12 +750,46 @@ export default function SalesLeads() {
               <StagePill stage={acting.lead_stage} />
             </div>
 
-            {action === 'stage' && (
-              <Select label="Move to" value={actionStage} onChange={e => setActionStage(e.target.value)}>
-                <option value="contacted">Contacted</option>
-                <option value="qualified">Qualified</option>
-              </Select>
-            )}
+            {action === 'activity' && (() => {
+              const fwd = forwardKinds(acting.lead_stage)
+              const moving = FORWARD_KINDS.find(k => k.kind === actionKind)
+              const labelStyle = { fontSize: TEXT.sm, fontWeight: FW.medium, color: 'var(--txt2)' } as const
+              return (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+                    <label htmlFor="lead-activity-kind" style={labelStyle}>What Happened</label>
+                    <Select id="lead-activity-kind" value={actionKind} onChange={e => setActionKind(e.target.value)}>
+                      {fwd.length > 0 && (
+                        <optgroup label="Moves the Lead Forward">
+                          {fwd.map(k => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+                        </optgroup>
+                      )}
+                      <optgroup label="Record Only">
+                        {RECORD_KINDS.map(k => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+                      </optgroup>
+                    </Select>
+                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>
+                      {moving
+                        ? <>Moves the lead to <strong>{stageLabel(moving.stage)}</strong>.</>
+                        : 'Adds to the timeline; the stage does not change.'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: SP[1] }}>
+                    <label htmlFor="lead-activity-note" style={labelStyle}>Note (Optional)</label>
+                    <textarea
+                      id="lead-activity-note"
+                      value={actionNote} onChange={e => setActionNote(e.target.value)} rows={3} maxLength={2000}
+                      placeholder="What was said or agreed"
+                      style={{
+                        width: '100%', padding: '8px 10px', borderRadius: RADIUS.md, resize: 'vertical',
+                        border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)',
+                        fontSize: TEXT.sm, fontFamily: 'inherit', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </>
+              )
+            })()}
 
             {action === 'convert' && (
               <>
@@ -733,8 +825,8 @@ export default function SalesLeads() {
               </Field>
             )}
 
-            {action !== 'disqualify' && (
-              <Input label="Note (optional)" value={actionNote} onChange={e => setActionNote(e.target.value)} />
+            {action === 'convert' && (
+              <Input label="Note (Optional)" value={actionNote} onChange={e => setActionNote(e.target.value)} />
             )}
           </div>
         )}
@@ -765,7 +857,7 @@ function AssignModal({ lead, officers, onClose, onAssign }: {
   const [officerId, setOfficerId] = useState('')
   const [saving, setSaving] = useState(false)
   return (
-    <Modal open onClose={onClose} title="Assign lead" width={420}
+    <Modal open onClose={onClose} title="Assign Lead" width={420}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -778,7 +870,7 @@ function AssignModal({ lead, officers, onClose, onAssign }: {
           Hand <strong style={{ color: 'var(--txt)' }}>{[lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'this lead'}</strong> to an officer.
         </div>
         <Select label="Officer" value={officerId} onChange={e => setOfficerId(e.target.value)}>
-          <option value="">Choose an officer…</option>
+          <option value="">Choose an Officer…</option>
           {officers.filter(o => o.is_active).map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
         </Select>
       </div>
@@ -849,10 +941,10 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
   const list = (teamScoped ? eligible : options)
 
   return (
-    <Modal open onClose={onClose} title="Distribute unowned leads" width={520}
+    <Modal open onClose={onClose} title="Distribute Unowned Leads" width={520}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', width: '100%' }}>
-          <Button variant="secondary" onClick={() => run(true)} disabled={busy}>Preview split</Button>
+          <Button variant="secondary" onClick={() => run(true)} disabled={busy}>Preview Split</Button>
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
             <Button variant="primary" loading={busy} onClick={() => run(false)}>Distribute</Button>
@@ -887,10 +979,10 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Select label="Strategy" value={strategy} onChange={e => { setStrategy(e.target.value as any); setPreview(null) }} wrapStyle={{ flex: 1, minWidth: 160 }}>
-            <option value="round_robin">Round robin (even split)</option>
-            <option value="by_state">By state (keep a state together)</option>
+            <option value="round_robin">Round Robin (Even Split)</option>
+            <option value="by_state">By State (Keep a State Together)</option>
           </Select>
-          <Input label="Limit (optional)" type="number" value={limit} onChange={e => setLimit(e.target.value)} placeholder="All" wrapStyle={{ width: 130 }} />
+          <Input label="Limit (Optional)" type="number" value={limit} onChange={e => setLimit(e.target.value)} placeholder="All" wrapStyle={{ width: 130 }} />
         </div>
 
         {preview && (

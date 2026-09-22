@@ -115,11 +115,11 @@ export default function Treasury() {
 
       {/* Cash flow trend — inflow vs outflow, naira */}
       <div style={{ marginBottom: SP[5] }}>
-        <SectionCard title="Cash flow (30 days)" subtitle="Daily inflow vs outflow · from the transaction feed">
+        <SectionCard title="Cash Flow (30 Days)" subtitle="Daily inflow vs outflow · from the transaction feed">
           {loading
             ? <Sk h={240} />
             : flowData.length === 0
-              ? <EmptyState icon="show_chart" title="No cash-flow data" description="No transaction movement in the trailing window." />
+              ? <EmptyState icon="show_chart" title="No Cash-Flow Data" description="No transaction movement in the trailing window." />
               : (
                 <EArea
                   data={flowData}
@@ -138,11 +138,11 @@ export default function Treasury() {
 
       {/* Maturity ladder — upcoming FD deposit liabilities, kobo */}
       <div style={{ marginBottom: SP[5] }}>
-        <SectionCard title="Maturity ladder" subtitle="Upcoming FD maturities by days-to-maturity · deposit liabilities">
+        <SectionCard title="Maturity Ladder" subtitle="Upcoming FD maturities by days-to-maturity · deposit liabilities">
           {loading
             ? <Sk h={220} />
             : ladder.length === 0
-              ? <EmptyState icon="event" title="No upcoming maturities" description="No active deposits with a scheduled maturity date." />
+              ? <EmptyState icon="event" title="No Upcoming Maturities" description="No active deposits with a scheduled maturity date." />
               : (
                 <EBar
                   data={ladder}
@@ -159,10 +159,10 @@ export default function Treasury() {
       {/* Position — the balance-sheet view (all kobo books) */}
       <SectionCard title="Position" subtitle="Deposit & loan books · CBS/kobo">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-          <MiniStat label="Loan book" value={fmtKoboExact(loanBook)} color={NAVY} />
+          <MiniStat label="Loan Book" value={fmtKoboExact(loanBook)} color={NAVY} />
           <MiniStat label="NPL" value={fmtKoboExact(npl)} color={nplRatio > 5 ? RED : AMBER} sub={`${fmtPct(nplRatio)} of loan book`} />
-          <MiniStat label="FD book" value={fmtKoboExact(data?.fd_liabilities_kobo ?? 0)} color={BLUE} sub={`${fmtNum(data?.active_fds ?? 0)} active`} />
-          <MiniStat label="Accrued FD interest" value={fmtKoboExact(data?.fd_accrued_kobo ?? 0)} color={PURPLE} />
+          <MiniStat label="FD Book" value={fmtKoboExact(data?.fd_liabilities_kobo ?? 0)} color={BLUE} sub={`${fmtNum(data?.active_fds ?? 0)} active`} />
+          <MiniStat label="Accrued FD Interest" value={fmtKoboExact(data?.fd_accrued_kobo ?? 0)} color={PURPLE} />
         </div>
       </SectionCard>
     </Page>

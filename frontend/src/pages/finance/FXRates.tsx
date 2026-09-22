@@ -204,16 +204,16 @@ export default function FXRates() {
                 endFmt={(v) => `₦${fmt(v)}`}
                 axisFmt={(v) => `₦${fmt(v)}`}
                 series={[
-                  { key: 'sell', name: 'Sell: you pay', color: NAVY },
-                  { key: 'buy', name: 'Buy: you receive', color: accentColor },
+                  { key: 'sell', name: 'Sell: You Pay', color: NAVY },
+                  { key: 'buy', name: 'Buy: You Receive', color: accentColor },
                 ]}
               />
 
               {/* Inline legend */}
               <div style={{ display: 'flex', gap: SP[5], marginTop: SP[3] }}>
                 {[
-                  { color: NAVY,        label: 'Sell: you pay' },
-                  { color: accentColor, label: 'Buy: you receive' },
+                  { color: NAVY,        label: 'Sell: You Pay' },
+                  { color: accentColor, label: 'Buy: You Receive' },
                 ].map(({ color, label }) => (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                     <div style={{ width: 22, height: 3, borderRadius: 2, background: color }} />
@@ -290,10 +290,10 @@ function RateCard({ currency, rate }: { currency: string; rate?: RateLatest }) {
           <span style={{ fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>
             {FLAG[currency]} {currency}/NGN
           </span>
-          <span style={badge(AMBER)}>No data</span>
+          <span style={badge(AMBER)}>No Data</span>
         </div>
         <p style={{ margin: 0, fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.5 }}>
-          Click <strong style={{ color: 'var(--txt2)' }}>Refresh Rates</strong> to fetch current rates.
+          Click <strong style={{ color: 'var(--txt2)' }}>Refresh Now</strong> to fetch current rates.
         </p>
       </div>
     )
@@ -360,7 +360,7 @@ function EmptyHistory({ onRefresh, refreshing }: { onRefresh: () => void; refres
     <div style={{ height: 220, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: SP[3] }}>
       <span className="material-symbols-rounded" style={{ fontSize: 42, color: 'var(--txt3)' }}>currency_exchange</span>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No rate history yet</div>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>No Rate History Yet</div>
         <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 4 }}>Fetch rates to start building historical data</div>
       </div>
       <button

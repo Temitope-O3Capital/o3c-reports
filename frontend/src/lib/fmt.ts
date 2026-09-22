@@ -46,6 +46,21 @@ export function fmtNum(n: unknown): string {
   return x.toLocaleString('en-NG')
 }
 
+// Exact count — grouped, never abbreviated. Use this for work-item counts someone has
+// to reconcile against a list: KPI cards sitting above a table, queue/lead/forward
+// counters, the number in a confirmation.
+//
+// fmtNum above abbreviates anything over 999, so 1,234 and 1,151 both render "1.2K" on
+// a card while the table below shows the real figures. That is right for chart axes and
+// headline volumes, and wrong for a number a supervisor has to tally — hence two
+// functions rather than a change to fmtNum, which other screens depend on.
+export function fmtCount(n: unknown): string {
+  if (n === null || n === undefined) return '—'
+  const x = Number(n)
+  if (!isFinite(x)) return '—'
+  return x.toLocaleString('en-NG')
+}
+
 export function fmtDate(s: string | null | undefined, opts?: Intl.DateTimeFormatOptions): string {
   if (!s) return '—'
   try {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +55,9 @@ type colFilter struct {
 	Value  string   `json:"value"`
 	Value2 string   `json:"value2"` // upper bound for "between"
 	Values []string `json:"values"` // for "in"
+	// IncludeBlank adds empty values to an "in" filter — the "(blank)" line in a
+	// column's unique-values list, which has no literal value to bind.
+	IncludeBlank bool `json:"include_blank,omitempty"`
 }
 
 // RegisterExports mounts the export engine under /api/reports.
@@ -70,6 +74,8 @@ func RegisterExports(r chi.Router, db *core.DB) {
 	r.With(build).Get("/datasets", exportListDatasets(db))
 	r.With(rd).Post("/datasets/{key}/preview", exportPreview(db))
 	r.With(build).Post("/datasets/{key}/pivot", exportPivot(db))
+	r.With(build).Post("/datasets/{key}/table", reportTable(db))
+	r.With(build).Post("/datasets/{key}/uniques", reportUniques(db))
 	r.With(rd).Post("/datasets/{key}/download", exportDownload(db))
 	r.With(rd).Get("/exports/log", exportLog(db))
 }
@@ -195,8 +201,21 @@ func buildExportWhere(d exportDataset, req exportRequest) ([]string, []any, erro
 			cast = "numeric"
 		} else if c.Type == colDate {
 			cast = "date"
+		} else if c.Type == colDateTime {
+			// A date-and-time field compares as a timestamp when the value carries a
+			// time ("2026-09-12T18:00") and as a calendar date when it doesn't — so "on
+			// or before 12 Sep" includes the evening of the 12th, and a date ticked in
+			// the column's unique values matches every record that day.
+			cast = "timestamp"
+			if colFilterDateOnly(cf) {
+				expr = "(" + c.Expr + ")::date"
+				cast = "date"
+			}
 		}
 		v := strings.TrimSpace(cf.Value)
+		// A typed value is checked against the field's type first, so "1,000" or a
+		// half-typed date comes back as a message to fix instead of a failed report.
+		clean := func(raw string) (string, error) { return cleanFilterValue(cast, raw, c.Label) }
 		switch cf.Op {
 		case "blank":
 			where = append(where, fmt.Sprintf("(%s IS NULL OR %s::text = '')", expr, expr))
@@ -208,35 +227,52 @@ func buildExportWhere(d exportDataset, req exportRequest) ([]string, []any, erro
 			}
 			op := "="
 			if cf.Op == "ne" {
-				op = "<>"
+				// IS DISTINCT FROM keeps blanks: "is not Interested" includes calls with no outcome.
+				op = "IS DISTINCT FROM"
 			}
-			args = append(args, v)
+			cv, err := clean(v)
+			if err != nil {
+				return nil, nil, err
+			}
+			args = append(args, cv)
 			where = append(where, fmt.Sprintf("%s::%s %s $%d::%s", expr, cast, op, len(args), cast))
 		case "contains":
 			if v == "" {
 				continue
 			}
-			args = append(args, v)
-			where = append(where, fmt.Sprintf("%s::text ILIKE '%%' || $%d || '%%'", expr, len(args)))
+			args = append(args, likeEscape(v))
+			where = append(where, fmt.Sprintf("%s::text ILIKE '%%' || $%d || '%%' ESCAPE '\\'", expr, len(args)))
 		case "starts":
 			if v == "" {
 				continue
 			}
-			args = append(args, v)
-			where = append(where, fmt.Sprintf("%s::text ILIKE $%d || '%%'", expr, len(args)))
+			args = append(args, likeEscape(v))
+			where = append(where, fmt.Sprintf("%s::text ILIKE $%d || '%%' ESCAPE '\\'", expr, len(args)))
 		case "gt", "gte", "lt", "lte":
 			if v == "" {
 				continue
 			}
 			op := map[string]string{"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[cf.Op]
-			args = append(args, v)
+			cv, err := clean(v)
+			if err != nil {
+				return nil, nil, err
+			}
+			args = append(args, cv)
 			where = append(where, fmt.Sprintf("%s::%s %s $%d::%s", expr, cast, op, len(args), cast))
 		case "between":
 			v2 := strings.TrimSpace(cf.Value2)
 			if v == "" || v2 == "" {
 				continue
 			}
-			args = append(args, v, v2)
+			c1, err := clean(v)
+			if err != nil {
+				return nil, nil, err
+			}
+			c2, err := clean(v2)
+			if err != nil {
+				return nil, nil, err
+			}
+			args = append(args, c1, c2)
 			where = append(where, fmt.Sprintf("%s::%s BETWEEN $%d::%s AND $%d::%s", expr, cast, len(args)-1, cast, len(args), cast))
 		case "in":
 			vals := cf.Values
@@ -249,18 +285,59 @@ func buildExportWhere(d exportDataset, req exportRequest) ([]string, []any, erro
 				if s == "" {
 					continue
 				}
+				s, err := clean(s)
+				if err != nil {
+					return nil, nil, err
+				}
 				args = append(args, s)
 				ph = append(ph, fmt.Sprintf("$%d::%s", len(args), cast))
 			}
-			if len(ph) == 0 {
+			blank := fmt.Sprintf("(%s IS NULL OR %s::text = '')", expr, expr)
+			switch {
+			case len(ph) == 0 && cf.IncludeBlank:
+				where = append(where, blank)
+			case len(ph) == 0:
 				continue
+			case cf.IncludeBlank:
+				where = append(where, fmt.Sprintf("(%s::%s IN (%s) OR %s)", expr, cast, strings.Join(ph, ", "), blank))
+			default:
+				where = append(where, fmt.Sprintf("%s::%s IN (%s)", expr, cast, strings.Join(ph, ", ")))
 			}
-			where = append(where, fmt.Sprintf("%s::%s IN (%s)", expr, cast, strings.Join(ph, ", ")))
 		default:
 			return nil, nil, fmt.Errorf("unknown filter operator %q", cf.Op)
 		}
 	}
 	return where, args, nil
+}
+
+// cleanFilterValue checks one typed filter value against the comparison its field
+// uses, and tidies a number typed the way people write money ("1,000", "₦5000").
+func cleanFilterValue(cast, v, field string) (string, error) {
+	switch cast {
+	case "numeric":
+		s := strings.NewReplacer(",", "", "₦", "", " ", "").Replace(v)
+		if _, err := strconv.ParseFloat(s, 64); err != nil {
+			return "", fmt.Errorf("%s needs a number, not %q", field, v)
+		}
+		return s, nil
+	case "date":
+		if _, err := time.Parse("2006-01-02", v); err != nil {
+			return "", fmt.Errorf("%s needs a date such as 2026-09-14, not %q", field, v)
+		}
+	case "timestamp":
+		for _, layout := range []string{"2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02 15:04", "2006-01-02 15:04:05", time.RFC3339, "2006-01-02"} {
+			if _, err := time.Parse(layout, v); err == nil {
+				return v, nil
+			}
+		}
+		return "", fmt.Errorf("%s needs a date and time such as 2026-09-14T18:00, not %q", field, v)
+	}
+	return v, nil
+}
+
+// likeEscape makes % and _ in a typed value match themselves in an ILIKE ... ESCAPE '\'.
+func likeEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
 // validateExportRequest applies the dataset's own preconditions.

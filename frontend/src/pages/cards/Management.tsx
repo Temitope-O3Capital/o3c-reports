@@ -92,7 +92,12 @@ function ActionCell({ row, onDone }: { row: Cardholder; onDone: () => void }) {
   const [log,         setLog]         = useState<BlockLogEntry[]>([])
   const [logLoading,  setLogLoading]  = useState(false)
 
-  const isActive = row.status === 'Open' || row.status === 'Active'
+  // A card is "blocked" only in the hot-listed / suspended card_state; every other state
+  // (Live, Expired, Terminated, …) is unblocked, so its primary action is Block. The old
+  // test used the retired raw-status vocabulary ('Open'/'Active') the API no longer sends,
+  // so isActive was always false — a Live card could never be blocked, only wrongly shown
+  // an "Unblock" button that fired doUnblock on a card that was never blocked.
+  const isActive = row.status !== 'Hot listed' && row.status !== 'Suspended'
 
   async function doBlock() {
     if (!reason.trim()) { toast.error('Enter a block reason'); return }
@@ -162,7 +167,7 @@ function ActionCell({ row, onDone }: { row: Cardholder; onDone: () => void }) {
 
       {/* Block reason modal */}
       {showBlock && (
-        <Modal open={showBlock} title={`Block card: ${row.cif_number}`} onClose={() => { setShowBlock(false); setReason('') }}>
+        <Modal open={showBlock} title={`Block Card: ${row.cif_number}`} onClose={() => { setShowBlock(false); setReason('') }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <p style={{ margin: 0, fontSize: TEXT.base, color: 'var(--txt2)' }}>
               This will block all card activity for <strong>{row.cif_number}</strong>. Provide a reason for audit.
@@ -194,11 +199,11 @@ function ActionCell({ row, onDone }: { row: Cardholder; onDone: () => void }) {
 
       {/* Block log modal */}
       {showLog && (
-        <Modal open={showLog} title={`Block history: ${row.cif_number}`} onClose={() => setShowLog(false)}>
+        <Modal open={showLog} title={`Block History: ${row.cif_number}`} onClose={() => setShowLog(false)}>
           {logLoading ? (
             <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>Loading…</div>
           ) : log.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No block history for this card</div>
+            <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--txt2)', fontSize: TEXT.base }}>No Block History for This Card</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               {log.map(entry => (
@@ -366,7 +371,7 @@ export default function CardsManagement() {
           placeholder="Search cardholders…"
         />
 
-        <DataTable cols={makeCols(() => load(page), navigate)} rows={displayed} keyFn={r => r.cif_number} loading={loading} emptyText="No cardholders found" />
+        <DataTable cols={makeCols(() => load(page), navigate)} rows={displayed} keyFn={r => r.cif_number} loading={loading} emptyText="No Cardholders Found" />
 
         {/* Pagination */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--bdr)' }}>

@@ -17,6 +17,8 @@ const TOPICS = [
   // and a queue contact's disposition changing are their own tables, so they need
   // their own topics — the 'calls' event fires before the (async) status write lands.
   'cc_leads', 'cc_contacts',
+  // Management report sends: the Reports page shows a send start and finish live.
+  'management_reports',
 ] as const
 
 type Listener = () => void

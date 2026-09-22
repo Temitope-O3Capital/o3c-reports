@@ -80,7 +80,7 @@ function CustomerRail({ ctx }: { ctx: CustomerCtx }) {
 
         {ctx.summary && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--bdr)', display: 'flex', justifyContent: 'space-between', fontSize: TEXT.sm }}>
-            <span style={{ color: 'var(--txt2)' }}>Net position</span>
+            <span style={{ color: 'var(--txt2)' }}>Net Position</span>
             <span style={{ ...NUM, fontWeight: FW.bold, color: ctx.summary.net_position_kobo >= 0 ? GREEN : RED }}>{fmtKobo(ctx.summary.net_position_kobo)}</span>
           </div>
         )}
@@ -90,7 +90,7 @@ function CustomerRail({ ctx }: { ctx: CustomerCtx }) {
           style={{ marginTop: 14, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)', cursor: 'pointer', fontFamily: SORA }}
         >
           <span className="material-symbols-rounded" style={{ fontSize: 16 }}>open_in_new</span>
-          Open full profile
+          Open Full Profile
         </button>
       </SectionCard>
 

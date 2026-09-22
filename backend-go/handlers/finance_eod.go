@@ -250,22 +250,39 @@ func finEODReport(db *core.DB) http.HandlerFunc {
 			newBiz["loans_count"] = toInt64(rows[0]["c"])
 			newBiz["loans_kobo"] = toInt64(rows[0]["kobo"])
 		}
+		// commencement_date is a timestamptz and gts parses Udara's dates as UTC while
+		// the session runs in Africa/Lagos, so every one of them sits at 01:00:00+01.
+		// Compared bare against $1::date (midnight) this matched NOTHING: fd_count and
+		// fd_kobo were structurally 0 on every date the report has ever been run for.
+		// The ::date cast is what makes the comparison real.
 		if rows, _ := db.PGQuery(ctx, `
 			SELECT COUNT(*) AS c, COALESCE(SUM(principal_kobo),0) AS kobo
-			FROM app.cbs_fixed_deposits WHERE commencement_date = $1::date`, asOf); len(rows) > 0 {
+			FROM app.cbs_fixed_deposits WHERE commencement_date::date = $1::date`, asOf); len(rows) > 0 {
 			newBiz["fd_count"] = toInt64(rows[0]["c"])
 			newBiz["fd_kobo"] = toInt64(rows[0]["kobo"])
 		}
 		out["new_business"] = newBiz
 
-		/* ── FD maturities on/around the date (CBS register, KOBO) ───────── */
+		/* ── FD maturities on/around the date (CBS register, KOBO) ─────────
+		   Same timestamptz-vs-date problem as above: today_count / today_kobo were
+		   structurally 0, and the uncast BETWEEN dropped day 0 of the 7-day window
+		   (9 deposits instead of 10 for 2026-09-17).
+
+		   The counts span every status, because a deposit that matured really did
+		   mature. The kobo sums can only cover what the workspace still holds a value
+		   for: Udara zeroes principal, ledger and accrued on closure, so for a Closed
+		   deposit the payout is unknown, not zero. *_unknown_count says how many of
+		   the counted maturities the value is missing for, so a ₦0 on an old date
+		   cannot be misread as "nothing matured". */
 		maturity := map[string]any{}
 		if rows, _ := db.PGQuery(ctx, `
 			SELECT
-			  COUNT(*) FILTER (WHERE maturity_date = $1::date)                                 AS today_count,
-			  COALESCE(SUM(principal_kobo) FILTER (WHERE maturity_date = $1::date),0)          AS today_kobo,
-			  COUNT(*) FILTER (WHERE maturity_date BETWEEN $1::date AND $1::date + 7)          AS next7_count,
-			  COALESCE(SUM(principal_kobo) FILTER (WHERE maturity_date BETWEEN $1::date AND $1::date + 7),0) AS next7_kobo
+			  COUNT(*) FILTER (WHERE maturity_date::date = $1::date)                                 AS today_count,
+			  COALESCE(SUM(principal_kobo) FILTER (WHERE maturity_date::date = $1::date),0)          AS today_kobo,
+			  COUNT(*) FILTER (WHERE maturity_date::date = $1::date AND status <> 'Active')          AS today_unknown_count,
+			  COUNT(*) FILTER (WHERE maturity_date::date BETWEEN $1::date AND $1::date + 7)          AS next7_count,
+			  COALESCE(SUM(principal_kobo) FILTER (WHERE maturity_date::date BETWEEN $1::date AND $1::date + 7),0) AS next7_kobo,
+			  COUNT(*) FILTER (WHERE maturity_date::date BETWEEN $1::date AND $1::date + 7 AND status <> 'Active') AS next7_unknown_count
 			FROM app.cbs_fixed_deposits`, asOf); len(rows) > 0 {
 			for k, v := range rows[0] {
 				maturity[k] = v
@@ -274,9 +291,10 @@ func finEODReport(db *core.DB) http.HandlerFunc {
 		if rows, _ := db.PGQuery(ctx, `
 			SELECT
 			  cf.raw->>'name' AS customer_name, -- Udara's own name (cbs_customer_id != app.customers.cif)
-			  cf.principal_kobo, cf.interest_rate, to_char(cf.maturity_date,'YYYY-MM-DD') AS maturity_date
+			  cf.principal_kobo, cf.interest_rate, cf.status,
+			  to_char(cf.maturity_date,'YYYY-MM-DD') AS maturity_date
 			FROM app.cbs_fixed_deposits cf
-			WHERE cf.maturity_date BETWEEN $1::date AND $1::date + 7
+			WHERE cf.maturity_date::date BETWEEN $1::date AND $1::date + 7
 			  AND cf.principal_kobo > 0
 			ORDER BY cf.maturity_date, cf.principal_kobo DESC LIMIT 10`, asOf); rows != nil {
 			maturity["list"] = rows

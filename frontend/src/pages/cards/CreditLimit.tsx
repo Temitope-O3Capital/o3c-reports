@@ -159,7 +159,7 @@ function NewReviewModal({ onClose, onCreated }: { onClose: () => void; onCreated
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>CIF (optional)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>CIF (Optional)</label>
               <input value={form.cif_number} onChange={e => setForm(f => ({ ...f, cif_number: e.target.value }))} style={inputStyle} placeholder="CIF-00123" />
             </div>
             <div>
@@ -171,11 +171,11 @@ function NewReviewModal({ onClose, onCreated }: { onClose: () => void; onCreated
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
             <div>
-              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Current Limit (kobo)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Current Limit (Kobo)</label>
               <input type="number" value={form.current_limit_kobo} onChange={e => setForm(f => ({ ...f, current_limit_kobo: e.target.value }))} style={inputStyle} placeholder="e.g. 50000000" />
             </div>
             <div>
-              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Proposed Limit (kobo)</label>
+              <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Proposed Limit (Kobo)</label>
               <input type="number" value={form.proposed_limit_kobo} onChange={e => setForm(f => ({ ...f, proposed_limit_kobo: e.target.value }))} style={inputStyle} placeholder="e.g. 75000000" />
             </div>
           </div>
@@ -351,7 +351,7 @@ export default function CardsCreditLimit() {
           rows={displayed}
           keyFn={r => r.id}
           loading={loading}
-          emptyText="No reviews submitted yet"
+          emptyText="No Reviews Submitted Yet"
           pageSize={20}
           selectable
           selectedIds={sel}

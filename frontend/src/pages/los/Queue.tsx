@@ -445,7 +445,7 @@ export default function LOSQueue() {
                   opacity: loadingMore ? 0.6 : 1,
                 }}
               >
-                {loadingMore ? 'Loading…' : 'Load more'}
+                {loadingMore ? 'Loading…' : 'Load More'}
               </button>
             )}
             {totalPages > 1 && (

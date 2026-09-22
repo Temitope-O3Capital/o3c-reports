@@ -57,9 +57,9 @@ interface ChannelRow {
 // Series slots are assigned in fixed order and never cycled. Both themes are
 // validated against their own card surface (see LIGHT/DARK in lib/design).
 const SERIES = [
-  { key: 'funding_in_kobo',    name: 'Funding in',     color: GREEN },
-  { key: 'transfers_out_kobo', name: 'Transfers out',  color: BLUE },
-  { key: 'settled_kobo',       name: 'Settled to bank', color: PURPLE },
+  { key: 'funding_in_kobo',    name: 'Funding In',     color: GREEN },
+  { key: 'transfers_out_kobo', name: 'Transfers Out',  color: BLUE },
+  { key: 'settled_kobo',       name: 'Settled to Bank', color: PURPLE },
 ] as const
 
 function nairaAxis(v: number) {
@@ -137,9 +137,9 @@ export default function SettlementPosition() {
       <ErrBanner error={error} onRetry={load} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[6] }}>
-        <KpiCard label="Funding in" value={fmtKobo(t?.funding_in_kobo)} sub={`${fmtNum(t?.funding_in_n)} successful`} icon="south_west" accent={GREEN} loading={loading && !pos} />
-        <KpiCard label="Transfers out" value={fmtKobo(t?.transfers_out_kobo)} sub={`${fmtNum(t?.transfers_out_n)} paid`} icon="north_east" accent={NAVY} loading={loading && !pos} />
-        <KpiCard label="Settled to bank" value={fmtKobo(t?.settled_kobo)} sub={`${fmtNum(t?.settled_n)} settlements · ${fmtKobo(t?.fees_kobo)} fees`} icon="account_balance" accent={NAVY} loading={loading && !pos} />
+        <KpiCard label="Funding In" value={fmtKobo(t?.funding_in_kobo)} sub={`${fmtNum(t?.funding_in_n)} successful`} icon="south_west" accent={GREEN} loading={loading && !pos} />
+        <KpiCard label="Transfers Out" value={fmtKobo(t?.transfers_out_kobo)} sub={`${fmtNum(t?.transfers_out_n)} paid`} icon="north_east" accent={NAVY} loading={loading && !pos} />
+        <KpiCard label="Settled to Bank" value={fmtKobo(t?.settled_kobo)} sub={`${fmtNum(t?.settled_n)} settlements · ${fmtKobo(t?.fees_kobo)} fees`} icon="account_balance" accent={NAVY} loading={loading && !pos} />
         <KpiCard
           label="Unreconciled"
           value={fmtKobo(unrec?.open_value_kobo)}
@@ -151,7 +151,7 @@ export default function SettlementPosition() {
       </div>
 
       <SectionCard
-        title="Daily flow"
+        title="Daily Flow"
         subtitle="Funding in, transfers out and settlements to the bank — all in naira, one scale"
         style={{ marginBottom: SP[4] }}
         actions={
@@ -164,7 +164,7 @@ export default function SettlementPosition() {
         {loading && !pos ? (
           <div style={{ padding: SP[5], textAlign: 'center' }}><Spinner /></div>
         ) : series.length === 0 ? (
-          <EmptyState icon="show_chart" title="No activity" description="Nothing moved in this period." />
+          <EmptyState icon="show_chart" title="No Activity" description="Nothing moved in this period." />
         ) : showTable ? (
           <div style={{ overflowX: 'auto', maxHeight: 320 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -201,13 +201,13 @@ export default function SettlementPosition() {
       </SectionCard>
 
       <SectionCard
-        title="Funding completion by channel"
+        title="Funding Completion by Channel"
         subtitle="Share of funding attempts that complete — the gap here is lost revenue, not a settlement problem"
       >
         {loading && !channels.length ? (
           <div style={{ padding: SP[5], textAlign: 'center' }}><Spinner /></div>
         ) : channels.length === 0 ? (
-          <EmptyState icon="donut_small" title="No funding attempts" description="Nothing to analyse in this period." />
+          <EmptyState icon="donut_small" title="No Funding Attempts" description="Nothing to analyse in this period." />
         ) : (
           <>
             {worst && Number(worst.completion_pct) < 30 && (

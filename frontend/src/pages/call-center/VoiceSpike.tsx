@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '../../lib/api'
+import { currentUser } from '../../hooks/useAuth'
 import { NAVY, GREEN, RED, AMBER, FW, RADIUS, SP, TEXT, MONO } from '../../lib/design'
 
 // ── Zoho Voice WebSDK spike ──────────────────────────────────────────────────
@@ -22,6 +23,9 @@ declare global {
 }
 
 export default function VoiceSpike() {
+  // Admin only. The route gates this too, but the page re-checks because what it does —
+  // pull in a third-party SDK and dial a real number — should not hinge on one guard.
+  const isAdmin = (currentUser()?.role ?? '') === 'admin'
   const [phone, setPhone] = useState('')
   const [telNum, setTelNum] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error' | 'no-token'>('idle')
@@ -63,6 +67,8 @@ export default function VoiceSpike() {
 
   // 1) confirm the user has a Zoho Voice token, 2) load the SDK, 3) init it.
   useEffect(() => {
+    // Never fetch a token or inject the SDK for anyone but an admin.
+    if (!isAdmin) return
     if (startedRef.current) return
     startedRef.current = true
     setStatus('loading')
@@ -84,7 +90,7 @@ export default function VoiceSpike() {
         if (/not connected|403/i.test(m)) { push('Zoho Voice not connected for this user — connect a refresh token in Settings first', 'err'); setStatus('no-token') }
         else { push('token check failed: ' + m, 'err'); setStatus('error') }
       })
-  }, [initSdk, push])
+  }, [initSdk, push, isAdmin])
 
   function placeCall() {
     const n = phone.trim()
@@ -102,6 +108,17 @@ export default function VoiceSpike() {
 
   const dot = status === 'ready' ? GREEN : status === 'error' || status === 'no-token' ? RED : AMBER
 
+  if (!isAdmin) {
+    return (
+      <div style={{ padding: 24, maxWidth: 760, margin: '0 auto' }}>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--txt)' }}>Not Available</h1>
+        <p style={{ margin: '6px 0 0', fontSize: TEXT.sm, color: 'var(--txt2)' }}>
+          This is a developer spike for the telephony work, not a product page. It is restricted to administrators.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div style={{ padding: 24, maxWidth: 760, margin: '0 auto', fontFamily: 'inherit' }}>
       <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--txt)' }}>Zoho Voice: Click-to-Call Spike</h1>
@@ -111,7 +128,7 @@ export default function VoiceSpike() {
 
       {/* Method 1 — does the ZDialer extension intercept a tel: link? Needs no SDK/token/CSP. */}
       <div style={{ border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: 14, marginBottom: 22, background: 'var(--th-bg)' }}>
-        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>Method 1 · tel: link to ZDialer</div>
+        <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', marginBottom: 4 }}>Method 1 · tel: Link to ZDialer</div>
         <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 10, lineHeight: 1.5 }}>
           With ZDialer installed + logged in, enter a number and click. If ZDialer's dialpad pops and dials, every
           workspace “Call” button can be a plain tel: link. No SDK, no embed. If your OS phone app opens (or nothing
@@ -144,7 +161,7 @@ export default function VoiceSpike() {
         </button>
       </div>
 
-      <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>Live log</div>
+      <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>Live Log</div>
       <div style={{ background: 'var(--th-bg)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: 12, maxHeight: 380, overflowY: 'auto', fontFamily: MONO, fontSize: 12.5, lineHeight: 1.6 }}>
         {log.length === 0 ? <span style={{ color: 'var(--txt3)' }}>…</span> : log.map((l, i) => (
           <div key={i} style={{ color: l.kind === 'err' ? RED : l.kind === 'ok' ? GREEN : 'var(--txt2)', wordBreak: 'break-word' }}>

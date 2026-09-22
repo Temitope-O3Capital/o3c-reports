@@ -40,6 +40,10 @@ naira amounts posted to a dollar account, and the mechanism is still running.
 **Do not fix this downstream.** Deleting or rescaling the rows would put the
 workspace out of agreement with CCS, which is the system of record. It needs the
 card team to correct the posting at source.
+## 1. Two corrupt interest postings on USD cards (2023)
+
+**Status:** Documented, not fixed — historical, outside the reporting window that
+matters (decision 2026-09-14).
 
 CCS posts USD-card amounts **in dollars** (confirmed by the business, and by the data:
 fixed fees on USD cards are $5 joining / $10 maintenance / $5 re-issue, against
@@ -67,6 +71,9 @@ Notes for anyone revisiting:
   top 50 rows leaves **$94,831** — dollar-scale and plausible.
 - The recurring $47k–$70k postings once listed here as "not investigated" are the
   same account and the same defect — that is what the table above measures.
+- Recurring 604 postings of ~$47k–$70k per cycle through 2025–2026 are also large
+  relative to the median and have not been investigated. They may be one
+  large-balance account or the same mis-booking pattern.
 - Correction belongs at source (CCS), not downstream.
 
 ## 2. USD revenue was summed into a column labelled naira
@@ -103,6 +110,9 @@ timestamps only for this reason.
 
 **Status:** Fixed (2026-09-20). No rows were lost, and the cause — which was still
 live — is gone.
+## 4. Feed files that failed and were never retried (2021–2022)
+
+**Status:** Documented, not fixed.
 
 Twelve `txn_file` drops are recorded in `app.feed_files` with `status='failed'` and
 the error `insert N txns: extended protocol limited to 65535 parameters` — a batch
@@ -122,6 +132,8 @@ rows per statement inside the same transaction, so a file is still all-or-nothin
 
 The twelve recorded failures are left in `app.feed_files` as history; their rows are
 already in the ledger, so reprocessing them would achieve nothing.
+These dates fall inside the `mssql_baseline` era, so the transactions are very
+likely present from the baseline load rather than lost. **Not verified.**
 
 ## 5. CCS feed intermittent from 2026-09-08
 
@@ -142,6 +154,10 @@ which is exactly the case the volume-taper check exists for.
 ## 6. The legacy PowerShell ingester has never loaded a row
 
 **Status:** Open — needs the task repointed or retired.
+**Status:** Resolved — retired. Verified 2026-09-22: the scheduled task
+`O3C-CCS-Ingest` is **Disabled**, last run 2026-09-14 13:00 (result 0) with 756 missed
+runs since. It is no longer returning false-green every 15 minutes. The scripts remain in
+`C:\Users\tbabatunde\o3c-db\` if anyone wants the extraction logic; nothing schedules them.
 
 `C:\Users\tbabatunde\o3c-db\52_ingest.ps1` defaults `-Landing` to
 `C:\Users\tbabatunde\Desktop\Data Dump`, which holds only April 2026 files, and
@@ -217,6 +233,34 @@ The practical warning still stands: **match on a normalised CIF**, never the raw
 value, because padding differs between sources. The backfill (entry 13) does exactly
 that — `ltrim(cif,'0')` on both sides — and matched 4,712 customers with no row
 matching two CIFs.
+**Status:** Open — operational. Now visible on the Data Freshness page.
+
+| Source | Newest import | Newest business date |
+|---|---|---|
+| Interswitch settlement (`interswitch_legs`) | 2026-08-05 | settlement 2026-07-01 |
+| CCS EODTXN (`ccs_transactions`) | 2026-08-05 | — |
+| Card cycle (`card_cycle_data`) | 2026-08-04 | cycle 2026-07-14 |
+
+Still open and getting worse. Re-checked 2026-09-22: the newest card cycle is still
+**2026-07-14 — 69 days old**, so the August and September cycles have never been
+uploaded, and every card revenue, limit and interest figure is anchored to July. Alerts
+now reach Cards ops and Settlement ops rather than an empty `it_admin` role (issue 14),
+so this is waiting on the upload itself, not on anyone being told.
+
+## 8. Duplicate customer rows per CIF
+
+**Status:** Resolved. Re-measured against the live database 2026-09-22:
+`SELECT cif, count(*) FROM app.customers GROUP BY cif HAVING count(*) > 1` returns
+**zero rows**. The ~385 duplicates below were real in the 2026-09-12 dump; the identity
+work in migrations 250–253 appears to have removed them. The guidance still stands for
+any future upsert: dedupe on CIF first, because a CIF is a card id under a party, not a
+person.
+
+Joining the 2026-07-14 `cust_file` export to `app.customers` on zero-padded CIF, 21,057
+matched CIFs produced 21,442 rows while the export itself had no duplicate CIFs — so
+**~385 customer rows share a CIF** in `app.customers`. Any upsert keyed on CIF must
+dedupe first. A diagnostic view is the recommended next step; no rows should be
+deleted without review.
 
 ## 9. Field-map corrections to `docs/DATA_FEED_INGESTION.md`
 

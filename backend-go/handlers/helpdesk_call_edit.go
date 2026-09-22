@@ -92,10 +92,19 @@ func hdEditCall(db *core.DB) http.HandlerFunc {
 		}
 
 		set, args, changes := []string{}, []any{id}, map[string]any{}
+		// Every column we touch also becomes a precondition on the UPDATE — see the
+		// optimistic-concurrency guard below. Collected here so the "from" value the
+		// audit row records and the value the WHERE clause demands are the same read.
+		type precond struct {
+			col string
+			old any
+		}
+		var pre []precond
 		add := func(col string, oldVal, newVal any) {
 			args = append(args, newVal)
 			set = append(set, col+" = $"+strconv.Itoa(len(args)))
 			changes[col] = map[string]any{"from": oldVal, "to": newVal}
+			pre = append(pre, precond{col: col, old: oldVal})
 		}
 		if b.Notes != nil && strings.TrimSpace(*b.Notes) != str(row["notes"]) {
 			add("notes", row["notes"], strings.TrimSpace(*b.Notes))
@@ -128,12 +137,40 @@ func hdEditCall(db *core.DB) http.HandlerFunc {
 		set = append(set, "needs_review = false", "reviewed_at = NOW()",
 			"reviewed_by = "+strconv.FormatInt(user.ID, 10))
 
-		if _, err := db.PGExec(r.Context(),
-			`UPDATE helpdesk_calls SET `+strings.Join(set, ", ")+` WHERE id = $1`, args...); err != nil {
+		// Optimistic concurrency. The row was read, diffed and is now written back, with
+		// nothing in between to stop a second supervisor doing the same: last writer won
+		// silently, and because each audit row records the "from" value ITS writer read,
+		// the trail ended up showing two contradictory before-states for one call. So
+		// every column being changed must still hold what we read. If it does not,
+		// someone got there first and this correction is refused rather than applied on
+		// top of a change its author never saw. voided_at joins the guard for the same
+		// reason — the call may have been withdrawn since the read above.
+		where := []string{"id = $1", "voided_at IS NULL"}
+		for _, p := range pre {
+			if p.col == "duration_sec" {
+				// Numeric column, compared as a number with NULL folded to 0 on both
+				// sides: str() renders a non-string as "", so the text comparison used
+				// for the others would read every existing duration as a mismatch.
+				args = append(args, toInt64(p.old))
+				where = append(where, "COALESCE(duration_sec,0) = $"+strconv.Itoa(len(args)))
+				continue
+			}
+			args = append(args, str(p.old))
+			where = append(where, "COALESCE("+p.col+",'') = $"+strconv.Itoa(len(args)))
+		}
+
+		upd, err := db.PGQuery(r.Context(),
+			`UPDATE helpdesk_calls SET `+strings.Join(set, ", ")+
+				` WHERE `+strings.Join(where, " AND ")+` RETURNING id`, args...)
+		if err != nil {
 			respondErrLog(w, 500, "Could not save the correction", err)
 			return
 		}
-		hdRecordCallEdit(r, db, id, "edit", user, changes, b.Reason)
+		if len(upd) == 0 {
+			respondErr(w, 409, "Someone else changed this call log while you were editing it — reload it and reapply your correction")
+			return
+		}
+		audited := hdRecordCallEdit(r, db, id, "edit", user, changes, b.Reason) == nil
 
 		// A corrected disposition must reach the lead. Both the lead's status AND its
 		// displayed "last disposition" are derived from calls LINKED to it (lead_id), so
@@ -173,10 +210,10 @@ func hdEditCall(db *core.DB) http.HandlerFunc {
 				d := strings.TrimSpace(*b.Disposition)
 				// A disposition edit carries no fresh handle time; the call's own duration
 				// already lives on helpdesk_calls. Pass nil so it doesn't overwrite with 0.
-				syncLeadFromCall(r.Context(), db, leadID, str(row["outcome"]), &d, "", &user.ID, nil)
+				syncLeadFromCall(r.Context(), db, leadID, str(row["outcome"]), &d, "", &user.ID, nil, toInt64(row["id"]))
 			}
 		}
-		respond(w, map[string]any{"id": id, "changed": len(changes)}, "pg")
+		respond(w, map[string]any{"id": id, "changed": len(changes), "audited": audited}, "pg")
 	}
 }
 
@@ -219,11 +256,11 @@ func hdVoidCall(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Could not remove the log", err)
 			return
 		}
-		hdRecordCallEdit(r, db, id, "void", user, map[string]any{
+		audited := hdRecordCallEdit(r, db, id, "void", user, map[string]any{
 			"notes":       map[string]any{"from": cur[0]["notes"], "to": nil},
 			"disposition": map[string]any{"from": cur[0]["disposition"], "to": nil},
-		}, b.Reason)
-		respond(w, map[string]any{"id": id, "voided": true}, "pg")
+		}, b.Reason) == nil
+		respond(w, map[string]any{"id": id, "voided": true, "audited": audited}, "pg")
 	}
 }
 
@@ -243,8 +280,8 @@ func hdRestoreCall(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Could not restore the log", err)
 			return
 		}
-		hdRecordCallEdit(r, db, id, "restore", user, map[string]any{}, "")
-		respond(w, map[string]any{"id": id, "restored": true}, "pg")
+		audited := hdRecordCallEdit(r, db, id, "restore", user, map[string]any{}, "") == nil
+		respond(w, map[string]any{"id": id, "restored": true, "audited": audited}, "pg")
 	}
 }
 
@@ -264,17 +301,22 @@ func hdClearCallReview(db *core.DB) http.HandlerFunc {
 			respondErrLog(w, 500, "Could not clear the flag", err)
 			return
 		}
-		hdRecordCallEdit(r, db, id, "review_cleared", user, map[string]any{}, "")
-		respond(w, map[string]any{"id": id, "cleared": true}, "pg")
+		audited := hdRecordCallEdit(r, db, id, "review_cleared", user, map[string]any{}, "") == nil
+		respond(w, map[string]any{"id": id, "cleared": true, "audited": audited}, "pg")
 	}
 }
 
-// hdRecordCallEdit writes the audit row. Best-effort: the correction itself has
-// already been saved, and failing to record it must not tell the agent their fix
-// did not apply. It is logged loudly instead, because an unaudited edit is
-// exactly what a supervisor needs to know about.
+// hdRecordCallEdit writes the audit row and reports whether it landed.
+//
+// The correction itself has already been saved, so a failure here must not tell the
+// agent their fix did not apply — but it must not be swallowed either. Returning the
+// error (rather than only logging one line to stderr, which is what used to happen)
+// lets every caller put an `audited` flag in its response, so an edit that committed
+// with no audit row is visible to the person who made it and not just to whoever
+// happens to read the logs. An unaudited edit is exactly what this trail exists to
+// prevent.
 func hdRecordCallEdit(r *http.Request, db *core.DB, callID int64, action string,
-	u *core.Claims, changes map[string]any, reason string) {
+	u *core.Claims, changes map[string]any, reason string) error {
 
 	blob, err := json.Marshal(changes)
 	if err != nil {
@@ -293,7 +335,9 @@ func hdRecordCallEdit(r *http.Request, db *core.DB, callID int64, action string,
 		VALUES ($1,$2,$3,$4,$5::jsonb,$6)`,
 		callID, action, uid, name, string(blob), strings.TrimSpace(reason)); err != nil {
 		slogErrorAuditFailed(callID, action, err)
+		return err
 	}
+	return nil
 }
 
 // hdCallEdits is the supervisor's feed: every correction and withdrawal, newest

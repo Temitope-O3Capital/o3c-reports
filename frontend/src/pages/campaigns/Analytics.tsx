@@ -142,7 +142,7 @@ export default function CampaignPerformance() {
     { key: 'interested', label: 'Interested', align: 'right', render: r => <span style={{ ...NUM, color: AMBER }}>{fmtNum(toN(r.interested))}</span> },
     { key: 'forwarded',  label: 'Forwarded',  align: 'right', render: r => <span style={{ ...NUM, color: PURPLE }}>{fmtNum(toN(r.forwarded))}</span> },
     { key: 'converted',  label: 'Converted',  align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold, color: GREEN }}>{fmtNum(toN(r.converted))}</span> },
-    { key: '_rate',      label: 'Conv. rate', align: 'right', render: r => {
+    { key: '_rate',      label: 'Conv. Rate', align: 'right', render: r => {
         const rate = toN(r.leads) > 0 ? (toN(r.converted) / toN(r.leads)) * 100 : 0
         return <span style={{ ...NUM, color: rate > 0 ? GREEN : 'var(--txt3)' }}>{fmtPct(rate)}</span>
       } },
@@ -255,16 +255,16 @@ export default function CampaignPerformance() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: SP[3], padding: '8px 4px' }}>
             <div>
               <div style={{ ...NUM, fontSize: TEXT['3xl'], fontWeight: FW.extrabold, color: GREEN, lineHeight: 1.1 }}>{fmtPct(toN(conv?.conversion_rate))}</div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>overall conversion rate</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>Overall Conversion Rate</div>
             </div>
             <div style={{ display: 'flex', gap: SP[3] }}>
               <div>
                 <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)' }}>{fmtNum(toN(conv?.leads))}</div>
-                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>leads</div>
+                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>Leads</div>
               </div>
               <div>
                 <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: GREEN }}>{fmtNum(toN(conv?.converted))}</div>
-                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>customers</div>
+                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>Customers</div>
               </div>
             </div>
           </div>

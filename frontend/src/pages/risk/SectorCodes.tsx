@@ -71,7 +71,7 @@ export default function SectorCodes() {
         )
         : (
           <span style={{ fontSize: TEXT.sm, fontStyle: 'italic', color: AMBER, fontWeight: FW.semibold }}>
-            Not yet named
+            Not Yet Named
           </span>
         ),
     },
@@ -101,7 +101,7 @@ export default function SectorCodes() {
           onClick={() => setEditing(r)}
           style={{ padding: '4px 10px', borderRadius: RADIUS.sm, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: TEXT.xs, cursor: 'pointer', fontFamily: 'inherit' }}
         >
-          {r.is_mapped ? 'Edit' : 'Name it'}
+          {r.is_mapped ? 'Edit' : 'Name It'}
         </button>
       ),
     }] : []),
@@ -161,7 +161,7 @@ export default function SectorCodes() {
           cols={cols}
           rows={rows}
           keyFn={r => r.code}
-          emptyText="No sector codes registered yet"
+          emptyText="No Sector Codes Registered Yet"
           pageSize={25}
         />
       </SectionCard>
@@ -240,7 +240,7 @@ function SectorCodeModal({ entry, open, isNew, onClose, onDone }: {
           />
         </Field>
 
-        <Field label="Description (optional)">
+        <Field label="Description (Optional)">
           <textarea
             value={desc}
             onChange={e => setDesc(e.target.value)}

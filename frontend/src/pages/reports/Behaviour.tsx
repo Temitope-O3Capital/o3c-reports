@@ -27,7 +27,7 @@ export default function BehaviourAnalytics() {
         </div>
       }
     >
-      <SpendingBehaviour title="Spending & behaviour" subtitle={`Card & account activity · last ${months} months`} months={months} />
+      <SpendingBehaviour title="Spending & Behaviour" subtitle={`Card & account activity · last ${months} months`} months={months} />
       <div style={{ marginTop: SP[5] }}>
         <RepaymentBehaviour />
       </div>

@@ -149,9 +149,9 @@ export default function Commissions() {
 
       {/* Top earners + Booked composition */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: SP[4], marginBottom: SP[5] }}>
-        <SectionCard title="Top earners" subtitle="Highest commission payable this period" badge={topEarners.length || undefined}>
+        <SectionCard title="Top Earners" subtitle="Highest commission payable this period" badge={topEarners.length || undefined}>
           {topEarners.length === 0
-            ? <EmptyState icon="leaderboard" title="No commission earned" description="No officer earned commission in this period." />
+            ? <EmptyState icon="leaderboard" title="No Commission Earned" description="No officer earned commission in this period." />
             : (
               <EBar<EarnerBar>
                 data={topEarners}
@@ -165,9 +165,9 @@ export default function Commissions() {
             )}
         </SectionCard>
 
-        <SectionCard title="Booked composition" subtitle="Loans vs Fixed Deposits">
+        <SectionCard title="Booked Composition" subtitle="Loans vs Fixed Deposits">
           {!hasComposition
-            ? <EmptyState icon="donut_large" title="Nothing booked" description="No loans or fixed deposits booked in this period." />
+            ? <EmptyState icon="donut_large" title="Nothing Booked" description="No loans or fixed deposits booked in this period." />
             : (
               <div style={{ display: 'flex', alignItems: 'center', gap: SP[4], flexWrap: 'wrap' }}>
                 <EDonut<CompSlice>
@@ -201,7 +201,7 @@ export default function Commissions() {
 
       {/* Commission by officer */}
       <SectionCard
-        title="Commission by officer"
+        title="Commission by Officer"
         subtitle={`Loans & Fixed Deposits pay a % of booked value; cards a fixed ₦ per card · ${period}`}
         badge={rows.length || undefined}
         padding={false}

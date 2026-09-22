@@ -182,7 +182,7 @@ export default function RiskOverview() {
           <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: AMBER }}>
             {reviewKPIs?.pending} application{reviewKPIs?.pending !== 1 ? 's' : ''} awaiting risk review
           </span>
-          <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: AMBER, fontWeight: FW.semibold }}>Review now</span>
+          <span style={{ marginLeft: 'auto', fontSize: TEXT.xs, color: AMBER, fontWeight: FW.semibold }}>Review Now</span>
         </div>
       )}
 
@@ -248,9 +248,9 @@ export default function RiskOverview() {
       <SectionCard title="Origination & Disbursements" subtitle="Applications and approvals arrive from Phoenix · disbursements are the live booked book" style={{ marginBottom: SP[4] }}>
         <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: SP[4], alignItems: 'stretch' }}>
           <div>
-            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Disbursements · last 12 months</div>
+            <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 8 }}>Disbursements · Last 12 Months</div>
             {(!disb || disb.by_month.length === 0) ? (
-              <div style={{ padding: '52px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No disbursement history</div>
+              <div style={{ padding: '52px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No Disbursement History</div>
             ) : (
               <EBar
                 data={disb.by_month} xKey="month" series={[{ key: 'kobo', name: 'Disbursed', color: NAVY }]}
@@ -262,8 +262,8 @@ export default function RiskOverview() {
             {[
               { label: 'Disbursed (MTD)', value: disb ? fmtKoboExact(Number(disb.kobo_mtd)) : '—', sub: disb ? `${fmtNum(Number(disb.count_mtd))} loans booked` : '' },
               { label: 'Disbursed (YTD)', value: disb ? fmtKoboExact(Number(disb.kobo_ytd)) : '—', sub: disb ? `${fmtNum(Number(disb.count_ytd))} loans booked` : '' },
-              { label: 'Applications pending', value: originationLive ? String(reviewKPIs?.pending ?? 0) : 'n/a', sub: originationLive ? 'awaiting decision' : 'origination not live' },
-              { label: 'Approval rate', value: originationLive && approvalRate !== null ? `${approvalRate}%` : 'n/a', sub: originationLive ? `${reviewKPIs?.approved ?? 0} approved to date` : 'origination not live' },
+              { label: 'Applications Pending', value: originationLive ? String(reviewKPIs?.pending ?? 0) : 'n/a', sub: originationLive ? 'awaiting decision' : 'origination not live' },
+              { label: 'Approval Rate', value: originationLive && approvalRate !== null ? `${approvalRate}%` : 'n/a', sub: originationLive ? `${reviewKPIs?.approved ?? 0} approved to date` : 'origination not live' },
             ].map(s => (
               <div key={s.label} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--bdr)' }}>
                 <div>
@@ -280,7 +280,7 @@ export default function RiskOverview() {
       {/* Delinquency distribution — the honest headline for a small book */}
       <SectionCard title="Delinquency Distribution" subtitle="Active book by days past due (schedule-derived DPD)" style={{ marginBottom: SP[4] }}>
         {dpd.length === 0
-          ? <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No active loans</div>
+          ? <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No Active Loans</div>
           : <DpdBar buckets={dpd} height={44} />}
       </SectionCard>
 
@@ -288,7 +288,7 @@ export default function RiskOverview() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
         <SectionCard title="Risk Band Distribution" subtitle="Active book, A (Prime) to E (High-Risk)">
           {bands.length === 0 ? (
-            <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No scored loans</div>
+            <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No Scored Loans</div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: SP[4] }}>
               <div style={{ flexShrink: 0, width: 148 }}>
@@ -315,7 +315,7 @@ export default function RiskOverview() {
 
         <SectionCard title="Sector Concentration" subtitle="Top sectors by share of active book">
           {sectors.length === 0 ? (
-            <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No sector data</div>
+            <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No Sector Data</div>
           ) : (
             <EBar
               data={sectors.slice(0, 8)} xKey="sector"

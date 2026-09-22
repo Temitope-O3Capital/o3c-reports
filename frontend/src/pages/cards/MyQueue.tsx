@@ -151,15 +151,15 @@ export default function CardsMyQueue() {
 
       {/* ── My Day ── */}
       <MyDaySection hint="cards work waiting on you">
-        <MyDayTile icon="badge" count={fmtNum(issuance)} label="Issuance pending"
+        <MyDayTile icon="badge" count={fmtNum(issuance)} label="Issuance Pending"
           sub={issuance > 0 ? 'cards to issue' : 'nothing to issue'}
           color={BLUE} urgent={issuance > 0} onClick={() => navigate('/cards/issuance')} />
-        <MyDayTile icon="gavel" count={fmtNum(disputes)} label="Open disputes"
+        <MyDayTile icon="gavel" count={fmtNum(disputes)} label="Open Disputes"
           sub={disputes > 0 ? 'investigate & resolve' : 'no open disputes'}
           color={disputes > 0 ? RED : GREEN} urgent={disputes > 0} onClick={() => navigate('/cards/disputes')} />
-        <MyDayTile icon="fact_check" count={fmtNum(reviews)} label="Credit reviews"
+        <MyDayTile icon="fact_check" count={fmtNum(reviews)} label="Credit Reviews"
           sub="limit decisions due" color={AMBER} urgent={reviews > 0} onClick={() => navigate('/cards/credit-limit')} />
-        <MyDayTile icon="assignment" count={fmtNum(totalPending)} label="Total pending"
+        <MyDayTile icon="assignment" count={fmtNum(totalPending)} label="Total Pending"
           sub="across all your queues" color={NAVY} />
       </MyDaySection>
 
@@ -187,7 +187,7 @@ export default function CardsMyQueue() {
           rows={issuanceQueue}
           keyFn={r => r.id}
           pageSize={10}
-          emptyText="No issuance requests assigned"
+          emptyText="No Issuance Requests Assigned"
         />
       </SectionCard>
 
@@ -215,7 +215,7 @@ export default function CardsMyQueue() {
           rows={disputesQueue}
           keyFn={r => r.id}
           pageSize={10}
-          emptyText="No disputes assigned"
+          emptyText="No Disputes Assigned"
         />
       </SectionCard>
     </Page>

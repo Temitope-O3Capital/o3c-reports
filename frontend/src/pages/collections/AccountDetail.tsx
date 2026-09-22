@@ -17,7 +17,7 @@ import { LogPaymentModal } from '../../components/LogPaymentModal'
 import CallsPanel from '../../components/CallsPanel'
 import {
   useCreditDossier, ExposureStrip, FacilityRail, FacilityTerms, ScheduleTable,
-  RepaymentLedger, CaseContext, CustomerDetails, Meter, isInternalId, type Facility,
+  RepaymentLedger, CaseContext, CustomerDetails, Meter, isInternalId, idCaption, type Facility,
 } from '../../components/CreditFile'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { hasPage } from '../../hooks/useAuth'
@@ -141,7 +141,7 @@ const ACTION_META: Record<string, { label: string; color: string }> = {
   instalment_paid:          { label: 'Instalment',  color: GREEN },
   watchlist_flagged:        { label: 'Flagged',     color: AMBER },
   watchlist_resolved:       { label: 'Resolved',    color: GREEN },
-  writeoff_requested:       { label: 'Write-off',   color: AMBER },
+  writeoff_requested:       { label: 'Write-Off',   color: AMBER },
   writeoff_approved:        { label: 'Approved WO', color: RED   },
   legal_milestone_added:    { label: 'Legal',       color: NAVY  },
   bulk_reassigned:          { label: 'Reassigned',  color: NAVY  },
@@ -262,7 +262,7 @@ export function TimelineTab({ cif, version }: { cif: string; version: number }) 
 
   if (events.length === 0) return (
     <div style={{ padding: `${SP[8]} ${SP[4]}`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-      No activity recorded yet
+      No Activity Recorded Yet
     </div>
   )
 
@@ -319,11 +319,11 @@ export function ContactsTab({ assignmentId, version }: { assignmentId: number | 
   }, [assignmentId, version])
 
   if (loading) return <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
-  if (!assignmentId) return <div style={{ padding: SP[4], color: 'var(--txt3)', fontSize: TEXT.sm }}>No assignment on record</div>
+  if (!assignmentId) return <div style={{ padding: SP[4], color: 'var(--txt3)', fontSize: TEXT.sm }}>No Assignment on Record</div>
 
   if (contacts.length === 0) return (
     <div style={{ padding: `${SP[8]} ${SP[4]}`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-      No contacts logged yet
+      No Contacts Logged Yet
     </div>
   )
 
@@ -371,7 +371,7 @@ export function PromisesTab({ cif, version }: { cif: string; version: number }) 
 
   if (promises.length === 0) return (
     <div style={{ padding: `${SP[8]} ${SP[4]}`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-      No PTPs recorded
+      No PTPs Recorded
     </div>
   )
 
@@ -425,11 +425,11 @@ export function PaymentsTab({ cif, assignmentId, version }: { cif?: string; assi
   }, [cif, assignmentId, version])
 
   if (loading) return <div style={{ padding: SP[5], display: 'flex', justifyContent: 'center' }}><Spinner size={24} /></div>
-  if (!cif && !assignmentId) return <div style={{ padding: SP[4], color: 'var(--txt3)', fontSize: TEXT.sm }}>No assignment on record</div>
+  if (!cif && !assignmentId) return <div style={{ padding: SP[4], color: 'var(--txt3)', fontSize: TEXT.sm }}>No Assignment on Record</div>
 
   if (payments.length === 0) return (
     <div style={{ padding: `${SP[8]} ${SP[4]}`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
-      No payments recorded
+      No Payments Recorded
     </div>
   )
 
@@ -802,7 +802,7 @@ export default function CollectionsAccountDetail() {
             {cust?.email && <IdLine icon="mail" label="Email" value={cust.email} />}
             {cust?.employer && <IdLine icon="apartment" label="Employer" value={cust.employer} />}
             {d.last_contact_at && (
-              <IdLine icon="history" label="Last contact" value={fmtDate(d.last_contact_at)}
+              <IdLine icon="history" label="Last Contact" value={fmtDate(d.last_contact_at)}
                       sub={d.last_contact_outcome ? d.last_contact_outcome.replace(/_/g, ' ') : ''} />
             )}
             {(cust?.city || cust?.state) && (
@@ -938,14 +938,14 @@ export default function CollectionsAccountDetail() {
                 {selected.product}
               </div>
               <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
-                {selected.origin} · {selected.ref || '—'}{selected.cif ? ` · CIF ${selected.cif}` : ''}
+                {selected.origin} · {selected.ref || '—'}{idCaption(selected.cif) ? ` · ${idCaption(selected.cif)}` : ''}
               </div>
             </div>
             {selected.scheduled_kobo > 0 && (
               <div style={{ minWidth: 190 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
                   <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--txt3)' }}>
-                    Schedule paid
+                    Schedule Paid
                   </span>
                   <span style={{ ...NUM, fontSize: TEXT.xs, fontWeight: FW.bold, color: selected.paid_pct >= 80 ? GREEN : selected.paid_pct >= 40 ? AMBER : RED }}>
                     {selected.paid_pct.toFixed(1)}%
@@ -991,7 +991,7 @@ export default function CollectionsAccountDetail() {
         {activeTab === 'schedule' && (
           selected
             ? <ScheduleTable f={selected} />
-            : <EmptyState icon="credit_card_off" title="No facility on file"
+            : <EmptyState icon="credit_card_off" title="No Facility on File"
                           description="No card or loan is linked to this CIF, so there is no schedule to show." />
         )}
         {activeTab === 'repayments' && (
@@ -1023,7 +1023,7 @@ export default function CollectionsAccountDetail() {
           <div><label style={labelSt}>Contact Type</label><ChipGroup options={CONTACT_TYPES} value={ctType} onChange={setCtType} /></div>
           <div><label style={labelSt}>Outcome</label><ChipGroup options={OUTCOMES} value={ctOutcome} onChange={setCtOutcome} /></div>
           <div>
-            <label style={labelSt}>Notes <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+            <label style={labelSt}>Notes <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span></label>
             <textarea value={ctNotes} onChange={e => setCtNotes(e.target.value)} rows={3} placeholder="Notes from the contact…" style={{ ...inputSt, resize: 'vertical' }} />
           </div>
         </div>
@@ -1078,7 +1078,7 @@ export default function CollectionsAccountDetail() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div><label style={labelSt}>Scenario</label><ChipGroup options={SCENARIOS} value={wlScenario} onChange={setWlScenario} accent={AMBER} /></div>
           <div>
-            <label style={labelSt}>Notes <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+            <label style={labelSt}>Notes <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span></label>
             <textarea value={wlNotes} onChange={e => setWlNotes(e.target.value)} rows={3} placeholder="Why is this account being flagged?" style={{ ...inputSt, resize: 'vertical' }} />
           </div>
         </div>
@@ -1108,7 +1108,7 @@ export default function CollectionsAccountDetail() {
             </div>
           </div>
           <div>
-            <label style={labelSt}>Notes <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(optional)</span></label>
+            <label style={labelSt}>Notes <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(Optional)</span></label>
             <textarea value={rvNotes} onChange={e => setRvNotes(e.target.value)} rows={3} placeholder="Resolution notes…" style={{ ...inputSt, resize: 'vertical' }} />
           </div>
         </div>
@@ -1129,9 +1129,9 @@ export default function CollectionsAccountDetail() {
           }
         >
           <div>
-            <label style={labelSt}>Assign to</label>
+            <label style={labelSt}>Assign To</label>
             <select value={newAgentId} onChange={e => setNewAgentId(e.target.value)} style={inputSt}>
-              <option value="">Select agent</option>
+              <option value="">Select Agent</option>
               {collectionAgents.map(a => (
                 <option key={a.id} value={String(a.id)}>
                   {a.full_name} ({a.role.replace(/_/g, ' ')})

@@ -1061,7 +1061,7 @@ func SendMail(ctx context.Context, db *core.DB, opt SendMailOptions) SendMailRes
 
 func SendTemporaryPasswordEmail(ctx context.Context, db *core.DB, email, name, tempPassword string, userID int64) SendMailResult {
 	inner := fmt.Sprintf(`
-		<h1 style="margin:0 0 18px;font-size:22px;font-weight:700;color:#0E2841;">Your O3 Capital Workspace login</h1>
+		<h1 style="margin:0 0 18px;font-size:22px;font-weight:700;color:#0E2841;">Your O3 Capital Workspace Login</h1>
 		<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#374151;">Hello %s,</p>
 		<p style="margin:0 0 8px;font-size:15px;line-height:1.6;color:#374151;">Use the temporary password below to sign in to the O3 Capital Workspace. You'll be asked to set your own password on first sign-in.</p>
 		%s
@@ -1077,7 +1077,7 @@ func SendTemporaryPasswordEmail(ctx context.Context, db *core.DB, email, name, t
 		To:          []MailAddress{{Email: email, Name: name}},
 		FromEmail:   "no-reply@o3cards.com",
 		FromName:    "O3 Capital",
-		Subject:     "Your O3 Capital Workspace login",
+		Subject:     "Your O3 Capital Workspace Login",
 		HTMLBody:    html,
 		TextBody:    text,
 		Category:    "system",

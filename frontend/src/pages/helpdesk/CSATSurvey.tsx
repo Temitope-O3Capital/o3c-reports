@@ -45,7 +45,7 @@ function StarRating({ value, onChange }: { value: number; onChange: (v: number) 
   )
 }
 
-const LABELS = ['', 'Very poor', 'Poor', 'Average', 'Good', 'Excellent']
+const LABELS = ['', 'Very Poor', 'Poor', 'Average', 'Good', 'Excellent']
 
 export default function CSATSurvey() {
   const { token } = useParams<{ token: string }>()
@@ -137,7 +137,7 @@ export default function CSATSurvey() {
       <div style={cardStyle}>
         <div style={boxStyle}>
           <div style={{ fontSize: 40, marginBottom: SP[4] }}></div>
-          <h2 style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: NAVY, margin: '0 0 8px' }}>Survey unavailable</h2>
+          <h2 style={{ fontSize: TEXT['2xl'], fontWeight: FW.bold, color: NAVY, margin: '0 0 8px' }}>Survey Unavailable</h2>
           <p style={{ color: '#6B7280', fontSize: TEXT.md, margin: 0 }}>{error}</p>
         </div>
       </div>
@@ -203,7 +203,7 @@ export default function CSATSurvey() {
 
         <div style={{ marginTop: SP[6], textAlign: 'left' }}>
           <label style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: '#6B7280', display: 'block', marginBottom: 6 }}>
-            Additional comments (optional)
+            Additional Comments (Optional)
           </label>
           <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
             value={comment}

@@ -10,7 +10,7 @@ import { toast } from 'sonner'
 // two-minute recorded conversation. Those used to sit in the data contradicting
 // themselves with nobody told. The supervisor corrects the log, or marks it fine.
 
-interface ReviewCall {
+export interface ReviewCall {
   id: number
   agent_name: string
   customer_name: string | null
@@ -25,17 +25,26 @@ interface ReviewCall {
 }
 
 export default function CallReviewPanel({ onEdit, reloadKey }: {
-  onEdit?: (callId: number) => void
+  // The WHOLE flagged call, not just its id: the correction it opens is seeded from
+  // this, and the caller cannot invent the fields it doesn't have.
+  onEdit?: (call: ReviewCall) => void
   reloadKey?: number
 }) {
   const [review, setReview] = useState<ReviewCall[]>([])
   const [busy,   setBusy]   = useState<number | null>(null)
+  const [error,  setError]  = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
       const r = await apiFetch<any>('/api/helpdesk/calls/needs-review')
       setReview(Array.isArray(r) ? r : r?.data ?? [])
-    } catch { /* the panel is supplementary — never block the page */ }
+      setError(null)
+    } catch (e: any) {
+      // Typically a 403: the role that was shown this panel isn't the one the server
+      // accepts. Swallowing it left the panel permanently empty, which reads as
+      // "nothing needs a decision" — the opposite of what is true.
+      setError(e?.message ?? 'Could not load the review queue')
+    }
   }, [])
 
   useEffect(() => { load() }, [load, reloadKey])
@@ -55,13 +64,19 @@ export default function CallReviewPanel({ onEdit, reloadKey }: {
 
   return (
     <>
-      {review.length > 0 && (
-        <SectionCard title="Call logs needing a decision" badge={review.length}>
+      {(review.length > 0 || error) && (
+        <SectionCard title="Call Logs Needing a Decision" badge={review.length || undefined}>
+          {error ? (
+            <div style={{ fontSize: TEXT.sm, color: RED, lineHeight: 1.5 }}>
+              These logs could not be loaded — {error}
+            </div>
+          ) : (
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: SP[3], lineHeight: 1.5 }}>
             The write-up on these calls contradicts what the call itself shows, and
             no other call on the number matches it. Nothing has been changed — correct
             the log, or mark it fine if it reads right to you.
           </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             {review.map(c => (
               <div key={c.id} style={{
@@ -91,16 +106,16 @@ export default function CallReviewPanel({ onEdit, reloadKey }: {
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   {onEdit && (
-                    <button onClick={() => onEdit(c.id)} style={{
-                      padding: '5px 12px', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
+                    <button onClick={() => onEdit(c)} style={{
+                      padding: '5px 12px', minHeight: 28, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
                       borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff',
-                    }}>Correct</button>
+                    }}>Correct It</button>
                   )}
                   <button onClick={() => clearFlag(c.id)} disabled={busy === c.id} style={{
-                    padding: '5px 12px', fontSize: TEXT.sm, fontWeight: FW.semibold,
+                    padding: '5px 12px', minHeight: 28, fontSize: TEXT.sm, fontWeight: FW.semibold,
                     cursor: busy === c.id ? 'wait' : 'pointer', borderRadius: RADIUS.md,
                     border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)',
-                  }}>Looks right</button>
+                  }}>Looks Right</button>
                 </div>
               </div>
             ))}

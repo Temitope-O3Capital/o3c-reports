@@ -208,7 +208,7 @@ export default function Supervisor() {
           {viewTabs}
           {editingTarget ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontWeight: FW.semibold }}>Daily target</span>
+              <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontWeight: FW.semibold }}>Daily Target</span>
               <input type="number" min={1} value={targetInput} onChange={e => setTargetInput(e.target.value)} autoFocus
                 onKeyDown={e => { if (e.key === 'Enter') saveTarget(); if (e.key === 'Escape') setEditingTarget(false) }}
                 style={{ width: 60, height: 30, padding: '0 8px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.sm, fontSize: TEXT.sm, background: 'var(--input-bg)', color: 'var(--txt)' }} />
@@ -254,7 +254,7 @@ export default function Supervisor() {
       {/* Agent wallboard */}
       <SectionCard title="Agent Wallboard" subtitle={`${agents.length} agents · today's live activity`} style={{ marginBottom: SP[4] }}>
         {agents.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No active agents</div>
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No Active Agents</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: SP[2], padding: '6px 10px', background: 'var(--th-bg)', borderRadius: RADIUS.md, marginBottom: SP[1], minWidth: 780 }}>
@@ -305,7 +305,7 @@ export default function Supervisor() {
       <div style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
         <SectionCard title="Today's Call Volume" subtitle="Inbound & outbound by hour">
           {calls === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls yet today</div>
+            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No Calls Yet Today</div>
           ) : (
             <EBar
               data={hourData}
@@ -323,7 +323,7 @@ export default function Supervisor() {
 
         <SectionCard title="Call Outcomes" subtitle="Today">
           {outcomes.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No calls yet</div>
+            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--txt2)' }}>No Calls Yet</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: SP[3] }}>
               <EDonut

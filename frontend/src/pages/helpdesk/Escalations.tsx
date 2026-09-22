@@ -78,7 +78,7 @@ export default function Escalations() {
       actions={
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: TEXT.sm, color: 'var(--txt2)', cursor: 'pointer' }}>
           <input type="checkbox" checked={includeResolved} onChange={e => setIncludeResolved(e.target.checked)} />
-          Include cleared
+          Include Cleared
         </label>
       }
     >
@@ -86,9 +86,9 @@ export default function Escalations() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 18 }}>
         {[
-          { label: 'Open escalations', value: fmtNum(open.length), colour: open.length ? AMBER : GREEN, icon: 'priority_high' },
-          { label: 'Waiting over 24h', value: fmtNum(stale.length), colour: stale.length ? RED : GREEN, icon: 'alarm' },
-          { label: 'Longest open', value: open.length ? `${Math.max(...open.map(r => Number(r.hours_open) || 0)).toFixed(1)}h` : '—', colour: NAVY, icon: 'hourglass_top' },
+          { label: 'Open Escalations', value: fmtNum(open.length), colour: open.length ? AMBER : GREEN, icon: 'priority_high' },
+          { label: 'Waiting Over 24h', value: fmtNum(stale.length), colour: stale.length ? RED : GREEN, icon: 'alarm' },
+          { label: 'Longest Open', value: open.length ? `${Math.max(...open.map(r => Number(r.hours_open) || 0)).toFixed(1)}h` : '—', colour: NAVY, icon: 'hourglass_top' },
         ].map(m => (
           <div key={m.label} style={{ background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg, padding: '14px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -100,11 +100,11 @@ export default function Escalations() {
         ))}
       </div>
 
-      <SectionCard title="Escalation queue" subtitle={`${fmtNum(rows.length)} shown · oldest first`}>
+      <SectionCard title="Escalation Queue" subtitle={`${fmtNum(rows.length)} shown · oldest first`}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size={26} /></div>
         ) : rows.length === 0 ? (
-          <EmptyState icon="check_circle" title="Nothing escalated"
+          <EmptyState icon="check_circle" title="Nothing Escalated"
             description="When an agent hits something they can't resolve, it lands here with a reason and stays until someone closes it." />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>

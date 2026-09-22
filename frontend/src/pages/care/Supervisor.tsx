@@ -183,7 +183,7 @@ export default function CareSupervisor() {
 
       <ConfirmModal
         open={distOpen}
-        title="Distribute unassigned mail"
+        title="Distribute Unassigned Mail"
         confirmLabel={distBusy ? 'Distributing…' : 'Distribute'}
         loading={distBusy}
         onConfirm={distribute}
@@ -193,7 +193,7 @@ export default function CareSupervisor() {
           agents. {d && <>There {d.unassigned === 1 ? 'is' : 'are'} <strong style={{ color: 'var(--txt)' }}>{fmtNum(d.unassigned)}</strong> unassigned mail{d.unassigned === 1 ? '' : 's'} in total.</>}
         </p>
         <label style={{ display: 'block', fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
-          Batch size (this pass)
+          Batch Size (This Pass)
         </label>
         <input
           type="number" min={1} max={1000} value={batch}

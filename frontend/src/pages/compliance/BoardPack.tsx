@@ -76,7 +76,7 @@ export default function BoardPack() {
     <Page title="Board Pack">
       <div style={{ display: 'flex', gap: SP[3], alignItems: 'center', marginBottom: SP[4] }}>
         <label style={{ fontSize: TEXT.sm, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-          Reporting month:
+          Reporting Month:
         </label>
         <select
           value={month}

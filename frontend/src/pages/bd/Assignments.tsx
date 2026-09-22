@@ -153,7 +153,7 @@ function AssignmentDetailModal({
           </div>
           {assignment.contacts_total > 0 && (
             <div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>Conversion rate</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginBottom: 4 }}>Conversion Rate</div>
               <ProgressBar value={assignment.contacts_converted} total={assignment.contacts_total} color={convPct >= 50 ? GREEN : convPct >= 25 ? AMBER : RED} />
             </div>
           )}

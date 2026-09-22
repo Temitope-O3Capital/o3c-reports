@@ -27,11 +27,11 @@ type Resp = {
 
 const NOTE: Record<string, { title: string; body: string }> = {
   not_submitted: {
-    title: 'Not sent to Phoenix yet',
+    title: 'Not Sent to Phoenix Yet',
     body: 'This application has not been submitted for credit decisioning, so there is no Eye report for it. It is created once the application reaches risk review.',
   },
   not_scored: {
-    title: 'Awaiting a decision',
+    title: 'Awaiting a Decision',
     body: 'Phoenix has the application but has not scored it yet. The report appears here as soon as a decision is recorded.',
   },
 }
@@ -74,7 +74,7 @@ export default function PhoenixEyeReport({ appId }: { appId: number | string }) 
   useEffect(() => { void load() }, [load])
 
   if (error) {
-    return <Notice title="Could not load the Eye report" body={error} />
+    return <Notice title="Could Not Load the Eye Report" body={error} />
   }
   if (!loading && !detail) {
     const n = NOTE[reason ?? 'not_scored'] ?? NOTE.not_scored

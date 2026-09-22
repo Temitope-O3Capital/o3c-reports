@@ -40,7 +40,7 @@ const ROUTE_LABEL: Record<string, string> = {
   TRANSFER_OUT: 'Transfer — Web Out',
   TRANSFER_IN: 'Transfer — Web In',
   CASH_PAYMENT: 'Cash Payment (Bank)',
-  OTHER: 'Other codes',
+  OTHER: 'Other Codes',
 }
 
 const tdBase: React.CSSProperties = {
@@ -165,14 +165,14 @@ export default function SettlementsOverview() {
 
       {/* Headline: master vs providers */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[6] }}>
-        <KpiCard label="CCS transactions" value={fmtNum(ccs?.totals?.txns)}
+        <KpiCard label="CCS Transactions" value={fmtNum(ccs?.totals?.txns)}
           sub={`${fmtNum(ccs?.totals?.days_with_data)} days with data`} icon="account_balance_wallet" accent={NAVY} loading={loading && !d} />
-        <KpiCard label="CCS debits" value={fmtKobo(ccs?.totals?.debit_kobo)}
+        <KpiCard label="CCS Debits" value={fmtKobo(ccs?.totals?.debit_kobo)}
           sub={`credits ${fmtKobo(ccs?.totals?.credit_kobo)}`} icon="south_west" accent={NAVY} loading={loading && !d} />
-        <KpiCard label="Provider volume" value={fmtKobo(providerValue)}
+        <KpiCard label="Provider Volume" value={fmtKobo(providerValue)}
           sub={`Interswitch ${fmtNum(isw?.totals?.txns)} · Paystack ${fmtNum(Number(psTotal?.transfer_n ?? 0) + Number(psTotal?.funding_n ?? 0))}`}
           icon="hub" accent={NAVY} loading={loading && !d} />
-        <KpiCard label="Tied to master" value={link ? `${stanRate.toFixed(1)}%` : '—'}
+        <KpiCard label="Tied to Master" value={link ? `${stanRate.toFixed(1)}%` : '—'}
           sub={`${fmtNum(link?.matched_to_ccs)} of ${fmtNum(link?.isw_txns)} Interswitch txns by STAN`}
           icon="link" accent={stanRate >= 90 ? GREEN : stanRate >= 60 ? AMBER : RED} loading={loading && !d} />
       </div>
@@ -187,7 +187,7 @@ export default function SettlementsOverview() {
             : 'Book of record for every card account transaction'}
         />
         {loading && !d ? <div style={{ padding: SP[5], textAlign: 'center' }}><Spinner /></div>
-        : ccsBars.length === 0 ? <EmptyState icon="inbox" title="No CCS data in this period" description="Upload the EODTXN files for these dates." />
+        : ccsBars.length === 0 ? <EmptyState icon="inbox" title="No CCS Data in This Period" description="Upload the EODTXN files for these dates." />
         : (
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: SP[5], alignItems: 'center' }}>
             <EChart height={40 + ccsBars.length * 40} option={valueBarOption(ccsBars, NAVY, 16)} />
@@ -224,9 +224,9 @@ export default function SettlementsOverview() {
           />
           {loading && !d ? <div style={{ padding: SP[4], textAlign: 'center' }}><Spinner /></div>
           : iswBars.length === 0 ? (
-            <EmptyState icon="upload_file" title="No Interswitch reports loaded"
+            <EmptyState icon="upload_file" title="No Interswitch Reports Loaded"
               description="Import the daily settlement files to populate this."
-              action={{ label: 'Import reports', icon: 'upload', onClick: () => navigate('/settlements/runs') }} />
+              action={{ label: 'Import Reports', icon: 'upload', onClick: () => navigate('/settlements/runs') }} />
           ) : (
             <>
               <div style={{ display: 'flex', gap: SP[5], marginBottom: SP[4] }}>
@@ -234,7 +234,7 @@ export default function SettlementsOverview() {
                   <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold }}>{fmtNum(isw?.totals?.txns)}</div></div>
                 <div><div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Gross</div>
                   <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold }}>{fmtKobo(isw?.totals?.value_kobo)}</div></div>
-                <div><div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Settlement legs</div>
+                <div><div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Settlement Legs</div>
                   <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold }}>{fmtNum(isw?.totals?.legs)}</div></div>
               </div>
               <EChart height={30 + iswBars.length * 32} option={valueBarOption(iswBars, PURPLE, 13)} />
@@ -252,25 +252,25 @@ export default function SettlementsOverview() {
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3], marginBottom: SP[4] }}>
                 <div style={{ padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)' }}>
-                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Transfers out</div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Transfers Out</div>
                   <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold }}>{fmtKobo(psTotal?.transfer_kobo)}</div>
                   <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                     {fmtNum(psTotal?.transfer_n)} paid · <span style={{ color: Number(psTotal?.transfer_failed_n ?? 0) > 0 ? RED : 'var(--txt2)' }}>{fmtNum(psTotal?.transfer_failed_n)} failed</span>
                   </div>
                 </div>
                 <div style={{ padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)' }}>
-                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Funding in</div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Funding In</div>
                   <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold }}>{fmtKobo(psTotal?.funding_kobo)}</div>
                   <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
                     {fmtNum(psTotal?.funding_n)} funded · <span style={{ color: AMBER }}>{fmtNum(psTotal?.funding_lost_n)} lost</span>
                   </div>
                 </div>
                 <div style={{ padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)' }}>
-                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Settled to bank</div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Settled to Bank</div>
                   <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold }}>{fmtKobo(psTotal?.settled_kobo)}</div>
                 </div>
                 <div style={{ padding: '10px 12px', borderRadius: RADIUS.md, background: 'var(--th-bg)' }}>
-                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Open disputes</div>
+                  <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Open Disputes</div>
                   <div style={{ ...NUM, fontSize: TEXT.md, fontWeight: FW.bold, color: Number(psTotal?.open_disputes ?? 0) > 0 ? RED : 'var(--txt)' }}>
                     {fmtNum(psTotal?.open_disputes)}
                   </div>
@@ -303,12 +303,12 @@ export default function SettlementsOverview() {
       </div>
 
       {/* ── How the providers tie back ── */}
-      <SectionCard title="Link to the master" subtitle="A provider transaction only counts once it can be tied to a CCS record">
+      <SectionCard title="Link to the Master" subtitle="A provider transaction only counts once it can be tied to a CCS record">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
           <div style={{ padding: SP[4], borderRadius: RADIUS.lg, border: '1px solid var(--bdr)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[2] }}>
               <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold }}>Interswitch → CCS</span>
-              <Badge variant="success" dot>linked</Badge>
+              <Badge variant="success" dot>Linked</Badge>
             </div>
             <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: stanRate >= 90 ? GREEN : AMBER }}>
               {stanRate.toFixed(1)}%
@@ -321,7 +321,7 @@ export default function SettlementsOverview() {
           <div style={{ padding: SP[4], borderRadius: RADIUS.lg, border: '1px solid var(--bdr)', background: 'rgba(217,119,6,0.05)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], marginBottom: SP[2] }}>
               <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold }}>Paystack → CCS</span>
-              <Badge variant="warning" dot>no key</Badge>
+              <Badge variant="warning" dot>No Key</Badge>
             </div>
             <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6 }}>
               {link?.paystack_note ?? 'No shared reference between Paystack and the CCS report.'}

@@ -111,7 +111,7 @@ function RuleFormFields({ form, onChange }: { form: RuleForm; onChange: (f: Rule
       </div>
 
       <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--txt3)', paddingTop: 4 }}>
-        Match Conditions (leave blank to match all)
+        Match Conditions (Leave Blank to Match All)
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[3] }}>
@@ -138,7 +138,7 @@ function RuleFormFields({ form, onChange }: { form: RuleForm; onChange: (f: Rule
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: SP[2], paddingTop: 22 }}>
           <input type="checkbox" id="rule-active" checked={form.is_active} onChange={e => onChange({ ...form, is_active: e.target.checked })} style={{ width: 15, height: 15, cursor: 'pointer' }} />
-          <label htmlFor="rule-active" style={{ fontSize: TEXT.base, color: 'var(--txt)', cursor: 'pointer' }}>Rule is active</label>
+          <label htmlFor="rule-active" style={{ fontSize: TEXT.base, color: 'var(--txt)', cursor: 'pointer' }}>Rule Is Active</label>
         </div>
       </div>
     </div>
@@ -641,7 +641,7 @@ export default function HelpdeskSettings() {
           <div>
             <label style={labelStyle}>Ticket Type *</label>
             <select value={scriptForm.ticket_type} onChange={e => setScriptForm(f => ({ ...f, ticket_type: e.target.value }))} style={{ ...inputStyle }}>
-              <option value="">— Select type —</option>
+              <option value="">— Select Type —</option>
               {TICKET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
@@ -652,7 +652,7 @@ export default function HelpdeskSettings() {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
             <input type="checkbox" id="script-active" checked={scriptForm.is_active} onChange={e => setScriptForm(f => ({ ...f, is_active: e.target.checked }))} style={{ width: 15, height: 15, cursor: 'pointer' }} />
-            <label htmlFor="script-active" style={{ fontSize: TEXT.base, color: 'var(--txt)', cursor: 'pointer' }}>Script is active</label>
+            <label htmlFor="script-active" style={{ fontSize: TEXT.base, color: 'var(--txt)', cursor: 'pointer' }}>Script Is Active</label>
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

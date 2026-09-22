@@ -57,8 +57,8 @@ interface SyncStatus {
 
 const ACTIVITY_META: Record<string, { label: string; icon: string; color: string }> = {
   reconciliation:     { label: 'Reconciliation', icon: 'rule',        color: NAVY },
-  paystack_sync:      { label: 'Paystack sync',  icon: 'sync',        color: '#2563EB' },
-  interswitch_import: { label: 'EOD import',     icon: 'upload_file', color: '#7C3AED' },
+  paystack_sync:      { label: 'Paystack Sync',  icon: 'sync',        color: '#2563EB' },
+  interswitch_import: { label: 'EOD Import',     icon: 'upload_file', color: '#7C3AED' },
 }
 
 const tdBase: React.CSSProperties = {
@@ -141,19 +141,19 @@ export default function SettlementRuns() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[3], marginBottom: SP[6] }}>
         <KpiCard
-          label="Last reconciliation"
+          label="Last Reconciliation"
           value={lastRecon ? `${Number(lastRecon.match_rate_pct ?? 0).toFixed(1)}%` : '—'}
           sub={lastRecon ? `${fmtNum(lastRecon.exceptions)} exceptions · ${fmtDatetime(lastRecon.started_at)}` : 'Never run'}
           icon="rule" accent={NAVY} loading={loading && !data}
         />
         <KpiCard
-          label="Last Paystack sync"
+          label="Last Paystack Sync"
           value={lastSync ? lastSync.status : '—'}
           sub={lastSync ? `${fmtNum(lastSync.records)} records · ${fmtDatetime(lastSync.started_at)}` : 'Never run'}
           icon="sync" accent={lastSync?.status === 'ok' ? GREEN : AMBER} loading={loading && !data}
         />
         <KpiCard
-          label="Mirrored records"
+          label="Mirrored Records"
           value={fmtNum(
             Number(sync?.snapshot?.transactions ?? 0) + Number(sync?.snapshot?.transfers ?? 0) +
             Number(sync?.snapshot?.settlements ?? 0) + Number(sync?.snapshot?.disputes ?? 0)
@@ -162,7 +162,7 @@ export default function SettlementRuns() {
           icon="database" accent={NAVY} loading={loading && !sync}
         />
         <KpiCard
-          label="Last EOD import"
+          label="Last EOD Import"
           value={lastImport ? fmtNum(lastImport.records) : '—'}
           sub={lastImport ? fmtDatetime(lastImport.started_at) : 'No imports'}
           icon="upload_file" accent={NAVY} loading={loading && !data}
@@ -184,10 +184,10 @@ export default function SettlementRuns() {
 
       <Tabs
         tabs={[
-          { key: 'all',                label: 'All activity' },
+          { key: 'all',                label: 'All Activity' },
           { key: 'reconciliation',     label: 'Reconciliations' },
-          { key: 'paystack_sync',      label: 'Paystack syncs' },
-          { key: 'interswitch_import', label: 'EOD imports' },
+          { key: 'paystack_sync',      label: 'Paystack Syncs' },
+          { key: 'interswitch_import', label: 'EOD Imports' },
         ]}
         active={tab}
         onChange={k => setTab(k as typeof tab)}
@@ -197,7 +197,7 @@ export default function SettlementRuns() {
         {loading && !data ? (
           <div style={{ padding: SP[5] }}><Spinner /></div>
         ) : rows.length === 0 ? (
-          <EmptyState icon="history" title="Nothing here yet"
+          <EmptyState icon="history" title="Nothing Here Yet"
             description="Reconciliations, syncs and imports will appear as they run." />
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -242,7 +242,7 @@ export default function SettlementRuns() {
                       </td>
                       <td style={tdBase}>
                         <StatusBadge status={a.status} size="sm" />
-                        {a.signed_off && <Badge variant="success" style={{ marginLeft: 6 }}>signed</Badge>}
+                        {a.signed_off && <Badge variant="success" style={{ marginLeft: 6 }}>Signed</Badge>}
                         {a.error && (
                           <div style={{ fontSize: TEXT.xs, color: RED, marginTop: 2, maxWidth: 260 }}>{a.error}</div>
                         )}

@@ -157,7 +157,7 @@ function Step1({ data, onChange }: { data: PersonalInfo; onChange: (d: PersonalI
       </Field>
       <Field label="Gender" required>
         <select style={inputStyle} value={data.gender} onChange={set('gender')}>
-          <option value="">Select gender</option>
+          <option value="">Select Gender</option>
           <option value="male">Male</option>
           <option value="female">Female</option>
           <option value="other">Other</option>
@@ -226,10 +226,10 @@ function Step2({ data, onChange }: { data: Employment; onChange: (d: Employment)
       </Field>
       <Field label="Employment Type" required>
         <select style={inputStyle} value={data.employment_type} onChange={set('employment_type')}>
-          <option value="">Select type</option>
+          <option value="">Select Type</option>
           <option value="permanent">Permanent</option>
           <option value="contract">Contract</option>
-          <option value="self_employed">Self-employed</option>
+          <option value="self_employed">Self-Employed</option>
         </select>
       </Field>
       <Field label="Employment Start Date" required>
@@ -248,7 +248,7 @@ function Step3({ data, onChange }: { data: LoanRequest; onChange: (d: LoanReques
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 20px' }}>
       <Field label="Product Type" required>
         <select style={inputStyle} value={data.product_type} onChange={set('product_type')}>
-            <option value="">Select product</option>
+            <option value="">Select Product</option>
             <option value="salary_loan">Salary Loan</option>
             <option value="business_loan">Business Loan</option>
             <option value="credit_card">Credit Card</option>
@@ -264,7 +264,7 @@ function Step3({ data, onChange }: { data: LoanRequest; onChange: (d: LoanReques
           min={0}
         />
       </Field>
-      <Field label="Tenor (months)" required>
+      <Field label="Tenor (Months)" required>
         <input
           type="number"
           style={inputStyle}

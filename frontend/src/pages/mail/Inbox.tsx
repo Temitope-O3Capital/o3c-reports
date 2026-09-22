@@ -427,7 +427,7 @@ export default function MailInbox() {
               ))
             ) : items.length === 0 ? (
               <div style={{ padding: '40px 18px', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base, fontFamily: SORA }}>
-                {folder === 'inbox' ? 'Your inbox is empty' : folder === 'sent' ? 'No sent messages' : 'No drafts'}
+                {folder === 'inbox' ? 'Your Inbox Is Empty' : folder === 'sent' ? 'No Sent Messages' : 'No Drafts'}
               </div>
             ) : items.map(item => {
               const isSel = item.id === selId
@@ -471,7 +471,7 @@ export default function MailInbox() {
             <button
               onClick={loadMoreInbox}
               style={{ width: '100%', padding: '10px', background: 'none', border: 'none', borderTop: '1px solid var(--bdr)', color: 'var(--txt2)', fontSize: TEXT.sm, cursor: 'pointer', fontFamily: SORA }}>
-              Load more
+              Load More
             </button>
           )}
         </div>
@@ -501,7 +501,7 @@ export default function MailInbox() {
                   </button>
                   <button onClick={() => doReply(true)} style={btnGhost}>
                     <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>reply_all</span>
-                    Reply all
+                    Reply All
                   </button>
                   <button onClick={doForward} style={btnGhost}>
                     <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>forward</span>
@@ -509,7 +509,7 @@ export default function MailInbox() {
                   </button>
                   <button onClick={() => navigate(`/mail/${selId}`)} style={btnGhost}>
                     <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>open_in_new</span>
-                    Open thread
+                    Open Thread
                   </button>
                 </>
               )}
@@ -522,7 +522,7 @@ export default function MailInbox() {
                   {selId !== null && (
                     <button onClick={() => navigate(`/mail/${selId}`)} style={btnGhost}>
                       <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>open_in_new</span>
-                      Full thread
+                      Full Thread
                     </button>
                   )}
                 </>
@@ -530,7 +530,7 @@ export default function MailInbox() {
               {folder === 'drafts' && (
                 <button onClick={editDraft} style={btnSolid}>
                   <span className="material-symbols-rounded" style={{ fontSize: TEXT.md }}>edit</span>
-                  Edit draft
+                  Edit Draft
                 </button>
               )}
             </div>

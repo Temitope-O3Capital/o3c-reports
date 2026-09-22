@@ -69,7 +69,7 @@ var PageCatalog = []CatalogModule{
 		{"collections_payment_approve", "Collections — Payment Approve"},
 		{"recovery", "Recovery"},
 		{"recovery_assign", "Recovery — Assign"},
-		{"recovery_write_off", "Recovery — Write-off"},
+		{"recovery_write_off", "Recovery — Write-Off"},
 	}},
 	{Key: "cards", Label: "Cards", Icon: "credit_card", Pages: []CatalogPage{
 		{"cards", "Cards"},

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -54,6 +55,23 @@ type savedPivotConfig struct {
 	DateFrom   string            `json:"date_from"`
 	DateTo     string            `json:"date_to"`
 	Chart      json.RawMessage   `json:"chart,omitempty"` // view prefs; opaque to the server
+
+	// View is "table" (one line per record) or "summary" (the pivot). Reports saved
+	// before Table view existed have no view, and are summaries.
+	View         string            `json:"view,omitempty"`
+	Columns      []tableColumn     `json:"columns,omitempty"`       // Table: ordered columns and their names
+	Totals       []string          `json:"totals,omitempty"`        // Table: column keys that show a total
+	Sort         []reportSort      `json:"sort,omitempty"`          // Table: field keys; Summary: matrix column ids
+	HeaderLabels map[string]string `json:"header_labels,omitempty"` // Summary: matrix column id → name
+	HiddenCols   []string          `json:"hidden_cols,omitempty"`   // Summary: matrix column ids not shown
+	TopN         *pivotTopN        `json:"top_n,omitempty"`         // Summary: keep the N biggest groups
+}
+
+// toTableSpec resolves a Table report's definition, with its date window rolled forward
+// like toSpec's.
+func (c savedPivotConfig) toTableSpec(now time.Time) tableSpec {
+	s := c.toSpec(now)
+	return tableSpec{DateFrom: s.DateFrom, DateTo: s.DateTo, Filters: c.Filters, ColFilters: c.ColFilters, Columns: c.Columns, Sort: c.Sort}
 }
 
 // toSpec resolves the config into an executable pivotSpec. A relative window is
@@ -66,7 +84,7 @@ func (c savedPivotConfig) toSpec(now time.Time) pivotSpec {
 			from, to = f, t
 		}
 	}
-	return pivotSpec{DateFrom: from, DateTo: to, Filters: c.Filters, ColFilters: c.ColFilters, Rows: c.Rows, Cols: c.Cols, Values: c.Values, Grains: c.Grains, DimLabels: c.DimLabels}
+	return pivotSpec{DateFrom: from, DateTo: to, Filters: c.Filters, ColFilters: c.ColFilters, Rows: c.Rows, Cols: c.Cols, Values: c.Values, Grains: c.Grains, DimLabels: c.DimLabels, TopN: c.TopN}
 }
 
 // resolveReportWindow turns a named relative window into concrete YYYY-MM-DD
@@ -75,9 +93,27 @@ func resolveReportWindow(window string, now time.Time) (string, string) {
 	n := now.In(reportTZ)
 	today := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, reportTZ)
 	d := func(t time.Time) string { return t.Format("2006-01-02") }
+	// Weeks start on Monday. A report scheduled for Monday morning on last_work_week
+	// covers the Monday to Friday just gone.
+	monday := today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7))
 	switch window {
 	case "today":
 		return d(today), d(today)
+	case "yesterday":
+		y := today.AddDate(0, 0, -1)
+		return d(y), d(y)
+	case "this_week":
+		return d(monday), d(today)
+	case "last_week":
+		start := monday.AddDate(0, 0, -7)
+		return d(start), d(start.AddDate(0, 0, 6))
+	case "last_work_week":
+		start := monday.AddDate(0, 0, -7)
+		return d(start), d(start.AddDate(0, 0, 4))
+	case "last_quarter":
+		q := (int(n.Month()) - 1) / 3
+		start := time.Date(n.Year(), time.Month(q*3+1), 1, 0, 0, 0, 0, reportTZ)
+		return d(start.AddDate(0, -3, 0)), d(start.AddDate(0, 0, -1))
 	case "last_7_days":
 		return d(today.AddDate(0, 0, -6)), d(today)
 	case "last_30_days":
@@ -139,6 +175,7 @@ func RegisterSavedReports(r chi.Router, db *core.DB) {
 	r.With(rd).Post("/saved/{id}/export", savedExportReport(db)) // ?format=csv|xlsx|json
 	r.With(rd).Post("/saved/{id}/email", savedEmailReport(db))
 	r.With(rd).Post("/pivot-email", savedEmailAdhoc(db)) // email an unsaved config
+	r.With(rd).Post("/report-file", reportFile(db))      // ?format=xlsx|csv|json — the open report as a file
 
 	r.With(rd).Get("/schedules", savedListSchedules(db))
 	r.With(rd).Post("/saved/{id}/schedule", savedCreateSchedule(db))
@@ -466,25 +503,24 @@ func savedDeleteReport(db *core.DB) http.HandlerFunc {
 
 // ── loadReportSpec resolves a saved report to (dataset, spec, name) ──────────────
 
-func loadReportSpec(ctx context.Context, db *core.DB, id string, u *core.Claims) (exportDataset, pivotSpec, string, int, error) {
+func loadReportSpec(ctx context.Context, db *core.DB, id string, u *core.Claims) (exportDataset, savedPivotConfig, string, int, error) {
 	rows, err := db.PGQuery(ctx, `SELECT name, dataset, config, is_public, created_by FROM pivot_reports WHERE id=$1`, id)
 	if err != nil || len(rows) == 0 {
-		return exportDataset{}, pivotSpec{}, "", 404, fmt.Errorf("Report not found")
+		return exportDataset{}, savedPivotConfig{}, "", 404, fmt.Errorf("Report not found")
 	}
 	rep := rows[0]
 	isPublic, _ := rep["is_public"].(bool)
 	if !isPublic && u != nil && toInt64(rep["created_by"]) != u.ID {
-		return exportDataset{}, pivotSpec{}, "", 403, fmt.Errorf("Not authorised")
+		return exportDataset{}, savedPivotConfig{}, "", 403, fmt.Errorf("Not authorised")
 	}
 	if !reportDatasetAllowed(u, str(rep["dataset"])) {
-		return exportDataset{}, pivotSpec{}, "", 403, fmt.Errorf("%s", reportDatasetDenied)
+		return exportDataset{}, savedPivotConfig{}, "", 403, fmt.Errorf("%s", reportDatasetDenied)
 	}
 	d, ok := exportDatasetByKey(str(rep["dataset"]))
 	if !ok {
-		return exportDataset{}, pivotSpec{}, "", 422, fmt.Errorf("This report's data source no longer exists")
+		return exportDataset{}, savedPivotConfig{}, "", 422, fmt.Errorf("This report's data source no longer exists")
 	}
-	cfg := parseSavedConfig(rep["config"])
-	return d, cfg.toSpec(time.Now()), str(rep["name"]), 200, nil
+	return d, parseSavedConfig(rep["config"]), str(rep["name"]), 200, nil
 }
 
 // ── Export (download) ───────────────────────────────────────────────────────────
@@ -498,23 +534,26 @@ func savedExportReport(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Unsupported format (use csv, xlsx or json)")
 			return
 		}
-		d, spec, name, code, err := loadReportSpec(ctx, db, id, core.UserFromCtx(ctx))
+		u := core.UserFromCtx(ctx)
+		d, cfg, name, code, err := loadReportSpec(ctx, db, id, u)
 		if err != nil {
 			respondErr(w, code, err.Error())
 			return
 		}
-		res, err := runPivot(ctx, db, d, spec)
+		rep, err := renderReport(ctx, db, d, cfg, time.Now(), d.maxRows())
 		if err != nil {
-			respondErr(w, 422, err.Error())
+			respondReportErr(w, err)
 			return
 		}
-		cols := pivotExportCols(res)
 		if name == "" {
 			name = "report"
 		}
 		filename := exportFilename(name, format)
-		logBIExport(ctx, db, r, name, d.Key, format, len(res.Rows))
-		if err := writeExport(w, format, filename, cols, res.Rows); err != nil {
+		if rep.Truncated {
+			w.Header().Set("X-Export-Truncated", "true")
+		}
+		logBIExport(ctx, db, r, name, d.Key, format, rep.RecordCount())
+		if err := writeExport(w, format, filename, rep.Cols, rep.Rows); err != nil {
 			slog.Error("savedExportReport write", "id", id, "err", err)
 		}
 	}
@@ -541,22 +580,32 @@ func savedEmailReport(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Add at least one valid recipient email")
 			return
 		}
-		d, spec, name, code, err := loadReportSpec(ctx, db, id, core.UserFromCtx(ctx))
+		u := core.UserFromCtx(ctx)
+		if bad := reportRecipientsNotAllowed(ctx, db, u, to); len(bad) > 0 {
+			respondErr(w, 422, reportRecipientsDeniedMessage(bad))
+			return
+		}
+		d, cfg, name, code, err := loadReportSpec(ctx, db, id, u)
 		if err != nil {
 			respondErr(w, code, err.Error())
 			return
 		}
-		res, err := runPivot(ctx, db, d, spec)
+		rep, err := renderReport(ctx, db, d, cfg, time.Now(), d.maxRows())
 		if err != nil {
-			respondErr(w, 422, err.Error())
+			respondReportErr(w, err)
 			return
 		}
-		sent, err := emailPivotReport(ctx, db, r, name, d.Key, res, to, b.Format, b.Message)
+		sent, err := emailReport(ctx, db, r, name, d.Key, rep, to, b.Format, b.Message)
 		if err != nil {
+			var big reportTooBig
+			if errors.As(err, &big) {
+				respondErr(w, 422, big.Error())
+				return
+			}
 			respondErrLog(w, 502, "Could not send the report", err)
 			return
 		}
-		respond(w, map[string]any{"ok": true, "recipients": sent, "rows": len(res.Rows)}, "json")
+		respond(w, map[string]any{"ok": true, "recipients": sent, "rows": rep.RecordCount(), "truncated": rep.Truncated}, "json")
 	}
 }
 
@@ -579,6 +628,9 @@ func savedEmailAdhoc(db *core.DB) http.HandlerFunc {
 		Recipients []string          `json:"recipients"`
 		Format     string            `json:"format"`
 		Message    string            `json:"message"`
+		// Config is the whole report definition, as the builder sends it now. A tab
+		// opened before Table view sends the Summary fields above instead.
+		Config *savedPivotConfig `json:"config"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -597,47 +649,59 @@ func savedEmailAdhoc(db *core.DB) http.HandlerFunc {
 			respondErr(w, 422, "Unknown data source")
 			return
 		}
-		if !reportDatasetAllowed(core.UserFromCtx(ctx), b.Dataset) {
+		u := core.UserFromCtx(ctx)
+		if !reportDatasetAllowed(u, b.Dataset) {
 			respondErr(w, 403, reportDatasetDenied)
+			return
+		}
+		if bad := reportRecipientsNotAllowed(ctx, db, u, to); len(bad) > 0 {
+			respondErr(w, 422, reportRecipientsDeniedMessage(bad))
 			return
 		}
 		cfg := savedPivotConfig{
 			Rows: b.Rows, Cols: b.Cols, Values: b.Values, Filters: b.Filters, ColFilters: b.ColFilters, Grains: b.Grains, DimLabels: b.DimLabels,
 			DateWindow: b.DateWindow, DateFrom: b.DateFrom, DateTo: b.DateTo,
 		}
-		res, err := runPivot(ctx, db, d, cfg.toSpec(time.Now()))
+		if b.Config != nil {
+			cfg = *b.Config
+		}
+		rep, err := renderReport(ctx, db, d, cfg, time.Now(), d.maxRows())
 		if err != nil {
-			respondErr(w, 422, err.Error())
+			respondReportErr(w, err)
 			return
 		}
 		name := strings.TrimSpace(b.Name)
 		if name == "" {
 			name = d.Label + " report"
 		}
-		sent, err := emailPivotReport(ctx, db, r, name, d.Key, res, to, b.Format, b.Message)
+		sent, err := emailReport(ctx, db, r, name, d.Key, rep, to, b.Format, b.Message)
 		if err != nil {
+			var big reportTooBig
+			if errors.As(err, &big) {
+				respondErr(w, 422, big.Error())
+				return
+			}
 			respondErrLog(w, 502, "Could not send the report", err)
 			return
 		}
-		respond(w, map[string]any{"ok": true, "recipients": sent, "rows": len(res.Rows)}, "json")
+		respond(w, map[string]any{"ok": true, "recipients": sent, "rows": rep.RecordCount(), "truncated": rep.Truncated}, "json")
 	}
 }
 
 // ── File + email helpers ─────────────────────────────────────────────────────────
 
-// pivotExportCols flattens a pivot result to ordered export columns: dimensions
-// first (as text), then measures with their display type so kobo/pct/money format
-// correctly in the file.
-func pivotExportCols(res pivotResult) []exportCol {
-	cols := make([]exportCol, 0, len(res.Dims)+len(res.Meas))
-	for _, dm := range res.Dims {
-		cols = append(cols, exportCol{Key: dm.Key, Label: dm.Label, Type: colText})
-	}
-	for _, ms := range res.Meas {
-		cols = append(cols, exportCol{Key: ms.Key, Label: ms.Label, Type: exportColType(ms.Type)})
-	}
-	return cols
-}
+// reportTooBig marks a report that rendered fine but is too large to leave as a mail
+// attachment. The email handlers turn it into a 422 the sender can act on; without it
+// the provider's rejection arrives as a bare "Could not send the report".
+type reportTooBig struct{ msg string }
+
+func (e reportTooBig) Error() string { return e.msg }
+
+// reportMailMaxBytes is the most attachment one message may carry. The provider rejects
+// a message over 30MB measured AFTER base64 (+33%), so guard the encoded size and leave
+// room for the body. Reports only reach this size because files are no longer capped at
+// 5,000 records; a download has no such limit.
+const reportMailMaxBytes = 20 << 20
 
 // emailFormat clamps the requested format to what makes sense as a mail
 // attachment (a spreadsheet), defaulting to xlsx.
@@ -649,23 +713,21 @@ func emailFormat(s string) exportFormat {
 	return fmtXLSX
 }
 
-func renderPivotBytes(res pivotResult, format exportFormat) ([]byte, error) {
+func renderReportBytes(rep renderedReport, format exportFormat) ([]byte, error) {
 	var buf bytes.Buffer
-	cols := pivotExportCols(res)
 	var err error
 	switch format {
 	case fmtCSV:
-		err = writeExportCSV(&buf, cols, res.Rows)
+		err = writeExportCSV(&buf, rep.Cols, rep.Rows)
 	default:
-		err = writeExportXLSX(&buf, cols, res.Rows)
+		err = writeExportXLSX(&buf, rep.Cols, rep.Rows)
 	}
 	return buf.Bytes(), err
 }
 
-// pivotHTMLTable renders up to `limit` rows as an inline HTML table so the
+// reportHTMLTable renders up to `limit` rows as an inline HTML table so the
 // recipient sees the figures in the mail body, with the full set attached.
-func pivotHTMLTable(res pivotResult, limit int) string {
-	cols := pivotExportCols(res)
+func reportHTMLTable(cols []exportCol, rows []map[string]any, limit int) string {
 	var b strings.Builder
 	b.WriteString(`<table style="border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:13px;margin-top:8px">`)
 	b.WriteString(`<thead><tr>`)
@@ -674,7 +736,7 @@ func pivotHTMLTable(res pivotResult, limit int) string {
 	}
 	b.WriteString(`</tr></thead><tbody>`)
 	shown := 0
-	for _, row := range res.Rows {
+	for _, row := range rows {
 		if shown >= limit {
 			break
 		}
@@ -690,19 +752,24 @@ func pivotHTMLTable(res pivotResult, limit int) string {
 		shown++
 	}
 	b.WriteString(`</tbody></table>`)
-	if len(res.Rows) > limit {
-		b.WriteString(fmt.Sprintf(`<p style="font-size:12px;color:#6B7280;margin-top:6px">Showing %d of %d rows — the full report is attached.</p>`, limit, len(res.Rows)))
+	if len(rows) > limit {
+		b.WriteString(fmt.Sprintf(`<p style="font-size:12px;color:#6B7280;margin-top:6px">Showing %d of %d rows — the full report is attached.</p>`, limit, len(rows)))
 	}
 	return b.String()
 }
 
-// emailPivotReport renders the result to a file, builds an HTML body with an
-// inline preview, and sends it. Returns the number of recipients.
-func emailPivotReport(ctx context.Context, db *core.DB, r *http.Request, name, dataset string, res pivotResult, recipients []string, format, message string) (int, error) {
+// emailReport writes a rendered report to a file, builds an HTML body with an inline
+// preview, and sends it. Returns the number of recipients.
+func emailReport(ctx context.Context, db *core.DB, r *http.Request, name, dataset string, rep renderedReport, recipients []string, format, message string) (int, error) {
 	f := emailFormat(format)
-	data, err := renderPivotBytes(res, f)
+	data, err := renderReportBytes(rep, f)
 	if err != nil {
 		return 0, err
+	}
+	if enc := base64.StdEncoding.EncodedLen(len(data)); enc > reportMailMaxBytes {
+		return 0, reportTooBig{fmt.Sprintf(
+			"This report is too large to email: %d records come to %d MB attached, and a message can carry %d MB. Download it instead, or add a filter to narrow it down.",
+			rep.RecordCount(), enc>>20, reportMailMaxBytes>>20)}
 	}
 	to := make([]MailAddress, 0, len(recipients))
 	for _, e := range recipients {
@@ -720,15 +787,24 @@ func emailPivotReport(ctx context.Context, db *core.DB, r *http.Request, name, d
 	if strings.TrimSpace(message) != "" {
 		intro = `<p style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111827">` + html.EscapeString(message) + `</p>`
 	}
+	fileNote := fmt.Sprintf("The attached %s file holds the complete report.", strings.ToUpper(f.ext()))
+	if rep.Truncated {
+		// The number actually attached: a Summary can stop at its line limit before the file cap.
+		unit := "records"
+		if rep.Summary {
+			unit = "lines"
+		}
+		fileNote = fmt.Sprintf("The attached %s file holds the first %d %s; the report has more.", strings.ToUpper(f.ext()), rep.RecordCount(), unit)
+	}
 	htmlBody := fmt.Sprintf(`<div style="font-family:Segoe UI,Arial,sans-serif;color:#111827">`+
 		`<h2 style="color:#0E2841;margin:0 0 4px">%s</h2>`+
 		`<p style="font-size:13px;color:#6B7280;margin:0 0 12px">O3 Capital Workspace · generated %s · %d rows</p>`+
 		`%s%s`+
-		`<p style="font-size:12px;color:#9CA3AF;margin-top:16px">This report was generated from the Report Builder. The attached %s file holds the complete data.</p>`+
+		`<p style="font-size:12px;color:#9CA3AF;margin-top:16px">This report was generated from the Report Builder. %s</p>`+
 		`</div>`,
-		safeName, stamp, len(res.Rows), intro, pivotHTMLTable(res, 100), strings.ToUpper(f.ext()))
+		safeName, stamp, rep.RecordCount(), intro, reportHTMLTable(rep.Cols, rep.Rows, 100), html.EscapeString(fileNote))
 
-	textBody := fmt.Sprintf("%s\n\nGenerated %s · %d rows.\nThe complete report is attached as a %s file.", name, stamp, len(res.Rows), strings.ToUpper(f.ext()))
+	textBody := fmt.Sprintf("%s\n\nGenerated %s · %d rows.\n%s", name, stamp, rep.RecordCount(), fileNote)
 
 	fname := exportFilename(name, f)
 	result := SendMail(ctx, db, SendMailOptions{
@@ -749,7 +825,7 @@ func emailPivotReport(ctx context.Context, db *core.DB, r *http.Request, name, d
 	if !result.OK && result.Error != "" {
 		return 0, fmt.Errorf("%s", result.Error)
 	}
-	logBIExport(ctx, db, r, name, dataset, f, len(res.Rows))
+	logBIExport(ctx, db, r, name, dataset, f, rep.RecordCount())
 	return len(to), nil
 }
 
@@ -797,8 +873,18 @@ func savedListSchedules(db *core.DB) http.HandlerFunc {
 			if !reportDatasetAllowed(u, str(row["dataset"])) {
 				continue
 			}
-			// Tells the page whether to offer edit, pause, send-now and delete.
-			row["can_manage"] = canManageReportItem(u, toInt64(row["created_by"]), toInt64(row["report_created_by"]))
+			// Tells the page whether to offer edit, pause, send-now and delete. A schedule is
+			// managed by the person who set it up: they chose its recipients and it sends
+			// with their access.
+			canManage := canManageReportItem(u, scheduleOwnerID(row["created_by"], row["report_created_by"]))
+			row["can_manage"] = canManage
+			if !canManage {
+				// Someone else's recipients and send errors are theirs to see.
+				row["recipients"] = []string{}
+				if strings.HasPrefix(str(row["last_status"]), "error") {
+					row["last_status"] = "error"
+				}
+			}
 			visibleRows = append(visibleRows, row)
 		}
 		respond(w, visibleRows, "pg")
@@ -844,12 +930,23 @@ func savedCreateSchedule(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Add at least one valid recipient email")
 			return
 		}
+		if bad := reportRecipientsNotAllowed(ctx, db, u, to); len(bad) > 0 {
+			respondErr(w, 422, reportRecipientsDeniedMessage(bad))
+			return
+		}
 		freq := b.Frequency
 		if freq != "weekly" && freq != "monthly" {
 			freq = "daily"
 		}
 		if b.Hour < 0 || b.Hour > 23 {
 			b.Hour = 7
+		}
+		// Stored as they will run, so the Schedules tab never shows a day that isn't used.
+		if b.DayOfWeek < 0 || b.DayOfWeek > 6 {
+			b.DayOfWeek = 1
+		}
+		if b.DayOfMonth < 1 || b.DayOfMonth > 28 {
+			b.DayOfMonth = 1
 		}
 		f := string(emailFormat(b.Format))
 		recip, _ := json.Marshal(to)
@@ -902,7 +999,7 @@ func savedUpdateSchedule(db *core.DB) http.HandlerFunc {
 			return
 		}
 		u := core.UserFromCtx(ctx)
-		if !canManageReportItem(u, toInt64(cur[0]["created_by"]), toInt64(cur[0]["report_created_by"])) {
+		if !canManageReportItem(u, scheduleOwnerID(cur[0]["created_by"], cur[0]["report_created_by"])) {
 			respondErr(w, 403, "Only the person who set up this schedule can change it")
 			return
 		}
@@ -926,6 +1023,11 @@ func savedUpdateSchedule(db *core.DB) http.HandlerFunc {
 		timingChanged := false
 		if b.IsActive != nil {
 			add("is_active", *b.IsActive)
+			// A resumed schedule waits for its next slot instead of sending at once for the
+			// slot it missed while paused.
+			if *b.IsActive {
+				timingChanged = true
+			}
 		}
 		if b.Frequency != nil {
 			f := *b.Frequency
@@ -947,11 +1049,17 @@ func savedUpdateSchedule(db *core.DB) http.HandlerFunc {
 		}
 		if b.DayOfWeek != nil {
 			dow = *b.DayOfWeek
+			if dow < 0 || dow > 6 {
+				dow = 1
+			}
 			add("day_of_week", dow)
 			timingChanged = true
 		}
 		if b.DayOfMonth != nil {
 			dom = *b.DayOfMonth
+			if dom < 1 || dom > 28 {
+				dom = 1
+			}
 			add("day_of_month", dom)
 			timingChanged = true
 		}
@@ -959,6 +1067,10 @@ func savedUpdateSchedule(db *core.DB) http.HandlerFunc {
 			to := cleanRecipients(*b.Recipients)
 			if len(to) == 0 {
 				respondErr(w, 400, "Add at least one valid recipient email")
+				return
+			}
+			if bad := reportRecipientsNotAllowed(ctx, db, u, to); len(bad) > 0 {
+				respondErr(w, 422, reportRecipientsDeniedMessage(bad))
 				return
 			}
 			recip, _ := json.Marshal(to)
@@ -992,7 +1104,7 @@ func savedDeleteSchedule(db *core.DB) http.HandlerFunc {
 			respondErr(w, 404, "Schedule not found")
 			return
 		}
-		if !canManageReportItem(core.UserFromCtx(r.Context()), toInt64(cur[0]["created_by"]), toInt64(cur[0]["report_created_by"])) {
+		if !canManageReportItem(core.UserFromCtx(r.Context()), scheduleOwnerID(cur[0]["created_by"], cur[0]["report_created_by"])) {
 			respondErr(w, 403, "Only the person who set up this schedule can delete it")
 			return
 		}
@@ -1011,7 +1123,9 @@ func savedRunScheduleNow(db *core.DB) http.HandlerFunc {
 		u := core.UserFromCtx(ctx)
 		sid := chi.URLParam(r, "sid")
 		rows, err := db.PGQuery(ctx, `
-			SELECT s.id, s.report_id, s.recipients, s.format, p.name, p.dataset, p.config, p.is_public, p.created_by, s.created_by AS sched_created_by
+			SELECT s.id, s.report_id, s.recipients, s.format, p.name, p.dataset, p.config, p.is_public, p.created_by,
+			       p.created_by AS report_created_by, s.created_by AS sched_created_by,
+			       COALESCE(s.created_by, p.created_by) AS owner_id
 			FROM pivot_report_schedules s JOIN pivot_reports p ON p.id = s.report_id
 			WHERE s.id=$1`, sid)
 		if err != nil || len(rows) == 0 {
@@ -1019,9 +1133,9 @@ func savedRunScheduleNow(db *core.DB) http.HandlerFunc {
 			return
 		}
 		s := rows[0]
-		// Sending now mails the recipients, so it is for the people who own the schedule
-		// or its report — not everyone who can see a shared report.
-		if !canManageReportItem(u, toInt64(s["sched_created_by"]), toInt64(s["created_by"])) {
+		// Sending now mails the recipients, so it is for the person who set up the schedule
+		// (and admin), not everyone who can see a shared report or the report's owner.
+		if !canManageReportItem(u, scheduleOwnerID(s["sched_created_by"], s["created_by"])) {
 			respondErr(w, 403, "Only the person who set up this schedule can send it now")
 			return
 		}
@@ -1029,7 +1143,8 @@ func savedRunScheduleNow(db *core.DB) http.HandlerFunc {
 			respondErr(w, 403, reportDatasetDenied)
 			return
 		}
-		status := deliverScheduledReport(ctx, db, s)
+		// Sent as the schedule's owner, exactly as the worker would send it.
+		status := deliverScheduledReport(ctx, db, s, reportOwnerClaims(ctx, db, toInt64(s["owner_id"])))
 		db.PGExec(ctx, `UPDATE pivot_report_schedules SET last_run_at=NOW(), last_status=$2 WHERE id=$1`, sid, status) //nolint:errcheck
 		if strings.HasPrefix(status, "error") {
 			respondErr(w, 502, status)
@@ -1091,7 +1206,8 @@ func StartReportScheduleWorker(db *core.DB) {
 		WorkerBeat(ctx, db, "report_schedules", "running", "", "")
 		rows, err := db.PGQuery(ctx, `
 			SELECT s.id, s.report_id, s.frequency, s.hour, s.day_of_week, s.day_of_month,
-			       s.recipients, s.format, p.name, p.dataset, p.config,
+			       s.recipients, s.format, s.next_run_at, p.name, p.dataset, p.config,
+			       p.is_public, p.created_by AS report_created_by,
 			       COALESCE(s.created_by, p.created_by) AS owner_id
 			FROM pivot_report_schedules s
 			JOIN pivot_reports p ON p.id = s.report_id
@@ -1105,20 +1221,43 @@ func StartReportScheduleWorker(db *core.DB) {
 		sent := 0
 		for _, s := range rows {
 			schedID := toInt64(s["id"])
-			next := nextReportRun(str(s["frequency"]), int(toInt64(s["hour"])), int(toInt64(s["day_of_week"])), int(toInt64(s["day_of_month"])), time.Now())
-			// A schedule runs with its owner's access as it stands today. Someone who has
-			// moved department or left must not keep mailing out data they can no longer
-			// see, so the schedule is paused with the reason on it.
-			if owner := reportOwnerClaims(ctx, db, toInt64(s["owner_id"])); !reportDatasetAllowed(owner, str(s["dataset"])) {
-				db.PGExec(ctx, //nolint:errcheck
-					`UPDATE pivot_report_schedules SET is_active=FALSE, last_run_at=NOW(), next_run_at=$2, last_status=$3 WHERE id=$1`,
-					schedID, next, "error: paused, the person who set this up no longer has access to this data")
+			// The next slot is counted from whichever is later, this server's clock or the
+			// slot being sent, so a clock a little behind the database can't pick the same
+			// slot again.
+			after := time.Now()
+			slot, hadSlot := s["next_run_at"].(time.Time)
+			if hadSlot && slot.After(after) {
+				after = slot
+			}
+			next := nextReportRun(str(s["frequency"]), int(toInt64(s["hour"])), int(toInt64(s["day_of_week"])), int(toInt64(s["day_of_month"])), after)
+			// Claim the slot before sending. A second backend running during a restart skips
+			// a slot already claimed, and a crash after the email went out doesn't send it
+			// again on start-up.
+			var prev any
+			if hadSlot {
+				prev = slot
+			}
+			claimed, err := db.PGQuery(ctx, `
+				UPDATE pivot_report_schedules SET next_run_at = $2
+				WHERE id = $1 AND is_active AND next_run_at IS NOT DISTINCT FROM $3::timestamptz
+				RETURNING id`, schedID, next, prev)
+			if err != nil || len(claimed) == 0 {
 				continue
 			}
-			status := deliverScheduledReport(ctx, db, s)
+			// A schedule runs with its owner's access as it stands today. Someone who has
+			// moved department, left, or lost sight of the report must not keep mailing it
+			// out, so the schedule is paused with the reason on it.
+			owner := reportOwnerClaims(ctx, db, toInt64(s["owner_id"]))
+			if problem := scheduleOwnerProblem(owner, s); problem != "" {
+				db.PGExec(ctx, //nolint:errcheck
+					`UPDATE pivot_report_schedules SET is_active=FALSE, last_run_at=NOW(), last_status=$2 WHERE id=$1`,
+					schedID, "error: paused, "+problem)
+				continue
+			}
+			status := deliverScheduleSafely(ctx, db, s, owner)
 			db.PGExec(ctx, //nolint:errcheck
-				`UPDATE pivot_report_schedules SET last_run_at=NOW(), next_run_at=$2, last_status=$3 WHERE id=$1`,
-				schedID, next, status)
+				`UPDATE pivot_report_schedules SET last_run_at=NOW(), last_status=$2 WHERE id=$1`,
+				schedID, status)
 			if strings.HasPrefix(status, "sent") {
 				sent++
 			}
@@ -1133,17 +1272,61 @@ func StartReportScheduleWorker(db *core.DB) {
 	}
 }
 
+// scheduleOwnerID is who a schedule sends as and who manages it: the person who set it
+// up, or, for a schedule saved before that was recorded, the report's owner.
+func scheduleOwnerID(schedCreatedBy, reportCreatedBy any) int64 {
+	if id := toInt64(schedCreatedBy); id != 0 {
+		return id
+	}
+	return toInt64(reportCreatedBy)
+}
+
+// scheduleOwnerProblem says why a schedule may not send as its owner today, or "" when it
+// may. The owner must still be active, still reach the data source, and still be able to
+// open the report: their own, a shared one, or any report for admin.
+func scheduleOwnerProblem(owner *core.Claims, s core.Row) string {
+	if owner == nil {
+		return "the person who set this up no longer has an active account"
+	}
+	if !reportDatasetAllowed(owner, str(s["dataset"])) {
+		return "the person who set this up no longer has access to this data"
+	}
+	public, _ := s["is_public"].(bool)
+	if !public && owner.Role != "admin" && toInt64(s["report_created_by"]) != owner.ID {
+		return "the report is no longer shared with the person who set this up"
+	}
+	return ""
+}
+
+// deliverScheduleSafely sends one schedule within a time limit and turns a panic into a
+// failed send, so one bad report can't stop the backend and every other schedule.
+func deliverScheduleSafely(ctx context.Context, db *core.DB, s core.Row, owner *core.Claims) (status string) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("scheduled report panicked", "schedule", toInt64(s["id"]), "panic", rec)
+			status = "error: the report could not be built"
+		}
+	}()
+	c, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	return deliverScheduledReport(c, db, s, owner)
+}
+
 // deliverScheduledReport runs and emails one schedule row, returning a short
 // status string stored on the schedule for the UI.
-func deliverScheduledReport(ctx context.Context, db *core.DB, s core.Row) string {
+//
+// It sends as the schedule's owner: their current access decides which data sources it
+// may read and who it may go to, so a schedule never sends what its owner could not send
+// by hand.
+func deliverScheduledReport(ctx context.Context, db *core.DB, s core.Row, owner *core.Claims) string {
 	d, ok := exportDatasetByKey(str(s["dataset"]))
 	if !ok {
 		return "error: data source missing"
 	}
-	cfg := parseSavedConfig(s["config"])
-	res, err := runPivot(ctx, db, d, cfg.toSpec(time.Now()))
-	if err != nil {
-		return "error: " + err.Error()
+	// Checked here as well as in the worker, so Send Now can't send a schedule whose
+	// owner has lost access.
+	if problem := scheduleOwnerProblem(owner, s); problem != "" {
+		return "error: " + problem
 	}
 	var recipients []string
 	json.Unmarshal(jsonBytes(s["recipients"]), &recipients) //nolint:errcheck
@@ -1151,10 +1334,17 @@ func deliverScheduledReport(ctx context.Context, db *core.DB, s core.Row) string
 	if len(to) == 0 {
 		return "error: no recipients"
 	}
-	n, err := emailPivotReport(ctx, db, nil, str(s["name"]), d.Key, res, to, str(s["format"]), "")
+	if bad := reportRecipientsNotAllowed(ctx, db, owner, to); len(bad) > 0 {
+		return "error: " + reportRecipientsDeniedMessage(bad)
+	}
+	rep, err := renderReport(ctx, db, d, parseSavedConfig(s["config"]), time.Now(), d.maxRows())
 	if err != nil {
 		return "error: " + err.Error()
 	}
-	slog.Info("scheduled report delivered", "report", str(s["name"]), "recipients", n, "rows", len(res.Rows))
-	return fmt.Sprintf("sent to %d · %d rows", n, len(res.Rows))
+	n, err := emailReport(ctx, db, nil, str(s["name"]), d.Key, rep, to, str(s["format"]), "")
+	if err != nil {
+		return "error: " + err.Error()
+	}
+	slog.Info("scheduled report delivered", "report", str(s["name"]), "recipients", n, "rows", rep.RecordCount())
+	return fmt.Sprintf("sent to %d · %d rows", n, rep.RecordCount())
 }

@@ -190,7 +190,7 @@ export default function AdminSettings() {
           <SearchInput value={search} onChange={setSearch} onClear={() => setSearch('')} />
           <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
             style={{ padding: '7px 12px', borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.sm, color: 'var(--txt)', fontFamily: INTER, outline: 'none' }}>
-            <option value="">All categories</option>
+            <option value="">All Categories</option>
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <span style={{ marginLeft: 'auto', fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>{displayed.length} settings</span>
@@ -208,7 +208,7 @@ export default function AdminSettings() {
             {loading ? (
               <tr><td colSpan={4} style={{ padding: SP[8], textAlign: 'center', color: 'var(--txt3)' }}>Loading…</td></tr>
             ) : displayed.length === 0 ? (
-              <tr><td colSpan={4} style={{ padding: SP[8], textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>No settings match</td></tr>
+              <tr><td colSpan={4} style={{ padding: SP[8], textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.base }}>No Settings Match</td></tr>
             ) : displayed.map(s => <SettingRow key={s.key} s={s} onSaved={load} />)}
           </tbody>
         </table>

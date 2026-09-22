@@ -772,7 +772,7 @@ export default function TicketDetail() {
           <button onClick={handleTakeOver} disabled={actionLoading}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', border: `1px solid ${AMBER}`, borderRadius: RADIUS.md, background: 'var(--card)', color: AMBER, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>swap_horiz</span>
-            Take over
+            Take Over
           </button>
         </div>
       )}
@@ -794,7 +794,7 @@ export default function TicketDetail() {
           <button onClick={handleResolveEscalation} disabled={actionLoading}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 13px', border: `1px solid ${RED}`, borderRadius: RADIUS.md, background: 'var(--card)', color: RED, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer' }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>check</span>
-            Clear escalation
+            Clear Escalation
           </button>
         </div>
       )}
@@ -904,7 +904,7 @@ export default function TicketDetail() {
               <div style={{ display: 'inline-flex', padding: 3, gap: 3, borderRadius: RADIUS.md, background: 'var(--th-bg)', border: '1px solid var(--bdr)', marginBottom: SP[2] }}>
                 {[
                   { key: false, label: 'Reply', icon: 'reply', color: NAVY },
-                  { key: true, label: 'Internal note', icon: 'lock', color: AMBER },
+                  { key: true, label: 'Internal Note', icon: 'lock', color: AMBER },
                 ].map(m => {
                   const active = replyNote === m.key
                   return (
@@ -983,7 +983,7 @@ export default function TicketDetail() {
                 <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: MONO, marginTop: 2 }}>
                   {linkedCif
                     ? <>CIF {linkedCif}{cifResolved && <span style={{ color: GREEN, fontFamily: 'inherit' }}> · matched</span>}</>
-                    : 'No CIF linked'}
+                    : 'No CIF Linked'}
                 </div>
               </div>
               {linkedCif && (
@@ -1144,7 +1144,7 @@ export default function TicketDetail() {
                         )}
                       </div>
                       {c.name_on_card && (
-                        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Name on card: <span style={{ color: 'var(--txt)', fontWeight: FW.medium }}>{c.name_on_card}</span></div>
+                        <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>Name on Card: <span style={{ color: 'var(--txt)', fontWeight: FW.medium }}>{c.name_on_card}</span></div>
                       )}
                       {c.account_manager && (
                         <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>AM: <span style={{ color: 'var(--txt)' }}>{c.account_manager}</span></div>
@@ -1274,7 +1274,7 @@ export default function TicketDetail() {
         footer={<ModalFooter onConfirm={handleTransfer} label="Transfer" disabled={!transferTarget} />}>
         <p style={{ fontSize: TEXT.base, color: 'var(--txt2)', margin: '0 0 12px' }}>Select the agent to transfer this ticket to.</p>
         <select value={transferTarget} onChange={e => setTransferTarget(e.target.value)} style={{ ...inputStyle, height: 38 }}>
-          <option value="">— Select agent —</option>
+          <option value="">— Select Agent —</option>
           {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
         </select>
       </Modal>
@@ -1287,9 +1287,9 @@ export default function TicketDetail() {
           escalation stays on the supervisor&rsquo;s worklist until someone closes it.
         </p>
         <div style={{ marginBottom: 12 }}>
-          <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Escalate to</label>
+          <label style={{ display: 'block', fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)', marginBottom: 5 }}>Escalate To</label>
           <select value={escalateTo} onChange={e => setEscalateTo(Number(e.target.value))} style={inputStyle}>
-            <option value={0}>Supervisors (whoever is free)</option>
+            <option value={0}>Supervisors (Whoever Is Free)</option>
             {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
           </select>
         </div>

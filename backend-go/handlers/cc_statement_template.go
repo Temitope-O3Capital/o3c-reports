@@ -49,7 +49,28 @@ type ccSendRequest struct {
 	RecipientPhone string `json:"recipient_phone"` // optional — triggers Termii SMS if set
 	CC             string `json:"cc"`
 	Subject        string `json:"subject"`
-	EmailBody      string `json:"email_body"` // plain-text body (editable by sender)
+	EmailBody      string `json:"email_body"`     // plain-text body (editable by sender)
+	AllowAlternate bool   `json:"allow_alternate"` // deliberate override to send off the on-file email
+}
+
+// ccOnFileEmail returns the cardholder's registered email for a statement's account,
+// or "" if none is on file. A statement carries PII (name, address, masked PAN,
+// balances), so by default it may only be emailed here; sending elsewhere takes a
+// deliberate, audited override.
+func ccOnFileEmail(ctx context.Context, db *core.DB, accountNo string) string {
+	if strings.TrimSpace(accountNo) == "" {
+		return ""
+	}
+	rows, err := db.PGQuery(ctx, `
+		SELECT c.email
+		FROM app.customers c
+		JOIN app.accounts a ON a.cif = c.cif
+		WHERE a.account_no = $1 AND c.email IS NOT NULL AND c.email <> ''
+		LIMIT 1`, accountNo)
+	if err != nil || len(rows) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.ToLower(getRowString(rows[0], "email")))
 }
 
 func ccSendEmail(db *core.DB) http.HandlerFunc {
@@ -75,6 +96,31 @@ func ccSendEmail(db *core.DB) http.HandlerFunc {
 		}
 
 		d := ccExtract(stmt)
+
+		// Guard the recipient. A statement's default destination is the cardholder's
+		// registered email; sending it anywhere else must be a deliberate, audited act,
+		// not a free-form field. When an address is on file and the operator targets a
+		// different one without confirming, return the on-file address and ask them to
+		// confirm (the client re-sends with allow_alternate). If nothing is on file there
+		// is nothing to protect against, so the operator-supplied address is used.
+		onFile := ccOnFileEmail(r.Context(), db, d.accountNo)
+		offFile := onFile != "" && !strings.EqualFold(onFile, body.RecipientEmail)
+		if offFile && !body.AllowAlternate {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(409)
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"detail":                "This differs from the email on file for the cardholder.",
+				"on_file_email":         onFile,
+				"requires_confirmation": true,
+			})
+			return
+		}
+		if offFile {
+			// Allowed override — make the off-file send accountable in the logs alongside
+			// the SendMail audit row (which already records CreatedBy and the recipient).
+			slog.Warn("ccSendEmail: statement sent to an address other than the one on file",
+				"statement_id", id, "account", d.accountNo, "on_file", onFile, "sent_to", body.RecipientEmail)
+		}
 
 		// Dynamic subject
 		subject := strings.TrimSpace(body.Subject)
@@ -349,10 +395,13 @@ func ccExtract(stmt core.Row) ccData {
 		d.availCredit = d.lineOfCredit - d.closingBal
 	}
 
-	// Days until due — check time.Time directly first, then parse string
+	// Days until due — check time.Time directly first, then parse string. The gap is a
+	// whole-calendar-day difference in West Africa Time, not raw hours from now(UTC): a
+	// due date parsed as bare "YYYY-MM-DD" is midnight UTC, and int(time.Until/24) would
+	// read a card due today in Lagos as already overdue.
 	if v, ok := stmt["payment_due_date"]; ok && v != nil {
 		if t, ok := v.(time.Time); ok {
-			d.daysUntilDue = int(time.Until(t).Hours() / 24)
+			d.daysUntilDue = ccDaysUntilWAT(t)
 		} else {
 			rawDue := getRowString(stmt, "payment_due_date")
 			for _, layout := range []string{
@@ -360,13 +409,23 @@ func ccExtract(stmt core.Row) ccData {
 				"2006-01-02 15:04:05 +0000 UTC", "2006-01-02",
 			} {
 				if t, err := time.Parse(layout, rawDue); err == nil {
-					d.daysUntilDue = int(time.Until(t).Hours() / 24)
+					d.daysUntilDue = ccDaysUntilWAT(t)
 					break
 				}
 			}
 		}
 	}
 	return d
+}
+
+// ccDaysUntilWAT returns the whole-calendar-day gap from today to the due date, both
+// taken in West Africa Time, so a bare-date "due today" reads as 0 rather than overdue.
+func ccDaysUntilWAT(due time.Time) int {
+	now := time.Now().In(mrWAT)
+	startToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, mrWAT)
+	d := due.In(mrWAT)
+	startDue := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, mrWAT)
+	return int(startDue.Sub(startToday).Hours() / 24)
 }
 
 // ── HTML statement document ───────────────────────────────────────────────────
@@ -469,7 +528,7 @@ func ccBuildHTML(stmt core.Row, txns []core.Row) string {
 		isFC := toBool(t["is_finance_charge"])
 		desc := getRowString(t, "description")
 		txnDate := ccFmtDate(getRowString(t, "txn_date"))
-		postDate := ccFmtDate(getRowString(t, "post_date"))
+		postDate := ccFmtDate(getRowString(t, "posting_date"))
 		if postDate == "—" {
 			postDate = txnDate
 		}
@@ -514,7 +573,7 @@ func ccBuildHTML(stmt core.Row, txns []core.Row) string {
 	minPayNote := "Full balance due"
 	if d.minPayment > 0 {
 		minPayAmt = d.minPayment
-		minPayNote = "20%% of outstanding balance"
+		minPayNote = "20% of outstanding balance"
 	}
 
 	entryWord := "entries"

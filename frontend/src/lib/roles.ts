@@ -1,4 +1,5 @@
 import { snake } from './labels'
+import { allRoles, currentUser, hasPage, type AuthUser } from '../hooks/useAuth'
 
 // Clean role taxonomy — one Head + one Agent/Officer per operating module, a lean
 // C-suite, plus IT (system) and BI (analytics). Labels for display; the backend
@@ -55,6 +56,7 @@ export const ROLE_LABELS: Record<string, string> = {
   // Compliance
   compliance_officer:       'Compliance Officer',
   compliance_head:          'Head of Compliance',
+  internal_control_head:    'Head of Internal Control',
 
   // ── Retired legacy slugs (render a name if still referenced) ──
   executive:                'Executive',
@@ -65,7 +67,6 @@ export const ROLE_LABELS: Record<string, string> = {
   head_collections:         'Head of Collections',
   head_recovery:            'Head of Recovery',
   head_of_reconciliation:   'Head of Reconciliation',
-  internal_control_head:    'Head of Internal Control',
   sales:                    'Sales',
   collections:              'Collections',
   recovery:                 'Recovery',
@@ -84,4 +85,33 @@ export function roleLabel(role: string): string {
 // company-wide dashboards. Must stay in sync with core/scope.go managementRoles.
 export const MGMT = new Set([
   'admin', 'md', 'coo', 'cfo', 'cmo', 'head_ops', 'exec_overview',
+  // Internal Control audits every module, so the sidebar shows it everything its pages
+  // allow. It changes nothing: the backend refuses every write for this role
+  // (core.WriteBlocked), so "sees the whole floor" never means "can act on it".
+  'internal_control_head',
 ])
+
+// isCallCentreSupervisor answers "does this person get the whole floor, rather than
+// just their own book" — for every call-centre screen. This is the ONE place that
+// question is answered.
+//
+// Queue, Leads and Forwards each used to decide it differently. Two of them tested a
+// regex over the stored role (/head|admin|super|manager|lead|supervisor/i), which
+// matches 'call_center_head' but NOT 'md', 'coo', 'cfo' or 'cmo' — so the COO got an
+// agent's view on Leads and the whole floor on Forwards.
+//
+// This mirrors what the server actually accepts, which is two checks:
+//   • ccIsSupervisor (handlers/call_center_forwards.go) — 'call_center_head', or
+//     core.IsManagement (core/scope.go managementRoles, mirrored by MGMT above);
+//   • the 'call_center_stats' page, which the rest of the module gates its supervisor
+//     reads on (call_center_outbound.go, helpdesk.go, helpdesk_call_edit.go).
+// Secondary team roles count, via allRoles — a multi-team user supervises if ANY of
+// their roles does, which is how the backend reads AllRoles() too.
+//
+// Cosmetic only: the backend is what actually enforces this. A stale copy here hides a
+// control, it never grants access.
+export function isCallCentreSupervisor(user: AuthUser | null = currentUser()): boolean {
+  if (!user) return false
+  if (allRoles(user).some(r => r === 'call_center_head' || MGMT.has(r))) return true
+  return hasPage('call_center_stats', user)
+}

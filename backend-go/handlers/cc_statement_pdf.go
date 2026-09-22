@@ -538,7 +538,7 @@ func ccBuildPDF(stmt core.Row, txns []core.Row) []byte {
 		isFC := toBool(t["is_finance_charge"])
 		desc := getRowString(t, "description")
 		txnDate := ccFmtDate(getRowString(t, "txn_date"))
-		postDate := ccFmtDate(getRowString(t, "post_date"))
+		postDate := ccFmtDate(getRowString(t, "posting_date"))
 		if postDate == "—" {
 			postDate = txnDate
 		}

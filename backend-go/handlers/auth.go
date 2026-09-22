@@ -252,7 +252,7 @@ func RegisterHandler(db *core.DB) http.HandlerFunc {
 		})
 
 		regInner := fmt.Sprintf(`
-			<h1 style="margin:0 0 18px;font-size:22px;font-weight:700;color:#0E2841;">Access request received</h1>
+			<h1 style="margin:0 0 18px;font-size:22px;font-weight:700;color:#0E2841;">Access Request Received</h1>
 			<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#374151;">Hi %s,</p>
 			<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#374151;">Your request for access to the <strong>O3 Capital Workspace</strong> has been received. An administrator will review and activate your account.</p>
 			<p style="margin:0;font-size:15px;line-height:1.6;color:#374151;">Once approved, you'll receive your login details by email.</p>`,

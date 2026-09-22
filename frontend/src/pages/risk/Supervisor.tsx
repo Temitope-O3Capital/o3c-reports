@@ -242,18 +242,18 @@ export default function RiskSupervisor() {
           <div>
             <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 10 }}>Hand-offs</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: SP[2] }}>
-              <HandoffTile icon="collections_bookmark" color={AMBER} label="Collections book"
+              <HandoffTile icon="collections_bookmark" color={AMBER} label="Collections Book"
                 value={`${fmtNum(N(s?.par30_loans))} loans past 30 DPD`}
                 sub={`${fmtKoboExact(N(s?.par30_kobo))} outstanding`}
                 // The tile counts loans past 30 DPD; par30 is the 1–30 bucket, so
                 // including it opened a longer list than the number just clicked.
                 onClick={() => navigate('/operations/risk/portfolio?dpd=par60,par90,npl')} />
-              <HandoffTile icon="gavel" color={RED} label="Recovery candidates"
+              <HandoffTile icon="gavel" color={RED} label="Recovery Candidates"
                 value={`${fmtNum(N(s?.npl_loans))} loans over 90 DPD`}
                 sub={`${fmtKoboExact(N(s?.npl_kobo))} at risk`}
                 onClick={() => navigate('/operations/risk/portfolio?dpd=npl')} />
               <HandoffTile icon={live ? 'fact_check' : 'schedule'} color={NAVY}
-                label={live ? 'Review queue' : 'Review queue (idle)'}
+                label={live ? 'Review Queue' : 'Review Queue (Idle)'}
                 value={live ? `${fmtNum(N(review?.pending))} pending` : 'No applications yet'}
                 sub={live && N(review?.oldest_pending_days) > 0 ? `oldest ${fmtNum(review?.oldest_pending_days)}d` : 'origination via Phoenix'}
                 onClick={() => navigate('/operations/risk/applications')} />
@@ -265,7 +265,7 @@ export default function RiskSupervisor() {
       {/* Delinquency distribution */}
       <SectionCard title="Delinquency Distribution" subtitle="Whole book by days past due (schedule-derived DPD)" style={{ marginBottom: SP[4] }}>
         {N(s?.total_active_loans) === 0
-          ? <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No active loans</div>
+          ? <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No Active Loans</div>
           : <DpdBar buckets={buckets} />}
       </SectionCard>
 
@@ -273,7 +273,7 @@ export default function RiskSupervisor() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
         <SectionCard title="Risk Band Distribution" subtitle="Active book, A (Prime) to E (High-Risk)">
           {bands.length === 0 ? (
-            <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No scored loans</div>
+            <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No Scored Loans</div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: SP[4] }}>
               <div style={{ flexShrink: 0 }}>
@@ -305,7 +305,7 @@ export default function RiskSupervisor() {
 
         <SectionCard title="Sector Concentration" subtitle="Top sectors by share of active book">
           {sectors.length === 0 ? (
-            <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No sector data</div>
+            <div style={{ padding: `${SP[6]} 0`, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No Sector Data</div>
           ) : (
             <EBar
               data={sectors.map(s => ({ ...s, book_pct: Number(s.book_pct) }))}
@@ -323,7 +323,7 @@ export default function RiskSupervisor() {
 
       {/* Concentration table */}
       <SectionCard title="Single-Obligor Concentration" subtitle={`No single borrower to exceed ${limit}% of the active book`} badge={conc.length} style={{ marginBottom: SP[4] }}>
-        <DataTable cols={concCols} rows={conc} keyFn={r => r.cif} pageSize={10} emptyText="No obligor data" />
+        <DataTable cols={concCols} rows={conc} keyFn={r => r.cif} pageSize={10} emptyText="No Obligor Data" />
       </SectionCard>
 
       {/* Watchlist */}

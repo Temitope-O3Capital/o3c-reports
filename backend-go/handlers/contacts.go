@@ -790,6 +790,25 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 		}
 		profile["activity_log"] = actList
 
+		// Mask the authentication-grade identifiers before this leaves the server.
+		//
+		// The Contact Profile page renders an "Identity & Contact" card from this payload
+		// alongside the Customer 360 identity block, which masks the same three fields at
+		// its own seam. Masking only there would have been theatre: the full BVN would
+		// still have arrived in THIS response — visible in devtools, a HAR capture or any
+		// proxy log — three rows below a masked one.
+		//
+		// Same helpers as the C360 seam, deliberately, so the two surfaces cannot drift in
+		// what they treat as disclosed. Revealing goes through
+		// POST /api/customer360/{key}/identity/reveal, which writes the audit row first:
+		// there is no un-audited path to these values.
+		for _, k := range []string{"bvn", "nin", "date_of_birth"} {
+			if v := str(profile[k]); v != "" {
+				profile[k] = c360MaskValue(k, v)
+				profile[k+"_masked"] = true
+			}
+		}
+
 		respond(w, profile, "pg")
 	}
 }

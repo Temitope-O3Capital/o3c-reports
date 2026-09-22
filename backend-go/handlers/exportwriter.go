@@ -119,6 +119,13 @@ func exportValue(v any, t exportColType) string {
 	if v == nil {
 		return ""
 	}
+	// A label in a numeric column, such as a report's totals line, stays text instead
+	// of turning into 0.
+	if s, ok := v.(string); ok && exportNumeric(t) {
+		if _, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err != nil {
+			return s
+		}
+	}
 	switch t {
 	case colKobo:
 		return strconv.FormatFloat(toFloat(v)/100.0, 'f', 2, 64)
@@ -127,6 +134,11 @@ func exportValue(v any, t exportColType) string {
 	case colPct:
 		return strconv.FormatFloat(toFloat(v), 'f', 2, 64)
 	case colInt:
+		// Postgres hands NUMERIC back as text ("12.50"), which ParseInt would read as 0.
+		if s, ok := v.(string); ok {
+			f, _ := strconv.ParseFloat(strings.TrimSpace(s), 64)
+			return strconv.FormatFloat(f, 'f', -1, 64)
+		}
 		return strconv.FormatInt(toInt64(v), 10)
 	case colBool:
 		if b, ok := v.(bool); ok {
@@ -230,7 +242,13 @@ func writeExportCSV(w io.Writer, cols []exportCol, rows []map[string]any) error 
 	rec := make([]string, len(cols))
 	for _, row := range rows {
 		for i, c := range cols {
-			rec[i] = csvSafe(exportValue(row[c.Key], c.Type))
+			val := exportValue(row[c.Key], c.Type)
+			// A number is never a formula, and prefixing a negative amount would turn it
+			// into text that spreadsheets can't add up.
+			if _, err := strconv.ParseFloat(val, 64); err != nil || !exportNumeric(c.Type) {
+				val = csvSafe(val)
+			}
+			rec[i] = val
 		}
 		if err := cw.Write(rec); err != nil {
 			return err
@@ -252,12 +270,23 @@ func writeExportJSON(w io.Writer, cols []exportCol, rows []map[string]any) error
 				o[c.Key] = nil
 				continue
 			}
+			s, isText := v.(string)
+			if isText && exportNumeric(c.Type) {
+				if _, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err != nil {
+					o[c.Key] = s // a label, such as the totals line
+					continue
+				}
+			}
 			switch c.Type {
 			case colKobo:
 				o[c.Key] = toFloat(v) / 100.0
 			case colMoney, colPct:
 				o[c.Key] = toFloat(v)
 			case colInt:
+				if isText {
+					o[c.Key] = toFloat(v) // NUMERIC text such as an average
+					continue
+				}
 				o[c.Key] = toInt64(v)
 			default:
 				o[c.Key] = exportValue(v, c.Type)
