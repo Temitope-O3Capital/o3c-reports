@@ -10,6 +10,7 @@ import { mccName } from '../../lib/mcc'
 import { currencyName } from '../../lib/currency'
 import { toast } from 'sonner'
 import HandoffActions, { HandoffStatusChip, handoffOpen, type HandoffViewer } from '../../components/HandoffActions'
+import LogActivityModal from '../../components/LogActivityModal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1133,7 +1134,7 @@ function titleTeamLabel(team: string | null | undefined): string {
   return t.split('_').filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
 }
 
-function OpenHandoffsBanner({ cif }: { cif: string }) {
+function OpenHandoffsBanner({ cif, refreshSignal }: { cif: string; refreshSignal?: number }) {
   const [handoffs, setHandoffs] = useState<HandoffActivity[]>([])
   const [viewer, setViewer] = useState<HandoffViewer | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -1149,7 +1150,7 @@ function OpenHandoffsBanner({ cif }: { cif: string }) {
       })
       .catch(() => { if (!cancelled) setHandoffs([]) })
     return () => { cancelled = true }
-  }, [cif, refreshKey])
+  }, [cif, refreshKey, refreshSignal])
 
   if (handoffs.length === 0) return null
 
@@ -1857,7 +1858,7 @@ function fmtDur(s?: number | null): string {
   return `${m}:${String(ss).padStart(2, '0')}`
 }
 
-function InteractionTimeline({ cif }: { cif: string }) {
+function InteractionTimeline({ cif, refreshSignal }: { cif: string; refreshSignal?: number }) {
   const [items, setItems] = useState<TimelineItem[] | null>(null)
   const [err, setErr]     = useState<string | null>(null)
   useEffect(() => {
@@ -1870,7 +1871,7 @@ function InteractionTimeline({ cif }: { cif: string }) {
       } catch (e: any) { if (live) setErr(e.message) }
     })()
     return () => { live = false }
-  }, [cif])
+  }, [cif, refreshSignal])
 
   if (err) return (
     <SectionCard title="All Interactions">
@@ -1941,10 +1942,10 @@ function InteractionTimeline({ cif }: { cif: string }) {
   )
 }
 
-function ActivityTab({ profile, cif }: { profile: ContactProfileData; cif: string }) {
+function ActivityTab({ profile, cif, refreshSignal }: { profile: ContactProfileData; cif: string; refreshSignal?: number }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <InteractionTimeline cif={cif} />
+      <InteractionTimeline cif={cif} refreshSignal={refreshSignal} />
       {profile.activity_log.length > 0 && <SystemActivityList profile={profile} />}
     </div>
   )
@@ -2459,6 +2460,13 @@ export default function ContactProfile() {
   // clicking a card on the Cards tab can set it and switch tabs in one go.
   const [cardCif, setCardCif]   = useState('')
 
+  // Log Activity (note / hand-off / document / follow-up) — Leads already has this;
+  // Customer 360 could show an open hand-off (see OpenHandoffsBanner) but had no way
+  // to raise one. Bumping activityKey re-fetches both the hand-off banner and the
+  // interaction timeline so a freshly logged item appears without a full page reload.
+  const [logOpen, setLogOpen]     = useState(false)
+  const [activityKey, setActivityKey] = useState(0)
+
   // Identity / KYC from the core-banking customer master (migration 258). Fetched
   // apart from the profile because it is a different source system and a different
   // shape, and because a failure here must never take the page down — the block
@@ -2615,6 +2623,9 @@ export default function ContactProfile() {
           <button onClick={() => navigate(`/helpdesk/new?cif=${profile.cif}&name=${encodeURIComponent(profile.name)}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#fff', color: NAVY, border: 'none', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}>
             <span className="material-symbols-rounded" style={{ fontSize: 15 }}>add_comment</span>Open Ticket
           </button>
+          <button onClick={() => setLogOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.25)', borderRadius: RADIUS.md, fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: SORA }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 15 }}>bolt</span>Log Activity
+          </button>
         </div>
       </div>
 
@@ -2625,7 +2636,7 @@ export default function ContactProfile() {
 
       {/* Any hand-off raised against this customer, from any module — resolved right
           here rather than only on the raising screen or the standalone inbox. */}
-      <OpenHandoffsBanner cif={profile.cif} />
+      <OpenHandoffsBanner cif={profile.cif} refreshSignal={activityKey} />
 
       {/* Tabs */}
       <div style={{ marginBottom: 16 }}>
@@ -2643,7 +2654,15 @@ export default function ContactProfile() {
       {tab === 'helpdesk'    && <HelpdeskTab    profile={profile} />}
       {tab === 'concessions' && <ConcessionsTab  cif={profile.cif} />}
       {tab === 'documents'   && <DocumentsTab   cif={profile.cif} />}
-      {tab === 'activity'    && <ActivityTab    profile={profile} cif={profile.cif} />}
+      {tab === 'activity'    && <ActivityTab    profile={profile} cif={profile.cif} refreshSignal={activityKey} />}
+
+      <LogActivityModal
+        open={logOpen}
+        about={profile.name}
+        anchor={{ cif: profile.cif, phone: profile.phone || undefined }}
+        onClose={() => setLogOpen(false)}
+        onSaved={() => { setLogOpen(false); setActivityKey(k => k + 1); load(true) }}
+      />
     </Page>
   )
 }
