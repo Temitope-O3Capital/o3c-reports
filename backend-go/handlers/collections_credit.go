@@ -460,6 +460,12 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 			  FROM collection_assignments ca
 			 WHERE ca.account_cif = ANY($1)
 			   AND ca.data_source = 'manual' AND ca.product_type = 'loan'
+			   -- An uploaded row proven by migration 268 to be the same facility Udara already
+			   -- reports is not a second loan, and this dossier lists the Udara book right
+			   -- beside it, so showing the mirror would put one debt on the page twice and
+			   -- hand the waterfall below a duplicate to allocate against. Udara is the book
+			   -- of record; the mirror is hidden, not deleted.
+			   AND ca.duplicate_of_cbs_id IS NULL
 			   -- Closed loans are shown too: a settled facility is part of the credit
 			   -- history an officer needs on a call, and it carries zero outstanding so
 			   -- it cannot inflate the exposure.
@@ -471,12 +477,27 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 		// Several uploaded loans can sit on one CIF. Settle them in book order and
 		// let each consume from the shared payment pool once, so the same naira is
 		// never counted against two loans.
+		// 2026-09-21: this pool was built from EVERY collection payment, so money still
+		// inside the HOP -> COO -> CFO approval chain was run down the schedule and came
+		// back out as PaidK / PaidPct / reduced arrears. Live that was 11 rows /
+		// N106,393,555.56 of 'pending_hop' against 1,801 approved rows /
+		// N1,094,578,699.07. Only an approved receipt has posted to the GL, so only an
+		// approved receipt settles an instalment. The test is status == "approved"
+		// rather than != "pending_hop", so a future 'rejected' row can never settle one
+		// either. Unapproved money is not dropped: it is totalled per CIF and reported
+		// as its own "awaiting approval" total below, beside the paid figures and
+		// outside every percentage. The repayments list itself still carries every
+		// payment with its status, so nothing is hidden from the officer.
 		poolByCIF := map[string][]int64{}
 		for c, ps := range byCIFPays {
 			sort.SliceStable(ps, func(i, j int) bool { return ps[i].Date < ps[j].Date })
 			amts := make([]int64, 0, len(ps))
 			for _, p := range ps {
-				amts = append(amts, p.AmountK)
+				// Only approved receipts settle instalments. 'rejected' and anything
+				// still in the chain are both excluded from the pool.
+				if p.Status == "approved" {
+					amts = append(amts, p.AmountK)
+				}
 			}
 			poolByCIF[c] = amts
 		}
@@ -568,10 +589,21 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 				}
 			}
 		}
-		var totalPaid int64
+		// Collections receipts split by where they are in the approval chain. Only
+		// approved money is "paid"; the rest is reported as awaiting approval so an
+		// officer can see it on the call without it reading as repayment.
+		var totalPaid, pendingPaid int64
 		for _, rp := range repayments {
-			if rp.Source == "collections" {
+			if rp.Source != "collections" {
+				continue
+			}
+			switch rp.Status {
+			case "approved":
 				totalPaid += rp.AmountK
+			case "rejected":
+				// Turned down: neither paid nor pending.
+			default:
+				pendingPaid += rp.AmountK
 			}
 		}
 		arrears := expected - schedPaid
@@ -696,10 +728,13 @@ func collectionsCreditDossier(db *core.DB) http.HandlerFunc {
 				"schedule_paid_kobo": schedPaid,
 				"arrears_kobo":       arrears,
 				"paid_kobo":          totalPaid,
-				"unallocated_kobo":   unallocated,
-				"paid_pct":           cdPct(schedPaid, scheduled),
-				"next_due_date":      nextDue,
-				"next_due_kobo":      nextDueK,
+				// Received but not yet approved. Deliberately excluded from paid_kobo,
+				// schedule_paid_kobo, arrears_kobo and paid_pct.
+				"pending_approval_kobo": pendingPaid,
+				"unallocated_kobo":      unallocated,
+				"paid_pct":              cdPct(schedPaid, scheduled),
+				"next_due_date":         nextDue,
+				"next_due_kobo":         nextDueK,
 			},
 		}, "pg")
 	}

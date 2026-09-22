@@ -315,20 +315,35 @@ func runBatch(ctx context.Context, db *core.DB) error {
 	return batchErr
 }
 
-// batchPortfolioSnapshot computes today's portfolio metrics from loan_applications and writes a snapshot row.
+// batchPortfolioSnapshot computes today's portfolio metrics and writes a snapshot row.
+//
+// It used to read loan_applications and treat DAYS SINCE BOOKING as if it were days past
+// due: every active loan booked more than 90 days ago counted as NPL and as PAR30/60/90,
+// with "outstanding" taken as the approved amount, which never falls as the customer
+// repays. A perfectly performing four-month-old loan was 100% non-performing here — and
+// because this writes a dated history table, every nightly run baked that into a time
+// series. Nothing reads portfolio_daily_snapshot today (kpiPortfolioTrend moved to
+// cbs_portfolio_snapshot), which is the only reason it never surfaced on a screen.
+//
+// It now measures the real book: outstanding principal from cbs_loans, schedule-derived
+// DPD (migration 151) for the PAR buckets, and the canonical NPL rule (migration 261).
+// That also gives the workspace genuine PAR history, which cbs_portfolio_snapshot does
+// not carry — it stores zeros for the PAR columns.
 func batchPortfolioSnapshot(ctx context.Context, db *core.DB) error {
 	today := time.Now().Format("2006-01-02")
 
 	rows, err := db.PGQuery(ctx, `
 		SELECT
-			COUNT(*) FILTER (WHERE status = 'active')                                  AS total_loans,
-			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active'), 0)    AS total_outstanding_kobo,
-			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 90), 0) AS total_npls_kobo,
-			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 30), 0) AS par30_kobo,
-			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 60), 0) AS par60_kobo,
-			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 90), 0) AS par90_kobo,
-			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE booked_at::date = $1), 0) AS new_disbursements_kobo
-		FROM loan_applications`, today)
+			COUNT(*)                                                       AS total_loans,
+			COALESCE(SUM(op), 0)                                           AS total_outstanding_kobo,
+			COALESCE(SUM(op) FILTER (WHERE app.is_npl(status, dpd)), 0)    AS total_npls_kobo,
+			COALESCE(SUM(op) FILTER (WHERE dpd > 30), 0)                   AS par30_kobo,
+			COALESCE(SUM(op) FILTER (WHERE dpd > 60), 0)                   AS par60_kobo,
+			COALESCE(SUM(op) FILTER (WHERE dpd > 90), 0)                   AS par90_kobo,
+			COALESCE(SUM(loan_amount_kobo) FILTER (WHERE start_date::date = $1::date), 0) AS new_disbursements_kobo
+		FROM (SELECT status, outstanding_principal_kobo AS op, loan_amount_kobo, start_date,
+		             `+cbsLoanDPDBare+` AS dpd
+		      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) x`, today)
 	if err != nil {
 		return fmt.Errorf("portfolio query: %w", err)
 	}
@@ -397,7 +412,12 @@ func batchCBSPortfolioSnapshot(ctx context.Context, db *core.DB) error {
 			COUNT(DISTINCT cbs_customer_id) FILTER (WHERE status = 'Active') AS borrowers_active,
 			COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status NOT IN ('Closed','Revoked')), 0) AS outstanding_principal_kobo,
 			COALESCE(SUM(outstanding_interest_kobo)  FILTER (WHERE status NOT IN ('Closed','Revoked')), 0) AS outstanding_interest_kobo,
-			COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status IN ('Defaulting','Expired')), 0) AS npl_kobo,
+			-- Canonical NPL (app.is_npl, migration 261): DPD > 90 OR CBS Defaulting/Expired.
+			-- Status alone missed loans the repayment schedule had already shown to be
+			-- months in arrears, so this nightly snapshot — which the Overview, Finance
+			-- and KPI screens all read — disagreed with the Risk module on the same book.
+			COALESCE(SUM(outstanding_principal_kobo) FILTER (
+				WHERE status NOT IN ('Closed','Revoked') AND app.is_npl(status, `+cbsLoanDPDBare+`)), 0) AS npl_kobo,
 			COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status = 'Active'), 0)                   AS performing_kobo
 		FROM cbs_loans`); err == nil && len(rows) > 0 {
 		loan = rows[0]
@@ -685,7 +705,9 @@ func batchKPISnapshot(ctx context.Context, db *core.DB) error {
 		{col: "tickets_closed", q: `SELECT COUNT(*) FROM helpdesk_tickets WHERE status='resolved' AND updated_at::date = $1`},
 		{col: "active_loans", q: `SELECT COUNT(*) FROM loan_applications WHERE status='active'`, pointInTime: true},
 		{col: "total_book_kobo", q: `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='active'`, pointInTime: true},
-		{col: "npl_kobo", q: `SELECT COALESCE(SUM(outstanding_principal_kobo + outstanding_interest_kobo),0) FROM cbs_loans WHERE status IN ('Defaulting','Expired')`, pointInTime: true},
+		{col: "npl_kobo", q: `SELECT COALESCE(SUM(outstanding_principal_kobo + outstanding_interest_kobo),0)
+			FROM cbs_loans
+			WHERE status NOT IN ('Closed','Revoked') AND app.is_npl(status, ` + cbsLoanDPDBare + `)`, pointInTime: true},
 	}
 
 	vals := map[string]int64{}
@@ -864,59 +886,103 @@ func batchPTPNotifications(ctx context.Context, db *core.DB) error {
 
 // batchFDMaturityNotifications fires daily notifications for:
 //   - FDs maturing in exactly 7 days → notify finance_officer role
-//   - FDs that matured yesterday with no liquidation/rollover → notify finance_head role
+//   - FDs past maturity but still Active → notify finance_head role
+//
+// Both queries used to read app.fd_transactions, which has 0 rows — so this
+// worker has never sent a single FD notification while cheerfully logging
+// "soon=0 unactioned=0". The live book is app.cbs_fixed_deposits.
+//
+// The "no liquidation/rollover recorded" NOT EXISTS sub-selects are gone with
+// it. They matched on customer_name against a table that does not populate, and
+// the CBS register has no action ledger to check: what it has instead is
+// status. A deposit that has been liquidated or rolled over leaves the Active
+// set on the next sync, so "still Active past its maturity date" IS the
+// unactioned condition, read straight off the book.
+//
+// Not attempted here (out of scope, needs a schema change): telling a genuine
+// new placement apart from a rollover of a maturing deposit. rollover_count
+// exists on the table but nothing populates it, so any maturity figure below
+// may double-count a deposit that simply rolls.
 func batchFDMaturityNotifications(ctx context.Context, db *core.DB) error {
-	// Maturing in 7 days
+	// Maturing in 7 days. The ::date cast is load-bearing — gts parses Udara's
+	// timestamps as UTC while the session is Africa/Lagos, so every maturity sits
+	// at 01:00:00+01 and a bare `= CURRENT_DATE + 7` matches nothing.
+	// Unfunded shells (hasDisbursed=false, ₦0) are excluded: nothing to pay out.
 	soonRows, err := db.PGQuery(ctx, `
-		SELECT f.id, f.customer_name, f.principal, f.maturity_date, f.currency
-		FROM fd_transactions f
-		WHERE f.transaction_type = 'inflow'
-		  AND f.maturity_date = CURRENT_DATE + 7
-		  AND NOT EXISTS (
-		    SELECT 1 FROM fd_transactions t2
-		    WHERE t2.customer_name = f.customer_name
-		      AND t2.transaction_type IN ('liquidation','rolled_over')
-		      AND t2.transaction_date >= f.maturity_date - 7)`)
+		SELECT f.cbs_account_number,
+		       COALESCE(NULLIF(btrim(f.raw->>'name'),''), f.cbs_customer_id) AS customer_name,
+		       f.principal_kobo,
+		       COALESCE(f.accrued_interest_kobo,0) AS accrued_interest_kobo,
+		       to_char(f.maturity_date,'YYYY-MM-DD') AS maturity_date
+		FROM cbs_fixed_deposits f
+		WHERE f.status = 'Active'
+		  AND f.raw->>'hasDisbursed' IS DISTINCT FROM 'false'
+		  AND f.maturity_date::date = CURRENT_DATE + 7
+		ORDER BY f.principal_kobo DESC`)
 	if err != nil {
 		return err
 	}
 	for _, row := range soonRows {
+		acct := str(row["cbs_account_number"])
+		amount := toInt64(row["principal_kobo"]) + toInt64(row["accrued_interest_kobo"])
 		p := NotifPayload{
 			EventType: EvtFDMaturing7Days,
 			Title:     "FD maturing in 7 days",
-			Body:      fmt.Sprintf("%s — %s principal matures on %s.", str(row["customer_name"]), str(row["currency"]), str(row["maturity_date"])),
-			ActionURL: "/finance/fd-maturity",
-			EntityRef: fmt.Sprintf("fd:%d", toInt64(row["id"])),
+			Body: fmt.Sprintf("%s (a/c %s) — %s principal and interest matures on %s. Confirm rollover or liquidation instructions with the customer.",
+				str(row["customer_name"]), acct, fmtKoboServer(amount), str(row["maturity_date"])),
+			ActionURL: fdDeepLink(acct),
+			EntityRef: "fd:" + acct,
 		}
 		go NotifyRole(ctx, db, "finance_officer", p)
 	}
 
-	// Matured yesterday with no action
+	// Past maturity and still on the book. Not just yesterday: the old query asked
+	// for maturity_date = CURRENT_DATE - 1, so a deposit that slipped through on day
+	// one was never mentioned again. Six deposits are overdue right now — ₦497.2m of
+	// principal on ₦58.6m of accrued interest, 1 to 4 days past — and nothing in the
+	// workspace has ever raised one of them.
+	//
+	// One grouped digest for the whole backlog rather than a notification per
+	// deposit per day: the GroupKey folds repeat sends into a single unread row that
+	// updates in place, so finance_head gets one standing item instead of six fresh
+	// alarms every morning until someone acts.
+	var unactionedCount int64
 	unactionedRows, err := db.PGQuery(ctx, `
-		SELECT f.id, f.customer_name, f.principal, f.maturity_date, f.currency
-		FROM fd_transactions f
-		WHERE f.transaction_type = 'inflow'
-		  AND f.maturity_date = CURRENT_DATE - 1
-		  AND NOT EXISTS (
-		    SELECT 1 FROM fd_transactions t2
-		    WHERE t2.customer_name = f.customer_name
-		      AND t2.transaction_type IN ('liquidation','rolled_over')
-		      AND t2.transaction_date >= f.maturity_date)`)
+		SELECT COUNT(*) AS n,
+		       COALESCE(SUM(f.principal_kobo),0) AS principal_kobo,
+		       COALESCE(SUM(f.accrued_interest_kobo),0) AS accrued_interest_kobo,
+		       COALESCE(MAX(CURRENT_DATE - f.maturity_date::date),0) AS oldest_days
+		FROM cbs_fixed_deposits f
+		WHERE f.status = 'Active'
+		  AND f.raw->>'hasDisbursed' IS DISTINCT FROM 'false'
+		  AND f.maturity_date::date < CURRENT_DATE`)
 	if err != nil {
 		return err
 	}
-	for _, row := range unactionedRows {
-		p := NotifPayload{
-			EventType: EvtFDMaturedUnactioned,
-			Title:     "FD matured — no action taken",
-			Body:      fmt.Sprintf("%s FD (matured %s) has not been liquidated or rolled over.", str(row["customer_name"]), str(row["maturity_date"])),
-			ActionURL: "/finance/fd-maturity",
-			EntityRef: fmt.Sprintf("fd:%d", toInt64(row["id"])),
+	if len(unactionedRows) > 0 {
+		row := unactionedRows[0]
+		unactionedCount = toInt64(row["n"])
+		if unactionedCount > 0 {
+			amount := toInt64(row["principal_kobo"]) + toInt64(row["accrued_interest_kobo"])
+			noun := "deposit has"
+			if unactionedCount > 1 {
+				noun = "deposits have"
+			}
+			p := NotifPayload{
+				EventType: EvtFDMaturedUnactioned,
+				Title:     fmt.Sprintf("%d matured FD(s) — no action taken", unactionedCount),
+				Body: fmt.Sprintf("%d fixed %s passed maturity and are still open — %s principal and interest, the oldest %d day(s) overdue. Neither liquidated nor rolled over.",
+					unactionedCount, noun, fmtKoboServer(amount), toInt64(row["oldest_days"])),
+				ActionURL: "/deposits",
+				EntityRef: "fd_past_due",
+				GroupKey:  "fd_past_due_finance",
+				Priority:  "urgent",
+			}
+			go NotifyRole(ctx, db, "finance_head", p)
 		}
-		go NotifyRole(ctx, db, "finance_head", p)
 	}
 
-	slog.Info("Batch: FD maturity notifications", "soon", len(soonRows), "unactioned", len(unactionedRows))
+	slog.Info("Batch: FD maturity notifications", "soon", len(soonRows), "unactioned", unactionedCount)
 	return nil
 }
 

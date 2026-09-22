@@ -434,9 +434,18 @@ var readOnlyRoles = map[string]bool{"internal_control_head": true}
 // writeAllowedForReadOnly lists the state-changing paths a read-only user still needs:
 // signing out, changing their own password and MFA; plus the Report Builder's table and
 // column-value endpoints, which are POST-shaped READS that only ever run SELECTs.
+//
+// The Customer 360 identity reveal joins them. It is a POST only because a GET reveal can
+// be forged cross-site by an <img> tag, which would write audit rows blaming a user for a
+// disclosure they never made — corrupting the very record the feature exists to produce.
+// It changes no business state: it reads one masked field and appends a compliance row
+// saying who looked. Internal Control is exactly the role that must be able to inspect
+// identity data AND have that inspection on the record, so refusing it here would defeat
+// the control rather than enforce it.
 func writeAllowedForReadOnly(path string) bool {
 	return strings.HasPrefix(path, "/api/auth/") ||
-		strings.HasPrefix(path, "/api/reports/datasets/")
+		strings.HasPrefix(path, "/api/reports/datasets/") ||
+		(strings.HasPrefix(path, "/api/customer360/") && strings.HasSuffix(path, "/identity/reveal"))
 }
 
 // WriteBlocked reports whether a request must be refused because the user holds a

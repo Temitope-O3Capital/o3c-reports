@@ -73,10 +73,12 @@ export default function CoreBanking() {
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  // The CIF of the customer whose detail modal is open (null = closed). Every table
-  // that carries a CBS customer id opens the same modal, so the Udara-vs-workspace
-  // detail view is reached identically from Loans, Fixed Deposits, and Customers.
-  const [openCif, setOpenCif] = useState<string | null>(null)
+  // The Udara customer id whose detail modal is open (null = closed). NOT a CIF — that
+  // is a cards identifier in a separate namespace that collides on the same 8-digit
+  // shape for a different person. Every table that carries a Udara customer id opens
+  // the same modal, so the Udara-vs-workspace detail view is reached identically from
+  // Loans, Fixed Deposits, and Customers.
+  const [openUdaraId, setOpenUdaraId] = useState<string | null>(null)
 
   // load pulls all report data. Pass silent=true for the background auto-refresh so
   // the view updates in place without flashing skeletons or surfacing transient errors.
@@ -130,12 +132,12 @@ export default function CoreBanking() {
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
       {tab === 'overview' && <Overview loan={loan} fd={fd} recon={recon} cust={cust} loading={loading} />}
-      {tab === 'customers' && <CustomerTab data={cust} loading={loading} onOpen={setOpenCif} />}
-      {tab === 'loans' && <LoanTab data={loan} loading={loading} onOpen={setOpenCif} />}
-      {tab === 'fd' && <FDTab data={fd} loading={loading} onOpen={setOpenCif} />}
-      {tab === 'recon' && <ReconTab data={recon} loading={loading} onOpen={setOpenCif} />}
+      {tab === 'customers' && <CustomerTab data={cust} loading={loading} onOpen={setOpenUdaraId} />}
+      {tab === 'loans' && <LoanTab data={loan} loading={loading} onOpen={setOpenUdaraId} />}
+      {tab === 'fd' && <FDTab data={fd} loading={loading} onOpen={setOpenUdaraId} />}
+      {tab === 'recon' && <ReconTab data={recon} loading={loading} onOpen={setOpenUdaraId} />}
 
-      <CustomerModal cif={openCif} onClose={() => setOpenCif(null)} />
+      <CustomerModal udaraId={openUdaraId} onClose={() => setOpenUdaraId(null)} />
     </Page>
   )
 }
@@ -258,6 +260,7 @@ function FDTab({ data, loading, onOpen }: { data: FDBook | null; loading: boolea
     { key: 'interest_rate', label: 'Rate', align: 'right', render: r => fmtPct(r.interest_rate, 1) },
     { key: 'date_booked', label: 'Booked', render: r => fmtDate(r.date_booked ?? r.commencement_date) },
     { key: 'maturity_date', label: 'Maturity', render: r => fmtDate(r.maturity_date) },
+    { key: 'officer_name', label: 'Officer', render: r => (r.officer_name || '').trim() || '—' },
   ]
   return (
     <>
@@ -278,7 +281,7 @@ function FDTab({ data, loading, onOpen }: { data: FDBook | null; loading: boolea
       <SectionCard title="Fixed Deposit Accounts" subtitle="Click a deposit for the full Udara + workspace customer profile." padding={false}>
         <DataTable cols={cols} rows={data?.fixed_deposits || []} loading={loading} keyFn={(r, i) => r.cbs_account_number || i}
           onRowClick={r => r.cbs_customer_id && onOpen(r.cbs_customer_id)}
-          searchKeys={['cbs_account_number', 'customer_name', 'product_name', 'status']} searchPlaceholder="Search fixed deposits…" pageSize={15} />
+          searchKeys={['cbs_account_number', 'customer_name', 'product_name', 'status', 'officer_name']} searchPlaceholder="Search fixed deposits…" pageSize={15} />
       </SectionCard>
     </>
   )
@@ -290,7 +293,7 @@ function ReconTab({ data, loading, onOpen }: { data: Recon | null; loading: bool
   const loanCols: TableCol[] = [
     { key: 'cbs_account_number', label: 'Account' },
     { key: 'customer_name', label: 'Customer (per CBS)', render: r => r.customer_name || '—' },
-    { key: 'cbs_customer_id', label: 'CIF' },
+    { key: 'cbs_customer_id', label: 'Udara ID' },
     { key: 'product_name', label: 'Product' },
     { key: 'status', label: 'Status', render: r => <StatusTag s={r.status} /> },
     { key: 'outstanding_principal_kobo', label: 'Outstanding', align: 'right', render: r => fmtKobo(r.outstanding_principal_kobo) },
@@ -298,7 +301,7 @@ function ReconTab({ data, loading, onOpen }: { data: Recon | null; loading: bool
   const fdCols: TableCol[] = [
     { key: 'cbs_account_number', label: 'Account' },
     { key: 'customer_name', label: 'Customer (per CBS)', render: r => r.customer_name || '—' },
-    { key: 'cbs_customer_id', label: 'CIF' },
+    { key: 'cbs_customer_id', label: 'Udara ID' },
     { key: 'product_name', label: 'Product' },
     { key: 'status', label: 'Status', render: r => <StatusTag s={r.status} /> },
     { key: 'principal_kobo', label: 'Principal', align: 'right', render: r => fmtKobo(r.principal_kobo) },
@@ -335,28 +338,28 @@ function ReconTab({ data, loading, onOpen }: { data: Recon | null; loading: bool
 
 // ── Customer detail modal ───────────────────────────────────────────────────
 
-function CustomerModal({ cif, onClose }: { cif: string | null; onClose: () => void }) {
+function CustomerModal({ udaraId, onClose }: { udaraId: string | null; onClose: () => void }) {
   const [data, setData] = useState<CustomerDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!cif) { setData(null); return }
+    if (!udaraId) { setData(null); return }
     let live = true
     setLoading(true); setErr(null); setData(null)
-    apiFetch<CustomerDetail>(`/api/cbs/reports/customer/${encodeURIComponent(cif)}`)
+    apiFetch<CustomerDetail>(`/api/cbs/reports/customer/${encodeURIComponent(udaraId)}`)
       .then(d => { if (live) setData(d) })
       .catch(e => { if (live) setErr(e?.message || 'Failed to load customer') })
       .finally(() => { if (live) setLoading(false) })
     return () => { live = false }
-  }, [cif])
+  }, [udaraId])
 
   const c = data?.cbs || {}
   const w = data?.workspace || {}
   const title = (c.name as string) || 'Customer'
 
   return (
-    <Modal open={!!cif} onClose={onClose} title={title} width={760} maxHeight="82vh">
+    <Modal open={!!udaraId} onClose={onClose} title={title} width={760} maxHeight="82vh">
       {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: SP[6] }}><Spinner /></div>}
       {err && <div style={{ color: RED, fontSize: 13, padding: SP[3] }}>{err}</div>}
       {data && !loading && (
@@ -366,7 +369,7 @@ function CustomerModal({ cif, onClose }: { cif: string | null; onClose: () => vo
             {data.in_workspace
               ? <Badge variant="success" dot>In Workspace · {w.cust_id}</Badge>
               : <Badge variant="warning" dot>Udara Only — No Workspace Profile Yet</Badge>}
-            <span style={{ color: TXT3, fontSize: 12, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>CIF {c.cbs_customer_id}</span>
+            <span style={{ color: TXT3, fontSize: 12, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>Udara ID {c.cbs_customer_id}</span>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: SP[5] }}>

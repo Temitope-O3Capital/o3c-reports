@@ -34,7 +34,14 @@ interface RiskApp {
   days_in_stage?: number | null
   decision?: string | null
   phoenix_sync_state?: string | null
+  // True when the viewer is the person who moved this file into its current stage —
+  // deciding it on is then a single-reviewer decision, and is recorded as one.
+  entered_stage_by_me?: boolean
 }
+
+// The stages where advancing a file IS a credit decision, and so where one pair of eyes
+// is worth saying out loud. Mirrors decisionTransitions in handlers/los.go.
+const DECISION_STAGES = ['risk_review', 'risk_head_review', 'pending_committee', 'pending_conditions', 'finance_approval']
 
 // ── Risk band pill ────────────────────────────────────────────────────────────
 
@@ -93,14 +100,33 @@ const prettyStage = (s?: string | null) =>
 
 function AdvanceModal({ app, open, onClose, onDone }: { app: RiskApp | null; open: boolean; onClose: () => void; onDone: () => void }) {
   const [notes,   setNotes]   = useState('')
+  const [amount,  setAmount]  = useState('')
   const [saving,  setSaving]  = useState(false)
 
-  useEffect(() => { if (open) setNotes('') }, [open])
-
   const nextStage = app?.stage ? NEXT_STAGE[app.stage] : undefined
+  // The risk head's sign-off is the moment the credit is granted and its amount fixed.
+  // Nothing used to ask for a figure, so amount_approved_kobo was never written and the
+  // disbursement journal fell back to what the customer requested — a number no approver
+  // had confirmed. The server now requires it on this transition.
+  const isApproval    = app?.stage === 'risk_head_review'
+  const requestedKobo = app?.amount_requested_kobo ?? 0
+
+  useEffect(() => {
+    if (!open) return
+    setNotes('')
+    // Pre-filled with the requested figure — approving in full is the common case — but
+    // it is still confirmed by a person rather than assumed by the code.
+    setAmount(requestedKobo > 0 ? String(requestedKobo / 100) : '')
+  }, [open, requestedKobo])
+
+  const approvedKobo = Math.round(parseFloat(amount.replace(/,/g, '')) * 100)
+  const amountError  = !isApproval ? null
+    : !isFinite(approvedKobo) || approvedKobo <= 0 ? 'Enter the amount you are approving.'
+    : requestedKobo > 0 && approvedKobo > requestedKobo ? `That is more than the ${fmtKoboExact(requestedKobo)} requested.`
+    : null
 
   async function handleSubmit() {
-    if (!app) return
+    if (!app || amountError) return
     setSaving(true)
     try {
       // to_stage is required by the API. This used to send only { notes }, so every
@@ -108,6 +134,7 @@ function AdvanceModal({ app, open, onClose, onDone }: { app: RiskApp | null; ope
       await apiPut(`/api/los/${app.id}/advance`, {
         notes,
         ...(nextStage ? { to_stage: nextStage } : {}),
+        ...(isApproval ? { amount_approved_kobo: approvedKobo } : {}),
       })
       toast.success(`Application ${app.reference} advanced`)
       onClose(); onDone()
@@ -126,6 +153,52 @@ function AdvanceModal({ app, open, onClose, onDone }: { app: RiskApp | null; ope
           <strong>{prettyStage(app?.stage)}</strong> to{' '}
           <strong>{prettyStage(nextStage)}</strong>. Add optional review notes below.
         </p>
+
+        {/* Said before the click, not discovered afterwards. With one risk officer and
+            one risk head, covering for each other is normal and is not blocked — but the
+            approval is recorded as a single-reviewer decision so it can be found later. */}
+        {app?.entered_stage_by_me && DECISION_STAGES.includes(app?.stage ?? '') && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '9px 11px', borderRadius: RADIUS.md, background: `${AMBER}12`, border: `1px solid ${AMBER}40` }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 17, color: AMBER, marginTop: 1 }}>visibility</span>
+            <span style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.45 }}>
+              You also performed the previous step on this application. Continuing will be
+              recorded as a <strong style={{ color: 'var(--txt)' }}>single-reviewer decision</strong>.
+            </span>
+          </div>
+        )}
+
+        {isApproval && (
+          <div>
+            <label htmlFor="approve-amt" style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', display: 'block', marginBottom: 5 }}>
+              Amount To Approve
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: TEXT.md, color: 'var(--txt2)', fontWeight: FW.semibold }}>₦</span>
+              <input
+                id="approve-amt" inputMode="decimal" value={amount}
+                onChange={e => setAmount(e.target.value)}
+                style={{
+                  ...NUM, flex: 1, padding: '9px 11px', borderRadius: RADIUS.md,
+                  border: `1px solid ${amountError ? `${RED}66` : 'var(--input-bdr)'}`,
+                  background: 'var(--input-bg)', color: 'var(--txt)', fontSize: TEXT.base,
+                  fontFamily: INTER, outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5 }}>
+              <span style={{ fontSize: TEXT.xs, color: amountError ? RED : 'var(--txt3)' }}>
+                {amountError ?? `Requested: ${fmtKoboExact(requestedKobo)}`}
+              </span>
+              {!amountError && requestedKobo > 0 && approvedKobo !== requestedKobo && (
+                <button onClick={() => setAmount(String(requestedKobo / 100))}
+                  style={{ border: 'none', background: 'none', padding: 0, color: NAVY, fontSize: TEXT.xs, fontWeight: FW.semibold, cursor: 'pointer', fontFamily: INTER }}>
+                  Approve in full
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <textarea
           value={notes}
           onChange={e => setNotes(e.target.value)}
@@ -135,8 +208,9 @@ function AdvanceModal({ app, open, onClose, onDone }: { app: RiskApp | null; ope
         />
         <div style={{ display: 'flex', gap: SP[2], justifyContent: 'flex-end' }}>
           <button onClick={onClose} disabled={saving} style={{ padding: '7px 16px', borderRadius: RADIUS.md, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt)', fontSize: TEXT.sm, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={handleSubmit} disabled={saving} style={{ padding: '7px 16px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-            {saving ? 'Advancing…' : 'Advance Stage'}
+          <button onClick={handleSubmit} disabled={saving || !!amountError}
+            style={{ padding: '7px 16px', borderRadius: RADIUS.md, border: 'none', background: NAVY, color: '#fff', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: saving || amountError ? 'not-allowed' : 'pointer', opacity: saving || amountError ? 0.55 : 1 }}>
+            {saving ? 'Advancing…' : isApproval ? 'Approve' : 'Advance Stage'}
           </button>
         </div>
       </div>
@@ -215,7 +289,11 @@ export default function RiskAppReview() {
   const [search,    setSearch]    = useState('')
   const [dateFrom,  setDateFrom]  = useState(monthStart())
   const [dateTo,    setDateTo]    = useState(today())
-  const [selected,  setSelected]  = useState<Set<string | number>>(new Set())
+  // The row checkboxes are gone: the selection they filled was never read by anything —
+  // there is no bulk assign, approve or export on this page — so ticking twenty
+  // applications did exactly nothing and implied an action that does not exist.
+  const [sortKey,   setSortKey]   = useState('submitted_at')
+  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('desc')
   const [advanceApp, setAdvanceApp] = useState<RiskApp | null>(null)
   const [declineApp, setDeclineApp] = useState<RiskApp | null>(null)
 
@@ -234,10 +312,18 @@ export default function RiskAppReview() {
     if (fProducts.size) p.set('product', [...fProducts].join(','))
     if (fBands.size)    p.set('band',    [...fBands].join(','))
     if (search)         p.set('search', search)
-    if (dateFrom)       p.set('date_from', dateFrom)
-    if (dateTo)         p.set('date_to', dateTo)
+    // The date window deliberately does NOT apply to the pending queue. It defaults to
+    // the start of this month, and an application submitted in August is still waiting
+    // in September — filtering it out hid exactly the ageing files this page exists to
+    // surface, while the KPI card above (which had no date filter) kept counting them.
+    if (view !== 'pending') {
+      if (dateFrom) p.set('date_from', dateFrom)
+      if (dateTo)   p.set('date_to', dateTo)
+    }
+    p.set('sort', sortKey)
+    p.set('dir', sortDir)
     return p.toString()
-  }, [view, fStages, fProducts, fBands, search, dateFrom, dateTo])
+  }, [view, fStages, fProducts, fBands, search, dateFrom, dateTo, sortKey, sortDir])
 
   const load = useCallback(async (off = 0) => {
     abortRef.current?.abort()
@@ -439,9 +525,11 @@ export default function RiskAppReview() {
           loading={loading}
           skeletonRows={8}
           onRowClick={r => navigate(`/operations/risk/applications/${r.id}`)}
-          selectable
-          selectedIds={selected}
-          onSelect={setSelected}
+          // Sorting is done by the server, across the whole filtered queue rather than
+          // the page of it currently on screen.
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSortChange={(k, d) => { setSortKey(k); setSortDir(d) }}
           emptyText={kpis?.origination_live === false ? 'No applications yet. Applications raised in the workspace or synced from Phoenix will appear here for review.' : view === 'pending' ? 'No Pending Applications' : 'No Applications Found'}
         />
 

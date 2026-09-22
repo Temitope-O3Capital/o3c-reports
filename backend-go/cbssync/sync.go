@@ -10,9 +10,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -122,6 +124,23 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 		return res, fmt.Errorf("cbs sync: commit: %w", err)
 	}
 
+	// Rebuild the FD rollover lineage (migration 276). refreshFDs above DELETEs and
+	// re-INSERTs cbs_fixed_deposits wholesale, so lineage cannot live in a column on that
+	// table — it would be destroyed every three minutes. It lives in app.fd_rollover_links
+	// and is recomputed here, right after the book it is derived from has landed.
+	//
+	// Deliberately NOT fatal: a failure here costs a stale rollover count on a reporting
+	// view, and must never fail a sync that has already committed the loan and deposit
+	// books. Logged at Error so it is visible rather than silently stale.
+	if _, err := db.PG.ExecContext(ctx, `SELECT app.compute_fd_rollover_links()`); err != nil {
+		slog.Error("cbs sync: FD rollover lineage rebuild failed — counts are stale", "err", err)
+	}
+	// Same for loan restructures (migration 277): refreshLoans clears cbs_loans the same
+	// way, so which facility is an existing debt on new terms cannot be stored on it.
+	if _, err := db.PG.ExecContext(ctx, `SELECT app.compute_loan_restructure_links()`); err != nil {
+		slog.Error("cbs sync: loan restructure lineage rebuild failed — counts are stale", "err", err)
+	}
+
 	res.Products, res.Loans, res.FDs = len(products), len(loans), len(fds)
 
 	// Spool the Udara customer MASTER (individual + corporate). The loan/FD feeds carry
@@ -189,6 +208,13 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 	// Best-effort and self-contained: isolated from the atomic refresh above, so a
 	// schedule-fetch failure never breaks the loan/FD sync.
 	if n, err := syncLoanSchedules(ctx, c, db, loans); err != nil {
+		// A fetch/DB hiccup stays best-effort, but a guard refusal is a data-integrity
+		// event: it means this run would have destroyed the schedule book, and it must
+		// surface as an 'error' run rather than a green 'ok'. Nothing was deleted — the
+		// transaction rolled back — so the existing snapshot is intact.
+		if errors.Is(err, errBookShrank) {
+			return res, err
+		}
 		slog.Warn("cbs loan schedule sync failed", "err", err)
 	} else {
 		slog.Info("cbs loan schedules synced", "installments", n)
@@ -204,31 +230,51 @@ func doSync(ctx context.Context, c *udara.Client, db *core.DB) (Result, error) {
 }
 
 // upsertUdaraCustomers creates a minimal identity profile in app.customers for every
-// Udara customer (keyed by CIF) not already known to the workspace. Only the CIF and
-// name (from the Udara payload) are set — Udara exposes no contact phone/email — and
-// the row is tagged source='udara_cbs'. contact_id is minted with the same
-// 'Z'||LPAD(cif,15,'0') convention the card feed (custfeed) uses, so if that feed later
-// carries the same customer the two converge on CIF via ON CONFLICT rather than
-// duplicating. The write is strictly additive: existing profiles are left untouched.
+// Udara customer that has none. It is keyed on party_id — the workspace Customer ID —
+// through the app.cbs_links crosswalk, which covers every Udara customer and is the
+// only correct bridge between the two systems.
+//
+// This mirrors migration 258 section 2 exactly, so the one-off migration and this
+// recurring sync converge on the same rows instead of fighting.
+//
+//   - cif stays NULL. app.customers.cif is a CARDS (CCS/Sage) identifier, NOT a customer
+//     id, and these customers hold no card. Writing the Udara customerID there is the
+//     defect 258 closes: 269 of the 294 Udara ids already existed as mssql_baseline card
+//     rows for unrelated people, so the old ON CONFLICT (cif) DO NOTHING silently did
+//     nothing for them. uq_customers_cif is partial — it indexes only non-null, non-blank
+//     cif — so any number of rows may carry NULL.
+//   - contact_id is 'U' || LPAD(cbs_customer_id,15,'0') — 16 chars, matching the existing
+//     width. Prefixes '0' (baseline), 'Z' (card feed) and 'W' are taken; 'U' is free.
+//   - Only parties with NO profile at all are inserted. Where app.link_cbs_customers
+//     merged a Udara customer into an existing card party on a unique BVN, that party
+//     already holds a richer card-fed row and keeps it; enrichCustomersFromCBS fills that
+//     row's blanks instead.
+//   - DISTINCT ON guards two Udara customers linked to one party: the fuller name wins,
+//     and the second is still reachable through cbs_links.
+//
+// Contact detail is deliberately NOT set here (an earlier comment claimed Udara exposes
+// no phone/email — it does, and refreshCBSCustomers already stores both): identity
+// backfill is enrichCustomersFromCBS's job, blank-only, so it never overwrites the card
+// feed. The write is strictly additive and idempotent — it runs every sync.
 func upsertUdaraCustomers(ctx context.Context, db *core.DB) (int, error) {
 	res, err := db.PG.ExecContext(ctx, `
-WITH udara AS (
-    SELECT cbs_customer_id AS cif, NULLIF(btrim(raw->>'name'), '') AS nm
-      FROM cbs_loans          WHERE COALESCE(btrim(cbs_customer_id), '') <> ''
-    UNION ALL
-    SELECT cbs_customer_id,       NULLIF(btrim(raw->>'name'), '')
-      FROM cbs_fixed_deposits WHERE COALESCE(btrim(cbs_customer_id), '') <> ''
-),
-picked AS (
-    SELECT cif, (array_agg(nm ORDER BY (nm IS NULL), length(nm) DESC))[1] AS nm
-      FROM udara GROUP BY cif
-)
 INSERT INTO app.customers
-    (contact_id, cif, full_name, last_name, source, first_seen_at, created_at, last_seen)
-SELECT 'Z' || LPAD(p.cif, 15, '0'), p.cif, p.nm, p.nm, 'udara_cbs', NOW(), NOW(), NOW()
-  FROM picked p
-ON CONFLICT (cif) WHERE cif IS NOT NULL AND cif <> ''
-DO NOTHING`)
+    (contact_id, cif, party_id, full_name, first_name, last_name,
+     source, first_seen_at, created_at, last_seen)
+SELECT DISTINCT ON (l.entity_id)
+    'U' || LPAD(cc.cbs_customer_id, 15, '0'),
+    NULL,
+    l.entity_id,
+    NULLIF(btrim(cc.name), ''),
+    NULLIF(btrim(cc.first_name), ''),
+    NULLIF(btrim(cc.last_name), ''),
+    'udara_cbs', NOW(), NOW(), NOW()
+  FROM app.cbs_links l
+  JOIN app.cbs_customers cc ON cc.cbs_customer_id = l.cbs_customer_id
+ WHERE l.entity_type = 'party'
+   AND NOT EXISTS (SELECT 1 FROM app.customers c WHERE c.party_id = l.entity_id)
+ ORDER BY l.entity_id, length(COALESCE(btrim(cc.name), '')) DESC
+ON CONFLICT (contact_id) DO NOTHING`)
 	if err != nil {
 		return 0, err
 	}
@@ -335,35 +381,99 @@ func refreshCBSCustomers(ctx context.Context, db *core.DB, rows []map[string]any
 	return n, nil
 }
 
-// enrichCustomersFromCBS fills BLANK contact fields on workspace profiles from the Udara
-// customer master. It only ever fills empties — a value already on the profile (from the
-// card feed) is never overwritten. Crucially it joins through the cbs_links → party
-// crosswalk, so a Udara customer's PII lands on the party that actually owns it, never on
-// a card customer whose cif merely collides with the Udara customerID. Returns rows changed.
+// enrichCustomersFromCBS fills BLANK identity/KYC fields on workspace profiles from the
+// Udara customer master. It only ever fills empties — a value already on the profile
+// (from the card feed, which is richer wherever it has data) is never overwritten.
+// Crucially it joins through the cbs_links → party crosswalk, so a Udara customer's PII
+// lands on the party that actually owns it, never on a card customer whose cif merely
+// collides with the Udara customerID. Returns rows changed.
+//
+// The column list mirrors migration 258 section 3: the nine original contact fields plus
+// the identity/KYC columns 258 adds (NIN, TIN, LGA, nationality, marital status,
+// occupation, employer, office/business phone, means of ID, next-of-kin, corporate
+// contact-person and registration detail, religion, hometown and the PEP flag). Names
+// match cbs_customers one-for-one so the mapping stays obvious.
+//
+// pep is the one non-blank-only field: it is a risk flag, not contact detail, so once
+// true it stays true and a NULL workspace value takes whatever the master says.
+//
+// NOTE: this requires migration 258. Until 258 is applied the statement errors on the
+// unknown columns; the caller treats enrichment as best-effort and only warns, so the
+// money sync is unaffected.
 func enrichCustomersFromCBS(ctx context.Context, db *core.DB) (int, error) {
 	res, err := db.PG.ExecContext(ctx, `
 UPDATE app.customers cu SET
-    phone        = COALESCE(NULLIF(btrim(cu.phone),''),        NULLIF(btrim(cc.phone),'')),
-    email        = COALESCE(NULLIF(btrim(cu.email),''),        NULLIF(btrim(cc.email),'')),
-    address_1    = COALESCE(NULLIF(btrim(cu.address_1),''),    NULLIF(btrim(cc.address),'')),
-    full_address = COALESCE(NULLIF(btrim(cu.full_address),''), NULLIF(btrim(cc.address),'')),
-    city         = COALESCE(NULLIF(btrim(cu.city),''),         NULLIF(btrim(cc.city),'')),
-    state        = COALESCE(NULLIF(btrim(cu.state),''),        NULLIF(btrim(cc.state),'')),
-    bvn          = COALESCE(NULLIF(btrim(cu.bvn),''),          NULLIF(btrim(cc.bvn),'')),
-    birthday     = COALESCE(cu.birthday, cc.date_of_birth),
-    gender       = COALESCE(NULLIF(btrim(cu.gender),''),       NULLIF(btrim(cc.gender),'')),
-    last_seen    = NOW()
+    phone                = COALESCE(NULLIF(btrim(cu.phone),''),                NULLIF(btrim(cc.phone),'')),
+    email                = COALESCE(NULLIF(btrim(cu.email),''),                NULLIF(btrim(cc.email),'')),
+    address_1            = COALESCE(NULLIF(btrim(cu.address_1),''),            NULLIF(btrim(cc.address),'')),
+    full_address         = COALESCE(NULLIF(btrim(cu.full_address),''),         NULLIF(btrim(cc.address),'')),
+    city                 = COALESCE(NULLIF(btrim(cu.city),''),                 NULLIF(btrim(cc.city),'')),
+    state                = COALESCE(NULLIF(btrim(cu.state),''),                NULLIF(btrim(cc.state),'')),
+    bvn                  = COALESCE(NULLIF(btrim(cu.bvn),''),                  NULLIF(btrim(cc.bvn),'')),
+    birthday             = COALESCE(cu.birthday,                               cc.date_of_birth),
+    gender               = COALESCE(NULLIF(btrim(cu.gender),''),               NULLIF(btrim(cc.gender),'')),
+    nin                  = COALESCE(NULLIF(btrim(cu.nin),''),                  NULLIF(btrim(cc.nin),'')),
+    tin                  = COALESCE(NULLIF(btrim(cu.tin),''),                  NULLIF(btrim(cc.tin),'')),
+    lga                  = COALESCE(NULLIF(btrim(cu.lga),''),                  NULLIF(btrim(cc.lga),'')),
+    nationality          = COALESCE(NULLIF(btrim(cu.nationality),''),          NULLIF(btrim(cc.nationality),'')),
+    marital_status       = COALESCE(NULLIF(btrim(cu.marital_status),''),       NULLIF(btrim(cc.marital_status),'')),
+    occupation           = COALESCE(NULLIF(btrim(cu.occupation),''),           NULLIF(btrim(cc.occupation),'')),
+    employer_name        = COALESCE(NULLIF(btrim(cu.employer_name),''),        NULLIF(btrim(cc.employer_name),'')),
+    employer_address     = COALESCE(NULLIF(btrim(cu.employer_address),''),     NULLIF(btrim(cc.employer_address),'')),
+    office_phone         = COALESCE(NULLIF(btrim(cu.office_phone),''),         NULLIF(btrim(cc.office_phone),'')),
+    means_of_id          = COALESCE(NULLIF(btrim(cu.means_of_id),''),          NULLIF(btrim(cc.means_of_id),'')),
+    id_number            = COALESCE(NULLIF(btrim(cu.id_number),''),            NULLIF(btrim(cc.id_number),'')),
+    nok_name             = COALESCE(NULLIF(btrim(cu.nok_name),''),             NULLIF(btrim(cc.nok_name),'')),
+    nok_phone            = COALESCE(NULLIF(btrim(cu.nok_phone),''),            NULLIF(btrim(cc.nok_phone),'')),
+    nok_relationship     = COALESCE(NULLIF(btrim(cu.nok_relationship),''),     NULLIF(btrim(cc.nok_relationship),'')),
+    business_phone       = COALESCE(NULLIF(btrim(cu.business_phone),''),       NULLIF(btrim(cc.business_phone),'')),
+    nature_of_business   = COALESCE(NULLIF(btrim(cu.nature_of_business),''),   NULLIF(btrim(cc.nature_of_business),'')),
+    industrial_sector    = COALESCE(NULLIF(btrim(cu.industrial_sector),''),    NULLIF(btrim(cc.industrial_sector),'')),
+    registration_number  = COALESCE(NULLIF(btrim(cu.registration_number),''),  NULLIF(btrim(cc.registration_number),'')),
+    contact_person_name  = COALESCE(NULLIF(btrim(cu.contact_person_name),''),  NULLIF(btrim(cc.contact_person_name),'')),
+    contact_person_phone = COALESCE(NULLIF(btrim(cu.contact_person_phone),''), NULLIF(btrim(cc.contact_person_phone),'')),
+    state_of_operation   = COALESCE(NULLIF(btrim(cu.state_of_operation),''),   NULLIF(btrim(cc.state_of_operation),'')),
+    religion             = COALESCE(NULLIF(btrim(cu.religion),''),             NULLIF(btrim(cc.religion),'')),
+    hometown             = COALESCE(NULLIF(btrim(cu.hometown),''),             NULLIF(btrim(cc.hometown),'')),
+    pep                  = COALESCE(cu.pep, FALSE) OR COALESCE(cc.pep, FALSE),
+    last_seen            = NOW()
   FROM app.cbs_links l
-  JOIN cbs_customers cc ON cc.cbs_customer_id = l.cbs_customer_id
+  JOIN app.cbs_customers cc ON cc.cbs_customer_id = l.cbs_customer_id
  WHERE l.entity_type = 'party' AND cu.party_id = l.entity_id
    AND (
-        (COALESCE(btrim(cu.phone),'')     = '' AND COALESCE(btrim(cc.phone),'')   <> '') OR
-        (COALESCE(btrim(cu.email),'')     = '' AND COALESCE(btrim(cc.email),'')   <> '') OR
-        (COALESCE(btrim(cu.address_1),'') = '' AND COALESCE(btrim(cc.address),'') <> '') OR
-        (COALESCE(btrim(cu.state),'')     = '' AND COALESCE(btrim(cc.state),'')   <> '') OR
-        (COALESCE(btrim(cu.bvn),'')       = '' AND COALESCE(btrim(cc.bvn),'')     <> '') OR
-        (cu.birthday IS NULL AND cc.date_of_birth IS NOT NULL) OR
-        (COALESCE(btrim(cu.gender),'')    = '' AND COALESCE(btrim(cc.gender),'')  <> '')
+        (COALESCE(btrim(cu.phone),'')                = '' AND COALESCE(btrim(cc.phone),'')                <> '') OR
+        (COALESCE(btrim(cu.email),'')                = '' AND COALESCE(btrim(cc.email),'')                <> '') OR
+        (COALESCE(btrim(cu.address_1),'')            = '' AND COALESCE(btrim(cc.address),'')              <> '') OR
+        (COALESCE(btrim(cu.full_address),'')         = '' AND COALESCE(btrim(cc.address),'')              <> '') OR
+        (COALESCE(btrim(cu.city),'')                 = '' AND COALESCE(btrim(cc.city),'')                 <> '') OR
+        (COALESCE(btrim(cu.state),'')                = '' AND COALESCE(btrim(cc.state),'')                <> '') OR
+        (COALESCE(btrim(cu.bvn),'')                  = '' AND COALESCE(btrim(cc.bvn),'')                  <> '') OR
+        (cu.birthday IS NULL AND cc.date_of_birth IS NOT NULL)                                               OR
+        (COALESCE(btrim(cu.gender),'')               = '' AND COALESCE(btrim(cc.gender),'')               <> '') OR
+        (COALESCE(btrim(cu.nin),'')                  = '' AND COALESCE(btrim(cc.nin),'')                  <> '') OR
+        (COALESCE(btrim(cu.tin),'')                  = '' AND COALESCE(btrim(cc.tin),'')                  <> '') OR
+        (COALESCE(btrim(cu.lga),'')                  = '' AND COALESCE(btrim(cc.lga),'')                  <> '') OR
+        (COALESCE(btrim(cu.nationality),'')          = '' AND COALESCE(btrim(cc.nationality),'')          <> '') OR
+        (COALESCE(btrim(cu.marital_status),'')       = '' AND COALESCE(btrim(cc.marital_status),'')       <> '') OR
+        (COALESCE(btrim(cu.occupation),'')           = '' AND COALESCE(btrim(cc.occupation),'')           <> '') OR
+        (COALESCE(btrim(cu.employer_name),'')        = '' AND COALESCE(btrim(cc.employer_name),'')        <> '') OR
+        (COALESCE(btrim(cu.employer_address),'')     = '' AND COALESCE(btrim(cc.employer_address),'')     <> '') OR
+        (COALESCE(btrim(cu.office_phone),'')         = '' AND COALESCE(btrim(cc.office_phone),'')         <> '') OR
+        (COALESCE(btrim(cu.means_of_id),'')          = '' AND COALESCE(btrim(cc.means_of_id),'')          <> '') OR
+        (COALESCE(btrim(cu.id_number),'')            = '' AND COALESCE(btrim(cc.id_number),'')            <> '') OR
+        (COALESCE(btrim(cu.nok_name),'')             = '' AND COALESCE(btrim(cc.nok_name),'')             <> '') OR
+        (COALESCE(btrim(cu.nok_phone),'')            = '' AND COALESCE(btrim(cc.nok_phone),'')            <> '') OR
+        (COALESCE(btrim(cu.nok_relationship),'')     = '' AND COALESCE(btrim(cc.nok_relationship),'')     <> '') OR
+        (COALESCE(btrim(cu.business_phone),'')       = '' AND COALESCE(btrim(cc.business_phone),'')       <> '') OR
+        (COALESCE(btrim(cu.nature_of_business),'')   = '' AND COALESCE(btrim(cc.nature_of_business),'')   <> '') OR
+        (COALESCE(btrim(cu.industrial_sector),'')    = '' AND COALESCE(btrim(cc.industrial_sector),'')    <> '') OR
+        (COALESCE(btrim(cu.registration_number),'')  = '' AND COALESCE(btrim(cc.registration_number),'')  <> '') OR
+        (COALESCE(btrim(cu.contact_person_name),'')  = '' AND COALESCE(btrim(cc.contact_person_name),'')  <> '') OR
+        (COALESCE(btrim(cu.contact_person_phone),'') = '' AND COALESCE(btrim(cc.contact_person_phone),'') <> '') OR
+        (COALESCE(btrim(cu.state_of_operation),'')   = '' AND COALESCE(btrim(cc.state_of_operation),'')   <> '') OR
+        (COALESCE(btrim(cu.religion),'')             = '' AND COALESCE(btrim(cc.religion),'')             <> '') OR
+        (COALESCE(btrim(cu.hometown),'')             = '' AND COALESCE(btrim(cc.hometown),'')             <> '') OR
+        (COALESCE(cu.pep, FALSE) = FALSE AND COALESCE(cc.pep, FALSE) = TRUE)
    )`)
 	if err != nil {
 		return 0, err
@@ -729,9 +839,133 @@ func recordKey(m map[string]any) string {
 	return "raw:" + rawOf(m)
 }
 
+// ── destructive-refresh guard ────────────────────────────────────────────────
+//
+// Every snapshot book is refreshed DELETE-then-INSERT inside one transaction, so a fetch
+// that returns nothing silently commits an empty book. That is not hypothetical: run 6538
+// (2026-08-07 19:52) took loans 66 → 0 and fixed deposits 189 → 0 in a single run and
+// stamped itself 'ok'; the book stayed wiped for 62h49m across 3,765 consecutive 'ok'
+// runs, and the recovery then committed a one-loan and a one-FD snapshot as successful
+// full refreshes. The cause is a silent empty fetch — extractItems returns (nil, nil) when
+// `data` is null or carries no array, and recordCountOf returns 0 when the count key is
+// missing — so fetchFullBook hands back an empty slice with err == nil.
+//
+// refreshCBSCustomers was already hardened against exactly this ("we never want a
+// transient partial fetch to drop a profile"); the loan and deposit books — the money —
+// were not. guardRefresh closes that asymmetry.
+
+// errBookShrank marks a refusal to commit a destructive refresh. It is a distinct
+// sentinel so callers that are otherwise best-effort (the schedule refresh) can still
+// fail the run loudly instead of warning and reporting 'ok'.
+var errBookShrank = errors.New("cbs refresh guard")
+
+// Guard thresholds. A refresh is refused when the book shrinks by more than
+// max(minShrinkRows, maxShrinkPct% of the current count) in one run.
+//
+// 25% / 2 rows is calibrated against this deployment's own history. Across every
+// recorded run there have been exactly three shrink events per book: the two 100% wipes
+// above, and one legitimate contraction (loans 66 → 63, -4.5%; FDs 189 → 184, -2.6%) when
+// accounts were genuinely closed. 25% clears the real shrink by more than 5x and still
+// refuses anything resembling a wipe. The absolute floor of 2 rows keeps a small book
+// (cbs_products holds 8) from tripping on a one- or two-row change, where a percentage is
+// meaningless. A full refresh runs every few minutes, and a book cannot plausibly lose a
+// quarter of its accounts in that window.
+//
+// Overrides (all optional, read per run so they can be changed without a rebuild):
+//
+//	CBS_SYNC_MAX_SHRINK_PCT    percentage, default 25
+//	CBS_SYNC_MIN_SHRINK_ROWS   absolute row floor, default 2
+//	CBS_SYNC_ALLOW_SHRINK=1    escape hatch: permit ANY shrink, including to zero, for a
+//	                           deliberate purge or re-baseline. Logged at WARN.
+const (
+	defaultMaxShrinkPct  = 25.0
+	defaultMinShrinkRows = 2
+)
+
+// guardRefresh reports whether a DELETE+INSERT refresh of `table` with `incoming` rows is
+// safe to commit. It must be called inside the refresh transaction, before the DELETE, so
+// the count it reads is the count the refresh is about to destroy. Returning an error
+// aborts the transaction (nothing is deleted) and propagates out of SyncAll, which records
+// cbs_sync_runs.status = 'error' with this message.
+//
+// It never blocks growth, a steady book, or first population (0 → N).
+func guardRefresh(ctx context.Context, tx *sql.Tx, book, table string, incoming int) error {
+	var before int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&before); err != nil {
+		return fmt.Errorf("cbs refresh %s: count existing rows: %w", book, err)
+	}
+	if before == 0 || incoming >= before {
+		return nil
+	}
+	if envBool("CBS_SYNC_ALLOW_SHRINK") {
+		slog.Warn("cbs refresh shrink allowed by CBS_SYNC_ALLOW_SHRINK",
+			"book", book, "before", before, "after", incoming)
+		return nil
+	}
+	if incoming == 0 {
+		return fmt.Errorf("%w: %s fetch returned 0 rows while the snapshot holds %d; "+
+			"refusing to commit an empty book (set CBS_SYNC_ALLOW_SHRINK=1 to force)",
+			errBookShrank, book, before)
+	}
+	allowed := shrinkAllowance(before)
+	if drop := before - incoming; drop > allowed {
+		return fmt.Errorf("%w: %s would shrink %d -> %d (-%d rows, %.1f%%), beyond the allowed "+
+			"drop of %d; refusing to commit (tune CBS_SYNC_MAX_SHRINK_PCT / CBS_SYNC_MIN_SHRINK_ROWS, "+
+			"or set CBS_SYNC_ALLOW_SHRINK=1 to force)",
+			errBookShrank, book, before, incoming, drop, float64(drop)*100/float64(before), allowed)
+	}
+	return nil
+}
+
+// shrinkAllowance is the largest row drop tolerated for a book currently holding `before`
+// rows: a percentage of the book, with an absolute floor so small books stay workable.
+func shrinkAllowance(before int) int {
+	byPct := int(float64(before) * envFloat("CBS_SYNC_MAX_SHRINK_PCT", defaultMaxShrinkPct) / 100)
+	if floor := envInt("CBS_SYNC_MIN_SHRINK_ROWS", defaultMinShrinkRows); byPct < floor {
+		return floor
+	}
+	return byPct
+}
+
+func envBool(key string) bool {
+	b, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(key)))
+	return err == nil && b
+}
+
+func envFloat(key string, def float64) float64 {
+	if f, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv(key)), 64); err == nil && f >= 0 {
+		return f
+	}
+	return def
+}
+
+func envInt(key string, def int) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key))); err == nil && n >= 0 {
+		return n
+	}
+	return def
+}
+
+// countKeyed counts the distinct non-empty values of `key` across fetched records — i.e.
+// the number of rows the refresh will actually insert, since records without a key are
+// skipped and same-key records collapse on the unique index. Counting what lands (rather
+// than len(rows)) keeps the guard honest when a fetch returns structurally empty records.
+func countKeyed(rows []map[string]any, key string) int {
+	seen := make(map[string]struct{}, len(rows))
+	for _, m := range rows {
+		if v := gstr(m, key); v != "" {
+			seen[v] = struct{}{}
+		}
+	}
+	return len(seen)
+}
+
 // ── table refreshers ─────────────────────────────────────────────────────────
 
 func refreshProducts(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
+	if err := guardRefresh(ctx, tx, "products", "cbs_products", countKeyed(rows, "code")); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM cbs_products`); err != nil {
 		return fmt.Errorf("cbs refresh products: clear: %w", err)
 	}
@@ -755,6 +989,9 @@ func refreshProducts(ctx context.Context, tx *sql.Tx, rows []map[string]any) err
 }
 
 func refreshLoans(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
+	if err := guardRefresh(ctx, tx, "loans", "cbs_loans", countKeyed(rows, "id")); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM cbs_loans`); err != nil {
 		return fmt.Errorf("cbs refresh loans: clear: %w", err)
 	}
@@ -818,6 +1055,9 @@ func refreshLoans(ctx context.Context, tx *sql.Tx, rows []map[string]any) error 
 }
 
 func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
+	if err := guardRefresh(ctx, tx, "fixed deposits", "cbs_fixed_deposits", countKeyed(rows, "id")); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM cbs_fixed_deposits`); err != nil {
 		return fmt.Errorf("cbs refresh fds: clear: %w", err)
 	}
@@ -825,9 +1065,9 @@ func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
 	    (cbs_id, cbs_account_number, cbs_customer_id, product_code, product_name, status,
 	     principal_kobo, accrued_interest_kobo, ledger_balance_kobo, interest_rate, tenor_days,
 	     commencement_date, maturity_date, liquidation_account,
-	     reference_number, branch_name, rollover_count, date_booked,
+	     reference_number, branch_name, rollover_count, date_booked, officer_name,
 	     raw, synced_at)
-	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb, NOW())
+	    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb, NOW())
 	    ON CONFLICT (cbs_id) DO UPDATE SET
 	        cbs_account_number = EXCLUDED.cbs_account_number, cbs_customer_id = EXCLUDED.cbs_customer_id,
 	        product_code = EXCLUDED.product_code, product_name = EXCLUDED.product_name, status = EXCLUDED.status,
@@ -837,6 +1077,7 @@ func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
 	        maturity_date = EXCLUDED.maturity_date, liquidation_account = EXCLUDED.liquidation_account,
 	        reference_number = EXCLUDED.reference_number, branch_name = EXCLUDED.branch_name,
 	        rollover_count = EXCLUDED.rollover_count, date_booked = EXCLUDED.date_booked,
+	        officer_name = EXCLUDED.officer_name,
 	        raw = EXCLUDED.raw, synced_at = NOW()`
 	for _, m := range rows {
 		id := gstr(m, "id")
@@ -851,7 +1092,13 @@ func refreshFDs(ctx context.Context, tx *sql.Tx, rows []map[string]any) error {
 			gkobo(m, "ledgerBalance"), gnum(m, "applicableInterestRate"), gint(m, "tenure"),
 			gts(m, "commencementDate"), gts(m, "maturityDate"), gstr(m, "liquidationAccount"),
 			gstr(m, "referenceNumber"), gstr(m, "branchName"), gint(m, "rolloverCount"),
-			gts(m, "commencementDate"), rawOf(m),
+			gts(m, "commencementDate"),
+			// Officer stored VERBATIM, exactly as cbs_loans.officer_name above: 7 of
+			// the 21 app.cbs_officer_map rows carry a trailing space because Udara
+			// sends them that way. btrim()-ing here would write names the map no
+			// longer matches (173 of 380 deposits would silently lose attribution).
+			// Consumers btrim BOTH sides of the join instead.
+			gstr(m, "accountOfficerName"), rawOf(m),
 		); err != nil {
 			return fmt.Errorf("cbs refresh fds: insert %s: %w", id, err)
 		}
@@ -920,6 +1167,17 @@ func syncLoanSchedules(ctx context.Context, c *udara.Client, db *core.DB, loans 
 		return 0, err
 	}
 	defer tx.Rollback() //nolint:errcheck
+	// Same destructive-refresh guard as the loan/FD books: installments are the loan-side
+	// revenue, and a run where every per-loan schedule fetch failed would otherwise clear
+	// the table and report success. Rows collapse on (loan_account_number, payment_date),
+	// so that pair is what the guard counts.
+	incoming := make(map[string]struct{}, len(rows))
+	for _, r := range rows {
+		incoming[r.acct+"|"+r.payDate.Time.Format(time.RFC3339)] = struct{}{}
+	}
+	if err := guardRefresh(ctx, tx, "loan schedules", "app.cbs_loan_schedules", len(incoming)); err != nil {
+		return 0, err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM app.cbs_loan_schedules`); err != nil {
 		return 0, err
 	}

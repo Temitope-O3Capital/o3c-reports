@@ -201,14 +201,30 @@ const targets = (period) => L.q1(`
          coalesce(sum(disbursement_kobo),0)/100.0 AS loan
   FROM app.sales_targets WHERE period='${period}'`);
 
-// Deposits attribute through the account officer on the customer record (237 of 237
-// covered); loans through the Udara officer map, which resolves every producer including
-// the misspelled and trailing-space variants.
+// Deposits and loans BOTH attribute through the Udara officer map, on the officer the
+// Udara record itself names. 380/380 deposits and 52/52 loans resolve, including the
+// misspelled and trailing-space variants.
+//
+// Deposits used to attribute through app.customer_officers on co.cif=f.cbs_customer_id.
+// That bound 380/380 too, and it was wrong: it worked only because customer_officers is
+// ITSELF Udara-keyed (all 201 rows hold a cbs_customer_id, not a cards CIF), so the
+// report inherited that table every error - 184 of its 201 rows name a DIFFERENT
+// person, and its ON CONFLICT (cif) DO NOTHING froze the first officer ever seen, so 99
+// deposits worth N2,091,287,789.88 credited an officer the deposit itself contradicts.
+// The map moves N512,879,818.09 off Fatai Aremu (Internal Control, not a producer),
+// N694,846,394.22 off Abimbola Pinheiro and N126,726,303.91 off Doris Nnakwe, and gives
+// N445,008,761.92 to Jennifer Igwilo, N255,116,684.94 to Dorcas Oluwole, N144,230,509.07
+// to Ikechukwu Ojiako and N140,000,000.00 to Oghenefejiro Odometa. Commission derives
+// from these figures - do not revert without re-reading them.
+//
+// btrim BOTH sides, always: 7 of the 21 cbs_officer_map rows carry a trailing space
+// because Udara sends them that way. Trimming one side alone silently drops 98 active
+// deposits / N11.03bn.
 const scoreboard = (period, from, to) => L.q(`
   WITH tgt AS (SELECT user_id, fd_amount_kobo/100.0 AS fd_t, disbursement_kobo/100.0 AS loan_t
                FROM app.sales_targets WHERE period='${period}'),
-  fd AS (SELECT co.officer_id AS uid, sum(f.principal_kobo)/100.0 AS v, count(*) AS n
-         FROM app.cbs_fixed_deposits f JOIN app.customer_officers co ON co.cif=f.cbs_customer_id
+  fd AS (SELECT m.officer_user_id AS uid, sum(f.principal_kobo)/100.0 AS v, count(*) AS n
+         FROM app.cbs_fixed_deposits f JOIN app.cbs_officer_map m ON btrim(m.udara_name)=btrim(f.officer_name)
          WHERE f.date_booked::date BETWEEN '${from}' AND '${to}' GROUP BY 1),
   ln AS (SELECT m.officer_user_id AS uid, sum(l.loan_amount_kobo)/100.0 AS v, count(*) AS n
          FROM app.cbs_loans l JOIN app.cbs_officer_map m ON btrim(m.udara_name)=btrim(l.officer_name)
@@ -231,8 +247,8 @@ const teams = (period, from, to) => L.q(`
     UNION
     SELECT st.id, st.name, st.head_user_id
     FROM app.sales_teams st WHERE st.is_active AND st.head_user_id IS NOT NULL),
-  fd AS (SELECT co.officer_id AS uid, sum(f.principal_kobo)/100.0 AS v
-         FROM app.cbs_fixed_deposits f JOIN app.customer_officers co ON co.cif=f.cbs_customer_id
+  fd AS (SELECT m.officer_user_id AS uid, sum(f.principal_kobo)/100.0 AS v
+         FROM app.cbs_fixed_deposits f JOIN app.cbs_officer_map m ON btrim(m.udara_name)=btrim(f.officer_name)
          WHERE f.date_booked::date BETWEEN '${from}' AND '${to}' GROUP BY 1),
   ln AS (SELECT m.officer_user_id AS uid, sum(l.loan_amount_kobo)/100.0 AS v
          FROM app.cbs_loans l JOIN app.cbs_officer_map m ON btrim(m.udara_name)=btrim(l.officer_name)
@@ -252,9 +268,9 @@ const teams = (period, from, to) => L.q(`
 // this section exists to surface, and crediting only deposits made them invisible.
 const contributors = (from, to) => L.q(`
   WITH fd AS (
-    SELECT co.officer_id AS uid, sum(f.principal_kobo)/100.0 AS v, count(*)::int AS n
+    SELECT m.officer_user_id AS uid, sum(f.principal_kobo)/100.0 AS v, count(*)::int AS n
     FROM app.cbs_fixed_deposits f
-    JOIN app.customer_officers co ON co.cif=f.cbs_customer_id
+    JOIN app.cbs_officer_map m ON btrim(m.udara_name)=btrim(f.officer_name)
     WHERE f.date_booked::date BETWEEN '${from}' AND '${to}'
     GROUP BY 1),
   cd AS (
@@ -264,7 +280,7 @@ const contributors = (from, to) => L.q(`
       AND v.opened_date BETWEEN '${from}' AND '${to}'
     GROUP BY 1),
   ids AS (SELECT uid FROM fd UNION SELECT uid FROM cd)
-  SELECT u.full_name AS person, u.role,
+  SELECT u.full_name AS person, u.role, coalesce(u.department,'') AS department,
          coalesce(fd.v,0)::float AS v, coalesce(fd.n,0)::int AS n,
          coalesce(cd.cards,0)::int AS cards
   FROM ids i
@@ -312,8 +328,17 @@ const backlog = () => L.q1(`
          count(*) FILTER (WHERE created_at < now()-interval '7 days')::int AS old7
   FROM app.helpdesk_tickets WHERE status NOT IN ('closed') AND deleted_at IS NULL`);
 
+// One-off loads, not acquisition: 'o3c_data_20260714' is a single file whose 1,507 rows
+// all landed on 2026-08-10 within two distinct seconds, and 'mssql_baseline' is the
+// original import. Counting them made August read "1,701 new customers, up 3,519%" when
+// the real figure was 194. app.customers.account_created cannot rescue this — it is
+// legacy and holds nothing after July 2025.
+const BULK_CUSTOMER_SOURCES = `'o3c_data_20260714','mssql_baseline'`;
+
 const registrations = (from, to) => L.q1(`
-  SELECT (SELECT count(*) FROM app.customers WHERE created_at::date BETWEEN '${from}' AND '${to}')::int AS customers,
+  SELECT (SELECT count(*) FROM app.customers
+            WHERE created_at::date BETWEEN '${from}' AND '${to}'
+              AND coalesce(source,'') NOT IN (${BULK_CUSTOMER_SOURCES}))::int AS customers,
          (SELECT count(*) FROM app.accounts WHERE opened_date BETWEEN '${from}' AND '${to}')::int AS cards`);
 
 const feedState = () => L.q1(`
@@ -400,8 +425,8 @@ const peopleScorecard = (period, from, to) => L.q(`
   WITH tgt AS (SELECT user_id, fd_amount_kobo/100.0 AS fd_t, disbursement_kobo/100.0 AS loan_t,
                       card_count AS card_t
                FROM app.sales_targets WHERE period='${period}'),
-  fd AS (SELECT co.officer_id AS uid, sum(f.principal_kobo)/100.0 AS v, count(*) AS n
-         FROM app.cbs_fixed_deposits f JOIN app.customer_officers co ON co.cif=f.cbs_customer_id
+  fd AS (SELECT m.officer_user_id AS uid, sum(f.principal_kobo)/100.0 AS v, count(*) AS n
+         FROM app.cbs_fixed_deposits f JOIN app.cbs_officer_map m ON btrim(m.udara_name)=btrim(f.officer_name)
          WHERE f.date_booked::date BETWEEN '${from}' AND '${to}' GROUP BY 1),
   ln AS (SELECT m.officer_user_id AS uid, sum(l.loan_amount_kobo)/100.0 AS v, count(*) AS n
          FROM app.cbs_loans l JOIN app.cbs_officer_map m ON btrim(m.udara_name)=btrim(l.officer_name)
@@ -543,8 +568,142 @@ const creditCardsByOfficer = (period, from, to) => L.q(`
    GROUP BY u.full_name, u.role, t.card_count
    ORDER BY credit_cards DESC, u.full_name`);
 
+// Cards are the NGN credit cards only. prepaid is a different product and carries no
+// limit at all, and currency 840 (USD) must never be added to 566 (NGN) — one book's
+// worth of USD card damage already came from treating the two as one number.
+const CARD_FROM = `app.v_card_sale_officer v
+    JOIN app.accounts a ON a.account_no = v.account_no`;
+const CARD_IS_CREDIT = `v.product_line = 'card' AND a.currency_code = '566'`;
+
+/**
+ * Credit cards opened in the period, with the limit written on them. Only a minority of
+ * cards carry a limit in CBS, so `limit_value` is a floor and `with_limit` is what says
+ * how much of a floor — the report prints both rather than a total that reads complete.
+ */
+const cardsBooked = (from, to) => L.q1(`
+  SELECT count(*)::int AS cards,
+         count(*) FILTER (WHERE a.card_limit > 0)::int AS with_limit,
+         coalesce(sum(a.card_limit) FILTER (WHERE a.card_limit > 0), 0)::float AS limit_value
+    FROM ${CARD_FROM} WHERE ${CARD_IS_CREDIT} AND v.opened_date BETWEEN '${from}' AND '${to}'`);
+
+/** Fixed deposits written in the period, largest first, with the client and the rep. */
+const depositsNamed = (from, to, limit = 20) => L.q(`
+  SELECT coalesce(nullif(btrim(c.name), ''), '(name not in CBS)') AS client,
+         f.principal_kobo/100.0 AS amount,
+         coalesce(nullif(btrim(u.full_name), ''), btrim(f.officer_name), 'unattributed') AS rep,
+         f.product_name, f.date_booked::date::text AS booked
+    FROM app.cbs_fixed_deposits f
+    LEFT JOIN app.cbs_customers c ON c.cbs_customer_id = f.cbs_customer_id
+    LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.officer_name)
+    LEFT JOIN app.o3c_users u ON u.id = m.officer_user_id
+   WHERE f.date_booked::date BETWEEN '${from}' AND '${to}'
+   ORDER BY f.principal_kobo DESC NULLS LAST
+   LIMIT ${Number(limit)}`);
+
+/** Everything in the period that is not a deposit: loans and credit cards in one list. */
+const facilitiesNamed = (from, to, limit = 20) => L.q(`
+  SELECT client, facility, amount, rep, booked, has_amount FROM (
+    SELECT coalesce(nullif(btrim(c.name), ''), '(name not in CBS)') AS client,
+           coalesce(nullif(btrim(l.product_name), ''), 'Loan') AS facility,
+           l.loan_amount_kobo/100.0 AS amount,
+           coalesce(nullif(btrim(u.full_name), ''), btrim(l.officer_name), 'unattributed') AS rep,
+           l.start_date::date::text AS booked, true AS has_amount, 0 AS ord
+      FROM app.cbs_loans l
+      LEFT JOIN app.cbs_customers c ON c.cbs_customer_id = l.cbs_customer_id
+      LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(l.officer_name)
+      LEFT JOIN app.o3c_users u ON u.id = m.officer_user_id
+     WHERE l.start_date::date BETWEEN '${from}' AND '${to}' AND l.start_date::date <= current_date
+    UNION ALL
+    -- No card sale in 2026 resolves to an officer, so rep is left to the report to say.
+    SELECT coalesce(nullif(btrim(a.name_on_card), ''), '(no name on card)'),
+           coalesce(nullif(btrim(a.card_product), ''), nullif(btrim(a.product_name), ''), 'Credit card'),
+           nullif(a.card_limit, 0)::float,
+           coalesce(nullif(btrim(u2.full_name), ''), 'unattributed'),
+           v.opened_date::text, a.card_limit > 0, 1
+      FROM ${CARD_FROM}
+      LEFT JOIN app.o3c_users u2 ON u2.id = v.officer_id
+     WHERE ${CARD_IS_CREDIT} AND v.opened_date BETWEEN '${from}' AND '${to}'
+  ) z
+   ORDER BY ord, amount DESC NULLS LAST, booked DESC
+   LIMIT ${Number(limit)}`);
+
+/** Totals behind facilitiesNamed, so the report can say what the listed rows leave out. */
+const facilitiesTotals = (from, to) => L.q1(`
+  SELECT (SELECT count(*) FROM app.cbs_loans
+           WHERE start_date::date BETWEEN '${from}' AND '${to}' AND start_date::date <= current_date)::int AS loan_n,
+         (SELECT coalesce(sum(loan_amount_kobo),0)/100.0 FROM app.cbs_loans
+           WHERE start_date::date BETWEEN '${from}' AND '${to}' AND start_date::date <= current_date)::float AS loan_v,
+         (SELECT count(*) FROM ${CARD_FROM}
+           WHERE ${CARD_IS_CREDIT} AND v.opened_date BETWEEN '${from}' AND '${to}')::int AS card_n`);
+
+const depositsTotals = (from, to) => L.q1(`
+  SELECT count(*)::int AS n, coalesce(sum(principal_kobo),0)/100.0 AS v
+    FROM app.cbs_fixed_deposits WHERE date_booked::date BETWEEN '${from}' AND '${to}'`);
+
+/**
+ * Deposits, loans and credit cards by calendar month, oldest first — the month-on-month
+ * view. Deposits and loans are money; cards are a count, because cards have no reliable
+ * value (most carry no limit) and no target to scale against.
+ */
+const monthOnMonth = (months = 6) => L.q(`
+  WITH m AS (SELECT generate_series(
+               date_trunc('month', current_date) - interval '${Number(months) - 1} months',
+               date_trunc('month', current_date), '1 month')::date AS ms)
+  SELECT to_char(m.ms, 'Mon') AS label, to_char(m.ms, 'YYYY-MM') AS period,
+         (m.ms = date_trunc('month', current_date)::date) AS in_progress,
+         (SELECT coalesce(sum(principal_kobo),0)/100.0 FROM app.cbs_fixed_deposits
+           WHERE date_booked::date >= m.ms AND date_booked::date < m.ms + interval '1 month')::float AS fd,
+         (SELECT coalesce(sum(loan_amount_kobo),0)/100.0 FROM app.cbs_loans
+           WHERE start_date::date >= m.ms AND start_date::date < m.ms + interval '1 month'
+             AND start_date::date <= current_date)::float AS loan,
+         (SELECT count(*) FROM ${CARD_FROM}
+           WHERE ${CARD_IS_CREDIT}
+             AND v.opened_date >= m.ms AND v.opened_date < m.ms + interval '1 month')::int AS cards
+    FROM m ORDER BY m.ms`);
+
+/**
+ * The operational lines by calendar month, oldest first — the counterpart to
+ * monthOnMonth() for the reports that are not about sales.
+ *
+ * Each of these has a trap, and the chart sections trim leading empty months rather than
+ * drawing them: lead events only exist from Aug 2026 and customer acquisition only from
+ * Aug 2026 (before that every customer row was a bulk load), so four flat months followed
+ * by two real ones would read as explosive growth rather than as "we started recording".
+ * Collections carries a different trap — see collectionsBiggest().
+ */
+const monthOnMonthOps = (months = 6) => L.q(`
+  WITH m AS (SELECT generate_series(
+               date_trunc('month', current_date) - interval '${Number(months) - 1} months',
+               date_trunc('month', current_date), '1 month')::date AS ms)
+  SELECT to_char(m.ms, 'Mon') AS label, to_char(m.ms, 'YYYY-MM') AS period,
+         (m.ms = date_trunc('month', current_date)::date) AS in_progress,
+         (SELECT coalesce(sum(amount_kobo) FILTER (WHERE status='approved'),0)/100.0
+            FROM app.collection_payments
+           WHERE payment_date >= m.ms AND payment_date < m.ms + interval '1 month')::float AS collected,
+         (SELECT count(*) FROM app.crm_lead_events e
+           WHERE e.created_at::date >= m.ms AND e.created_at::date < m.ms + interval '1 month'
+             AND e.event <> 'stage_regraded' AND e.to_stage = 'contacted')::int AS contacted,
+         (SELECT count(*) FROM app.customers
+           WHERE created_at::date >= m.ms AND created_at::date < m.ms + interval '1 month'
+             AND coalesce(source,'') NOT IN (${BULK_CUSTOMER_SOURCES}))::int AS customers
+    FROM m ORDER BY m.ms`);
+
+/**
+ * The largest single approved collection in a window. August 2026 was ₦479.9m of which one
+ * payment was ₦420m — 87%. Without saying so, a collections bar chart reads as a month
+ * when the team quadrupled its work rather than a month when one recovery landed.
+ */
+const collectionsBiggest = (from, to) => L.q1(`
+  SELECT coalesce(max(amount_kobo),0)/100.0 AS biggest,
+         coalesce(sum(amount_kobo),0)/100.0 AS total
+    FROM app.collection_payments
+   WHERE status='approved' AND payment_date BETWEEN '${from}' AND '${to}'`);
+
 module.exports = {
+  monthOnMonthOps, collectionsBiggest,
   loanInstalments, collectionsBook, cardStatement, qualifiedWaiting, creditCardsByOfficer,
+  cardsBooked, depositsNamed, facilitiesNamed, facilitiesTotals, depositsTotals,
+  monthOnMonth,
   OPEN_AFTER_QUALIFIED, LEAD_STAGE_LABELS, leadWord,
   SPEND_CODES, CHANNELS, calls, purposeOf, funnel, spendTotal, spendByChannel, cardProducts,
   spendByLocation, spendByAge, spendByProductAge, peopleScorecard, cardCoverage,

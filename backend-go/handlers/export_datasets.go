@@ -335,6 +335,16 @@ var exportDatasets = []exportDataset{
 		KeyCol:    "fd.cbs_id",
 		DateCol:   "fd.date_booked::date",
 		DateLabel: "Date Booked",
+		// A "Rollovers" column (fd.rollover_count) was removed from this export
+		// rather than carried forward. Udara populates rolloverCount on NONE of the
+		// 380 deposits (the key is present in every payload and null in every one),
+		// and applyRollover is false on 379 of 380 -- while deposits demonstrably do
+		// roll over. So the column was not "empty data", it was a blank cell that
+		// read as the assertion "this deposit has never rolled over", on every row.
+		// Relabelling it ("Rollovers (Not Reported)") would still spend a column in
+		// every spreadsheet to say nothing, so it is gone. Rollover DETECTION is a
+		// separate piece of work (deliberately out of scope here); when it exists,
+		// re-add the column under the same "rollover_count" key.
 		Cols: []exportCol{
 			{Key: "account_number", Label: "Account Number", Type: colText, Expr: "fd.cbs_account_number"},
 			{Key: "cif", Label: "CIF", Type: colText, Expr: "fd.cbs_customer_id"},
@@ -347,8 +357,11 @@ var exportDatasets = []exportDataset{
 			{Key: "ledger_balance", Label: "Ledger Balance (NGN)", Type: colKobo, Expr: "fd.ledger_balance_kobo"},
 			{Key: "interest_rate", Label: "Interest Rate (%)", Type: colPct, Expr: "fd.interest_rate"},
 			{Key: "tenor_days", Label: "Tenor (Days)", Type: colInt, Expr: "fd.tenor_days"},
-			{Key: "rollover_count", Label: "Rollovers", Type: colInt, Expr: "fd.rollover_count"},
 			{Key: "branch_name", Label: "Branch", Type: colText, Expr: "fd.branch_name"},
+			// Officer. Udara sends accountOfficerName on all 380 deposits; before
+			// migration 261 it was dropped by the FD sync, so this export could not
+			// answer "whose deposit is this" while the loan export could.
+			{Key: "officer_name", Label: "Officer", Type: colText, Expr: "fd.officer_name"},
 			{Key: "commencement_date", Label: "Commencement", Type: colDate, Expr: "fd.commencement_date"},
 			{Key: "maturity_date", Label: "Maturity", Type: colDate, Expr: "fd.maturity_date"},
 		},

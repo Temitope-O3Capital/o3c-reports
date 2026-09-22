@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
@@ -13,6 +15,231 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
 )
+
+// ── Identity namespaces ───────────────────────────────────────────────────────
+//
+// Three id namespaces exist in this system. All three look like a zero-padded
+// 8-digit number and NONE of them are interchangeable:
+//
+//	app.parties.party_id      the workspace Customer ID — the only unifying key
+//	app.customers.cif         a CARDS id (CCS/Sage). NOT a customer id.
+//	cbs_*.cbs_customer_id     Udara360 only.
+//
+// 288 of the 295 Udara customer ids also exist as an app.customers.cif, and 94% of
+// those are a DIFFERENT REAL PERSON. So writing a Udara id into a cards-namespace
+// column — collection_assignments.cif_number/.account_cif, recovery_cases.cif_number/
+// .account_cif — makes every later `JOIN app.customers c ON c.cif = account_cif`
+// name a stranger, and that is how legal recovery cases came to be opened against the
+// wrong person (RC-001066 pursued a card customer for N262,480,000 owed by a Udara
+// borrower). app.cbs_links (entity_type='party') is the ONLY correct bridge.
+//
+// A row sourced from the Udara arm is therefore written as:
+//
+//	cif_number / account_cif = udaraCIFPrefix || cbs_customer_id. Namespaced text.
+//	    Every cards CIF is exactly 8 characters and all digits, so 'UD-00000553'
+//	    can never equal one: a stray cards join on it resolves to NULL — visibly
+//	    nameless — instead of silently resolving to the wrong person. The failure
+//	    mode is structural, not a rule someone has to remember.
+//	party_id = app.cbs_links.entity_id, the real borrower. MANDATORY: a Udara row
+//	    whose id has no link is refused and logged, never written.
+//	data_source / product_type = 'udara' / 'loan'. The arm tag, carried on columns
+//	    that already exist and already carry 'core' and 'manual'. No new column.
+//
+// Nothing here repairs rows written before this existed: those still hold a bare
+// Udara id in a cards column and are identified by udaraCrossedRows below.
+const udaraCIFPrefix = "UD-"
+
+// isUdaraRow is the SQL predicate for "this row came from the Udara arm", over a table
+// alias. Both the tag and the key prefix are tested, so a row is recognised whichever
+// way it was stamped and a row carrying only one of the two is still caught.
+func isUdaraRow(alias string) string {
+	return "(COALESCE(" + alias + ".data_source,'') = 'udara' OR " + alias +
+		".account_cif LIKE '" + udaraCIFPrefix + "%')"
+}
+
+// udaraKeySQL strips the namespace prefix back to the bare cbs_customer_id, and is NULL
+// for any row that is not Udara-keyed — safe to feed straight into a cbs_* join.
+func udaraKeySQL(alias string) string {
+	return "(CASE WHEN " + alias + ".account_cif LIKE '" + udaraCIFPrefix + "%' THEN SUBSTRING(" +
+		alias + ".account_cif FROM " + strconv.Itoa(len(udaraCIFPrefix)+1) + ") END)"
+}
+
+// cardsKeySQL is the mirror: the row's account_cif ONLY when the row really is a cards
+// row, NULL otherwise. Every join to app.customers / app.accounts must go through this
+// rather than through account_cif directly, so a Udara-sourced row can never resolve a
+// cards customer.
+func cardsKeySQL(alias string) string {
+	return "(CASE WHEN NOT " + isUdaraRow(alias) + " THEN " + alias + ".account_cif END)"
+}
+
+// splitCIFKey takes an id as it arrives from a URL or a request body and says which
+// namespace it is in. A 'UD-'-prefixed id is a Udara customer; anything else is treated
+// as a cards CIF, which is what every existing caller means.
+func splitCIFKey(key string) (cardsCIF, udaraCIF string) {
+	if strings.HasPrefix(key, udaraCIFPrefix) {
+		return "", strings.TrimPrefix(key, udaraCIFPrefix)
+	}
+	return key, ""
+}
+
+// armSplitDelinquency is the delinquency book re-projected so the two arms are never
+// summed together. app.collections_delinquent_unified UNIONs a cards branch keyed by
+// app.customers.cif with a Udara branch keyed by cbs_loans.cbs_customer_id, and the two
+// key spaces collide — so `GROUP BY cif` over the raw view merges one person's card
+// arrears with a different person's loan into a single total under a single name. Every
+// statement that reads the book in order to WRITE an identity must read it through this.
+//
+//	arm       'udara' | 'cards'
+//	raw_cif   the id in its own namespace (cbs_customer_id, or app.customers.cif)
+//	key_cif   the id as it is safe to store: prefixed for Udara, unchanged for cards
+//	party_id  the workspace Customer ID — cbs_links for Udara, app.customers for cards.
+//	          NULL on a Udara row means the bridge is missing and the row MUST be refused.
+//
+// The uploaded loan book ('Loan (uploaded)') is excluded: that branch of the view is
+// collection_assignments itself, so including it would have a statement read the column
+// it is about to write.
+const armSplitDelinquency = `
+	WITH src AS (
+		SELECT v.cif AS raw_cif,
+		       CASE WHEN v.source = 'loan' AND v.product_name <> 'Loan (uploaded)'
+		            THEN 'udara' ELSE 'cards' END AS arm,
+		       v.dpd, v.outstanding_kobo, v.customer_name
+		  FROM app.collections_delinquent_unified v
+		 WHERE v.product_name <> 'Loan (uploaded)'
+		   AND v.cif IS NOT NULL AND v.cif <> ''
+	), agg AS (
+		SELECT arm, raw_cif,
+		       MAX(dpd)               AS dpd,
+		       SUM(outstanding_kobo)  AS outstanding_kobo,
+		       MAX(customer_name)     AS customer_name
+		  FROM src GROUP BY arm, raw_cif
+	), book AS (
+		SELECT a.arm, a.raw_cif, a.dpd, a.outstanding_kobo, a.customer_name,
+		       CASE WHEN a.arm = 'udara' THEN '` + udaraCIFPrefix + `' || a.raw_cif
+		            ELSE a.raw_cif END AS key_cif,
+		       CASE WHEN a.arm = 'udara' THEN lk.entity_id ELSE cu.party_id END AS party_id,
+		       CASE WHEN a.arm = 'udara' THEN 'udara' ELSE 'core' END          AS data_source,
+		       CASE WHEN a.arm = 'udara' THEN 'loan'  ELSE 'card' END          AS product_type
+		  FROM agg a
+		  LEFT JOIN app.cbs_links lk
+		         ON a.arm = 'udara' AND lk.entity_type = 'party'
+		        AND lk.cbs_customer_id = a.raw_cif
+		  LEFT JOIN app.customers cu
+		         ON a.arm = 'cards' AND cu.cif = a.raw_cif
+	)`
+
+// udaraIdentityResolved is the structural gate every write path applies to a `book` row:
+// a Udara row may only be written when app.cbs_links actually names its borrower. A cards
+// row needs no gate — a cards CIF is, by definition, the cards customer.
+const udaraIdentityResolved = `(b.arm <> 'udara' OR b.party_id IS NOT NULL)`
+
+// udaraCrossedRows is the SQL predicate for a row whose identity is CONTESTED: it is
+// keyed in the cards namespace (no Udara tag, no 'UD-' prefix) on an id that is at this
+// moment a delinquent Udara borrower. These are the rows the old, un-split statements
+// produced — a card customer's name over a loan customer's debt, or the two summed
+// together — and nothing in the row itself says which person it means.
+//
+// This code never repairs such a row; that is a data correction. Every write path
+// refuses to touch one, and every refusal is logged at Error with the ids.
+//
+// The test is deliberately "carries live Udara delinquency" rather than "exists in
+// app.cbs_links": 288 of the 295 Udara ids also exist as a cards CIF, so the wider test
+// would freeze legitimate card assignments for hundreds of card customers who have
+// merely been unlucky with their id. A cards row on a colliding id with no Udara debt
+// behind it is not ambiguous, and is worked normally.
+func udaraCrossedRows(alias string) string {
+	return "(NOT " + isUdaraRow(alias) + " AND EXISTS (" +
+		"SELECT 1 FROM app.collections_delinquent_unified v" +
+		" WHERE v.source = 'loan' AND v.product_name <> 'Loan (uploaded)'" +
+		"   AND v.cif = " + alias + ".account_cif))"
+}
+
+// debtorJoinsSQL / debtorNameSQL are the ONLY sanctioned way to put a debtor's name on a
+// collection_assignments or recovery_cases row. The joins they emit are:
+//
+//	pty  app.parties via the row's own party_id — the unifying key, right for either arm
+//	cbs  app.cbs_customers, reachable ONLY through udaraKeySQL, so it fires for a
+//	     'UD-'-keyed row and for nothing else
+//	c    app.customers, reachable ONLY through cardsKeySQL, so it CANNOT fire for a
+//	     Udara-keyed row
+//
+// The last point is the whole fix on the read side. `LEFT JOIN app.customers c ON
+// c.cif = rc.account_cif` looks harmless and is how a card customer's name, phone,
+// address and card billing ended up on a loan customer's recovery case. Routing the join
+// through cardsKeySQL makes that outcome impossible rather than forbidden: the join key
+// is NULL for the wrong kind of row, so the row comes back nameless instead of wrong, and
+// nameless is a bug someone reports.
+func debtorJoinsSQL(alias string) string {
+	return "LEFT JOIN app.parties pty ON pty.party_id = " + alias + ".party_id\n" +
+		"\t\t\tLEFT JOIN app.cbs_customers cbs ON cbs.cbs_customer_id = " + udaraKeySQL(alias) + "\n" +
+		"\t\t\tLEFT JOIN app.customers c ON c.cif = " + cardsKeySQL(alias)
+}
+
+// debtorNameSQL is the display name over those joins: the row's own stored name first
+// (it was written from the arm's own source), then the party, then the arm's customer
+// master, then the key itself. It never falls through to another namespace's name.
+func debtorNameSQL(alias string) string {
+	return "COALESCE(NULLIF(TRIM(" + alias + ".customer_name),''), NULLIF(TRIM(pty.full_name),''), " +
+		"NULLIF(TRIM(cbs.name),''), NULLIF(TRIM(CONCAT(c.first_name,' ',c.last_name)),''), " +
+		alias + ".account_cif)"
+}
+
+// udaraBorrowerFor is the same test as udaraCrossedRows for a single id that some caller
+// is about to treat as a cards CIF. It returns the name of the Udara borrower that id
+// really belongs to when the id is namespace-crossed — a bare (un-prefixed) id carrying
+// live Udara delinquency — and "" when the id is safe to use as a cards CIF.
+//
+// A non-empty return is a REFUSAL, not a warning: acting on that id would name the card
+// customer who shares it, who is somebody else.
+func udaraBorrowerFor(ctx context.Context, db *core.DB, key string) (string, error) {
+	if key == "" || strings.HasPrefix(key, udaraCIFPrefix) {
+		return "", nil // already namespaced, or nothing to check
+	}
+	rows, err := db.PGQuery(ctx, `
+		SELECT COALESCE(NULLIF(TRIM(cc.name),''), NULLIF(TRIM(p.full_name),''), $1) AS borrower
+		  FROM app.collections_delinquent_unified v
+		  LEFT JOIN app.cbs_customers cc ON cc.cbs_customer_id = v.cif
+		  LEFT JOIN app.cbs_links lk ON lk.entity_type = 'party' AND lk.cbs_customer_id = v.cif
+		  LEFT JOIN app.parties p ON p.party_id = lk.entity_id
+		 WHERE v.cif = $1 AND v.source = 'loan' AND v.product_name <> 'Loan (uploaded)'
+		 LIMIT 1`, key)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 {
+		return "", nil
+	}
+	return str(rows[0]["borrower"]), nil
+}
+
+// stampCaseIdentity fills in the identity columns of a recovery case that was created by
+// the shared openRecoveryCase helper, which writes only the key into cif_number/account_cif
+// and leaves party_id, data_source and product_type at their defaults ('core'/'card') —
+// defaults that are a lie for a Udara row. Every case this package opens through that
+// helper is stamped here instead, so the unifying key is present on the row from the
+// moment it exists and a Udara case is never labelled as a card case.
+//
+// Best-effort by design: a failure here must not undo a case that has already been
+// created, so it is logged rather than returned.
+func stampCaseIdentity(ctx context.Context, db *core.DB, caseID int64, key string) {
+	if caseID == 0 || key == "" {
+		return
+	}
+	cardsCIF, udaraCIF := splitCIFKey(key)
+	if _, err := db.PGExec(ctx, `
+		UPDATE recovery_cases rc SET
+			party_id     = COALESCE(rc.party_id, CASE WHEN $3 <> ''
+			                   THEN (SELECT lk.entity_id FROM app.cbs_links lk
+			                          WHERE lk.entity_type = 'party' AND lk.cbs_customer_id = $3 LIMIT 1)
+			                   ELSE (SELECT c.party_id FROM app.customers c WHERE c.cif = $2 LIMIT 1) END),
+			data_source  = CASE WHEN $3 <> '' THEN 'udara' ELSE rc.data_source END,
+			product_type = CASE WHEN $3 <> '' THEN 'loan'  ELSE rc.product_type END,
+			updated_at   = NOW()
+		WHERE rc.id = $1`, caseID, cardsCIF, udaraCIF); err != nil {
+		slog.Error("recovery case identity stamp failed — case left without a party_id",
+			"case_id", caseID, "account_cif", key, "err", err)
+	}
+}
 
 func RegisterCollections(r chi.Router, db *core.DB) {
 	r.Use(core.RequirePages("collections"))
@@ -71,6 +298,57 @@ func RegisterCollections(r chi.Router, db *core.DB) {
 // book, aggregated per CIF). Head-gated. It refreshes outstanding/dpd on existing
 // active assignments and creates new ones for delinquent CIFs not yet being worked
 // or already in recovery. This is the job that makes the module operational.
+//
+// WHY THE REFRESH IS SPLIT IN TWO. It used to stamp one CIF-level SUM taken from
+// app.collections_delinquent_unified onto every active assignment of that customer,
+// with no data_source/product_type filter. That is wrong twice over for the
+// manually-uploaded loan book (data_source='manual', product_type='loan'):
+//
+//   - those rows are per-FACILITY, not per-customer, so a customer's total landed on
+//     each of their facilities — including on a superseded (pre-restructure) row as
+//     well as on its live successor, which migration 221 linked precisely so the two
+//     would not be read as two live loans;
+//   - the view's third branch (migration 207) READS
+//     collection_assignments.outstanding_kobo for those same rows, so the refresh read
+//     the column it was about to write and compounded the total on every run, silently
+//     reversing migration 222's netting.
+//
+// FOLTI TECHNOLOGY is the worked example: ids 1755 (approved 156,000,000.00, live) and
+// 1782 (approved 250,000,000.00, superseded_by_id=1755) both reached 279,580,000.00 —
+// the sum of the pair — and the next run would have made it 559,160,000.00 each.
+//
+// So there are now two statements that cannot feed each other:
+//
+//	(1) the CIF-aggregate refresh, for card and Udara assignments only, computed from
+//	    the card and core-banking branches of the view and never from the uploaded
+//	    branch (which is this very table, read back through a view);
+//	(2) a per-facility recompute for the uploaded loans, from the approved amount less
+//	    the customer's receipts allocated oldest-disbursement-first — migration 222's
+//	    own formula, reproduced here so that a refresh keeps its result true as
+//	    payments arrive instead of undoing it. It reads target_amount_kobo /
+//	    original_outstanding_kobo / collection_payments and no column it writes, so it
+//	    is idempotent: running it twice gives the same answer, and it cannot inflate.
+//
+// WHY THE BOOK IS READ ARM-SPLIT. Both the refresh and the insert used to read the view
+// with a bare `GROUP BY cif`. The view's Udara branch is keyed by cbs_loans.cbs_customer_id
+// and its card branch by app.customers.cif — two different namespaces that collide on the
+// same 8-digit strings — so that GROUP BY merged one person's card arrears with a
+// different person's loan under one id and one name, and the INSERT then wrote that id
+// into cif_number AND account_cif, both cards-namespace columns. Every read-back joined
+// app.customers on it and named a stranger; escalateSevereToRecovery copied the id into
+// recovery_cases and opened legal recovery against that stranger.
+//
+// So the book is now read through armSplitDelinquency: grouped by (arm, id), keyed
+// 'UD-<cbs_customer_id>' for the Udara arm, and carrying the party_id that app.cbs_links
+// resolves. A Udara row with no link is refused rather than written under a guess, and
+// refusals are logged at Error with the ids. See the Identity namespaces block above.
+//
+// party_id IS now written — the old comment here said it should not be, on the grounds
+// that a refresh must not infer identity. That reasoning was right about the old,
+// merged-namespace statements: there the party genuinely was unknowable. Once each
+// statement reads one arm at a time, the party is not inferred but looked up — cbs_links
+// for Udara, app.customers for cards — and leaving the unifying key blank was what forced
+// every downstream reader back onto the colliding CIF in the first place.
 func collectionsGenerateAssignments(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
@@ -80,38 +358,163 @@ func collectionsGenerateAssignments(db *core.DB) http.HandlerFunc {
 		}
 		ctx := r.Context()
 
-		bucketExpr := `CASE WHEN dpd<=30 THEN '1-30' WHEN dpd<=60 THEN '31-60' WHEN dpd<=90 THEN '61-90'
-			WHEN dpd<=180 THEN '91-180' WHEN dpd<=360 THEN '181-360' ELSE '360+' END`
+		// DPD -> bucket, over whichever DPD expression the statement has to hand.
+		bucketOf := func(dpd string) string {
+			return `CASE WHEN ` + dpd + `<=30 THEN '1-30' WHEN ` + dpd + `<=60 THEN '31-60' WHEN ` + dpd + `<=90 THEN '61-90'
+				WHEN ` + dpd + `<=180 THEN '91-180' WHEN ` + dpd + `<=360 THEN '181-360' ELSE '360+' END`
+		}
+		bucketExpr := bucketOf("b.dpd")
 
-		// Refresh outstanding/bucket/name on assignments still being worked.
-		if _, err := db.PGExec(ctx, `
-			WITH agg AS (
-				SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo, MAX(customer_name) AS customer_name
-				FROM app.collections_delinquent_unified GROUP BY cif
-			)
+		// Rows whose outstanding legitimately comes from a CIF-level aggregate:
+		// everything except the per-facility uploaded loan book.
+		const aggregateRefreshable = `(COALESCE(ca.data_source,'') <> 'manual' OR COALESCE(ca.product_type,'') <> 'loan')`
+
+		// (1) Refresh outstanding/bucket/name on card + Udara assignments still being
+		// worked — each arm against its own aggregate, matched on its own key, so a
+		// Udara borrower's loan balance can never be stamped onto the card customer who
+		// happens to share the id. `(b.arm='udara') = isUdaraRow(ca)` is the arm
+		// agreement: a Udara book row only ever updates a Udara-keyed assignment and a
+		// card book row only ever updates a card-keyed one.
+		if _, err := db.PGExec(ctx, armSplitDelinquency+`
 			UPDATE collection_assignments ca SET
-				outstanding_kobo = agg.outstanding_kobo,
+				outstanding_kobo = b.outstanding_kobo,
 				dpd_bucket       = `+bucketExpr+`,
-				customer_name    = COALESCE(NULLIF(ca.customer_name,''), agg.customer_name),
+				customer_name    = COALESCE(NULLIF(ca.customer_name,''), b.customer_name),
+				party_id         = COALESCE(b.party_id, ca.party_id),
 				updated_at       = NOW()
-			FROM agg WHERE ca.account_cif = agg.cif AND ca.status = 'active'`); err != nil {
+			FROM book b
+			WHERE ca.account_cif = b.key_cif AND ca.status = 'active'
+			  AND (b.arm = 'udara') = `+isUdaraRow("ca")+`
+			  AND `+udaraIdentityResolved+`
+			  AND NOT `+udaraCrossedRows("ca")+`
+			  AND `+aggregateRefreshable); err != nil {
 			respondErr(w, 500, "Refresh failed: "+err.Error())
 			return
 		}
 
-		// Create assignments for delinquent CIFs not already active or in recovery.
-		// assigned_by records the head who ran the generation; agent stays NULL
-		// (unassigned) until a head distributes the queue.
-		res, err := db.PGExec(ctx, `
-			WITH agg AS (
-				SELECT cif, MAX(dpd) AS dpd, SUM(outstanding_kobo) AS outstanding_kobo, MAX(customer_name) AS customer_name
-				FROM app.collections_delinquent_unified GROUP BY cif
+		// (2) Refresh the uploaded loan book per facility, never per customer.
+		//
+		// The allocation set deliberately includes closed and superseded rows: receipts
+		// are recorded against the CUSTOMER, not the facility, so a customer's pool is
+		// run down their loans oldest-disbursement-first and a superseded row must claim
+		// its own receipts rather than hand them to its successor. Only active rows are
+		// written back — a superseded row is history and a closed one is settled, and
+		// neither should be re-opened by a refresh. Where a customer holds several loans
+		// this is an allocation, not a fact: the ledger cannot say which facility was
+		// paid. Tagging payments with their facility is the real fix and is not
+		// attempted here — the same caveat migration 222 and the Credit Portfolio
+		// waterfall carry, and deliberately the same arithmetic, so the pages agree.
+		//
+		// dpd_bucket is re-derived from the maturity date on the basis the view uses,
+		// and left alone where there is no maturity date to derive it from.
+		uploadedDPD := `GREATEST(0, (CURRENT_DATE - ca.maturity_date))`
+		if _, err := db.PGExec(ctx, `
+			WITH cif_paid AS (
+				-- 2026-09-21: no status filter here meant the refresh netted outstanding
+				-- against money still inside the HOP -> COO -> CFO chain, writing an
+				-- outstanding balance N106,393,555.56 too low across 11 uploaded loans
+				-- (e.g. W000000000000041 would have been written down to N34,000,000
+				-- when N57,000,000 is still owed). Only an approved receipt has posted
+				-- to the GL, so only an approved receipt may reduce a balance. Filtering
+				-- TO 'approved' also keeps a future 'rejected' row out permanently.
+				-- Unapproved money is deliberately NOT written anywhere by this refresh:
+				-- it is reported on the read surfaces as a separate "awaiting approval"
+				-- figure and must never be baked into a stored balance.
+				SELECT account_cif,
+				       COALESCE(SUM(amount_kobo) FILTER (WHERE status = 'approved'), 0) AS paid
+				  FROM collection_payments GROUP BY 1
+			), al AS (
+				SELECT a.id,
+				       COALESCE(a.target_amount_kobo, a.original_outstanding_kobo, 0) AS approved,
+				       COALESCE(p.paid, 0)                                            AS pool,
+				       COALESCE(SUM(COALESCE(a.target_amount_kobo, a.original_outstanding_kobo, 0)) OVER (
+				           PARTITION BY a.account_cif
+				           ORDER BY a.disbursement_date ASC NULLS LAST, a.id ASC
+				           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0)      AS claimed_before
+				  FROM collection_assignments a
+				  LEFT JOIN cif_paid p ON p.account_cif = a.account_cif
+				 WHERE a.data_source = 'manual' AND a.product_type = 'loan'
+			), netted AS (
+				SELECT id, GREATEST(approved - LEAST(approved, GREATEST(pool - claimed_before, 0)), 0) AS outstanding
+				  FROM al
 			)
+			UPDATE collection_assignments ca SET
+				outstanding_kobo = n.outstanding,
+				dpd_bucket       = CASE WHEN ca.maturity_date IS NOT NULL
+				                        THEN `+bucketOf(uploadedDPD)+`
+				                        ELSE ca.dpd_bucket END,
+				updated_at       = NOW()
+			FROM netted n
+			WHERE ca.id = n.id
+			  AND ca.status = 'active'
+			  AND ca.data_source = 'manual' AND ca.product_type = 'loan'
+			  AND (ca.outstanding_kobo IS DISTINCT FROM n.outstanding
+			       OR ca.dpd_bucket IS DISTINCT FROM CASE WHEN ca.maturity_date IS NOT NULL
+			                                              THEN `+bucketOf(uploadedDPD)+`
+			                                              ELSE ca.dpd_bucket END)`); err != nil {
+			respondErr(w, 500, "Uploaded loan refresh failed: "+err.Error())
+			return
+		}
+
+		// A Udara borrower is not seeded while a live assignment still holds their bare
+		// id in the cards namespace. That row names a card customer for this borrower's
+		// debt; adding the correctly-named row beside it would put the same money on two
+		// queues and leave the wrong person on one of them. Same gate the escalation
+		// applies, and it lifts itself as soon as those rows are corrected.
+		const crossedAssignmentOpen = `EXISTS (
+			SELECT 1 FROM collection_assignments ca
+			 WHERE b.arm = 'udara' AND ca.account_cif = b.raw_cif
+			   AND NOT (COALESCE(ca.data_source,'') = 'udara' OR ca.account_cif LIKE '` + udaraCIFPrefix + `%')
+			   AND ca.status IN ('active','sent_to_recovery'))`
+
+		// Refuse-and-report, before anything is written: every delinquent Udara borrower
+		// this run will NOT seed, and why. These are skipped by the WHERE below — this
+		// query exists so the skip is LOUD rather than a row count that silently comes up
+		// short.
+		var refused []core.Row
+		if rows, uErr := db.PGQuery(ctx, armSplitDelinquency+`
+			SELECT b.raw_cif, b.key_cif, b.outstanding_kobo, b.dpd,
+			       (b.party_id IS NULL) AS unlinked,
+			       COALESCE(NULLIF(TRIM(cc.name),''), NULLIF(TRIM(p.full_name),''), b.raw_cif) AS borrower
+			  FROM book b
+			  LEFT JOIN app.cbs_customers cc ON cc.cbs_customer_id = b.raw_cif
+			  LEFT JOIN app.parties p ON p.party_id = b.party_id
+			 WHERE b.arm = 'udara'
+			   AND (b.party_id IS NULL OR `+crossedAssignmentOpen+`)
+			 ORDER BY b.outstanding_kobo DESC`); uErr == nil {
+			refused = rows
+		}
+		for _, u := range refused {
+			reason := "a live collection assignment still holds this borrower's bare Udara id in the cards namespace — it names a different person for this debt"
+			if toBool(u["unlinked"]) {
+				reason = "no app.cbs_links bridge for this Udara customer id — no party can be named for this debt"
+			}
+			slog.Error("collections generate REFUSED to create an assignment",
+				"reason", reason, "cbs_customer_id", str(u["raw_cif"]), "would_be_key", str(u["key_cif"]),
+				"borrower", str(u["borrower"]), "outstanding_kobo", toInt64(u["outstanding_kobo"]),
+				"dpd", toInt64(u["dpd"]), "actor_id", user.ID)
+		}
+
+		// Create assignments for delinquent ids not already active or in recovery, one
+		// row per (arm, id). assigned_by records the head who ran the generation; agent
+		// stays NULL (unassigned) until a head distributes the queue. The uploaded branch
+		// is excluded here too: every row it can emit is already an active assignment (the
+		// view only shows uploaded loans with status='active'), so it can never seed a
+		// new row — it could only lend a facility total to an unrelated card CIF that
+		// happened to share the key.
+		//
+		// A Udara row is stored under key_cif = 'UD-<cbs_customer_id>' with its real
+		// party_id and data_source='udara'; a card row is unchanged.
+		res, err := db.PGExec(ctx, armSplitDelinquency+`
 			INSERT INTO collection_assignments
-			  (cif_number, account_cif, customer_name, assigned_by, dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
-			SELECT cif, cif, customer_name, $1, `+bucketExpr+`, outstanding_kobo, 'active', CURRENT_DATE, NOW(), NOW()
-			FROM agg
-			WHERE cif NOT IN (
+			  (cif_number, account_cif, customer_name, party_id, data_source, product_type,
+			   assigned_by, dpd_bucket, outstanding_kobo, status, assignment_date, created_at, updated_at)
+			SELECT b.key_cif, b.key_cif, b.customer_name, b.party_id, b.data_source, b.product_type,
+			       $1, `+bucketExpr+`, b.outstanding_kobo, 'active', CURRENT_DATE, NOW(), NOW()
+			FROM book b
+			WHERE `+udaraIdentityResolved+`
+			  AND NOT `+crossedAssignmentOpen+`
+			  AND b.key_cif NOT IN (
 				SELECT account_cif FROM collection_assignments
 				WHERE status IN ('active','sent_to_recovery') AND account_cif IS NOT NULL
 			)`, user.ID)
@@ -123,34 +526,71 @@ func collectionsGenerateAssignments(db *core.DB) http.HandlerFunc {
 		if res != nil {
 			created, _ = res.RowsAffected()
 		}
+		refusedIDs := make([]string, 0, len(refused))
+		for _, u := range refused {
+			refusedIDs = append(refusedIDs, str(u["raw_cif"]))
+		}
+		desc := fmt.Sprintf("Generated %d new collection assignments from the delinquency book", created)
+		if len(refusedIDs) > 0 {
+			desc += fmt.Sprintf(" — REFUSED %d Udara borrower(s) on identity: %s",
+				len(refusedIDs), strings.Join(refusedIDs, ", "))
+		}
 		logCreditEvent(ctx, db, r, "collections", "assignment", "generate", "", "assignments_generated",
-			fmt.Sprintf("Generated %d new collection assignments from the delinquency book", created), nil, map[string]any{"created": created})
-		respond(w, map[string]any{"created": created}, "json")
+			desc, nil, map[string]any{"created": created, "refused_udara_ids": refusedIDs})
+		respond(w, map[string]any{
+			"created":           created,
+			"refused_udara_ids": refusedIDs,
+		}, "json")
 	}
 }
 
-// collectionsAccountDetail returns a full account snapshot for a given CIF.
+// collectionsAccountDetail returns a full account snapshot for a given account key.
+//
+// The {cif} path parameter is a STORED KEY, not necessarily a cards CIF: a Udara-sourced
+// account arrives as 'UD-<cbs_customer_id>'. splitCIFKey says which namespace it is in
+// and the query then reads one arm only — the Udara branch of the delinquency book and
+// the Udara customer master for a Udara key, the card branch and app.customers for a
+// cards key. Before this, both the book lookup (`WHERE cif = $1`, over a view whose two
+// branches share a key space) and the app.customers name fallback ran unconditionally,
+// so opening a Udara account showed the card customer who shares the id: their name, on
+// top of a balance that was the two people's debts added together.
 func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cif := chi.URLParam(r, "cif")
-		// Base the snapshot on the CIF itself (never 404 for a valid account) and
+		key := chi.URLParam(r, "cif")
+		cardsCIF, udaraCIF := splitCIFKey(key)
+		// Base the snapshot on the key itself (never 404 for a valid account) and
 		// draw balances/name/product from the unified delinquency book, the
-		// collection overlay, and the CIF-keyed payments ledger.
+		// collection overlay, and the key-keyed payments ledger.
 		rows, err := db.PGQuery(r.Context(), `
 			WITH d AS (
-			    SELECT cif,
-			           MAX(customer_name)                       AS customer_name,
-			           STRING_AGG(DISTINCT product_name, ', ')  AS product_name,
-			           STRING_AGG(DISTINCT source, ',')         AS source,
-			           MAX(dpd)                                 AS dpd,
-			           SUM(outstanding_kobo)                    AS outstanding_kobo
-			    FROM app.collections_delinquent_unified WHERE cif = $1 GROUP BY cif
+			    SELECT MAX(v.customer_name)                        AS customer_name,
+			           STRING_AGG(DISTINCT v.product_name, ', ')   AS product_name,
+			           STRING_AGG(DISTINCT v.source, ',')          AS source,
+			           MAX(v.dpd)                                  AS dpd,
+			           SUM(v.outstanding_kobo)                     AS outstanding_kobo
+			    FROM app.collections_delinquent_unified v
+			    WHERE CASE WHEN $3 <> '' THEN
+			               v.cif = $3 AND v.source = 'loan' AND v.product_name <> 'Loan (uploaded)'
+			          ELSE v.cif = $2 AND NOT (v.source = 'loan' AND v.product_name <> 'Loan (uploaded)')
+			          END
+			), ident AS (
+			    -- Name of last resort, resolved inside the key's own namespace. The Udara
+			    -- side goes cbs_customers -> app.cbs_links -> app.parties; the cards side
+			    -- goes to app.customers. Neither branch can fire for the other's key.
+			    SELECT COALESCE(
+			        (SELECT NULLIF(TRIM(cc.name),'') FROM app.cbs_customers cc
+			          WHERE $3 <> '' AND cc.cbs_customer_id = $3),
+			        (SELECT NULLIF(TRIM(p.full_name),'') FROM app.cbs_links lk
+			           JOIN app.parties p ON p.party_id = lk.entity_id
+			          WHERE $3 <> '' AND lk.entity_type = 'party' AND lk.cbs_customer_id = $3 LIMIT 1),
+			        (SELECT NULLIF(TRIM(c.full_name),'') FROM app.customers c
+			          WHERE $2 <> '' AND COALESCE(NULLIF(c.cif,''), c.contact_id) = $2 LIMIT 1)
+			    ) AS resolved_name
 			)
 			SELECT
 			    NULL::bigint                                        AS loan_id,
 			    base.cif                                            AS applicant_cif,
-			    COALESCE(d.customer_name, ca.customer_name,
-			             (SELECT full_name FROM app.customers WHERE COALESCE(NULLIF(cif,''), contact_id) = base.cif LIMIT 1),
+			    COALESCE(d.customer_name, ca.customer_name, ident.resolved_name,
 			             base.cif)                                      AS applicant_name,
 			    COALESCE(d.product_name, '—')                       AS product_type,
 			    COALESCE(d.outstanding_kobo, ca.outstanding_kobo, 0) AS principal_kobo, -- CBS SUM removed: cbs_customer_id != cif
@@ -180,11 +620,19 @@ func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
 			    (SELECT COUNT(*) FROM collection_contacts WHERE cif_number = base.cif)                  AS total_contacts,
 			    (SELECT COUNT(*) FROM collection_promises WHERE cif_number = base.cif)                  AS ptps_created,
 			    (SELECT COUNT(*) FROM collection_promises WHERE cif_number = base.cif AND is_kept = true) AS ptps_kept,
-			    (SELECT COALESCE(SUM(amount_kobo), 0) FROM collection_payments WHERE account_cif = base.cif) AS total_paid_kobo,
+			    -- Approved receipts only: money still in the HOP -> COO -> CFO chain has
+			    -- not posted to the GL and is not repayment. It is reported beside this
+			    -- as pending_paid_kobo so it stays visible without inflating what was
+			    -- paid. Filtering TO 'approved' also excludes a future 'rejected' row.
+			    (SELECT COALESCE(SUM(amount_kobo), 0) FROM collection_payments
+			      WHERE account_cif = base.cif AND status = 'approved')                  AS total_paid_kobo,
+			    (SELECT COALESCE(SUM(amount_kobo), 0) FROM collection_payments
+			      WHERE account_cif = base.cif AND status NOT IN ('approved','rejected')) AS pending_paid_kobo,
 			    (SELECT MAX(cc.created_at) FROM collection_contacts cc WHERE cc.cif_number = base.cif)  AS last_contact_at,
 			    (SELECT cc.outcome FROM collection_contacts cc WHERE cc.cif_number = base.cif ORDER BY cc.created_at DESC LIMIT 1) AS last_contact_outcome
 			FROM (SELECT $1::text AS cif) base
-			LEFT JOIN d ON d.cif = base.cif
+			CROSS JOIN d
+			CROSS JOIN ident
 			LEFT JOIN collection_assignments ca ON ca.account_cif = base.cif AND ca.status IN ('active','sent_to_recovery')
 			LEFT JOIN o3c_users u ON u.id = ca.agent_user_id
 			LEFT JOIN LATERAL (
@@ -192,7 +640,7 @@ func collectionsAccountDetail(db *core.DB) http.HandlerFunc {
 			    WHERE account_cif = base.cif AND status = 'active' LIMIT 1
 			) cw ON TRUE
 			LEFT JOIN o3c_users wbu ON wbu.id = cw.flagged_by
-			LIMIT 1`, cif)
+			LIMIT 1`, key, cardsCIF, udaraCIF)
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 404, "Account not found")
 			return
@@ -237,13 +685,22 @@ func collectionsDueSchedule(db *core.DB) http.HandlerFunc {
 			    WHERE a.payment_due_date IS NOT NULL
 			      AND COALESCE(a.current_dr_balance,0) > 0   -- only cards that actually owe
 			    UNION ALL
-			    SELECT cl.cbs_customer_id,
-			           COALESCE(NULLIF(TRIM(cl.raw->>'name'),''), cl.cbs_customer_id), -- Udara's own name
+			    -- Udara facilities are emitted under the namespaced key, never the bare
+			    -- cbs_customer_id: this list is a drill-through, and a bare id sends the
+			    -- click to /accounts/<id>, which is a DIFFERENT PERSON's card account for
+			    -- 94% of these ids. The name comes from the Udara customer master with the
+			    -- linked party as fallback — never from app.customers.
+			    SELECT '` + udaraCIFPrefix + `' || cl.cbs_customer_id,
+			           COALESCE(NULLIF(TRIM(cc.name),''), NULLIF(TRIM(cl.raw->>'name'),''),
+			                    NULLIF(TRIM(p.full_name),''), cl.cbs_customer_id),
 			           cl.cbs_account_number, 'loan', 'Udara',
 			           COALESCE(NULLIF(cl.product_name,''), 'Loan'),
 			           (COALESCE(cl.outstanding_principal_kobo,0)+COALESCE(cl.outstanding_interest_kobo,0)+COALESCE(cl.outstanding_fee_kobo,0))::bigint,
 			           cl.maturity_date::date
 			    FROM cbs_loans cl
+			    LEFT JOIN cbs_customers cc ON cc.cbs_customer_id = cl.cbs_customer_id
+			    LEFT JOIN app.cbs_links lk ON lk.entity_type = 'party' AND lk.cbs_customer_id = cl.cbs_customer_id
+			    LEFT JOIN app.parties p ON p.party_id = lk.entity_id
 			    WHERE cl.status NOT IN ('Closed','Revoked') AND cl.maturity_date IS NOT NULL
 			    UNION ALL
 			    SELECT ca.account_cif,
@@ -814,22 +1271,48 @@ func collectionsWatchlistResolve(db *core.DB) http.HandlerFunc {
 
 		// Escalation must actually reach recovery — open a real recovery case
 		// (mirrors send-to-recovery) instead of only flipping the flag's status.
-		var caseRef string
+		//
+		// But not blindly. A watchlist flag carries only account_cif, and openRecoveryCase
+		// writes whatever it is given into recovery_cases.cif_number AND .account_cif —
+		// both cards-namespace columns. If the flag holds a bare Udara customer id, the
+		// case is opened against whoever holds the same id in the cards namespace. Refuse,
+		// loudly, and resolve the flag without a case rather than name the wrong person in
+		// a recovery file.
+		var caseRef, escalationRefusal string
 		if b.Status == "escalated_to_recovery" && !alreadyEscalated && cif != "" {
-			if ref, _, oErr := openRecoveryCase(ctx, db, cif, fmt.Sprint(wlDPD), wlOutstanding, nil); oErr == nil {
-				caseRef = ref
+			borrower, gErr := udaraBorrowerFor(ctx, db, cif)
+			switch {
+			case gErr != nil:
+				escalationRefusal = "could not verify the identity namespace of " + cif
+				slog.Error("watchlist escalation REFUSED — identity check failed",
+					"watchlist_id", id, "account_cif", cif, "err", gErr, "actor_id", user.ID)
+			case borrower != "":
+				escalationRefusal = fmt.Sprintf("%s is a Udara customer id (borrower: %s), not a cards CIF — a recovery case opened on it would name a different person", cif, borrower)
+				slog.Error("watchlist escalation REFUSED — namespace-crossed account_cif",
+					"watchlist_id", id, "account_cif", cif, "udara_borrower", borrower,
+					"outstanding_kobo", wlOutstanding, "actor_id", user.ID)
+			default:
+				if ref, caseID, oErr := openRecoveryCase(ctx, db, cif, fmt.Sprint(wlDPD), wlOutstanding, nil); oErr == nil {
+					caseRef = ref
+					stampCaseIdentity(ctx, db, caseID, cif)
+				}
 			}
 		}
 
 		evtDesc := fmt.Sprintf("Watchlist flag resolved — status: %s", b.Status)
 		if caseRef != "" {
 			evtDesc = fmt.Sprintf("Watchlist flag escalated to recovery — case %s created", caseRef)
+		} else if escalationRefusal != "" {
+			evtDesc = "Watchlist escalation REFUSED — " + escalationRefusal
 		}
 		logCreditEvent(ctx, db, r, "collections", "watchlist", fmt.Sprint(id), cif, "watchlist_resolved",
-			evtDesc, nil, map[string]any{"status": b.Status, "notes": b.ResolutionNotes, "case_ref": caseRef})
+			evtDesc, nil, map[string]any{"status": b.Status, "notes": b.ResolutionNotes, "case_ref": caseRef, "escalation_refused": escalationRefusal})
 		out := rows[0]
 		if caseRef != "" {
 			out["recovery_case_ref"] = caseRef
+		}
+		if escalationRefusal != "" {
+			out["escalation_refused"] = escalationRefusal
 		}
 		respond(w, out, "pg")
 	}
@@ -950,21 +1433,42 @@ func collectionsCallsByCIF(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "cif required")
 			return
 		}
+		// The phone crosswalk must be resolved in the key's own namespace. A Udara key
+		// ('UD-<cbs_customer_id>') resolves through the Udara customer master and the
+		// linked party; a cards key through app.customers. Matching a Udara key against
+		// app.customers.cif would pull back the card customer who shares the id and show
+		// a recovery officer a different person's call history.
+		//
+		// length(...) = 10 guards app.norm_phone, which is last-10-digits and returns ''
+		// rather than NULL — without the guard a blank stored phone matches every call
+		// whose own number is unparseable.
+		cardsCIF, udaraCIF := splitCIFKey(cif)
 		rows, err := db.PGQuery(ctx, `
+			WITH subject_phone AS (
+			    SELECT COALESCE(
+			        (SELECT app.norm_phone(cc.phone) FROM app.cbs_customers cc
+			          WHERE $2 <> '' AND cc.cbs_customer_id = $2 AND COALESCE(cc.phone,'') <> '' LIMIT 1),
+			        (SELECT app.norm_phone(p.primary_phone) FROM app.cbs_links lk
+			           JOIN app.parties p ON p.party_id = lk.entity_id
+			          WHERE $2 <> '' AND lk.entity_type = 'party' AND lk.cbs_customer_id = $2
+			            AND COALESCE(p.primary_phone,'') <> '' LIMIT 1),
+			        (SELECT app.norm_phone(c.phone) FROM app.customers c
+			          WHERE $1 <> '' AND c.cif = $1 AND COALESCE(c.phone,'') <> '' LIMIT 1)
+			    ) AS phone
+			)
 			SELECT h.id, h.started_at, h.direction, h.duration_sec,
 			       COALESCE(h.outcome,'')     AS outcome,
 			       COALESCE(h.disposition,'') AS disposition,
 			       COALESCE(h.purpose,'')     AS purpose,
 			       COALESCE(h.agent_name,'')  AS agent_name,
 			       COALESCE(h.notes,'')       AS notes
-			FROM app.helpdesk_calls h
-			WHERE (h.customer_cif = $1
-			    OR app.norm_phone(h.customer_phone) = (
-			        SELECT app.norm_phone(c.phone) FROM app.customers c
-			        WHERE c.cif = $1 AND COALESCE(c.phone,'') <> '' LIMIT 1))
+			FROM app.helpdesk_calls h, subject_phone sp
+			WHERE (($1 <> '' AND h.customer_cif = $1)
+			    OR (LENGTH(COALESCE(sp.phone,'')) = 10
+			        AND app.norm_phone(h.customer_phone) = sp.phone))
 			  AND h.merged_into_call_id IS NULL AND h.voided_at IS NULL
 			ORDER BY h.started_at DESC
-			LIMIT 100`, cif)
+			LIMIT 100`, cardsCIF, udaraCIF)
 		if err != nil {
 			respondErr(w, 500, err.Error())
 			return

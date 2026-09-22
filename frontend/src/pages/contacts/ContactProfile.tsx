@@ -45,6 +45,8 @@ interface ContactProfileData {
   email: string
   bvn?: string
   nin?: string
+  bvn_masked?: boolean
+  nin_masked?: boolean
   address?: string
   full_address?: string
   city?: string
@@ -53,6 +55,7 @@ interface ContactProfileData {
   employer?: string
   monthly_income_kobo?: number
   date_of_birth?: string
+  date_of_birth_masked?: boolean
   gender?: string
 
   // Repayments (naira) + monthly cadence, for the collections/recovery teams.
@@ -1291,14 +1294,27 @@ function RiskSnapshotCard({ profile }: { profile: ContactProfileData }) {
 // occupation 63, TIN 9 — so the server sends only populated fields and drops a
 // whole group when none of its fields survived.
 
-interface IdentityField { key: string; label: string; value: string; icon?: string; mono?: boolean; copy?: boolean; sensitive?: boolean }
+interface IdentityField {
+  key: string; label: string; value: string; icon?: string; mono?: boolean; copy?: boolean
+  sensitive?: boolean
+  /** true = `value` is the MASK, not the value. The real one needs a logged reveal. */
+  masked?: boolean
+}
 interface IdentityGroup { key: string; title: string; icon: string; fields: IdentityField[] }
 interface IdentityBlock {
   entity_type: 'individual' | 'corporate'
   groups: IdentityGroup[]
   field_count: number
-  /** true = flagged, false = checked and clear, null = the core-banking master has never seen this customer. */
+  /**
+   * Sensitive, so it arrives null: the server never sends the determination
+   * unmasked. It becomes true/false only after a reveal, which the page writes
+   * back onto this object so the hero badge and the "PEP Clear" chip react.
+   */
   pep: boolean | null
+  /** A determination exists on the core banking record (its VALUE is still withheld). */
+  pep_known?: boolean
+  /** A determination exists and has not been revealed in this session. */
+  pep_masked?: boolean
   linked: boolean
   source?: { system: string; label: string; cbs_customer_id: string; synced_at: string | null; party_id: number | null }
 }
@@ -1325,14 +1341,155 @@ function CoreBankingChip() {
   )
 }
 
-function IdentityKycCard({ profile, identity }: { profile: ContactProfileData; identity: IdentityBlock | null }) {
+// ── Sensitive values: masked by default, revealed on the record ───────────────
+//
+// The server never sends a sensitive identity value. `field.value` IS the mask
+// (last 4 of a BVN/NIN/TIN/ID/phone, year only for a date of birth) and
+// `field.masked` says so. There is nothing here to "un-hide": the full value has
+// to be fetched, one field at a time, from
+// POST /api/customer360/{key}/identity/reveal — which writes an audit row naming
+// who looked, at which customer, at what field and when BEFORE it answers. If
+// that record can't be written the value isn't returned.
+//
+// Nobody is blocked: an agent verifying a caller's date of birth clicks and sees
+// it. The point is only that the click is on the record, which is why the
+// affordance says so rather than hiding it.
+
+const REVEAL_NOTE = 'Show the full value. Your name, this customer, this field and the time are written to the audit trail.'
+
+// Mirrors c360MaskValue / c360MaskDOB in backend-go/handlers/identity_reveal.go.
+// Only needed for the "Identity & Contact" card, whose values come from
+// /api/contacts and so arrive unmasked — the Identity & KYC block is masked by
+// the server and these are never applied to it.
+function maskTailLocal(v: string): string {
+  const s = [...String(v ?? '')]
+  const tail = s.length >= 8 ? 4 : s.length >= 6 ? 2 : 0
+  return '•'.repeat(s.length - tail) + s.slice(s.length - tail).join('')
+}
+
+function maskDobLocal(v: string): string {
+  const parts = String(v ?? '').trim().split(/\s+/)
+  const year = parts[parts.length - 1]
+  if (parts.length >= 2 && /^\d{4}$/.test(year)) return `•• ••• ${year}`
+  return maskTailLocal(v)
+}
+
+function SensitiveValue({ customerKey, field, label, mask, mono, onRevealed }: {
+  customerKey: string
+  field: string
+  label: string
+  mask: string
+  mono?: boolean
+  onRevealed?: (d: { value: string; pep?: boolean }) => void
+}) {
+  const [value, setValue] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const valueStyle: React.CSSProperties = {
+    fontSize: TEXT.base, color: 'var(--txt)', lineHeight: 1.35, wordBreak: 'break-word',
+    fontFamily: mono ? 'var(--font-mono)' : undefined, fontWeight: mono ? FW.semibold : FW.medium,
+  }
+
+  const reveal = async () => {
+    if (busy || value !== null) return
+    setBusy(true)
+    try {
+      const r = await apiPost<{ data: { key: string; label: string; value: string; pep?: boolean } }>(
+        `/api/customer360/${encodeURIComponent(customerKey)}/identity/reveal`, { field },
+      )
+      const d = (r as any)?.data
+      if (!d?.value) throw new Error('no value')
+      setValue(d.value)
+      onRevealed?.(d)
+    } catch {
+      // A failed reveal discloses nothing — including a reveal refused because the
+      // audit row could not be written, which is the intended behaviour.
+      toast.error(`${label} was not revealed. Nothing was disclosed.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (value !== null) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0, flexWrap: 'wrap' }}>
+        <span style={valueStyle}>{value}</span>
+        <button
+          onClick={() => { try { navigator.clipboard?.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1200) } catch { /* clipboard unavailable */ } }}
+          title={`Copy ${label}`}
+          aria-label={`Copy ${label}`}
+          style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            width: 20, height: 20, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer',
+            color: copied ? GREEN : 'var(--txt3)', borderRadius: RADIUS.sm,
+          }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{copied ? 'check' : 'content_copy'}</span>
+        </button>
+        <span
+          title="This reveal is recorded in the audit trail."
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold }}
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 12 }}>history_edu</span>
+          Logged
+        </span>
+      </span>
+    )
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+      <span style={{ ...valueStyle, color: 'var(--txt2)', letterSpacing: mono ? 0.5 : undefined }}>{mask}</span>
+      <button
+        onClick={reveal}
+        disabled={busy}
+        title={REVEAL_NOTE}
+        aria-label={`Reveal ${label}. ${REVEAL_NOTE}`}
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          width: 20, height: 20, padding: 0, background: 'transparent', border: 'none',
+          cursor: busy ? 'progress' : 'pointer', color: busy ? 'var(--txt3)' : BLUE, borderRadius: RADIUS.sm,
+        }}
+      >
+        <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{busy ? 'hourglass_top' : 'visibility'}</span>
+      </button>
+    </span>
+  )
+}
+
+// The caption that makes the rule visible rather than implicit — shown once per
+// card, above the fields, so nobody has to hover a button to learn that a reveal
+// is recorded.
+function MaskingNote() {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14,
+      fontSize: TEXT.xs, color: 'var(--txt2)',
+    }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 14, color: 'var(--txt3)' }}>visibility_off</span>
+      <span>Sensitive values are hidden. Revealing one records who looked, at what and when in the audit trail.</span>
+    </div>
+  )
+}
+
+function IdentityKycCard({ profile, identity, customerKey, onPepRevealed }: {
+  profile: ContactProfileData
+  identity: IdentityBlock | null
+  customerKey: string
+  onPepRevealed: (v: boolean) => void
+}) {
   if (!identity) return null
+  // pep is null until a reveal is made and written back, so `flagged` now means
+  // "revealed AND flagged" rather than "flagged".
   const flagged = identity.pep === true
+  const masked = identity.groups.some(g => g.fields.some(f => f.masked))
   // An empty core-banking KYC record is worth stating for a customer whose whole
   // profile comes from core banking — the absence is itself the answer, and 116 of
   // the 294 linked customers carry no identity detail at all. For a card customer
-  // it would just be an empty card, so it isn't rendered.
-  if (identity.field_count === 0 && !flagged && !isCoreBankingOnly(profile, identity)) return null
+  // it would just be an empty card, so it isn't rendered. A withheld PEP
+  // determination is itself something to show, so it keeps the card alive too.
+  if (identity.field_count === 0 && !flagged && !identity.pep_masked && !isCoreBankingOnly(profile, identity)) return null
 
   const src = identity.source
   const subtitle = src?.cbs_customer_id
@@ -1368,11 +1525,41 @@ function IdentityKycCard({ profile, identity }: { profile: ContactProfileData; i
           </div>
         )}
 
+        {/* A PEP determination exists but its value is withheld like any other
+            sensitive field. Saying a determination is on file is not the same as
+            saying what it says — and once revealed the red banner above (and the
+            hero PEP badge) appear, because the reveal is written back onto the
+            identity block. */}
+        {identity.pep_masked && !flagged && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 11, marginBottom: 16,
+            padding: '11px 14px', borderRadius: RADIUS.md,
+            background: 'var(--th-bg)', border: '1px solid var(--bdr)',
+          }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 21, color: 'var(--txt3)' }}>policy</span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: SORA }}>PEP Status</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                A politically-exposed-person determination is on the core banking record.
+              </div>
+            </div>
+            <SensitiveValue
+              customerKey={customerKey}
+              field="pep"
+              label="PEP Status"
+              mask="Hidden"
+              onRevealed={d => onPepRevealed(d.pep === true)}
+            />
+          </div>
+        )}
+
         {identity.field_count === 0 && (
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)' }}>
             The core banking record carries no identity or KYC detail for this customer yet.
           </div>
         )}
+
+        {(masked || identity.pep_masked) && <MaskingNote />}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px 22px' }}>
           {identity.groups.map(g => {
@@ -1384,7 +1571,16 @@ function IdentityKycCard({ profile, identity }: { profile: ContactProfileData; i
                   <span style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{g.title}</span>
                 </div>
                 <InfoGrid>
-                  {g.fields.map(f => <InfoPair key={f.key} label={f.label} icon={f.icon} value={f.value} mono={f.mono} copy={f.copy} />)}
+                  {g.fields.map(f => f.masked
+                    ? (
+                      <InfoPair
+                        key={f.key}
+                        label={f.label}
+                        icon={f.icon}
+                        value={<SensitiveValue customerKey={customerKey} field={f.key} label={f.label} mask={f.value} mono={f.mono} />}
+                      />
+                    )
+                    : <InfoPair key={f.key} label={f.label} icon={f.icon} value={f.value} mono={f.mono} copy={f.copy} />)}
                 </InfoGrid>
               </div>
             )
@@ -1395,7 +1591,13 @@ function IdentityKycCard({ profile, identity }: { profile: ContactProfileData; i
   )
 }
 
-function OverviewTab({ profile, identity, onOpenTab }: { profile: ContactProfileData; identity: IdentityBlock | null; onOpenTab: (t: string) => void }) {
+function OverviewTab({ profile, identity, customerKey, onOpenTab, onPepRevealed }: {
+  profile: ContactProfileData
+  identity: IdentityBlock | null
+  customerKey: string
+  onOpenTab: (t: string) => void
+  onPepRevealed: (v: boolean) => void
+}) {
   const s = profile.summary
   const txns = profile.transactions.slice(0, 5)
   return (
@@ -1421,17 +1623,45 @@ function OverviewTab({ profile, identity, onOpenTab }: { profile: ContactProfile
         </div>
       )}
       <AllIdentifiersCard profile={profile} />
-      <IdentityKycCard profile={profile} identity={identity} />
+      <IdentityKycCard profile={profile} identity={identity} customerKey={customerKey} onPepRevealed={onPepRevealed} />
 
+      {/* This card is fed by /api/contacts/{key}, NOT by the Identity & KYC endpoint.
+          That handler now masks bvn / nin / date_of_birth server-side before the response
+          is written, and sets <field>_masked, so the full value no longer reaches the
+          browser here either — this is real masking, not a display mask over a payload
+          that still carries the secret.
+
+          The local helpers stay as a FALLBACK for when the flag is absent, so if that
+          handler ever changes this screen degrades to masked rather than to plaintext.
+          Reveals route through the same audited endpoint either way. */}
       <SectionCard title="Identity &amp; Contact">
+        {(profile.bvn || profile.nin || profile.date_of_birth) && <MaskingNote />}
         <InfoGrid>
           <InfoPair label="Full Name"      icon="badge"        value={profile.name} />
           <InfoPair label="Phone"          icon="call"         value={profile.phone} copy />
           <InfoPair label="Email"          icon="mail"         value={profile.email} copy />
           <InfoPair label="Gender"         icon="wc"           value={profile.gender} />
-          <InfoPair label="Date of Birth"  icon="cake"         value={profile.date_of_birth ? fmtDate(profile.date_of_birth) : undefined} />
-          <InfoPair label="BVN"            icon="fingerprint"  value={profile.bvn} mono copy />
-          <InfoPair label="NIN"            icon="badge"        value={profile.nin} mono copy />
+          <InfoPair
+            label="Date of Birth" icon="cake"
+            value={profile.date_of_birth
+              ? <SensitiveValue customerKey={customerKey} field="date_of_birth" label="Date of Birth"
+                  mask={profile.date_of_birth_masked ? profile.date_of_birth : maskDobLocal(fmtDate(profile.date_of_birth))} />
+              : undefined}
+          />
+          <InfoPair
+            label="BVN" icon="fingerprint"
+            value={profile.bvn
+              ? <SensitiveValue customerKey={customerKey} field="bvn" label="BVN"
+                  mask={profile.bvn_masked ? profile.bvn : maskTailLocal(profile.bvn)} mono />
+              : undefined}
+          />
+          <InfoPair
+            label="NIN" icon="badge"
+            value={profile.nin
+              ? <SensitiveValue customerKey={customerKey} field="nin" label="NIN"
+                  mask={profile.nin_masked ? profile.nin : maskTailLocal(profile.nin)} mono />
+              : undefined}
+          />
         </InfoGrid>
       </SectionCard>
 
@@ -2643,7 +2873,18 @@ export default function ContactProfile() {
         <Tabs tabs={visibleTabs} active={tab} onChange={setTab} />
       </div>
 
-      {tab === 'overview'    && <OverviewTab    profile={profile} identity={identity} onOpenTab={setTab} />}
+      {/* A revealed PEP determination is written back onto the identity block so the
+          hero badge and the "PEP Clear" chip — which both read identity.pep — light
+          up from the same reveal, instead of each asking for its own. */}
+      {tab === 'overview'    && (
+        <OverviewTab
+          profile={profile}
+          identity={identity}
+          customerKey={key ?? ''}
+          onOpenTab={setTab}
+          onPepRevealed={v => setIdentity(prev => (prev ? { ...prev, pep: v, pep_masked: false } : prev))}
+        />
+      )}
       {tab === 'loans'       && <LoansTab       profile={profile} />}
       {tab === 'fixed_deposits' && <FixedDepositsTab profile={profile} />}
       {tab === 'cards'       && <CardsTab       profile={profile} onViewTransactions={openCardTransactions} />}

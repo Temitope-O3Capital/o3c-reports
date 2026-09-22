@@ -565,18 +565,31 @@ func execFinanceHandler(db *core.DB) http.HandlerFunc {
 			revChange = round1(float64(revenueKobo-prevRevenueKobo) / abs64(float64(prevRevenueKobo)) * 100)
 		}
 
-		// FD book — real, from the CBS/Udara register.
-		var fdBookKobo, fdCount, fdMaturing30d int64
+		// FD book — real, from the CBS/Udara register. "The book" is Active AND
+		// funded, the same definition as /api/fd-book/kpis and the Overview FD card:
+		// 17 Active rows are unfunded shells carrying ₦0, so they moved no money here
+		// but did inflate cnt and maturing. maturing needs the ::date cast — without
+		// it the deposit maturing on the last day of the window is dropped (41 vs 42
+		// before the funded filter, 39 on all three pages after it).
+		var fdBookKobo, fdCount, fdMaturing30d, fdPastDue, fdPastDueKobo int64
 		if rows, e := db.PGQuery(ctx, `
 			SELECT
-				COALESCE(SUM(principal_kobo) FILTER (WHERE status='Active'), 0) AS book,
-				COUNT(*) FILTER (WHERE status='Active')                        AS cnt,
-				COUNT(*) FILTER (WHERE status='Active'
-					AND maturity_date BETWEEN NOW()::date AND (NOW()+INTERVAL '30 days')::date) AS maturing
-			FROM cbs_fixed_deposits`); e == nil && len(rows) > 0 {
-			fdBookKobo = toInt64(rows[0]["book"])
+				COALESCE(SUM(principal_kobo) FILTER (WHERE book), 0) AS book_kobo,
+				COUNT(*) FILTER (WHERE book)                         AS cnt,
+				COUNT(*) FILTER (WHERE book
+					AND maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30) AS maturing,
+				COUNT(*) FILTER (WHERE book AND maturity_date::date < CURRENT_DATE) AS past_due,
+				COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
+					FILTER (WHERE book AND maturity_date::date < CURRENT_DATE), 0) AS past_due_kobo
+			FROM (
+				SELECT *, status='Active' AND (`+sqlFDFunded+`) AS book
+				FROM cbs_fixed_deposits
+			) f`); e == nil && len(rows) > 0 {
+			fdBookKobo = toInt64(rows[0]["book_kobo"])
 			fdCount = toInt64(rows[0]["cnt"])
 			fdMaturing30d = toInt64(rows[0]["maturing"])
+			fdPastDue = toInt64(rows[0]["past_due"])
+			fdPastDueKobo = toInt64(rows[0]["past_due_kobo"])
 		}
 
 		// The GL is empty — gl_journal_entries has no rows and gl_accounts holds four
@@ -606,16 +619,31 @@ func execFinanceHandler(db *core.DB) http.HandlerFunc {
 
 		// Cost of deposit funding. accrued_interest_kobo is cumulative to date, not a
 		// period figure, so it is reported separately as a balance-sheet number. The
-		// period cost is accrued pro-rata from principal and contract rate, which is an
+		// period cost is accrued pro-rata from principal and rate, which is an
 		// estimate and is labelled as one.
+		//
+		// Both the rate and the cost now run on the effective rate. The old
+		// AVG(interest_rate) was unweighted — a ₦20bn deposit and a ₦10m one counted
+		// the same — and averaged in as zero the 27 Active deposits whose rate Udara
+		// never supplied, 25 of which are visibly accruing; the same COALESCE(rate,0)
+		// booked their funding as free. Principal-weighting on the effective rate puts
+		// this on the same basis as /api/finance/fd-kpis and /api/fd-book/kpis, so the
+		// three surfaces finally quote one number.
 		var fdAccruedToDate, fdPeriodCost int64
 		var fdAvgRate float64
 		days := int64(ce.Sub(cs).Hours()/24) + 1
 		if rows, e := db.PGQuery(ctx, `
 			SELECT COALESCE(SUM(accrued_interest_kobo), 0) AS accrued,
-			       COALESCE(AVG(interest_rate), 0)         AS avg_rate,
-			       COALESCE(SUM(ROUND(principal_kobo * (COALESCE(interest_rate,0)/100.0) * ($1::numeric/365.0))), 0) AS period_cost
-			  FROM cbs_fixed_deposits WHERE status='Active'`, days); e == nil && len(rows) > 0 {
+			       COALESCE(SUM(principal_kobo * eff_rate) FILTER (WHERE eff_rate IS NOT NULL)
+			                / NULLIF(SUM(principal_kobo) FILTER (WHERE eff_rate IS NOT NULL), 0), 0) AS avg_rate,
+			       COALESCE(SUM(ROUND(daily_accrual_kobo * $1::numeric)), 0) AS period_cost
+			  FROM (
+			      SELECT principal_kobo, accrued_interest_kobo,
+			             `+sqlFDEffRate+`          AS eff_rate,
+			             `+sqlFDDailyAccrualKobo+` AS daily_accrual_kobo
+			        FROM cbs_fixed_deposits
+			       WHERE status='Active' AND `+sqlFDFunded+`
+			  ) f`, days); e == nil && len(rows) > 0 {
 			fdAccruedToDate = toInt64(rows[0]["accrued"])
 			fdAvgRate = round1(toFloat(rows[0]["avg_rate"]))
 			fdPeriodCost = toInt64(rows[0]["period_cost"])
@@ -690,6 +718,8 @@ func execFinanceHandler(db *core.DB) http.HandlerFunc {
 			"fd_book_kobo":            fdBookKobo,
 			"fd_count":                fdCount,
 			"fd_maturing_30d":         fdMaturing30d,
+			"fd_past_due_count":       fdPastDue,
+			"fd_past_due_kobo":        fdPastDueKobo,
 			"settlement_balance_kobo": 0,
 			"paystack_wallet_kobo":    paystackWalletKobo(ctx, db),
 
@@ -1016,16 +1046,34 @@ func execCollectionsHandler(db *core.DB) http.HandlerFunc {
 		// empty, so the page can state that no contact, promise or payment has been
 		// logged rather than showing a zero that looks like a quiet week.
 		var contactsN, promisesN, paymentsN, collectedKobo int64
+		var pendingPaymentsN, pendingCollectedKobo int64
 		if rows, e := db.PGQuery(ctx, `
 			SELECT (SELECT COUNT(*) FROM app.collection_contacts WHERE created_at::date BETWEEN $1 AND $2) AS contacts,
 			       (SELECT COUNT(*) FROM app.collection_promises WHERE created_at::date BETWEEN $1 AND $2) AS promises,
-			       (SELECT COUNT(*) FROM app.collection_payments WHERE created_at::date BETWEEN $1 AND $2) AS payments,
-			       (SELECT COALESCE(SUM(amount_kobo),0) FROM app.collection_payments WHERE created_at::date BETWEEN $1 AND $2) AS collected`,
+			       -- Approved receipts only. Without the filter this counted money still
+			       -- inside the HOP -> COO -> CFO chain as collected: over 1 Sep - 21 Sep
+			       -- 2026 that read 99 payments / N922,836,754.56 when the board figure
+			       -- is 88 / N816,443,199.00. Filtering TO 'approved' rather than
+			       -- excluding 'pending_hop' also keeps a future 'rejected' row out.
+			       -- What is still awaiting sign-off is reported on its own below, never
+			       -- folded into collected.
+			       (SELECT COUNT(*) FROM app.collection_payments
+			         WHERE created_at::date BETWEEN $1 AND $2 AND status = 'approved') AS payments,
+			       (SELECT COALESCE(SUM(amount_kobo),0) FROM app.collection_payments
+			         WHERE created_at::date BETWEEN $1 AND $2 AND status = 'approved') AS collected,
+			       (SELECT COUNT(*) FROM app.collection_payments
+			         WHERE created_at::date BETWEEN $1 AND $2
+			           AND status NOT IN ('approved','rejected')) AS pending_payments,
+			       (SELECT COALESCE(SUM(amount_kobo),0) FROM app.collection_payments
+			         WHERE created_at::date BETWEEN $1 AND $2
+			           AND status NOT IN ('approved','rejected')) AS pending_collected`,
 			d(cs), d(ce)); e == nil && len(rows) > 0 {
 			contactsN = toInt64(rows[0]["contacts"])
 			promisesN = toInt64(rows[0]["promises"])
 			paymentsN = toInt64(rows[0]["payments"])
 			collectedKobo = toInt64(rows[0]["collected"])
+			pendingPaymentsN = toInt64(rows[0]["pending_payments"])
+			pendingCollectedKobo = toInt64(rows[0]["pending_collected"])
 		}
 
 		// Loan repayment status from the Udara schedule. payment_status is the reliable
@@ -1105,6 +1153,11 @@ func execCollectionsHandler(db *core.DB) http.HandlerFunc {
 			"activity_contacts":     contactsN,
 			"activity_promises":     promisesN,
 			"activity_payments":     paymentsN,
+			// Received in the window but NOT yet through HOP -> COO -> CFO. Reported on
+			// its own and never added into collected_mtd_kobo, activity_payments or any
+			// rate derived from them: this money has not posted to the GL.
+			"pending_approval_kobo":  pendingCollectedKobo,
+			"pending_approval_count": pendingPaymentsN,
 		}, "pg")
 	}
 }
@@ -1481,19 +1534,29 @@ func execRiskHandler(db *core.DB) http.HandlerFunc {
 		// Funding side. Fixed deposits are a liability — money owed back to depositors —
 		// and they are several times the size of the credit book. Reporting assets
 		// without them makes the balance sheet look far smaller than it is.
-		var fdLiability, fdCount, fdMaturing30, fdMaturing90 int64
+		// Windows are cast to ::date and anchored on CURRENT_DATE, not NOW(). Every
+		// Udara maturity sits at 01:00:00+01, so `BETWEEN NOW() AND ...` dropped
+		// anything maturing today once the clock passed 01:00 and clipped the far edge
+		// of the window as well. Past-due deposits are broken out rather than folded
+		// into the 30-day bucket: they are payable now, not soon.
+		var fdLiability, fdCount, fdMaturing30, fdMaturing90, fdPastDueKobo, fdPastDueCnt int64
 		if rows, e := db.PGQuery(ctx, `
 			SELECT COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0)), 0) AS liability,
 			       COUNT(*) AS cnt,
 			       COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
-			                FILTER (WHERE maturity_date BETWEEN NOW() AND NOW()+INTERVAL '30 days'), 0) AS mat30,
+			                FILTER (WHERE maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30), 0) AS mat30,
 			       COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
-			                FILTER (WHERE maturity_date BETWEEN NOW() AND NOW()+INTERVAL '90 days'), 0) AS mat90
-			  FROM cbs_fixed_deposits WHERE status='Active'`); e == nil && len(rows) > 0 {
+			                FILTER (WHERE maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 90), 0) AS mat90,
+			       COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
+			                FILTER (WHERE maturity_date::date < CURRENT_DATE), 0) AS past_due_kobo,
+			       COUNT(*) FILTER (WHERE maturity_date::date < CURRENT_DATE) AS past_due_cnt
+			  FROM cbs_fixed_deposits WHERE status='Active' AND ` + sqlFDFunded); e == nil && len(rows) > 0 {
 			fdLiability = toInt64(rows[0]["liability"])
 			fdCount = toInt64(rows[0]["cnt"])
 			fdMaturing30 = toInt64(rows[0]["mat30"])
 			fdMaturing90 = toInt64(rows[0]["mat90"])
+			fdPastDueKobo = toInt64(rows[0]["past_due_kobo"])
+			fdPastDueCnt = toInt64(rows[0]["past_due_cnt"])
 		}
 
 		creditAssets := cardGross + portfolioKobo
@@ -1555,6 +1618,8 @@ func execRiskHandler(db *core.DB) http.HandlerFunc {
 			"fd_count":             fdCount,
 			"fd_maturing_30d_kobo": fdMaturing30,
 			"fd_maturing_90d_kobo": fdMaturing90,
+			"fd_past_due_kobo":     fdPastDueKobo,
+			"fd_past_due_count":    fdPastDueCnt,
 			"asset_coverage_pct":   coverage,
 		}, "pg")
 	}
@@ -1783,23 +1848,43 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 		out := map[string]any{
 			"fd_book_kobo": 0, "fd_count": 0, "accrued_interest_kobo": 0,
 			"avg_rate_pct": 0.0, "maturing_30d": 0, "maturing_90d": 0,
+			"past_due_count": 0, "past_due_kobo": 0, "unfunded_count": 0,
 			"maturity_ladder": []any{}, "product_breakdown": []any{},
 			"tenor_breakdown": []any{}, "top_deposits": []any{},
+			"officer_breakdown": []any{},
 		}
 
+		// Active AND funded, ::date windows, principal-weighted effective rate — the
+		// same basis as /api/fd-book/kpis and /api/finance/fd-kpis. Before this,
+		// maturing_30d here read 41 against the FD Book page's 42 (the uncast NOW()
+		// window), and avg_rate_pct was an unweighted average that counted a ₦20bn
+		// deposit the same as a ₦10m one and averaged 27 rate-less deposits in as 0%.
 		if rows, e := db.PGQuery(ctx, `
 			SELECT
-				COALESCE(SUM(principal_kobo) FILTER (WHERE status='Active'), 0)        AS book,
-				COUNT(*) FILTER (WHERE status='Active')                               AS cnt,
-				COALESCE(SUM(accrued_interest_kobo) FILTER (WHERE status='Active'), 0) AS accrued,
-				COALESCE(ROUND(AVG(interest_rate) FILTER (WHERE status='Active'), 1), 0) AS avg_rate,
-				COUNT(*) FILTER (WHERE status='Active' AND maturity_date BETWEEN NOW() AND NOW()+INTERVAL '30 days') AS mat30,
-				COUNT(*) FILTER (WHERE status='Active' AND maturity_date BETWEEN NOW() AND NOW()+INTERVAL '90 days') AS mat90
-			FROM cbs_fixed_deposits`); e == nil && len(rows) > 0 {
-			out["fd_book_kobo"] = toInt64(rows[0]["book"])
+				COALESCE(SUM(principal_kobo) FILTER (WHERE book), 0)        AS book_kobo,
+				COUNT(*) FILTER (WHERE book)                               AS cnt,
+				COALESCE(SUM(accrued_interest_kobo) FILTER (WHERE book), 0) AS accrued,
+				COALESCE(ROUND(SUM(principal_kobo * eff_rate) FILTER (WHERE book AND eff_rate IS NOT NULL)
+					/ NULLIF(SUM(principal_kobo) FILTER (WHERE book AND eff_rate IS NOT NULL), 0), 1), 0) AS avg_rate,
+				COUNT(*) FILTER (WHERE book AND maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30) AS mat30,
+				COUNT(*) FILTER (WHERE book AND maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 90) AS mat90,
+				COUNT(*) FILTER (WHERE book AND maturity_date::date < CURRENT_DATE) AS past_due_cnt,
+				COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
+					FILTER (WHERE book AND maturity_date::date < CURRENT_DATE), 0) AS past_due_kobo,
+				COUNT(*) FILTER (WHERE status='Active' AND NOT (` + sqlFDFunded + `)) AS unfunded_cnt
+			FROM (
+				SELECT *,
+					status='Active' AND (` + sqlFDFunded + `) AS book,
+					` + sqlFDEffRate + `                      AS eff_rate
+				FROM cbs_fixed_deposits
+			) f`); e == nil && len(rows) > 0 {
+			out["fd_book_kobo"] = toInt64(rows[0]["book_kobo"])
 			out["fd_count"] = toInt64(rows[0]["cnt"])
 			out["accrued_interest_kobo"] = toInt64(rows[0]["accrued"])
 			out["avg_rate_pct"] = toFloat(rows[0]["avg_rate"])
+			out["past_due_count"] = toInt64(rows[0]["past_due_cnt"])
+			out["past_due_kobo"] = toInt64(rows[0]["past_due_kobo"])
+			out["unfunded_count"] = toInt64(rows[0]["unfunded_cnt"])
 			out["maturing_30d"] = toInt64(rows[0]["mat30"])
 			out["maturing_90d"] = toInt64(rows[0]["mat90"])
 		}
@@ -1813,7 +1898,8 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 			SELECT TO_CHAR(mo.m, 'Mon YY') AS month,
 			       COALESCE((SELECT SUM(principal_kobo + COALESCE(accrued_interest_kobo, 0))
 			                 FROM cbs_fixed_deposits f
-			                 WHERE f.status='Active' AND DATE_TRUNC('month', f.maturity_date) = mo.m), 0) AS payout_kobo
+			                 WHERE f.status='Active' AND f.raw->>'hasDisbursed' IS DISTINCT FROM 'false'
+			                   AND DATE_TRUNC('month', f.maturity_date) = mo.m), 0) AS payout_kobo
 			FROM months mo ORDER BY mo.m`); e == nil {
 			for _, row := range rows {
 				ladder = append(ladder, map[string]any{"month": str(row["month"]), "payout_kobo": toInt64(row["payout_kobo"])})
@@ -1826,7 +1912,7 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 		if rows, e := db.PGQuery(ctx, `
 			SELECT COALESCE(NULLIF(product_name,''),'Other') AS product, COUNT(*) AS count,
 			       COALESCE(SUM(principal_kobo), 0) AS principal_kobo
-			FROM cbs_fixed_deposits WHERE status='Active'
+			FROM cbs_fixed_deposits WHERE status='Active' AND ` + sqlFDFunded + `
 			GROUP BY 1 ORDER BY principal_kobo DESC`); e == nil {
 			for _, row := range rows {
 				products = append(products, map[string]any{
@@ -1835,6 +1921,39 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 			}
 		}
 		out["product_breakdown"] = products
+
+		// Whose deposits are these. cbs_fixed_deposits has no officer column, so the
+		// officer is Udara's raw->>'accountOfficerName' resolved through
+		// app.cbs_officer_map (btrim'd both sides — see the top_deposits note below).
+		// Officers with no mapping still appear, under their raw Udara name, so the
+		// breakdown always adds back up to the book.
+		officers := make([]map[string]any, 0)
+		if rows, e := db.PGQuery(ctx, `
+			SELECT COALESCE(NULLIF(btrim(u.full_name),''), btrim(f.raw->>'accountOfficerName'), 'Unassigned') AS officer,
+			       m.officer_user_id,
+			       COUNT(*) AS count,
+			       COALESCE(SUM(f.principal_kobo), 0)        AS principal_kobo,
+			       COALESCE(SUM(f.accrued_interest_kobo), 0) AS accrued_interest_kobo,
+			       COUNT(*) FILTER (WHERE f.maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30) AS maturing_30d,
+			       COUNT(*) FILTER (WHERE f.maturity_date::date < CURRENT_DATE) AS past_due_count
+			FROM cbs_fixed_deposits f
+			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			LEFT JOIN o3c_users u             ON u.id = m.officer_user_id
+			WHERE f.status='Active' AND f.` + sqlFDFunded + `
+			GROUP BY 1, 2 ORDER BY principal_kobo DESC`); e == nil {
+			for _, row := range rows {
+				officers = append(officers, map[string]any{
+					"officer":               str(row["officer"]),
+					"officer_user_id":       toInt64(row["officer_user_id"]),
+					"count":                 toInt64(row["count"]),
+					"principal_kobo":        toInt64(row["principal_kobo"]),
+					"accrued_interest_kobo": toInt64(row["accrued_interest_kobo"]),
+					"maturing_30d":          toInt64(row["maturing_30d"]),
+					"past_due_count":        toInt64(row["past_due_count"]),
+				})
+			}
+		}
+		out["officer_breakdown"] = officers
 
 		// Tenor buckets.
 		tenor := make([]map[string]any, 0)
@@ -1846,7 +1965,7 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 					     WHEN tenor_days <= 365 THEN '181-365d'
 					     ELSE '365d+' END AS bucket,
 					CASE WHEN tenor_days <= 90 THEN 1 WHEN tenor_days <= 180 THEN 2 WHEN tenor_days <= 365 THEN 3 ELSE 4 END AS ord
-				FROM cbs_fixed_deposits WHERE status='Active') s
+				FROM cbs_fixed_deposits WHERE status='Active' AND raw->>'hasDisbursed' IS DISTINCT FROM 'false') s
 			GROUP BY bucket, ord ORDER BY ord`); e == nil {
 			for _, row := range rows {
 				tenor = append(tenor, map[string]any{
@@ -1856,8 +1975,19 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 		}
 		out["tenor_breakdown"] = tenor
 
-		// Largest deposits — with the depositor's name and their sales/account officer
-		// (deposits carry no officer of their own, so it comes through app.customer_officers).
+		// Largest deposits — with the depositor's name and their account officer.
+		// cbs_fixed_deposits has no officer column; the officer is Udara's
+		// raw->>'accountOfficerName', resolved to a workspace user through the
+		// app.cbs_officer_map crosswalk (all 21 Udara names mapped, 100% coverage of
+		// both books). When an officer_name column lands on the table, these three
+		// joins and the officer queries in fd_book.go are the switch points: swap
+		// f.raw->>'accountOfficerName' for f.officer_name and nothing else changes.
+		//
+		// btrim on BOTH sides: Udara pads 7 of the 21 names with a trailing space and
+		// the map was hand-seeded from those exact strings, so untrimmed equality
+		// matches only by luck. Trimming one side alone would silently unmatch 173 of
+		// 380 deposits (98 active, 6 officers, ₦11.03bn principal); trimming both
+		// matches identically today and stays correct once the names are normalised.
 		top := make([]map[string]any, 0)
 		if rows, e := db.PGQuery(ctx, `
 			SELECT f.cbs_account_number AS account,
@@ -1866,10 +1996,12 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 			       COALESCE(NULLIF(f.product_name,''),'Other') AS product,
 			       f.principal_kobo, COALESCE(f.interest_rate,0) AS rate, f.maturity_date::date::text AS maturity
 			FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON m.udara_name = f.raw->>'accountOfficerName'
+			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
 			LEFT JOIN o3c_users u             ON u.id = m.officer_user_id
-			WHERE f.status='Active'
-			ORDER BY f.principal_kobo DESC LIMIT 10`); e == nil {
+			WHERE f.status='Active' AND f.` + sqlFDFunded + `
+			-- Unique tiebreaker: principal ties are common on a deposit book (round
+			-- placements repeat), and an unstable top-10 reshuffles between requests.
+			ORDER BY f.principal_kobo DESC, f.cbs_account_number LIMIT 10`); e == nil {
 			for _, row := range rows {
 				top = append(top, map[string]any{
 					"account": str(row["account"]), "customer": str(row["customer"]), "agent": str(row["agent"]),
@@ -1884,11 +2016,14 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 		// two questions an exec asks of it are "how much does it cost us to hold" and
 		// "how exposed are we if the biggest depositors leave".
 		if rows, e := db.PGQuery(ctx, `
-			WITH b AS (SELECT principal_kobo AS v, interest_rate AS rate
-			             FROM cbs_fixed_deposits WHERE status='Active')
+			WITH b AS (SELECT principal_kobo AS v,
+			                  ` + sqlFDDailyAccrualKobo + ` AS daily_cost
+			             FROM cbs_fixed_deposits WHERE status='Active' AND ` + sqlFDFunded + `)
 			SELECT COALESCE(SUM(v), 0) AS book,
 			       COALESCE((SELECT SUM(v) FROM (SELECT v FROM b ORDER BY v DESC LIMIT 10) t), 0) AS top10,
-			       COALESCE(SUM(ROUND(v * (COALESCE(rate,0)/100.0) / 12.0)), 0) AS monthly_cost
+			       -- Effective-rate basis: COALESCE(rate,0) charged the 25 accruing
+			       -- rate-less deposits at zero, understating the cost of funds.
+			       COALESCE(SUM(ROUND(daily_cost * 365.0 / 12.0)), 0) AS monthly_cost
 			  FROM b`); e == nil && len(rows) > 0 {
 			book := toInt64(rows[0]["book"])
 			top10 := toInt64(rows[0]["top10"])
@@ -1944,7 +2079,7 @@ func execFixedDepositsList(db *core.DB) http.HandlerFunc {
 
 		var total int64
 		if rows, e := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON m.udara_name = f.raw->>'accountOfficerName'
+			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
 			LEFT JOIN o3c_users u ON u.id = m.officer_user_id `+where, args...); e == nil && len(rows) > 0 {
 			total = toInt64(rows[0]["n"])
 		}
@@ -1961,7 +2096,7 @@ func execFixedDepositsList(db *core.DB) http.HandlerFunc {
 			       f.commencement_date::date::text AS commencement, f.maturity_date::date::text AS maturity,
 			       f.status, COALESCE(f.branch_name,'') AS branch
 			FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON m.udara_name = f.raw->>'accountOfficerName'
+			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
 			LEFT JOIN o3c_users u             ON u.id = m.officer_user_id
 			`+where+fmt.Sprintf(` ORDER BY f.principal_kobo DESC LIMIT $%d OFFSET $%d`, n, n+1), args...); e == nil {
 			for _, row := range rows {

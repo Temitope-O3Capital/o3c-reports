@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, Spinner, DateFilter } from '../components/UI'
 import { apiFetch } from '../lib/api'
-import { fmtKobo, fmtPct, fmtNum } from '../lib/fmt'
+import { fmtKobo, fmtPct, fmtNum, fmtCount } from '../lib/fmt'
 import { RED, DARKRED, AMBER, BLUE, GREEN, PURPLE, NAVY, INTER, SORA, NUM, TEXT, FW, RADIUS, SP } from '../lib/design'
 import { CHART_SERIES } from '../components/charts'
 import { EChart, EArea, EDonut, EBar, baseTooltip, tipCard, type ChartTokens } from '../components/echarts'
@@ -87,7 +87,19 @@ interface CardsSummary {
   credit_ngn_count: number;    credit_ngn_balance_kobo: number
   blink_count: number;         blink_balance_kobo: number
 }
-interface MonthlyPoint { month: string; disbursements_kobo: number; fd_payouts_kobo: number; card_spend_kobo: number }
+// fd_payouts_kobo is deliberately nullable. Udara zeroes principal/ledger/accrued the
+// moment a deposit closes, so for a month whose maturities are ALL closed the payout
+// value is unknowable, and the API says so with NULL rather than inventing a 0.
+// fd_maturities_count is how many deposits actually matured that month (whatever is
+// still valued); fd_payouts_unknown_count is how many of those no longer carry a value.
+interface MonthlyPoint {
+  month: string
+  disbursements_kobo: number
+  fd_payouts_kobo: number | null
+  fd_maturities_count: number
+  fd_payouts_unknown_count: number
+  card_spend_kobo: number
+}
 interface ProductPoint  { product: string; count: number; volume_kobo: number }
 interface DPDPoint      { month: string; par30: number; par60: number; par90: number }
 interface TopPerformer  {
@@ -387,6 +399,41 @@ function EmptyState({ icon, title, body }: { icon: string; title: string; body: 
   )
 }
 
+// FdPayoutGaps is the caption under the flows chart. The FD line breaks wherever the
+// payout value was not retained; without this note a reader has no way to tell that
+// break from "nothing matured", which is the opposite of the truth — July and August
+// 2026 are the two biggest maturity months in the book.
+//
+// It states only what is actually known: how many deposits matured, and how many of
+// those Udara can no longer value. No payout figure is estimated, carried forward or
+// interpolated.
+function FdPayoutGaps({ unknown, partial }: { unknown: MonthlyPoint[]; partial: MonthlyPoint[] }) {
+  if (unknown.length === 0 && partial.length === 0) return null
+  const lines: string[] = []
+  if (unknown.length > 0) {
+    lines.push(
+      'FD payouts not shown for ' +
+      unknown.map(m => `${m.month} (${fmtCount(m.fd_maturities_count)} matured, value not retained)`).join(', ') +
+      '. Udara clears a deposit’s principal and interest on closure, so the payout is unknown — not zero.',
+    )
+  }
+  if (partial.length > 0) {
+    lines.push(
+      'Partly known: ' +
+      partial.map(m => `${m.month} (${fmtCount(m.fd_payouts_unknown_count)} of ${fmtCount(m.fd_maturities_count)} matured deposits unvalued)`).join(', ') +
+      '. The plotted figure covers only the deposits still on the book.',
+    )
+  }
+  return (
+    <div style={{ display: 'flex', gap: 7, alignItems: 'flex-start', padding: '9px 2px 0', borderTop: '1px solid var(--bdr)', marginTop: 10 }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 15, color: AMBER, flexShrink: 0, marginTop: 1 }}>info</span>
+      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', fontFamily: INTER, lineHeight: 1.5 }}>
+        {lines.map(l => <div key={l}>{l}</div>)}
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Overview() {
@@ -431,7 +478,13 @@ export default function Overview() {
       // Money fields arrive as JSON *strings* (pg bigint/numeric) — coerce at the
       // boundary so no downstream reduce/axis silently string-concatenates.
       run<MonthlyPoint[]>(`/api/overview/monthly-volume?${win}`, d => { if (d.length) setMonthly(d.map(r => ({
-        ...r, disbursements_kobo: Number(r.disbursements_kobo) || 0, fd_payouts_kobo: Number(r.fd_payouts_kobo) || 0,
+        ...r, disbursements_kobo: Number(r.disbursements_kobo) || 0,
+        // NULL survives the boundary: `Number(null) || 0` would turn "we cannot know
+        // what these matured deposits paid out" back into "₦0 matured", which is the
+        // one reading of this month that is definitely false.
+        fd_payouts_kobo: r.fd_payouts_kobo == null ? null : Number(r.fd_payouts_kobo) || 0,
+        fd_maturities_count: Number(r.fd_maturities_count) || 0,
+        fd_payouts_unknown_count: Number(r.fd_payouts_unknown_count) || 0,
         card_spend_kobo: Number(r.card_spend_kobo) || 0,
       }))) }),
       run<ProductPoint[]>('/api/overview/product-mix', d => { if (d.length) setProducts(d.map(p => ({
@@ -469,6 +522,28 @@ export default function Overview() {
       .then(res => setPerformers(res.data ?? []))
       .catch(() => setPerformers([]))
   }, [from, to, perfRegion])
+
+  // ── FD payouts: months the book can no longer value ────────────────────────
+  // Two shapes of missing, and they are NOT the same statement:
+  //   fd_payouts_kobo === null → every maturity that month is a closed deposit whose
+  //     value Udara wiped. The line gets a GAP; a floor at zero would read as "nothing
+  //     matured" when in fact ~50-60 deposits did.
+  //   fd_payouts_unknown_count > 0 with a value → the point is the KNOWN part only and
+  //     the rest of the bar is missing, so the point is an understatement, not a total.
+  // Neither is patched with a guess: we only ever say how many matured and how many of
+  // those are unvalued.
+  //
+  // The chart array converts null → undefined on purpose. ECharts renders both as a
+  // gap, but the shared axis tooltip in echarts.tsx does `Number(p.value)` before
+  // formatting, and `Number(null)` is 0 — which would print "₦0.00" in the tooltip and
+  // reinstate the exact lie the gap removes. `Number(undefined)` is NaN, which the FD
+  // series' own `fmt` below catches and labels honestly.
+  const monthlyChart = useMemo(
+    () => monthly.map(m => ({ ...m, fd_payouts_kobo: m.fd_payouts_kobo ?? undefined })),
+    [monthly],
+  )
+  const fdUnknownMonths  = useMemo(() => monthly.filter(m => m.fd_payouts_kobo == null && m.fd_maturities_count > 0), [monthly])
+  const fdPartialMonths  = useMemo(() => monthly.filter(m => m.fd_payouts_kobo != null && m.fd_payouts_unknown_count > 0), [monthly])
 
   const totalVolume = products.reduce((s, p) => s + p.volume_kobo, 0) || 1
   // `|| 1` (not `?? 1`): in a card-only period every officer's total_kobo is 0, and
@@ -933,15 +1008,18 @@ export default function Overview() {
             </div>
           }>
           <EArea
-            data={monthly} xKey="month" height={200} leftMargin={4}
+            data={monthlyChart} xKey="month" height={200} leftMargin={4}
             endLabel endFmt={moneyTick} dots hideYAxis
             valueFmt={v => fmtKobo(v)}
             series={[
               { key: 'disbursements_kobo', name: 'Loan Disbursements', color: NAVY },
-              { key: 'fd_payouts_kobo', name: 'FD Payouts', color: AMBER },
+              // A month with no retained value arrives as NaN here (see monthlyChart) —
+              // say so instead of formatting it as money.
+              { key: 'fd_payouts_kobo', name: 'FD Payouts', color: AMBER, fmt: v => (isFinite(v) ? fmtKobo(v) : 'Value Not Retained') },
               { key: 'card_spend_kobo', name: 'Card Spend', color: PURPLE },
             ]}
           />
+          <FdPayoutGaps unknown={fdUnknownMonths} partial={fdPartialMonths} />
         </SectionCard>
 
         <SectionCard title="Product Mix" subtitle="By product line · book value (Udara)">

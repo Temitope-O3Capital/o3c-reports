@@ -17,7 +17,7 @@ import { LogPaymentModal } from '../../components/LogPaymentModal'
 import CallsPanel from '../../components/CallsPanel'
 import {
   useCreditDossier, ExposureStrip, FacilityRail, FacilityTerms, ScheduleTable,
-  RepaymentLedger, CaseContext, CustomerDetails, Meter, isInternalId, type Facility,
+  RepaymentLedger, CaseContext, CustomerDetails, Meter, isInternalId, idCaption, type Facility,
 } from '../../components/CreditFile'
 import { apiFetch, apiPost, apiPut } from '../../lib/api'
 import { hasPage } from '../../hooks/useAuth'
@@ -900,7 +900,7 @@ export default function CollectionsAccountDetail() {
                 {selected.product}
               </div>
               <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
-                {selected.origin} · {selected.ref || '—'}{selected.cif ? ` · CIF ${selected.cif}` : ''}
+                {selected.origin} · {selected.ref || '—'}{idCaption(selected.cif) ? ` · ${idCaption(selected.cif)}` : ''}
               </div>
             </div>
             {selected.scheduled_kobo > 0 && (

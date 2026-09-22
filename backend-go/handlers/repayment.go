@@ -30,12 +30,26 @@ import (
 // borrowers in the 'none' tier. They now draw on collection_payments, allocated down a
 // CIF's loans oldest-first exactly as the Credit Portfolio and the Credit File do, so
 // all three pages report the same paydown.
+//
+// 2026-09-21: cif_paid had NO status filter, so money still inside the HOP → COO
+// approval chain counted as repaid. Live that was 11 rows / ₦106,393,555.56 of
+// 'pending_hop' on top of the 1,801 approved rows / ₦1,094,578,699.07 — paydown
+// percentages, the 5-band tier and `restructure_eligible` were all being computed off
+// receipts finance had not signed off and the GL had not been posted. A 'rejected' row
+// would have counted forever too. Only 'approved' is money that has actually landed;
+// everything not yet approved/rejected is reported separately as pending_kobo so it is
+// visible as "awaiting approval" rather than silently dropped — it deliberately does NOT
+// feed pct_paid or the tier.
 const paymentTierCTE = `
 WITH cif_paid AS (
-	SELECT account_cif, SUM(amount_kobo) AS paid_kobo FROM collection_payments GROUP BY 1
+	SELECT account_cif,
+	       SUM(amount_kobo) FILTER (WHERE status = 'approved') AS paid_kobo,
+	       SUM(amount_kobo) FILTER (WHERE status NOT IN ('approved','rejected')) AS pending_kobo
+	  FROM collection_payments GROUP BY 1
 ), uploaded_alloc AS (
 	SELECT ca.*,
 	       COALESCE(cp.paid_kobo, 0) AS cif_pool,
+	       COALESCE(cp.pending_kobo, 0) AS cif_pending_pool,
 	       COALESCE(SUM(ca.approved_kobo) OVER (
 	           PARTITION BY ca.account_cif
 	           ORDER BY ca.disbursement_date ASC NULLS LAST, ca.id ASC
@@ -45,6 +59,10 @@ WITH cif_paid AS (
 	      SELECT x.*, COALESCE(x.target_amount_kobo, x.original_outstanding_kobo, x.outstanding_kobo, 0) AS approved_kobo
 	        FROM collection_assignments x
 	       WHERE x.product_type='loan' AND x.data_source='manual'
+	         -- Udara is the book of record: an uploaded row migration 268 proved to be
+	         -- the same facility Udara already reports is a mirror, and the Udara side is
+	         -- counted separately below. Including both would double this customer's arrears.
+	         AND x.duplicate_of_cbs_id IS NULL
 	         AND x.status IN ('active','sent_to_recovery')
 	  ) ca
 	  LEFT JOIN cif_paid cp ON cp.account_cif = ca.account_cif
@@ -63,6 +81,10 @@ WITH cif_paid AS (
 	       cl.loan_amount_kobo                                         AS principal_kobo,
 	       cl.outstanding_principal_kobo                               AS outstanding_kobo,
 	       GREATEST(cl.loan_amount_kobo - cl.outstanding_principal_kobo, 0) AS paid_kobo,
+	       -- No approval chain on this arm: paydown comes from Udara's own outstanding
+	       -- principal. collection_payments is keyed by CARDS account_cif, a different
+	       -- namespace from cbs_customer_id, so it must NOT be joined here.
+	       0::bigint                                                   AS pending_kobo,
 	       CASE WHEN cl.loan_amount_kobo > 0
 	            THEN ROUND(100.0 * GREATEST(cl.loan_amount_kobo - cl.outstanding_principal_kobo, 0)::numeric / cl.loan_amount_kobo, 1)
 	            ELSE 0 END                                             AS pct_paid,
@@ -81,6 +103,12 @@ WITH cif_paid AS (
 	       ca.approved_kobo                                            AS principal_kobo,
 	       COALESCE(ca.outstanding_kobo,0)                             AS outstanding_kobo,
 	       LEAST(ca.approved_kobo, GREATEST(ca.cif_pool - ca.claimed_before, 0)) AS paid_kobo,
+	       -- Receipts still in the HOP → COO chain, run down the SAME oldest-first
+	       -- waterfall and then netted of what approved money already claimed, so the
+	       -- per-loan figures still sum to the CIF's pending pool. Reported alongside
+	       -- paid_kobo, never inside it: this money has not been approved or posted.
+	       LEAST(ca.approved_kobo, GREATEST(ca.cif_pool + ca.cif_pending_pool - ca.claimed_before, 0))
+	         - LEAST(ca.approved_kobo, GREATEST(ca.cif_pool - ca.claimed_before, 0)) AS pending_kobo,
 	       CASE WHEN ca.approved_kobo > 0
 	            THEN ROUND(100.0 * LEAST(ca.approved_kobo, GREATEST(ca.cif_pool - ca.claimed_before,0))::numeric
 	                       / ca.approved_kobo, 1)
@@ -109,6 +137,9 @@ WITH cif_paid AS (
 	         + GREATEST(ROUND(COALESCE(a.current_dr_balance,0)*100),0)::bigint AS principal_kobo,
 	       GREATEST(ROUND(COALESCE(a.current_dr_balance,0)*100),0)::bigint AS outstanding_kobo,
 	       GREATEST(ROUND(COALESCE(cp.paid_naira,0)*100),0)::bigint     AS paid_kobo,
+	       -- Card repayments come off the settled transaction feed, not the approval
+	       -- chain, so there is no pending tranche on this arm.
+	       0::bigint                                                   AS pending_kobo,
 	       CASE WHEN (COALESCE(cp.paid_naira,0) + COALESCE(a.current_dr_balance,0)) > 0
 	            THEN ROUND(100.0*COALESCE(cp.paid_naira,0)::numeric
 	                       / (COALESCE(cp.paid_naira,0) + COALESCE(a.current_dr_balance,0)), 1)
@@ -181,7 +212,8 @@ func collectionsPaymentTiers(db *core.DB) http.HandlerFunc {
 
 		sql := paymentTierCTE + `
 			SELECT cif, customer_name, product, origin, reference, principal_kobo, outstanding_kobo,
-			       paid_kobo, pct_paid, dpd, tier,
+			       paid_kobo, pending_kobo, pct_paid, dpd, tier,
+			       (pending_kobo > 0)                              AS has_pending_approval,
 			       (dpd > 0 AND tier IN ('partial','substantial')) AS restructure_eligible
 			FROM tiered` + where + `
 			ORDER BY pct_paid DESC, outstanding_kobo DESC
@@ -205,6 +237,7 @@ func collectionsPaymentTiers(db *core.DB) http.HandlerFunc {
 			       COUNT(*)                     AS loans,
 			       COALESCE(SUM(outstanding_kobo),0) AS outstanding_kobo,
 			       COALESCE(SUM(paid_kobo),0)        AS paid_kobo,
+			       COALESCE(SUM(pending_kobo),0)     AS pending_kobo,
 			       COUNT(*) FILTER (WHERE dpd > 0)   AS delinquent
 			FROM tiered GROUP BY tier`); err == nil {
 			for _, sr := range srows {
@@ -212,13 +245,14 @@ func collectionsPaymentTiers(db *core.DB) http.HandlerFunc {
 					"loans":            sr["loans"],
 					"outstanding_kobo": sr["outstanding_kobo"],
 					"paid_kobo":        sr["paid_kobo"],
+					"pending_kobo":     sr["pending_kobo"],
 					"delinquent":       sr["delinquent"],
 				}
 			}
 		}
 		ordered := make([]map[string]any, 0, len(tierOrder))
 		for _, t := range tierOrder {
-			row := map[string]any{"tier": t, "loans": 0, "outstanding_kobo": 0, "paid_kobo": 0, "delinquent": 0}
+			row := map[string]any{"tier": t, "loans": 0, "outstanding_kobo": 0, "paid_kobo": 0, "pending_kobo": 0, "delinquent": 0}
 			if s, ok := summary[t]; ok {
 				for k, v := range s {
 					row[k] = v
@@ -233,7 +267,7 @@ func collectionsPaymentTiers(db *core.DB) http.HandlerFunc {
 
 // repaymentBehaviour is the portfolio-level repayment-behaviour view (#4): the loan
 // paydown-tier distribution, card minimum-payment-met behaviour from the latest cycle,
-// and loan installment-processed behaviour from the amortisation schedules. It ties a
+// and per-installment loan outcomes from the amortisation schedules. It ties a
 // customer's actual repayment conduct — cards per cycle, loans per installment — back
 // to the credit book, complementing the spend-side "Customer Behaviour" view.
 func repaymentBehaviour(db *core.DB) http.HandlerFunc {
@@ -247,6 +281,7 @@ func repaymentBehaviour(db *core.DB) http.HandlerFunc {
 			       COUNT(*)                          AS loans,
 			       COALESCE(SUM(outstanding_kobo),0) AS outstanding_kobo,
 			       COALESCE(SUM(paid_kobo),0)        AS paid_kobo,
+			       COALESCE(SUM(pending_kobo),0)     AS pending_kobo,
 			       COUNT(*) FILTER (WHERE dpd > 0)   AS delinquent
 			FROM tiered GROUP BY tier`); err == nil {
 			byTier := map[string]core.Row{}
@@ -255,11 +290,12 @@ func repaymentBehaviour(db *core.DB) http.HandlerFunc {
 			}
 			ordered := make([]map[string]any, 0, len(tierOrder))
 			for _, t := range tierOrder {
-				row := map[string]any{"tier": t, "loans": 0, "outstanding_kobo": 0, "paid_kobo": 0, "delinquent": 0}
+				row := map[string]any{"tier": t, "loans": 0, "outstanding_kobo": 0, "paid_kobo": 0, "pending_kobo": 0, "delinquent": 0}
 				if s, ok := byTier[t]; ok {
 					row["loans"] = s["loans"]
 					row["outstanding_kobo"] = s["outstanding_kobo"]
 					row["paid_kobo"] = s["paid_kobo"]
+					row["pending_kobo"] = s["pending_kobo"]
 					row["delinquent"] = s["delinquent"]
 				}
 				ordered = append(ordered, row)
@@ -284,12 +320,45 @@ func repaymentBehaviour(db *core.DB) http.HandlerFunc {
 		}
 
 		// Loan installment behaviour from the synced amortisation schedules.
+		//
+		// 2026-09-21: this used to report `processed` from cbs_loan_schedules.has_processed.
+		// That flag is FALSE on all 202 rows — Udara's repayment tracker is switched off on
+		// these loans (handlers/overview.go:168-170 documents the same thing and works
+		// around it for accrued interest). The panel therefore showed "0 of 202 processed",
+		// a 0% repayment rate that was an artefact of an unset flag, not a fact about the
+		// book. The flag is no longer reported.
+		//
+		// Udara's real per-installment outcome is in payment_status, so that is what is
+		// counted now. CAVEAT, deliberately honoured: this table stores only SCHEDULED
+		// amounts (principal_kobo/interest_kobo/fee_kobo) — there is NO paid-amount column.
+		// A 'PartiallyPaid' installment tells us it was partly paid and nothing about how
+		// much, so no paid figure is derived here and partially-paid installments are kept
+		// as their own bucket rather than being rounded into "paid" or "unpaid".
 		if rows, err := db.PGQuery(ctx, `
-			SELECT COUNT(*)                                 AS installments,
-			       COUNT(*) FILTER (WHERE has_processed)    AS processed,
-			       COUNT(DISTINCT loan_account_number)      AS loans
+			SELECT COUNT(*)                                                  AS installments,
+			       COUNT(DISTINCT loan_account_number)                       AS loans,
+			       COUNT(*) FILTER (WHERE payment_status = 'NotYetDue')      AS not_yet_due,
+			       COUNT(*) FILTER (WHERE payment_status = 'DueAndUnpaid')   AS due_and_unpaid,
+			       COUNT(*) FILTER (WHERE payment_status = 'PartiallyPaid')  AS partially_paid,
+			       COUNT(*) FILTER (WHERE payment_status = 'FullyPaid')      AS fully_paid,
+			       COUNT(*) FILTER (WHERE payment_status IS NULL
+			                           OR payment_status NOT IN ('NotYetDue','DueAndUnpaid','PartiallyPaid','FullyPaid'))
+			                                                                 AS status_unknown,
+			       COUNT(*) FILTER (WHERE payment_status IN ('DueAndUnpaid','PartiallyPaid','FullyPaid'))
+			                                                                 AS due_to_date,
+			       COALESCE(SUM(principal_kobo + interest_kobo + fee_kobo),0) AS scheduled_kobo,
+			       COALESCE(SUM(principal_kobo + interest_kobo + fee_kobo)
+			                FILTER (WHERE payment_status IN ('DueAndUnpaid','PartiallyPaid','FullyPaid')),0)
+			                                                                 AS scheduled_due_to_date_kobo
 			FROM app.cbs_loan_schedules`); err == nil && len(rows) > 0 {
-			out["installment_behaviour"] = rows[0]
+			ib := rows[0]
+			// Make the limits of this data explicit in the payload rather than leaving the
+			// UI to infer them: amounts here are what was SCHEDULED, never what was paid.
+			ib["amounts_are_scheduled_only"] = true
+			ib["paid_amount_available"] = false
+			ib["has_processed_flag_populated"] = false
+			ib["note"] = "Counts are Udara installment outcomes (payment_status). Amounts are scheduled, not paid — the core-banking schedule carries no paid-amount column, so a partially-paid installment has no known paid figure."
+			out["installment_behaviour"] = ib
 		}
 
 		respond(w, out, "repayment_behaviour")

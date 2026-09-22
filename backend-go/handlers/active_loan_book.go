@@ -11,7 +11,13 @@ import (
 )
 
 func RegisterActiveLoanBook(r chi.Router, db *core.DB) {
-	r.Use(core.RequirePages("active_loan_book"))
+	// credit_portfolio sits alongside active_loan_book because the Risk Portfolio page is
+	// gated on credit_portfolio (App.tsx) and its table already reads risk.go's own
+	// credit_portfolio-gated routes — but its KPI strip calls /stats here. Requiring
+	// active_loan_book alone meant a risk_officer (who holds credit_portfolio and not
+	// active_loan_book) got a 403 on the strip, which the page swallowed in an empty
+	// .catch: five cards skeletoned for ever with no error, on the page's primary user.
+	r.Use(core.RequirePages("active_loan_book", "credit_portfolio"))
 	r.Get("/", albList(db))
 	r.Get("/stats", albStats(db))
 	r.Get("/{id}", albGet(db))
@@ -68,7 +74,8 @@ func albList(db *core.DB) http.HandlerFunc {
 		             cl.date_booked, cl.first_installment_date,
 		             cl.collateral_type, cl.collateral_description, cl.collateral_valuation_kobo,
 		             cl.ledger_balance_kobo, cl.interest_frequency, cl.lending_model,
-		             cl.officer_name, cl.status
+		             cl.officer_name, cl.status,
+		             ` + cbsOfficerUserID("cl.officer_name") + `
 		      FROM cbs_loans cl
 		      WHERE cl.status NOT IN ('Closed','Revoked')
 		      ) x WHERE 1=1`
@@ -125,8 +132,15 @@ func albStats(db *core.DB) http.HandlerFunc {
 			  COUNT(*) FILTER (WHERE dpd BETWEEN 31 AND 60)         AS dpd_31_60,
 			  COUNT(*) FILTER (WHERE dpd BETWEEN 61 AND 90)         AS dpd_61_90,
 			  COUNT(*) FILTER (WHERE dpd > 90)                      AS dpd_90plus,
-			  COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE dpd > 0), 0) AS npl_outstanding_kobo
-			FROM (SELECT outstanding_principal_kobo, loan_amount_kobo,
+			  -- The NPL card's own count and value, both on the canonical rule
+			  -- (app.is_npl, migration 261). The money here used to be summed over
+			  -- dpd > 0 while the count beside it used dpd > 90, so the tile showed
+			  -- every delinquent naira under a "90+" heading and overstated NPL
+			  -- several-fold. dpd_90plus above stays a pure DPD bucket because it is
+			  -- part of the distribution and must not double-count.
+			  COUNT(*) FILTER (WHERE app.is_npl(status, dpd))                                     AS npl_count,
+			  COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE app.is_npl(status, dpd)), 0) AS npl_outstanding_kobo
+			FROM (SELECT status, outstanding_principal_kobo, loan_amount_kobo,
 			             `+cbsLoanDPDBare+` AS dpd
 			      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) x`)
 
@@ -139,6 +153,24 @@ func albStats(db *core.DB) http.HandlerFunc {
 			GROUP BY product_name
 			ORDER BY outstanding_kobo DESC`)
 
+		// Who carries the book. The list and the detail payload both name the
+		// officer, but the portfolio stats did not, so "how much sits on each
+		// officer's book" had no answer on this page. officer_name is returned
+		// VERBATIM (7 Udara officer names carry a trailing space and the stored
+		// column keeps it); only the cbs_officer_map join is btrim-ed, on BOTH
+		// sides -- see cbsOfficerUserID in cbs_reports.go for what one-sided
+		// trimming costs. Trim for display, never for matching.
+		byOfficer, _ := db.PGQuery(r.Context(), `
+			SELECT COALESCE(NULLIF(cl.officer_name,''), 'Unassigned') AS officer_name,
+			       m.officer_user_id,
+			       COUNT(*) AS count,
+			       COALESCE(SUM(cl.outstanding_principal_kobo), 0) AS outstanding_kobo
+			FROM cbs_loans cl
+			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(cl.officer_name)
+			WHERE cl.status NOT IN ('Closed','Revoked')
+			GROUP BY 1, 2
+			ORDER BY outstanding_kobo DESC`)
+
 		statsRow := map[string]any{}
 		if len(stats) > 0 {
 			statsRow = stats[0]
@@ -146,11 +178,15 @@ func albStats(db *core.DB) http.HandlerFunc {
 		if byProduct == nil {
 			byProduct = []map[string]any{}
 		}
+		if byOfficer == nil {
+			byOfficer = []map[string]any{}
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"summary":    statsRow,
 			"by_product": byProduct,
+			"by_officer": byOfficer,
 		})
 	}
 }
@@ -172,7 +208,8 @@ func albGet(db *core.DB) http.HandlerFunc {
 			       cl.date_booked, cl.first_installment_date,
 			       cl.collateral_type, cl.collateral_description, cl.collateral_valuation_kobo,
 			       cl.ledger_balance_kobo, cl.interest_frequency, cl.lending_model,
-			       cl.status, cl.officer_name
+			       cl.status, cl.officer_name,
+			       `+cbsOfficerUserID("cl.officer_name")+`
 			FROM cbs_loans cl
 			WHERE cl.cbs_id=$1`, id)
 		if err != nil || len(rows) == 0 {

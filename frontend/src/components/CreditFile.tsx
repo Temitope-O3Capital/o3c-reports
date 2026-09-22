@@ -208,6 +208,29 @@ export function isInternalId(id: string | null | undefined): boolean {
   return /^[WZwz][0-9]+$/.test(s)
 }
 
+// A Udara-sourced collections row is keyed 'UD-<udara customer id>' (migration 267).
+export function isUdaraKey(id: string | null | undefined): boolean {
+  return /^UD-/i.test((id ?? '').trim())
+}
+
+// Caption an identifier with the namespace it ACTUALLY belongs to.
+//
+// CIF is a CARDS identifier. A Udara customer id is a different namespace that happens
+// to use the same 8-digit shape, and 289 of the 295 Udara ids also exist as a real card
+// CIF — 94% of them belonging to a DIFFERENT PERSON. So printing a Udara id as "CIF"
+// is not a cosmetic slip: it invites someone to look that number up in the cards system
+// and act on a stranger's record. Udara customers do not have a CIF at all; their
+// workspace profiles carry cif = NULL, which is correct and must stay that way.
+//
+// Returns '' for synthetic workspace handles, which mean nothing to a reader.
+export function idCaption(id: string | null | undefined): string {
+  const s = (id ?? '').trim()
+  if (!s) return ''
+  if (isUdaraKey(s)) return `Udara ID ${s.slice(3)}`
+  if (isInternalId(s)) return ''
+  return `CIF ${s}`
+}
+
 // ── Shared bits ───────────────────────────────────────────────────────────────
 
 const STATUS_META: Record<SchedRow['status'], { label: string; color: string }> = {
@@ -352,7 +375,7 @@ export function CustomerDetails({ c }: { c: CreditDossier['customer'] }) {
                 {p.phone && p.email ? ' · ' : ''}
                 {p.email && <span style={{ wordBreak: 'break-all' }}>{p.email}</span>}
                 <span style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)' }}>
-                  {isInternalId(p.source_id) ? '' : ` · from CIF ${p.source_id}`}
+                  {idCaption(p.source_id) ? ` · from ${idCaption(p.source_id)}` : ''}
                 </span>
               </div>
             ))}
@@ -530,7 +553,7 @@ export function FacilityRail({
               <div style={{
                 ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 8,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>{f.ref || '—'}{f.cif && !isInternalId(f.cif) ? ` · CIF ${f.cif}` : ''}</div>
+              }}>{f.ref || '—'}{idCaption(f.cif) ? ` · ${idCaption(f.cif)}` : ''}</div>
               <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', lineHeight: 1.1 }}>
                 {fmtKoboExact(f.outstanding_kobo)}
               </div>

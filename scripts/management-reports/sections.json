@@ -1,130 +1,518 @@
 {
   "groups": [
-    { "id": "headline",    "title": "Headline" },
-    { "id": "business",    "title": "Business overview" },
-    { "id": "sales",       "title": "Sales" },
-    { "id": "collections", "title": "Collections and recovery" },
-    { "id": "leads",       "title": "Leads and contact centre" },
-    { "id": "cards",       "title": "Cards" },
-    { "id": "position",    "title": "Deposits and lending" },
-    { "id": "risk",        "title": "Applications and risk" },
-    { "id": "customers",   "title": "Customers" }
+    {
+      "id": "headline",
+      "title": "Headline"
+    },
+    {
+      "id": "business",
+      "title": "Business overview"
+    },
+    {
+      "id": "sales",
+      "title": "Sales"
+    },
+    {
+      "id": "collections",
+      "title": "Collections and recovery"
+    },
+    {
+      "id": "leads",
+      "title": "Leads and contact centre"
+    },
+    {
+      "id": "cards",
+      "title": "Cards"
+    },
+    {
+      "id": "position",
+      "title": "Deposits and lending"
+    },
+    {
+      "id": "risk",
+      "title": "Applications and risk"
+    },
+    {
+      "id": "customers",
+      "title": "Customers"
+    }
   ],
   "sections": [
-    { "id": "headline", "group": "headline", "title": "Headline figures",
-      "description": "Customers reached, conversions, card spend and new business booked, with movement against the last period." },
-    { "id": "standouts", "group": "headline", "title": "What stands out",
-      "description": "Up to five facts worth a decision this period, each with its figure. Left out when nothing stands out." },
-    { "id": "overview", "group": "business", "title": "Business overview",
-      "description": "Every line of the business in money: spend, bookings, collections, recovery, applications, new customers, calls and leads." },
-    { "id": "sales_summary", "group": "sales", "title": "Sales against target",
-      "description": "Company deposits and loans booked against the month's target, and how much came from outside the sales team." },
-    { "id": "sales_people", "group": "sales", "title": "Sales team, rep by rep",
-      "description": "Each person's fixed deposits, loans and credit cards on separate lines against their own targets, including people outside sales who brought business in." },
-    { "id": "chart_sales_leaderboard", "group": "sales", "title": "Chart: FD leaderboard by officer",
-      "description": "Fixed-deposit attainment against target, ranked, so who is ahead is visible without reading everyone's numbers." },
-    { "id": "sales_headline", "group": "sales", "title": "Sales headline",
-      "description": "Deposits and loans booked against target, what is still to find, and the daily run-rate needed." },
-    { "id": "sales_booked", "group": "sales", "title": "New business booked",
-      "description": "Fixed deposits and loans written in the period." },
-    { "id": "sales_fd_by_officer", "group": "sales", "title": "Fixed deposits by officer",
-      "description": "Deposits each officer booked this month against their target. Everyone sees everyone." },
-    { "id": "sales_loans_by_officer", "group": "sales", "title": "Loans by officer",
-      "description": "Loans each officer booked this month against their target." },
-    { "id": "sales_cards_by_officer", "group": "sales", "title": "Credit cards by officer",
-      "description": "Credit cards each officer brought in this month, against their card target." },
-    { "id": "sales_teams", "group": "sales", "title": "Teams",
-      "description": "Team totals against the targets of their members." },
-    { "id": "sales_company", "group": "sales", "title": "Where the month stands",
-      "description": "Company position against target, the gap, and what is needed per working day." },
-    { "id": "sales_outside", "group": "sales", "title": "Business from outside sales",
-      "description": "Deposits and cards brought in by people who carry no sales target." },
-    { "id": "collections_expected", "group": "collections", "title": "Collections: expected against received",
-      "description": "Loan instalments due, the collections book's repayments and credit-card minimum payments, each against what came in. Side by side, because the sources overlap." },
-    { "id": "recovery", "group": "collections", "title": "Recovery",
-      "description": "The case book by status (active, legal) as a chart, outstanding exposure and value recovered to date." },
-    { "id": "position", "group": "position", "title": "Deposits, lending and support",
-      "description": "The deposit and loan books, what is maturing or past maturity, and the support backlog." },
-    { "id": "chart_fd_book", "group": "position", "title": "Chart: fixed-deposit book",
-      "description": "The deposit book, day by day." },
-    { "id": "chart_pitched", "group": "leads", "title": "Chart: customers pitched per day",
-      "description": "People reached for marketing each day." },
-    { "id": "contact_centre", "group": "leads", "title": "Contact centre and lead funnel",
-      "description": "People reached for marketing, support and collections, and how leads moved through the stages." },
-    { "id": "qualified_leads", "group": "leads", "title": "Interested leads: where they are waiting",
-      "description": "Every lead who said they are interested and has not yet converted, by stage, by days waiting, and by the person holding it." },
-    { "id": "chart_lead_stages", "group": "leads", "title": "Chart: interested leads by stage",
-      "description": "The queue above, as a donut: the shape of where interested leads are waiting." },
-    { "id": "cards", "group": "cards", "title": "Cards",
-      "description": "Total card spend, then the products and channels behind it, and new cards sold and credited." },
-    { "id": "chart_channel_mix", "group": "cards", "title": "Chart: card spend by channel",
-      "description": "How card spend splits across transfer, ATM, POS and web." },
-    { "id": "chart_card_spend", "group": "cards", "title": "Chart: card spend per day",
-      "description": "Card spend day by day, with any gap in the feed marked." },
-    { "id": "applications", "group": "risk", "title": "Applications and decisions",
-      "description": "Applications received, unique applicants, approvals, declines and the top decline reason." },
-    { "id": "applied_products", "group": "risk", "title": "Products applied for",
-      "description": "What people are applying for, with approvals and declines per product." },
-    { "id": "chart_risk_decisions", "group": "risk", "title": "Chart: applications by decision",
-      "description": "Approved, declined and undecided, as a donut." },
-    { "id": "demographics", "group": "customers", "title": "Demographics",
-      "description": "Customers and card spend by location and age group." },
-    { "id": "chart_customers_location", "group": "customers", "title": "Chart: customers by location",
-      "description": "Where the customer base sits, as a donut." },
-    { "id": "chart_customers_age", "group": "customers", "title": "Chart: cardholders by age group",
-      "description": "The age profile of the issued card base, as a donut." },
-    { "id": "registrations", "group": "customers", "title": "New customers and cards",
-      "description": "New customers and cards opened in the period." }
+    {
+      "id": "headline",
+      "group": "headline",
+      "title": "Headline figures",
+      "description": "Customers reached, conversions, card spend and new business booked, with movement against the last period."
+    },
+    {
+      "id": "standouts",
+      "group": "headline",
+      "title": "What stands out",
+      "description": "Up to five facts worth a decision this period, each with its figure. Left out when nothing stands out."
+    },
+    {
+      "id": "overview",
+      "group": "business",
+      "title": "Business overview",
+      "description": "Every line of the business in money: spend, bookings, collections, recovery, applications, new customers, calls and leads."
+    },
+    {
+      "id": "sales_summary",
+      "group": "sales",
+      "title": "Sales against target",
+      "description": "Company deposits and loans booked against the month's target, and how much came from outside the sales team."
+    },
+    {
+      "id": "sales_people",
+      "group": "sales",
+      "title": "Sales team, rep by rep",
+      "description": "Each person's fixed deposits, loans and credit cards on separate lines against their own targets, including people outside sales who brought business in."
+    },
+    {
+      "id": "chart_sales_leaderboard",
+      "group": "sales",
+      "title": "Chart: FD leaderboard by officer",
+      "description": "Fixed-deposit attainment against target, ranked, so who is ahead is visible without reading everyone's numbers."
+    },
+    {
+      "id": "sales_headline",
+      "group": "sales",
+      "title": "Sales headline",
+      "description": "Deposits and loans booked against target, what is still to find, and the daily run-rate needed."
+    },
+    {
+      "id": "sales_booked",
+      "group": "sales",
+      "title": "New business booked",
+      "description": "Fixed deposits and loans written in the period."
+    },
+    {
+      "id": "sales_fd_by_officer",
+      "group": "sales",
+      "title": "Fixed deposits by officer",
+      "description": "Deposits each officer booked this month against their target. Everyone sees everyone."
+    },
+    {
+      "id": "sales_loans_by_officer",
+      "group": "sales",
+      "title": "Loans by officer",
+      "description": "Loans each officer booked this month against their target."
+    },
+    {
+      "id": "sales_cards_by_officer",
+      "group": "sales",
+      "title": "Credit cards by officer",
+      "description": "Credit cards each officer brought in this month, against their card target."
+    },
+    {
+      "id": "sales_teams",
+      "group": "sales",
+      "title": "Teams",
+      "description": "Team totals against the targets of their members."
+    },
+    {
+      "id": "sales_company",
+      "group": "sales",
+      "title": "Where the month stands",
+      "description": "Company position against target, the gap, and what is needed per working day."
+    },
+    {
+      "id": "sales_outside",
+      "group": "sales",
+      "title": "Business from outside sales",
+      "description": "Deposits and cards brought in by people who carry no sales target."
+    },
+    {
+      "id": "collections_expected",
+      "group": "collections",
+      "title": "Collections: expected against received",
+      "description": "Loan instalments due, the collections book's repayments and credit-card minimum payments, each against what came in. Side by side, because the sources overlap."
+    },
+    {
+      "id": "recovery",
+      "group": "collections",
+      "title": "Recovery",
+      "description": "The case book by status (active, legal) as a chart, outstanding exposure and value recovered to date."
+    },
+    {
+      "id": "position",
+      "group": "position",
+      "title": "Deposits, lending and support",
+      "description": "The deposit and loan books, what is maturing or past maturity, and the support backlog."
+    },
+    {
+      "id": "chart_fd_book",
+      "group": "position",
+      "title": "Chart: fixed-deposit book",
+      "description": "The deposit book, day by day."
+    },
+    {
+      "id": "chart_pitched",
+      "group": "leads",
+      "title": "Chart: customers pitched per day",
+      "description": "People reached for marketing each day."
+    },
+    {
+      "id": "contact_centre",
+      "group": "leads",
+      "title": "Contact centre and lead funnel",
+      "description": "People reached for marketing, support and collections, and how leads moved through the stages."
+    },
+    {
+      "id": "qualified_leads",
+      "group": "leads",
+      "title": "Interested leads: where they are waiting",
+      "description": "Every lead who said they are interested and has not yet converted, by stage, by days waiting, and by the person holding it."
+    },
+    {
+      "id": "chart_lead_stages",
+      "group": "leads",
+      "title": "Chart: interested leads by stage",
+      "description": "The queue above, as a donut: the shape of where interested leads are waiting."
+    },
+    {
+      "id": "cards",
+      "group": "cards",
+      "title": "Cards",
+      "description": "Total card spend, then the products and channels behind it, and new cards sold and credited."
+    },
+    {
+      "id": "chart_channel_mix",
+      "group": "cards",
+      "title": "Chart: card spend by channel",
+      "description": "How card spend splits across transfer, ATM, POS and web."
+    },
+    {
+      "id": "chart_card_spend",
+      "group": "cards",
+      "title": "Chart: card spend per day",
+      "description": "Card spend day by day, with any gap in the feed marked."
+    },
+    {
+      "id": "applications",
+      "group": "risk",
+      "title": "Applications and decisions",
+      "description": "Applications received, unique applicants, approvals, declines and the top decline reason."
+    },
+    {
+      "id": "applied_products",
+      "group": "risk",
+      "title": "Products applied for",
+      "description": "What people are applying for, with approvals and declines per product."
+    },
+    {
+      "id": "chart_risk_decisions",
+      "group": "risk",
+      "title": "Chart: applications by decision",
+      "description": "Approved, declined and undecided, as a donut."
+    },
+    {
+      "id": "demographics",
+      "group": "customers",
+      "title": "Demographics",
+      "description": "Customers and card spend by location and age group."
+    },
+    {
+      "id": "chart_customers_location",
+      "group": "customers",
+      "title": "Chart: customers by location",
+      "description": "Where the customer base sits, as a donut."
+    },
+    {
+      "id": "chart_customers_age",
+      "group": "customers",
+      "title": "Chart: cardholders by age group",
+      "description": "The age profile of the issued card base, as a donut."
+    },
+    {
+      "id": "registrations",
+      "group": "customers",
+      "title": "New customers and cards",
+      "description": "New customers and cards opened in the period."
+    },
+    {
+      "id": "sales_progress",
+      "group": "sales",
+      "title": "Progress against target",
+      "description": "Filled bars for deposits, loans and credit cards against the month’s target, so attainment reads at a glance."
+    },
+    {
+      "id": "sales_deposits_named",
+      "group": "sales",
+      "title": "Deposits booked, by client",
+      "description": "Every fixed deposit written in the period: the client, the amount and the sales rep who booked it, largest first."
+    },
+    {
+      "id": "sales_facilities_named",
+      "group": "sales",
+      "title": "Loans and cards booked, by client",
+      "description": "Loans and credit cards in one list with a facility-type column: the client, what they took, the amount and the rep."
+    },
+    {
+      "id": "sales_leaderboard",
+      "group": "sales",
+      "title": "The team, rep by rep",
+      "description": "One table of every rep with deposits, loans and cards against their own targets, over a ranked bar chart. Replaces the three separate by-officer lists."
+    },
+    {
+      "id": "chart_mom_deposits",
+      "group": "sales",
+      "title": "Chart: deposits month on month",
+      "description": "Fixed deposits booked in each of the last six months."
+    },
+    {
+      "id": "chart_mom_loans",
+      "group": "sales",
+      "title": "Chart: loans month on month",
+      "description": "Loans booked in each of the last six months."
+    },
+    {
+      "id": "chart_mom_cards",
+      "group": "sales",
+      "title": "Chart: credit cards month on month",
+      "description": "Credit cards opened in each of the last six months."
+    },
+    {
+      "id": "chart_mom_collections",
+      "group": "collections",
+      "title": "Chart: collections month on month",
+      "description": "Approved collections received in each of the last six months, with a note when one payment dominates."
+    },
+    {
+      "id": "chart_mom_leads",
+      "group": "leads",
+      "title": "Chart: customers reached month on month",
+      "description": "Leads contacted each month, from the month the CRM began recording."
+    },
+    {
+      "id": "chart_mom_customers",
+      "group": "customers",
+      "title": "Chart: new customers month on month",
+      "description": "Customers acquired each month, excluding one-off data loads."
+    }
   ],
   "templates": {
     "management": {
       "title": "Management report",
       "description": "The whole business for the MD and management: headline, collections, sales rep by rep, leads, cards, risk.",
-      "daily": ["headline", "standouts", "overview", "collections_expected", "sales_summary", "sales_people", "chart_pitched", "contact_centre", "qualified_leads", "cards", "chart_channel_mix", "chart_card_spend", "position", "chart_fd_book", "applications", "applied_products", "registrations"],
-      "weekly": ["headline", "standouts", "overview", "collections_expected", "sales_summary", "sales_people", "chart_pitched", "contact_centre", "qualified_leads", "cards", "chart_channel_mix", "chart_card_spend", "position", "chart_fd_book", "applications", "applied_products", "demographics", "registrations"],
-      "monthly": ["headline", "standouts", "overview", "collections_expected", "sales_summary", "sales_people", "chart_pitched", "contact_centre", "qualified_leads", "cards", "chart_channel_mix", "chart_card_spend", "position", "chart_fd_book", "applications", "applied_products", "demographics", "registrations"]
+      "daily": [
+        "headline",
+        "standouts",
+        "overview",
+        "collections_expected",
+        "sales_summary",
+        "sales_people",
+        "chart_pitched",
+        "contact_centre",
+        "qualified_leads",
+        "cards",
+        "chart_channel_mix",
+        "chart_card_spend",
+        "position",
+        "chart_fd_book",
+        "applications",
+        "applied_products",
+        "registrations"
+      ],
+      "weekly": [
+        "headline",
+        "standouts",
+        "overview",
+        "collections_expected",
+        "sales_summary",
+        "sales_people",
+        "chart_pitched",
+        "contact_centre",
+        "qualified_leads",
+        "cards",
+        "chart_channel_mix",
+        "chart_card_spend",
+        "position",
+        "chart_fd_book",
+        "applications",
+        "applied_products",
+        "demographics",
+        "registrations"
+      ],
+      "monthly": [
+        "headline",
+        "standouts",
+        "overview",
+        "collections_expected",
+        "sales_summary",
+        "sales_people",
+        "chart_pitched",
+        "contact_centre",
+        "qualified_leads",
+        "cards",
+        "chart_channel_mix",
+        "chart_card_spend",
+        "position",
+        "chart_fd_book",
+        "applications",
+        "applied_products",
+        "demographics",
+        "registrations"
+      ]
     },
     "sales": {
       "title": "Sales performance",
-      "description": "Deposits, loans and credit cards against target, officer by officer and team by team.",
-      "daily": ["sales_headline", "sales_booked", "sales_fd_by_officer", "sales_loans_by_officer", "sales_cards_by_officer", "sales_teams", "sales_company", "sales_outside"],
-      "weekly": ["sales_headline", "sales_booked", "sales_fd_by_officer", "sales_loans_by_officer", "sales_cards_by_officer", "sales_teams", "sales_company", "sales_outside"],
-      "monthly": ["sales_headline", "sales_booked", "sales_fd_by_officer", "sales_loans_by_officer", "sales_cards_by_officer", "sales_teams", "sales_company", "sales_outside"]
+      "description": "Deposits, loans and credit cards against target, with the clients behind the numbers and the team rep by rep.",
+      "daily": [
+        "sales_progress",
+        "sales_deposits_named",
+        "sales_facilities_named",
+        "sales_leaderboard",
+        "sales_outside"
+      ],
+      "weekly": [
+        "sales_progress",
+        "sales_deposits_named",
+        "sales_facilities_named",
+        "sales_leaderboard",
+        "sales_teams",
+        "sales_outside"
+      ],
+      "monthly": [
+        "sales_progress",
+        "chart_mom_deposits",
+        "chart_mom_loans",
+        "chart_mom_cards",
+        "sales_deposits_named",
+        "sales_facilities_named",
+        "sales_leaderboard",
+        "sales_teams",
+        "sales_company",
+        "sales_outside"
+      ]
     },
     "executive_briefing": {
       "title": "Executive Briefing",
       "description": "The whole business at a glance for the MD and management: scorecard, what stands out, the two live trends, then every figure as reference.",
-      "daily": ["headline", "standouts", "chart_card_spend", "chart_fd_book", "overview"],
-      "weekly": ["headline", "standouts", "chart_card_spend", "chart_fd_book", "overview"],
-      "monthly": ["headline", "standouts", "chart_card_spend", "chart_fd_book", "overview"]
+      "daily": [
+        "headline",
+        "standouts",
+        "chart_card_spend",
+        "chart_fd_book",
+        "overview"
+      ],
+      "weekly": [
+        "headline",
+        "standouts",
+        "chart_card_spend",
+        "chart_fd_book",
+        "overview"
+      ],
+      "monthly": [
+        "headline",
+        "standouts",
+        "chart_mom_deposits",
+        "chart_mom_loans",
+        "chart_mom_customers",
+        "overview"
+      ]
     },
     "sales_products": {
       "title": "Sales & Products",
       "description": "Deposits and loans against target with an officer leaderboard, then cards, the lending and deposit books, and what is being applied for.",
-      "daily": ["sales_headline", "chart_sales_leaderboard", "sales_people", "cards", "chart_channel_mix", "chart_card_spend", "position", "chart_fd_book", "applications", "applied_products", "chart_risk_decisions"],
-      "weekly": ["sales_headline", "chart_sales_leaderboard", "sales_people", "cards", "chart_channel_mix", "chart_card_spend", "position", "chart_fd_book", "applications", "applied_products", "chart_risk_decisions"],
-      "monthly": ["sales_headline", "chart_sales_leaderboard", "sales_people", "cards", "chart_channel_mix", "chart_card_spend", "position", "chart_fd_book", "applications", "applied_products", "chart_risk_decisions"]
+      "daily": [
+        "sales_headline",
+        "chart_sales_leaderboard",
+        "sales_people",
+        "cards",
+        "chart_channel_mix",
+        "chart_card_spend",
+        "position",
+        "chart_fd_book",
+        "applications",
+        "applied_products",
+        "chart_risk_decisions"
+      ],
+      "weekly": [
+        "sales_headline",
+        "chart_sales_leaderboard",
+        "sales_people",
+        "cards",
+        "chart_channel_mix",
+        "chart_card_spend",
+        "position",
+        "chart_fd_book",
+        "applications",
+        "applied_products",
+        "chart_risk_decisions"
+      ],
+      "monthly": [
+        "sales_headline",
+        "chart_mom_deposits",
+        "chart_mom_loans",
+        "chart_mom_cards",
+        "chart_sales_leaderboard",
+        "sales_people",
+        "cards",
+        "chart_channel_mix",
+        "position",
+        "chart_fd_book",
+        "applications",
+        "applied_products",
+        "chart_risk_decisions"
+      ]
     },
     "collections_recovery": {
       "title": "Collections & Recovery",
       "description": "Loan instalments, the collections book and card statement against what came in, then the recovery case book.",
-      "daily": ["collections_expected", "recovery"],
-      "weekly": ["collections_expected", "recovery"],
-      "monthly": ["collections_expected", "recovery"]
+      "daily": [
+        "collections_expected",
+        "recovery"
+      ],
+      "weekly": [
+        "collections_expected"
+      ],
+      "monthly": [
+        "collections_expected",
+        "chart_mom_collections",
+        "recovery"
+      ]
     },
     "leads_contact_centre": {
       "title": "Leads & Contact Centre",
       "description": "Who was reached and why, the lead funnel, and every interested lead still waiting, by stage.",
-      "daily": ["chart_pitched", "contact_centre", "qualified_leads", "chart_lead_stages"],
-      "weekly": ["chart_pitched", "contact_centre", "qualified_leads", "chart_lead_stages"],
-      "monthly": ["chart_pitched", "contact_centre", "qualified_leads", "chart_lead_stages"]
+      "daily": [
+        "chart_pitched",
+        "contact_centre",
+        "qualified_leads",
+        "chart_lead_stages"
+      ],
+      "weekly": [
+        "chart_pitched",
+        "contact_centre"
+      ],
+      "monthly": [
+        "chart_pitched",
+        "contact_centre",
+        "chart_mom_leads",
+        "qualified_leads",
+        "chart_lead_stages"
+      ]
     },
     "customers_demographics": {
       "title": "Customers & Demographics",
       "description": "New customers and cards, then who the customer base is: where they are and their age profile.",
-      "daily": ["registrations", "demographics", "chart_customers_location", "chart_customers_age"],
-      "weekly": ["registrations", "demographics", "chart_customers_location", "chart_customers_age"],
-      "monthly": ["registrations", "demographics", "chart_customers_location", "chart_customers_age"]
+      "daily": [
+        "registrations",
+        "demographics",
+        "chart_customers_location",
+        "chart_customers_age"
+      ],
+      "weekly": [
+        "registrations"
+      ],
+      "monthly": [
+        "registrations",
+        "chart_mom_customers",
+        "demographics",
+        "chart_customers_location",
+        "chart_customers_age"
+      ]
     }
   }
 }

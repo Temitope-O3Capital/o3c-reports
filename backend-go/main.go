@@ -20,6 +20,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
+	"github.com/o3c/workspace/cbssync"
 	"github.com/o3c/workspace/core"
 	"github.com/o3c/workspace/handlers"
 	"github.com/o3c/workspace/udara"
@@ -152,6 +153,14 @@ func main() {
 	// Udara360 CBS — spool the core-banking book (products/loans/FDs) into the
 	// snapshot tables shortly after boot, then every CBS_SYNC_INTERVAL (default 1h).
 	go handlers.StartCBSSyncWorker(cbsClient, db)
+
+	// Udara360 GL — capture actual loan repayment postings from the call-over
+	// ledger into app.loan_repayments, hourly (CBS_REPAYMENT_INTERVAL). Until
+	// this ran, app.loan_repayments held 0 rows and every arrears figure in the
+	// product was model output — the schedule's expectation minus the snapshot's
+	// balance — with nothing recording what was actually paid. Insert-only and
+	// keyed on the GL entry, so the overlapping hourly windows never double-count.
+	go cbssync.StartRepaymentWorker(cbsClient, db)
 
 	// Customer feed — ingest the 15-minute cust_file drops into app.customers. This is
 	// where new customers come from; Udara holds only the loan and FD books. Without

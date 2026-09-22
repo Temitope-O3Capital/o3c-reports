@@ -321,8 +321,12 @@ func overviewAttention(db *core.DB) http.HandlerFunc {
 			       COALESCE(f.active_fds,0)   > 0 AS has_fds
 			  FROM app.customer_acquisition a
 			  LEFT JOIN (`+cardAggSQL+`) k ON k.cif = a.cif
-			  LEFT JOIN (`+loanAggSQL+`) l ON l.cif = a.cif
-			  LEFT JOIN (`+fdAggSQL+`)   f ON f.cif = a.cif
+			  -- Udara facilities key on party_id, NOT on a.cif: cbs_customer_id is a
+			  -- Udara id, and matching it to a cards CIF lands on a different person
+			  -- 94% of the time. These are per-row booleans rather than sums, so the
+			  -- anchor-CIF guard bookSummary needs (partyAnchorSQL) does not apply.
+			  LEFT JOIN (`+loanAggSQL+`) l ON l.party_id = a.party_id
+			  LEFT JOIN (`+fdAggSQL+`)   f ON f.party_id = a.party_id
 			 WHERE a.officer_id IS NULL
 			   AND a.acquired_on >= '`+newCustomerCutoff+`'::date
 			 ORDER BY a.acquired_on DESC NULLS LAST

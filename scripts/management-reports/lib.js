@@ -114,7 +114,7 @@ const SANS = 'Arial,Helvetica,sans-serif';
 const SERIF = "Georgia,'Times New Roman',serif";
 
 // ── Charts: SVG rendered to PNG by headless Chrome, shipped as CID ───────────
-const CW = 520, CH = 136, PL = 64, PR = 16, PT = 16, PB = 22;
+const CW = 600, CH = 136, PL = 64, PR = 16, PT = 16, PB = 22;
 const PWi = CW - PL - PR, PHi = CH - PT - PB;
 
 function fmtTick(v) {
@@ -244,10 +244,13 @@ function stackSVG(segs, leftLabel, rightLabel) {
  * @param {{label:string, frac:number, display:string, tone?:string}[]} items already sorted
  */
 function rankBarsSVG(items, opts = {}) {
-  const rows = items.slice(0, opts.limit || 8);
+  const rows = opts.limit ? items.slice(0, opts.limit) : items;
   if (!rows.length) return null;
-  const rowH = 25, top = 10, labelW = 148, valueW = 92, barX = labelW + 6;
-  const barW = CW - barX - valueW - 8;
+  // PAD keeps the name and the figure clear of the border; without it the first and last
+  // columns sat hard against the frame on both edges.
+  const PAD = 12;
+  const rowH = 25, top = 12, labelW = 148, valueW = 92, barX = PAD + labelW + 6;
+  const barW = CW - barX - valueW - PAD * 2;
   const H = top * 2 + rows.length * rowH;
   const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
   let s = '';
@@ -256,12 +259,40 @@ function rankBarsSVG(items, opts = {}) {
     const frac = Math.max(0, Math.min(1, Number(r.frac) || 0));
     const w = frac * barW;
     const barColour = r.tone || (frac >= 1 ? UP : frac === 0 ? '#d8d5cf' : BRASS);
-    s += `<text x="0" y="${(y + 9).toFixed(1)}" font-family="Arial" font-size="11" fill="${INK2}">${esc(clip(String(r.label), 20))}</text>`
+    s += `<text x="${PAD}" y="${(y + 9).toFixed(1)}" font-family="Arial" font-size="11" fill="${INK2}">${esc(clip(String(r.label), 20))}</text>`
       + `<rect x="${barX}" y="${y}" width="${barW}" height="9" rx="2" fill="#f0eeea"/>`
       + `<rect x="${barX}" y="${y}" width="${w.toFixed(1)}" height="9" rx="2" fill="${barColour}"/>`
-      + `<text x="${CW}" y="${(y + 9).toFixed(1)}" text-anchor="end" font-family="Georgia" font-size="11" fill="${INK}">${esc(String(r.display))}</text>`;
+      + `<text x="${CW - PAD}" y="${(y + 9).toFixed(1)}" text-anchor="end" font-family="Georgia" font-size="11" fill="${INK}">${esc(String(r.display))}</text>`;
   });
   return wrapSVG(CW, H, BRASS, s);
+}
+
+/**
+ * Month-on-month columns — one bar per month, the most recent one picked out in brass so
+ * "where we are now" is obvious before any number is read. Written for the sales report,
+ * where the readers are not analysts: the shape carries the message and the figures are
+ * there to confirm it, not to be decoded.
+ * @param {{label:string, v:number, display:string}[]} points oldest first
+ */
+function monthBarsSVG(points, opts = {}) {
+  const pts = points.filter((p) => p && Number.isFinite(Number(p.v)));
+  if (!pts.length || pts.every((p) => Number(p.v) === 0)) return null;
+  const H = 168, top = 26, base = H - 26, PAD = 12;
+  const max = Math.max(...pts.map((p) => Number(p.v)));
+  const slot = (CW - PAD * 2) / pts.length;
+  const bw = Math.min(46, slot * 0.56);
+  let s = `<line x1="${PAD}" y1="${base}" x2="${CW - PAD}" y2="${base}" stroke="${HAIR}"/>`;
+  pts.forEach((p, i) => {
+    const v = Number(p.v);
+    // A real but tiny month still gets a visible sliver; only a true zero shows nothing.
+    const h = max > 0 ? Math.max(v > 0 ? 2 : 0, (v / max) * (base - top)) : 0;
+    const x = PAD + i * slot + (slot - bw) / 2;
+    const last = i === pts.length - 1;
+    s += `<rect x="${x.toFixed(1)}" y="${(base - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${last ? (opts.accent || BRASS) : '#dcd9d3'}"/>`
+      + `<text x="${(x + bw / 2).toFixed(1)}" y="${(base - h - 7).toFixed(1)}" text-anchor="middle" font-family="Georgia" font-size="${last ? 11.5 : 10}" fill="${last ? INK : INK3}">${esc(String(p.display))}</text>`
+      + `<text x="${(x + bw / 2).toFixed(1)}" y="${base + 15}" text-anchor="middle" font-family="Arial" font-size="9.5" fill="${last ? INK2 : FAINT}">${esc(String(p.label))}</text>`;
+  });
+  return wrapSVG(CW, H, opts.accent || BRASS, s);
 }
 
 function wrapSVG(w, h, accent, inner) {
@@ -310,7 +341,7 @@ function section(title, kicker, sub) {
 
 function chartRow(cid, alt) {
   return `<tr><td class="pad" style="padding:16px 40px 0">
-    <img src="cid:${cid}" width="520" alt="${esc(alt)}" style="width:100%;max-width:520px;height:auto;display:block;border:0;font-family:${SANS};font-size:12px;color:${INK2}"></td></tr>`;
+    <img src="cid:${cid}" width="600" alt="${esc(alt)}" style="width:100%;max-width:600px;height:auto;display:block;border:0;font-family:${SANS};font-size:12px;color:${INK2}"></td></tr>`;
 }
 
 /** items: {k, sub, v, note, tone, noteTone} */
@@ -353,7 +384,7 @@ function note(text) {
 function kpiRow(cards) {
   const tone = (t) => (t === 'up' ? UP : t === 'down' ? DOWN : INK3);
   const arrow = (t) => (t === 'up' ? '&#9650;' : t === 'down' ? '&#9660;' : '&mdash;');
-  const w = Math.floor(532 / Math.min(cards.length, 4));
+  const w = Math.floor(612 / Math.min(cards.length, 4));
   // The div is fluid with a max-width cap, so the media query can relax the cap and let
   // the cards reflow 2-up and then 1-up. The divider is a left border, which has to go
   // when they wrap or it lands mid-row.
@@ -365,8 +396,66 @@ function kpiRow(cards) {
         <p class="nw" style="margin:0;font-family:${SANS};font-size:10.5px;line-height:14px;mso-line-height-rule:exactly;color:${tone(c.tone)}"><span aria-hidden="true">${arrow(c.tone)}</span>&nbsp;${c.delta}</p>
       </td></tr></table></div>`).join('');
   return `<tr><td class="kpipad" style="padding:28px 34px 0;font-size:0;line-height:0">
-    <!--[if mso]><table role="presentation" width="532" cellpadding="0" cellspacing="0" border="0"><tr><td width="${w}" valign="top"><![endif]-->
+    <!--[if mso]><table role="presentation" width="612" cellpadding="0" cellspacing="0" border="0"><tr><td width="${w}" valign="top"><![endif]-->
     ${cells}<!--[if mso]></td></tr></table><![endif]--></td></tr>`;
+}
+
+/**
+ * Filled progress bars against target. Built from nested tables with bgcolor rather than
+ * an image or a CSS bar: it costs no attachment, stays crisp at any width, and is the one
+ * form Outlook renders reliably.
+ *
+ * A bar never runs past its track — over-attainment fills it completely and is said in
+ * the figures beside it, because a bar overflowing its own frame reads as a rendering
+ * fault rather than as good news. `frac` of null means there is no target to measure
+ * against, which draws an empty track and says so; that is the honest rendering for
+ * cards, which carry no target in sales_targets.
+ * @param {{label:string, value:string, frac:number|null, note?:string, right?:string}[]} items
+ */
+function progressBars(items) {
+  const body = items.map((it) => {
+    const has = it.frac !== null && it.frac !== undefined && Number.isFinite(Number(it.frac));
+    const frac = has ? Math.max(0, Math.min(1, Number(it.frac))) : 0;
+    const filled = Math.round(frac * 100);
+    const colour = it.tone || (frac >= 1 ? UP : frac >= 0.6 ? BRASS : frac > 0 ? '#b8a07c' : '#d8d5cf');
+    // A zero-width cell is dropped outright by some clients, so each side is emitted
+    // only when it has width.
+    const bar = '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed"><tr>'
+      + (filled ? `<td bgcolor="${colour}" width="${filled}%" style="width:${filled}%;background:${colour};font-size:1px;line-height:11px;height:11px">&#160;</td>` : '')
+      + (filled < 100 ? `<td bgcolor="#f0eeea" width="${100 - filled}%" style="width:${100 - filled}%;background:#f0eeea;font-size:1px;line-height:11px;height:11px">&#160;</td>` : '')
+      + '</tr></table>';
+    return `<tr><td style="padding:0 0 18px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td style="font-family:${SANS};font-size:9.5px;line-height:14px;color:${INK3};letter-spacing:1.2px;padding:0 8px 6px 0">${it.label}</td>
+        <td align="right" class="nw" style="font-family:${SERIF};font-size:17px;line-height:20px;color:${INK};padding:0 0 6px;white-space:nowrap">${it.value}</td>
+      </tr></table>
+      ${bar}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td style="font-family:${SANS};font-size:10.5px;line-height:15px;color:${FAINT};padding:6px 8px 0 0">${it.note || ''}</td>
+        <td align="right" class="nw" style="font-family:${SANS};font-size:10.5px;line-height:15px;color:${it.rightTone || INK2};padding:6px 0 0;white-space:nowrap">${it.right || ''}</td>
+      </tr></table></td></tr>`;
+  }).join('');
+  return `<tr><td class="pad" style="padding:22px 40px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${body}</table></td></tr>`;
+}
+
+/**
+ * A real multi-column table, for lists where each row carries several facts that have to
+ * line up down the page — client, amount, who booked it. rows() is a two-column key/value
+ * layout and cannot show those side by side.
+ *
+ * Cells arrive already formatted and escaped by the caller, because most of them are
+ * money strings that carry their own markup.
+ * @param {{label:string, align?:string, width?:string}[]} cols
+ * @param {string[][]} data
+ */
+function dataTable(cols, data) {
+  const al = (j) => (cols[j] && cols[j].align) || 'left';
+  const head = cols.map((c, j) => `<th align="${c.align || 'left'}"${c.width ? ` width="${c.width}"` : ''} class="th${j ? ' tp' : ''}">${c.label}</th>`).join('');
+  const body = data.map((r, i) => `<tr${i === data.length - 1 ? ' class="tl"' : ''}>`
+    + r.map((cell, j) => `<td align="${al(j)}" valign="top" class="tc${j ? ' tp' : ' t0'}">${cell}</td>`).join('')
+    + '</tr>').join('');
+  return `<tr><td class="pad" style="padding:0 40px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px">
+    <tr>${head}</tr>${body}</table></td></tr>`;
 }
 
 /** The exceptions block. Empty list renders "No exceptions", which is the point. */
@@ -386,7 +475,7 @@ function shell(title, dateline, bodyRows) {
   // Centred two ways: align="center" on the sheet and its wrapper cell is what Outlook
   // desktop honours, margin:0 auto is what Gmail and Apple Mail honour. Without both the
   // 600px sheet sat against the left edge of a wide desktop window.
-  return `<table role="presentation" class="sheet" align="center" bgcolor="#fffffe" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;margin:0 auto;background:#fffffe">
+  return `<table role="presentation" class="sheet" align="center" bgcolor="#fffffe" width="680" cellpadding="0" cellspacing="0" border="0" style="max-width:680px;width:100%;margin:0 auto;background:#fffffe">
   <tr><td style="background:${BRASS};font-size:1px;line-height:2px;height:2px">&#160;</td></tr>
   <tr><td class="pad" style="padding:32px 40px 0">
     <p class="mut" style="margin:0 0 20px;font-family:${SANS};font-size:10px;line-height:14px;color:${INK3};letter-spacing:2.4px">O 3 &nbsp; C A P I T A L</p>
@@ -429,11 +518,21 @@ function document_(inner, preheader) {
   .gt{margin:0;font-family:${SERIF};font-size:15.5px;line-height:20px;color:${INK}}
   .gs{margin:1px 0 0;font-family:${SANS};font-size:10.5px;line-height:14px;letter-spacing:.3px;color:${FAINT}}
   .ng{font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif}
+  /* dataTable, as classes for the same reason as rows(): a month of named business is
+     ~60 cells, and inline styles on each one cost ~20KB of the Gmail budget on their own. */
+  .th{font-family:${SANS};font-size:9px;line-height:12px;color:${INK3};letter-spacing:1.1px;font-weight:normal;padding:0 0 7px;border-bottom:1px solid ${HAIR}}
+  .tc{font-family:${SERIF};font-size:12px;line-height:17px;color:${INK};padding:7px 0;border-bottom:1px solid ${HAIR2}}
+  .t0{font-family:${SANS};color:${INK2}}
+  .tp{padding-left:10px}
+  .tl td{border-bottom:0}
+  .sub{font-family:${SANS};font-size:10px;line-height:14px;color:${FAINT}}
+  .dim{color:${FAINT}}
+  .good{color:${UP}}
   /* The sheet was fluid but everything inside it was not: 40px side padding on both
      edges leaves 280px of a 360px phone, and the KPI strip pinned every card to
      532/4 = 133px so four figures stayed four-across and crushed instead of stacking.
      Inline styles win over classes, so each override has to carry !important. */
-  @media screen and (max-width:600px){
+  @media screen and (max-width:680px){
     .pad{padding-left:22px!important;padding-right:22px!important}
     .kpipad{padding-left:12px!important;padding-right:12px!important}
     .h1{font-size:23px!important;line-height:28px!important}
@@ -510,6 +609,6 @@ function send({ subject, html, text, charts, recipients, dryRun }) {
 module.exports = {
   q, q1, exec, lit, n0, money, bn, mn, auto, pct, delta, NAIRA,
   INK, INK2, INK3, FAINT, HAIR, HAIR2, BRASS, UP, DOWN, SANS, SERIF,
-  areaSVG, stackSVG, doughnutSVG, rankBarsSVG, SLICE_COLOURS, renderCharts, roleLabel, ROLE_LABELS,
-  section, chartRow, rows, group, note, kpiRow, exceptions, shell, document_, esc, send,
+  areaSVG, stackSVG, doughnutSVG, rankBarsSVG, monthBarsSVG, SLICE_COLOURS, renderCharts, roleLabel, ROLE_LABELS,
+  section, chartRow, rows, group, note, kpiRow, progressBars, dataTable, exceptions, shell, document_, esc, send,
 };

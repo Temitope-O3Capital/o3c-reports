@@ -38,15 +38,37 @@ var salesHeadRoles = map[string]bool{
 // Per-customer product aggregates, shared by the book list and its summary so the two
 // can never disagree about what a customer holds.
 //
-// Join keys differ per source and are easy to get wrong: the card book keys on `cif`,
-// while the Udara tables key on `cbs_customer_id` (which carries the CIF), and helpdesk
-// keys on `customer_cif`.
+// ── THREE ID NAMESPACES, AND THEY DO NOT OVERLAP ────────────────────────────
+// The comment that used to stand here said the Udara tables key on
+// `cbs_customer_id` "which carries the CIF", and that cbs_loans and
+// cbs_fixed_deposits are "currently EMPTY". BOTH WERE FALSE, and together they
+// are why this file mis-credited ₦18.4bn.
 //
-// The card book is the one with data today — 20,479 accounts, with real limits,
-// balances and days_overdue. cbs_loans and cbs_fixed_deposits are currently EMPTY: the
-// Udara sync runs every minute and succeeds, but returns 0 loans and 0 FDs. These joins
-// are written against the real schema so the book fills itself in the moment that sync
-// starts returning the books, rather than needing a rewrite then.
+//	app.parties.party_id  — the workspace Customer ID, the unifying key.
+//	app.customers.cif     — a CARDS id. It is NOT a customer id and NOT a Udara id.
+//	cbs_*.cbs_customer_id — a UDARA id, and nothing else.
+//
+// The tables are not empty: 294 Udara customers, 52 loans, 380 fixed deposits,
+// ₦19.26bn of FD principal. And the namespaces collide almost perfectly by
+// accident — 288 of the 294 Udara ids also exist as a cards `cif`, and 271 of
+// those (94%) are A DIFFERENT REAL PERSON. So `cbs_customer_id = cif` does not
+// fail loudly; it silently books one person's money onto a stranger. Measured
+// on the old joins: 160 acquisition rows carried a Udara FD balance, 148 of them
+// the wrong person's — ₦18,397,502,508.29 — plus 36 of 41 loan rows, ₦820,533,333.32.
+//
+// app.cbs_links (entity_type='party') is the ONLY correct bridge from a Udara id
+// to a workspace party: 295/295 linked, nothing dangling. So the Udara aggregates
+// below are keyed on party_id and joined to a.party_id — never to a.cif.
+//
+// The card book still keys on `cif`, because that IS its namespace: 20,479
+// accounts with real limits, balances and days_overdue. Helpdesk keys on
+// `customer_cif`, also a cards id.
+//
+// Consequence worth knowing before reading a number off this page: only 24 of the
+// 295 Udara parties hold a cards CIF at all, so the book legitimately shows Udara
+// balances for far fewer customers than it used to. The other 271 are Udara-only
+// customers who have never been on the card book — they were never this book's to
+// show, and the old join invented them by landing on a stranger's CIF.
 const (
 	cardAggSQL = `
 	    SELECT cif,
@@ -60,24 +82,45 @@ const (
 	     WHERE cif IS NOT NULL AND cif <> ''
 	     GROUP BY cif`
 
+	// Udara aggregates are keyed on PARTY_ID, not cif. Join them with
+	//     ON <alias>.party_id = a.party_id
+	// and never on a.cif — see the namespace note above. The bridge is app.cbs_links,
+	// which is 1:1 on (entity_type='party', cbs_customer_id) so it cannot fan a
+	// facility out over several parties.
 	loanAggSQL = `
-	    SELECT cbs_customer_id AS cif,
-	           COUNT(*) FILTER (WHERE status ILIKE 'active')                               AS active_loans,
-	           COALESCE(SUM(outstanding_principal_kobo + COALESCE(outstanding_interest_kobo,0)
-	                        + COALESCE(outstanding_fee_kobo,0))
-	                    FILTER (WHERE status ILIKE 'active'), 0)                           AS outstanding_kobo
-	      FROM cbs_loans
-	     WHERE cbs_customer_id IS NOT NULL AND cbs_customer_id <> ''
-	     GROUP BY cbs_customer_id`
+	    SELECT k.entity_id AS party_id,
+	           COUNT(*) FILTER (WHERE l.status ILIKE 'active')                             AS active_loans,
+	           COALESCE(SUM(l.outstanding_principal_kobo + COALESCE(l.outstanding_interest_kobo,0)
+	                        + COALESCE(l.outstanding_fee_kobo,0))
+	                    FILTER (WHERE l.status ILIKE 'active'), 0)                         AS outstanding_kobo
+	      FROM cbs_loans l
+	      JOIN app.cbs_links k
+	        ON k.entity_type = 'party' AND k.cbs_customer_id = l.cbs_customer_id
+	     WHERE l.cbs_customer_id IS NOT NULL AND l.cbs_customer_id <> ''
+	     GROUP BY k.entity_id`
 
 	fdAggSQL = `
-	    SELECT cbs_customer_id AS cif,
-	           COUNT(*) FILTER (WHERE status ILIKE 'active')                               AS active_fds,
-	           COALESCE(SUM(principal_kobo) FILTER (WHERE status ILIKE 'active'), 0)       AS fd_principal_kobo,
-	           MIN(maturity_date) FILTER (WHERE status ILIKE 'active')                     AS next_maturity
-	      FROM cbs_fixed_deposits
-	     WHERE cbs_customer_id IS NOT NULL AND cbs_customer_id <> ''
-	     GROUP BY cbs_customer_id`
+	    SELECT k.entity_id AS party_id,
+	           COUNT(*) FILTER (WHERE f.status ILIKE 'active')                             AS active_fds,
+	           COALESCE(SUM(f.principal_kobo) FILTER (WHERE f.status ILIKE 'active'), 0)   AS fd_principal_kobo,
+	           MIN(f.maturity_date) FILTER (WHERE f.status ILIKE 'active')                 AS next_maturity
+	      FROM cbs_fixed_deposits f
+	      JOIN app.cbs_links k
+	        ON k.entity_type = 'party' AND k.cbs_customer_id = f.cbs_customer_id
+	     WHERE f.cbs_customer_id IS NOT NULL AND f.cbs_customer_id <> ''
+	     GROUP BY k.entity_id`
+
+	// partyAnchorSQL names ONE cif per party. app.customer_acquisition has a row per
+	// CIF and a CIF is a card, not a person (migration 130), so a party-keyed Udara
+	// aggregate attaches to every CIF that person holds. That is harmless where the
+	// value is only displayed or tested per row, and WRONG the moment anything SUMs
+	// it — a 4-CIF party would contribute its deposits four times. bookSummary is the
+	// only place here that sums, so it alone anchors.
+	partyAnchorSQL = `
+	    SELECT party_id, MIN(cif) AS anchor_cif
+	      FROM app.customers
+	     WHERE party_id IS NOT NULL AND cif IS NOT NULL AND cif <> ''
+	     GROUP BY party_id`
 )
 
 // requireSalesHead gates writes that a supervisor owns and a subordinate must not
@@ -192,9 +235,10 @@ func listBook(db *core.DB) http.HandlerFunc {
 		// query needs the same joins the list query already has.
 		crossJoin, crossCond, crossCondList := "", "", ""
 		if qstr(r, "segment") == "cross_sell" {
+			// Cards key on cif (their own namespace); Udara facilities key on party_id.
 			crossJoin = ` LEFT JOIN (` + cardAggSQL + `) ck ON ck.cif=a.cif` +
-				` LEFT JOIN (` + loanAggSQL + `) cl ON cl.cif=a.cif` +
-				` LEFT JOIN (` + fdAggSQL + `) cf ON cf.cif=a.cif`
+				` LEFT JOIN (` + loanAggSQL + `) cl ON cl.party_id=a.party_id` +
+				` LEFT JOIN (` + fdAggSQL + `) cf ON cf.party_id=a.party_id`
 			crossCond = ` AND ((COALESCE(ck.active_cards,0) > 0)::int + (COALESCE(cl.active_loans,0) > 0)::int + (COALESCE(cf.active_fds,0) > 0)::int) = 1` +
 				` AND COALESCE(ck.max_dpd,0) = 0`
 			// The list query already joins the aggregates as k/l/f, so it uses those.
@@ -225,8 +269,8 @@ func listBook(db *core.DB) http.HandlerFunc {
 			  FROM app.customer_acquisition a
 			  LEFT JOIN o3c_users u ON u.id = a.officer_id
 			  LEFT JOIN (`+cardAggSQL+`) k ON k.cif = a.cif
-			  LEFT JOIN (`+loanAggSQL+`) l ON l.cif = a.cif
-			  LEFT JOIN (`+fdAggSQL+`) f ON f.cif = a.cif
+			  LEFT JOIN (`+loanAggSQL+`) l ON l.party_id = a.party_id
+			  LEFT JOIN (`+fdAggSQL+`) f ON f.party_id = a.party_id
 			 WHERE `+cond+crossCondList+`
 			 ORDER BY a.acquired_on DESC NULLS LAST, a.cif
 			 LIMIT `+fmt.Sprintf("$%d OFFSET $%d", n, n+1),
@@ -275,22 +319,31 @@ func bookSummary(db *core.DB) http.HandlerFunc {
 
 		rows, err := db.PGQuery(r.Context(), `
 			-- Customer counts are person-level (a CIF is a card; count DISTINCT owner);
-			-- monetary sums stay per-card over the cards this officer actually owns.
+			-- card money stays per-card over the cards this officer actually owns.
+			--
+			-- Udara money (loans, FDs) is PARTY-level, so it is summed only on the
+			-- party's anchor CIF (partyAnchorSQL). Without that filter a person holding
+			-- four cards would contribute their deposits four times. Same reason the
+			-- maturity count is filtered: it is a COUNT over the same fanned-out join.
 			SELECT COUNT(DISTINCT a.person_key)                               AS customers,
 			       COUNT(DISTINCT a.person_key) FILTER (WHERE a.acquired_on >= date_trunc('month', CURRENT_DATE))  AS acquired_mtd,
 			       COUNT(DISTINCT a.person_key) FILTER (WHERE a.acquired_on >= date_trunc('year',  CURRENT_DATE))  AS acquired_ytd,
 			       COUNT(DISTINCT a.person_key) FILTER (WHERE a.acquired_on_source = 'unknown')   AS undated,
 			       COUNT(DISTINCT a.person_key) FILTER (WHERE a.account_count > 0)                AS with_accounts,
 			       COALESCE(SUM(k.card_balance_kobo), 0)                      AS card_balance_kobo,
-			       COALESCE(SUM(l.outstanding_kobo), 0)                       AS outstanding_kobo,
-			       COALESCE(SUM(f.fd_principal_kobo), 0)                      AS fd_principal_kobo,
+			       COALESCE(SUM(l.outstanding_kobo) FILTER (WHERE a.cif = pa.anchor_cif), 0)
+			                                                                  AS outstanding_kobo,
+			       COALESCE(SUM(f.fd_principal_kobo) FILTER (WHERE a.cif = pa.anchor_cif), 0)
+			                                                                  AS fd_principal_kobo,
 			       COUNT(DISTINCT a.person_key) FILTER (WHERE k.max_dpd > 0)  AS customers_in_arrears,
-			       COUNT(*) FILTER (WHERE f.next_maturity BETWEEN CURRENT_DATE AND CURRENT_DATE + 30)
+			       COUNT(*) FILTER (WHERE a.cif = pa.anchor_cif
+			                          AND f.next_maturity BETWEEN CURRENT_DATE AND CURRENT_DATE + 30)
 			                                                                  AS fd_maturing_30d
 			  FROM app.customer_acquisition a
 			  LEFT JOIN (`+cardAggSQL+`) k ON k.cif = a.cif
-			  LEFT JOIN (`+loanAggSQL+`) l ON l.cif = a.cif
-			  LEFT JOIN (`+fdAggSQL+`) f ON f.cif = a.cif
+			  LEFT JOIN (`+loanAggSQL+`) l ON l.party_id = a.party_id
+			  LEFT JOIN (`+fdAggSQL+`) f ON f.party_id = a.party_id
+			  LEFT JOIN (`+partyAnchorSQL+`) pa ON pa.party_id = a.party_id
 			 WHERE `+scope, args...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
@@ -342,15 +395,29 @@ func bookCustomer(db *core.DB) http.HandlerFunc {
 			{"accounts", `SELECT account_no, product_name, card_program, status, opened_date,
 			                     card_limit, current_dr_balance, days_overdue
 			                FROM app.accounts WHERE cif = $1 ORDER BY opened_date DESC NULLS LAST`},
-			{"loans", `SELECT cbs_account_number, product_name, status, loan_amount_kobo,
-			                  outstanding_principal_kobo, outstanding_interest_kobo, outstanding_fee_kobo,
-			                  interest_rate, start_date, maturity_date, officer_name
-			             FROM cbs_loans WHERE cbs_customer_id = $1
-			            ORDER BY start_date DESC NULLS LAST`},
-			{"fixed_deposits", `SELECT cbs_account_number, product_name, status, principal_kobo,
-			                           accrued_interest_kobo, interest_rate, commencement_date, maturity_date
-			                      FROM cbs_fixed_deposits WHERE cbs_customer_id = $1
-			                     ORDER BY maturity_date DESC NULLS LAST`},
+			// $1 is a CARDS cif. Comparing it to cbs_customer_id (a Udara id) put a
+			// STRANGER'S loans and deposits on this customer's profile — the two
+			// namespaces collide on 288 of 294 ids and disagree on 94% of them.
+			// Resolve through the party bridge instead, and carry the deposit's own
+			// Udara officer_name so the profile shows who actually booked it.
+			{"loans", `SELECT l.cbs_account_number, l.product_name, l.status, l.loan_amount_kobo,
+			                  l.outstanding_principal_kobo, l.outstanding_interest_kobo, l.outstanding_fee_kobo,
+			                  l.interest_rate, l.start_date, l.maturity_date, l.officer_name
+			             FROM cbs_loans l
+			             JOIN app.cbs_links k
+			               ON k.entity_type = 'party' AND k.cbs_customer_id = l.cbs_customer_id
+			            WHERE k.entity_id = (SELECT party_id FROM app.customers
+			                                  WHERE cif = $1 AND party_id IS NOT NULL LIMIT 1)
+			            ORDER BY l.start_date DESC NULLS LAST`},
+			{"fixed_deposits", `SELECT f.cbs_account_number, f.product_name, f.status, f.principal_kobo,
+			                           f.accrued_interest_kobo, f.interest_rate, f.commencement_date,
+			                           f.maturity_date, f.officer_name
+			                      FROM cbs_fixed_deposits f
+			                      JOIN app.cbs_links k
+			                        ON k.entity_type = 'party' AND k.cbs_customer_id = f.cbs_customer_id
+			                     WHERE k.entity_id = (SELECT party_id FROM app.customers
+			                                           WHERE cif = $1 AND party_id IS NOT NULL LIMIT 1)
+			                     ORDER BY f.maturity_date DESC NULLS LAST`},
 			{"applications", `SELECT id, reference, product_type, stage, status,
 			                         amount_requested_kobo, amount_approved_kobo, created_at
 			                    FROM loan_applications WHERE applicant_cif = $1
@@ -568,14 +635,20 @@ func doAssign(w http.ResponseWriter, r *http.Request, db *core.DB, req assignReq
 				return
 			}
 		} else if _, err := tx.ExecContext(r.Context(), `
-			INSERT INTO customer_officers (cif, officer_id, assigned_by, source, note)
-			VALUES ($1,$2,$3,'manual',$4)
+			-- party_id is stamped at write time (migration 269): it is the key readers
+			-- should join on, and a NULL here is what pushes them back onto the colliding
+			-- CIF. A sales-book assignment is always a genuine CARDS row, so the CIF is
+			-- real and app.customers resolves the party directly.
+			INSERT INTO customer_officers (cif, officer_id, assigned_by, source, note, party_id)
+			VALUES ($1,$2,$3,'manual',$4,
+			        (SELECT party_id FROM app.customers WHERE cif = $1))
 			ON CONFLICT (cif) DO UPDATE
 			   SET officer_id  = EXCLUDED.officer_id,
 			       assigned_at = NOW(),
 			       assigned_by = EXCLUDED.assigned_by,
 			       source      = 'manual',
-			       note        = EXCLUDED.note`,
+			       note        = EXCLUDED.note,
+			       party_id    = COALESCE(EXCLUDED.party_id, customer_officers.party_id)`,
 			cif, req.OfficerID, changedBy, nullIfEmpty(req.Reason)); err != nil {
 			respondErr(w, 500, "Assign failed")
 			return

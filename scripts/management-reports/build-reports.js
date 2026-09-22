@@ -108,7 +108,7 @@ function cardsSection(from, to, beyond) {
   const ch = M.spendByChannel(from, to);
   const cov = M.cardCoverage(from, to);
   return [
-    L.section('Cards', beyond ? 'FEED STALE' : '', 'Total spend, then the products behind it, then the channels.'),
+    L.section('Cards', beyond ? 'FEED STALE' : '', 'Credit card spend, the products behind it, then the channels.'),
     L.rows([
       { k: 'Total card spend', sub: beyond ? 'no data for this period' : `${L.n0(sp.txns)} transactions`, v: beyond ? '&mdash;' : L.auto(sp.spend), tone: beyond ? L.BRASS : L.INK },
       { k: 'Cards used', sub: 'distinct cards transacting', v: beyond ? '&mdash;' : L.n0(sp.cards) },
@@ -117,15 +117,15 @@ function cardsSection(from, to, beyond) {
         note: cov.total ? `${L.n0(cov.credited)} credited &middot; ${L.pct(cov.credited, cov.total)}` : '',
         noteTone: cov.credited ? L.FAINT : L.BRASS },
     ]),
-    L.section('By product', '', 'Credit, prepaid and Blink. "Transacting" is the reliable measure of an active card.'),
-    L.rows(prods.map((p) => ({
+    L.section('By Product', '', 'Credit cards only. "Transacting" is the reliable measure of an active card.'),
+    L.rows(prods.filter((p) => p.product === 'Credit card').map((p) => ({
       k: p.product,
       sub: `${L.n0(p.total)} issued, ${L.n0(p.live)} live`,
       v: L.auto(p.spend),
       note: `${L.n0(p.transacting)} transacting`,
       noteTone: p.transacting ? L.FAINT : L.DOWN,
     }))),
-    L.section('Spend by channel', '', 'The total above, broken down.'),
+    L.section('Spend By Channel', '', 'The total above, broken down.'),
     L.rows(M.CHANNELS.map((cc) => {
       const r = ch.find((x) => x.txn_code === cc.code) || { v: 0, n: 0 };
       return { k: cc.name, sub: `${L.n0(r.n)} txns`, v: L.auto(r.v) };
@@ -389,7 +389,9 @@ function makeContext(cadence) {
     if (!memo.has(key)) memo.set(key, fn());
     return memo.get(key);
   };
-  const c = { kind, charts: {} };
+  // Set by whichever section says it first, so a caveat that belongs to the whole
+  // report is stated once however many sections would otherwise repeat it.
+  const c = { kind, charts: {}, saidCardAttr: false };
 
   if (kind === 'daily') {
     c.from = c.to = DATES.lastwork; c.prevFrom = c.prevTo = DATES.lastwork_prev;
@@ -426,6 +428,19 @@ function makeContext(cadence) {
   c.teams = lazy('teams', () => M.teams(c.period, c.salesStart, c.salesEnd));
   c.contrib = lazy('contrib', () => M.contributors(c.salesStart, c.salesEnd));
   c.days = lazy('days', () => (kind === 'monthly' ? 0 : M.workDaysLeft()));
+
+  // Sales detail. Cards are counted over the report's own month, like the other targets,
+  // because a card is a monthly-target product even though no card target is ever set.
+  c.cardsMtd = lazy('cardsMtd', () => M.cardsBooked(c.salesStart, c.salesEnd));
+  c.mom = lazy('mom', () => M.monthOnMonth(6));
+  c.momOps = lazy('momOps', () => M.monthOnMonthOps(6));
+  // A day's business is a handful of rows and all of it fits; a week or a month is listed
+  // down to the point where the rest is immaterial, and the remainder is stated as a total.
+  const namedLimit = kind === 'daily' ? 25 : 15;
+  c.depNamed = lazy('depNamed', () => M.depositsNamed(c.from, c.to, namedLimit));
+  c.depTot = lazy('depTot', () => M.depositsTotals(c.from, c.to));
+  c.facNamed = lazy('facNamed', () => M.facilitiesNamed(c.from, c.to, namedLimit));
+  c.facTot = lazy('facTot', () => M.facilitiesTotals(c.from, c.to));
   return c;
 }
 
@@ -744,13 +759,196 @@ const SECTIONS = {
 
   sales_outside: (c) => {
     const contrib = c.contrib();
+    // A sales officer with no target row is a missing target, not somebody outside sales.
+    // Blessing Obi and Oghenefejiro Odometa were appearing under "outside sales" purely
+    // because nobody had set them one.
+    const isSales = (r) => /^(sales|bd)_(officer|head)$/.test(r.role) || /sales/i.test(r.department || '');
+    const line = (r) => ({
+      k: r.person, sub: L.roleLabel(r.role), v: L.auto(r.v),
+      note: `${plural(r.n, 'deposit')}${r.cards ? ` &middot; ${plural(r.cards, 'card')}` : ''}`,
+    });
+    const untargeted = contrib.filter(isSales), outside = contrib.filter((r) => !isSales(r));
+    const out = [
+      L.section('Business From Outside Sales', '', 'Booked by people who carry no sales target. Counted for the company, not for attainment.'),
+      L.rows(outside.length ? outside.map(line) : [{ k: 'None in this period', v: '&mdash;' }]),
+    ];
+    if (untargeted.length) {
+      out.push(L.section('Sales Officers With No Target Set', '', 'They booked business but carry no target, so none of it counts towards attainment above.'),
+        L.rows(untargeted.map(line)),
+        L.note('Set their targets in Sales &rarr; Targets and this business moves into the team figures.'));
+    }
+    return out.join('');
+  },
+
+  // ── Sales: progress, named business and month-on-month ──
+  // Written for a sales floor rather than an analyst: a filled bar first, then the names
+  // behind the number. The three old by-officer sections listed the same eleven people
+  // three times over and were most of the report's weight; sales_leaderboard replaces
+  // all three with one table.
+
+  sales_progress: (c) => {
+    const tgt = c.tgt(), fdAtt = c.fdAtt(), loanAtt = c.loanAtt(), days = c.days();
+    const cards = c.cardsMtd();
+    // Cards have no target anywhere in sales_targets — every card_count is 0 — so the
+    // card bar is filled against last month instead. That is a real comparator; a bar
+    // scaled to an invented target would not be.
+    const mom = c.mom();
+    const at = mom.findIndex((r) => r.period === c.period);
+    const prevCards = at > 0 ? mom[at - 1].cards : 0;
+    // Scaled against the best of the last six months, so the bar says "where this month
+    // sits among recent months" — the only honest scale available without a target.
+    // Never scaled against a month later than the one being reported: an August review
+    // measured against September would be judging a closed month by a month that had not
+    // happened yet when it closed.
+    const bestCards = Math.max(...mom.filter((r) => r.period <= c.period).map((r) => r.cards), 0);
+    const gauge = (label, value, att, target, gapWord) => ({
+      label,
+      value,
+      frac: target ? att / target : null,
+      note: target ? `target ${L.auto(target)}` : 'no target set',
+      right: target ? `${L.pct(att, target)}${att >= target ? ' &middot; met' : ` &middot; ${L.auto(target - att)} ${gapWord}`}` : '',
+      rightTone: target && att >= target ? L.UP : L.DOWN,
+    });
     return [
-      L.section('Business from outside sales', '', 'Booked by people who carry no target. Counted for the company, not for attainment.'),
-      L.rows(contrib.length ? contrib.map((r) => ({ k: r.person, sub: r.role.replace(/_/g, ' '), v: L.auto(r.v), note: `${r.n} deposits${r.cards ? ` &middot; ${r.cards} cards` : ''}` }))
-        : [{ k: 'None in this period', v: '&mdash;' }]),
+      L.section('Progress Against Target', (c.kind === 'monthly' ? DATES.pm_label : `${DATES.m_label} to date`).toUpperCase(),
+        days ? `${plural(days, 'working day')} left in the month.` : 'The month is closed.'),
+      L.progressBars([
+        gauge('FIXED DEPOSITS', L.auto(fdAtt), fdAtt, tgt.fd, 'to find'),
+        gauge('LOANS', L.auto(loanAtt), loanAtt, tgt.loan, 'to find'),
+        {
+          label: 'CREDIT CARDS',
+          value: plural(cards.cards, 'card'),
+          frac: bestCards ? Math.min(1, cards.cards / bestCards) : null,
+          // Never the target ramp: green on a bar with no target reads as "target met".
+          tone: L.BRASS,
+          note: cards.with_limit
+            ? `${L.auto(cards.limit_value)} in limits on ${cards.with_limit} of ${L.n0(cards.cards)}`
+            : 'no limits recorded in CBS',
+          right: prevCards ? `${L.n0(prevCards)} last month` : 'no target set',
+          rightTone: prevCards ? (cards.cards >= prevCards ? L.UP : L.DOWN) : L.INK2,
+        },
+      ]),
     ].join('');
   },
+
+  sales_deposits_named: (c) => {
+    const list = c.depNamed(), tot = c.depTot();
+    const title = c.kind === 'daily' ? 'Deposits Booked' : c.kind === 'weekly' ? 'Deposits Booked Last Week' : 'Deposits Booked In The Month';
+    if (!list.length) {
+      return [L.section(title, '', 'Fixed deposits written in the period.'),
+        L.rows([{ k: 'Nothing booked in this period', v: '&mdash;' }])].join('');
+    }
+    const shown = list.reduce((a, r) => a + Number(r.amount), 0);
+    const out = [
+      L.section(title, '', `${plural(tot.n, 'deposit')}, ${L.auto(tot.v)} in total. Largest first.`),
+      // Client names are left exactly as CBS holds them, capitals and all: re-casing a
+      // customer's name is editing the record, not formatting a label.
+      L.dataTable(
+        [{ label: 'CLIENT' }, { label: 'BOOKED' }, { label: 'AMOUNT', align: 'right' }, { label: 'SALES REP', align: 'right' }],
+        list.map((r) => [L.esc(r.client), shortDay(r.booked), L.auto(r.amount), L.esc(r.rep)]),
+      ),
+    ];
+    if (tot.n > list.length) out.push(L.note(`and ${plural(tot.n - list.length, 'smaller deposit')}, ${L.auto(tot.v - shown)} between them.`));
+    return out.join('');
+  },
+
+  sales_facilities_named: (c) => {
+    const list = c.facNamed(), tot = c.facTot();
+    const title = c.kind === 'daily' ? 'Loans And Cards Booked' : c.kind === 'weekly' ? 'Loans And Cards Booked Last Week' : 'Loans And Cards Booked In The Month';
+    const said = [];
+    if (tot.loan_n) said.push(`${plural(tot.loan_n, 'loan')} worth ${L.auto(tot.loan_v)}`);
+    if (tot.card_n) said.push(plural(tot.card_n, 'credit card'));
+    const sub = said.length ? `${said.join(' and ')}.` : 'Nothing written in the period.';
+    if (!list.length) {
+      return [L.section(title, '', sub), L.rows([{ k: 'Nothing booked in this period', v: '&mdash;' }])].join('');
+    }
+    const out = [
+      L.section(title, '', sub),
+      L.dataTable(
+        [{ label: 'CLIENT' }, { label: 'FACILITY' }, { label: 'BOOKED' }, { label: 'AMOUNT', align: 'right' }, { label: 'SALES REP', align: 'right' }],
+        list.map((r) => [
+          L.esc(r.client),
+          L.esc(r.facility),
+          shortDay(r.booked),
+          r.amount ? L.auto(r.amount) : '<span class="dim">not recorded</span>',
+          r.rep === 'unattributed' ? '<span class="dim">unattributed</span>' : L.esc(r.rep),
+        ]),
+      ),
+    ];
+    if (tot.loan_n + tot.card_n > list.length) out.push(L.note(`and ${L.n0(tot.loan_n + tot.card_n - list.length)} more not listed.`));
+    // Said once, plainly, so nobody reads a blank rep column as a rep who sold nothing.
+    if (tot.card_n && !c.saidCardAttr) { c.saidCardAttr = true; out.push(L.note('Credit cards carry no sales attribution in CBS, so no card can be credited to a rep. Most cards also have no limit recorded, which is why an amount is often missing.')); }
+    return out.join('');
+  },
+
+  sales_leaderboard: (c) => {
+    const sb = c.sb();
+    const cards = new Map(M.creditCardsByOfficer(c.period, c.salesStart, c.salesEnd).map((r) => [r.officer, r.credit_cards]));
+    const ranked = sb.filter((r) => r.fd_t > 0).map((r) => ({ label: r.officer, frac: r.fd_t ? r.fd_v / r.fd_t : 0, display: `${L.pct(r.fd_v, r.fd_t)} · ${plainMoney(r.fd_v)}` })).sort((a, b) => b.frac - a.frac);
+    const svg = ranked.length ? L.rankBarsSVG(ranked, { limit: 12 }) : null;
+    const out = [L.section('The Team, Rep By Rep', (c.kind === 'monthly' ? DATES.pm_label : DATES.m_label).toUpperCase(), 'Deposits, loans and cards for each person against their own target. Everyone sees everyone.')];
+    if (svg) {
+      c.charts['c-sales-rank'] = svg;
+      out.push(L.chartRow('c-sales-rank', 'Fixed deposits booked against target, by officer.'));
+    }
+    out.push(L.dataTable(
+      [{ label: 'REP' }, { label: 'DEPOSITS', align: 'right' }, { label: 'LOANS', align: 'right' }, { label: 'CARDS', align: 'right' }],
+      (sb.length ? sb : []).map((r) => [
+        L.esc(r.officer) + (r.role === 'sales_head' ? '<br><span class="sub">head</span>' : ''),
+        `${L.auto(r.fd_v)}<br><span class="sub${r.fd_v >= r.fd_t ? ' good' : ''}">${L.pct(r.fd_v, r.fd_t)} of ${L.auto(r.fd_t)}</span>`,
+        `${L.auto(r.loan_v)}<br><span class="sub${r.loan_v >= r.loan_t ? ' good' : ''}">${L.pct(r.loan_v, r.loan_t)} of ${L.auto(r.loan_t)}</span>`,
+        L.n0(cards.get(r.officer) || 0),
+      ]),
+    ));
+    if (!sb.length) return [out[0], L.rows([{ k: 'No targets set for this period', v: '&mdash;' }])].join('');
+    if (!c.saidCardAttr) { c.saidCardAttr = true; out.push(L.note('Credit cards carry no sales attribution in CBS, so the cards column reads zero for everyone.')); }
+    return out.join('');
+  },
+
+  chart_mom_deposits: (c) => momChart(c, 'fd', 'c-mom-fd', 'Deposits Month On Month', 'Fixed deposits booked each month.', true),
+  chart_mom_loans: (c) => momChart(c, 'loan', 'c-mom-loan', 'Loans Month On Month', 'Loans booked each month.', true),
+  chart_mom_cards: (c) => momChart(c, 'cards', 'c-mom-cards', 'Credit Cards Month On Month', 'Credit cards opened each month.', false),
+  chart_mom_collections: (c) => {
+    const out = momChart(c, 'collected', 'c-mom-coll', 'Collections Month On Month', 'Approved collections received each month.', true, 'ops');
+    if (!out) return '';
+    // One payment can be most of a month; say so rather than let the bar imply a team effort.
+    const b = M.collectionsBiggest(c.from, c.to);
+    const share = b.total ? b.biggest / b.total : 0;
+    return out + (share >= 0.5
+      ? L.note(`${L.pct(b.biggest, b.total)} of this period's collections is a single payment of ${L.auto(b.biggest)}.`)
+      : '');
+  },
+  chart_mom_leads: (c) => momChart(c, 'contacted', 'c-mom-leads', 'Customers Reached Month On Month', 'Leads contacted each month. The CRM began recording in August 2026.', false, 'ops'),
+  chart_mom_customers: (c) => momChart(c, 'customers', 'c-mom-cust', 'New Customers Month On Month', 'Customers acquired each month, excluding one-off data loads.', false, 'ops'),
 };
+
+/**
+ * One month-on-month chart. The month still running is labelled as such and left out of
+ * the bars, because half a September beside a whole August reads as a collapse when it is
+ * only a month in progress.
+ */
+function momChart(c, field, cid, title, sub, isMoney, src) {
+  let rows = (src === 'ops' ? c.momOps() : c.mom()).filter((r) => !r.in_progress || c.kind !== 'monthly');
+  // Months before the first with any activity are "we were not recording yet", not zero
+  // performance, and drawing them turns the switch-on into a growth story.
+  const first = rows.findIndex((r) => Number(r[field]) > 0);
+  if (first > 0) rows = rows.slice(first);
+  if (rows.length < 2) return '';
+  const pts = rows.map((r) => ({
+    label: r.in_progress ? `${r.label}*` : r.label,
+    v: Number(r[field]) || 0,
+    display: isMoney ? plainMoney(r[field]) : L.n0(r[field]),
+  }));
+  const svg = L.monthBarsSVG(pts);
+  if (!svg) return '';
+  c.charts[cid] = svg;
+  const partial = rows.some((r) => r.in_progress);
+  return [
+    L.section(title, '', sub),
+    L.chartRow(cid, sub),
+    partial ? L.note('* the current month is still running and is not a full month’s business.') : '',
+  ].join('');
+}
 
 // ── Frames: title, dateline, subject and plain text ─────────────────────────
 

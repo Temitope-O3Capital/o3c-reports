@@ -456,8 +456,13 @@ func convertContactToCustomer(w http.ResponseWriter, r *http.Request, db *core.D
 			`SELECT officer_id FROM customer_officers WHERE cif=$1`, cif).Scan(&prev)
 		if prev == nil {
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO customer_officers (cif, officer_id, assigned_by, source, note)
-				VALUES ($1,$2,$3,'converted','Converted via CRM contact editor')
+				-- party_id is stamped at write time (migration 269). It is the key every
+				-- reader should join on, and leaving it NULL is what forced readers back
+				-- onto the colliding CIF in the first place. This row is a genuine CARDS
+				-- assignment, so the CIF is real and app.customers resolves the party.
+				INSERT INTO customer_officers (cif, officer_id, assigned_by, source, note, party_id)
+				VALUES ($1,$2,$3,'converted','Converted via CRM contact editor',
+				        (SELECT party_id FROM app.customers WHERE cif = $1))
 				ON CONFLICT (cif) DO NOTHING`, cif, officerID, actor); err != nil {
 				respondErr(w, 500, "Could not assign account officer")
 				return
