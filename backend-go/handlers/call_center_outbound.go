@@ -3257,6 +3257,15 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 
 	status := leadStatusFromCall(outcome, disposition)
 
+	// Did this call actually reach the customer and resolve something? Every status
+	// leadStatusFromCall can return means a real conversation EXCEPT two: 'no_answer'
+	// (nobody picked up) and 'pending' (the line was answered then dropped within
+	// seconds, so nothing was discussed). Derived from the mapped status rather than
+	// re-matching the label, so this can never drift out of step with the mapping
+	// above. Mirrors `fulfilled` in ccApplyDisposition, which does the same job for
+	// the outbound queue's contact row.
+	fulfilled := status != "no_answer" && status != "pending"
+
 	// The business disposition (falling back to the raw outcome) — now stored durably
 	// on the lead itself, so its history survives a later void/merge of the call.
 	dispo := outcome
@@ -3274,7 +3283,23 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		   -- dropping it out of the converted count and blocking forwardLeadToSales,
 		   -- which accepts only 'interested'. Compared inside the statement so it
 		   -- cannot race another writer.
-		   SET status           = CASE WHEN $5::int >= `+ccLeadStatusRankSQL+` THEN $1 ELSE status END,
+		   -- An OPEN PROMISE is not funnel progress. 'callback' ranks 3 and
+		   -- 'not_ready' 2, above 'called' (1), so a promised call that was actually
+		   -- made and answered "Not Interested" (→ 'called') lost the rank comparison
+		   -- and the lead stayed on 'callback' forever — reading as still-owed a call
+		   -- that had already happened. 25 leads were frozen this way on 2026-09-22
+		   -- (17 "not interested", 8 "not ready"), two of them dialled that same
+		   -- morning; migration 275 releases them. callback_at was freed from this
+		   -- guard earlier; status was not, and status is the half the UI shows.
+		   --
+		   -- So a real conversation ($6) always resolves a lead that is merely holding
+		   -- a promise. It is deliberately NOT a general escape: 'interested' and
+		   -- 'converted' are earned states and still cannot be walked backwards, which
+		   -- is what the rank guard was built to protect.
+		   SET status           = CASE
+		                            WHEN $5::int >= `+ccLeadStatusRankSQL+` THEN $1
+		                            WHEN $6::boolean AND status IN ('callback','not_ready') THEN $1
+		                            ELSE status END,
 		       last_disposition = COALESCE(NULLIF($4,''), last_disposition),
 		       last_called_at   = NOW(),
 		       updated_at       = NOW(),
@@ -3297,7 +3322,7 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		                               WHEN $1 IN ('pending','no_answer') THEN callback_at
 		                               ELSE NULL END
 		 WHERE id = $2`,
-		status, leadID, callbackAt, dispo, ccLeadStatusRank[status])
+		status, leadID, callbackAt, dispo, ccLeadStatusRank[status], fulfilled)
 	if err != nil {
 		slog.Error("syncLeadFromCall: update lead", "lead", leadID, "err", err)
 		return
