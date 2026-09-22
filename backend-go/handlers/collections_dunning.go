@@ -112,10 +112,10 @@ func batchDunningRun(ctx context.Context, db *core.DB) (int64, error) {
 		        WHERE ds.account_cif = d.cif
 		          AND COALESCE(ds.facility,'') = COALESCE(d.product_name,'')
 		          AND ds.outcome IN ('sent','staff_preview')
-		          AND ds.sent_at > NOW() - ($1 || ' days')::interval
+		          AND ds.sent_at > NOW() - make_interval(days => $1)
 		   )
 		 ORDER BY d.dpd DESC
-		 LIMIT $2`, strconv.Itoa(dunningThrottleDays), dunningMaxPerRun(ctx, db))
+		 LIMIT $2`, dunningThrottleDays, dunningMaxPerRun(ctx, db))
 	if err != nil {
 		WorkerBeat(ctx, db, "collections_dunning", "error", "", err.Error())
 		return 0, fmt.Errorf("select dunning candidates: %w", err)
