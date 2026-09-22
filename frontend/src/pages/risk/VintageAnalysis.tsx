@@ -4,16 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Page, SectionCard, KpiCard, ExpandableFilterBar, ErrBanner, Sk, DateFilter } from '../../components/UI'
 import type { FilterGroupDef } from '../../components/UI'
 import { apiFetch } from '../../lib/api'
-import { fmtPct, fmtNum, fmtKoboExact, fmtKobo, today } from '../../lib/fmt'
-
-// First day of the month 11 months back — a 12-month window including this one.
-// Local date parts, not toISOString(), which would shift a Lagos afternoon back a day.
-function cohortWindowStart(): string {
-  const d = new Date()
-  d.setDate(1)
-  d.setMonth(d.getMonth() - 11)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-}
+import { fmtPct, fmtNum, fmtKoboExact, fmtKobo, monthStart, today } from '../../lib/fmt'
 import { TEXT, FW, SP, RADIUS, GREEN, AMBER, RED, NAVY, BLUE, INTER, NUM } from '../../lib/design'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -83,11 +74,7 @@ export default function VintageAnalysis() {
   const [error,     setError]     = useState<string | null>(null)
   const [fProducts, setFProducts] = useState(new Set<string>())
   const [search,    setSearch]    = useState('')
-  // A vintage page that opens filtered to the CURRENT month shows exactly one cohort —
-  // the opposite of what vintage analysis is for, and it made "Loans in Book" and
-  // "PAR30 (Current)" describe only this month's bookings. Twelve months is the span
-  // the grid itself caps at.
-  const [dateFrom,  setDateFrom]  = useState(cohortWindowStart())
+  const [dateFrom,  setDateFrom]  = useState(monthStart())
   const [dateTo,    setDateTo]    = useState(today())
   const abortRef = useRef<AbortController | null>(null)
 
@@ -224,11 +211,7 @@ export default function VintageAnalysis() {
                   const rowBg = isWorst ? 'rgba(192,0,0,.05)' : 'transparent'
                   return (
                     <tr key={row.booking_month} style={{ background: rowBg, cursor: 'pointer' }}
-                      // The product filter travels with the drill-down, or the cohort page
-                    // would describe every product in that month while the row clicked
-                    // described one.
-                    onClick={() => navigate(`/operations/risk/vintage/${encodeURIComponent(row.booking_month)}`
-                      + (fProducts.size ? `?product=${encodeURIComponent([...fProducts].join(','))}` : ''))}
+                      onClick={() => navigate(`/operations/risk/vintage/${encodeURIComponent(row.booking_month)}`)}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = isWorst ? 'rgba(192,0,0,.09)' : 'var(--row-hvr)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = rowBg}>
                       <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--bdr)', whiteSpace: 'nowrap' }}>

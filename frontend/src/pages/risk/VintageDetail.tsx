@@ -46,9 +46,6 @@ interface CohortDetail {
   sectors:          SectorRow[]
   products:         ProductRow[]
   loans:            LoanRow[]
-  // The loan list is capped at 200, worst DPD first. Without saying so, the "Cohort
-  // Loans" badge silently disagreed with the Total Loans KPI above it.
-  loans_truncated?: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -172,23 +169,18 @@ export default function VintageDetail() {
   const [error,   setError]   = useState<string | null>(null)
   const [dpdFilter, setDpdFilter] = useState('all')
 
-  // The grid's product filter arrives as ?product=... so this page describes the same
-  // slice of the cohort as the row that was clicked, not the whole month.
-  const product = new URLSearchParams(window.location.search).get('product') ?? ''
-
   const load = useCallback(async (silent = false) => {
     if (!month) return
     if (!silent) setLoading(true); setError(null)
     try {
-      const qs = product ? `?product=${encodeURIComponent(product)}` : ''
-      const res = await apiFetch<{ data: CohortDetail }>(`/api/risk/vintage/${encodeURIComponent(month)}${qs}`)
+      const res = await apiFetch<{ data: CohortDetail }>(`/api/risk/vintage/${encodeURIComponent(month)}`)
       setDetail(res.data ?? null)
     } catch (e: any) {
       setError(e.message ?? 'Failed to load cohort')
     } finally {
       setLoading(false)
     }
-  }, [month, product])
+  }, [month])
 
   useEffect(() => { load() }, [load])
   useLiveData(() => load(true), { topics: ['loans'] })
@@ -266,7 +258,7 @@ export default function VintageDetail() {
           loading={false}
           accent={parAccent(detail?.par30_rate_pct ?? 0)}
           icon="warning"
-          sub="Book 30+ DPD"
+          sub="Loans > 30 DPD"
         />
         <KpiCard
           label="PAR60 Rate"
@@ -274,18 +266,15 @@ export default function VintageDetail() {
           loading={false}
           accent={parAccent(detail?.par60_rate_pct ?? 0)}
           icon="error_outline"
-          sub="Book 60+ DPD"
+          sub="Loans > 60 DPD"
         />
-        {/* "NPL Rate" was labelled "> 90 DPD" while the query behind it measured >= 180.
-            All four rates are now share-of-book (value over value) across the OPEN
-            cohort, so they reconcile with the grid row that opened this page. */}
         <KpiCard
           label="NPL Rate"
           value={loading ? '…' : fmtPct(detail?.npl_rate_pct ?? 0, 1)}
           loading={false}
           accent={detail?.npl_rate_pct ? RED : GREEN}
           icon="block"
-          sub="Book 90+ DPD or CBS-classified"
+          sub="Loans > 90 DPD"
         />
       </div>
 
@@ -294,16 +283,8 @@ export default function VintageDetail() {
         {/* PAR Trajectory */}
         <SectionCard title="PAR Trajectory">
           {parChartData.length === 0 ? (
-            <div style={{ height: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '0 24px', textAlign: 'center' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 26, color: 'var(--txt3)' }}>timeline</span>
-              <div style={{ color: 'var(--txt2)', fontSize: TEXT.sm, fontWeight: FW.semibold }}>No Vintage Curve Available</div>
-              {/* This chart used to plot the cohort's CURRENT PAR30 four times over, at
-                  1m/3m/6m/12m — a flat line presented as a trajectory. A real curve needs
-                  DPD history per cohort per month, which nothing in the database stores. */}
-              <div style={{ color: 'var(--txt3)', fontSize: TEXT.xs, maxWidth: 300, lineHeight: 1.5 }}>
-                A PAR curve needs each cohort's arrears measured month by month. The book
-                holds only today's position, so there is no history to plot yet.
-              </div>
+            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>
+              Not Enough Cohort Age Data Yet
             </div>
           ) : (
             <EArea
@@ -442,16 +423,11 @@ export default function VintageDetail() {
 
       {/* ── Loans table ──────────────────────────────────────────────────────── */}
       <SectionCard
-        title={detail?.loans_truncated ? 'Cohort Loans — Worst 200' : 'Cohort Loans'}
+        title="Cohort Loans"
         badge={filteredLoans.length}
         padding={false}
         actions={
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-            {detail?.loans_truncated && (
-              <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginRight: 4 }}>
-                of {fmtNum(detail.total_count)} in this cohort
-              </span>
-            )}
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {DPD_FILTERS.map(f => {
               const active = dpdFilter === f.key
               return (

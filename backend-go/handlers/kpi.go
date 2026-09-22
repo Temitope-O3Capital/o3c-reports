@@ -151,18 +151,15 @@ func kpiDashboard(db *core.DB) http.HandlerFunc {
 }
 
 // cbsSnapshotLiveSQL returns a single row in the portfolio_daily_snapshot shape,
-// computed LIVE off the Udara/CBS book. DPD is schedule-derived (migration 151, not days
-// past maturity as this comment used to claim) and NPL is the canonical rule
-// app.is_npl — DPD > 90 OR CBS Defaulting/Expired (migration 261) — so this agrees with
-// the Risk module instead of contradicting it.
-// new_disbursements/repayments need history the mirror lacks → 0.
+// computed LIVE off the Udara/CBS book (DPD = days past maturity; NPL = Defaulting/
+// Expired). new_disbursements/repayments need history the mirror lacks → 0.
 const cbsSnapshotLiveSQL = `
 	SELECT CURRENT_DATE AS snapshot_date,
 	       COUNT(*)::bigint AS total_loans,
 	       COALESCE(SUM(op),0)::bigint AS total_outstanding_kobo,
-	       COALESCE(SUM(op) FILTER (WHERE app.is_npl(status, dpd)),0)::bigint AS total_npls_kobo,
+	       COALESCE(SUM(op) FILTER (WHERE status IN ('Defaulting','Expired')),0)::bigint AS total_npls_kobo,
 	       CASE WHEN COALESCE(SUM(op),0) > 0
-	            THEN ROUND(10000.0 * COALESCE(SUM(op) FILTER (WHERE app.is_npl(status, dpd)),0) / SUM(op))::bigint
+	            THEN ROUND(10000.0 * COALESCE(SUM(op) FILTER (WHERE status IN ('Defaulting','Expired')),0) / SUM(op))::bigint
 	            ELSE 0 END AS npl_ratio_bps,
 	       COALESCE(SUM(op) FILTER (WHERE dpd > 30),0)::bigint AS par30_kobo,
 	       COALESCE(SUM(op) FILTER (WHERE dpd > 60),0)::bigint AS par60_kobo,

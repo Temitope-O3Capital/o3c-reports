@@ -299,114 +299,33 @@ func losInbox(db *core.DB) http.HandlerFunc {
 		if rows == nil {
 			rows = []core.Row{}
 		}
-		// A real count, not len(rows). The list is capped (200 by default) and the page
-		// renders this total as "Waiting on You" — so an officer with more than a page of
-		// work was told they had exactly one page of it, and the number stopped moving.
-		total := int64(len(rows))
-		if cnt, cerr := db.PGQuery(ctx, fmt.Sprintf(`
-			SELECT COUNT(*) AS total
-			  FROM loan_applications la
-			 WHERE la.stage IN (%s)
-			   AND la.status NOT IN ('declined','active','closed','written_off')`,
-			strings.Join(ph, ",")), args[:len(stages)]...); cerr == nil && len(cnt) > 0 {
-			total = toInt64(cnt[0]["total"])
-		}
-		writeRiskList(w, rows, total)
+		writeRiskList(w, rows, int64(len(rows)))
 	}
 }
 
 // allowedTransitions maps from_stage → []to_stage
-//
-// POLICY (2026-09-21): every application follows this one ladder, whatever the exposure.
-// There is deliberately NO approval-authority threshold and nothing branches by amount —
-// the controls that matter apply at every size instead: the originator cannot approve, the
-// approved amount is captured and recorded, and a decision taken by one pair of eyes names
-// itself in the trail. Do not add an amount-based branch here without revisiting that.
-//
-// pending_committee is a stage the KPI queries have always counted but that had no exit:
-// nothing routes into it, and nothing could move a file out of it, so anything that
-// landed there — a legacy row, a manual correction — was counted as pending for ever and
-// appeared in nobody's inbox. Rather than invent new routing into it (which would make
-// the risk head's approval ambiguous and break every "next stage" default), it is given
-// the one thing it lacked: a way out, to exactly where the risk head's own approval goes.
 var allowedTransitions = map[string][]string{
 	"draft":               {"submitted"},
 	"submitted":           {"document_collection"},
 	"document_collection": {"risk_review"},
 	"risk_review":         {"risk_head_review"},
 	"risk_head_review":    {"pending_conditions"},
-	"pending_committee":   {"pending_conditions"},
 	"pending_conditions":  {"finance_approval"},
 	"finance_approval":    {"booking"},
 	"booking":             {"active"},
 }
 
-// decisionTransitions are the steps that ARE a credit decision rather than an
-// administrative move. They carry the maker-checker rule: whoever raised the file may
-// not also be the one who decides it. Booking→active is deliberately absent — that is
-// disbursement, carried out by Card Ops on a decision someone else already took.
-var decisionTransitions = map[string]bool{
-	"risk_review:risk_head_review":         true,
-	"risk_head_review:pending_conditions":  true,
-	"pending_committee:pending_conditions": true,
-	"pending_conditions:finance_approval":  true,
-	"finance_approval:booking":             true,
-}
-
-// The credit is granted, and its amount fixed, when a file moves INTO pending_conditions:
-// normally by the risk head, or by the committee clearing one that was referred to it.
-// Everything downstream (conditions, finance, booking) acts on the figure agreed there.
-const approvalTo = "pending_conditions"
-
-func isApprovalTransition(from, to string) bool {
-	return to == approvalTo && (from == "risk_head_review" || from == "pending_committee")
-}
-
-// enteredStageBy returns whoever moved this application INTO the stage it now sits in, or
-// 0 when that is unknown (a file older than the event trail).
-//
-// It answers the one separation-of-duties question a two-person risk function can usefully
-// ask: is the person about to decide this file the same person who handed it to
-// themselves? O3C runs ONE risk officer and ONE risk head, so blocking that would stop
-// work dead the first time either covers for the other — and an override the head uses
-// daily records nothing but friction. Recording it does the real job: it makes "which
-// credits were decided by a single pair of eyes?" a question with an answer.
-func enteredStageBy(ctx context.Context, db *core.DB, appID int64, stage string) int64 {
-	rows, err := db.PGQuery(ctx, `
-		SELECT COALESCE(actor_user_id, 0) AS actor
-		  FROM application_events
-		 WHERE application_id = $1 AND to_stage = $2 AND event_type = 'stage_advance'
-		 ORDER BY created_at DESC
-		 LIMIT 1`, appID, stage)
-	if err != nil || len(rows) == 0 {
-		return 0
-	}
-	return toInt64(rows[0]["actor"])
-}
-
-// declineRequiredPage answers "who may kill a file sitting HERE" with the same page that
-// authorises moving it forward from here — the role already deciding on it. Returns ""
-// for a stage with no single mapped successor, which the caller treats as deny-by-default.
-func declineRequiredPage(fromStage string) string {
-	next := allowedTransitions[fromStage]
-	if len(next) != 1 {
-		return ""
-	}
-	return transitionRequiredPage[fromStage+":"+next[0]]
-}
-
 // transitionRequiredPage maps "from:to" → the LOS page that authorises that transition.
 // Any user with "los_all" may bypass the per-transition check (supervisor override).
 var transitionRequiredPage = map[string]string{
-	"draft:submitted":                      "los",
-	"submitted:document_collection":        "los",
-	"document_collection:risk_review":      "los_risk_review",
-	"risk_review:risk_head_review":         "los_risk_review",
-	"risk_head_review:pending_conditions":  "los_risk_head",
-	"pending_committee:pending_conditions": "los_risk_head",
-	"pending_conditions:finance_approval":  "los_finance",
-	"finance_approval:booking":             "los_finance_approve",
-	"booking:active":                       "los_booking",
+	"draft:submitted":                     "los",
+	"submitted:document_collection":       "los",
+	"document_collection:risk_review":     "los_risk_review",
+	"risk_review:risk_head_review":        "los_risk_review",
+	"risk_head_review:pending_conditions": "los_risk_head",
+	"pending_conditions:finance_approval": "los_finance",
+	"finance_approval:booking":            "los_finance_approve",
+	"booking:active":                      "los_booking",
 }
 
 func losParseID(r *http.Request) (int64, error) {
@@ -644,21 +563,11 @@ func losGet(db *core.DB) http.HandlerFunc {
 			notes = []core.Row{}
 		}
 
-		// Did the viewer put this file into the stage it is in? The decision modal uses it
-		// to say, before the click, that approving will be recorded as a single-reviewer
-		// decision. Computed here rather than compared in the browser so the page never
-		// has to reason about who it is.
-		enteredByMe := false
-		if u := core.UserFromCtx(ctx); u != nil {
-			enteredByMe = enteredStageBy(ctx, db, id, str(apps[0]["stage"])) == u.ID
-		}
-
 		result := map[string]any{
-			"application":         apps[0],
-			"events":              events,
-			"conditions":          conditions,
-			"notes":               notes,
-			"entered_stage_by_me": enteredByMe,
+			"application": apps[0],
+			"events":      events,
+			"conditions":  conditions,
+			"notes":       notes,
 		}
 		respond(w, result, "pg")
 	}
@@ -676,47 +585,14 @@ func losCustomerPortfolio(db *core.DB) http.HandlerFunc {
 		}
 		ctx := r.Context()
 
-		// IDENTITY (2026-09-21). The {cif} path param is used BELOW as a Udara
-		// cbs_customer_id, but this block was reading app.customers.cif with the SAME
-		// string. Those are two different id namespaces and they collide: of the 44
-		// Udara customers holding loans, all 44 also exist as a card CIF and 39 of
-		// those are a DIFFERENT REAL PERSON. So this page rendered FOLTI TECHNOLOGIES'
-		// loan book under Olabode Sanusi's name, phone, email and address — a stranger.
-		//
-		// app.cbs_links (entity_type='party') is the only correct bridge. The borrower
-		// NAME comes from cbs_customers, which is authoritative for a Udara facility.
-		// Contact detail comes from the linked party's own customer row when it has one
-		// (only 31 of the 295 linked parties do) and is otherwise left blank — a blank
-		// phone number is correct, a stranger's phone number is not. A direct cif match
-		// is used only when the id is not a Udara customer id at all, which is the
-		// genuine cards arm of this endpoint.
 		customer := core.Row{}
 		if crows, _ := db.PGQuery(ctx, `
-			WITH owner AS (
-			    SELECT k.entity_id AS party_id
-			      FROM app.cbs_links k
-			     WHERE k.entity_type = 'party' AND k.cbs_customer_id = $1
-			     LIMIT 1
-			), contact AS (
-			    SELECT c.*
-			      FROM app.customers c
-			     WHERE (    EXISTS (SELECT 1 FROM owner) AND c.party_id = (SELECT party_id FROM owner))
-			        OR (NOT EXISTS (SELECT 1 FROM owner) AND c.cif = $1)
-			     ORDER BY (c.party_id IS NULL), c.cif
-			     LIMIT 1
-			)
-			SELECT $1::text AS cif,
-			       (SELECT party_id FROM owner) AS party_id,
-			       COALESCE(
-			           (SELECT NULLIF(TRIM(cc.name),'') FROM cbs_customers cc
-			             WHERE cc.cbs_customer_id = $1 LIMIT 1),
-			           NULLIF(TRIM(CONCAT(COALESCE(ct.first_name,''),' ',COALESCE(ct.last_name,''))),'')
-			       ) AS name,
-			       ct.phone, ct.email, ct.state, ct.city,
-			       COALESCE(NULLIF(TRIM(ct.full_address),''),
-			                NULLIF(TRIM(CONCAT_WS(', ', NULLIF(ct.address_1,''), NULLIF(ct.address_2,''), NULLIF(ct.city,''), NULLIF(ct.state,''))),'')) AS full_address
-			  FROM (SELECT 1) _one
-			  LEFT JOIN contact ct ON TRUE`, cif); len(crows) > 0 {
+			SELECT cif,
+			       TRIM(CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,''))) AS name,
+			       phone, email, state, city,
+			       COALESCE(NULLIF(TRIM(full_address),''),
+			                NULLIF(TRIM(CONCAT_WS(', ', NULLIF(address_1,''), NULLIF(address_2,''), NULLIF(city,''), NULLIF(state,''))),'')) AS full_address
+			FROM app.customers WHERE cif = $1 LIMIT 1`, cif); len(crows) > 0 {
 			customer = crows[0]
 		}
 
@@ -904,9 +780,6 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 	type body struct {
 		ToStage string `json:"to_stage"`
 		Notes   string `json:"notes"`
-		// Required on the risk head's approval: the amount actually being granted.
-		// Pointer so "not sent" is distinguishable from an explicit zero.
-		AmountApprovedKobo *int64 `json:"amount_approved_kobo"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := losParseID(r)
@@ -925,7 +798,7 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 
 		// source_system is read so the Phoenix hand-off below can skip applications
 		// Phoenix originated — sending one back would create a duplicate over there.
-		apps, err := db.PGQuery(ctx, `SELECT stage, status, reference, amount_approved_kobo, amount_requested_kobo, sales_officer_id, COALESCE(created_by,0) AS created_by, COALESCE(source_system,'workspace') AS source_system FROM loan_applications WHERE id = $1`, id)
+		apps, err := db.PGQuery(ctx, `SELECT stage, status, reference, amount_approved_kobo, amount_requested_kobo, sales_officer_id, COALESCE(source_system,'workspace') AS source_system FROM loan_applications WHERE id = $1`, id)
 		if err != nil || len(apps) == 0 {
 			respondErr(w, 404, "Application not found")
 			return
@@ -985,46 +858,6 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			}
 		}
 
-		// Maker-checker. Nothing here ever compared the actor to the originator, and
-		// risk_head/coo hold every stage page at once, so one person could raise a file,
-		// review it, and approve it alone. An admin may still push it through — but never
-		// silently: the override is written to the audit trail as its own event below.
-		makerCheckerOverride := false
-		if decisionTransitions[fromStage+":"+b.ToStage] {
-			creator := toInt64(apps[0]["created_by"])
-			if (salesOfficerID != 0 && salesOfficerID == user.ID) || (creator != 0 && creator == user.ID) {
-				if !strings.Contains(strings.ToLower(user.Role), "admin") {
-					respondErr(w, 403, "You raised this application, so you cannot also approve it — it needs a second pair of eyes.")
-					return
-				}
-				makerCheckerOverride = true
-			}
-		}
-
-		// Separation of duties — recorded, not enforced (see enteredStageBy). If the same
-		// person moved this file into its current stage and is now deciding it onward, the
-		// decision went through one pair of eyes, and the trail says so.
-		singleReviewer := decisionTransitions[fromStage+":"+b.ToStage] &&
-			enteredStageBy(ctx, db, id, fromStage) == user.ID
-
-		// The credit decision has to name a figure. amount_approved_kobo was written by no
-		// handler in this codebase, so the disbursement journal fell through to
-		// amount_requested_kobo: the bank booked what the customer asked for, confirmed by
-		// nobody. The risk head's approval is where that number is now set and recorded.
-		requestedKobo := toInt64(apps[0]["amount_requested_kobo"])
-		approvedKobo := int64(0)
-		if isApprovalTransition(fromStage, b.ToStage) {
-			if b.AmountApprovedKobo == nil || *b.AmountApprovedKobo <= 0 {
-				respondErr(w, 422, "Enter the amount you are approving before approving this application")
-				return
-			}
-			if requestedKobo > 0 && *b.AmountApprovedKobo > requestedKobo {
-				respondErr(w, 422, "The approved amount cannot exceed the amount requested")
-				return
-			}
-			approvedKobo = *b.AmountApprovedKobo
-		}
-
 		// Build extra field updates based on transition
 		extra := ""
 		switch b.ToStage {
@@ -1032,11 +865,6 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			extra = ", submitted_at = NOW()"
 		case "risk_review":
 			extra = ", risk_officer_id = assigned_to_user_id"
-		case "risk_head_review":
-			// Risk review is complete at this point. risk_reviewed_at was declared in
-			// migration 004 and read by thirteen KPI queries, but written by no line of
-			// Go anywhere — so every "Reviewed" figure in the module sat at zero.
-			extra = ", risk_reviewed_at = NOW()"
 		case "finance_approval":
 			extra = ", finance_officer_id = assigned_to_user_id"
 		case "booking":
@@ -1077,51 +905,6 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		// Record the approved amount in the same transaction as the approval itself, and
-		// book the journal against it rather than against what was requested.
-		if approvedKobo > 0 {
-			if _, err = tx.ExecContext(ctx,
-				`UPDATE loan_applications SET amount_approved_kobo = $1 WHERE id = $2`, approvedKobo, id); err != nil {
-				respondErr(w, 500, "Could not record the approved amount")
-				return
-			}
-			if _, err = tx.ExecContext(ctx, `
-				INSERT INTO application_events (application_id, event_type, from_stage, to_stage, actor_user_id, notes, created_at)
-				VALUES ($1, 'amount_approved', $2, $3, $4, $5, NOW())`,
-				id, fromStage, b.ToStage, user.ID,
-				fmt.Sprintf("Approved NGN %.2f of NGN %.2f requested", float64(approvedKobo)/100, float64(requestedKobo)/100)); err != nil {
-				respondErr(w, 500, "Event log failed")
-				return
-			}
-			loanKobo = approvedKobo
-		}
-
-		// One pair of eyes on a credit decision is a fact an auditor asks about directly,
-		// so it gets its own row and can be counted, filtered and reported on.
-		if singleReviewer {
-			if _, err = tx.ExecContext(ctx, `
-				INSERT INTO application_events (application_id, event_type, from_stage, to_stage, actor_user_id, notes, created_at)
-				VALUES ($1, 'single_reviewer', $2, $3, $4, $5, NOW())`,
-				id, fromStage, b.ToStage, user.ID,
-				"Decided by the same person who performed the previous step on this application"); err != nil {
-				respondErr(w, 500, "Event log failed")
-				return
-			}
-		}
-
-		// An override of the second-pair-of-eyes rule is a fact an auditor must be able to
-		// find, so it is its own row rather than a note on the advance.
-		if makerCheckerOverride {
-			if _, err = tx.ExecContext(ctx, `
-				INSERT INTO application_events (application_id, event_type, from_stage, to_stage, actor_user_id, notes, created_at)
-				VALUES ($1, 'maker_checker_override', $2, $3, $4, $5, NOW())`,
-				id, fromStage, b.ToStage, user.ID,
-				"Decided by the person who raised this application, under admin override"); err != nil {
-				respondErr(w, 500, "Event log failed")
-				return
-			}
-		}
-
 		// Post GL entry when loan is activated (disbursed)
 		if b.ToStage == "active" && loanKobo > 0 {
 			if err = postJournalTx(ctx, tx, glEntry{
@@ -1143,14 +926,6 @@ func losAdvance(db *core.DB) http.HandlerFunc {
 		if err = tx.Commit(); err != nil {
 			respondErr(w, 500, "Commit failed")
 			return
-		}
-
-		// A decision closes the originator's hand-off either way. Only DECLINE did this
-		// before — resolveHandoffsForApplication had exactly one caller — so an APPROVED
-		// lead left the call-centre hand-off open for ever and the good outcome never
-		// reached whoever raised it.
-		if isApprovalTransition(fromStage, b.ToStage) {
-			resolveHandoffsForApplication(context.WithoutCancel(ctx), db, id, "resolved", "approved")
 		}
 
 		// Tell Phoenix where OUR chain has reached, on every transition.
@@ -1283,57 +1058,26 @@ func losDecline(db *core.DB) http.HandlerFunc {
 		declSalesID := toInt64(apps[0]["sales_officer_id"])
 		loanRefDecl := str(apps[0]["reference"])
 
-		// Declining is the most final thing anyone can do to an application, and it was
-		// the only action on the file with NO per-stage authorisation: the route sits on
-		// the wide LOS door, so Sales or Card Ops could terminally kill a file sitting in
-		// risk head review. Whoever may decide on a file at this stage may decline it —
-		// nobody else. Deny-by-default for any stage with no mapped forward transition.
-		if reqPage := declineRequiredPage(fromStage); reqPage == "" || (!user.HasPage(reqPage) && !user.HasPage("los_all")) {
-			respondErr(w, 403, fmt.Sprintf("Your role is not authorised to decline an application at stage '%s'", fromStage))
-			return
-		}
-
-		// UPDATE + audit event in one transaction: the event INSERT used to run separately
-		// with its error discarded, so a decline could land with no trail behind it.
-		dtx, err := db.PG.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-		if err != nil {
-			respondErr(w, 500, "Transaction failed")
-			return
-		}
-		defer dtx.Rollback() //nolint:errcheck
-
 		// Atomic decline: guard against concurrent state changes and terminal stages
-		var declinedID int64
-		err = dtx.QueryRowContext(ctx,
+		updated, err := db.PGQuery(ctx,
 			`UPDATE loan_applications SET status = 'declined', stage = 'declined',
 			 decline_reason = $1, updated_at = NOW()
 			 WHERE id = $2 AND stage = $3 AND stage NOT IN ('active', 'declined')
 			 RETURNING id`,
-			b.Reason, id, fromStage).Scan(&declinedID)
-		if err == sql.ErrNoRows {
-			respondErr(w, 409, "Application is already in a terminal state or was updated concurrently")
-			return
-		}
+			b.Reason, id, fromStage)
 		if err != nil {
 			respondErr(w, 500, "Decline failed")
 			return
 		}
+		if len(updated) == 0 {
+			respondErr(w, 409, "Application is already in a terminal state or was updated concurrently")
+			return
+		}
 
-		if _, err = dtx.ExecContext(ctx, `
+		db.PGExec(ctx, `
 			INSERT INTO application_events (application_id, event_type, from_stage, to_stage, actor_user_id, notes, created_at)
 			VALUES ($1, 'declined', $2, 'declined', $3, $4, NOW())`,
-			id, fromStage, user.ID, b.Reason); err != nil {
-			respondErr(w, 500, "Event log failed")
-			return
-		}
-		if err = dtx.Commit(); err != nil {
-			respondErr(w, 500, "Commit failed")
-			return
-		}
-
-		// Phoenix runs the customer journey and only ever heard about advances, so it kept
-		// showing MANUAL_REVIEW for a file this side had already declined.
-		go phoenixPushStage(context.WithoutCancel(ctx), db, id, "declined", b.Reason)
+			id, fromStage, user.ID, b.Reason) //nolint:errcheck
 
 		// Reflect-back: close any open hand-off for this customer (e.g. the call-centre
 		// agent who forwarded the lead) so the ineligible outcome reaches the originator
@@ -1374,10 +1118,8 @@ func losRequestInfo(db *core.DB) http.HandlerFunc {
 		user := core.UserFromCtx(r.Context())
 		ctx := r.Context()
 
-		apps, err := db.PGQuery(ctx, `
-			SELECT stage, request_info_count, COALESCE(sales_officer_id,0) AS sales_officer_id,
-			       COALESCE(assigned_to_user_id,0) AS assigned_to_user_id, COALESCE(reference,'') AS reference
-			  FROM loan_applications WHERE id = $1`, id)
+		apps, err := db.PGQuery(ctx,
+			`SELECT stage, request_info_count FROM loan_applications WHERE id = $1`, id)
 		if err != nil || len(apps) == 0 {
 			respondErr(w, 404, "Application not found")
 			return
@@ -1391,47 +1133,25 @@ func losRequestInfo(db *core.DB) http.HandlerFunc {
 
 		fromStage := str(apps[0]["stage"])
 
-		// A closed file is not somewhere information can be sent back to. There was no
-		// terminal guard at all, and 'declined'/'active' appear nowhere in the stage list
-		// below — so the old default resurrected a declined, or already disbursed,
-		// application back into document_collection on one API call.
-		if fromStage == "declined" || fromStage == "active" || fromStage == "closed" {
-			respondErr(w, 409, "This application is closed — it cannot be sent back for more information")
-			return
-		}
-
+		// Find previous stage to revert to
+		prevStage := "document_collection"
 		stageOrder := []string{
 			"draft", "submitted", "document_collection", "risk_review",
 			"risk_head_review", "pending_conditions", "finance_approval", "booking",
 		}
-		idx := -1
 		for i, s := range stageOrder {
-			if s == fromStage {
-				idx = i
+			if s == fromStage && i > 0 {
+				prevStage = stageOrder[i-1]
 				break
 			}
 		}
-		// A draft has nowhere to go back TO. The old loop skipped index 0 and left the
-		// default of "document_collection" standing, so "send back for more information"
-		// pushed a draft FORWARD two stages, past submitted, with no permission check.
-		if idx <= 0 {
-			respondErr(w, 422, "This application is still a draft — there is nothing to send it back to")
-			return
-		}
-		prevStage := stageOrder[idx-1]
 
-		// Optimistic lock, like every other stage move in this file.
-		res, err := db.PGExec(ctx,
+		_, err = db.PGExec(ctx,
 			`UPDATE loan_applications SET stage = $1, status = $2,
-			 request_info_count = request_info_count + 1, updated_at = NOW()
-			 WHERE id = $3 AND stage = $4`,
-			prevStage, losStageToStatus(prevStage), id, fromStage)
+			 request_info_count = request_info_count + 1, updated_at = NOW() WHERE id = $3`,
+			prevStage, losStageToStatus(prevStage), id)
 		if err != nil {
 			respondErr(w, 500, "Request info failed")
-			return
-		}
-		if n, rerr := res.RowsAffected(); rerr == nil && n == 0 {
-			respondErr(w, 409, "Application stage changed concurrently — please refresh and try again")
 			return
 		}
 
@@ -1439,19 +1159,6 @@ func losRequestInfo(db *core.DB) http.HandlerFunc {
 			INSERT INTO application_events (application_id, event_type, from_stage, to_stage, actor_user_id, notes, created_at)
 			VALUES ($1, 'request_info', $2, $3, $4, $5, NOW())`,
 			id, fromStage, prevStage, user.ID, b.Notes) //nolint:errcheck
-
-		// The file has just landed back on someone else's desk. Nothing told them — while
-		// the dialog that sends it promises "the assigned officer will be notified" — so
-		// it simply sat there until somebody happened to refresh the queue.
-		NotifyExcept(context.WithoutCancel(ctx), db,
-			[]int64{toInt64(apps[0]["assigned_to_user_id"]), toInt64(apps[0]["sales_officer_id"])}, user.ID,
-			NotifPayload{
-				EventType: EvtLoanStageChanged,
-				Title:     "More Information Needed",
-				Body:      fmt.Sprintf("Application %s was sent back for more information: %s", str(apps[0]["reference"]), b.Notes),
-				ActionURL: fmt.Sprintf("/sales/applications/%d", id),
-				EntityRef: fmt.Sprintf("loan_application:%d", id),
-			})
 
 		respondOK(w, "Sent back for more information")
 	}
@@ -1477,34 +1184,20 @@ func losAddCondition(db *core.DB) http.HandlerFunc {
 			return
 		}
 
-		user := core.UserFromCtx(r.Context())
 		rows, err := db.PGQuery(r.Context(), `
-			INSERT INTO application_conditions (application_id, condition_text, is_met, created_by, created_at)
-			VALUES ($1, $2, FALSE, $3, NOW())
-			RETURNING id, condition_text, is_met, created_by, created_at`,
-			id, b.ConditionText, user.ID)
+			INSERT INTO application_conditions (application_id, condition_text, is_met, created_at)
+			VALUES ($1, $2, FALSE, NOW())
+			RETURNING id, condition_text, is_met, created_at`,
+			id, b.ConditionText)
 		if err != nil {
 			respondErr(w, 500, "Create condition failed")
 			return
 		}
-		// A condition is a term of the credit: who attached it belongs in the trail, not
-		// just the text of it. Nothing recorded either before.
-		db.PGExec(r.Context(), `
-			INSERT INTO application_events (application_id, event_type, from_stage, to_stage, actor_user_id, notes, created_at)
-			SELECT $1, 'condition_added', la.stage, la.stage, $2, $3, NOW()
-			  FROM loan_applications la WHERE la.id = $1`,
-			id, user.ID, b.ConditionText) //nolint:errcheck
 		respond(w, rows[0], "pg")
 	}
 }
 
 func losMarkConditionMet(db *core.DB) http.HandlerFunc {
-	// A condition ticked off by mistake used to be permanent: this endpoint ignored its
-	// body and could only ever set is_met = TRUE. It now carries the state being set, so
-	// the same control can undo itself.
-	type body struct {
-		IsMet *bool `json:"is_met"`
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := losParseID(r)
 		if err != nil {
@@ -1516,43 +1209,16 @@ func losMarkConditionMet(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "Invalid condition ID")
 			return
 		}
-		var b body
-		_ = json.NewDecoder(r.Body).Decode(&b) // an empty body still means "met", as before
-		met := b.IsMet == nil || *b.IsMet
 
 		user := core.UserFromCtx(r.Context())
 
-		// met_by/met_at are cleared when a condition is reopened, so they never describe
-		// a state the row is no longer in.
-		res, err := db.PGExec(r.Context(), `
+		_, err = db.PGExec(r.Context(), `
 			UPDATE application_conditions
-			SET is_met = $1,
-			    met_by = CASE WHEN $1 THEN $2::BIGINT ELSE NULL END,
-			    met_at = CASE WHEN $1 THEN NOW()       ELSE NULL END
-			WHERE id = $3 AND application_id = $4`,
-			met, user.ID, cid, id)
+			SET is_met = TRUE, met_by = $1, met_at = NOW()
+			WHERE id = $2 AND application_id = $3`,
+			user.ID, cid, id)
 		if err != nil {
 			respondErr(w, 500, "Update failed")
-			return
-		}
-		// A wrong condition id used to return 200 and a success toast, having changed
-		// nothing at all.
-		if n, rerr := res.RowsAffected(); rerr == nil && n == 0 {
-			respondErr(w, 404, "That condition is not on this application")
-			return
-		}
-		evt := "condition_met"
-		if !met {
-			evt = "condition_reopened"
-		}
-		db.PGExec(r.Context(), `
-			INSERT INTO application_events (application_id, event_type, from_stage, to_stage, actor_user_id, notes, created_at)
-			SELECT $1, $2, la.stage, la.stage, $3, c.condition_text, NOW()
-			  FROM loan_applications la, application_conditions c
-			 WHERE la.id = $1 AND c.id = $4`,
-			id, evt, user.ID, cid) //nolint:errcheck
-		if !met {
-			respondOK(w, "Condition reopened")
 			return
 		}
 		respondOK(w, "Condition marked as met")
@@ -1718,18 +1384,6 @@ func losSaveCreditAssessment(db *core.DB) http.HandlerFunc {
 			return s
 		}
 		ctx := r.Context()
-		user := core.UserFromCtx(ctx)
-
-		// What the numbers were before this override. eye_score and eye_rating are what
-		// the entire review queue sorts, filters and decides on, and a manual change to
-		// them recorded no actor and no event — so a hand-edited score was
-		// indistinguishable from Phoenix's own, which is exactly what the UI claims it
-		// flags. Read first, so the trail can say what it replaced.
-		before, _ := db.PGQuery(ctx, `
-			SELECT COALESCE(eye_score,0) AS eye_score, COALESCE(eye_rating,'') AS eye_rating,
-			       dti_pct, COALESCE(stage,'') AS stage
-			  FROM loan_applications WHERE id = $1`, id)
-
 		rows, err := db.PGQuery(ctx,
 			`UPDATE loan_applications
 			 SET eye_score=$1, eye_rating=$2, bureau_summary=$3, dti_pct=$4,
@@ -1741,25 +1395,6 @@ func losSaveCreditAssessment(db *core.DB) http.HandlerFunc {
 		if err != nil || len(rows) == 0 {
 			respondErr(w, 500, "Update failed")
 			return
-		}
-
-		if len(before) > 0 && user != nil {
-			newScore := int64(0)
-			if b.EyeScore != nil {
-				newScore = int64(*b.EyeScore)
-			}
-			var newDti any
-			if b.DtiPct != nil {
-				newDti = *b.DtiPct
-			}
-			db.PGExec(ctx, `
-				INSERT INTO application_events (application_id, event_type, from_stage, to_stage, actor_user_id, notes, created_at)
-				VALUES ($1, 'credit_assessment_override', $2, $2, $3, $4, NOW())`,
-				id, str(before[0]["stage"]), user.ID,
-				fmt.Sprintf("Eye score %d → %d; rating %q → %q; DTI %v → %v",
-					toInt64(before[0]["eye_score"]), newScore,
-					str(before[0]["eye_rating"]), b.EyeRating,
-					before[0]["dti_pct"], newDti)) //nolint:errcheck
 		}
 		respond(w, rows[0], "json")
 	}
@@ -1788,47 +1423,14 @@ func losGetDocuments(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "invalid application id")
 			return
 		}
-		// Documents collected BEFORE the application existed live in app.lead_documents,
-		// anchored to the lead/CIF/phone rather than to an application id. Nothing ever
-		// copied or re-anchored them when a lead converted — migration 232 promised they
-		// would "follow the person", and no code implemented it — so the credit officer
-		// saw every slot as Pending and asked the customer for papers Sales already held.
-		//
-		// They are surfaced live rather than copied: one file, one truth, and anything
-		// collected after conversion appears too. Each row says where it came from and
-		// how to fetch it, because the two stores are served by different routes and
-		// their ids overlap (both are plain serials).
 		rows, err := db.PGQuery(r.Context(), `
-			WITH la AS (
-			  SELECT id,
-			         NULLIF(applicant_cif,'')                   AS cif,
-			         NULLIF(app.norm_phone(applicant_phone),'') AS phone,
-			         source_lead_id
-			    FROM loan_applications WHERE id = $1
-			)
 			SELECT d.id, d.application_id, d.doc_type, d.file_name, d.file_url,
 			       d.file_size_bytes, d.created_at,
-			       u.full_name AS uploaded_by_name,
-			       'application'::text AS source,
-			       '/api/los/documents/' || d.id || '/content' AS content_url
-			  FROM los_documents d
-			  LEFT JOIN o3c_users u ON u.id = d.uploaded_by
-			 WHERE d.application_id = $1
-			UNION ALL
-			SELECT ld.id, NULL::bigint AS application_id, ld.doc_type, ld.file_name, ld.file_url,
-			       ld.file_size_bytes, ld.created_at,
-			       u2.full_name AS uploaded_by_name,
-			       'pre_application'::text AS source,
-			       '/api/activities/documents/' || ld.id || '/content' AS content_url
-			  FROM app.lead_documents ld
-			  LEFT JOIN o3c_users u2 ON u2.id = ld.uploaded_by
-			  CROSS JOIN la
-			 WHERE (la.source_lead_id IS NOT NULL AND ld.lead_id = la.source_lead_id)
-			    OR (la.cif   IS NOT NULL AND ld.cif = la.cif)
-			    -- length(10) guard: app.norm_phone returns '' rather than NULL, and a
-			    -- short/malformed number would otherwise match another malformed one.
-			    OR (la.phone IS NOT NULL AND length(la.phone) = 10 AND ld.phone = la.phone)
-			 ORDER BY created_at ASC`, appID)
+			       u.full_name AS uploaded_by_name
+			FROM los_documents d
+			LEFT JOIN o3c_users u ON u.id = d.uploaded_by
+			WHERE d.application_id = $1
+			ORDER BY d.created_at ASC`, appID)
 		if err != nil {
 			respondErr(w, 500, "query failed: "+err.Error())
 			return

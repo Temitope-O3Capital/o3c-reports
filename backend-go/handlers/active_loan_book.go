@@ -11,13 +11,7 @@ import (
 )
 
 func RegisterActiveLoanBook(r chi.Router, db *core.DB) {
-	// credit_portfolio sits alongside active_loan_book because the Risk Portfolio page is
-	// gated on credit_portfolio (App.tsx) and its table already reads risk.go's own
-	// credit_portfolio-gated routes — but its KPI strip calls /stats here. Requiring
-	// active_loan_book alone meant a risk_officer (who holds credit_portfolio and not
-	// active_loan_book) got a 403 on the strip, which the page swallowed in an empty
-	// .catch: five cards skeletoned for ever with no error, on the page's primary user.
-	r.Use(core.RequirePages("active_loan_book", "credit_portfolio"))
+	r.Use(core.RequirePages("active_loan_book"))
 	r.Get("/", albList(db))
 	r.Get("/stats", albStats(db))
 	r.Get("/{id}", albGet(db))
@@ -131,15 +125,8 @@ func albStats(db *core.DB) http.HandlerFunc {
 			  COUNT(*) FILTER (WHERE dpd BETWEEN 31 AND 60)         AS dpd_31_60,
 			  COUNT(*) FILTER (WHERE dpd BETWEEN 61 AND 90)         AS dpd_61_90,
 			  COUNT(*) FILTER (WHERE dpd > 90)                      AS dpd_90plus,
-			  -- The NPL card's own count and value, both on the canonical rule
-			  -- (app.is_npl, migration 261). The money here used to be summed over
-			  -- dpd > 0 while the count beside it used dpd > 90, so the tile showed
-			  -- every delinquent naira under a "90+" heading and overstated NPL
-			  -- several-fold. dpd_90plus above stays a pure DPD bucket because it is
-			  -- part of the distribution and must not double-count.
-			  COUNT(*) FILTER (WHERE app.is_npl(status, dpd))                                     AS npl_count,
-			  COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE app.is_npl(status, dpd)), 0) AS npl_outstanding_kobo
-			FROM (SELECT status, outstanding_principal_kobo, loan_amount_kobo,
+			  COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE dpd > 0), 0) AS npl_outstanding_kobo
+			FROM (SELECT outstanding_principal_kobo, loan_amount_kobo,
 			             `+cbsLoanDPDBare+` AS dpd
 			      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) x`)
 

@@ -315,35 +315,20 @@ func runBatch(ctx context.Context, db *core.DB) error {
 	return batchErr
 }
 
-// batchPortfolioSnapshot computes today's portfolio metrics and writes a snapshot row.
-//
-// It used to read loan_applications and treat DAYS SINCE BOOKING as if it were days past
-// due: every active loan booked more than 90 days ago counted as NPL and as PAR30/60/90,
-// with "outstanding" taken as the approved amount, which never falls as the customer
-// repays. A perfectly performing four-month-old loan was 100% non-performing here — and
-// because this writes a dated history table, every nightly run baked that into a time
-// series. Nothing reads portfolio_daily_snapshot today (kpiPortfolioTrend moved to
-// cbs_portfolio_snapshot), which is the only reason it never surfaced on a screen.
-//
-// It now measures the real book: outstanding principal from cbs_loans, schedule-derived
-// DPD (migration 151) for the PAR buckets, and the canonical NPL rule (migration 261).
-// That also gives the workspace genuine PAR history, which cbs_portfolio_snapshot does
-// not carry — it stores zeros for the PAR columns.
+// batchPortfolioSnapshot computes today's portfolio metrics from loan_applications and writes a snapshot row.
 func batchPortfolioSnapshot(ctx context.Context, db *core.DB) error {
 	today := time.Now().Format("2006-01-02")
 
 	rows, err := db.PGQuery(ctx, `
 		SELECT
-			COUNT(*)                                                       AS total_loans,
-			COALESCE(SUM(op), 0)                                           AS total_outstanding_kobo,
-			COALESCE(SUM(op) FILTER (WHERE app.is_npl(status, dpd)), 0)    AS total_npls_kobo,
-			COALESCE(SUM(op) FILTER (WHERE dpd > 30), 0)                   AS par30_kobo,
-			COALESCE(SUM(op) FILTER (WHERE dpd > 60), 0)                   AS par60_kobo,
-			COALESCE(SUM(op) FILTER (WHERE dpd > 90), 0)                   AS par90_kobo,
-			COALESCE(SUM(loan_amount_kobo) FILTER (WHERE start_date::date = $1::date), 0) AS new_disbursements_kobo
-		FROM (SELECT status, outstanding_principal_kobo AS op, loan_amount_kobo, start_date,
-		             `+cbsLoanDPDBare+` AS dpd
-		      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')) x`, today)
+			COUNT(*) FILTER (WHERE status = 'active')                                  AS total_loans,
+			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active'), 0)    AS total_outstanding_kobo,
+			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 90), 0) AS total_npls_kobo,
+			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 30), 0) AS par30_kobo,
+			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 60), 0) AS par60_kobo,
+			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 90), 0) AS par90_kobo,
+			COALESCE(SUM(amount_approved_kobo) FILTER (WHERE booked_at::date = $1), 0) AS new_disbursements_kobo
+		FROM loan_applications`, today)
 	if err != nil {
 		return fmt.Errorf("portfolio query: %w", err)
 	}
@@ -412,12 +397,7 @@ func batchCBSPortfolioSnapshot(ctx context.Context, db *core.DB) error {
 			COUNT(DISTINCT cbs_customer_id) FILTER (WHERE status = 'Active') AS borrowers_active,
 			COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status NOT IN ('Closed','Revoked')), 0) AS outstanding_principal_kobo,
 			COALESCE(SUM(outstanding_interest_kobo)  FILTER (WHERE status NOT IN ('Closed','Revoked')), 0) AS outstanding_interest_kobo,
-			-- Canonical NPL (app.is_npl, migration 261): DPD > 90 OR CBS Defaulting/Expired.
-			-- Status alone missed loans the repayment schedule had already shown to be
-			-- months in arrears, so this nightly snapshot — which the Overview, Finance
-			-- and KPI screens all read — disagreed with the Risk module on the same book.
-			COALESCE(SUM(outstanding_principal_kobo) FILTER (
-				WHERE status NOT IN ('Closed','Revoked') AND app.is_npl(status, `+cbsLoanDPDBare+`)), 0) AS npl_kobo,
+			COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status IN ('Defaulting','Expired')), 0) AS npl_kobo,
 			COALESCE(SUM(outstanding_principal_kobo) FILTER (WHERE status = 'Active'), 0)                   AS performing_kobo
 		FROM cbs_loans`); err == nil && len(rows) > 0 {
 		loan = rows[0]
@@ -705,9 +685,7 @@ func batchKPISnapshot(ctx context.Context, db *core.DB) error {
 		{col: "tickets_closed", q: `SELECT COUNT(*) FROM helpdesk_tickets WHERE status='resolved' AND updated_at::date = $1`},
 		{col: "active_loans", q: `SELECT COUNT(*) FROM loan_applications WHERE status='active'`, pointInTime: true},
 		{col: "total_book_kobo", q: `SELECT COALESCE(SUM(disbursed_amount_kobo),0) FROM loan_applications WHERE status='active'`, pointInTime: true},
-		{col: "npl_kobo", q: `SELECT COALESCE(SUM(outstanding_principal_kobo + outstanding_interest_kobo),0)
-			FROM cbs_loans
-			WHERE status NOT IN ('Closed','Revoked') AND app.is_npl(status, ` + cbsLoanDPDBare + `)`, pointInTime: true},
+		{col: "npl_kobo", q: `SELECT COALESCE(SUM(outstanding_principal_kobo + outstanding_interest_kobo),0) FROM cbs_loans WHERE status IN ('Defaulting','Expired')`, pointInTime: true},
 	}
 
 	vals := map[string]int64{}

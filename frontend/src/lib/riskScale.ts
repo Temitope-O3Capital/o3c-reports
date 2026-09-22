@@ -20,25 +20,6 @@
 
 import { GREEN, BLUE, AMBER, RED } from './design'
 
-/**
- * The ORIGINATION rating (loan_applications.eye_rating) — a different vocabulary from
- * the CBS A–E band above, and deliberately kept apart from it.
- *
- * It lives here anyway because three pages were passing eye_rating into bandColor(),
- * which only knows the letters A–E: every Prime / Near-Prime / Sub-Prime / High-Risk
- * pill came out the same neutral grey, so the colour carried no information at all.
- * One exported helper is harder to get wrong than a local map per page.
- */
-export function eyeRatingColor(rating: string | null | undefined): string {
-  switch ((rating ?? '').trim().toLowerCase()) {
-    case 'prime':      return GREEN
-    case 'near-prime': return BLUE
-    case 'sub-prime':  return AMBER
-    case 'high-risk':  return RED
-    default:           return '#6B7280'
-  }
-}
-
 export type RiskBand = 'A' | 'B' | 'C' | 'D' | 'E'
 
 export const RISK_BANDS: RiskBand[] = ['A', 'B', 'C', 'D', 'E']

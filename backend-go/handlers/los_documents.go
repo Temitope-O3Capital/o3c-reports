@@ -21,8 +21,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -88,15 +90,14 @@ func losDocumentContent(db *core.DB) http.HandlerFunc {
 		}
 		defer f.Close() //nolint:errcheck
 
-		// safeContentType (activity_documents.go) refuses to serve a script-bearing type
-		// — .svg, .html — as something the browser will execute: fetched into a blob URL
-		// those run in the workspace's own origin, so an uploaded "payslip.svg" would act
-		// with the session of every officer who previewed it. They come back as downloads.
-		ct, disp := safeContentType(name)
+		ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
 		w.Header().Set("Content-Type", ct)
 		// inline: the workspace renders this in a modal. filename is quoted so a
 		// comma or space in it cannot split the header.
-		w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q", disp, name))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", name))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "private, max-age=300")
 		if st, serr := f.Stat(); serr == nil {

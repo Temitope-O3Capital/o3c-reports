@@ -109,10 +109,7 @@ export default function MyApprovals() {
     },
     { key: 'decision', label: 'Phoenix', render: r => <DecisionChip decision={r.decision} sync={r.phoenix_sync_state} /> },
     {
-      // "In Stage", not "Waiting": this counts days since the file last MOVED, so a note
-      // or an upload resets it. The Supervisor tile counts age since submission. Two
-      // different questions that were both labelled the same way.
-      key: 'days_in_stage', label: 'In Stage', align: 'right', sortable: true,
+      key: 'days_in_stage', label: 'Waiting', align: 'right', sortable: true,
       render: r => {
         const d = r.days_in_stage ?? 0
         return <span style={{ ...NUM, fontWeight: 600, color: d > 3 ? RED : d > 1 ? AMBER : 'var(--txt2)' }}>{d}d</span>

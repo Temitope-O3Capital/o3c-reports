@@ -925,15 +925,6 @@ interface DataTableProps<T> {
   selectable?: boolean
   selectedIds?: Set<string | number>
   onSelect?: (ids: Set<string | number>) => void
-  /**
-   * Server-side sorting. Pass onSortChange (with sortKey/sortDir) when the table shows
-   * one page of a larger server-paginated set: the component then reports header clicks
-   * instead of reordering the rows it happens to hold, which only ever sorted the
-   * visible page while looking like it had sorted everything.
-   */
-  sortKey?: string | null
-  sortDir?: 'asc' | 'desc'
-  onSortChange?: (key: string, dir: 'asc' | 'desc') => void
   bulkBar?: ReactNode
   // Accepts a node as well as a string, so a caller can drop in an <EmptyState />
   // instead of a bare line of text. Existing string callers are unaffected.
@@ -1015,7 +1006,6 @@ export function DataTable<T extends Record<string, any>>({
   selectable, selectedIds: extSel, onSelect,
   bulkBar, emptyText = 'No Records Found', loading, skeletonRows = 8, rowStyle,
   searchKeys, searchPlaceholder = 'Search…', pageSize, filters, focusId,
-  sortKey: extSortKey, sortDir: extSortDir, onSortChange,
 }: DataTableProps<T>) {
   const focusRef = useRef<HTMLTableRowElement | null>(null)
   useEffect(() => {
@@ -1029,15 +1019,8 @@ export function DataTable<T extends Record<string, any>>({
     const t = setTimeout(() => { el.style.background = prev }, 2200)
     return () => clearTimeout(t)
   }, [focusId, rows])
-  // Sorting is CONTROLLED when the caller passes onSortChange: a server-paginated table
-  // can only sort correctly at the server, because this component holds one page of rows
-  // and sorting those alone quietly implies the whole set was ranked. Pages that pass it
-  // own the state and re-query; everything else keeps the local behaviour untouched.
-  const serverSorted = !!onSortChange
-  const [localSortKey,  setLocalSortKey]  = useState<string | null>(null)
-  const [localSortDir,  setLocalSortDir]  = useState<'asc' | 'desc'>('asc')
-  const sortKey = serverSorted ? (extSortKey ?? null) : localSortKey
-  const sortDir = serverSorted ? (extSortDir ?? 'asc')  : localSortDir
+  const [sortKey,       setSortKey]       = useState<string | null>(null)
+  const [sortDir,       setSortDir]       = useState<'asc' | 'desc'>('asc')
   const [internalSel,   setInternalSel]   = useState<Set<string | number>>(new Set())
   const [search,        setSearch]        = useState('')
   const [page,          setPage]          = useState(1)
@@ -1050,11 +1033,9 @@ export function DataTable<T extends Record<string, any>>({
   const setSelectedIds = onSelect ?? setInternalSel
 
   const toggleSort = useCallback((key: string) => {
-    const nextDir: 'asc' | 'desc' = sortKey === key && sortDir === 'asc' ? 'desc' : 'asc'
-    if (serverSorted) { onSortChange!(key, nextDir); return }
-    if (sortKey === key) setLocalSortDir(nextDir)
-    else { setLocalSortKey(key); setLocalSortDir('asc') }
-  }, [sortKey, sortDir, serverSorted, onSortChange])
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }, [sortKey])
 
   // Derive unique options for each filter from the base rows (unfiltered)
   const filterOptions = useMemo(() => {
@@ -1069,15 +1050,13 @@ export function DataTable<T extends Record<string, any>>({
   const activeFilterCount = Object.values(activeFilters).reduce((n, s) => n + s.size, 0)
 
   const sorted = useMemo(() => {
-    // Already ordered by the server — re-sorting the visible page would undo it.
-    if (serverSorted) return rows
     if (!sortKey) return rows
     return [...rows].sort((a, b) => {
       const va = a[sortKey] ?? '', vb = b[sortKey] ?? ''
       const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb))
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [rows, sortKey, sortDir, serverSorted])
+  }, [rows, sortKey, sortDir])
 
   const filtered = useMemo(() => {
     let result = sorted

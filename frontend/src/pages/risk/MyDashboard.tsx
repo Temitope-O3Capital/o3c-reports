@@ -8,7 +8,7 @@ import { fmtKoboExact, fmtKobo, fmtNum } from '../../lib/fmt'
 import { RED, AMBER, BLUE, GREEN, NAVY, NUM, TEXT, FW, SP, RADIUS, INTER } from '../../lib/design'
 import { WorkspaceHero, MyDaySection, MyDayTile, StatusPill, HeroButton } from '../../components/MyWorkspace'
 import { DpdBar } from '../../components/DpdBar'
-import { bandColor, bandShort, dpdColor, eyeRatingColor } from '../../lib/riskScale'
+import { bandColor, bandShort, dpdColor } from '../../lib/riskScale'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ interface PendingApp {
 interface BandRow { band: string; count: number }
 interface DpdBucketRow { bucket: string; count: number; kobo: number }
 interface WatchRow {
-  cif: string; name: string; product: string; reference: string
+  cif: string; name: string; product: string
   outstanding_kobo: number; arrears_kobo: number; dpd: number; band: string | null; score: number | null
 }
 interface RiskDash {
@@ -100,9 +100,7 @@ export default function RiskMyDashboard() {
   ]
 
   const bandCols: TableCol<BandRow>[] = [
-    // These are ORIGINATION ratings (Prime/Near-Prime/Sub-Prime/High-Risk), not the CBS
-    // A–E band — bandColor() knows only the letters, so every pill here was grey.
-    { key: 'band', label: 'Risk Band', render: r => <StatusPill label={r.band} color={eyeRatingColor(r.band)} /> },
+    { key: 'band', label: 'Risk Band', render: r => <StatusPill label={r.band} color={bandColor(r.band)} /> },
     { key: 'count', label: 'Pending', align: 'right', render: r => <span style={{ ...NUM, fontWeight: FW.bold }}>{fmtNum(r.count)}</span> },
   ]
 
@@ -115,7 +113,7 @@ export default function RiskMyDashboard() {
     )},
     { key: 'product_type', label: 'Product', render: r => <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>{r.product_type || '—'}</span> },
     { key: 'amount_requested_kobo', label: 'Amount', align: 'right', render: r => <span style={NUM}>{fmtKoboExact(r.amount_requested_kobo)}</span> },
-    { key: 'risk_band', label: 'Band', render: r => r.risk_band ? <StatusPill label={r.risk_band} color={eyeRatingColor(r.risk_band)} /> : <span style={{ color: 'var(--txt3)' }}>—</span> },
+    { key: 'risk_band', label: 'Band', render: r => r.risk_band ? <StatusPill label={r.risk_band} color={bandColor(r.risk_band)} /> : <span style={{ color: 'var(--txt3)' }}>—</span> },
     { key: 'submitted_at', label: 'Waiting', render: r => {
       const days = r.submitted_at ? Math.floor((Date.now() - new Date(r.submitted_at).getTime()) / 864e5) : 0
       return <span style={{ color: days >= 3 ? RED : 'var(--txt2)', fontWeight: days >= 3 ? FW.semibold : FW.normal, fontSize: TEXT.xs }}>{days}d</span>
@@ -162,30 +160,6 @@ export default function RiskMyDashboard() {
           color={BLUE} urgent={live && pending > 0} onClick={toAppReview} />
       </MyDaySection>
 
-      {/* ── What you have actually done ──
-          reviewed_today / approved_mtd / declined_mtd were fetched on every load and
-          then thrown away, so the station showed an officer only what was still owed and
-          never a single thing they had cleared. These now come from the event trail, so
-          they count this person's own decisions rather than the firm's. */}
-      {live && (
-        <SectionCard title="Your Decisions" subtitle="Work you have completed — today and month to date" style={{ marginBottom: 14 }}>
-          <div style={{ display: 'flex', gap: SP[5], flexWrap: 'wrap', padding: '4px 2px' }}>
-            {[
-              { label: 'Reviewed Today', value: reviewedToday, color: BLUE },
-              { label: 'Approved MTD',   value: approved,      color: GREEN },
-              { label: 'Declined MTD',   value: declined,      color: RED },
-            ].map(s => (
-              <div key={s.label} style={{ minWidth: 120 }}>
-                <div style={{ ...NUM, fontSize: TEXT['2xl'], fontWeight: FW.bold, color: s.value > 0 ? s.color : 'var(--txt3)', lineHeight: 1.1 }}>
-                  {fmtNum(s.value)}
-                </div>
-                <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>{s.label}</div>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-      )}
-
       {/* ── DPD distribution ── */}
       <SectionCard title="Delinquency Distribution" subtitle="Your book by days past due (schedule-derived)" style={{ marginBottom: 14 }}>
         {bookLoans === 0
@@ -198,12 +172,8 @@ export default function RiskMyDashboard() {
         <DataTable
           cols={watchCols}
           rows={watchlist}
-          keyFn={r => r.reference || `${r.cif}:${r.product}:${r.dpd}`}
-          // Opens the LOAN in the portfolio rather than /customers/<cif>: that cif is a
-          // raw Udara customer id, and Customer 360 resolves cif against the card
-          // namespace — so this used to open an unrelated person's file (Udara 00000424
-          // is FINTRAK; card CIF 00000424 is somebody else entirely).
-          onRowClick={r => navigate(`/operations/risk/portfolio?search=${encodeURIComponent(r.reference || r.name)}`)}
+          keyFn={r => r.cif + r.product}
+          onRowClick={r => navigate(`/customers/${encodeURIComponent(r.cif)}`)}
           pageSize={10}
           emptyText="Nothing past due — your book is current"
         />

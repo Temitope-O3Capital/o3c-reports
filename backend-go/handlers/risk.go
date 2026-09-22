@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -73,67 +72,33 @@ func riskMyDashboard(db *core.DB) http.HandlerFunc {
 
 		const pendingWhere = `stage IN ('risk_review','risk_head_review','pending_committee') AND status NOT IN ('declined','active','disbursed','booked','written_off')`
 
-		// This page calls itself "the credit book you own" and was scoped to nobody: it
-		// read no session user and applied no filter, so every officer saw the identical
-		// firm-wide queue and firm-wide throughput. loan_applications.risk_officer_id has
-		// existed since migration 004 and went unused.
-		//
-		// "Mine" is deliberately mine-or-unclaimed: scoping strictly to assigned work
-		// would show an officer an empty station while the firm had a backlog nobody had
-		// picked up. Throughput, by contrast, is strictly mine — it comes from the event
-		// trail, so it counts what this person actually did rather than what happened to
-		// an application they merely have open.
-		var uid int64
-		if u := core.UserFromCtx(ctx); u != nil {
-			uid = u.ID
-		}
-		const mineClause = ` AND (risk_officer_id = $1 OR risk_officer_id IS NULL)`
-
 		if live {
 			if rows, _ := db.PGQuery(ctx, `
-				SELECT COUNT(*) AS pending
-				FROM loan_applications WHERE `+pendingWhere+mineClause, uid); len(rows) > 0 {
-				dash["pending"] = rows[0]["pending"]
-			}
-			// Work done BY this officer, from application_events — the only record of who
-			// actually moved a file. The old figures came off risk_reviewed_at on the
-			// application itself, which names no actor at all (and was never written until
-			// this week, so every one of them sat at zero).
-			if rows, _ := db.PGQuery(ctx, `
 				SELECT
-					COUNT(DISTINCT application_id) FILTER (WHERE created_at::date = CURRENT_DATE)            AS reviewed_today,
-					COUNT(DISTINCT application_id) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')    AS reviewed_week,
-					COUNT(DISTINCT application_id) FILTER (
-						WHERE from_stage = 'risk_head_review' AND to_stage = 'pending_conditions'
-						  AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE))          AS approved_mtd,
-					COUNT(DISTINCT application_id) FILTER (
-						WHERE event_type = 'declined'
-						  AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE))          AS declined_mtd
-				FROM application_events
-				WHERE actor_user_id = $1
-				  AND (event_type = 'declined'
-				       OR (event_type = 'stage_advance' AND from_stage IN ('risk_review','risk_head_review')))`,
-				uid); len(rows) > 0 {
+					COUNT(*) FILTER (WHERE `+pendingWhere+`) AS pending,
+					COUNT(*) FILTER (WHERE risk_reviewed_at::date = CURRENT_DATE) AS reviewed_today,
+					COUNT(*) FILTER (WHERE risk_reviewed_at >= NOW() - INTERVAL '7 days') AS reviewed_week,
+					COUNT(*) FILTER (WHERE status IN ('active','disbursed','booked') AND DATE_TRUNC('month', COALESCE(risk_reviewed_at, submitted_at)) = DATE_TRUNC('month', CURRENT_DATE)) AS approved_mtd,
+					COUNT(*) FILTER (WHERE status='declined' AND DATE_TRUNC('month', COALESCE(risk_reviewed_at, submitted_at)) = DATE_TRUNC('month', CURRENT_DATE)) AS declined_mtd
+				FROM loan_applications`); len(rows) > 0 {
 				for k, v := range rows[0] {
 					dash[k] = v
 				}
 			}
-			if rows, _ := db.PGQuery(ctx, `SELECT COALESCE(MAX(EXTRACT(DAY FROM NOW() - submitted_at))::int, 0) AS days
-				FROM loan_applications WHERE `+pendingWhere+mineClause, uid); len(rows) > 0 {
+			if rows, _ := db.PGQuery(ctx, `SELECT COALESCE(MAX(EXTRACT(DAY FROM NOW() - submitted_at))::int, 0) AS days FROM loan_applications WHERE `+pendingWhere); len(rows) > 0 {
 				dash["oldest_pending_days"] = rows[0]["days"]
 			}
-			bands, _ := db.PGQuery(ctx, `SELECT COALESCE(eye_rating,'—') AS band, COUNT(*) AS count
-				FROM loan_applications WHERE `+pendingWhere+mineClause+` GROUP BY eye_rating ORDER BY count DESC`, uid)
+			bands, _ := db.PGQuery(ctx, `SELECT COALESCE(eye_rating,'—') AS band, COUNT(*) AS count FROM loan_applications WHERE `+pendingWhere+` GROUP BY eye_rating ORDER BY count DESC`)
 			if bands == nil {
 				bands = []core.Row{}
 			}
 			dash["pending_by_band"] = bands
 			list, _ := db.PGQuery(ctx, `
-				SELECT id, reference, applicant_name, COALESCE(product_type, loan_type, '') AS product_type,
+				SELECT reference, applicant_name, COALESCE(product_type, loan_type, '') AS product_type,
 				       COALESCE(amount_requested_kobo, 0) AS amount_requested_kobo,
 				       eye_score, eye_rating AS risk_band, submitted_at
-				FROM loan_applications WHERE `+pendingWhere+mineClause+`
-				ORDER BY submitted_at ASC NULLS LAST LIMIT 8`, uid)
+				FROM loan_applications WHERE `+pendingWhere+`
+				ORDER BY submitted_at ASC NULLS LAST LIMIT 8`)
 			if list == nil {
 				list = []core.Row{}
 			}
@@ -150,8 +115,8 @@ func riskMyDashboard(db *core.DB) http.HandlerFunc {
 			COALESCE(SUM(arrears_kobo),0) AS arrears_kobo,
 			COUNT(*) FILTER (WHERE dpd <= 0) AS current_loans,
 			COUNT(*) FILTER (WHERE dpd > 30) AS par30_loans,
-			COUNT(*) FILTER (WHERE app.is_npl(status, dpd)) AS npl_loans,
-			COALESCE(SUM(outstanding_kobo) FILTER (WHERE app.is_npl(status, dpd)),0) AS npl_kobo,
+			COUNT(*) FILTER (WHERE dpd > 90) AS npl_loans,
+			COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 90),0) AS npl_kobo,
 			COALESCE(MAX(dpd),0) AS worst_dpd
 			`+riskLoanBookBase); len(rows) > 0 {
 			for k, v := range rows[0] {
@@ -161,9 +126,8 @@ func riskMyDashboard(db *core.DB) http.HandlerFunc {
 
 		// DPD bucket distribution (current / 1-30 / 31-60 / 61-90 / 90+).
 		if buckets, _ := db.PGQuery(ctx, `SELECT
-			CASE WHEN app.is_npl(status, dpd) THEN 'npl'
-			     WHEN dpd <= 0 THEN 'current' WHEN dpd <= 30 THEN 'par30'
-			     WHEN dpd <= 60 THEN 'par60' ELSE 'par90' END AS bucket,
+			CASE WHEN dpd <= 0 THEN 'current' WHEN dpd <= 30 THEN 'par30'
+			     WHEN dpd <= 60 THEN 'par60' WHEN dpd <= 90 THEN 'par90' ELSE 'npl' END AS bucket,
 			COUNT(*) AS count, COALESCE(SUM(outstanding_kobo),0) AS kobo
 			`+riskLoanBookBase+` GROUP BY 1`); buckets != nil {
 			dash["dpd_buckets"] = buckets
@@ -172,13 +136,8 @@ func riskMyDashboard(db *core.DB) http.HandlerFunc {
 		}
 
 		// Watchlist — the delinquent loans that actually need chasing, worst first.
-		// `reference` comes along so the row can be opened on the loan it actually is:
-		// the page used to key and link on applicant_cif, which is a raw Udara customer
-		// id — a different namespace from the card CIF the customer pages resolve, so it
-		// opened a stranger's file. It also collided as a React key whenever one customer
-		// held two loans of the same product, silently dropping a row from the watchlist.
 		if wl, _ := db.PGQuery(ctx, `SELECT
-			applicant_name AS name, applicant_cif AS cif, reference, product_type AS product,
+			applicant_name AS name, applicant_cif AS cif, product_type AS product,
 			outstanding_kobo, arrears_kobo, dpd, risk_band AS band, eye_score AS score
 			`+riskLoanBookBase+` AND dpd > 0
 			ORDER BY dpd DESC, outstanding_kobo DESC LIMIT 12`); wl != nil {
@@ -217,17 +176,11 @@ func riskSupervisor(db *core.DB) http.HandlerFunc {
 			COUNT(*) FILTER (WHERE dpd <= 0) AS current_loans,
 			COUNT(*) FILTER (WHERE dpd > 30) AS par30_loans,
 			COUNT(*) FILTER (WHERE dpd > 60) AS par60_loans,
-			COUNT(*) FILTER (WHERE app.is_npl(status, dpd)) AS npl_loans,
+			COUNT(*) FILTER (WHERE dpd > 90) AS npl_loans,
 			COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 30),0) AS par30_kobo,
-			COALESCE(SUM(outstanding_kobo) FILTER (WHERE app.is_npl(status, dpd)),0) AS npl_kobo,
-			-- Value over value, not a count of loans. These ratios sit beside naira
-			-- totals and drive a red alert banner, and the regulatory measure they are
-			-- named after is value-weighted — a book of many tiny delinquent loans and
-			-- one huge healthy one was reading as far worse than it is (or the reverse).
-			ROUND(100.0 * COALESCE(SUM(outstanding_kobo) FILTER (WHERE app.is_npl(status, dpd)),0)
-			            / NULLIF(SUM(outstanding_kobo),0), 2) AS npl_ratio_pct,
-			ROUND(100.0 * COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 30),0)
-			            / NULLIF(SUM(outstanding_kobo),0), 2) AS par30_rate_pct,
+			COALESCE(SUM(outstanding_kobo) FILTER (WHERE dpd > 90),0) AS npl_kobo,
+			CASE WHEN COUNT(*)>0 THEN ROUND(100.0*COUNT(*) FILTER (WHERE dpd>90)/COUNT(*),2) ELSE 0 END AS npl_ratio_pct,
+			CASE WHEN COUNT(*)>0 THEN ROUND(100.0*COUNT(*) FILTER (WHERE dpd>30)/COUNT(*),2) ELSE 0 END AS par30_rate_pct,
 			COALESCE(MAX(dpd),0) AS worst_dpd
 			`+riskLoanBookBase); len(rows) > 0 {
 			out["snapshot"] = rows[0]
@@ -235,9 +188,8 @@ func riskSupervisor(db *core.DB) http.HandlerFunc {
 
 		// DPD bucket distribution.
 		if b, _ := db.PGQuery(ctx, `SELECT
-			CASE WHEN app.is_npl(status, dpd) THEN 'npl'
-			     WHEN dpd <= 0 THEN 'current' WHEN dpd <= 30 THEN 'par30'
-			     WHEN dpd <= 60 THEN 'par60' ELSE 'par90' END AS bucket,
+			CASE WHEN dpd <= 0 THEN 'current' WHEN dpd <= 30 THEN 'par30'
+			     WHEN dpd <= 60 THEN 'par60' WHEN dpd <= 90 THEN 'par90' ELSE 'npl' END AS bucket,
 			COUNT(*) AS count, COALESCE(SUM(outstanding_kobo),0) AS kobo
 			`+riskLoanBookBase+` GROUP BY 1`); b != nil {
 			out["dpd_buckets"] = b
@@ -259,7 +211,7 @@ func riskSupervisor(db *core.DB) http.HandlerFunc {
 
 		// Watchlist — worst delinquent loans first.
 		if wl, _ := db.PGQuery(ctx, `SELECT
-			applicant_name AS name, applicant_cif AS cif, reference, product_type AS product, sector,
+			applicant_name AS name, applicant_cif AS cif, product_type AS product, sector,
 			outstanding_kobo, arrears_kobo, dpd, risk_band AS band, eye_score AS score
 			`+riskLoanBookBase+` AND dpd > 0
 			ORDER BY dpd DESC, outstanding_kobo DESC LIMIT 15`); wl != nil {
@@ -313,18 +265,6 @@ func riskSupervisor(db *core.DB) http.HandlerFunc {
 				COUNT(*) FILTER (WHERE status IN ('active','disbursed','booked') AND DATE_TRUNC('month',COALESCE(risk_reviewed_at,submitted_at))=DATE_TRUNC('month',CURRENT_DATE)) AS approved_mtd,
 				COALESCE(MAX(EXTRACT(DAY FROM NOW()-submitted_at)) FILTER (WHERE `+pendingWhere+`),0)::int AS oldest_pending_days
 				FROM loan_applications`); len(rows) > 0 {
-				// Credits decided this month by the same person who took the previous step
-				// on them. With one officer and one head, covering for each other is
-				// routine and is not blocked — but this is the number a supervisor, the MD
-				// or an auditor asks for, and it had no answer at all before.
-				rows[0]["single_reviewer_mtd"] = 0
-				if sr, serr := db.PGQuery(ctx, `
-					SELECT COUNT(DISTINCT application_id) AS n
-					  FROM application_events
-					 WHERE event_type = 'single_reviewer'
-					   AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)`); serr == nil && len(sr) > 0 {
-					rows[0]["single_reviewer_mtd"] = sr[0]["n"]
-				}
 				out["review"] = rows[0]
 			}
 		}
@@ -363,24 +303,6 @@ func riskApplications(db *core.DB) http.HandlerFunc {
 		limit := qint(r, "limit", 100, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
-		// Ordering happens here, over the whole filtered queue — the table shows one page
-		// of it, so sorting in the browser only ever reordered that page. Whitelisted, so
-		// the column name can never come from the caller's string.
-		appOrderBy := map[string]string{
-			"submitted_at":          "submitted_at",
-			"eye_score":             "eye_score",
-			"applicant_name":        "applicant_name",
-			"amount_requested_kobo": "amount_requested_kobo",
-			"stage":                 "stage",
-		}[qstr(r, "sort")]
-		if appOrderBy == "" {
-			appOrderBy = "submitted_at"
-		}
-		appOrderDir := "DESC"
-		if strings.EqualFold(qstr(r, "dir"), "asc") {
-			appOrderDir = "ASC"
-		}
-
 		where, args := riskAppWhere(stage, product, band, dateFrom, dateTo)
 
 		// Count total
@@ -388,7 +310,7 @@ func riskApplications(db *core.DB) http.HandlerFunc {
 		countRows, err := db.PGQuery(ctx,
 			"SELECT COUNT(*) AS total FROM loan_applications WHERE 1=1"+where, args...)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				writeRiskList(w, []core.Row{}, 0)
 				return
 			}
@@ -401,43 +323,28 @@ func riskApplications(db *core.DB) http.HandlerFunc {
 
 		// Data query
 		n := len(args) + 1
-		var viewerID int64
-		if u := core.UserFromCtx(ctx); u != nil {
-			viewerID = u.ID
-		}
-		dataArgs := append(args, limit, offset, viewerID)
+		dataArgs := append(args, limit, offset)
 		query := fmt.Sprintf(`
 			SELECT
-				la.id,
-				la.reference,
-				la.applicant_name,
-				COALESCE(la.employer, '') AS employer_name,
-				la.eye_score,
-				la.eye_rating AS risk_band,
-				COALESCE(la.monthly_income_kobo, 0) AS monthly_income_kobo,
-				la.dti_pct,
-				COALESCE(la.amount_requested_kobo, 0) AS amount_requested_kobo,
-				COALESCE(la.product_type, la.loan_type, '') AS product_type,
-				la.stage,
-				la.status,
-				la.submitted_at,
-				la.decision,
-				la.phoenix_sync_state,
-				-- Did the viewer put this file into the stage it is in? The Advance modal
-				-- warns, before the click, that deciding it will be recorded as a
-				-- single-reviewer decision (see enteredStageBy in los.go).
-				COALESCE((
-					SELECT e.actor_user_id = $%d
-					  FROM application_events e
-					 WHERE e.application_id = la.id
-					   AND e.to_stage = la.stage
-					   AND e.event_type = 'stage_advance'
-					 ORDER BY e.created_at DESC
-					 LIMIT 1), FALSE) AS entered_stage_by_me
-			FROM loan_applications la
+				id,
+				reference,
+				applicant_name,
+				COALESCE(employer, '') AS employer_name,
+				eye_score,
+				eye_rating AS risk_band,
+				COALESCE(monthly_income_kobo, 0) AS monthly_income_kobo,
+				dti_pct,
+				COALESCE(amount_requested_kobo, 0) AS amount_requested_kobo,
+				COALESCE(product_type, loan_type, '') AS product_type,
+				stage,
+				status,
+				submitted_at,
+				decision,
+				phoenix_sync_state
+			FROM loan_applications
 			WHERE 1=1%s
-			ORDER BY %s %s NULLS LAST, la.id DESC
-			LIMIT $%d OFFSET $%d`, n+2, where, appOrderBy, appOrderDir, n, n+1)
+			ORDER BY submitted_at DESC NULLS LAST, id DESC
+			LIMIT $%d OFFSET $%d`, where, n, n+1)
 
 		rows, err := db.PGQuery(ctx, query, dataArgs...)
 		if err != nil {
@@ -537,7 +444,7 @@ func riskReviewKPIs(db *core.DB) http.HandlerFunc {
 					AND status NOT IN ('declined','active','disbursed','booked','written_off')) AS pending
 			FROM loan_applications`)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, riskEmptyReviewKPIs(), "pg")
 				return
 			}
@@ -547,18 +454,6 @@ func riskReviewKPIs(db *core.DB) http.HandlerFunc {
 		if len(rows) == 0 {
 			respond(w, riskEmptyReviewKPIs(), "pg")
 			return
-		}
-		// Credits decided this month by the same person who took the previous step on
-		// them. Not an error and not blocked — with one officer and one head, covering is
-		// routine — but it is the number a supervisor, the MD or an auditor will ask for,
-		// and until now it could not be answered at all.
-		rows[0]["single_reviewer_mtd"] = 0
-		if sr, serr := db.PGQuery(r.Context(), `
-			SELECT COUNT(DISTINCT application_id) AS n
-			  FROM application_events
-			 WHERE event_type = 'single_reviewer'
-			   AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)`); serr == nil && len(sr) > 0 {
-			rows[0]["single_reviewer_mtd"] = sr[0]["n"]
 		}
 		rows[0]["origination_live"] = true
 		respond(w, rows[0], "pg")
@@ -654,25 +549,17 @@ func riskLoanBookWhere(dpd, band, product, q string) (string, []any, int) {
 	// lets the user tick several buckets at once, which the UI always allowed but the
 	// single-value switch silently dropped.
 	if dpd != "" {
-		// Non-performing takes precedence, and every other bucket is "in this DPD range
-		// and NOT non-performing", so the chips stay mutually exclusive under the
-		// canonical rule (app.is_npl, migration 261). Without the NOT, a loan CBS has
-		// classified Defaulting while its schedule is still current would appear under
-		// both "Current" and "NPL", and the buckets would stop adding up to the book.
 		ranges := map[string]string{
-			"current": "dpd <= 0 AND NOT app.is_npl(status, dpd)",
-			"par30":   "dpd BETWEEN 1 AND 30 AND NOT app.is_npl(status, dpd)",
-			"par60":   "dpd BETWEEN 31 AND 60 AND NOT app.is_npl(status, dpd)",
-			"par90":   "dpd BETWEEN 61 AND 90 AND NOT app.is_npl(status, dpd)",
-			"npl":     "app.is_npl(status, dpd)",
+			"current": "dpd <= 0",
+			"par30":   "dpd BETWEEN 1 AND 30",
+			"par60":   "dpd BETWEEN 31 AND 60",
+			"par90":   "dpd BETWEEN 61 AND 90",
+			"npl":     "dpd > 90",
 		}
 		var ors []string
 		for _, key := range strings.Split(dpd, ",") {
 			if cond, ok := ranges[strings.TrimSpace(key)]; ok {
-				// Parenthesised: each bucket now carries its own AND clause, and relying
-				// on AND binding tighter than OR to group them correctly is the kind of
-				// thing that stays right until someone edits one line.
-				ors = append(ors, "("+cond+")")
+				ors = append(ors, cond)
 			}
 		}
 		if len(ors) > 0 {
@@ -779,7 +666,7 @@ func riskPortfolioKPIs(db *core.DB) http.HandlerFunc {
 				WHERE status NOT IN ('Closed','Revoked')`+dateWhere+`
 			) la`, args...)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, riskEmptyPortfolioKPIs(), "pg")
 				return
 			}
@@ -822,7 +709,7 @@ func riskPARTrend(db *core.DB) http.HandlerFunc {
 			GROUP BY DATE_TRUNC('month', start_date)
 			ORDER BY _sort`)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, []core.Row{}, "pg")
 				return
 			}
@@ -865,7 +752,7 @@ func riskBandDistribution(db *core.DB) http.HandlerFunc {
 			GROUP BY band
 			ORDER BY band`)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, []core.Row{}, "pg")
 				return
 			}
@@ -886,13 +773,12 @@ func riskBandDistribution(db *core.DB) http.HandlerFunc {
 func riskDpdDistribution(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), `SELECT
-			CASE WHEN app.is_npl(status, dpd) THEN 'npl'
-			     WHEN dpd <= 0 THEN 'current' WHEN dpd <= 30 THEN 'par30'
-			     WHEN dpd <= 60 THEN 'par60' ELSE 'par90' END AS bucket,
+			CASE WHEN dpd <= 0 THEN 'current' WHEN dpd <= 30 THEN 'par30'
+			     WHEN dpd <= 60 THEN 'par60' WHEN dpd <= 90 THEN 'par90' ELSE 'npl' END AS bucket,
 			COUNT(*) AS count, COALESCE(SUM(outstanding_kobo),0) AS kobo
 			`+riskLoanBookBase+` GROUP BY 1`)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, []core.Row{}, "pg")
 				return
 			}
@@ -984,7 +870,7 @@ func riskSectorConcentration(db *core.DB) http.HandlerFunc {
 			ORDER BY book_pct DESC
 			LIMIT 10`)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, []core.Row{}, "pg")
 				return
 			}
@@ -1113,26 +999,16 @@ func riskVintage(db *core.DB) http.HandlerFunc {
 			WITH l AS (
 				SELECT DATE_TRUNC('month', COALESCE(approved_date, start_date)) AS bm,
 				       COALESCE(outstanding_principal_kobo,0)                    AS outstanding,
-				       status,
 				       (`+cbsLoanDPDBare+`)                                      AS dpd
 				FROM cbs_loans
-				WHERE status NOT IN ('Closed','Revoked')
-				  -- Both cohort-date columns are nullable. A loan with neither produced a
-				  -- NULL bucket that sorted FIRST under ORDER BY bm DESC, rendered as a
-				  -- blank clickable row, and matched no detail month.
-				  AND COALESCE(approved_date, start_date) IS NOT NULL`+extraClauses.String()+`
+				WHERE status NOT IN ('Closed','Revoked')`+extraClauses.String()+`
 			)
 			SELECT TO_CHAR(bm, 'Mon YYYY')                                      AS booking_month,
 			       bm                                                          AS _sort,
 			       COUNT(*)                                                    AS cohort_count,
 			       COALESCE(SUM(outstanding),0)                                AS outstanding_kobo,
-			       -- Value-weighted, like every other PAR/NPL figure in the workspace: a
-			       -- cohort of many tiny delinquent loans and one large healthy one is not
-			       -- in the trouble a loan-count ratio would claim.
-			       ROUND(100.0 * COALESCE(SUM(outstanding) FILTER (WHERE dpd > 30),0)
-			                   / NULLIF(SUM(outstanding),0), 1)                 AS par30,
-			       ROUND(100.0 * COALESCE(SUM(outstanding) FILTER (WHERE app.is_npl(status, dpd)),0)
-			                   / NULLIF(SUM(outstanding),0), 1)                 AS npl,
+			       ROUND(100.0 * COUNT(*) FILTER (WHERE dpd > 30) / NULLIF(COUNT(*),0), 1) AS par30,
+			       ROUND(100.0 * COUNT(*) FILTER (WHERE dpd > 90) / NULLIF(COUNT(*),0), 1) AS npl,
 			       ROUND(AVG(dpd))::int                                        AS avg_dpd,
 			       MAX(dpd)::int                                               AS worst_dpd,
 			       (DATE_PART('year',  AGE(NOW(), bm)) * 12
@@ -1142,7 +1018,7 @@ func riskVintage(db *core.DB) http.HandlerFunc {
 			ORDER BY bm DESC
 			LIMIT 24`, args...)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, []core.Row{}, "pg")
 				return
 			}
@@ -1199,7 +1075,7 @@ func riskVintageKPIs(db *core.DB) http.HandlerFunc {
 			       COALESCE(SUM(outstanding) FILTER (WHERE dpd > 30), 0)               AS par30_outstanding_kobo
 			FROM l`, args...)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, map[string]any{"total_loans": 0, "par30": nil, "npl": nil, "par30_outstanding_kobo": 0}, "pg")
 				return
 			}
@@ -1222,18 +1098,6 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 			respondErr(w, 400, "month is required")
 			return
 		}
-		// The drill-down used to ignore the grid's filters entirely, so opening a row
-		// from a book filtered to one product showed the whole month's cohort and the
-		// numbers disagreed with the row that was clicked. The month itself covers
-		// from/to; product is the one that has to travel.
-		vdProduct := qstr(r, "product")
-		var vdBuf strings.Builder
-		vdArgs := []any{month}
-		vdN := 2
-		if vdProduct != "" {
-			multiIn(&vdBuf, &vdArgs, &vdN, "product_name", vdProduct)
-		}
-		vdWhere := vdBuf.String()
 
 		empty := func() {
 			respond(w, map[string]any{
@@ -1255,57 +1119,53 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 			}, "pg")
 		}
 
-		// 1. All aggregate stats + DPD buckets for this cohort, in one query.
-		//
-		// Four things were wrong here and every one of them flattered the cohort:
-		//   * the rate denominators counted EVERY loan in the vintage, including Closed
-		//     and Revoked ones, while app.cbs_loan_dpd returns 0 for anything with no
-		//     balance — so repaid loans were counted as performing and the drill-down was
-		//     structurally healthier than the grid row that opened it;
-		//   * "NPL Rate" measured dpd >= 180 while the card called it "> 90 DPD";
-		//   * the DPD ladder put 1-29 days into "Current" and started PAR30 at 30;
-		//   * 'Expired' — matured with a balance still owing — was counted as written off.
-		//
-		// Rates are now value-weighted over the OPEN book, matching the grid and every
-		// other PAR/NPL figure in the workspace. DPD is also computed once per loan in the
-		// CTE instead of twelve times per row in the select list.
+		// 1. All aggregate stats + DPD buckets + historical PAR milestones in one query
 		aggRows, err := db.PGQuery(ctx, `
-			WITH c AS (
-				SELECT status,
-				       COALESCE(outstanding_principal_kobo,0)   AS op,
-				       (status NOT IN ('Closed','Revoked'))     AS is_open,
-				       `+cbsLoanDPDBare+`                       AS dpd,
-				       `+cbsLoanScoreBare+`                     AS score
-				  FROM cbs_loans
-				 WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(approved_date, start_date)), 'Mon YYYY') = $1`+vdWhere+`
-			)
 			SELECT
-				COUNT(*)                                                  AS total_count,
-				COUNT(*) FILTER (WHERE is_open)                           AS active_count,
-				COALESCE(SUM(op) FILTER (WHERE is_open), 0)               AS active_book_kobo,
-				-- 'Expired' is matured-with-a-balance, which is a collections problem,
-				-- not a write-off. Only 'Revoked' has actually left the book.
-				COUNT(*) FILTER (WHERE status = 'Revoked')                AS written_off_count,
-				COALESCE(ROUND(100.0 * COALESCE(SUM(op) FILTER (WHERE is_open AND dpd > 30),0)
-				             / NULLIF(SUM(op) FILTER (WHERE is_open),0), 2), 0) AS par30_rate_pct,
-				COALESCE(ROUND(100.0 * COALESCE(SUM(op) FILTER (WHERE is_open AND dpd > 60),0)
-				             / NULLIF(SUM(op) FILTER (WHERE is_open),0), 2), 0) AS par60_rate_pct,
-				COALESCE(ROUND(100.0 * COALESCE(SUM(op) FILTER (WHERE is_open AND dpd > 90),0)
-				             / NULLIF(SUM(op) FILTER (WHERE is_open),0), 2), 0) AS par90_rate_pct,
-				COALESCE(ROUND(100.0 * COALESCE(SUM(op) FILTER (WHERE is_open AND app.is_npl(status, dpd)),0)
-				             / NULLIF(SUM(op) FILTER (WHERE is_open),0), 2), 0) AS npl_rate_pct,
-				COALESCE(ROUND(AVG(score) FILTER (WHERE is_open)), 0)      AS avg_eye_score,
-				-- Same ladder as the Portfolio chips and the module's own scale:
-				-- non-performing wins, then the plain DPD ranges beneath it.
-				COUNT(*) FILTER (WHERE is_open AND app.is_npl(status, dpd))                                    AS dpd_npl,
-				COUNT(*) FILTER (WHERE is_open AND NOT app.is_npl(status, dpd) AND dpd <= 0)                    AS dpd_current,
-				COUNT(*) FILTER (WHERE is_open AND NOT app.is_npl(status, dpd) AND dpd BETWEEN 1 AND 30)        AS dpd_par30,
-				COUNT(*) FILTER (WHERE is_open AND NOT app.is_npl(status, dpd) AND dpd BETWEEN 31 AND 60)       AS dpd_par60,
-				COUNT(*) FILTER (WHERE is_open AND NOT app.is_npl(status, dpd) AND dpd BETWEEN 61 AND 90)       AS dpd_par90
-			FROM c`,
-			vdArgs...)
+				COUNT(*) AS total_count,
+				COUNT(*) FILTER (WHERE status NOT IN ('Closed','Revoked')) AS active_count,
+				COALESCE(SUM(outstanding_principal_kobo)
+					FILTER (WHERE status NOT IN ('Closed','Revoked')), 0) AS active_book_kobo,
+				COUNT(*) FILTER (WHERE status IN ('Expired','Revoked')) AS written_off_count,
+				COALESCE(CASE WHEN COUNT(*) > 0
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30)
+				          / NULLIF(COUNT(*),0), 2) END, 0) AS par30_rate_pct,
+				COALESCE(CASE WHEN COUNT(*) > 0
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 60)
+				          / NULLIF(COUNT(*),0), 2) END, 0) AS par60_rate_pct,
+				COALESCE(CASE WHEN COUNT(*) > 0
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 90)
+				          / NULLIF(COUNT(*),0), 2) END, 0) AS par90_rate_pct,
+				COALESCE(CASE WHEN COUNT(*) > 0
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` >= 180)
+				          / NULLIF(COUNT(*),0), 2) END, 0) AS npl_rate_pct,
+				COALESCE(ROUND(AVG(`+cbsLoanScoreBare+`)), 0) AS avg_eye_score,
+				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(approved_date, start_date)))
+				          <= DATE_TRUNC('month', NOW()) - INTERVAL '1 month'
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30)
+				          / NULLIF(COUNT(*),0), 1) END AS par30_1m,
+				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(approved_date, start_date)))
+				          <= DATE_TRUNC('month', NOW()) - INTERVAL '3 months'
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30)
+				          / NULLIF(COUNT(*),0), 1) END AS par30_3m,
+				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(approved_date, start_date)))
+				          <= DATE_TRUNC('month', NOW()) - INTERVAL '6 months'
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30)
+				          / NULLIF(COUNT(*),0), 1) END AS par30_6m,
+				CASE WHEN MIN(DATE_TRUNC('month', COALESCE(approved_date, start_date)))
+				          <= DATE_TRUNC('month', NOW()) - INTERVAL '12 months'
+				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30)
+				          / NULLIF(COUNT(*),0), 1) END AS par30_12m,
+				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` < 30) AS dpd_current,
+				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` BETWEEN 30 AND 59) AS dpd_par30,
+				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` BETWEEN 60 AND 89) AS dpd_par60,
+				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` BETWEEN 90 AND 179) AS dpd_par90,
+				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` >= 180) AS dpd_npl
+			FROM cbs_loans
+			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(approved_date, start_date)), 'Mon YYYY') = $1`,
+			month)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				empty()
 				return
 			}
@@ -1318,12 +1178,13 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 		}
 		agg := aggRows[0]
 
-		// The "PAR Trajectory" this used to return was four copies of the SAME current
-		// PAR30 figure, labelled 1m / 3m / 6m / 12m — a flat line presented as a vintage
-		// curve. A real one needs DPD history per cohort per month, and nothing in this
-		// database stores it (the grid's own comment says so). Returning an empty series
-		// is the honest answer; the page now explains why instead of drawing a fiction.
-		historicalPAR := []map[string]any{}
+		// Build structured sub-arrays from the flat aggregate row
+		historicalPAR := []map[string]any{
+			{"age_label": "1m", "par30_pct": agg["par30_1m"]},
+			{"age_label": "3m", "par30_pct": agg["par30_3m"]},
+			{"age_label": "6m", "par30_pct": agg["par30_6m"]},
+			{"age_label": "12m", "par30_pct": agg["par30_12m"]},
+		}
 		dpdBuckets := []map[string]any{
 			{"label": "Current", "count": agg["dpd_current"]},
 			{"label": "PAR30", "count": agg["dpd_par30"]},
@@ -1343,16 +1204,11 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 				COALESCE(SUM(outstanding_principal_kobo), 0) AS book_kobo,
 				COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30) AS par30_count
 			FROM cbs_loans
-			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(approved_date, start_date)), 'Mon YYYY') = $1`+vdWhere+`
+			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(approved_date, start_date)), 'Mon YYYY') = $1
 			GROUP BY app.cbn_sector_name(economic_sector)
 			ORDER BY count DESC
-			LIMIT 10`, vdArgs...)
-		// Logged rather than swallowed: an empty panel used to be indistinguishable from
-		// a failed query, on a page whose whole job is saying how a cohort is performing.
-		if err != nil {
-			slog.Error("vintage detail: sector breakdown failed", "month", month, "err", err)
-		}
-		if sectorRows == nil {
+			LIMIT 10`, month)
+		if err != nil || sectorRows == nil {
 			sectorRows = []core.Row{}
 		}
 
@@ -1366,13 +1222,10 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 				     THEN ROUND(100.0 * COUNT(*) FILTER (WHERE `+cbsLoanDPDBare+` > 30)
 				          / NULLIF(COUNT(*),0), 1) END, 0) AS par30_pct
 			FROM cbs_loans
-			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(approved_date, start_date)), 'Mon YYYY') = $1`+vdWhere+`
+			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(approved_date, start_date)), 'Mon YYYY') = $1
 			GROUP BY COALESCE(NULLIF(product_name,''), 'Other')
-			ORDER BY count DESC`, vdArgs...)
-		if err != nil {
-			slog.Error("vintage detail: product breakdown failed", "month", month, "err", err)
-		}
-		if productRows == nil {
+			ORDER BY count DESC`, month)
+		if err != nil || productRows == nil {
 			productRows = []core.Row{}
 		}
 
@@ -1392,13 +1245,10 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 				cl.status,
 				cl.maturity_date
 			FROM cbs_loans cl
-			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(cl.approved_date, cl.start_date)), 'Mon YYYY') = $1`+vdWhere+`
+			WHERE TO_CHAR(DATE_TRUNC('month', COALESCE(cl.approved_date, cl.start_date)), 'Mon YYYY') = $1
 			ORDER BY dpd DESC NULLS LAST
-			LIMIT 200`, vdArgs...)
-		if err != nil {
-			slog.Error("vintage detail: cohort loans failed", "month", month, "err", err)
-		}
-		if loanRows == nil {
+			LIMIT 200`, month)
+		if err != nil || loanRows == nil {
 			loanRows = []core.Row{}
 		}
 
@@ -1418,27 +1268,8 @@ func riskVintageDetail(db *core.DB) http.HandlerFunc {
 			"sectors":           sectorRows,
 			"products":          productRows,
 			"loans":             loanRows,
-			// The list is capped at 200, worst DPD first. Saying so lets the page stop
-			// claiming a "Cohort Loans" count that disagrees with the Total Loans KPI
-			// directly above it.
-			"loans_truncated": len(loanRows) >= 200,
 		}, "pg")
 	}
-}
-
-// originationMissing reports whether an error is Postgres saying the TABLE is not here
-// (SQLSTATE 42P01, undefined_table) — the legitimate case on a deployment carrying no
-// origination schema, where an empty list is the honest answer.
-//
-// It deliberately does not match the bare words "does not exist", which the twelve
-// call sites in this file used to test for. That phrase also appears in
-// `column "eye_score" does not exist` — so a wrong column name in a query was
-// indistinguishable from a missing table, and every request quietly returned an empty
-// result set instead of an error. That is precisely how /api/risk/eye-scores came to
-// return nothing at all, on every request, with the page reporting "No Score Requests
-// Found" and nobody seeing a thing.
-func originationMissing(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "42P01")
 }
 
 // ── EyeScore ──────────────────────────────────────────────────────────────────
@@ -1453,20 +1284,12 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 		limit := qint(r, "limit", 50, 1, 500)
 		offset := qint(r, "offset", 0, 0, 1<<30)
 
-		search := strings.TrimSpace(qstr(r, "search"))
-
 		var wbuf strings.Builder
 		var args []any
 		n := 1
 
-		// EVERY predicate below runs against the SUBQUERY, so it must use the subquery's
-		// output names. This block used to filter on eye_score, eye_rating and loan_type —
-		// the pre-alias column names, which do not exist out here — so Postgres raised
-		// `column "eye_score" does not exist` on every single request, the error handler
-		// below mistook it for a missing table, and the endpoint returned an empty list
-		// with total 0. The page has been reporting "No Score Requests Found" ever since,
-		// with no error anywhere for anyone to see.
-		wbuf.WriteString(" AND score IS NOT NULL")
+		// Only return rows that have been eye-scored
+		wbuf.WriteString(" AND eye_score IS NOT NULL")
 
 		if dateFrom != "" && dateTo != "" {
 			wbuf.WriteString(fmt.Sprintf(" AND scored_at::date BETWEEN $%d AND $%d", n, n+1))
@@ -1482,17 +1305,10 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 			n++
 		}
 		if product != "" {
-			multiIn(&wbuf, &args, &n, "product_type", product)
+			multiIn(&wbuf, &args, &n, "COALESCE(product_type, loan_type)", product)
 		}
 		if band != "" {
-			multiIn(&wbuf, &args, &n, "band", band)
-		}
-		// The search box posted `search=` and nothing ever read it, so typing a customer's
-		// name filtered nothing at all.
-		if search != "" {
-			wbuf.WriteString(fmt.Sprintf(" AND (applicant_name ILIKE $%d OR reference ILIKE $%d)", n, n))
-			args = append(args, "%"+search+"%")
-			n++
+			multiIn(&wbuf, &args, &n, "eye_rating", band)
 		}
 
 		where := wbuf.String()
@@ -1503,7 +1319,6 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 				id,
 				id AS application_id,
 				applicant_name,
-				COALESCE(reference, '') AS reference,
 				COALESCE(product_type, loan_type, '') AS product_type,
 				eye_score AS score,
 				COALESCE(eye_rating, '') AS band,
@@ -1516,7 +1331,7 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 		countRows, err := db.PGQuery(ctx,
 			"SELECT COUNT(*) AS total FROM ("+baseQuery+") sub WHERE 1=1"+where, args...)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				writeRiskList(w, []core.Row{}, 0)
 				return
 			}
@@ -1528,28 +1343,10 @@ func riskEyeScores(db *core.DB) http.HandlerFunc {
 		}
 
 		// Data
-		// Sorting happens HERE, over the whole filtered set. The table's sortable headers
-		// used to sort client-side, which reordered only the 50 rows already on screen and
-		// called it "highest score first".
-		orderBy := map[string]string{
-			"score":          "score",
-			"scored_at":      "scored_at",
-			"applicant_name": "applicant_name",
-			"band":           "band",
-			"product_type":   "product_type",
-		}[qstr(r, "sort")]
-		if orderBy == "" {
-			orderBy = "scored_at"
-		}
-		dir := "DESC"
-		if strings.EqualFold(qstr(r, "dir"), "asc") {
-			dir = "ASC"
-		}
-
 		pageArgs := append(args, limit, offset)
 		dataRows, err := db.PGQuery(ctx,
 			"SELECT * FROM ("+baseQuery+") sub WHERE 1=1"+where+
-				fmt.Sprintf(" ORDER BY %s %s NULLS LAST LIMIT $%d OFFSET $%d", orderBy, dir, n, n+1),
+				fmt.Sprintf(" ORDER BY scored_at DESC NULLS LAST LIMIT $%d OFFSET $%d", n, n+1),
 			pageArgs...)
 		if err != nil {
 			respondErrLog(w, 500, "Query failed", err)
@@ -1573,43 +1370,26 @@ func riskEyeKPIs(db *core.DB) http.HandlerFunc {
 			}, "pg")
 			return
 		}
-		// The cards sit above a date-filtered table and used to ignore that filter
-		// entirely, so "High Risk" was an all-time unbounded count sitting beside
-		// month-scoped tiles. They now describe the same window the table does; with no
-		// dates supplied the window is the current month, which is what the tiles claim.
-		var kbuf strings.Builder
-		var kargs []any
-		kn := 1
-		kFrom, kTo := qstr(r, "date_from"), qstr(r, "date_to")
-		if kFrom != "" {
-			kbuf.WriteString(fmt.Sprintf(" AND COALESCE(risk_reviewed_at, submitted_at, created_at)::date >= $%d", kn))
-			kargs = append(kargs, kFrom)
-			kn++
-		}
-		if kTo != "" {
-			kbuf.WriteString(fmt.Sprintf(" AND COALESCE(risk_reviewed_at, submitted_at, created_at)::date <= $%d", kn))
-			kargs = append(kargs, kTo)
-			kn++
-		}
-		// Only when the caller gives no window at all does "this month" apply — otherwise
-		// asking for last quarter would intersect with the current month and return nothing.
-		if kFrom == "" && kTo == "" {
-			kbuf.WriteString(` AND DATE_TRUNC('month', COALESCE(risk_reviewed_at, submitted_at, created_at))
-			                       = DATE_TRUNC('month', NOW())`)
-		}
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 				COUNT(*) FILTER (
 					WHERE eye_score IS NOT NULL
 					  AND COALESCE(risk_reviewed_at, submitted_at, created_at)::date = CURRENT_DATE
 				) AS scored_today,
-				COALESCE(ROUND(AVG(eye_score) FILTER (WHERE eye_score IS NOT NULL), 0), 0) AS avg_score_month,
+				COALESCE(ROUND(AVG(eye_score) FILTER (
+					WHERE eye_score IS NOT NULL
+					  AND DATE_TRUNC('month', COALESCE(risk_reviewed_at, submitted_at, created_at))
+					      = DATE_TRUNC('month', NOW())
+				), 0), 0) AS avg_score_month,
 				COUNT(*) FILTER (WHERE eye_rating = 'High-Risk') AS high_risk_count,
-				COUNT(*) FILTER (WHERE eye_score IS NOT NULL) AS requests_month
-			FROM loan_applications
-			WHERE 1=1`+kbuf.String(), kargs...)
+				COUNT(*) FILTER (
+					WHERE eye_score IS NOT NULL
+					  AND DATE_TRUNC('month', COALESCE(risk_reviewed_at, submitted_at, created_at))
+					      = DATE_TRUNC('month', NOW())
+				) AS requests_month
+			FROM loan_applications`)
 		if err != nil {
-			if originationMissing(err) {
+			if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "relation") {
 				respond(w, map[string]any{
 					"scored_today": 0, "avg_score_month": 0,
 					"high_risk_count": 0, "requests_month": 0,
@@ -1735,46 +1515,13 @@ func riskCreditFile(db *core.DB) http.HandlerFunc {
 		}
 
 		// Customer info: try MSSQL first, fall back to PG loan_applications
-		// Udara customer ids are their OWN namespace and COLLIDE with card CIFs — Udara
-		// 00000424 is FINTRAK, card CIF 00000424 is an unrelated person. Matching
-		// app.customers.cif against a raw cbs_customer_id therefore put a STRANGER'S name,
-		// phone and BVN on this credit file. Collections resolves the same id through the
-		// curated party crosswalk (app.cbs_links, entity_type='party'); Risk now does too,
-		// and falls back to a direct CIF match only when the id is genuinely a card CIF.
-		// 2026-09-21 follow-up: the crosswalk arm below resolved the party but then
-		// insisted on an app.customers row for it — and only 31 of the 295 linked
-		// parties have one. For the other 264 this returned NOTHING, so the file fell
-		// through to the origination fallback and finally to `custName = cif`, i.e. a
-		// bare Udara id where the borrower's name belongs. cbs_customers is the
-		// authoritative name for a Udara facility and covers all 295, so it is now the
-		// name of record whenever the id is a linked Udara customer; the card profile
-		// supplies phone/BVN only when it is genuinely the SAME party. Nothing is ever
-		// read out of app.customers by matching a raw cbs_customer_id against cif.
 		custRows, _, _ := db.DualQuery(ctx,
-			`WITH owner AS (
-				SELECT k.entity_id AS party_id
-				  FROM app.cbs_links k
-				 WHERE k.entity_type = 'party' AND k.cbs_customer_id = $1
-				 LIMIT 1
-			), contact AS (
-				SELECT c.*
-				  FROM app.customers c
-				 WHERE (    EXISTS (SELECT 1 FROM owner) AND c.party_id = (SELECT party_id FROM owner))
-				    OR (NOT EXISTS (SELECT 1 FROM owner) AND c.cif = $1)
-				 ORDER BY (c.party_id IS NULL), c.cif
-				 LIMIT 1
-			)
-			SELECT ct.cif,
-				COALESCE(
-					(SELECT NULLIF(TRIM(cc.name),'') FROM cbs_customers cc
-					  WHERE cc.cbs_customer_id = $1 LIMIT 1),
-					NULLIF(TRIM(COALESCE(ct.first_name,'') || ' ' || COALESCE(ct.last_name,'')),'')
-				) AS full_name,
-				COALESCE(ct.phone,'') AS phone,
-				COALESCE(ct.bvn,'') AS bvn,
+			`SELECT cif,
+				COALESCE(first_name,'') || ' ' || COALESCE(last_name,'') AS full_name,
+				COALESCE(phone,'') AS phone,
+				COALESCE(bvn,'') AS bvn,
 				'unknown' AS kyc_status
-			 FROM (SELECT 1) _one
-			 LEFT JOIN contact ct ON TRUE`,
+			 FROM app.customers WHERE cif = $1 LIMIT 1`,
 			cif)
 
 		custName, phone, bvn, kycStatus := cif, "", "", "unknown"

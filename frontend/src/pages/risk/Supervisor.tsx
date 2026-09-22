@@ -21,12 +21,12 @@ interface Snapshot {
 interface DpdBucketRow { bucket: string; count: number; kobo: number }
 interface BandRow { band: string; count: number; pct: number }
 interface WatchRow {
-  cif: string; name: string; product: string; sector: string; reference: string
+  cif: string; name: string; product: string; sector: string
   outstanding_kobo: number; arrears_kobo: number; dpd: number; band: string | null; score: number | null
 }
 interface ConcRow { cif: string; name: string; loans: number; book_kobo: number; pct_of_total: number }
 interface SectorRow { sector: string; loan_count: number; book_kobo: number; book_pct: number }
-interface ReviewRow { pending: number; reviewed_today: number; approved_mtd: number; declined_mtd: number; oldest_pending_days: number; single_reviewer_mtd: number }
+interface ReviewRow { pending: number; reviewed_today: number; approved_mtd: number; declined_mtd: number; oldest_pending_days: number }
 interface Supervisor {
   origination_live?: boolean; concentration_limit_pct?: number
   snapshot?: Snapshot; dpd_buckets?: DpdBucketRow[]; bands?: BandRow[]
@@ -79,10 +79,7 @@ export default function RiskSupervisor() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  // 'loans' signals loan_applications; every panel here except the team review queue
-  // reads the CBS book, which signals on 'cbs' — so this page never refreshed when the
-  // thing it is actually about changed.
-  useLiveData(() => load(), { topics: ['loans', 'cbs'] })
+  useLiveData(() => load(), { topics: ['loans'] })
 
   if (loading && !d) return (
     <Page title="Supervisor"><div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Spinner size={32} /></div></Page>
@@ -245,9 +242,7 @@ export default function RiskSupervisor() {
               <HandoffTile icon="collections_bookmark" color={AMBER} label="Collections Book"
                 value={`${fmtNum(N(s?.par30_loans))} loans past 30 DPD`}
                 sub={`${fmtKoboExact(N(s?.par30_kobo))} outstanding`}
-                // The tile counts loans past 30 DPD; par30 is the 1–30 bucket, so
-                // including it opened a longer list than the number just clicked.
-                onClick={() => navigate('/operations/risk/portfolio?dpd=par60,par90,npl')} />
+                onClick={() => navigate('/operations/risk/portfolio?dpd=par30,par60,par90,npl')} />
               <HandoffTile icon="gavel" color={RED} label="Recovery Candidates"
                 value={`${fmtNum(N(s?.npl_loans))} loans over 90 DPD`}
                 sub={`${fmtKoboExact(N(s?.npl_kobo))} at risk`}
@@ -328,12 +323,7 @@ export default function RiskSupervisor() {
 
       {/* Watchlist */}
       <SectionCard title="Watchlist" subtitle="Most delinquent loans across the book, worst first" badge={watchlist.length} style={{ marginBottom: live ? SP[4] : 0 }}>
-        {/* Keyed on the loan, and opening the loan: cif here is a raw Udara customer id,
-            which collides with the card CIF namespace Customer 360 resolves — so the row
-            click opened an unrelated person, and two loans of one product dropped a row. */}
-        <DataTable cols={watchCols} rows={watchlist} keyFn={r => r.reference || `${r.cif}:${r.product}:${r.dpd}`}
-          onRowClick={r => navigate(`/operations/risk/portfolio?search=${encodeURIComponent(r.reference || r.name)}`)}
-          pageSize={10} emptyText="Nothing Past Due" />
+        <DataTable cols={watchCols} rows={watchlist} keyFn={r => r.cif + r.product} onRowClick={r => navigate(`/customers/${encodeURIComponent(r.cif)}`)} pageSize={10} emptyText="Nothing Past Due" />
       </SectionCard>
 
       {/* Team review throughput — only when origination is live */}
@@ -342,18 +332,10 @@ export default function RiskSupervisor() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: SP[3] }}>
             {[
               { label: 'Pending', value: fmtNum(N(review.pending)), accent: N(review.pending) > 0 ? AMBER : GREEN },
-              // Named for what it measures. This is age since SUBMISSION across the
-              // queue; My Approvals shows days in the CURRENT STAGE per row. Both are
-              // useful, they are not the same number, and calling both "Waiting" made
-              // them look like a contradiction whenever a note reset the other one.
-              { label: 'Oldest Since Submitted', value: N(review.oldest_pending_days) > 0 ? `${fmtNum(review.oldest_pending_days)}d` : '—', accent: N(review.oldest_pending_days) >= 3 ? RED : NAVY },
+              { label: 'Oldest Waiting', value: N(review.oldest_pending_days) > 0 ? `${fmtNum(review.oldest_pending_days)}d` : '—', accent: N(review.oldest_pending_days) >= 3 ? RED : NAVY },
               { label: 'Reviewed Today', value: fmtNum(N(review.reviewed_today)), accent: GREEN },
               { label: 'Approved MTD', value: fmtNum(N(review.approved_mtd)), accent: GREEN },
               { label: 'Declined MTD', value: fmtNum(N(review.declined_mtd)), accent: NAVY },
-              // Not a failure count — with one officer and one head, covering is routine.
-              // It is the separation-of-duties question made answerable: how many credits
-              // this month went through a single pair of eyes.
-              { label: 'Single-Reviewer MTD', value: fmtNum(N(review.single_reviewer_mtd)), accent: N(review.single_reviewer_mtd) > 0 ? AMBER : GREEN },
             ].map(k => (
               <div key={k.label} style={{ padding: '14px 16px', background: 'var(--card)', border: '1px solid var(--bdr)', borderRadius: RADIUS.lg }}>
                 <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{k.label}</div>

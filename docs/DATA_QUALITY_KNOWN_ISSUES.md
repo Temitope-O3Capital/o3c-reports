@@ -104,7 +104,10 @@ which is exactly the case the volume-taper check exists for.
 
 ## 6. The legacy PowerShell ingester has never loaded a row
 
-**Status:** Open — needs the task repointed or retired.
+**Status:** Resolved — retired. Verified 2026-09-22: the scheduled task
+`O3C-CCS-Ingest` is **Disabled**, last run 2026-09-14 13:00 (result 0) with 756 missed
+runs since. It is no longer returning false-green every 15 minutes. The scripts remain in
+`C:\Users\tbabatunde\o3c-db\` if anyone wants the extraction logic; nothing schedules them.
 
 `C:\Users\tbabatunde\o3c-db\52_ingest.ps1` defaults `-Landing` to
 `C:\Users\tbabatunde\Desktop\Data Dump`, which holds only April 2026 files, and
@@ -122,9 +125,20 @@ which is exactly the case the volume-taper check exists for.
 | CCS EODTXN (`ccs_transactions`) | 2026-08-05 | — |
 | Card cycle (`card_cycle_data`) | 2026-08-04 | cycle 2026-07-14 |
 
+Still open and getting worse. Re-checked 2026-09-22: the newest card cycle is still
+**2026-07-14 — 69 days old**, so the August and September cycles have never been
+uploaded, and every card revenue, limit and interest figure is anchored to July. Alerts
+now reach Cards ops and Settlement ops rather than an empty `it_admin` role (issue 14),
+so this is waiting on the upload itself, not on anyone being told.
+
 ## 8. Duplicate customer rows per CIF
 
-**Status:** Documented, not fixed.
+**Status:** Resolved. Re-measured against the live database 2026-09-22:
+`SELECT cif, count(*) FROM app.customers GROUP BY cif HAVING count(*) > 1` returns
+**zero rows**. The ~385 duplicates below were real in the 2026-09-12 dump; the identity
+work in migrations 250–253 appears to have removed them. The guidance still stands for
+any future upsert: dedupe on CIF first, because a CIF is a card id under a party, not a
+person.
 
 Joining the 2026-07-14 `cust_file` export to `app.customers` on zero-padded CIF, 21,057
 matched CIFs produced 21,442 rows while the export itself had no duplicate CIFs — so

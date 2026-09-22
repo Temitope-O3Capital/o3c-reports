@@ -139,9 +139,6 @@ interface DetailData {
   events:      AppEvent[]
   notes:       AppNote[]
   conditions:  AppCondition[]
-  // True when the viewer is the person who moved this file into its current stage.
-  // Advancing it onward is then a single-reviewer decision, and is recorded as one.
-  entered_stage_by_me?: boolean
 }
 
 interface EyeReason {
@@ -407,15 +404,11 @@ function ConditionsInline({ appId, conditions, onRefresh, canManage }: {
     finally { setSaving(false) }
   }
 
-  // Ticking a condition off used to be one-way: the endpoint ignored this body and could
-  // only ever set is_met = TRUE, so a condition satisfied by mistake stayed satisfied on
-  // a credit file for good. It now carries the state being set, both ways, and each
-  // change is recorded against whoever made it.
-  async function setMet(condId: number, met: boolean) {
+  async function markMet(condId: number) {
     setMarking(m => ({ ...m, [condId]: true }))
     try {
-      await apiPut(`/api/los/${appId}/conditions/${condId}`, { is_met: met })
-      toast.success(met ? 'Condition marked as met' : 'Condition reopened'); onRefresh()
+      await apiPut(`/api/los/${appId}/conditions/${condId}`, { is_met: true })
+      toast.success('Condition marked as met'); onRefresh()
     } catch (e: any) { toast.error(e.message ?? 'Failed') }
     finally { setMarking(m => ({ ...m, [condId]: false })) }
   }
@@ -459,7 +452,7 @@ function ConditionsInline({ appId, conditions, onRefresh, canManage }: {
           <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${AMBER}`, flexShrink: 0, marginTop: 1 }} />
           <div style={{ flex: 1, fontSize: 13.5, color: 'var(--txt)', lineHeight: 1.5 }}>{c.condition_text}</div>
           {canManage && (
-            <button onClick={() => setMet(c.id, true)} disabled={!!marking[c.id]}
+            <button onClick={() => markMet(c.id)} disabled={!!marking[c.id]}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 6, border: `1px solid ${GREEN}40`, background: `${GREEN}08`, color: GREEN, fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               {marking[c.id] ? <Spinner size={11} color={GREEN} /> : <span className="material-symbols-rounded" style={{ fontSize: 12 }}>check</span>}
               Met
@@ -473,14 +466,6 @@ function ConditionsInline({ appId, conditions, onRefresh, canManage }: {
           <span className="material-symbols-rounded" style={{ fontSize: 17, color: GREEN, flexShrink: 0 }}>check_circle</span>
           <div style={{ flex: 1, fontSize: 13, color: 'var(--txt)', textDecoration: 'line-through' }}>{c.condition_text}</div>
           {c.met_by_name && <span style={{ fontSize: 11.5, color: 'var(--txt3)', whiteSpace: 'nowrap' }}>{c.met_by_name}</span>}
-          {canManage && (
-            <button onClick={() => setMet(c.id, false)} disabled={!!marking[c.id]}
-              title="Reopen this condition"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 6, border: '1px solid var(--bdr)', background: 'var(--card)', color: 'var(--txt2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              {marking[c.id] ? <Spinner size={11} color={AMBER} /> : <span className="material-symbols-rounded" style={{ fontSize: 12 }}>undo</span>}
-              Reopen
-            </button>
-          )}
         </div>
       ))}
 
@@ -510,11 +495,7 @@ function DocPreviewModal({ doc, onClose }: { doc: LosDoc | null; onClose: () => 
 
   const ext = (doc?.file_name.split('.').pop() ?? '').toLowerCase()
   const isPdf   = ext === 'pdf'
-  // SVG is deliberately absent: it is a script-bearing document, not a picture. Opened
-  // from a blob URL it runs in the workspace's own origin, so an uploaded "payslip.svg"
-  // would execute against the session of every officer who previewed it. It falls
-  // through to the download path with everything else we cannot safely render.
-  const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)
+  const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext)
   const canRender = isPdf || isImage
 
   useEffect(() => {
@@ -525,9 +506,7 @@ function DocPreviewModal({ doc, onClose }: { doc: LosDoc | null; onClose: () => 
     let revoked = false
     let objectUrl: string | null = null
     setLoading(true); setError(null)
-    // The row says where to fetch itself: a pre-application document is served by the
-    // activities route, not the LOS one, and the two id spaces overlap.
-    apiBlob(doc.content_url ?? `/api/los/documents/${doc.id}/content`)
+    apiBlob(`/api/los/documents/${doc.id}/content`)
       .then(blob => {
         if (revoked) return
         objectUrl = URL.createObjectURL(blob)
@@ -613,34 +592,9 @@ const DOC_SLOTS = [
 ]
 
 interface LosDoc {
-  id: number; application_id: number | null; doc_type: string
+  id: number; application_id: number; doc_type: string
   file_name: string; file_url: string; file_size_bytes: number
   created_at: string; uploaded_by_name: string | null
-  // Where the file actually lives. 'pre_application' rows come from the lead/contact
-  // store — collected by Sales or the call centre before this application existed — and
-  // are served by a different route, so every row carries its own content URL. Their ids
-  // also overlap with los_documents ids, hence the source-qualified React keys below.
-  source?: 'application' | 'pre_application'
-  content_url?: string
-}
-
-// One row for a document that isn't one of the four fixed slots.
-function DocRow({ d, onView }: { d: LosDoc; onView: () => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--bdr)' }}>
-      <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--txt2)', flexShrink: 0 }}>description</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{d.doc_type || 'Document'}</div>
-        <div style={{ fontSize: 11.5, color: 'var(--txt3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {d.file_name}{d.uploaded_by_name ? ` · ${d.uploaded_by_name}` : ''}
-        </div>
-      </div>
-      <button onClick={onView}
-        style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: `1px solid ${NAVY}25`, background: `${NAVY}08`, color: NAVY, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-        <span className="material-symbols-rounded" style={{ fontSize: 13 }}>visibility</span>View
-      </button>
-    </div>
-  )
 }
 
 function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?: boolean }) {
@@ -658,10 +612,6 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
   }, [appId])
 
   useEffect(() => { loadDocs() }, [loadDocs])
-
-  const slotKeys   = new Set(DOC_SLOTS.map(s => s.key))
-  const extraDocs  = docs.filter(d => d.source !== 'pre_application' && !slotKeys.has(d.doc_type))
-  const preAppDocs = docs.filter(d => d.source === 'pre_application')
 
   async function handleUpload(docType: string, file: File) {
     setUploading(u => ({ ...u, [docType]: true }))
@@ -694,7 +644,7 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
     <>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
         {DOC_SLOTS.map(slot => {
-          const uploaded    = docs.filter(d => d.source !== 'pre_application' && d.doc_type === slot.key)
+          const uploaded    = docs.filter(d => d.doc_type === slot.key)
           const isUploading = uploading[slot.key]
           return (
             <div key={slot.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderBottom: '1px solid var(--bdr)' }}>
@@ -750,33 +700,6 @@ function DocumentsInline({ appId, readOnly = false }: { appId: number; readOnly?
           )
         })}
       </div>
-
-      {/* Anything outside the four fixed slots used to be fetched and then silently
-          dropped: the panel only ever drew rows whose doc_type matched a slot key. */}
-      {extraDocs.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 0, borderTop: '1px solid var(--bdr)' }}>
-          <div style={{ padding: '9px 16px', background: 'var(--th-bg)', fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-            Other Documents
-          </div>
-          {extraDocs.map(d => <DocRow key={`a${d.id}`} d={d} onView={() => setPreview(d)} />)}
-        </div>
-      )}
-
-      {/* Collected by Sales or the call centre before this application existed. These
-          sat unreachable in the lead store while the officer saw "Pending" on every
-          slot and asked the customer for papers the business already had. */}
-      {preAppDocs.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 0, borderTop: '1px solid var(--bdr)' }}>
-          <div style={{ padding: '9px 16px', background: 'var(--th-bg)', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-              Collected Before Application
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 10, background: 'rgba(37,99,235,.12)', color: BLUE }}>{preAppDocs.length}</span>
-          </div>
-          {preAppDocs.map(d => <DocRow key={`p${d.id}`} d={d} onView={() => setPreview(d)} />)}
-        </div>
-      )}
-
       <DocPreviewModal doc={preview} onClose={() => setPreview(null)} />
     </>
   )
@@ -3134,9 +3057,6 @@ export default function ApplicationDetail() {
 
   const [toStage,       setToStage]       = useState('')
   const [advanceNotes,  setAdvanceNotes]  = useState('')
-  // The figure being granted, captured at the risk head's sign-off. Held as naira text
-  // exactly as typed; converted to kobo once, on submit.
-  const [approveAmount, setApproveAmount] = useState('')
   const [declineReason, setDeclineReason] = useState('')
   const [reqInfoNotes,  setReqInfoNotes]  = useState('')
   const [actionLoading, setActionLoading] = useState(false)
@@ -3156,27 +3076,11 @@ export default function ApplicationDetail() {
 
   async function doAdvance() {
     if (!toStage) { toast.error('Select a target stage'); return }
-    // Approving into pending_conditions is the credit decision: the server now requires
-    // the amount being granted, because nothing ever recorded one and the disbursement
-    // journal silently booked whatever the customer had asked for.
-    const approving = toStage === 'pending_conditions'
-    let approvedKobo = 0
-    if (approving) {
-      approvedKobo = Math.round(parseFloat(approveAmount.replace(/,/g, '')) * 100)
-      if (!isFinite(approvedKobo) || approvedKobo <= 0) { toast.error('Enter the amount you are approving'); return }
-      if (approvedKobo > (data?.application?.amount_requested_kobo ?? 0)) {
-        toast.error('The approved amount cannot exceed the amount requested'); return
-      }
-    }
     setActionLoading(true)
     try {
-      await apiPut(`/api/los/${id}/advance`, {
-        to_stage: toStage,
-        notes: advanceNotes,
-        ...(approving ? { amount_approved_kobo: approvedKobo } : {}),
-      })
-      toast.success(approving ? 'Application approved' : 'Stage advanced')
-      setAdvanceOpen(false); setToStage(''); setAdvanceNotes(''); setApproveAmount('')
+      await apiPut(`/api/los/${id}/advance`, { to_stage: toStage, notes: advanceNotes })
+      toast.success('Stage advanced')
+      setAdvanceOpen(false); setToStage(''); setAdvanceNotes('')
       load()
     } catch (e: any) { toast.error(e.message ?? 'Advance failed') }
     finally { setActionLoading(false) }
@@ -3364,18 +3268,6 @@ export default function ApplicationDetail() {
       <ConfirmModal open={advanceOpen} title="Advance Stage" confirmLabel="Advance" loading={actionLoading}
         onConfirm={doAdvance} onClose={() => { setAdvanceOpen(false); setToStage(''); setAdvanceNotes('') }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Said before the click. Not a block: with one risk officer and one risk head,
-              covering for each other is routine — but the decision is recorded as having
-              gone through a single pair of eyes, so it can be found and answered for. */}
-          {data?.entered_stage_by_me && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '9px 11px', borderRadius: 8, background: 'rgba(217,119,6,.10)', border: '1px solid rgba(217,119,6,.35)' }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 17, color: AMBER, marginTop: 1 }}>visibility</span>
-              <span style={{ fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.45 }}>
-                You also performed the previous step on this application. Continuing will be
-                recorded as a <strong style={{ color: 'var(--txt)' }}>single-reviewer decision</strong>.
-              </span>
-            </div>
-          )}
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Move to Stage</div>
             <select value={toStage} onChange={e => setToStage(e.target.value)} style={inputStyle}>
@@ -3383,24 +3275,6 @@ export default function ApplicationDetail() {
               {nextStages.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
             </select>
           </div>
-          {toStage === 'pending_conditions' && (
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Amount To Approve (₦)</div>
-              <input
-                inputMode="decimal" value={approveAmount}
-                onChange={e => setApproveAmount(e.target.value)}
-                placeholder={String((app.amount_requested_kobo ?? 0) / 100)}
-                style={inputStyle}
-              />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5 }}>
-                <span style={{ fontSize: 11.5, color: 'var(--txt3)' }}>Requested: {fmtKobo(app.amount_requested_kobo)}</span>
-                <button type="button" onClick={() => setApproveAmount(String((app.amount_requested_kobo ?? 0) / 100))}
-                  style={{ border: 'none', background: 'none', padding: 0, color: NAVY, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                  Approve in full
-                </button>
-              </div>
-            </div>
-          )}
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt2)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Notes (Optional)</div>
             <textarea spellCheck={false} data-gramm="false" data-gramm_editor="false"
