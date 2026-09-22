@@ -110,6 +110,27 @@ func Apply(ctx context.Context, db *core.DB, fsys fs.FS, dir string) error {
 
 // List returns the migration filenames under dir, sorted. Exported so a test can
 // assert that every file on disk was applied.
+//
+// DUPLICATE NUMBERS ARE FINE — DO NOT RENUMBER THEM.
+//
+// Parallel branches hand out the same number independently, so main currently
+// carries 257, 258 and 259 twice or three times over (condition_author /
+// merchant_alias_rejected / recovery_case_closed_reason all being 258). That is
+// safe, because the key here and in schema_migrations is the whole FILENAME, not
+// the number: distinct names are distinct rows, so every file applies exactly
+// once, and sort.Strings gives a total order that is stable across hosts.
+//
+// Renumbering an already-applied file is what would actually break: the new name
+// is absent from schema_migrations, so the migration RE-RUNS on every deployed
+// database. Most of ours are idempotent (IF NOT EXISTS / CREATE OR REPLACE) and
+// would survive it, but 259_alert_tuning.sql drops and recreates a view, and
+// nothing guarantees the next one added will be so forgiving.
+//
+// The number is therefore a rough chronological hint, never a dependency
+// declaration. If one migration genuinely needs another to have run first, give
+// it a strictly later number AND state the dependency in its header comment —
+// the same-numbered files on main today touch disjoint objects, which is the
+// only reason their relative order does not matter.
 func List(fsys fs.FS, dir string) ([]string, error) {
 	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
