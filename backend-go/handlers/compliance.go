@@ -1393,24 +1393,47 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 			"car_min_pct":   10.0,
 		}
 
-		// Compute CAR: equity capital / risk-weighted assets (loan portfolio) * 100.
-		// Uses gl_accounts type='equity' for capital and loan_applications outstanding for RWA.
-		carPct := 0.0
-		carRows, carErr := db.PGQuery(ctx, `
-			SELECT
-			    COALESCE((SELECT SUM(je.amount_kobo) FROM gl_journal_entries je
-			              JOIN gl_accounts ga ON ga.id = je.account_id
-			              WHERE ga.type = 'equity' AND je.direction = 'CR'), 0) AS equity_kobo,
-			    COALESCE((SELECT SUM(outstanding_kobo) FROM loan_applications
-			              WHERE stage = 'active' AND outstanding_kobo > 0), 0)  AS rwa_kobo`)
-		if carErr == nil && len(carRows) > 0 {
-			equity := float64(toInt64(carRows[0]["equity_kobo"]))
-			rwa := float64(toInt64(carRows[0]["rwa_kobo"]))
-			if rwa > 0 {
-				carPct = round1(equity / rwa * 100)
-			}
+		// Capital Adequacy Ratio — reported as NOT COMPUTABLE, because it is not.
+		//
+		// This used to run a query against columns that do not exist on this schema:
+		// gl_accounts.type (the column is `class`), gl_journal_entries.account_id and
+		// .direction (the table has debit_account / credit_account, both TEXT). It
+		// errored on every request, carErr was swallowed, and car_pct was published as
+		// 0.0 against a 10% minimum — a capital ratio of zero, shown as if measured.
+		//
+		// Fixing the column names would not help: there is no equity anywhere to read.
+		// gl_accounts gained 3000 Retained Earnings and 3100 Share Capital in migration
+		// 282 so that capital CAN be posted, but nothing has been, and the GL holds only
+		// workspace-originated collections postings. CAR needs a capital figure this
+		// database does not have.
+		//
+		// So it returns null with a reason. A ratio that cannot be computed must not be
+		// rendered as a number — least of all a prudential one a regulator reads.
+		var equityKobo int64
+		if rows, e := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(CASE WHEN je.credit_account = ga.code THEN je.amount_kobo
+			                         WHEN je.debit_account  = ga.code THEN -je.amount_kobo
+			                         ELSE 0 END), 0) AS equity_kobo
+			  FROM gl_journal_entries je
+			  JOIN gl_accounts ga ON ga.class = 'Equity'
+			                     AND (ga.code = je.credit_account OR ga.code = je.debit_account)`); e == nil && len(rows) > 0 {
+			equityKobo = toInt64(rows[0]["equity_kobo"])
 		}
-		result["car_pct"] = carPct
+		var rwaKobo int64
+		if rows, e := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(outstanding_principal_kobo), 0) AS rwa_kobo
+			  FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')`); e == nil && len(rows) > 0 {
+			rwaKobo = toInt64(rows[0]["rwa_kobo"])
+		}
+		if equityKobo > 0 && rwaKobo > 0 {
+			result["car_pct"] = round1(float64(equityKobo) / float64(rwaKobo) * 100)
+			result["car_basis"] = "Equity posted to the GL (gl_accounts class 'Equity') over open loan principal."
+		} else {
+			result["car_pct"] = nil
+			result["car_basis"] = "Not computable: no capital has been posted to the general ledger, " +
+				"so there is no equity figure to divide by risk-weighted assets. " +
+				"Previously published as 0.0% by a query that errored on every request."
+		}
 		result["cbn_thresholds"].(map[string]any)["car_min_pct"] = 10.0
 
 		// H7: breach detection — NPL and PAR90 are max thresholds (breach if above).
@@ -1428,8 +1451,11 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 		if v, ok := result["par90_pct"].(float64); ok && v > 5.0 {
 			breaches = append(breaches, breach{"PAR90", v, 5.0, "above_max"})
 		}
-		if carPct > 0 && carPct < 10.0 {
-			breaches = append(breaches, breach{"CAR", carPct, 10.0, "below_min"})
+		// Only when CAR is actually computable. A null ratio is not a breach —
+		// it is an unanswered question, and raising a prudential breach alert off
+		// a missing figure would page the compliance head about nothing.
+		if v, ok := result["car_pct"].(float64); ok && v > 0 && v < 10.0 {
+			breaches = append(breaches, breach{"CAR", v, 10.0, "below_min"})
 		}
 		if breaches == nil {
 			breaches = []breach{}
