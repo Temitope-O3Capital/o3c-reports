@@ -86,6 +86,8 @@ export default function Retention() {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  const [seeding, setSeeding] = useState(false)
+  const [seeded, setSeeded] = useState<string | null>(null)
 
   // Defaults ARE the recommendation: the win-back pool, reachable, not already a
   // collections conversation. Everything else is an opt-in widening.
@@ -122,9 +124,39 @@ export default function Retention() {
   const byBucket = (k: string) => buckets.find(b => b.bucket === k)
   const unknown = byBucket('unknown')
 
+  const seedQueue = useCallback(() => {
+    if (!confirm(
+      'Send the win-back list to the outbound dialler?\n\n' +
+      'Highest-value customers first. Anyone already in a recovery case, on the ' +
+      'do-not-call list, or without a usable phone is excluded.'
+    )) return
+    setSeeding(true); setErr(null)
+    apiFetch<{ inserted: number }>('/api/retention/sync-queue', { method: 'POST' })
+      .then(r => setSeeded(`${r.inserted} customer${r.inserted === 1 ? '' : 's'} added to the outbound queue`))
+      .catch(e => setErr(e.message))
+      .finally(() => setSeeding(false))
+  }, [])
+
   return (
-    <Page title="Retention & Win-Back" subtitle="Who is slipping away, what they are worth, and who can actually be worked">
+    <Page title="Retention & Win-Back" subtitle="Who is slipping away, what they are worth, and who can actually be worked"
+      actions={
+        <button onClick={seedQueue} disabled={seeding}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: TEXT.xs,
+            fontWeight: FW.semibold, color: '#fff', background: NAVY, border: 'none',
+            borderRadius: RADIUS.md, padding: '8px 14px', cursor: seeding ? 'wait' : 'pointer',
+          }}>
+          <span className="material-symbols-rounded" style={{ fontSize: 16 }}>call_made</span>
+          {seeding ? 'Sending…' : 'Send to Dialler'}
+        </button>
+      }>
       {err && <ErrBanner error={err} />}
+      {seeded && (
+        <div style={{
+          padding: '10px 14px', marginBottom: SP[4], borderRadius: RADIUS.md,
+          background: `${GREEN}12`, border: `1px solid ${GREEN}40`, color: 'var(--txt2)', fontSize: TEXT.sm,
+        }}>{seeded} — work it under Call Center → Queue, filtered to the Retention purpose.</div>
+      )}
 
       {/* The headline is the WORKABLE number, not the churned one. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: SP[4], marginBottom: SP[6] }}>

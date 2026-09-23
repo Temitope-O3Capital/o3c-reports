@@ -3085,6 +3085,25 @@ func leadStatusFromCall(outcome string, disposition *string) string {
 		d = strings.ToLower(strings.TrimSpace(*disposition))
 	}
 	switch {
+	// ── Win-back outcomes, matched FIRST ──────────────────────────────────────
+	// These are full sentences, and several contain words the generic matching
+	// below keys on: "Left Over Service or an Unresolved Issue" contains "resolved"
+	// and would close the lead as a support resolution, and "Reactivating — Will Use
+	// Again" matches nothing at all and would fall through to a bare "called",
+	// losing the one outcome a win-back call exists to produce.
+	case strings.Contains(d, "reactivating"):
+		// They are coming back. That is a conversion, and it must rank terminal so a
+		// later no-answer cannot knock it back out of the converted count.
+		return "converted"
+	case strings.Contains(d, "not interested in returning"):
+		return "called"
+	case strings.Contains(d, "left over"),
+		strings.Contains(d, "using another provider"),
+		strings.Contains(d, "no longer needs"):
+		// A recorded reason for leaving. The contact is closed either way; what
+		// matters is that the reason is now on the record, which for 94.7% of
+		// churned customers it never was.
+		return "closed"
 	case strings.Contains(d, "do not call"):
 		return "dnc"
 	case strings.Contains(d, "converted"):

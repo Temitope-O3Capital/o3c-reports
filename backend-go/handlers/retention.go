@@ -110,6 +110,78 @@ func formatKoboShort(kobo int64) string {
 	return fmt.Sprintf("NGN %.0f", naira)
 }
 
+// ── Feeding the outbound queue ───────────────────────────────────────────────
+
+// retentionSyncQueue — POST /api/retention/sync-queue
+// Seeds the outbound dialler with win-back work, alongside the three feeders that
+// already exist (CRM leads, collections, CSV import).
+//
+// The gates are the whole point, and every one of them is a refusal to waste a call:
+//
+//   - measured — we hold actual money history. Without this the queue fills with the
+//     ~13,300 parties whose transactions we simply never captured, and an agent rings
+//     someone to ask why they stopped using a product they may still be using.
+//   - NOT has_open_recovery — 152 of the top 500 lapsed customers by value are in a
+//     recovery case. Calling them for win-back cuts straight across a colleague
+//     chasing the same person's debt.
+//   - contactable, and a phone specifically — the list is dialled, so an
+//     email-only customer is not queue work. It also re-checks the do-not-call list
+//     at insert time rather than trusting the nightly flag.
+//   - value_kobo > 0 — a customer worth nothing measurable is not worth a call
+//     before the ones who are.
+//
+// Highest value first, capped per run so one press cannot bury the floor.
+func retentionSyncQueue(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := qint(r, "limit", 500, 1, 5000)
+
+		res, err := db.PGExec(r.Context(), `
+			INSERT INTO call_center_contacts
+			  (customer_name, phone, cif, priority, is_existing_customer,
+			   status, purpose, source, outstanding_kobo)
+			SELECT x.full_name, x.phone, x.cif,
+			       CASE WHEN x.value_tier IN ('vip','gold') THEN 'High'
+			            WHEN x.value_tier = 'silver'        THEN 'Medium'
+			            ELSE 'Low' END,
+			       TRUE, 'pending', 'retention', 'retention',
+			       -- Not a debt: this carries what the customer was WORTH, so the
+			       -- queue can sort and an agent can see it without another lookup.
+			       x.value_kobo
+			  FROM (
+			    SELECT p.full_name,
+			           COALESCE(NULLIF(c.phone,''), p.primary_phone) AS phone,
+			           c.cif, cl.value_tier, cl.value_kobo,
+			           ROW_NUMBER() OVER (PARTITION BY app.norm_phone(
+			               COALESCE(NULLIF(c.phone,''), p.primary_phone))
+			             ORDER BY cl.value_kobo DESC) AS rn
+			      FROM app.customer_lifecycle cl
+			      JOIN app.parties p   ON p.party_id = cl.party_id
+			      LEFT JOIN app.customers c ON c.party_id = cl.party_id
+			     WHERE cl.bucket IN ('lapsed','churned')
+			       AND cl.measured
+			       AND NOT cl.has_open_recovery
+			       AND cl.value_kobo > 0
+			  ) x
+			 WHERE length(app.norm_phone(x.phone)) = 10
+			   AND x.rn = 1
+			   AND `+ccNotOnDNCExpr("x.phone")+`
+			   -- Never queue the same person twice for the same purpose.
+			   AND NOT EXISTS (
+			     SELECT 1 FROM call_center_contacts t
+			      WHERE app.norm_phone(t.phone) = app.norm_phone(x.phone)
+			        AND COALESCE(t.purpose,'marketing') = 'retention')
+			 ORDER BY x.value_kobo DESC
+			 LIMIT $1`, limit)
+		if err != nil {
+			respondErrLog(w, 500, "Could not build the win-back queue", err)
+			return
+		}
+		n, _ := res.RowsAffected()
+		slog.Info("retention: win-back queue seeded", "contacts", n)
+		respond(w, map[string]any{"inserted": n}, "json")
+	}
+}
+
 // ── Read API ─────────────────────────────────────────────────────────────────
 
 // RegisterRetention mounts the retention read API.
@@ -123,6 +195,10 @@ func RegisterRetention(r chi.Router, db *core.DB) {
 	access := core.RequirePages("retention")
 	r.With(access).Get("/summary", retentionSummary(db))
 	r.With(access).Get("/customers", retentionList(db))
+	// Seeding the dialler creates work for a whole floor, so it is a supervisor
+	// action — the same bar as the three feeders it sits beside.
+	r.With(core.RequirePages("call_center_stats", "retention")).
+		Post("/sync-queue", retentionSyncQueue(db))
 	// The Customer 360 panel is opened by anyone who can already open the customer,
 	// so it rides customer360 rather than the retention page.
 	r.With(core.RequirePages("customer360", "crm_contacts", "retention")).

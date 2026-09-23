@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -79,6 +80,33 @@ var ccDispositions = []ccDisposition{
 		Hint: "Removes the contact — the number is not the customer"},
 	{Code: "do_not_call", Label: "Do Not Call", Status: "closed", AddToDNC: true, Connected: true,
 		Hint: "Closes the contact and suppresses the number from all future lists"},
+
+	// ── Retention / win-back ──────────────────────────────────────────────────
+	//
+	// A win-back call is not a marketing call. The customer already bought from us
+	// and then stopped, so the useful outcomes are about WHY they left and whether
+	// they will come back — not whether they qualify. Offering "Not Eligible" to
+	// someone who has been our customer for years reads as an insult; offering
+	// "Answered — Interested" loses the one thing this call exists to learn.
+	//
+	// These are also the only way we will ever capture a churn reason. A schema-wide
+	// search on 2026-09-23 found no closure-reason field anywhere: of 6,539 churned
+	// customers we can explain 347 (5.3%), and only because they defaulted. Every
+	// disposition below that names a cause starts fixing that from today forward.
+	{Code: "winback_reactivated", Label: "Reactivating — Will Use Again", Status: "closed", Connected: true,
+		Purposes: []string{"retention"}, Hint: "They are coming back — closes the win-back contact as a win"},
+	{Code: "winback_wants_offer", Label: "Interested in a New Offer", Status: "", Connected: true,
+		Purposes: []string{"retention"}, Hint: "Warm — hand to Sales, stays in the queue until they do"},
+	{Code: "winback_price", Label: "Left Over Charges or Rates", Status: "closed", Connected: true,
+		Purposes: []string{"retention"}, Hint: "Records the reason and closes the contact"},
+	{Code: "winback_service", Label: "Left Over Service or an Unresolved Issue", Status: "closed", Connected: true,
+		Purposes: []string{"retention"}, Hint: "Records the reason and closes the contact — raise a Care ticket if it is still open"},
+	{Code: "winback_competitor", Label: "Using Another Provider", Status: "closed", Connected: true,
+		Purposes: []string{"retention"}, Hint: "Records the reason and closes the contact"},
+	{Code: "winback_no_need", Label: "No Longer Needs the Product", Status: "closed", Connected: true,
+		Purposes: []string{"retention"}, Hint: "Records the reason and closes the contact"},
+	{Code: "winback_declined", Label: "Not Interested in Returning", Status: "closed", Connected: true,
+		Purposes: []string{"retention"}, Hint: "Closes the contact — no further win-back calls"},
 }
 
 // ccDispositionsForPurpose returns the dispositions valid for a call purpose
@@ -326,6 +354,64 @@ func ccApplyDisposition(ctx context.Context, db *core.DB, contactID string,
 				"contact", contactID, "phone", phone)
 		}
 	}
+
+	// A lapsed customer who asks for an offer is the entire point of a win-back
+	// call, and the call centre cannot make one. Raise it to Sales on the hand-off
+	// rail that already carries cross-team work, so it lands on /handoffs with an
+	// owner rather than dying in a disposition nobody reads.
+	//
+	// Deliberately NOT done for every high-value lapsed customer at queue-build
+	// time: that would have dropped 417 hand-offs on Sales in one press, which is
+	// how an alerting rail gets ignored. One customer asking is one hand-off.
+	if d.Code == "winback_wants_offer" {
+		go ccRaiseWinbackHandoff(context.WithoutCancel(ctx), db, contactID, phone, userID)
+	}
+}
+
+// ccRaiseWinbackHandoff hands one warm win-back customer to Sales.
+// Fire-and-forget: the disposition is already recorded, and a failed hand-off must
+// not throw an error back at an agent who has just finished a conversation.
+func ccRaiseWinbackHandoff(ctx context.Context, db *core.DB, contactID, phone string, userID *int64) {
+	var name, cif string
+	if rows, _ := db.PGQuery(ctx,
+		`SELECT COALESCE(customer_name,'') AS n, COALESCE(cif,'') AS c
+		   FROM call_center_contacts WHERE id = $1`, contactID); len(rows) > 0 {
+		name = str(rows[0]["n"])
+		cif = str(rows[0]["c"])
+	}
+	if name == "" {
+		name = "A lapsed customer"
+	}
+	// What they were worth is the whole reason Sales should pick this up first, so
+	// it goes in the subject rather than being something they have to look up.
+	worth := ""
+	if cif != "" {
+		if v, _ := db.PGQuery(ctx, `
+			SELECT cl.value_kobo, cl.value_tier, cl.days_since_txn
+			  FROM app.customer_lifecycle cl
+			  JOIN app.customers c ON c.party_id = cl.party_id
+			 WHERE COALESCE(NULLIF(c.cif,''), c.contact_id) = $1 LIMIT 1`, cif); len(v) > 0 {
+			worth = fmt.Sprintf(" — %s tier, was worth %s a year, last active %d days ago",
+				strings.ToUpper(str(v[0]["value_tier"])),
+				formatKoboShort(toInt64(v[0]["value_kobo"])),
+				toInt64(v[0]["days_since_txn"]))
+		}
+	}
+	logActivitySafe(ctx, db, Activity{
+		CIF:         cif,
+		Phone:       phone,
+		ActorUserID: userID,
+		ActorTeam:   "call_center",
+		Type:        "handoff",
+		Direction:   "internal",
+		TargetTeam:  "sales",
+		Status:      "open",
+		Subject:     "Win-back: " + name + " wants an offer",
+		Body: "Reached on a win-back call and asked about a new offer" + worth +
+			". The call centre cannot price or place one — Sales to follow up.",
+		Source: "retention",
+	})
+	slog.Info("retention: win-back hand-off raised to Sales", "contact", contactID, "cif", cif)
 }
 
 // isRawCallOutcome reports whether a string is a telephony outcome rather than a
