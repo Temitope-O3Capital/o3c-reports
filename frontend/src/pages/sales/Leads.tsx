@@ -286,7 +286,7 @@ export default function SalesLeads() {
   async function claim(id: number) {
     try {
       await apiFetch(`/api/sales/leads/${id}/claim`, { method: 'POST' })
-      toast.success('Lead claimed — it is yours now')
+      toast.success('Lead claimed: it is yours now')
       await load()
     } catch (e: any) { toast.error(e?.message ?? 'Could not claim') }
   }
@@ -961,7 +961,7 @@ function DistributeModal({ officers, meId, onClose, onDone }: {
         <div>
           <div style={{ fontSize: TEXT.xs, fontWeight: FW.bold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Officers</div>
           {list.length === 0 ? (
-            <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No eligible officers{teamScoped ? ' on your team — add some under Teams.' : '.'}</div>
+            <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)' }}>No eligible officers{teamScoped ? ' on your team: add some under Teams.' : '.'}</div>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {list.map(o => {

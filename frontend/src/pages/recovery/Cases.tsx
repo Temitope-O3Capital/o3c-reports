@@ -22,7 +22,7 @@ function ManualBadge({ source }: { source: string | null }) {
   if (source !== 'manual') return null
   return (
     <span
-      title="Uploaded from a spreadsheet — not synced from Udara core banking"
+      title="Uploaded from a spreadsheet. Not synced from Udara core banking"
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 3,
         fontSize: TEXT['2xs'], fontWeight: FW.bold, color: DARKRED,
@@ -72,6 +72,10 @@ interface RecoveryCase {
   collections_agent_name: string | null
   last_call_agent: string | null
   last_call_at: string | null
+  // True when the card balance is now nil AND the customer paid after the case was
+  // opened — i.e. they cleared the debt while in recovery. The case is left open on
+  // purpose: closing it is the agent's call, not the system's.
+  settled_since_handoff: boolean
 }
 
 interface AgentUser {
@@ -431,7 +435,7 @@ function WriteOffTab({ caseId, outstanding, onDone }: { caseId: number; outstand
   async function doWriteOff() {
     const parsed = amountNaira ? Math.round(parseFloat(amountNaira) * 100) : outstanding
     if (!(parsed > 0)) {
-      setErr('Amount must be greater than zero — leave the field blank to write off the full outstanding balance')
+      setErr('Amount must be greater than zero. Leave the field blank to write off the full outstanding balance')
       setConfirm(false)
       return
     }
@@ -1091,6 +1095,14 @@ export default function RecoveryCases() {
                             <span style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: PURPLE, background: `${PURPLE}18`, padding: '1px 6px', borderRadius: RADIUS.full, flexShrink: 0 }}>LOAN</span>
                           )}
                           <ManualBadge source={rc.data_source} />
+                          {rc.settled_since_handoff && (
+                            <span
+                              title="This customer paid after the case was opened and the card balance is now nil. Confirm, then close the case. The figure above is the balance at hand-off and does not move on its own."
+                              style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, color: GREEN, background: `${GREEN}18`, padding: '1px 6px', borderRadius: RADIUS.full, flexShrink: 0 }}
+                            >
+                              PAID — VERIFY &amp; CLOSE
+                            </span>
+                          )}
                         </div>
                         <StatusBadge status={rc.status} />
                       </div>
@@ -1193,7 +1205,7 @@ export default function RecoveryCases() {
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Move Customer to Recovery" width={440}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.5 }}>
-            Open a recovery case for a specific customer by CIF — regardless of DPD. Their
+            Open a recovery case for a specific customer by CIF. Regardless of DPD. Their
             outstanding and days-past-due are pulled from the delinquency book, and the
             account is taken out of the collections queue.
           </div>

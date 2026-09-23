@@ -369,6 +369,34 @@ func runRecoveryEscalation(db *core.DB) {
 	WorkerBeat(ctx, db, "recovery_escalation", "ok", msg, "")
 }
 
+// settledSinceHandoffSQL yields a lateral exposing `stl.settled_since_handoff`:
+// "nothing left to chase", so an agent stops calling a customer who has already paid.
+//
+// This is deliberately a DISPLAY flag and NOT a correction of the figure.
+// recovery_cases.outstanding_kobo is the balance AS AT HAND-OFF and is meant to stay
+// frozen: a case's live position is outstanding − recovered − written_off, and recovery's
+// own receipts decrement it (see the payment-logging and write-off approval paths).
+// Refreshing that column from the live card balance would subtract every payment twice,
+// because the card balance has already fallen by the same amount.
+//
+// The `last_payment_date > opened_at` guard is the whole point of the rule. A zero card
+// balance on its own means nothing: most zero balances among open cases belong to cases
+// in LEGAL whose card account left the book years after the customer last paid, and
+// flagging those as settled would invite an agent to close real, collectable debt.
+// Requiring a payment dated AFTER the hand-off narrows it to customers who actually
+// cleared the balance while in recovery — 5 cases when this was written, not 500.
+//
+// Joined on the guarded cards key, so a Udara case never reads a card customer's balance.
+func settledSinceHandoffSQL(alias string) string {
+	return `LEFT JOIN LATERAL (
+			    SELECT (COUNT(*) > 0
+			            AND COALESCE(SUM(GREATEST(a3.current_dr_balance, 0)), 0) <= 0
+			            AND MAX(a3.last_payment_date) IS NOT NULL
+			            AND MAX(a3.last_payment_date) > ` + alias + `.opened_at::date) AS settled_since_handoff
+			    FROM app.accounts a3 WHERE a3.cif = ` + cardsKeySQL(alias) + `
+			) stl ON TRUE`
+}
+
 func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := core.UserFromCtx(r.Context())
@@ -412,7 +440,8 @@ func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 			       bill.last_payment_date,
 			       col.collections_agent_name,
 			       lc.agent_name  AS last_call_agent,
-			       lc.started_at::text AS last_call_at
+			       lc.started_at::text AS last_call_at,
+			       COALESCE(stl.settled_since_handoff, FALSE) AS settled_since_handoff
 			FROM recovery_cases rc
 			LEFT JOIN o3c_users u ON rc.assigned_agent_id = u.id
 			` + debtorJoinsSQL("rc") + `
@@ -440,6 +469,7 @@ func recoveryOpsCases(db *core.DB) http.HandlerFunc {
 			      AND h.merged_into_call_id IS NULL AND h.voided_at IS NULL
 			    ORDER BY h.started_at DESC LIMIT 1
 			) lc ON TRUE
+			` + settledSinceHandoffSQL("rc") + `
 			WHERE 1=1`
 		args := []any{}
 		n := 1
@@ -543,9 +573,11 @@ func recoveryOpsCaseDetail(db *core.DB) http.HandlerFunc {
 		ctx := r.Context()
 
 		cases, err := db.PGQuery(ctx, `
-			SELECT rc.*, u.full_name AS agent_name
+			SELECT rc.*, u.full_name AS agent_name,
+			       COALESCE(stl.settled_since_handoff, FALSE) AS settled_since_handoff
 			FROM recovery_cases rc
 			LEFT JOIN o3c_users u ON rc.assigned_agent_id = u.id
+			`+settledSinceHandoffSQL("rc")+`
 			WHERE rc.id = $1`, id)
 		if err != nil || len(cases) == 0 {
 			respondErr(w, 404, "Case not found")
@@ -796,7 +828,7 @@ func recoveryOpsAssign(db *core.DB) http.HandlerFunc {
 		go NotifyRole(context.Background(), db, "recovery_head", NotifPayload{
 			EventType: EvtRecoveryCaseAssigned,
 			Title:     "Recovery Case Assigned",
-			Body:      fmt.Sprintf("Case #%d has been assigned to an agent", id),
+			Body:      fmt.Sprintf("Case #%d now has an agent.", id),
 			ActionURL: fmt.Sprintf("/recovery/cases/%d", id),
 			EntityRef: fmt.Sprintf("recovery_case:%d", id),
 		})
@@ -869,7 +901,7 @@ func recoveryOpsPayment(db *core.DB) http.HandlerFunc {
 		if firstStage, ok := stageProgressions[writeOffChainStart]; ok {
 			NotifyRole(ctx, db, firstStage.required, NotifPayload{
 				EventType: "payment_approval_pending",
-				Title:     "Recovery payment awaiting approval",
+				Title:     "Recovery Payment Awaiting Approval",
 				Body:      fmt.Sprintf("A ₦%s recovery payment needs %s sign-off.", fmtKoboStr(b.AmountKobo), firstStage.label),
 				ActionURL: "/collections/recovery-approvals",
 				EntityRef: fmt.Sprint(payID),
@@ -968,7 +1000,7 @@ func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
 			WHERE entity_type = 'recovery_payment' AND entity_id = $1
 			  AND action = 'payment_approved' AND actor_id = $2
 			LIMIT 1`, fmt.Sprint(pid), user.ID); len(prior) > 0 {
-			respondErr(w, 403, "You already approved an earlier stage of this payment — a different approver must sign the next stage")
+			respondErr(w, 403, "You already approved an earlier stage of this payment. A different approver must sign the next one.")
 			return
 		}
 		caseID := toInt64(pmt["case_id"])
@@ -996,7 +1028,7 @@ func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
 				WHERE id = $2 AND status = $3 RETURNING id`, prog.next, pid, currentStatus).Scan(&updatedID)
 		}
 		if scanErr == sql.ErrNoRows {
-			respondErr(w, 409, "Payment status changed concurrently — please refresh and try again")
+			respondErr(w, 409, "Someone else changed this payment while you were working. Refresh and try again.")
 			return
 		}
 		if scanErr != nil {
@@ -1046,7 +1078,7 @@ func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
 		if nextStage, ok := stageProgressions[prog.next]; ok {
 			NotifyRole(ctx, db, nextStage.required, NotifPayload{
 				EventType: "payment_approval_pending",
-				Title:     "Recovery payment awaiting approval",
+				Title:     "Recovery Payment Awaiting Approval",
 				Body:      fmt.Sprintf("A ₦%s recovery payment now needs %s sign-off.", fmtKoboStr(amtKobo), nextStage.label),
 				ActionURL: "/collections/recovery-approvals",
 				EntityRef: fmt.Sprint(pid),
@@ -1055,7 +1087,7 @@ func recoveryOpsApprovePayment(db *core.DB) http.HandlerFunc {
 		} else if isFinal && postedBy > 0 {
 			NotifyUsers(ctx, db, []int64{postedBy}, NotifPayload{
 				EventType: "payment_approved",
-				Title:     "Recovery payment approved",
+				Title:     "Recovery Payment Approved",
 				Body:      fmt.Sprintf("The ₦%s recovery payment you logged was fully approved and posted.", fmtKoboStr(amtKobo)),
 				ActionURL: "/collections/recovery-approvals",
 				EntityRef: fmt.Sprint(pid),
@@ -1104,7 +1136,7 @@ func recoveryOpsRejectPayment(db *core.DB) http.HandlerFunc {
 			RETURNING id, status`,
 			user.ID, b.RejectionReason, pid, cur)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 409, "Payment status changed — please refresh")
+			respondErr(w, 409, "This payment has changed since you opened it. Refresh and try again.")
 			return
 		}
 		cif := ""
@@ -1116,7 +1148,7 @@ func recoveryOpsRejectPayment(db *core.DB) http.HandlerFunc {
 		if postedBy := toInt64(prows[0]["posted_by"]); postedBy > 0 {
 			NotifyUsers(ctx, db, []int64{postedBy}, NotifPayload{
 				EventType: "payment_rejected",
-				Title:     "Recovery payment rejected",
+				Title:     "Recovery Payment Rejected",
 				Body:      fmt.Sprintf("The ₦%s recovery payment you logged was rejected.", fmtKoboStr(toInt64(prows[0]["amount_kobo"]))),
 				ActionURL: "/collections/recovery-approvals",
 				EntityRef: fmt.Sprint(pid),
@@ -1186,7 +1218,7 @@ func recoveryOpsAddLegal(db *core.DB) http.HandlerFunc {
 		go NotifyRoles(context.Background(), db, []string{"recovery_head", "compliance_officer"}, NotifPayload{
 			EventType: EvtRecoveryLegalMilestone,
 			Title:     "Legal Proceeding Filed",
-			Body:      fmt.Sprintf("New '%s' proceeding filed for recovery case #%d", b.ProceedingType, id),
+			Body:      fmt.Sprintf("A new '%s' proceeding is filed on recovery case #%d.", b.ProceedingType, id),
 			ActionURL: "/recovery/legal",
 			EntityRef: fmt.Sprintf("recovery_case:%d", id),
 		})
@@ -1399,7 +1431,7 @@ func recoveryOpsReversePayment(db *core.DB) http.HandlerFunc {
 			UPDATE recovery_payments SET status = 'reversed'
 			WHERE id = $1 AND status IN ('approved','posted') RETURNING id`, pid).Scan(&reversedID)
 		if scanErr == sql.ErrNoRows {
-			respondErr(w, 409, "Only an approved payment can be reversed (it may already be reversed) — refresh and check")
+			respondErr(w, 409, "Only an approved payment can be reversed, and this one may already be. Refresh and check.")
 			return
 		}
 		if scanErr != nil {
@@ -1504,7 +1536,7 @@ func recoveryOpsWriteOff(db *core.DB) http.HandlerFunc {
 		if firstStage, ok := stageProgressions[writeOffChainStart]; ok {
 			NotifyRole(r.Context(), db, firstStage.required, NotifPayload{
 				EventType: "writeoff_approval_pending",
-				Title:     "Write-off awaiting your approval",
+				Title:     "Write-Off Awaiting Your Approval",
 				Body:      fmt.Sprintf("A ₦%s write-off request needs %s sign-off.", fmtKoboStr(b.AmountKobo), firstStage.label),
 				ActionURL: "/collections/writeoffs",
 				EntityRef: fmt.Sprint(rows[0]["id"]),
@@ -1664,7 +1696,7 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 				WHERE id = $3 AND status = $4 RETURNING id`, prog.roleCol),
 			prog.next, user.ID, wid, currentStatus).Scan(&updatedID)
 		if updateErr == sql.ErrNoRows {
-			respondErr(w, 409, "Write-off status changed concurrently — please refresh and try again")
+			respondErr(w, 409, "Someone else changed this write-off while you were working. Refresh and try again.")
 			return
 		}
 		if updateErr != nil {
@@ -1723,7 +1755,7 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 		}
 
 		if commitErr := tx.Commit(); commitErr != nil {
-			respondErr(w, 500, "Write-off commit failed — please retry")
+			respondErr(w, 500, "The write-off did not commit. Try again.")
 			return
 		}
 
@@ -1740,7 +1772,7 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 		if nextStage, ok := stageProgressions[prog.next]; ok {
 			NotifyRole(ctx, db, nextStage.required, NotifPayload{
 				EventType: "writeoff_approval_pending",
-				Title:     "Write-off awaiting your approval",
+				Title:     "Write-Off Awaiting Your Approval",
 				Body:      fmt.Sprintf("A ₦%s write-off now needs %s sign-off.", fmtKoboStr(writeOffKobo), nextStage.label),
 				ActionURL: "/collections/writeoffs",
 				EntityRef: fmt.Sprint(wid),
@@ -1751,7 +1783,7 @@ func recoveryOpsApproveWriteOff(db *core.DB) http.HandlerFunc {
 				if reqID := toInt64(rrows[0]["requested_by"]); reqID > 0 {
 					NotifyUsers(ctx, db, []int64{reqID}, NotifPayload{
 						EventType: "writeoff_approved",
-						Title:     "Write-off approved",
+						Title:     "Write-Off Approved",
 						Body:      fmt.Sprintf("Your ₦%s write-off request was fully approved and posted.", fmtKoboStr(writeOffKobo)),
 						ActionURL: "/collections/writeoffs",
 						EntityRef: fmt.Sprint(wid),
@@ -1803,14 +1835,14 @@ func recoveryOpsRejectWriteOff(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if len(rrows) == 0 {
-			respondErr(w, 409, "Write-off status changed concurrently — please refresh and try again")
+			respondErr(w, 409, "Someone else changed this write-off while you were working. Refresh and try again.")
 			return
 		}
 		// Tell the requester it was declined so they aren't left waiting on a dead request.
 		if reqID := toInt64(wrows[0]["requested_by"]); reqID > 0 {
 			NotifyUsers(r.Context(), db, []int64{reqID}, NotifPayload{
 				EventType: "writeoff_rejected",
-				Title:     "Write-off declined",
+				Title:     "Write-Off Declined",
 				Body:      fmt.Sprintf("Your ₦%s write-off request was declined.", fmtKoboStr(toInt64(wrows[0]["amount_kobo"]))),
 				ActionURL: "/collections/writeoffs",
 				EntityRef: fmt.Sprint(wid),

@@ -576,7 +576,7 @@ export default function Login({ onLogin }: LoginProps) {
       })
       setRegDone(true)
     } catch {
-      setRegErr('Network error — please try again')
+      setRegErr('Network error: please try again')
     } finally {
       setRegLoad(false)
     }

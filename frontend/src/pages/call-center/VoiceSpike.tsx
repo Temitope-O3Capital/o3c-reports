@@ -87,7 +87,7 @@ export default function VoiceSpike() {
       })
       .catch(e => {
         const m = e?.message || String(e)
-        if (/not connected|403/i.test(m)) { push('Zoho Voice not connected for this user — connect a refresh token in Settings first', 'err'); setStatus('no-token') }
+        if (/not connected|403/i.test(m)) { push('Zoho Voice not connected for this user. Connect a refresh token in Settings first', 'err'); setStatus('no-token') }
         else { push('token check failed: ' + m, 'err'); setStatus('error') }
       })
   }, [initSdk, push, isAdmin])

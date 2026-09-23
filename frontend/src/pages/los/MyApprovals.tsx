@@ -133,7 +133,7 @@ export default function MyApprovals() {
   return (
     <Page
       title="My Approvals"
-      subtitle={`${roleLabel} — applications awaiting your action`}
+      subtitle={`${roleLabel}: applications awaiting your action`}
       loading={loading && rows.length === 0}
       skeletonKpis={4}
     >

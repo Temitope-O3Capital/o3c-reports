@@ -304,7 +304,7 @@ func processWAMessage(db *core.DB, phone, name, text string) {
 		// Alert the customer service team
 		NotifyRoles(ctx, db, []string{"call_center_agent", "call_center_head", "cards_ops_head"}, NotifPayload{
 			EventType: EvtCRMRequestCreated,
-			Title:     "New WhatsApp support ticket",
+			Title:     "New WhatsApp Support Ticket",
 			Body:      fmt.Sprintf("From %s: %s", coalesce(name, phone), truncateStr(text, 100)),
 			ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 			EntityRef: fmt.Sprintf("ticket:%d", ticketID),

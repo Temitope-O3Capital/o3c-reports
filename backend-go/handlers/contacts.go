@@ -159,11 +159,24 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 
 		// ── Fixed deposits from the CBS/Udara register ────────────────────────
 		cbsFDs, _ := db.PGQuery(ctx, `
-			SELECT cbs_account_number, product_name, status,
-			       principal_kobo, accrued_interest_kobo, interest_rate,
-			       commencement_date, maturity_date
-			FROM cbs_fixed_deposits WHERE cbs_customer_id IN `+personCBSIDs+`
-			ORDER BY commencement_date DESC`, cif)
+			SELECT f.cbs_account_number, f.product_name, f.status,
+			       f.principal_kobo, f.accrued_interest_kobo, f.interest_rate,
+			       f.commencement_date, f.maturity_date,
+			       -- Rollover lineage (migration 276). Without it this tab reads as a
+			       -- customer who keeps opening new deposits, when 60 of the active ones
+			       -- are the SAME money rolling — N5.27bn of the book. That matters on a
+			       -- retention call: "thank you for the new deposit" to someone who simply
+			       -- let an existing one roll lands badly, and it matters for officer
+			       -- credit, which must not be paid twice on one deposit.
+			       (l.successor_account IS NOT NULL)  AS is_rollover,
+			       COALESCE(l.prior_account,'')       AS rolled_from,
+			       l.prior_matures                    AS rolled_from_matured,
+			       (EXISTS (SELECT 1 FROM app.fd_rollover_links x
+			                 WHERE x.prior_account = f.cbs_account_number)) AS was_rolled_into
+			FROM cbs_fixed_deposits f
+			LEFT JOIN app.fd_rollover_links l ON l.successor_account = f.cbs_account_number
+			WHERE f.cbs_customer_id IN `+personCBSIDs+`
+			ORDER BY f.commencement_date DESC`, cif)
 
 		// ── Recent account transactions (naira). Read the base table so we get
 		//    the authoritative money_in flag — in this source credits carry a
@@ -549,6 +562,11 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 				"interest_rate":         f["interest_rate"],
 				"commencement_date":     f["commencement_date"],
 				"maturity_date":         f["maturity_date"],
+				// Rollover lineage (migration 276) — see the query above.
+				"is_rollover":           f["is_rollover"],
+				"rolled_from":           f["rolled_from"],
+				"rolled_from_matured":   f["rolled_from_matured"],
+				"was_rolled_into":       f["was_rolled_into"],
 			})
 			if status == "Active" {
 				hasActiveFD = true

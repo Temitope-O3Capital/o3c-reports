@@ -62,6 +62,25 @@ interface CreditFileData {
   total_outstanding_kobo: number; total_arrears_kobo: number
   worst_dpd: number; dti_pct: number | null; kyc_status: string; bvn: string
   loans: CreditFileLoan[]
+  // `cif` above is the id the file was opened with. On this deployment the loan book is
+  // Udara's, so it is a Udara customer id — NOT a cards CIF, which is a separate
+  // CCS/Sage namespace that collides on the same 8-digit shape for a different person.
+  // id_namespace says which, so the drawer can caption it honestly.
+  id_namespace: string
+  schedule: CreditFileInstalment[]
+  repayments: CreditFileRepayment[]
+  total_repaid_kobo: number
+}
+interface CreditFileInstalment {
+  loan_account_number: string; payment_date: string
+  principal_kobo: number; interest_kobo: number; fee_kobo: number; total_kobo: number
+  payment_status: string; is_overdue: boolean
+}
+interface CreditFileRepayment {
+  financial_date: string; posted_at: string; cbs_loan_account: string
+  entry_code: string; component: string
+  amount_kobo: number; principal_kobo: number; interest_kobo: number
+  posting_reference: string | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -141,8 +160,11 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
               { label: 'Arrears',           value: fmtKoboExact(data.total_arrears_kobo), warn: data.total_arrears_kobo > 0 },
               { label: 'Worst DPD',         value: `${data.worst_dpd ?? 0} days`, warn: (data.worst_dpd ?? 0) > 30 },
               { label: 'Loans',             value: `${data.active_loan_count} open / ${data.total_loan_count} total` },
-              { label: 'DTI Ratio',         value: data.dti_pct !== null && data.dti_pct !== undefined ? `${Number(data.dti_pct).toFixed(1)}%` : '—' },
-              { label: 'BVN',               value: data.bvn || '—' },
+              { label: 'Total Repaid',      value: fmtKoboExact(data.total_repaid_kobo ?? 0) },
+              // Captioned by namespace. Calling a Udara customer id a "CIF" invites
+              // someone to look it up in the cards system, where the same 8 digits
+              // belong to a different person.
+              { label: data.id_namespace === 'udara' ? 'Udara ID' : 'CIF', value: data.cif || '—' },
             ].map(row => (
               <div key={row.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <span style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{row.label}</span>
@@ -169,6 +191,57 @@ function CreditFileDrawer({ cif, open, onClose }: { cif: string; open: boolean; 
                       <div style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold }}>{fmtKoboExact(l.outstanding_kobo)}</div>
                       <div style={{ ...NUM, fontSize: TEXT.xs, color: dpdColor(l.dpd) }}>{l.dpd} dpd</div>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* What was actually PAID, off the Udara general ledger. Held back from every
+              screen until now: these postings carry no workspace loan application, so
+              every existing reader of loan_repayments joined past them. */}
+          {data.repayments?.length > 0 && (
+            <div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: SP[2] }}>
+                Repayments Received ({data.repayments.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {data.repayments.map((p, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: SP[2], padding: `4px ${SP[3]}`, borderRadius: RADIUS.sm, border: '1px solid var(--bdr)' }}>
+                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                      {fmtDate(p.financial_date)}
+                      <span style={{ color: 'var(--txt3)' }}>
+                        {' · '}{p.component === 'interest' ? 'Interest' : 'Principal'}
+                        {p.posting_reference ? ` · ${p.posting_reference}` : ''}
+                      </span>
+                    </span>
+                    <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: GREEN }}>{fmtKoboExact(p.amount_kobo)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* The repayment schedule Udara publishes — what is due, when, and Udara's own
+              status per instalment. This is the source the arrears figure above is now
+              computed from, so it is shown next to it rather than left implicit. */}
+          {data.schedule?.length > 0 && (
+            <div>
+              <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: SP[2] }}>
+                Repayment Schedule ({data.schedule.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {data.schedule.map((s, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: SP[2], padding: `4px ${SP[3]}`, borderRadius: RADIUS.sm, border: `1px solid ${s.is_overdue ? AMBER : 'var(--bdr)'}`, background: s.is_overdue ? `${AMBER}0F` : undefined }}>
+                    <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                      {fmtDate(s.payment_date)}
+                      <span style={{ color: s.is_overdue ? AMBER : 'var(--txt3)' }}>
+                        {' · '}{s.payment_status.replace(/([a-z])([A-Z])/g, '$1 $2')}
+                      </span>
+                    </span>
+                    <span style={{ ...NUM, fontSize: TEXT.sm, fontWeight: FW.semibold, color: s.is_overdue ? AMBER : 'var(--txt)' }}>
+                      {fmtKoboExact(s.total_kobo)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -259,7 +332,7 @@ export default function RiskPortfolio() {
       // Values must be the letters the API emits — the old Prime/Near-Prime chips
       // could never match a row, and the backend discarded the filter anyway.
       key: 'band', label: 'RISK BAND',
-      options: RISK_BANDS.map(b => ({ value: b, label: `${b} — ${BAND_LABEL[b]}`, color: BAND_COLOR[b] })),
+      options: RISK_BANDS.map(b => ({ value: b, label: `${b}: ${BAND_LABEL[b]}`, color: BAND_COLOR[b] })),
       selected: fBand,
       onChange: setFBand,
     },
@@ -377,7 +450,7 @@ export default function RiskPortfolio() {
           onReset={() => { setFDpd(new Set()); setFBand(new Set()); setFProduct(new Set()); setSearch('') }}
           onApply={() => load(0)}
           resultCount={rows.length} totalCount={total}
-          placeholder="Search name or CIF…"
+          placeholder="Search name or Udara ID…"
         />
         <DataTable
           cols={cols} rows={rows}

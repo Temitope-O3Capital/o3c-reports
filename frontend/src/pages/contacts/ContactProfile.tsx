@@ -154,6 +154,10 @@ interface ContactProfileData {
     interest_rate: number
     commencement_date: string | null
     maturity_date: string | null
+    is_rollover?: boolean
+    rolled_from?: string
+    rolled_from_matured?: string | null
+    was_rolled_into?: boolean
   }[]
 
   summary?: {
@@ -748,7 +752,7 @@ function SpendingInsights({ cif }: { cif: string }) {
             }))} />
             {mixedCurrency && (
               <div style={{ marginTop: 9, fontSize: TEXT.xs, color: AMBER }}>
-                Not converted — reported as supplied by the feed.
+                Not converted: reported as supplied by the feed.
               </div>
             )}
           </InsightCard>
@@ -1572,7 +1576,7 @@ function IdentityKycCard({ profile, identity, customerKey, onPepRevealed }: {
   const src = identity.source
   const subtitle = src?.cbs_customer_id
     ? `${src.label} record · customer ${src.cbs_customer_id}${src.synced_at ? ` · synced ${fmtDatetime(src.synced_at)}` : ''}`
-    : 'From the core banking customer master — not the card feed'
+    : 'From the core banking customer master. Not the card feed'
 
   return (
     <div style={{ gridColumn: '1 / -1' }}>
@@ -1598,7 +1602,7 @@ function IdentityKycCard({ profile, identity, customerKey, onPepRevealed }: {
             <span className="material-symbols-rounded" style={{ fontSize: 21, color: RED }}>gavel</span>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: RED, fontFamily: SORA }}>Politically Exposed Person</div>
-              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Flagged on the core banking customer master — enhanced due diligence applies.</div>
+              <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>Flagged on the core banking customer master. Enhanced due diligence applies.</div>
             </div>
           </div>
         )}
@@ -1817,7 +1821,7 @@ function OverviewTab({ profile, identity, customerKey, onOpenTab, onPepRevealed 
 
       {(profile.payment_history?.length ?? 0) > 0 && (
         <div style={{ gridColumn: '1 / -1' }}>
-          <SectionCard title="Payment History" subtitle="Repayments received — monthly cadence and detail">
+          <SectionCard title="Payment History" subtitle="Repayments received: monthly cadence and detail">
             {(profile.repayment_pattern?.length ?? 0) > 0 && (() => {
               const pat = profile.repayment_pattern!
               const max = Math.max(...pat.map(x => Number(x.amount) || 0), 1)
@@ -1990,10 +1994,40 @@ function FixedDepositsTab({ profile }: { profile: ContactProfileData }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <span className="material-symbols-rounded" style={{ fontSize: TEXT['2xl'], color: AMBER }}>savings</span>
             <div>
-              <div style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)', marginBottom: 2 }}>{f.product_name || 'Fixed Deposit'}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{f.product_name || 'Fixed Deposit'}</span>
+                {/* Rollover lineage (migration 276). The difference between a new deposit
+                    and the same money rolling: it changes what you say on a retention call,
+                    and whether an officer is credited twice for one deposit. */}
+                {f.is_rollover && (
+                  <span
+                    title={`Rolled over from ${f.rolled_from || 'an earlier deposit'}${f.rolled_from_matured ? `, which matured ${fmtDate(f.rolled_from_matured)}` : ''} — the same money continuing, not new funds.`}
+                    style={{
+                      fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.04em',
+                      textTransform: 'uppercase', padding: '2px 8px', borderRadius: RADIUS.full,
+                      background: `${AMBER}18`, color: AMBER, whiteSpace: 'nowrap', cursor: 'help',
+                    }}
+                  >Rollover</span>
+                )}
+                {f.was_rolled_into && !f.is_rollover && (
+                  <span
+                    title="This deposit matured and was rolled into a later one for the same customer. The successor holds the live money."
+                    style={{
+                      fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.04em',
+                      textTransform: 'uppercase', padding: '2px 8px', borderRadius: RADIUS.full,
+                      background: 'var(--chip-bg)', color: 'var(--txt3)', whiteSpace: 'nowrap', cursor: 'help',
+                    }}
+                  >Rolled Forward</span>
+                )}
+              </div>
               <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: 'var(--font-mono)' }}>
                 {f.ref} · {Number(f.interest_rate ?? 0).toFixed(1)}% · matures {f.maturity_date ? fmtDate(f.maturity_date) : '—'}
               </div>
+              {f.is_rollover && f.rolled_from && (
+                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                  continues {f.rolled_from}
+                </div>
+              )}
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
@@ -2449,7 +2483,7 @@ function DocumentsTab({ cif }: { cif: string }) {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '50px 0', color: 'var(--txt2)' }}>
                 <span className="material-symbols-rounded" style={{ fontSize: 44, color: 'var(--txt3)' }}>description</span>
-                <div style={{ fontSize: TEXT.sm }}>Preview not available — use "Open Original"</div>
+                <div style={{ fontSize: TEXT.sm }}>Preview not available: use "Open Original"</div>
               </div>
             )}
           </div>
@@ -2678,7 +2712,7 @@ function AccountStatementTab({ cif }: { cif: string }) {
   return (
     <SectionCard
       title="Core Banking Account Activity"
-      subtitle="Live posting ledger from Udara — disbursements, repayments, interest & fees"
+      subtitle="Live posting ledger from Udara. Disbursements, repayments, interest & fees"
       actions={
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={filterInputStyle} />

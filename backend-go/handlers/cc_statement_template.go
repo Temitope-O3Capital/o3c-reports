@@ -784,7 +784,7 @@ td.bal{font-family:'Courier New',Courier,monospace;font-variant-numeric:tabular-
 	b.WriteString(`<div class="pay-cta"><div class="pay-cta-main">`)
 	b.WriteString(`<div class="pay-eyebrow">Minimum Payment Due</div>`)
 	fmt.Fprintf(&b, `<div class="pay-amount">&#8358;%s</div>`, e(ccFmtKobo(minPayAmt)))
-	fmt.Fprintf(&b, `<div class="pay-due">Due by <strong>%s</strong> &mdash; %s</div>`, e(d.dueDate), minPayNote)
+	fmt.Fprintf(&b, `<div class="pay-due">Due by <strong>%s</strong>. %s</div>`, e(d.dueDate), minPayNote)
 	b.WriteString(`</div><div class="pay-meta">`)
 	b.WriteString(`<div class="pay-meta-row">`)
 	fmt.Fprintf(&b,
@@ -801,7 +801,7 @@ td.bal{font-family:'Courier New',Courier,monospace;font-variant-numeric:tabular-
 			e(ccFmtKobo(over)))
 	} else {
 		fmt.Fprintf(&b,
-			`<div class="pay-limit-row">Credit Limit: &#8358;%s &mdash; &#8358;%s available</div>`,
+			`<div class="pay-limit-row">Credit Limit &#8358;%s, with &#8358;%s available</div>`,
 			e(ccFmtKobo(d.lineOfCredit)), e(ccFmtKobo(d.availCredit)))
 	}
 	b.WriteString(`</div></div>`) // end .pay-meta, .pay-cta
@@ -858,7 +858,7 @@ td.bal{font-family:'Courier New',Courier,monospace;font-variant-numeric:tabular-
 	b.WriteString(`<div class="ft-col-b">7th Floor, Churchgate Tower 1<br>Plot 30, Churchgate Street<br>Victoria Island, Lagos 101001<br>Nigeria</div></div>`)
 	b.WriteString(`</div><hr class="ft-div">`)
 	b.WriteString(`<div class="ft-btm">`)
-	b.WriteString(`<span>Computer generated statement &mdash; no signature or stamp required</span>`)
+	b.WriteString(`<span>Computer generated statement. No signature or stamp required.</span>`)
 	fmt.Fprintf(&b,
 		`<span class="ft-stamp">Generated %s &nbsp;|&nbsp; Ref: %s &nbsp;|&nbsp; Stmt: %s</span>`,
 		e(d.generatedAt), e(d.refNo), e(d.stmtDate))
@@ -885,7 +885,7 @@ func ccPaymentPanel(d ccData, e func(string) string) string {
 	if d.daysUntilDue > 0 && d.daysUntilDue <= 7 {
 		urgency = fmt.Sprintf(`<div style="margin-top:6px;font-size:10px;color:#C00000;font-weight:600">&#9888;&ensp;Due in %d day%s</div>`, d.daysUntilDue, pluralS(d.daysUntilDue))
 	} else if d.daysUntilDue < 0 {
-		urgency = `<div style="margin-top:6px;font-size:10px;color:#C00000;font-weight:600">&#9888;&ensp;OVERDUE — please pay immediately</div>`
+		urgency = `<div style="margin-top:6px;font-size:10px;color:#C00000;font-weight:600">&#9888;&ensp;OVERDUE. PLEASE PAY NOW</div>`
 		dueBg = "#FEF2F2"
 	} else if d.dueDate != "—" {
 		urgency = fmt.Sprintf(`<div style="margin-top:6px;font-size:10px;color:#888">%d days remaining</div>`, d.daysUntilDue)

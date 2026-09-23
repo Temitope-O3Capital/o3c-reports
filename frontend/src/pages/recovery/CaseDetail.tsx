@@ -597,7 +597,7 @@ function WriteOffModal({ caseId, outstanding, open, onClose, onDone }: {
   async function doWriteOff() {
     const parsed = amount ? Math.round(parseFloat(amount) * 100) : outstanding
     if (!(parsed > 0)) {
-      setErr('Amount must be greater than zero — leave the field blank to write off the full outstanding balance')
+      setErr('Amount must be greater than zero. Leave the field blank to write off the full outstanding balance')
       setConfirm(false)
       return
     }

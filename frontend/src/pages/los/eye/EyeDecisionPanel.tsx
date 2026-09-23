@@ -511,7 +511,7 @@ function StatementInsightsPanel({ statement, currency, periculum }: { statement:
               Balance regularly drained to near-zero right after each credit.
             </div>
             {text(pBehavioral.accountSweep) != null && (
-              <PericulumAside>{pAccountSweep ? "Agrees — sweep detected" : "Disagrees — no sweep detected"}</PericulumAside>
+              <PericulumAside>{pAccountSweep ? "Agrees: sweep detected" : "Disagrees: no sweep detected"}</PericulumAside>
             )}
           </div>
         )}
@@ -1080,7 +1080,7 @@ function OverrideModal({ decisionId, currentOutcome, onClose, onDone }: { decisi
         )}
         <div>
           <FieldLabel>Reason for Override *</FieldLabel>
-          <textarea rows={4} value={reason} onChange={e => setReason(e.target.value)} placeholder="Document the specific basis for overriding the model decision — e.g. additional collateral, verified income not captured in statement, policy exception approved by credit committee…" style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid var(--rule)", background: "var(--paper)", font: "400 13px/1.5 var(--font)", color: "var(--ink)", resize: "vertical", boxSizing: "border-box" }} />
+          <textarea rows={4} value={reason} onChange={e => setReason(e.target.value)} placeholder="Document the specific basis for overriding the model decision. E.g. additional collateral, verified income not captured in statement, policy exception approved by credit committee…" style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid var(--rule)", background: "var(--paper)", font: "400 13px/1.5 var(--font)", color: "var(--ink)", resize: "vertical", boxSizing: "border-box" }} />
         </div>
         <div style={{ padding: "8px 12px", background: "var(--warn-wash)", border: "1px solid var(--warn)", borderRadius: 8, font: "400 12px/1.45 var(--font)", color: "var(--ink)" }}>
           Override is permanent and logged. The original model decision is preserved in the audit trail.
@@ -1119,7 +1119,7 @@ function OutcomeModal({ scoreId, onClose, onDone }: { scoreId: string; onClose: 
   };
 
   return (
-    <Modal title="Record Outcome" subtitle="Link the actual loan result to this scoring record — improves future model accuracy." onClose={onClose}>
+    <Modal title="Record Outcome" subtitle="Link the actual loan result to this scoring record. Improves future model accuracy." onClose={onClose}>
       <div style={{ display: "grid", gap: 12 }}>
         {OUTCOMES.map(o => (
           <label key={o.value} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${outcome === o.value ? "var(--accent)" : "var(--rule)"}`, background: outcome === o.value ? "var(--accent-wash)" : "var(--panel)", cursor: "pointer" }}>
@@ -1339,7 +1339,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
     activeLoans > 0 || delinquentAccounts > 0
   );
   const crcEmptyBody = crcErrored
-    ? "The CRC lookup failed, so no bureau record came back. This is a provider error — not a finding that the applicant has no credit file. Check the provider connection's last error for the CRC response code."
+    ? "The CRC lookup failed, so no bureau record came back. This is a provider error. Not a finding that the applicant has no credit file. Check the provider connection's last error for the CRC response code."
     : "CRC returned no bureau file for this applicant.";
 
   // Open on a bureau that actually has something to show. Defaulting hard to CRC
@@ -1440,16 +1440,16 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
   let _ec = 1;
   const eid = () => `EWS-${900 + _ec++}`;
   if (gateActive) ewsSignals.push({ id: eid(), severity: "High", status: "Pending", title: hardGateDisplay(scoring) ?? "Policy Gate Triggered", description: "Score hard gate blocked approval. Manual review required before proceeding." });
-  if (delinquentAccounts > 0) ewsSignals.push({ id: eid(), severity: "High", status: "Pending", title: `Delinquent Accounts — ${delinquentAccounts} on Bureau`, description: `Bureau report shows ${delinquentAccounts} delinquent account${delinquentAccounts > 1 ? "s" : ""}. Outstanding overdue balance detected.` });
+  if (delinquentAccounts > 0) ewsSignals.push({ id: eid(), severity: "High", status: "Pending", title: `Delinquent Accounts: ${delinquentAccounts} on Bureau`, description: `Bureau report shows ${delinquentAccounts} delinquent account${delinquentAccounts > 1 ? "s" : ""}. Outstanding overdue balance detected.` });
   if (statement?.bounce_count_per_month && statement.bounce_count_per_month >= 1) {
     const c = Math.round(statement.bounce_count_per_month);
-    ewsSignals.push({ id: eid(), severity: statement.bounce_count_per_month >= 3 ? "High" : "Medium", status: "Pending", title: `Bounce Frequency — ~${c} per Month`, description: `Statement shows ~${c} returned debit${c > 1 ? "s" : ""} per month. Possible insufficient funds pattern.` });
+    ewsSignals.push({ id: eid(), severity: statement.bounce_count_per_month >= 3 ? "High" : "Medium", status: "Pending", title: `Bounce Frequency: ~${c} per Month`, description: `Statement shows ~${c} returned debit${c > 1 ? "s" : ""} per month. Possible insufficient funds pattern.` });
   }
   if (statement?.gambling_ratio && statement.gambling_ratio > 0.05) {
     const gp = (statement.gambling_ratio * 100).toFixed(1);
-    ewsSignals.push({ id: eid(), severity: statement.gambling_ratio >= 0.15 ? "High" : "Medium", status: "Pending", title: `Gambling Transactions — ${gp}% of Debits`, description: `${gp}% of debit transactions matched gambling merchant patterns.` });
+    ewsSignals.push({ id: eid(), severity: statement.gambling_ratio >= 0.15 ? "High" : "Medium", status: "Pending", title: `Gambling Transactions: ${gp}% of Debits`, description: `${gp}% of debit transactions matched gambling merchant patterns.` });
   }
-  if ((enquiries3m ?? 0) >= 2) ewsSignals.push({ id: eid(), severity: (enquiries3m ?? 0) >= 4 ? "Medium" : "Low", status: "Open", title: `Multiple Bureau Enquiries — ${enquiries3m} in 3 Months`, description: `${enquiries3m} bureau enquiries in the last 3 months. May indicate credit-seeking activity.` });
+  if ((enquiries3m ?? 0) >= 2) ewsSignals.push({ id: eid(), severity: (enquiries3m ?? 0) >= 4 ? "Medium" : "Low", status: "Open", title: `Multiple Bureau Enquiries, ${enquiries3m} in 3 Months`, description: `${enquiries3m} bureau enquiries in the last 3 months. May indicate credit-seeking activity.` });
   if (pepFlagged || watchlistHit) ewsSignals.push({ id: eid(), severity: "High", status: "Pending", title: "PEP / Watchlist Flag Detected", description: "Applicant matched a politically exposed person or sanctions watchlist entry. Compliance review required." });
   const ewsHighCount = ewsSignals.filter(s => s.severity === "High").length;
 
@@ -1626,7 +1626,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
             setRescoring(true);
             try {
               await rescoreDecision(decisionDetail.id);
-              toast.success("Rescore triggered — refresh to see updated result");
+              toast.success("Rescore triggered: refresh to see updated result");
               onRefresh?.();
             } catch (e) { toast.error((e as Error)?.message ?? "Rescore failed"); }
             finally { setRescoring(false); }
@@ -1890,11 +1890,11 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                   feature_contributions above. */}
               {explanation && explanation.hard_gate_triggered && (
                 <Card>
-                  <Kicker>ML Attribution (SHAP) — Live Cross-Check</Kicker>
+                  <Kicker>ML Attribution (SHAP): Live Cross-Check</Kicker>
                   <p style={{ margin: 0, color: "var(--ink-faint)", font: "400 13px/1.5 var(--font)" }}>
                     This application was declined by a hard gate
                     {decisionDetail.reasons.length > 0 ? ` (${decisionDetail.reasons.join(", ")})` : ""} before
-                    reaching the scoring model — bureau, statement, and telco signals were never evaluated,
+                    reaching the scoring model. Bureau, statement, and telco signals were never evaluated,
                     so there are no meaningful feature contributions to show.
                   </p>
                 </Card>
@@ -1905,8 +1905,8 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                   <Card>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
                       <div>
-                        <Kicker>ML Attribution (SHAP) — Live Cross-Check</Kicker>
-                        <p style={{ margin: 0, color: "var(--ink-faint)", font: "400 12.5px/1.5 var(--font)" }}>Live explanation from the intelligence service's own model — separate from the scorecard weights above.</p>
+                        <Kicker>ML Attribution (SHAP): Live Cross-Check</Kicker>
+                        <p style={{ margin: 0, color: "var(--ink-faint)", font: "400 12.5px/1.5 var(--font)" }}>Live explanation from the intelligence service's own model. Separate from the scorecard weights above.</p>
                       </div>
                       <span style={{ font: "500 11px/1 var(--font)", color: "var(--ink-faint)", background: "var(--paper)", padding: "3px 8px", borderRadius: 4, flexShrink: 0 }}>
                         top {explanation.top_factors.length}
@@ -1938,7 +1938,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                 <PolicyCheck label="Bureau Pulled Within 30d" value={bureauFetched ? `${bureauDaysAgo}d ago` : "Not pulled"} pass={bureauDaysAgo != null ? bureauDaysAgo <= 30 : undefined} />
                 <PolicyCheck label="No Active Delinquencies" value={delinquentAccounts > 0 ? `${delinquentAccounts} delinquent` : "Confirmed"} pass={delinquentAccounts === 0} />
                 <PolicyCheck label="Active Loans (Gate ≤ 5)" value={activeLoans > 0 ? String(activeLoans) : "None on bureau"} pass={activeLoans <= 5} />
-                <PolicyCheck label="PEP / Sanctions Clear" value={pepFlagged || watchlistHit ? "Flagged — review required" : "Clear"} pass={!pepFlagged && !watchlistHit} />
+                <PolicyCheck label="PEP / Sanctions Clear" value={pepFlagged || watchlistHit ? "Flagged: review required" : "Clear"} pass={!pepFlagged && !watchlistHit} />
                 <PolicyCheck label="Hard Gate" value={gateActive ? (scoring?.hard_gate_reason ?? "Triggered") : "Passed"} pass={!gateActive} />
               </Card>
 
@@ -2220,9 +2220,9 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                             {(() => {
                               const rating = text(deepFind(activePayload, ["credit_rating", "rating", "bureau_rating"]));
                               const desc = activeScore >= 740 ? "Excellent credit history with a strong repayment record and low default risk."
-                                : activeScore >= 680 ? "Good credit profile — above-average band, minor risk indicators may be present."
+                                : activeScore >= 680 ? "Good credit profile: above-average band, minor risk indicators may be present."
                                 : activeScore >= 580 ? "Fair file with moderate risk indicators. Requires closer review of bureau data."
-                                : "Poor credit history — significant risk factors detected. Consider declining or referring.";
+                                : "Poor credit history: significant risk factors detected. Consider declining or referring.";
                               return (
                                 <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: "var(--r-md)", background: "var(--paper)", border: "1px solid var(--rule)" }}>
                                   {rating && <div style={{ font: "700 12.5px/1 var(--font)", color: "var(--ink)", marginBottom: 4 }}>{titleCase(rating)}</div>}
@@ -2559,7 +2559,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
           {tab === "statement" && (
             <div style={{ display: "grid", gap: 16 }}>
               {!statement
-                ? <EmptyState icon={<Gauge size={22} />} title="No Bank Statement" description="No statement is linked — scored on bureau and declared data only." />
+                ? <EmptyState icon={<Gauge size={22} />} title="No Bank Statement" description="No statement is linked: scored on bureau and declared data only." />
                 : <>
                     {/* Flagged patterns */}
                     {(() => {
@@ -2583,7 +2583,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                       if (s.avg_monthly_credits_minor != null && s.avg_monthly_debits_minor != null && s.avg_monthly_debits_minor > s.avg_monthly_credits_minor)
                         flags.push({ icon: <TrendingDown size={14} />, label: "Spending Exceeds Income", value: `outflow ${pct(s.avg_monthly_credits_minor > 0 ? s.avg_monthly_debits_minor / s.avg_monthly_credits_minor - 1 : 1)} above inflow`, tone: "bad" });
                       if (s.dscr != null && s.dscr < 1.0)
-                        flags.push({ icon: <XCircle size={14} />, label: "DSCR Below 1.0", value: `${pct(s.dscr)} — income may not cover debt`, tone: "bad" });
+                        flags.push({ icon: <XCircle size={14} />, label: "DSCR Below 1.0", value: `${pct(s.dscr)}: income may not cover debt`, tone: "bad" });
                       if (s.closing_balance_minor != null && s.closing_balance_minor < 0)
                         flags.push({ icon: <XCircle size={14} />, label: "Account Overdrawn", value: `${formatMoney(Math.abs(s.closing_balance_minor), currency)} deficit at close`, tone: "bad" });
 
@@ -2725,7 +2725,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                     {/* Detail rows */}
                     <Card>
                       <Kicker>Statement Details</Kicker>
-                      <InfoRow label="Period" value={`${formatDate(statement.period_start)} — ${formatDate(statement.period_end)}`} />
+                      <InfoRow label="Period" value={`${formatDate(statement.period_start)}, ${formatDate(statement.period_end)}`} />
                       <InfoRow label="Source" value={displaySource(statement.source)} />
                       <InfoRow label="Loan Repayment Detected" value={statement.loan_repayment_detected != null ? (statement.loan_repayment_detected ? "Yes" : "No") : "—"} />
                       {statement.salary_regularity_score != null && <InfoRow label="Income Stability Score" value={pct(statement.salary_regularity_score)} />}
@@ -2956,7 +2956,7 @@ const profileName = text(deepFind(identityJson, ["full_name", "customer_name", "
                 <PolicyCheck label="No Active Defaults" value={delinquentAccounts > 0 ? `${delinquentAccounts} delinquent` : "Confirmed"} pass={delinquentAccounts === 0} />
                 <PolicyCheck label="Active Loans (Gate ≤ 5)" value={activeLoans > 0 ? String(activeLoans) : "None on bureau"} pass={activeLoans <= 5} />
                 <PolicyCheck label="Bureau Enquiries 3m" value={(enquiries3m ?? 0) > 0 ? String(enquiries3m) : "None"} />
-                <PolicyCheck label="PEP / Sanctions" value={pepFlagged || watchlistHit ? "Flagged — review required" : "Clear"} pass={!pepFlagged && !watchlistHit} />
+                <PolicyCheck label="PEP / Sanctions" value={pepFlagged || watchlistHit ? "Flagged: review required" : "Clear"} pass={!pepFlagged && !watchlistHit} />
                 <PolicyCheck label="Hard Gate" value={gateActive ? (scoring?.hard_gate_reason ?? "Triggered") : "Passed"} pass={!gateActive} />
               </Card>
 

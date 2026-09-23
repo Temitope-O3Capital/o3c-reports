@@ -536,7 +536,7 @@ func phoenixQueueSubmit(db *core.DB) http.HandlerFunc {
 		// A Phoenix-originated application is already theirs — sending it back would
 		// create a duplicate over there.
 		if str(rows[0]["source_system"]) == "phoenix" {
-			respondErr(w, 422, "This application originated in Phoenix — it is already decisioned there")
+			respondErr(w, 422, "This application originated in Phoenix and is already decisioned there.")
 			return
 		}
 		if err := phoenixEnqueue(r.Context(), db, id); err != nil {
@@ -1304,8 +1304,8 @@ func phoenixUpsertApplication(ctx context.Context, db *core.DB, pa phoenixApplic
 			nctx := context.WithoutCancel(ctx)
 			NotifyRoles(nctx, db, []string{"risk_officer", "risk_head"}, NotifPayload{
 				EventType: "loan_application_received",
-				Title:     "New application from Phoenix",
-				Body:      fmt.Sprintf("%s — %s", ref, pa.ApplicantName),
+				Title:     "New Application From Phoenix",
+				Body:      fmt.Sprintf("%s for %s.", ref, pa.ApplicantName),
 				ActionURL: fmt.Sprintf("/operations/risk/applications/%d", appID),
 				EntityRef: fmt.Sprintf("loan_application:%d", appID),
 				// Grouped: a Phoenix batch push must not fire one bell per application.

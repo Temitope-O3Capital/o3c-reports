@@ -358,7 +358,7 @@ function PaystackTab({ from, to }: { from: string; to: string }) {
           {/* Compare panel */}
           <div style={{ background: 'var(--card)', border: '1px solid var(--card-bdr)', borderRadius: RADIUS.xl, overflow: 'hidden', marginBottom: 16 }}>
             <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bdr)' }}>
-              <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Processor vs Ledger — Reconciliation</p>
+              <p style={{ fontSize: TEXT.md, fontWeight: FW.semibold, color: 'var(--txt)', margin: '0 0 2px' }}>Processor vs Ledger: Reconciliation</p>
               <p style={{ fontSize: TEXT.sm, color: 'var(--txt2)', margin: 0 }}>Paystack API totals vs internal EOD ledger · matched = <span style={{ color: GREEN, fontWeight: FW.semibold }}>green</span> · gap ≥ 5% = <span style={{ color: RED, fontWeight: FW.semibold }}>red</span></p>
             </div>
             <div style={{ overflowX: 'auto' }}>

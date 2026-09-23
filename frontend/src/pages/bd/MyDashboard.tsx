@@ -281,7 +281,7 @@ function UrgencyTray({
               leftSub={item.sector || item.contact_name || '—'}
               rightMain={<span style={{ color: RED }}>{item.days_to_expiry === 0 ? 'Today' : `${item.days_to_expiry}d left`}</span>}
               rightSub={fmtDate(item.mou_expiry)}
-              action={<EmailBtn email={item.contact_email} subject={`MOU Renewal — ${item.name}`} />}
+              action={<EmailBtn email={item.contact_email} subject={`MOU Renewal: ${item.name}`} />}
             />
           ))}
         </UrgencyCard>
@@ -313,7 +313,7 @@ function UrgencyTray({
               leftSub={`MOU signed ${item.days_since_signed}d ago, no staff referred`}
               rightMain={<span style={{ color: PURPLE }}>Unactivated</span>}
               rightSub={`Since ${fmtDate(item.mou_date)}`}
-              action={<EmailBtn email={item.contact_email} subject={`Staff Referral — ${item.name}`} />}
+              action={<EmailBtn email={item.contact_email} subject={`Staff Referral: ${item.name}`} />}
             />
           ))}
         </UrgencyCard>

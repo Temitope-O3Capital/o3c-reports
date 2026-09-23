@@ -897,7 +897,7 @@ func campaignUploadImage(db *core.DB) http.HandlerFunc {
 		r.Body = http.MaxBytesReader(w, r.Body, maxImageSize+1024)
 
 		if err := r.ParseMultipartForm(maxImageSize); err != nil {
-			respondErr(w, 400, "File too large or invalid form — max 5 MB")
+			respondErr(w, 400, "That file is too large or the form is malformed. The limit is 5 MB.")
 			return
 		}
 

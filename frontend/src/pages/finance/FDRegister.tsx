@@ -451,7 +451,7 @@ export default function FDRegister({ deposits, loading }: { deposits: FDDeposit[
   return (
     <SectionCard
       title="Deposit Register"
-      subtitle="One row per customer — expand a customer to see each deposit"
+      subtitle="One row per customer: expand a customer to see each deposit"
       padding={false}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

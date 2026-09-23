@@ -83,7 +83,7 @@ export default function ExecGrowth() {
       </div>
 
       {/* ── Activity distribution (churn snapshot) ────────────────────────── */}
-      <SectionCard title="Activity Distribution" subtitle="Every customer by recency of last transaction — the churn snapshot" style={{ marginBottom: 14 }}>
+      <SectionCard title="Activity Distribution" subtitle="Every customer by recency of last transaction. The churn snapshot" style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', height: 46, borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
           {BANDS.map(b => {
             const v = n((act as any)[b.key])

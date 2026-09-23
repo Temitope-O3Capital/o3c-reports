@@ -187,11 +187,11 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
     if (ranked.length > 0) {
       const best = ranked[0]
       insights.push({ tone: 'good', icon: 'workspace_premium',
-        text: `Highest-quality source: ${prettySource(best.key)} — ${best.usage.toFixed(0)}% become loyal users (${fmtNum(best.loyal_users)}/${fmtNum(best.installs)} installs). Lean into it.` })
+        text: `Highest-quality source: ${prettySource(best.key)}, ${best.usage.toFixed(0)}% become loyal users (${fmtNum(best.loyal_users)}/${fmtNum(best.installs)} installs). Lean into it.` })
       const worst = ranked[ranked.length - 1]
       if (ranked.length > 1 && worst.usage < 20 && isPaid(worst.key)) {
         insights.push({ tone: 'bad', icon: 'warning',
-          text: `${prettySource(worst.key)} brings volume but low quality — only ${worst.usage.toFixed(0)}% loyal on ${fmtNum(worst.installs)} installs. Review targeting or creative before spending more.` })
+          text: `${prettySource(worst.key)} brings volume but low quality. Only ${worst.usage.toFixed(0)}% loyal on ${fmtNum(worst.installs)} installs. Review targeting or creative before spending more.` })
       }
     }
     if (biggestDrop && biggestDrop.lostPct >= 15) {
@@ -211,7 +211,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
     const topGeo = [...geo].sort((a, b) => b.installs - a.installs)[0]
     if (topGeo) {
       const rate = topGeo.installs > 0 ? topGeo.loyal_users / topGeo.installs * 100 : 0
-      insights.push({ tone: 'neutral', icon: 'public', text: `Top market: ${prettyCountry(topGeo.country)} — ${fmtNum(topGeo.installs)} installs at ${rate.toFixed(0)}% loyal.` })
+      insights.push({ tone: 'neutral', icon: 'public', text: `Top market: ${prettyCountry(topGeo.country)}, ${fmtNum(topGeo.installs)} installs at ${rate.toFixed(0)}% loyal.` })
     }
   }
 
@@ -350,7 +350,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
         <SectionCard title="Installs by Media Source" subtitle="Paid in purple, organic/direct in green">
           {sourceChart.length === 0 ? <EmptyNote text="No source data yet." /> : installsBar(sourceChart)}
         </SectionCard>
-        <SectionCard title="Quality by Source" subtitle="Loyal-user rate — the usage signal">
+        <SectionCard title="Quality by Source" subtitle="Loyal-user rate: the usage signal">
           {srcRows.length === 0 ? <EmptyNote text="No source data yet." /> : (
             <EChart
               height={Math.max(160, Math.min(srcRows.length, 8) * 38)}
@@ -372,7 +372,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
           )}
         </SectionCard>
       </div>
-      <SectionCard title="Source Scorecard" subtitle="Efficiency & quality by media source — ranked by installs" badge={srcRows.length} padding={false}>
+      <SectionCard title="Source Scorecard" subtitle="Efficiency & quality by media source. Ranked by installs" badge={srcRows.length} padding={false}>
         <DataTable cols={scoreCols('source')} rows={srcRows} keyFn={r => r.key} emptyText="No source data yet" />
       </SectionCard>
     </>
@@ -419,7 +419,7 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
           />
         )}
       </SectionCard>
-      <SectionCard title="Country Detail" subtitle="Installs, engagement & quality by country — no state/region in the AppsFlyer feed" badge={geo.length} padding={false}>
+      <SectionCard title="Country Detail" subtitle="Installs, engagement & quality by country. No state/region in the AppsFlyer feed" badge={geo.length} padding={false}>
         <DataTable cols={GEO_COLS} rows={geo} keyFn={r => r.country} emptyText="No country data yet" />
       </SectionCard>
     </>
@@ -478,16 +478,16 @@ export default function MobileAnalytics({ product, appName }: MobileAnalyticsPro
   const campaignsTab = (
     <>
       <SectionCard title="Top Campaigns by Installs" subtitle="Paid in purple, organic/direct in green" style={{ marginBottom: 14 }}>
-        {campaignChart.length === 0 ? <EmptyNote text="No campaign data yet — installs are direct/organic in this window." /> : installsBar(campaignChart)}
+        {campaignChart.length === 0 ? <EmptyNote text="No campaign data yet: installs are direct/organic in this window." /> : installsBar(campaignChart)}
       </SectionCard>
-      <SectionCard title="Campaign Scorecard" subtitle="Efficiency & quality per campaign — ranked by installs" badge={campRows.length} padding={false}>
+      <SectionCard title="Campaign Scorecard" subtitle="Efficiency & quality per campaign. Ranked by installs" badge={campRows.length} padding={false}>
         <DataTable cols={scoreCols('campaign')} rows={campRows} keyFn={r => `${r.key}|${r.media_source}`} emptyText="No campaign data yet" />
       </SectionCard>
     </>
   )
 
   return (
-    <Page title="Mobile Analytics" subtitle={`${appName} — installs, media source & the signup→onboarding funnel`} loading={loading && !totals} skeletonKpis={5}>
+    <Page title="Mobile Analytics" subtitle={`${appName}: installs, media source & the signup→onboarding funnel`} loading={loading && !totals} skeletonKpis={5}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: SP[3], marginBottom: SP[4], flexWrap: 'wrap' }}>
         <div style={{ display: 'inline-flex', gap: 4, background: 'var(--bg2)', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, padding: 3 }}>
           {PLATFORMS.map(p => (

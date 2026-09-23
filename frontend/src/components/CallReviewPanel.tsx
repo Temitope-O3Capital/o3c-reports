@@ -68,12 +68,12 @@ export default function CallReviewPanel({ onEdit, reloadKey }: {
         <SectionCard title="Call Logs Needing a Decision" badge={review.length || undefined}>
           {error ? (
             <div style={{ fontSize: TEXT.sm, color: RED, lineHeight: 1.5 }}>
-              These logs could not be loaded — {error}
+              These logs could not be loaded. {error}
             </div>
           ) : (
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', marginBottom: SP[3], lineHeight: 1.5 }}>
             The write-up on these calls contradicts what the call itself shows, and
-            no other call on the number matches it. Nothing has been changed — correct
+            no other call on the number matches it. Nothing has been changed. Correct
             the log, or mark it fine if it reads right to you.
           </div>
           )}

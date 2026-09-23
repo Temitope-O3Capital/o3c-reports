@@ -209,7 +209,7 @@ export default function FinanceIncome() {
               stack summed to less than the headline (₦64.3m plotted under a ₦97.4m
               KPI on the default window) with nothing on the page accounting for
               the difference. The stack now reconciles to Total Revenue. */}
-          <SectionCard title="Revenue Trend" subtitle="Daily revenue by stream — stacks to Total Revenue" style={{ marginBottom: SP[5] }}>
+          <SectionCard title="Revenue Trend" subtitle="Daily revenue by stream: stacks to Total Revenue" style={{ marginBottom: SP[5] }}>
             {trendData.length === 0
               ? <EmptyState icon="show_chart" title="No Daily Data" />
               : (
@@ -314,7 +314,7 @@ export default function FinanceIncome() {
           This is a top-line revenue statement. Card interest, fees and penalty are derived from transaction
           revenue codes on the live feed; loan interest is the amount DUE in the period per the Udara repayment
           schedule, which is an accrual basis rather than cash received. There is no expense or general-ledger
-          data behind any of it, so this is not a full profit-and-loss. Figures are exact naira — total revenue
+          data behind any of it, so this is not a full profit-and-loss. Figures are exact naira. Total revenue
           for the period is {fmtExact(totals?.total_ngn ?? 0)}.
           {(inc?.other_currency_income?.length ?? 0) > 0 && ' Income booked in other currencies is listed separately above and is not included in that total; no exchange rate is applied to it.'}
         </span>

@@ -101,7 +101,7 @@ export default function SettlementMyDashboard() {
   ]
 
   return (
-    <Page title="My Workspace" subtitle="Your settlement desk — exceptions, runs and position">
+    <Page title="My Workspace" subtitle="Your settlement desk: exceptions, runs and position">
       <ErrBanner error={error} onRetry={load} />
 
       <WorkspaceHero
@@ -109,7 +109,7 @@ export default function SettlementMyDashboard() {
           ? <><strong style={{ color: '#FCA5A5' }}>{fmtNum(aging)}</strong> of your exceptions {aging === 1 ? 'is' : 'are'} aging past 3 days — clear the oldest first</>
           : myExc > 0
             ? <><strong style={{ color: '#fff' }}>{fmtNum(myExc)}</strong> exception{myExc === 1 ? '' : 's'} assigned to you · {fmtKobo(myExcValue)}</>
-            : 'No exceptions on your desk — the book is matched.'}
+            : 'No exceptions on your desk. The book is matched.'}
         ring={showRing ? { value: matched, max: runTotal, unit: 'matched' } : undefined}
         stats={[
           { label: 'My Exceptions', value: fmtNum(myExc), color: aging > 0 ? '#FCA5A5' : '#fff' },

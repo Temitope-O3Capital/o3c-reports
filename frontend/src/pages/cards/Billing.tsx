@@ -99,7 +99,7 @@ function AccountPanel({ cycleDate, productCode }: { cycleDate: string; productCo
     } catch {
       // Surface the failure instead of falling through to the "No Accounts" empty
       // state, which reads as "this cycle has no accounts" — a very different thing.
-      setErr('Could not load accounts — please retry.')
+      setErr('Could not load accounts: please retry.')
       setRows([])
       setTotal(0)
     } finally {

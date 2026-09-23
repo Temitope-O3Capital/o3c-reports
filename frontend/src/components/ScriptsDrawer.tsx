@@ -205,7 +205,7 @@ export default function ScriptsDrawer() {
           <button
             onPointerDown={startDrag}
             onClick={() => { if (movedRef.current) { movedRef.current = false; return } setOpen(true) }}
-            title="Call scripts — drag to move"
+            title="Call scripts: drag to move"
             aria-label="Open call scripts"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 8, touchAction: 'none',

@@ -161,7 +161,7 @@ export default function CollectionsSupervisor() {
     setGenLoading(true)
     try {
       const r = await apiPost<{ created: number }>('/api/collections/generate-assignments', {})
-      toast.success((r.created ?? 0) > 0 ? `${r.created} new assignment(s) created from the delinquency book` : 'Assignments refreshed — no new delinquent accounts')
+      toast.success((r.created ?? 0) > 0 ? `${r.created} new assignment(s) created from the delinquency book` : 'Assignments refreshed: no new delinquent accounts')
       load()
     } catch (e: any) { toast.error(e.message || 'Generation failed') } finally { setGenLoading(false) }
   }

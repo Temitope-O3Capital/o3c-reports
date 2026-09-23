@@ -104,7 +104,7 @@ export default function Handoffs() {
   return (
     <Page
       title="Hand-Offs"
-      subtitle={viewer?.team ? `Work handed to ${titleWords(viewer.team)} — and what you have handed to others` : 'Work handed between teams'}
+      subtitle={viewer?.team ? `Work handed to ${titleWords(viewer.team)}, and what you have handed to others` : 'Work handed between teams'}
       loading={loading && inbox.length === 0 && raised.length === 0}
       actions={
         <button onClick={load}
@@ -138,7 +138,7 @@ export default function Handoffs() {
           <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', maxWidth: 420 }}>
             {scope === 'inbox'
               ? 'When another team hands a customer to you, it lands here and stays until you resolve or return it.'
-              : 'Hand a lead to another team from its detail pane — Log Activity → Hand Off — and track the answer here.'}
+              : 'Hand a lead to another team from its detail pane, Log Activity → Hand Off. And track the answer here.'}
           </div>
         </div>
       ) : (

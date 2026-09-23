@@ -158,7 +158,7 @@ export default function SpendingBehaviour({ title = 'Spending & Behaviour', subt
             </SectionCard>
           )}
           {types.length > 0 && (
-            <SectionCard title="What Customers Did" subtitle="ATM, POS, transfer, bills — from the transaction code">
+            <SectionCard title="What Customers Did" subtitle="ATM, POS, transfer, bills. From the transaction code">
               <BarList color={NAVY} items={types.map(t => ({ label: t.txn_type, value: n(t.txns), sub: `${fmtNum(t.txns)}×` }))} />
             </SectionCard>
           )}
@@ -166,7 +166,7 @@ export default function SpendingBehaviour({ title = 'Spending & Behaviour', subt
             /* Field 13 of the feed is a packed merchant/terminal location string, not a
                city — values like "La", "Lagos Stat", "Lekki Expre". Labelled for what it
                is rather than implying clean geography. */
-            <SectionCard title="Merchant Location" subtitle="As supplied by the terminal — unnormalised">
+            <SectionCard title="Merchant Location" subtitle="As supplied by the terminal. Unnormalised">
               <BarList color={GREEN} items={cities.map(c => ({ label: c.city || '—', value: n(c.txns), sub: `${fmtNum(c.txns)}×` }))} />
             </SectionCard>
           )}
@@ -180,7 +180,7 @@ export default function SpendingBehaviour({ title = 'Spending & Behaviour', subt
               }))} />
               {mixedCurrency && (
                 <div style={{ marginTop: 10, fontSize: TEXT.xs, color: AMBER }}>
-                  Amounts are not converted — USD and NGN figures are reported as supplied by the feed.
+                  Amounts are not converted, USD and NGN figures are reported as supplied by the feed.
                 </div>
               )}
             </SectionCard>
@@ -221,7 +221,7 @@ export default function SpendingBehaviour({ title = 'Spending & Behaviour', subt
       )}
 
       {!loading && !err && monthly.length > 1 && (
-        <SectionCard title="Money Out vs In" subtitle="Monthly card & account cashflow — the latest month is partial">
+        <SectionCard title="Money Out vs In" subtitle="Monthly card & account cashflow. The latest month is partial">
           <EBar
             data={monthly} xKey="month" height={260} leftMargin={0}
             valueFmt={(v) => fmtKobo(v)} axisFmt={(v) => fmtKobo(v).replace(/\.00$/, '')}

@@ -216,7 +216,7 @@ func RegisterHandler(db *core.DB) http.HandlerFunc {
 		if len(existing) > 0 {
 			go NotifyRoles(context.Background(), db, []string{"admin", "it_admin"}, NotifPayload{
 				EventType: EvtNewAccountCreated,
-				Title:     "Duplicate signup attempt",
+				Title:     "Duplicate Signup Attempt",
 				Body:      fmt.Sprintf("%s tried to register, but an account with %s already exists.", fullName, b.Email),
 				ActionURL: "/admin/users",
 			})
@@ -245,28 +245,26 @@ func RegisterHandler(db *core.DB) http.HandlerFunc {
 
 		go NotifyRoles(ctx, db, []string{"admin", "it_admin"}, NotifPayload{
 			EventType: EvtNewAccountCreated,
-			Title:     "New access request",
-			Body:      fmt.Sprintf("%s (%s) has requested workspace access. Review in Admin → Users.", fullName, b.Email),
+			Title:     "New Access Request",
+			Body:      fmt.Sprintf("%s (%s) has asked for workspace access. Approve or decline it in Admin → Users.", fullName, b.Email),
 			ActionURL: "/admin/users",
 			EntityRef: fmt.Sprint(newUID),
 		})
 
-		regInner := fmt.Sprintf(`
-			<h1 style="margin:0 0 18px;font-size:22px;font-weight:700;color:#0E2841;">Access Request Received</h1>
-			<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#374151;">Hi %s,</p>
-			<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#374151;">Your request for access to the <strong>O3 Capital Workspace</strong> has been received. An administrator will review and activate your account.</p>
-			<p style="margin:0;font-size:15px;line-height:1.6;color:#374151;">Once approved, you'll receive your login details by email.</p>`,
+		regInner := o3Headline("Access Request Received") + fmt.Sprintf(
+			o3Para("Hi %s,")+
+				o3Para("We have your request for access to the <strong>O3 Capital Workspace</strong>. An administrator will review it and switch your account on.")+
+				o3Para("They will send your login details to this address once they do."),
 			escapeMailHTML(fullName))
 		go SendMail(ctx, db, SendMailOptions{
 			To:          []MailAddress{{Email: b.Email, Name: fullName}},
 			FromEmail:   "no-reply@o3cards.com",
 			FromName:    "O3 Capital",
-			Subject:     "O3 Capital — Access Request Received",
-			HTMLBody:    wrapBrandedEmail("Your access request has been received", regInner),
-			TextBody:    fmt.Sprintf("Hi %s,\n\nYour access request for O3 Capital Workspace has been received. An administrator will review and activate your account. Once approved, you'll receive your login details by email.\n\n— O3 Capital Workspace (no-reply)", fullName),
+			Subject:     "Access Request Received",
+			HTMLBody:    wrapBrandedEmail("An administrator will review your access request", regInner),
+			TextBody:    fmt.Sprintf("Hi %s,\n\nWe have your request for access to the O3 Capital Workspace. An administrator will review it and switch your account on, then send your login details to this address.\n\nO3 Capital Workspace\nThis address does not take replies.", fullName),
 			Kind:        "auth",
 			Category:    "auth",
-			Attachments: []MailAttachment{brandedLogoAttachment()},
 		})
 
 		w.WriteHeader(204)
@@ -356,7 +354,7 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			        last_login
 			 FROM o3c_users WHERE email = $1`, email)
 		if err != nil {
-			respondErr(w, 503, "Database unavailable — please try again")
+			respondErr(w, 503, "The database is not answering. Try again in a moment.")
 			return
 		}
 		// S6: Always run bcrypt so email-not-found responses take the same time as
@@ -417,8 +415,8 @@ func loginHandler(db *core.DB) http.HandlerFunc {
 			go Notify(r.Context(), db, NotifPayload{
 				EventType: EvtFirstLogin,
 				UserID:    toInt64(u["id"]),
-				Title:     "Welcome to O3 Capital Workspace!",
-				Body:      "Your account is ready. Explore your dashboard to get started.",
+				Title:     "Welcome to O3 Capital Workspace",
+				Body:      "Your account is ready. Sign in and your dashboard will show the customers, tasks and applications assigned to you.",
 				ActionURL: "/",
 			})
 		}
@@ -553,7 +551,7 @@ func refreshHandler(db *core.DB) http.HandlerFunc {
 		}
 		// C2: a refresh token issued before the user's last password change is dead.
 		if core.TokenPredatesInvalidation(r.Context(), old) {
-			respondErr(w, 401, "Session expired — please sign in again")
+			respondErr(w, 401, "Your session has expired. Sign in again.")
 			return
 		}
 
@@ -742,7 +740,7 @@ func BootstrapHandler(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if len(created) == 0 {
-			respondErr(w, 403, "Platform already has users — use the admin panel to add more")
+			respondErr(w, 403, "This platform already has users. Add more from Admin → Users.")
 			return
 		}
 

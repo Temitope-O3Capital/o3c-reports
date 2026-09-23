@@ -50,7 +50,7 @@ function StageStepper({ stage }: { stage: ManualPosting['stage'] }) {
 
   const stageLabel: Record<string, { label: string; color: string }> = {
     pending_approval: { label: 'Pending Approval', color: AMBER },
-    approved:         { label: 'Approved — Pending Posting', color: NAVY },
+    approved:         { label: 'Approved: Pending Posting', color: NAVY },
     posted:           { label: 'Posted', color: GREEN },
     rejected:         { label: 'Rejected', color: RED },
     returned:         { label: 'Returned', color: AMBER },
@@ -275,7 +275,7 @@ function PostConfirmModal({ posting, onClose, onDone }: { posting: ManualPosting
     <ConfirmModal
       open
       title="Post to Ledger"
-      body={`Post ${posting.ref} — ${posting.type} of ${fmtKobo(posting.amount_kobo)} to account ${posting.account}? This will write to the core banking ledger.`}
+      body={`Post ${posting.ref}: ${posting.type} of ${fmtKobo(posting.amount_kobo)} to account ${posting.account}? This will write to the core banking ledger.`}
       confirmLabel="Post to Ledger"
       loading={saving}
       onConfirm={handlePost}
@@ -403,7 +403,7 @@ export default function ManualPostings() {
     setApproveLoading(true)
     try {
       await apiPut(`/api/settlements/manual-postings/${confirmApprove.id}/approve`, {})
-      toast.success('Posting approved — now awaiting posting to ledger')
+      toast.success('Posting approved: now awaiting posting to ledger')
       setConfirmApprove(null)
       load()
     } catch (e: unknown) {
@@ -509,7 +509,7 @@ export default function ManualPostings() {
   const STAGE_OPTIONS = [
     { value: '',                label: 'All Stages' },
     { value: 'pending_approval',label: 'Pending Approval' },
-    { value: 'approved',        label: 'Approved — Pending Posting' },
+    { value: 'approved',        label: 'Approved: Pending Posting' },
     { value: 'posted',          label: 'Posted' },
     { value: 'rejected',        label: 'Rejected' },
     { value: 'returned',        label: 'Returned' },
@@ -525,7 +525,7 @@ export default function ManualPostings() {
   return (
     <Page
       title="Manual Postings"
-      subtitle="Three-stage approval workflow for ledger corrections — raise, approve, post"
+      subtitle="Three-stage approval workflow for ledger corrections. Raise, approve, post"
       loading={loading && rows.length === 0}
       actions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

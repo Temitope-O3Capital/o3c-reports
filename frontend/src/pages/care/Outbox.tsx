@@ -74,7 +74,7 @@ export default function CareOutbox() {
   }
 
   return (
-    <Page title="Outbox" subtitle="Replies held briefly so you can undo — recall one before it sends">
+    <Page title="Outbox" subtitle="Replies held briefly so you can undo. Recall one before it sends">
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner size={22} /></div>
       ) : err ? (

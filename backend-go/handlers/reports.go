@@ -761,12 +761,12 @@ func reportSalesPipeline(db *core.DB) http.HandlerFunc {
 			 GROUP BY 1 ORDER BY count DESC`, dateFrom, dateTo)
 
 		respond(w, map[string]any{
-			"date_from":     dateFrom,
-			"date_to":       dateTo,
-			"by_source":     bySource,
-			"by_stage":      byStage,
-			"by_officer":    byOfficer,
-			"forwards":      forwards,
+			"date_from":  dateFrom,
+			"date_to":    dateTo,
+			"by_source":  bySource,
+			"by_stage":   byStage,
+			"by_officer": byOfficer,
+			"forwards":   forwards,
 		}, "pg")
 	}
 }

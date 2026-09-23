@@ -414,7 +414,7 @@ function FdPayoutGaps({ unknown, partial }: { unknown: MonthlyPoint[]; partial: 
     lines.push(
       'FD payouts not shown for ' +
       unknown.map(m => `${m.month} (${fmtCount(m.fd_maturities_count)} matured, value not retained)`).join(', ') +
-      '. Udara clears a deposit’s principal and interest on closure, so the payout is unknown — not zero.',
+      '. Udara clears a deposit’s principal and interest on closure, so the payout is unknown. Not zero.',
     )
   }
   if (partial.length > 0) {

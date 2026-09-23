@@ -73,8 +73,8 @@ export default function HandoffActions({ handoff, viewer, onDone }: {
     try {
       await apiPatch(`/api/activities/${handoff.id}/status`, { status: next, note: withNote ?? '' })
       toast.success(
-        next === 'accepted' ? 'Accepted — the raiser has been told'
-        : next === 'resolved' ? 'Resolved — the raiser has been told'
+        next === 'accepted' ? 'Accepted: the raiser has been told'
+        : next === 'resolved' ? 'Resolved: the raiser has been told'
         : next === 'returned' ? 'Returned to the raiser'
         : 'Hand-off cancelled')
       setAsking(null); setNote('')
@@ -149,8 +149,8 @@ export default function HandoffActions({ handoff, viewer, onDone }: {
         <textarea
           spellCheck rows={4} value={note} onChange={e => setNote(e.target.value)}
           placeholder={asking === 'returned'
-            ? 'e.g. Wrong team — this is an Ops request, not Risk'
-            : 'e.g. Reviewed and approved — customer is eligible for the ₦500k limit'}
+            ? 'e.g. Wrong team: this is an Ops request, not Risk'
+            : 'e.g. Reviewed and approved. Customer is eligible for the ₦500k limit'}
           style={{ width: '100%', padding: '9px 11px', border: '1px solid var(--input-bdr)', borderRadius: RADIUS.md,
                    fontSize: TEXT.base, background: 'var(--input-bg)', color: 'var(--txt)', fontFamily: INTER,
                    outline: 'none', boxSizing: 'border-box', resize: 'vertical' }}

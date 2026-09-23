@@ -1903,8 +1903,8 @@ func hdBulkAssignTickets(db *core.DB) http.HandlerFunc {
 			go Notify(context.Background(), db, NotifPayload{
 				EventType: "ticket_assigned",
 				UserID:    *b.AgentID,
-				Title:     "Tickets assigned to you",
-				Body:      fmt.Sprintf("%d %s been assigned to you.", n, word),
+				Title:     "Tickets Assigned to You",
+				Body:      fmt.Sprintf("%d %s landed in your queue.", n, word),
 				ActionURL: "/helpdesk/tickets",
 			})
 		}
@@ -1987,7 +1987,7 @@ func hdAutoAssignTicket(ctx context.Context, db *core.DB, ticketID, actorID int6
 	go Notify(context.Background(), db, NotifPayload{
 		EventType: EvtTicketAssigned,
 		UserID:    *agent,
-		Title:     fmt.Sprintf("Ticket assigned to you: %s", ref),
+		Title:     fmt.Sprintf("Ticket Assigned to You: %s", ref),
 		Body:      str(rows[0]["subject"]),
 		ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 		EntityRef: ref,
@@ -2050,8 +2050,8 @@ func hdDistributeUnassigned(ctx context.Context, db *core.DB, limit int, actorID
 		go Notify(context.Background(), db, NotifPayload{
 			EventType: "ticket_assigned",
 			UserID:    aid,
-			Title:     "Tickets assigned to you",
-			Body:      fmt.Sprintf("%d tickets have been assigned to you.", cnt),
+			Title:     "Tickets Assigned to You",
+			Body:      fmt.Sprintf("%d tickets are now in your queue.", cnt),
 			ActionURL: "/helpdesk/tickets",
 		})
 	}
@@ -2334,7 +2334,7 @@ func hdLogAssist(ctx context.Context, db *core.DB, ticketID, helperID int64, act
 		EventType: "ticket_assisted",
 		UserID:    ownerID,
 		Title:     fmt.Sprintf("%s %s %s", helper, verb, ref),
-		Body:      fmt.Sprintf("%s — %s. You are still the owner.", str(rows[0]["subject"]), verb),
+		Body:      fmt.Sprintf("%s, %s. You are still the owner.", str(rows[0]["subject"]), verb),
 		ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 		EntityRef: ref,
 	})
@@ -2576,8 +2576,8 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 				n++
 				go NotifyRole(context.Background(), db, teamSupervisorRole(ticketTeam(str(ticket["channel"]))), NotifPayload{
 					EventType: "ticket_escalated",
-					Title:     fmt.Sprintf("Ticket escalated: %s", str(ticket["ticket_ref"])),
-					Body:      fmt.Sprintf("Ticket %s (%s) has been escalated and needs review.", str(ticket["ticket_ref"]), str(ticket["subject"])),
+					Title:     fmt.Sprintf("Ticket Escalated: %s", str(ticket["ticket_ref"])),
+					Body:      fmt.Sprintf("Ticket %s (%s) is escalated and waiting on you.", str(ticket["ticket_ref"]), str(ticket["subject"])),
 					ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 					EntityRef: fmt.Sprintf("ticket:%d", ticketID),
 					Priority:  "high",
@@ -2652,8 +2652,8 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 					go Notify(context.Background(), db, NotifPayload{
 						EventType: EvtTicketAssigned,
 						UserID:    newAssignID,
-						Title:     fmt.Sprintf("Ticket assigned: %s", str(ticket["ticket_ref"])),
-						Body:      fmt.Sprintf("You've been assigned ticket %s: %s", str(ticket["ticket_ref"]), str(ticket["subject"])),
+						Title:     fmt.Sprintf("Ticket Assigned: %s", str(ticket["ticket_ref"])),
+						Body:      fmt.Sprintf("Ticket %s is yours: %s", str(ticket["ticket_ref"]), str(ticket["subject"])),
 						ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 						EntityRef: fmt.Sprintf("ticket:%d", ticketID),
 					})
@@ -2842,7 +2842,7 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 			go Notify(context.Background(), db, NotifPayload{
 				EventType: EvtTicketReplied,
 				UserID:    assignedID,
-				Title:     fmt.Sprintf("New message on ticket %s", ref),
+				Title:     fmt.Sprintf("New Message on Ticket %s", ref),
 				Body:      truncateStr(b.BodyText, 120),
 				ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 				EntityRef: fmt.Sprintf("ticket:%d", ticketID),
@@ -3415,8 +3415,8 @@ func hdCSATSubmit(db *core.DB) http.HandlerFunc {
 			// A bad score on a mail thread is Care's to review, not the phone floor's.
 			go NotifyRole(context.Background(), db, teamSupervisorRole(ticketTeam(str(tRows[0]["channel"]))), NotifPayload{
 				EventType: EvtCSATLowScore,
-				Title:     fmt.Sprintf("Low CSAT score (%d/5) on %s", b.Score, ticketRef),
-				Body:      fmt.Sprintf("Customer rated %d/5 for ticket %s. Comment: %s", b.Score, ticketRef, b.Comment),
+				Title:     fmt.Sprintf("Low CSAT Score (%d/5) on %s", b.Score, ticketRef),
+				Body:      fmt.Sprintf("The customer scored ticket %s at %d out of 5. They wrote: %s", ticketRef, b.Score, b.Comment),
 				ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 				EntityRef: ticketRef,
 			})
@@ -3854,7 +3854,8 @@ func hdSendTicketEmail(ctx context.Context, db *core.DB, ticket map[string]any, 
 		inner = "<p>" + escapeMailHTML(bodyText) + "</p>"
 	}
 	preheader := truncateStr(strings.TrimSpace(bodyText), 140)
-	brandedHTML := wrapBrandedEmail(preheader, inner)
+	brandedHTML := wrapSupportEmail(preheader, inner)
+	// The sheet references cid:o3logo for customer mail, so the mark must ride along.
 	fullAttachments := append([]MailAttachment{brandedLogoAttachment()}, attachments...)
 
 	opts := SendMailOptions{
@@ -3905,21 +3906,18 @@ func hdSendCSATEmail(ctx context.Context, db *core.DB, ticket map[string]any) {
 		customerName = "Customer"
 	}
 	ticketRef := str(ticket["ticket_ref"])
-	subject := fmt.Sprintf("How did we do? — %s", ticketRef)
-	html := fmt.Sprintf(`<p>Hi %s,</p>
-<p>Your support request (<strong>%s</strong>) has been resolved. We'd love to know how we did!</p>
-<p>Rate your experience (1–5 stars):</p>
-<p>
-  <a href="%s?score=1">&#11088; 1</a> &nbsp;
-  <a href="%s?score=2">&#11088;&#11088; 2</a> &nbsp;
-  <a href="%s?score=3">&#11088;&#11088;&#11088; 3</a> &nbsp;
-  <a href="%s?score=4">&#11088;&#11088;&#11088;&#11088; 4</a> &nbsp;
-  <a href="%s?score=5">&#11088;&#11088;&#11088;&#11088;&#11088; 5</a>
-</p>
-<p style="font-size:12px;color:#666">O3 Capital Customer Support</p>`,
-		escapeMailHTML(customerName), escapeMailHTML(ticketRef),
-		csatURL, csatURL, csatURL, csatURL, csatURL)
-	text := fmt.Sprintf("Hi %s,\n\nYour support request (%s) has been resolved.\nRate your experience: %s\n\nO3 Capital Customer Support",
+	subject := fmt.Sprintf("How did we do on %s?", ticketRef)
+	inner := o3Headline("How did we do?") +
+		fmt.Sprintf(o3Para("Hi %s,")+
+			o3Para("We have closed your support request <strong>%s</strong>. One tap below tells us how it went, "+
+				"and the number you pick is recorded straight away."),
+			escapeMailHTML(customerName), escapeMailHTML(ticketRef)) +
+		hdCSATScaleHTML(csatURL) +
+		o3Para("The Customer Care team<br>O3 Capital")
+	html := wrapCustomerEmail("One tap tells us how your support request went.", inner,
+		`O3 Capital Nigeria Limited &middot; You deserve more.`)
+	text := fmt.Sprintf("Hi %s,\n\nWe have closed your support request %s. Tell us how it went, "+
+		"1 for poor and 5 for excellent:\n%s\n\nThe Customer Care team\nO3 Capital",
 		customerName, ticketRef, csatURL)
 
 	SendMail(ctx, db, SendMailOptions{
@@ -3931,6 +3929,7 @@ func hdSendCSATEmail(ctx context.Context, db *core.DB, ticket map[string]any) {
 		Kind:        "csat",
 		RelatedType: "helpdesk_tickets",
 		RelatedID:   toInt64(ticket["id"]),
+		Attachments: []MailAttachment{brandedLogoAttachment()},
 	})
 }
 
@@ -5068,7 +5067,7 @@ func deleteCachedRecording(callID string) {
 	dir := filepath.Join(UploadRoot(), "call-recordings")
 	for _, ext := range []string{".wav", ".mp3"} {
 		p := filepath.Join(dir, string(safe)+ext)
-		os.Remove(p)        //nolint:errcheck // absent is the desired end state
+		os.Remove(p)           //nolint:errcheck // absent is the desired end state
 		os.Remove(p + ".part") //nolint:errcheck
 	}
 }

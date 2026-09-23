@@ -29,6 +29,7 @@ interface LoanRow {
   id:                     string | number
   reference:              string
   applicant_cif:          string
+  applicant_udara_id:     string
   applicant_name:         string
   applicant_phone:        string
   product_type:           string
@@ -67,8 +68,12 @@ function dpdStage(dpd: number | null): { label: string; color: string } {
 
 const LOAN_COLS: TableCol<LoanRow>[] = [
   {
-    key: 'applicant_cif', label: 'CIF',
-    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.applicant_cif ?? '—'}</span>,
+    // NOT "CIF". This book reads cbs_loans and nothing else, so the value is always a
+    // Udara customer id. CIF is a cards identifier, and 271 of the 295 Udara ids also
+    // exist as a real CIF belonging to a DIFFERENT person — labelling it "CIF" sends
+    // whoever reads it straight to the wrong customer's cards record.
+    key: 'applicant_cif', label: 'Udara ID',
+    render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.applicant_udara_id ?? r.applicant_cif ?? '—'}</span>,
   },
   {
     key: 'applicant_name', label: 'Customer',
@@ -206,7 +211,7 @@ function LoanDetailPanel({ loan, onClose }: { loan: LoanRow; onClose: () => void
             {stage.label}
           </span>
 
-          <DetailRow label="CIF"           value={loan.applicant_cif} />
+          <DetailRow label="Udara ID"      value={loan.applicant_udara_id ?? loan.applicant_cif} />
           <DetailRow label="Phone"         value={loan.applicant_phone} />
           <DetailRow label="Product"       value={loan.product_type} />
           <DetailRow label="Loan Product"  value={loan.loan_product} />
@@ -325,7 +330,7 @@ export default function ActiveLoanBook() {
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Search CIF, name, reference…"
+          placeholder="Search Udara ID, name, reference…"
           minWidth={280}
         />
         <select

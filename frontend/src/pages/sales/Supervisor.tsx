@@ -448,7 +448,7 @@ function DistributeModal({ unowned, onClose, onDone }: { unowned: number; onClos
             {officers.length === 0 ? (
               <div style={{ padding: 16, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>Loading officers…</div>
             ) : otherOfficers.length === 0 ? (
-              <div style={{ padding: 16, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No other officers — use the toggle above to take the leads yourself.</div>
+              <div style={{ padding: 16, textAlign: 'center', color: 'var(--txt3)', fontSize: TEXT.sm }}>No other officers: use the toggle above to take the leads yourself.</div>
             ) : otherOfficers.map(o => (
               <label key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderBottom: '1px solid var(--bdr)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={selected.has(o.id)} onChange={() => toggle(o.id)} />

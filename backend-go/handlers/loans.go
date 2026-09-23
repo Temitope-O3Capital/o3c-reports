@@ -176,7 +176,7 @@ func createLoan(db *core.DB) http.HandlerFunc {
 		created := rows[0]
 		go NotifyRoles(r.Context(), db, []string{"risk_officer", "risk_head"}, NotifPayload{
 			EventType: EvtLoanSubmitted,
-			Title:     "New loan application",
+			Title:     "New Loan Application",
 			Body: fmt.Sprintf("Application %s submitted for %s (%s)",
 				str(created["reference"]), b.ApplicantName, b.ProductType),
 			ActionURL: fmt.Sprintf("/loans/%v", created["id"]),
@@ -253,7 +253,7 @@ func updateLoanStage(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if !loanStages[b.Stage] {
-			respondErr(w, 422, "Invalid stage — must be one of: new, submitted, doc_collection, under_review, finance_review, approved, rejected, on_hold")
+			respondErr(w, 422, "That is not a stage. Use one of: new, submitted, doc_collection, under_review, finance_review, approved, rejected, on_hold.")
 			return
 		}
 		cur, _ := db.PGQuery(r.Context(), `SELECT stage FROM loan_applications WHERE id=$1`, id)
@@ -273,7 +273,7 @@ func updateLoanStage(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if len(atomicUpd) == 0 {
-			respondErr(w, 409, "Stage changed concurrently — please refresh and try again")
+			respondErr(w, 409, "Someone else moved this application while you were working. Refresh and try again.")
 			return
 		}
 		// Fire notifications based on the new stage
@@ -292,8 +292,8 @@ func updateLoanStage(db *core.DB) http.HandlerFunc {
 				go Notify(r.Context(), db, NotifPayload{
 					EventType: EvtLoanStageChanged,
 					UserID:    assignedID,
-					Title:     "Loan application stage updated",
-					Body:      fmt.Sprintf("%s (%s) moved to %s", ref, name, b.Stage),
+					Title:     "Loan Application Stage Updated",
+					Body:      fmt.Sprintf("%s (%s) moved to %s.", ref, name, b.Stage),
 					ActionURL: loanURL, EntityRef: eRef,
 				})
 			}
@@ -304,16 +304,16 @@ func updateLoanStage(db *core.DB) http.HandlerFunc {
 					go Notify(r.Context(), db, NotifPayload{
 						EventType: EvtLoanApproved,
 						UserID:    salesID,
-						Title:     "Loan application approved",
-						Body:      fmt.Sprintf("%s (%s) has been approved", ref, name),
+						Title:     "Loan Application Approved",
+						Body:      fmt.Sprintf("%s (%s) is approved.", ref, name),
 						ActionURL: loanURL, EntityRef: eRef,
 					})
 				case "rejected":
 					go Notify(r.Context(), db, NotifPayload{
 						EventType: EvtLoanRejected,
 						UserID:    salesID,
-						Title:     "Loan application rejected",
-						Body:      fmt.Sprintf("%s (%s) has been rejected", ref, name),
+						Title:     "Loan Application Rejected",
+						Body:      fmt.Sprintf("%s (%s) is rejected.", ref, name),
 						ActionURL: loanURL, EntityRef: eRef,
 					})
 				}

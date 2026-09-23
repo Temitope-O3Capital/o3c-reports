@@ -263,7 +263,7 @@ export default function CollectionsPortfolio() {
           <NameCell name={r.customer_name || r.applicant_cif} sub={isInternalId(r.applicant_cif) ? r.reference : `CIF ${r.applicant_cif} · ${r.reference}`} />
           {r.superseded && (
             <span
-              title="This debt is also booked in Udara core banking. Shown for completeness — do not count it twice."
+              title="This debt is also booked in Udara core banking. Shown for completeness. Do not count it twice."
               style={{ fontSize: TEXT['2xs'], fontWeight: FW.bold, padding: '1px 6px', borderRadius: RADIUS.sm, background: `${AMBER}18`, color: AMBER, whiteSpace: 'nowrap' }}
             >Also in Udara</span>
           )}
@@ -359,7 +359,7 @@ export default function CollectionsPortfolio() {
   return (
     <Page
       title="Credit Portfolio"
-      subtitle="Every loan and credit card — CCS cards, Udara loans and uploaded loans. 0–90 DPD is Collections, 90d+ is Recovery territory"
+      subtitle="Every loan and credit card, CCS cards, Udara loans and uploaded loans. 0–90 DPD is Collections, 90d+ is Recovery territory"
     >
       <ErrBanner error={error} onRetry={load} />
 
@@ -394,7 +394,7 @@ export default function CollectionsPortfolio() {
             <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)' }}>Show</span>
             <div style={{ display: 'flex', border: '1px solid var(--bdr)', borderRadius: RADIUS.md, overflow: 'hidden' }}>
               {([
-                ['owing', 'Owing Now','Facilities carrying a balance — the collections work list'],
+                ['owing', 'Owing Now','Facilities carrying a balance. The collections work list'],
                 ['all',   'Whole Book','Every card and loan, including settled and closed facilities'],
               ] as const).map(([k, label, title]) => (
                 <button

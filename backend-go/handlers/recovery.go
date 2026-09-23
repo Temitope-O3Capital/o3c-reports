@@ -642,7 +642,7 @@ func recoveryAddLegalMilestone(db *core.DB) http.HandlerFunc {
 		go NotifyRoles(context.Background(), db, []string{"recovery_head", "compliance_officer"}, NotifPayload{
 			EventType: EvtRecoveryLegalMilestone,
 			Title:     "Legal Milestone Recorded",
-			Body:      fmt.Sprintf("Milestone '%s' has been added to recovery case #%d", b.MilestoneType, id),
+			Body:      fmt.Sprintf("Milestone '%s' is now on recovery case #%d.", b.MilestoneType, id),
 			ActionURL: "/recovery/legal",
 			EntityRef: fmt.Sprintf("recovery_case:%d", id),
 		})
@@ -779,7 +779,7 @@ func recoveryCreateDebtSale(db *core.DB) http.HandlerFunc {
 		if firstStage, ok := stageProgressions[writeOffChainStart]; ok {
 			go NotifyRole(context.Background(), db, firstStage.required, NotifPayload{
 				EventType: EvtRecoveryDebtSale,
-				Title:     "Debt sale awaiting approval",
+				Title:     "Debt Sale Awaiting Approval",
 				Body:      fmt.Sprintf("A debt sale to %s (₦%s) needs %s sign-off.", body.BuyerName, fmtKoboStr(body.SalePriceKobo), firstStage.label),
 				ActionURL: "/recovery/debt-sales",
 				EntityRef: fmt.Sprintf("debt_sale:%d", saleID),
@@ -874,7 +874,7 @@ func recoveryApproveDebtSale(db *core.DB) http.HandlerFunc {
 				prog.next, id, cur).Scan(&updatedID)
 		}
 		if scanErr == sql.ErrNoRows {
-			respondErr(w, 409, "Debt sale status changed concurrently — please refresh")
+			respondErr(w, 409, "Someone else changed this debt sale while you were working. Refresh and try again.")
 			return
 		}
 		if scanErr != nil {
@@ -955,7 +955,7 @@ func recoveryRejectDebtSale(db *core.DB) http.HandlerFunc {
 		rows, err := db.PGQuery(ctx, `UPDATE debt_sales SET status='rejected', approved_by=$1, approved_at=NOW(), rejection_reason=$2, updated_at=NOW() WHERE id=$3 AND status=$4 RETURNING id, status`,
 			user.ID, b.RejectionReason, id, cur)
 		if err != nil || len(rows) == 0 {
-			respondErr(w, 409, "Debt sale status changed — please refresh")
+			respondErr(w, 409, "This debt sale has changed since you opened it. Refresh and try again.")
 			return
 		}
 		if rb := toInt64(drows[0]["requested_by"]); rb > 0 {
@@ -993,7 +993,7 @@ func recoveryDeleteDebtSale(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if str(drows[0]["status"]) == "approved" {
-			respondErr(w, 422, "An approved debt sale has a posted GL entry and cannot be deleted — reverse it with a GL adjustment instead")
+			respondErr(w, 422, "An approved debt sale has a posted GL entry and cannot be deleted. Reverse it with a GL adjustment instead.")
 			return
 		}
 

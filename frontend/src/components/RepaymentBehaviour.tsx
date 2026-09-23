@@ -58,7 +58,7 @@ interface Behaviour {
 const STATUS_META: { key: keyof InstallmentBehaviour; label: string; color: string; note: string }[] = [
   { key: 'not_yet_due',    label: 'Not Yet Due',     color: NAVY,  note: 'scheduled, not yet payable' },
   { key: 'due_and_unpaid', label: 'Due And Unpaid',  color: RED,   note: 'due, nothing received' },
-  { key: 'partially_paid', label: 'Partially Paid',  color: AMBER, note: 'part received — amount not recorded' },
+  { key: 'partially_paid', label: 'Partially Paid',  color: AMBER, note: 'part received: amount not recorded' },
   { key: 'fully_paid',     label: 'Fully Paid',      color: GREEN, note: 'settled in full' },
 ]
 
@@ -92,7 +92,7 @@ export default function RepaymentBehaviour() {
   const inst = data?.installment_behaviour
 
   return (
-    <SectionCard title="Repayment Behaviour" subtitle="How the credit book pays down — loans by principal repaid, cards by minimum met, loans by installment outcome">
+    <SectionCard title="Repayment Behaviour" subtitle="How the credit book pays down. Loans by principal repaid, cards by minimum met, loans by installment outcome">
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[5], paddingTop: SP[2] }}>
 
         {/* Headline behaviour stats */}

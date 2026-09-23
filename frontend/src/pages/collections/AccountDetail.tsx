@@ -938,7 +938,7 @@ export default function CollectionsAccountDetail() {
                 {selected.product}
               </div>
               <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>
-                {selected.origin} · {selected.ref || '—'}{idCaption(selected.cif) ? ` · ${idCaption(selected.cif)}` : ''}
+                {selected.origin} · {selected.ref || '—'}{idCaption(selected.cif, selected.origin) ? ` · ${idCaption(selected.cif, selected.origin)}` : ''}
               </div>
             </div>
             {selected.scheduled_kobo > 0 && (

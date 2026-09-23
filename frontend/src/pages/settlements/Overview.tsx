@@ -34,11 +34,11 @@ interface Overview3 {
 // ── Chrome ────────────────────────────────────────────────────────────────────
 
 const ROUTE_LABEL: Record<string, string> = {
-  ATM: 'ATM — Cash Advance',
-  POS: 'POS — Purchases',
-  WEB: 'WEB — Utility Payment',
-  TRANSFER_OUT: 'Transfer — Web Out',
-  TRANSFER_IN: 'Transfer — Web In',
+  ATM: 'ATM: Cash Advance',
+  POS: 'POS: Purchases',
+  WEB: 'WEB: Utility Payment',
+  TRANSFER_OUT: 'Transfer: Web Out',
+  TRANSFER_IN: 'Transfer: Web In',
   CASH_PAYMENT: 'Cash Payment (Bank)',
   OTHER: 'Other Codes',
 }
@@ -180,7 +180,7 @@ export default function SettlementsOverview() {
       {/* ── CCS master ── */}
       <SectionCard style={{ marginBottom: SP[4] }}>
         <SourceHeader
-          title="CCS — O3 Card Management System" role="MASTER" tone={NAVY}
+          title="CCS: O3 Card Management System" role="MASTER" tone={NAVY}
           feed="upload · EODTXN Report 620"
           sub={ccs?.totals?.first_day
             ? `Book of record. ${fmtDate(ccs.totals.first_day)} – ${fmtDate(ccs.totals.last_day)}`
@@ -220,7 +220,7 @@ export default function SettlementsOverview() {
           <SourceHeader
             title="Interswitch" role="PROVIDER" tone="var(--sc-3)"
             feed="upload · settlement reports"
-            sub="Card rails — POS, ATM, WEB, Agency. One row per settlement leg."
+            sub="Card rails: POS, ATM, WEB, Agency. One row per settlement leg."
           />
           {loading && !d ? <div style={{ padding: SP[4], textAlign: 'center' }}><Spinner /></div>
           : iswBars.length === 0 ? (
@@ -246,7 +246,7 @@ export default function SettlementsOverview() {
           <SourceHeader
             title="Paystack" role="PROVIDER" tone="var(--sc-2)"
             feed="live API · synced"
-            sub="App rails — transfers out and app funding in."
+            sub="App rails: transfers out and app funding in."
           />
           {loading && !d ? <div style={{ padding: SP[4], textAlign: 'center' }}><Spinner /></div> : (
             <>

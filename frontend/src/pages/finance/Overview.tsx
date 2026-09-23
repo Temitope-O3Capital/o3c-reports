@@ -286,7 +286,7 @@ export default function FinanceOverview() {
             })}
           </div>
           <div style={{ marginTop: SP[3], fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.55 }}>
-            Drawn from the loan, deposit and card books, not from the general ledger — which holds
+            Drawn from the loan, deposit and card books, not from the general ledger, which holds
             only {fmtNum(position?.gl_entries ?? 0)} workspace-originated postings. Each currency stands alone;
             no exchange rate is applied. Net position is not equity: this database holds no capital or
             reserves source, so none is shown.
@@ -296,7 +296,7 @@ export default function FinanceOverview() {
 
       {/* Revenue by month + revenue by product */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
-        <SectionCard title="Revenue by Month" subtitle="Card interest · loan interest · fees · penalty — stacks to Total Revenue">
+        <SectionCard title="Revenue by Month" subtitle="Card interest · loan interest · fees · penalty. Stacks to Total Revenue">
           {loading ? <Sk h={220} /> : monthly.length === 0 ? (
             <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No income in this period</div>
           ) : (

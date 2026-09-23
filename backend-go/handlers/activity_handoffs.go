@@ -220,7 +220,7 @@ var taskStatuses = map[string]bool{"open": true, "in_progress": true, "done": tr
 // row per tick would bury the history it sits in.
 func taskSetStatus(w http.ResponseWriter, r *http.Request, db *core.DB, u *core.Claims, h core.Row, status, note string) {
 	if !taskStatuses[status] {
-		respondErr(w, 400, "unknown status — use open, in_progress, done or cancelled")
+		respondErr(w, 400, "Unknown status. Use open, in_progress, done or cancelled.")
 		return
 	}
 	taskID, err := strconv.ParseInt(strings.TrimSpace(str(h["entity_id"])), 10, 64)
@@ -318,7 +318,7 @@ func activitySetStatus(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if !handoffStatuses[status] {
-			respondErr(w, 400, "unknown status — use open, accepted, in_progress, resolved, returned or cancelled")
+			respondErr(w, 400, "Unknown status. Use open, accepted, in_progress, resolved, returned or cancelled.")
 			return
 		}
 		if handoffClosed(str(h["status"])) {

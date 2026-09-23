@@ -87,7 +87,7 @@ const BLUEISH = '#2563EB'
 
 const REASON_LABEL: Record<string, string> = {
   no_candidate:    'No Ledger Match',
-  ambiguous:       'Ambiguous — Several Candidates',
+  ambiguous:       'Ambiguous: Several Candidates',
   amount_mismatch: 'Amount Differs',
 }
 
@@ -215,7 +215,7 @@ export default function ReconWorkbench() {
               {loading ? <Spinner /> : 'Select a run to see its breakdown.'}
             </div>
           ) : detail.tiers.length === 0 ? (
-            <EmptyState icon="rule" title="No Matches" description="This run paired nothing — check the period has source data." />
+            <EmptyState icon="rule" title="No Matches" description="This run paired nothing: check the period has source data." />
           ) : (
             <TierBar tiers={detail.tiers} total={Number(run?.matched_n ?? 0)} />
           )}

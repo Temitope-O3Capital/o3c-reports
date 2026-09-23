@@ -184,7 +184,7 @@ func assistantChatStream(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if len(question) > 4000 {
-			respondErr(w, 422, "Message is too long — please shorten it")
+			respondErr(w, 422, "That message is too long. Shorten it and send again.")
 			return
 		}
 		ctx := r.Context()

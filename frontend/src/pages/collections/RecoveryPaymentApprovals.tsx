@@ -73,7 +73,7 @@ function ReviewModal({
     try {
       if (action === 'approve') {
         await apiPut(`/api/recovery-ops/payments/${payment.id}/approve`, {})
-        toast.success(isFinal ? 'Payment approved — GL posted to loan account' : 'Approved — sent to the next approver')
+        toast.success(isFinal ? 'Payment approved: GL posted to loan account' : 'Approved: sent to the next approver')
       } else {
         await apiPut(`/api/recovery-ops/payments/${payment.id}/reject`, {
           rejection_reason: rejectionReason,
@@ -102,7 +102,7 @@ function ReviewModal({
     <Modal
       open={payment !== null}
       onClose={() => { reset(); onClose() }}
-      title={`Review Recovery Payment — ${payment?.account_cif ?? ''}`}
+      title={`Review Recovery Payment: ${payment?.account_cif ?? ''}`}
       width={480}
       footer={
         <div style={{ display: 'flex', gap: 8 }}>
@@ -118,7 +118,7 @@ function ReviewModal({
               }}
             >
               {saving && <Spinner size={13} color="#fff" />}
-              {action === 'approve' ? (isFinal ? 'Approve & Post to Account' : 'Approve — Send to Next') : 'Reject Payment'}
+              {action === 'approve' ? (isFinal ? 'Approve & Post to Account' : 'Approve: Send to Next') : 'Reject Payment'}
             </button>
           )}
           <button
@@ -178,7 +178,7 @@ function ReviewModal({
 
           {!canAct ? (
             <div style={{ padding: `${SP[2]} ${SP[3]}`, background: 'var(--canvas)', borderRadius: RADIUS.md, fontSize: TEXT.sm, color: 'var(--txt2)' }}>
-              This payment is {payment.stage_label.toLowerCase()} — it isn't your stage to action. You can review the record above.
+              This payment is {payment.stage_label.toLowerCase()}, which isn't your stage to action. You can review the record above.
             </div>
           ) : (
           /* Approve / reject segmented control */

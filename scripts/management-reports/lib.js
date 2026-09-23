@@ -502,7 +502,7 @@ function dataTable(cols, data) {
 function exceptions(list) {
   const inner = list.length
     ? list.map((e) => `<tr><td style="padding:7px 0;border-bottom:1px solid ${HAIR2};font-family:${SANS};font-size:12.5px;line-height:18px;color:${INK2}">
-         <span style="color:${DOWN};font-weight:bold">&#9679;</span> ${e.what}${e.owner ? ` <span style="color:${FAINT}">— ${e.owner}</span>` : ''}</td></tr>`).join('')
+         <span style="color:${DOWN};font-weight:bold">&#9679;</span> ${e.what}${e.owner ? ` <span style="color:${FAINT}">&middot; ${e.owner}</span>` : ''}</td></tr>`).join('')
     : `<tr><td style="padding:7px 0;font-family:${SANS};font-size:12.5px;color:${UP}">No exceptions.</td></tr>`;
   return `<tr><td class="pad" style="padding:26px 40px 0">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid ${list.length ? DOWN : HAIR};padding-top:11px">
@@ -605,10 +605,16 @@ function document_(inner, preheader) {
  * personalization, so nobody on the list sees anyone else's.
  * Returns { ok, kb, messageId, error }.
  */
-function send({ subject, html, text, charts, recipients, dryRun }) {
+/**
+ * @param files optional documents to attach, as {filename, type, content} where content is
+ *   already base64. Charts stay inline CID images; these ride alongside as downloads.
+ */
+function send({ subject, html, text, charts, recipients, dryRun, files }) {
   const attachments = Object.entries(charts).map(([cid, content]) => ({
     content, filename: `${cid}.png`, type: 'image/png', disposition: 'inline', content_id: cid,
-  }));
+  })).concat((files || []).map((f) => ({
+    content: f.content, filename: f.filename, type: f.type || 'text/csv', disposition: 'attachment',
+  })));
   const kb = (Buffer.byteLength(html) / 1024).toFixed(1);
   if (dryRun) { console.log(`   [dry run] ${subject} — body ${kb}KB, ${attachments.length} charts`); return { ok: true, kb }; }
 

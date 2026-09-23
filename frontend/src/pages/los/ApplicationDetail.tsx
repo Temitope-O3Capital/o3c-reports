@@ -1063,7 +1063,7 @@ function PhoenixDecisionBanner({ app }: { app: Application }) {
   const failed = !hasDecision && app.phoenix_sync_state === 'failed'
   const title = hasDecision ? `Credit Decision: ${d.label}` : failed ? 'Not Sent for a Credit Decision' : 'Awaiting Credit Decision'
   const body = hasDecision
-    ? 'Advisory recommendation. A credit approver still decides — advancing or declining remains a human action.'
+    ? 'Advisory recommendation. A credit approver still decides. Advancing or declining remains a human action.'
     : failed
       ? 'The credit engine never received this application.'
       : 'This has been sent for assessment. The recommendation appears here once the credit engine returns it.'
@@ -1118,7 +1118,7 @@ function PhoenixSendFailure({ app }: { app: Application }) {
     try {
       await apiPost(`/api/phoenix/applications/${app.id}/submit`, {})
       setState('queued')
-      toast.success('Queued for Phoenix — it goes within a minute')
+      toast.success('Queued for Phoenix: it goes within a minute')
     } catch (e) {
       setState('idle')
       toast.error(e instanceof Error ? e.message : 'Could not queue it for Phoenix')
@@ -1196,7 +1196,7 @@ function OfferPanel({ app, onRefresh }: { app: Application; onRefresh: () => voi
     <div className="sd-panel">
       <div className="sd-panel-head">
         <h2>Offer and Acceptance</h2>
-        <span className="sd-panel-hint">Phoenix owns this step — recorded here for the file</span>
+        <span className="sd-panel-hint">Phoenix owns this step: recorded here for the file</span>
       </div>
       <div className="sd-panel-body">
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: status !== "none" ? 12 : 10 }}>
@@ -1303,7 +1303,7 @@ function salesNextStep(app: Application): { tone: 'act' | 'wait' | 'done' | 'sto
     tone: 'wait',
     icon: 'hourglass_top',
     title: `With ${stageMeta(app.stage).owner || 'the credit team'}`,
-    body: 'This is under review and is not waiting on you. The outcome will appear here — the customer stays yours throughout, so pick up anything the reviewers ask for on the thread below.',
+    body: 'This is under review and is not waiting on you. The outcome will appear here. The customer stays yours throughout, so pick up anything the reviewers ask for on the thread below.',
   }
 }
 
@@ -1424,7 +1424,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
         resubmit: true,
         title: `Resubmit ${app.reference}`,
         intro: d.existing
-          ? `You already started a resubmission of this application — ${d.reference}. Carry on from where you left it.`
+          ? `You already started a resubmission of this application, ${d.reference}. Carry on from where you left it.`
           : `This is a new application, ${d.reference}, copied from the declined one with everything it held. Correct what needs correcting, then submit it, or save it as a draft.`,
       })
     } catch (e) {
@@ -1543,7 +1543,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
       {/* The numbers that decide the case */}
       <div className="sd-stats">
         <SDStat label="Amount Requested" value={fmtKobo(app.amount_requested_kobo)}
-          sub={app.tenor_months ? `over ${app.tenor_months} months` : 'revolving — no term'} />
+          sub={app.tenor_months ? `over ${app.tenor_months} months` : 'revolving: no term'} />
         <SDStat label="Monthly Income" value={income ? fmtKobo(income) : '—'}
           tone={income === 0 ? AMBER : undefined} sub={income === 0 ? 'not captured' : undefined} />
         <SDStat label="Existing Obligations" value={app.monthly_obligation_kobo == null ? '—' : fmtKobo(oblig)} />
@@ -1620,7 +1620,7 @@ function SalesView({ app, events, conditions, onRefresh, onAdvance, onDecline, o
           <SDField label="Amount Approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
           {/* A revolving product has no tenor. NULL says so — migration 217 removed
               the 0 sentinel that used to claim a zero-month term. */}
-          <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving — no term'} />
+          <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving: no term'} />
           <SDField label="Interest Rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
         </div>
       </SDPanel>
@@ -1679,7 +1679,7 @@ function riskNextStep(app: Application, unmet: number, engine?: { outcome: strin
       : { tone: 'done', icon: 'check_circle', title: 'Conditions Cleared', body: 'Every condition has been met. This can go to finance.' }
   }
   if (s === 'draft' || s === 'submitted' || s === 'document_collection') {
-    return { tone: 'wait', icon: 'hourglass_top', title: 'With Sales', body: 'Still in origination — documents are being collected. It reaches this desk at risk review.' }
+    return { tone: 'wait', icon: 'hourglass_top', title: 'With Sales', body: 'Still in origination: documents are being collected. It reaches this desk at risk review.' }
   }
   return { tone: 'wait', icon: 'hourglass_top', title: `With ${stageMeta(app.stage).owner || 'another desk'}`, body: 'Credit has done its part. This is not waiting on the risk desk.' }
 }
@@ -1863,12 +1863,12 @@ function RiskView({ app, conditions, events, onRefresh, onAdvance, onDecline, on
         <ConditionsInline appId={app.id} conditions={conditions} onRefresh={onRefresh} canManage={canAssess && !isTerminal} />
       </SDPanel>
 
-      {/* The officer's assessment — secondary to the engine's, and overriding it is
+      {/* The officer's assessment: secondary to the engine's, and overriding it is
           recorded as an override. */}
       <SDPanel
         title="Your Assessment"
         hint={phoenixScored
-          ? <span style={{ color: AMBER }}>scored by Phoenix — editing overrides it</span>
+          ? <span style={{ color: AMBER }}>scored by Phoenix: editing overrides it</span>
           : 'entered manually'}>
         {!editing ? (
           <>
@@ -2075,7 +2075,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
         <SDStat label="Debt-to-Income" value={dtiPct == null ? '—' : `${dtiPct.toFixed(1)}%`}
           sub={dtiPct == null ? 'not computed' : 'of monthly income'} />
         <SDStat label="Days on File" value={daysOpen == null ? '—' : daysOpen}
-          sub={app.submitted_at ? 'since submission' : 'since created — not submitted'} />
+          sub={app.submitted_at ? 'since submission' : 'since created: not submitted'} />
       </div>
 
       <div className="sd-panel"><PipelineStepper stage={app.stage} /></div>
@@ -2114,7 +2114,7 @@ function ComplianceView({ app, events, conditions, onRefresh }: {
             <SDField label="Purpose" value={app.purpose} />
             <SDField label="Amount Requested" value={fmtKobo(app.amount_requested_kobo)} mono />
             <SDField label="Amount Approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
-            <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving — no term'} />
+            <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving: no term'} />
             <SDField label="Interest Rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
             <SDField label="Monthly Income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />
             <SDField label="Existing Obligations" value={app.monthly_obligation_kobo ? fmtKobo(app.monthly_obligation_kobo) : null} mono />
@@ -2185,14 +2185,14 @@ function financeNextStep(app: Application, unmet: number, total: number): { tone
   if (s === 'finance_approval') {
     return unmet > 0
       ? {
-        tone: 'stop', icon: 'block', title: `Blocked — ${unmet} Condition${unmet === 1 ? '' : 's'} Outstanding`,
+        tone: 'stop', icon: 'block', title: `Blocked: ${unmet} Condition${unmet === 1 ? '' : 's'} Outstanding`,
         body: 'This cannot be approved for disbursement until every condition of the credit approval is cleared.',
       }
       : { tone: 'act', icon: 'account_balance_wallet', title: 'Approve Disbursement', body: 'Check the terms against the credit approval, then release it for booking.' }
   }
   if (s === 'booking') {
     return unmet > 0
-      ? { tone: 'stop', icon: 'block', title: `Blocked — ${unmet} Condition${unmet === 1 ? '' : 's'} Outstanding`, body: 'Do not book this facility while conditions of the approval remain unmet.' }
+      ? { tone: 'stop', icon: 'block', title: `Blocked: ${unmet} Condition${unmet === 1 ? '' : 's'} Outstanding`, body: 'Do not book this facility while conditions of the approval remain unmet.' }
       : { tone: 'act', icon: 'inventory', title: 'Book and Disburse', body: 'Finance has approved. Create the facility on the core and release the funds.' }
   }
   const owner = stageMeta(s).owner
@@ -2298,7 +2298,7 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
           sub={app.amount_approved_kobo ? 'to disburse' : 'not yet approved by credit'}
           tone={app.amount_approved_kobo ? undefined : AMBER} />
         <SDStat label="Monthly Repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : '—'}
-          sub={app.tenor_months ? `over ${app.tenor_months} months` : 'revolving — no term'} />
+          sub={app.tenor_months ? `over ${app.tenor_months} months` : 'revolving: no term'} />
         <SDStat label="Interest Rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}%` : '—'} sub="per annum" />
         <SDStat label="Conditions" value={conditions.length === 0 ? 'None' : `${conditions.length - unmetCount}/${conditions.length}`}
           sub={conditions.length === 0 ? 'none attached' : unmetCount > 0 ? `${unmetCount} outstanding` : 'all cleared'}
@@ -2326,7 +2326,7 @@ function FinanceView({ app, events, conditions, onRefresh, onAdvance, onDecline,
             <SDField label="Purpose" value={app.purpose} />
             <SDField label="Amount Requested" value={fmtKobo(app.amount_requested_kobo)} mono />
             <SDField label="Amount Approved" value={app.amount_approved_kobo ? fmtKobo(app.amount_approved_kobo) : null} mono />
-            <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving — no term'} />
+            <SDField label="Tenor" value={app.tenor_months ? `${app.tenor_months} months` : 'Revolving: no term'} />
             <SDField label="Interest Rate" value={app.interest_rate_bps ? `${(app.interest_rate_bps / 100).toFixed(2)}% p.a.` : null} mono />
             <SDField label="Monthly Repayment" value={monthlyRepayment ? fmtKobo(monthlyRepayment) : null} mono />
             <SDField label="Monthly Income" value={app.monthly_income_kobo ? fmtKobo(app.monthly_income_kobo) : null} mono />

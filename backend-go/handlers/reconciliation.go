@@ -649,7 +649,7 @@ func psReconSummary(db *core.DB) http.HandlerFunc {
 func psReconTransactions(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if resolvePaystackKey(r.Context(), db) == "" {
-			respondErr(w, 503, "Paystack not configured — set PAYSTACK_SECRET_KEY")
+			respondErr(w, 503, "Paystack is not configured. Set PAYSTACK_SECRET_KEY.")
 			return
 		}
 
@@ -693,7 +693,7 @@ func psReconTransactions(db *core.DB) http.HandlerFunc {
 func psReconSettlements(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if resolvePaystackKey(r.Context(), db) == "" {
-			respondErr(w, 503, "Paystack not configured — set PAYSTACK_SECRET_KEY")
+			respondErr(w, 503, "Paystack is not configured. Set PAYSTACK_SECRET_KEY.")
 			return
 		}
 

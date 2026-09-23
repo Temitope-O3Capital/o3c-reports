@@ -161,7 +161,7 @@ func zohoAlertUnattributedCalls(ctx context.Context, db *core.DB) {
 	slog.Warn("zoho import: calls with no workspace agent", "calls_30d", calls, "unmapped_agents", agents)
 	NotifyRoles(ctx, db, []string{"call_center_head", "it_admin"}, NotifPayload{
 		EventType: EvtSystemAlert,
-		Title:     "Calls are arriving without an agent",
+		Title:     "Calls Are Arriving Without an Agent",
 		Body: fmt.Sprintf("%d call(s) in the last 30 days came from %d Zoho agent(s) that map to no workspace "+
 			"user, so they count towards nobody's volume. Map them under Helpdesk → Supervisor → Agent "+
 			"Matching; calls already imported are re-linked automatically.", calls, agents),

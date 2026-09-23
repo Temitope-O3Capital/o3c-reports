@@ -165,7 +165,7 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
             >
               {products.map(p => (
                 <option key={p.product_name} value={p.product_name}>
-                  {p.product_name}{p.category === 'blink' ? ' — Blink' : ''}
+                  {p.product_name}{p.category === 'blink' ? ': Blink' : ''}
                 </option>
               ))}
             </select>
@@ -176,7 +176,7 @@ function NewIssuanceModal({ onClose, onCreated }: { onClose: () => void; onCreat
               value={form.sales_officer_id} onChange={e => setForm(f => ({ ...f, sales_officer_id: e.target.value }))}
               style={{ display: 'block', width: '100%', marginTop: 6, padding: `${SP[2]} ${SP[3]}`, borderRadius: RADIUS.md, border: '1.5px solid var(--input-bdr)', background: 'var(--input-bg)', fontSize: TEXT.base, color: 'var(--txt)', fontFamily: SORA, boxSizing: 'border-box', outline: 'none' }}
             >
-              <option value="">Me — I Raised This</option>
+              <option value="">Me: I Raised This</option>
               {officers.map(o => <option key={o.id} value={String(o.id)}>{o.full_name}</option>)}
             </select>
           </div>

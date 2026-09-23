@@ -264,7 +264,7 @@ export default function FinanceEOD() {
         <SectionCard title="About This Report">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6 }}>
             <p style={{ margin: 0 }}>
-              This End-of-Day is computed from data the workspace already holds — the live transaction
+              This End-of-Day is computed from data the workspace already holds. The live transaction
               feed, the CBS position snapshot, the loan repayment schedule, live FX and the reconciliation
               queues. Nothing is uploaded. Movement and income figures come from the transaction feed and
               the loan schedule; position, maturity and rail figures come from the CBS books. Every figure

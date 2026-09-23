@@ -1039,8 +1039,8 @@ func batchPTPNotifications(ctx context.Context, db *core.DB) error {
 		go Notify(ctx, db, NotifPayload{
 			EventType: EvtPTPDueToday,
 			UserID:    agentID,
-			Title:     "PTP due today",
-			Body:      fmt.Sprintf("Promise to pay from CIF %s for ₦%.2f is due today.", str(row["cif_number"]), float64(toInt64(row["promised_amount_kobo"]))/100),
+			Title:     "PTP Due Today",
+			Body:      fmt.Sprintf("CIF %s promised ₦%.2f today. Confirm whether the money arrived.", str(row["cif_number"]), float64(toInt64(row["promised_amount_kobo"]))/100),
 			ActionURL: "/collections/promises",
 			EntityRef: fmt.Sprintf("ptp:%d", toInt64(row["id"])),
 		})
@@ -1122,8 +1122,8 @@ func batchFDMaturityNotifications(ctx context.Context, db *core.DB) error {
 		amount := toInt64(row["principal_kobo"]) + toInt64(row["accrued_interest_kobo"])
 		p := NotifPayload{
 			EventType: EvtFDMaturing7Days,
-			Title:     "FD maturing in 7 days",
-			Body: fmt.Sprintf("%s (a/c %s) — %s principal and interest matures on %s. Confirm rollover or liquidation instructions with the customer.",
+			Title:     "FD Maturing in 7 Days",
+			Body: fmt.Sprintf("%s (a/c %s) holds %s in principal and interest, maturing on %s. Get the customer's instruction before then.",
 				str(row["customer_name"]), acct, fmtKoboServer(amount), str(row["maturity_date"])),
 			ActionURL: fdDeepLink(acct),
 			EntityRef: "fd:" + acct,
@@ -1165,8 +1165,8 @@ func batchFDMaturityNotifications(ctx context.Context, db *core.DB) error {
 			}
 			p := NotifPayload{
 				EventType: EvtFDMaturedUnactioned,
-				Title:     fmt.Sprintf("%d matured FD(s) — no action taken", unactionedCount),
-				Body: fmt.Sprintf("%d fixed %s passed maturity and are still open — %s principal and interest, the oldest %d day(s) overdue. Neither liquidated nor rolled over.",
+				Title:     fmt.Sprintf("%d Matured FD(s), No Action Taken", unactionedCount),
+				Body: fmt.Sprintf("%d fixed %s passed maturity and are still open, holding %s in principal and interest. The oldest is %d day(s) overdue, neither rolled over nor liquidated.",
 					unactionedCount, noun, fmtKoboServer(amount), toInt64(row["oldest_days"])),
 				ActionURL: "/deposits",
 				EntityRef: "fd_past_due",
@@ -1392,7 +1392,7 @@ func batchDPD90Alerts(ctx context.Context, db *core.DB) error {
 		body := fmt.Sprintf("Loan for %s (CIF: %s) has reached 90 days past due. Immediate action required.", name, cif)
 		p := NotifPayload{
 			EventType: EvtAccountDPD90,
-			Title:     fmt.Sprintf("DPD-90 alert: %s", name),
+			Title:     fmt.Sprintf("DPD-90 Alert: %s", name),
 			Body:      body,
 			ActionURL: fmt.Sprintf("/collections/%d", loanID),
 			EntityRef: cif,
@@ -1427,7 +1427,7 @@ func batchAPIKeyExpiryAlerts(ctx context.Context, db *core.DB) error {
 		expiry := str(row["key_expiry"])
 		go NotifyRole(ctx, db, "admin", NotifPayload{
 			EventType: EvtAPIKeyExpiry,
-			Title:     fmt.Sprintf("API key expiring soon: %s", name),
+			Title:     fmt.Sprintf("API Key Expiring Soon: %s", name),
 			Body:      fmt.Sprintf("The API key for %s expires on %s. Rotate it before it lapses.", name, expiry),
 			ActionURL: "/admin/integrations",
 			EntityRef: name,
@@ -1464,7 +1464,7 @@ func batchCampaignDeliveryAlerts(ctx context.Context, db *core.DB) error {
 		body := fmt.Sprintf("Campaign '%s' had %d email and %d SMS delivery failures today.", name, emailFailed, smsFailed)
 		p := NotifPayload{
 			EventType: EvtCampaignDeliveryFailed,
-			Title:     fmt.Sprintf("Delivery failures: %s", name),
+			Title:     fmt.Sprintf("Delivery Failures: %s", name),
 			Body:      body,
 			ActionURL: fmt.Sprintf("/campaigns/%d", campaignID),
 			EntityRef: fmt.Sprintf("campaign-%d", campaignID),

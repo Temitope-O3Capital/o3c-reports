@@ -81,8 +81,8 @@ func runLoanAlerts(ctx context.Context, db *core.DB) {
 			Notify(ctx, db, NotifPayload{
 				EventType: EvtLoanRepaymentDueSoon,
 				UserID:    hit.accountManagerID,
-				Title:     fmt.Sprintf("Loan Due in 7 Days — %s", hit.customerName),
-				Body:      fmt.Sprintf("The loan for %s (CIF: %s) is due on %s. Follow up to ensure repayment.", hit.customerName, hit.cif, hit.nextDueDate),
+				Title:     fmt.Sprintf("Loan Due in 7 Days: %s", hit.customerName),
+				Body:      fmt.Sprintf("%s (CIF %s) has a loan repayment due on %s. Call the customer this week.", hit.customerName, hit.cif, hit.nextDueDate),
 				ActionURL: fmt.Sprintf("/sales/accounts?cif=%s", hit.cif),
 				EntityRef: fmt.Sprintf("loan:%d", hit.loanID),
 			})
@@ -90,8 +90,8 @@ func runLoanAlerts(ctx context.Context, db *core.DB) {
 			Notify(ctx, db, NotifPayload{
 				EventType: EvtLoanRepaymentDue3Days,
 				UserID:    hit.accountManagerID,
-				Title:     fmt.Sprintf("Loan Due in 3 Days — %s", hit.customerName),
-				Body:      fmt.Sprintf("The loan for %s (CIF: %s) is due on %s. Contact the customer to confirm repayment.", hit.customerName, hit.cif, hit.nextDueDate),
+				Title:     fmt.Sprintf("Loan Due in 3 Days: %s", hit.customerName),
+				Body:      fmt.Sprintf("%s (CIF %s) has a loan repayment due on %s. Confirm with the customer that the money will be there.", hit.customerName, hit.cif, hit.nextDueDate),
 				ActionURL: fmt.Sprintf("/sales/accounts?cif=%s", hit.cif),
 				EntityRef: fmt.Sprintf("loan:%d", hit.loanID),
 			})
@@ -99,8 +99,8 @@ func runLoanAlerts(ctx context.Context, db *core.DB) {
 			Notify(ctx, db, NotifPayload{
 				EventType: EvtLoanRepaymentDueToday,
 				UserID:    hit.accountManagerID,
-				Title:     fmt.Sprintf("Loan Due Today — %s", hit.customerName),
-				Body:      fmt.Sprintf("The loan for %s (CIF: %s) is due for repayment today. Confirm payment to avoid delinquency.", hit.customerName, hit.cif),
+				Title:     fmt.Sprintf("Loan Due Today: %s", hit.customerName),
+				Body:      fmt.Sprintf("%s (CIF %s) has a loan repayment due today. Confirm the payment before close of business.", hit.customerName, hit.cif),
 				ActionURL: fmt.Sprintf("/sales/accounts?cif=%s", hit.cif),
 				EntityRef: fmt.Sprintf("loan:%d", hit.loanID),
 			})
@@ -133,8 +133,8 @@ func runLoanAlerts(ctx context.Context, db *core.DB) {
 		Notify(ctx, db, NotifPayload{
 			EventType: EvtLoanPastDue,
 			UserID:    amID,
-			Title:     fmt.Sprintf("Overdue Loan — %s (DPD %d)", name, dpd),
-			Body:      fmt.Sprintf("The loan for %s (CIF: %s) is %d day(s) past due. Immediate follow-up required.", name, cif, dpd),
+			Title:     fmt.Sprintf("Overdue Loan: %s (DPD %d)", name, dpd),
+			Body:      fmt.Sprintf("%s (CIF %s) is %d day(s) past due. Call the customer today and log what they say.", name, cif, dpd),
 			ActionURL: fmt.Sprintf("/sales/accounts?cif=%s", cif),
 			EntityRef: fmt.Sprintf("loan:%d", loanID),
 		})
@@ -244,8 +244,8 @@ func runFDAlerts(ctx context.Context, db *core.DB) {
 			Notify(ctx, db, NotifPayload{
 				EventType: EvtFDMaturing7Days,
 				UserID:    userID,
-				Title:     fmt.Sprintf("FD Maturing in 7 Days — %s", name),
-				Body: fmt.Sprintf("The fixed deposit for %s (CIF: %s, a/c %s) matures on %s — %s principal and interest. Contact the customer to discuss rollover or liquidation.",
+				Title:     fmt.Sprintf("FD Maturing in 7 Days: %s", name),
+				Body: fmt.Sprintf("The fixed deposit for %s (CIF %s, a/c %s) matures on %s. That is %s in principal and interest. Ask the customer now whether they are rolling over.",
 					name, cif, acct, matDate, fmtKoboServer(amount)),
 				ActionURL: link,
 				EntityRef: ref,
@@ -255,8 +255,8 @@ func runFDAlerts(ctx context.Context, db *core.DB) {
 			Notify(ctx, db, NotifPayload{
 				EventType: EvtFDMaturing3Days,
 				UserID:    userID,
-				Title:     fmt.Sprintf("FD Maturing in 3 Days — %s", name),
-				Body: fmt.Sprintf("The fixed deposit for %s (CIF: %s, a/c %s) matures on %s — %s principal and interest. Confirm rollover or liquidation instructions now.",
+				Title:     fmt.Sprintf("FD Maturing in 3 Days: %s", name),
+				Body: fmt.Sprintf("The fixed deposit for %s (CIF %s, a/c %s) matures on %s. That is %s in principal and interest. Get the instruction in writing today.",
 					name, cif, acct, matDate, fmtKoboServer(amount)),
 				ActionURL: link,
 				EntityRef: ref,
@@ -267,8 +267,8 @@ func runFDAlerts(ctx context.Context, db *core.DB) {
 			Notify(ctx, db, NotifPayload{
 				EventType: EvtFDMaturingToday,
 				UserID:    userID,
-				Title:     fmt.Sprintf("FD Maturing Today — %s", name),
-				Body: fmt.Sprintf("The fixed deposit for %s (CIF: %s, a/c %s) matures today — %s principal and interest. Confirm rollover or liquidation instructions with the customer.",
+				Title:     fmt.Sprintf("FD Maturing Today: %s", name),
+				Body: fmt.Sprintf("The fixed deposit for %s (CIF %s, a/c %s) matures today, worth %s in principal and interest. Get the customer's instruction before close of business.",
 					name, cif, acct, fmtKoboServer(amount)),
 				ActionURL: link,
 				EntityRef: ref,
@@ -295,13 +295,13 @@ func runFDAlerts(ctx context.Context, db *core.DB) {
 	// Matured but still Active — the money is payable now and nothing in the
 	// workspace has ever said so.
 	for userID, p := range overdue {
-		title := fmt.Sprintf("Matured FD — Action Required — %s", p.firstCust)
-		body := fmt.Sprintf("The fixed deposit for %s (a/c %s) passed maturity %d day(s) ago and is still open — %s principal and interest. Confirm rollover or liquidation instructions with the customer.",
+		title := fmt.Sprintf("Matured FD Not Actioned: %s", p.firstCust)
+		body := fmt.Sprintf("The fixed deposit for %s (a/c %s) passed maturity %d day(s) ago and is still open, holding %s in principal and interest. Get the customer's instruction today.",
 			p.firstCust, p.firstAccount, p.oldestDays, fmtKoboServer(p.amountKobo))
 		link := fdDeepLink(p.firstAccount)
 		if p.count > 1 {
-			title = fmt.Sprintf("%d Matured FDs — Action Required", p.count)
-			body = fmt.Sprintf("%d of your fixed deposits have passed maturity and are still open — %s principal and interest in total, the oldest %d day(s) overdue. Confirm rollover or liquidation instructions with each customer.",
+			title = fmt.Sprintf("%d Matured FDs Not Actioned", p.count)
+			body = fmt.Sprintf("%d of your fixed deposits passed maturity and are still open, holding %s in principal and interest. The oldest is %d day(s) overdue. Get each customer's instruction today.",
 				p.count, fmtKoboServer(p.amountKobo), p.oldestDays)
 			link = "/deposits"
 		}

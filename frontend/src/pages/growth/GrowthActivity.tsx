@@ -179,7 +179,7 @@ export default function GrowthActivity() {
         <>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '2px 2px 8px' }}>
             <span style={{ fontSize: TEXT.sm, fontWeight: FW.bold, color: 'var(--txt)', fontFamily: INTER }}>Monthly Momentum</span>
-            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>this month is still in progress — deltas compare against last month's full total</span>
+            <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontFamily: INTER }}>this month is still in progress. Deltas compare against last month's full total</span>
           </div>
           <div style={{
             background: 'var(--card)', border: '1px solid var(--card-bdr)', boxShadow: 'var(--card-shadow)',
@@ -217,7 +217,7 @@ export default function GrowthActivity() {
       <SectionCard title="Churn & Retention"
         subtitle={gapCount > 0
           ? `Active customers each month — retained, returning, churned · ${gapCount} feed-gap month${gapCount > 1 ? 's' : ''} omitted`
-          : 'Active customers each month — retained, returning, and churned'}
+          : 'Active customers each month. Retained, returning, and churned'}
         actions={
           <div style={{ display: 'flex', gap: SP[3] }}>
             {[{ c: GREEN, l: 'Retained' }, { c: BLUE, l: 'New / Returning' }, { c: RED, l: 'Churned' }, { c: AMBER, l: 'Retention %' }].map(({ c, l }) => (
@@ -258,7 +258,7 @@ export default function GrowthActivity() {
       {/* Spending & behaviour — the single home for transaction/spend/activity metrics
           (merchants, categories, channels, recency cohorts), tied to the window above. */}
       <div style={{ marginTop: 14 }}>
-        <SpendingBehaviour title="Transaction, Spending & Behaviour" subtitle={`Where customers spend, on what, how — and who's active · last ${months} months`} months={months} />
+        <SpendingBehaviour title="Transaction, Spending & Behaviour" subtitle={`Where customers spend, on what, how, and who's active · last ${months} months`} months={months} />
       </div>
 
     </Page>

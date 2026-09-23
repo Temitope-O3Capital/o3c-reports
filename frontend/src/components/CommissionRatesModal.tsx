@@ -76,12 +76,12 @@ export default function CommissionRatesModal({ open, onClose, onSaved }: {
         <div style={{ fontSize: TEXT.sm, color: 'var(--txt3)', lineHeight: 1.5 }}>
           {canEdit
             ? 'These apply to every sales officer. Loans and Fixed Deposits pay a percentage of booked value; Cards pay a fixed amount per card issued.'
-            : 'Read-only — only Finance can change these rates.'}
+            : 'Read-only: only Finance can change these rates.'}
         </div>
         {[
-          { label: 'Loans — % of Disbursement', value: rLoan, set: setRLoan, suffix: '%' },
-          { label: 'Fixed Deposit — % of Principal', value: rFd, set: setRFd, suffix: '%' },
-          { label: 'Cards — ₦ per Card Issued', value: rCard, set: setRCard, suffix: '₦' },
+          { label: 'Loans: % of Disbursement', value: rLoan, set: setRLoan, suffix: '%' },
+          { label: 'Fixed Deposit: % of Principal', value: rFd, set: setRFd, suffix: '%' },
+          { label: 'Cards: ₦ per Card Issued', value: rCard, set: setRCard, suffix: '₦' },
         ].map(({ label, value, set, suffix }) => (
           <div key={label}>
             <label style={lbl}>{label}</label>

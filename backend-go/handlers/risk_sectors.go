@@ -107,7 +107,7 @@ func riskUpsertSectorCode(db *core.DB) http.HandlerFunc {
 		}
 		name := strings.TrimSpace(b.Name)
 		if name == "" {
-			respondErr(w, 422, "name is required — to clear a name, delete the code instead")
+			respondErr(w, 422, "A name is required. To clear one, delete the code instead.")
 			return
 		}
 

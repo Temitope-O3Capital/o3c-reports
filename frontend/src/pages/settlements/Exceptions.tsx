@@ -77,7 +77,7 @@ const RESOLUTION_CODES: { value: string; label: string; hint: string }[] = [
   { value: 'fee_or_commission', label: 'Fee or Commission',  hint: 'Difference is a charge, not missing money' },
   { value: 'duplicate_in_feed', label: 'Duplicate in Feed',  hint: 'Source sent it twice' },
   { value: 'processor_error',   label: 'Processor Error',    hint: 'Wrong on the processor side' },
-  { value: 'ledger_error',      label: 'Ledger Error',       hint: 'Wrong on our side — needs a posting' },
+  { value: 'ledger_error',      label: 'Ledger Error',       hint: 'Wrong on our side: needs a posting' },
   { value: 'written_off',       label: 'Write Off',          hint: 'Accepted as a loss; closes the item' },
 ]
 
@@ -225,7 +225,7 @@ export default function SettlementExceptions() {
 
           <SectionCard
             title={runId ? `Exceptions from Run #${runId}` : 'Exception Queue'}
-            subtitle="Oldest first — age is the signal that matters"
+            subtitle="Oldest first: age is the signal that matters"
             padding={false}
             actions={
               selected.size > 0

@@ -594,7 +594,7 @@ func hdRequestDelete(db *core.DB) http.HandlerFunc {
 
 		p := NotifPayload{
 			EventType: "ticket_delete_requested",
-			Title:     fmt.Sprintf("Deletion approval needed: %s", ref),
+			Title:     fmt.Sprintf("Deletion Approval Needed: %s", ref),
 			Body:      fmt.Sprintf("%s asked to delete %s and needs a colleague to approve it. %s", user.FullName, ref, strings.TrimSpace(b.Reason)),
 			ActionURL: "/care/approvals",
 			EntityRef: ref,

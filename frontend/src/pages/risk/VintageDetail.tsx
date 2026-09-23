@@ -442,7 +442,7 @@ export default function VintageDetail() {
 
       {/* ── Loans table ──────────────────────────────────────────────────────── */}
       <SectionCard
-        title={detail?.loans_truncated ? 'Cohort Loans — Worst 200' : 'Cohort Loans'}
+        title={detail?.loans_truncated ? 'Cohort Loans: Worst 200' : 'Cohort Loans'}
         badge={filteredLoans.length}
         padding={false}
         actions={

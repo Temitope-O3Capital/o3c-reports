@@ -918,8 +918,8 @@ func updateDeal(db *core.DB) http.HandlerFunc {
 					go Notify(context.Background(), db, NotifPayload{
 						EventType: EvtDealStageChanged,
 						UserID:    ownerID,
-						Title:     "Deal stage updated",
-						Body:      fmt.Sprintf(`Deal "%s" has moved to a new stage`, str(updated["title"])),
+						Title:     "Deal Stage Updated",
+						Body:      fmt.Sprintf(`Deal "%s" has moved to a new stage.`, str(updated["title"])),
 						ActionURL: "/sales/crm",
 						EntityRef: fmt.Sprintf("deal:%v", updated["id"]),
 					})
@@ -1402,8 +1402,8 @@ func bulkAssignTasks(db *core.DB) http.HandlerFunc {
 			go Notify(context.Background(), db, NotifPayload{
 				EventType: "task_assigned",
 				UserID:    *b.AssignedTo,
-				Title:     "Tasks assigned to you",
-				Body:      fmt.Sprintf("%d %s been assigned to you.", n, word),
+				Title:     "Tasks Assigned to You",
+				Body:      fmt.Sprintf("%d %s landed in your task list.", n, word),
 				// A bulk assignment covers many tasks, so there is no single record to
 				// land on — the list is the right destination here.
 				ActionURL: "/sales/tasks",
@@ -1455,8 +1455,8 @@ func sendTaskNotifications(db *core.DB) {
 			Notify(ctx, db, NotifPayload{
 				EventType: EvtTaskDueSoon,
 				UserID:    uid,
-				Title:     "Task due tomorrow",
-				Body:      fmt.Sprintf(`"%s" is due tomorrow`, str(row["title"])),
+				Title:     "Task Due Tomorrow",
+				Body:      fmt.Sprintf(`"%s" is due tomorrow.`, str(row["title"])),
 				ActionURL: taskNotifyURL(ctx, db, toInt64(row["id"])),
 				EntityRef: "task:" + str(row["id"]),
 			})
@@ -1480,8 +1480,8 @@ func sendTaskNotifications(db *core.DB) {
 			Notify(ctx, db, NotifPayload{
 				EventType: EvtTaskOverdue,
 				UserID:    uid,
-				Title:     "Task overdue",
-				Body:      fmt.Sprintf(`"%s" is overdue`, str(row["title"])),
+				Title:     "Task Overdue",
+				Body:      fmt.Sprintf(`"%s" is past its due date.`, str(row["title"])),
 				ActionURL: taskNotifyURL(ctx, db, toInt64(row["id"])),
 				EntityRef: "task:" + str(row["id"]),
 			})
@@ -1524,8 +1524,8 @@ func runBirthdayNotifications(db *core.DB) {
 			Notify(ctx, db, NotifPayload{
 				EventType: EvtBirthdaySoon,
 				UserID:    uid,
-				Title:     "Birthday in 3 days",
-				Body:      name + "'s birthday is in 3 days. Consider reaching out!",
+				Title:     "Birthday in 3 Days",
+				Body:      name + "'s birthday is in three days. Worth a call.",
 				ActionURL: fmt.Sprintf("/sales/customers/%v", row["id"]),
 				EntityRef: fmt.Sprintf("contact:%v", row["id"]),
 			})
@@ -1550,8 +1550,8 @@ func runBirthdayNotifications(db *core.DB) {
 			Notify(ctx, db, NotifPayload{
 				EventType: EvtBirthdayToday,
 				UserID:    uid,
-				Title:     "🎂 Birthday today!",
-				Body:      name + "'s birthday is today. Great time to reach out!",
+				Title:     "Birthday Today",
+				Body:      name + "'s birthday is today. Call before the day runs out.",
 				ActionURL: fmt.Sprintf("/sales/customers/%v", row["id"]),
 				EntityRef: fmt.Sprintf("contact:%v", row["id"]),
 			})
@@ -1718,7 +1718,7 @@ func createRequest(db *core.DB) http.HandlerFunc {
 			[]string{"call_center_agent", "call_center_head"},
 			NotifPayload{
 				EventType: EvtCRMRequestCreated,
-				Title:     "New customer request",
+				Title:     "New Customer Request",
 				Body: fmt.Sprintf("%s: %s",
 					str(created["request_type"]), str(created["subject"])),
 				ActionURL: reqURL,

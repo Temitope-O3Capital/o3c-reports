@@ -138,7 +138,7 @@ func merchantAliasUpsert(db *core.DB) http.HandlerFunc {
 			return
 		}
 		if len(rows) == 0 || str(rows[0]["from_clean"]) == "" || str(rows[0]["to_clean"]) == "" {
-			respondErr(w, 400, "Those names contain no letters once cleaned — nothing to map")
+			respondErr(w, 400, "Those names contain no letters once cleaned, so there is nothing to map.")
 			return
 		}
 		fromClean, toClean := str(rows[0]["from_clean"]), str(rows[0]["to_clean"])

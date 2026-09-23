@@ -254,7 +254,7 @@ func hdResolveEscalation(db *core.DB) http.HandlerFunc {
 			[]int64{toInt64(t["escalated_by"]), toInt64(t["assigned_to"])}, user.ID,
 			NotifPayload{
 				EventType: "ticket_escalation_resolved",
-				Title:     fmt.Sprintf("Escalation cleared: %s", ref),
+				Title:     fmt.Sprintf("Escalation Cleared: %s", ref),
 				Body:      strings.TrimSpace(fmt.Sprintf("%s closed the escalation. %s", user.FullName, b.Note)),
 				ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 				EntityRef: ref,

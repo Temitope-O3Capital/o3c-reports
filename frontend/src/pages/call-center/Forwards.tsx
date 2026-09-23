@@ -149,7 +149,7 @@ export default function CallCenterForwards() {
       const stale = r._waiting_hours >= 72
       return (
         <span
-          title={`Forwarded ${fmtDatetime(r.forwarded_at)} — still waiting to be picked up`}
+          title={`Forwarded ${fmtDatetime(r.forwarded_at)}. Still waiting to be picked up`}
           style={{ ...NUM, fontSize: TEXT.xs, fontWeight: stale ? FW.bold : FW.medium, color: col,
             ...(stale ? { background: `${col}16`, padding: '2px 8px', borderRadius: RADIUS['2xl'] } : {}) }}
         >{fmtAge(r._waiting_hours)}</span>
@@ -179,7 +179,7 @@ export default function CallCenterForwards() {
 
   return (
     <Page title="Forwarded to Sales"
-      subtitle={sup ? 'Leads the floor forwarded to Sales — tracked to their outcome' : 'Interested customers you worked that were forwarded to Sales'}
+      subtitle={sup ? 'Leads the floor forwarded to Sales. Tracked to their outcome' : 'Interested customers you worked that were forwarded to Sales'}
       loading={loading && rows.length === 0}
       skeletonKpis={5}
       actions={scopeToggle}>
@@ -195,7 +195,7 @@ export default function CallCenterForwards() {
       </div>
 
       <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 16, fontFamily: INTER }}>
-        <b style={{ ...NUM, color: NAVY }}>{fmtCount(bucketTotal)}</b> forwarded in total — the five figures above are exclusive and add up to it.
+        <b style={{ ...NUM, color: NAVY }}>{fmtCount(bucketTotal)}</b> forwarded in total. The five figures above are exclusive and add up to it.
       </div>
 
       {/* Refreshed in place. Swapping the whole table out for a spinner on every refresh

@@ -67,6 +67,10 @@ export interface Facility {
   economic_sector: string
   branch_name: string
   also_in_udara: boolean
+  is_restructure: boolean
+  restructured_from: string
+  restructured_from_kobo: number
+  was_restructured_into: boolean
   scheduled_kobo: number
   expected_kobo: number
   paid_kobo: number
@@ -223,11 +227,21 @@ export function isUdaraKey(id: string | null | undefined): boolean {
 // workspace profiles carry cif = NULL, which is correct and must stay that way.
 //
 // Returns '' for synthetic workspace handles, which mean nothing to a reader.
-export function idCaption(id: string | null | undefined): string {
+// `origin` is REQUIRED wherever the caller knows it, and passing it is not optional
+// politeness: a bare Udara id and a cards CIF are both 8 zero-padded digits, so the
+// VALUE CANNOT BE CLASSIFIED BY LOOKING AT IT. An earlier version of this function tried,
+// and captioned every Udara-sourced facility "CIF <udara id>" — pointing the reader at a
+// different person's cards record, which is the exact failure the prefix rule exists to
+// stop. Only the 'UD-' prefix (collections rows, migration 267) is self-describing.
+export function idCaption(id: string | null | undefined, origin?: string): string {
   const s = (id ?? '').trim()
   if (!s) return ''
   if (isUdaraKey(s)) return `Udara ID ${s.slice(3)}`
   if (isInternalId(s)) return ''
+  const o = (origin ?? '').trim().toLowerCase()
+  if (o === 'udara' || o === 'cbs') return `Udara ID ${s}`
+  // No origin and no prefix: say nothing rather than assert the wrong namespace.
+  if (!o) return s
   return `CIF ${s}`
 }
 
@@ -318,7 +332,7 @@ export function CustomerDetails({ c }: { c: CreditDossier['customer'] }) {
         background: `${AMBER}0A`, border: `1px solid ${AMBER}26`,
         fontSize: TEXT.sm, color: 'var(--txt2)',
       }}>
-        No contact details on file for this customer — nothing to call, email or visit.
+        No contact details on file for this customer. Nothing to call, email or visit.
       </div>
     )
   }
@@ -409,7 +423,7 @@ export function CaseContext({
           <span className="material-symbols-rounded" style={{ fontSize: 20, color: RED }}>gavel</span>
           <div style={{ lineHeight: 1.35, minWidth: 0 }}>
             <div style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
-              In Recovery — case {recovery.case_ref || recovery.id}
+              In Recovery: case {recovery.case_ref || recovery.id}
               {recovery.legal_stage ? ` · ${recovery.legal_stage.replace(/_/g, ' ')}` : ''}
             </div>
             <div style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)' }}>
@@ -492,7 +506,7 @@ export function ExposureStrip({ t }: { t: CreditDossier['totals'] }) {
               sub="Logged to collections" />
       {t.unallocated_kobo > 0 && (
         <Figure label="Beyond Schedule" value={fmtKoboExact(t.unallocated_kobo)} color={AMBER} size={20}
-                sub="Received but not matched to any instalment — check the tenor or a restructure" />
+                sub="Received but not matched to any instalment. Check the tenor or a restructure" />
       )}
     </div>
   )
@@ -537,7 +551,7 @@ export function FacilityRail({
                 {f.dpd > 0 && <Chip label={`${f.dpd}d late`} color={f.dpd > 90 ? RED : AMBER} />}
                 {f.also_in_udara && (
                   <span
-                    title="This uploaded loan mirrors a facility already booked in Udara core banking. Shown for its schedule — do not count the exposure twice."
+                    title="This uploaded loan mirrors a facility already booked in Udara core banking. Shown for its schedule. Do not count the exposure twice."
                     style={{
                       fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.04em',
                       textTransform: 'uppercase', padding: '2px 8px', borderRadius: RADIUS.full,
@@ -545,7 +559,35 @@ export function FacilityRail({
                     }}
                   >Mirrors Udara</span>
                 )}
+                {/* Restructure lineage (migration 277). On a collections call the borrower
+                    already knows this is the same debt on new terms; the agent should too. */}
+                {f.is_restructure && (
+                  <span
+                    title={`Restructured from ${f.restructured_from || 'an earlier facility'}${f.restructured_from_kobo ? ` · originally ${fmtKoboExact(f.restructured_from_kobo)}` : ''} — this is existing debt on new terms, not new lending.`}
+                    style={{
+                      fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.04em',
+                      textTransform: 'uppercase', padding: '2px 8px', borderRadius: RADIUS.full,
+                      background: `${PURPLE}18`, color: PURPLE, whiteSpace: 'nowrap', cursor: 'help',
+                    }}
+                  >Restructured</span>
+                )}
+                {f.was_restructured_into && !f.is_restructure && (
+                  <span
+                    title="This facility was replaced by a later one for the same customer. Its balance is history. The successor carries the live debt."
+                    style={{
+                      fontSize: TEXT['2xs'], fontWeight: FW.bold, letterSpacing: '0.04em',
+                      textTransform: 'uppercase', padding: '2px 8px', borderRadius: RADIUS.full,
+                      background: 'var(--chip-bg)', color: 'var(--txt3)', whiteSpace: 'nowrap', cursor: 'help',
+                    }}
+                  >Superseded</span>
+                )}
               </div>
+              {f.is_restructure && f.restructured_from && (
+                <div style={{ fontSize: TEXT['2xs'], color: 'var(--txt3)', marginTop: 2, ...NUM }}>
+                  continues {f.restructured_from}
+                  {f.restructured_from_kobo ? ` · originally ${fmtKoboExact(f.restructured_from_kobo)}` : ''}
+                </div>
+              )}
               <div style={{
                 fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -553,7 +595,7 @@ export function FacilityRail({
               <div style={{
                 ...NUM, fontSize: TEXT.xs, color: 'var(--txt3)', marginBottom: 8,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>{f.ref || '—'}{idCaption(f.cif) ? ` · ${idCaption(f.cif)}` : ''}</div>
+              }}>{f.ref || '—'}{idCaption(f.cif, f.origin) ? ` · ${idCaption(f.cif, f.origin)}` : ''}</div>
               <div style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.extrabold, color: 'var(--txt)', lineHeight: 1.1 }}>
                 {fmtKoboExact(f.outstanding_kobo)}
               </div>

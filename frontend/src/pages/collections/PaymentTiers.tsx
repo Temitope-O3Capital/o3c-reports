@@ -104,7 +104,7 @@ export default function PaymentTiers() {
   ]
 
   return (
-    <Page title="Payment Tiers" subtitle="Cards and loans (CCS, Udara, uploaded) banded by how much has been repaid — so real payers aren't treated like non-payers" loading={loading && rows.length === 0} skeletonKpis={5}>
+    <Page title="Payment Tiers" subtitle="Cards and loans (CCS, Udara, uploaded) banded by how much has been repaid. So real payers aren't treated like non-payers" loading={loading && rows.length === 0} skeletonKpis={5}>
       <ErrBanner error={error} onRetry={load} />
 
       {/* Tier distribution strip */}
@@ -192,7 +192,7 @@ function RestructureModal({ row, onClose, onDone }: { row: TierRow | null; onClo
       const inst = parseFloat(installment.replace(/,/g, '')); if (inst > 0) body.new_installment_kobo = Math.round(inst * 100)
       if (maturity) body.new_maturity_date = maturity
       await apiPost('/api/credit-accommodations', body)
-      toast.success('Restructure requested — pending approval')
+      toast.success('Restructure requested: pending approval')
       onDone()
     } catch (e: any) { setErr(e.message ?? 'Failed') } finally { setSaving(false) }
   }

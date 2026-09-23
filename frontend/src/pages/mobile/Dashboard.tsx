@@ -56,7 +56,7 @@ function ComingSoonBanner() {
         </div>
         <div style={{ fontSize: TEXT.sm, color: 'var(--txt2)', fontFamily: INTER }}>
           The Mobile App Analytics module connects to your core banking system to derive active users
-          and transaction activity. No transaction data was found for the selected period — this may
+          and transaction activity. No transaction data was found for the selected period. This may
           indicate the integration is not yet configured or the database snapshot is empty.
         </div>
       </div>

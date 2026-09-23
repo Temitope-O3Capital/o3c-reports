@@ -765,7 +765,7 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 
 		imported, skipped, failed, err := runZohoVoiceImport(ctx, db, fromDate, toDate)
 		if errors.Is(err, errZohoVoiceBusy) {
-			respondErr(w, 409, "A Zoho Voice import is already running — let it finish and try again.")
+			respondErr(w, 409, "A Zoho Voice import is already running. Let it finish and try again.")
 			return
 		}
 		if err != nil {
@@ -775,7 +775,7 @@ func zohoImportVoiceLogs(db *core.DB) http.HandlerFunc {
 			// aren't missing: PhoneBridge telephony logs land in Zoho Desk and are
 			// imported via the Desk /calls sync. Return that instead of a raw error.
 			if strings.Contains(err.Error(), "ZVT022") || strings.Contains(strings.ToLower(err.Error()), "invalid oauth scope") {
-				respondErr(w, 409, "Zoho Voice is not part of this Zoho plan (the token is scoped to Zoho Desk + PhoneBridge). Calls are logged in Zoho Desk and imported by the Desk call sync — no separate Voice import is needed.")
+				respondErr(w, 409, "Zoho Voice is not part of this Zoho plan (the token is scoped to Zoho Desk + PhoneBridge). Calls are logged in Zoho Desk and imported by the Desk call sync, so no separate Voice import is needed.")
 				return
 			}
 			respondErr(w, 502, err.Error())
@@ -1575,7 +1575,7 @@ func zohoNotifyAssignee(ctx context.Context, db *core.DB, ticketID, userID int64
 	go Notify(context.WithoutCancel(ctx), db, NotifPayload{
 		EventType: EvtTicketAssigned,
 		UserID:    userID,
-		Title:     fmt.Sprintf("Ticket assigned to you: %s", ref),
+		Title:     fmt.Sprintf("Ticket Assigned to You: %s", ref),
 		Body:      subject,
 		ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 		EntityRef: ref,
@@ -2708,7 +2708,7 @@ func voiceTokenHandler(db *core.DB) http.HandlerFunc {
 		}
 		token, agentID := voiceUserAccessToken(ctx, db, user.ID)
 		if token == "" {
-			respondErr(w, 403, "Zoho Voice not connected — connect your account in Settings")
+			respondErr(w, 403, "Zoho Voice is not connected. Connect your account in Settings.")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -2752,7 +2752,7 @@ func zohoInitiateCall(db *core.DB) http.HandlerFunc {
 		}
 
 		if callToken == "" {
-			respondErr(w, 403, "Zoho Voice not connected — go to Settings and connect your account")
+			respondErr(w, 403, "Zoho Voice is not connected. Connect your account in Settings.")
 			return
 		}
 
@@ -3010,6 +3010,7 @@ func zohoCollapseDuplicateCall(ctx context.Context, db *core.DB, callID int64) i
 	rows, err := db.PGQuery(ctx, `
 		WITH me AS (
 		  SELECT id, agent_id, zoho_agent_id, direction, started_at,
+		         NULLIF(customer_cif,'') AS cif,
 		         app.norm_phone(customer_phone) AS ph
 		    FROM helpdesk_calls
 		   WHERE id = $1
@@ -3035,6 +3036,15 @@ func zohoCollapseDuplicateCall(ctx context.Context, db *core.DB, callID int64) i
 		     AND h.agent_id      IS NOT DISTINCT FROM me.agent_id
 		     AND h.zoho_agent_id IS NOT DISTINCT FROM me.zoho_agent_id
 		     AND date_trunc('second', h.started_at) = date_trunc('second', me.started_at)
+		     -- Two customers must never become one dial. Everything above is about the
+		     -- CALL (same number, same agent, same second); nothing about it is about WHO
+		     -- was on the line. Where both records name a customer and they name DIFFERENT
+		     -- ones, that is the single signal that this is not one dial reported twice,
+		     -- so leave them apart. A blank cif on either side stays mergeable — that is
+		     -- the ordinary case, where one of the two records simply never resolved the
+		     -- caller, and the fold below is what fills it in.
+		     AND (h.customer_cif IS NULL OR NULLIF(h.customer_cif,'') IS NULL
+		          OR me.cif IS NULL OR NULLIF(h.customer_cif,'') = me.cif)
 		),
 		keep AS (SELECT MIN(id) AS id FROM grp)
 		UPDATE helpdesk_calls d
