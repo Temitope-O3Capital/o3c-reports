@@ -1961,7 +1961,7 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 			       COUNT(*) FILTER (WHERE f.maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30) AS maturing_30d,
 			       COUNT(*) FILTER (WHERE f.maturity_date::date < CURRENT_DATE) AS past_due_count
 			FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			LEFT JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			LEFT JOIN o3c_users u             ON u.id = m.officer_user_id
 			WHERE f.status='Active' AND f.` + sqlFDFunded + `
 			GROUP BY 1, 2 ORDER BY principal_kobo DESC`); e == nil {
@@ -2020,7 +2020,7 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 			       COALESCE(NULLIF(f.product_name,''),'Other') AS product,
 			       f.principal_kobo, COALESCE(f.interest_rate,0) AS rate, f.maturity_date::date::text AS maturity
 			FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			LEFT JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			LEFT JOIN o3c_users u             ON u.id = m.officer_user_id
 			WHERE f.status='Active' AND f.` + sqlFDFunded + `
 			-- Unique tiebreaker: principal ties are common on a deposit book (round
@@ -2103,7 +2103,7 @@ func execFixedDepositsList(db *core.DB) http.HandlerFunc {
 
 		var total int64
 		if rows, e := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			LEFT JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			LEFT JOIN o3c_users u ON u.id = m.officer_user_id `+where, args...); e == nil && len(rows) > 0 {
 			total = toInt64(rows[0]["n"])
 		}
@@ -2120,7 +2120,7 @@ func execFixedDepositsList(db *core.DB) http.HandlerFunc {
 			       f.commencement_date::date::text AS commencement, f.maturity_date::date::text AS maturity,
 			       f.status, COALESCE(f.branch_name,'') AS branch
 			FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			LEFT JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			LEFT JOIN o3c_users u             ON u.id = m.officer_user_id
 			`+where+fmt.Sprintf(` ORDER BY f.principal_kobo DESC LIMIT $%d OFFSET $%d`, n, n+1), args...); e == nil {
 			for _, row := range rows {

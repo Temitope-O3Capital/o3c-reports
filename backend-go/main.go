@@ -596,6 +596,13 @@ func main() {
 		r.Route("/api/fd-book", func(r chi.Router) {
 			handlers.RegisterFDBook(r, db)
 		})
+		// Account-officer corrections on the Udara loan/FD books. Mounted at the top
+		// level rather than under a product route because it spans both, and because
+		// the loan and deposit books are the only place the officer could not be
+		// corrected — Udara's API has no endpoint that can change one.
+		r.Route("/api/officer-overrides", func(r chi.Router) {
+			handlers.RegisterOfficerOverrides(r, db)
+		})
 		r.Route("/api/cards-credit", func(r chi.Router) {
 			handlers.RegisterCardsCredit(r, db)
 		})

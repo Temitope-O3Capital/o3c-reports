@@ -282,14 +282,14 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			loan AS (
 			  SELECT COALESCE(SUM(l.loan_amount_kobo),0) AS kobo
 			  FROM cbs_loans l
-			  JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(l.raw->>'accountOfficerName')
+			  JOIN app.v_loan_officer m ON m.cbs_id = l.cbs_id
 			  WHERE m.officer_user_id = $1
 			    AND DATE_TRUNC('month', l.start_date) = DATE_TRUNC('month', NOW())
 			),
 			fd AS (
 			  SELECT COALESCE(SUM(f.principal_kobo),0) AS kobo
 			  FROM cbs_fixed_deposits f
-			  JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			  JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			  WHERE m.officer_user_id = $1
 			    AND DATE_TRUNC('month', f.commencement_date) = DATE_TRUNC('month', NOW())
 			),
@@ -1029,7 +1029,7 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			           COUNT(l.cbs_id)                     AS actual_loans,
 			           COALESCE(SUM(l.loan_amount_kobo),0) AS actual_kobo
 			    FROM cbs_loans l
-			    JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(l.raw->>'accountOfficerName')
+			    JOIN app.v_loan_officer m ON m.cbs_id = l.cbs_id
 			    WHERE DATE_TRUNC('month', l.start_date) = %s
 			      AND ($1 = '' OR l.start_date::date >= $1::date)
 			      AND ($2 = '' OR l.start_date::date <= $2::date)
@@ -1074,7 +1074,7 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			           COUNT(f.cbs_id)                   AS actual_fds,
 			           COALESCE(SUM(f.principal_kobo),0) AS actual_fd_kobo
 			    FROM cbs_fixed_deposits f
-			    JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			    JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			    WHERE DATE_TRUNC('month', f.commencement_date) = %s
 			      AND ($1 = '' OR f.commencement_date::date >= $1::date)
 			      AND ($2 = '' OR f.commencement_date::date <= $2::date)

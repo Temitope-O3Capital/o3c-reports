@@ -196,8 +196,8 @@ func runFDAlerts(ctx context.Context, db *core.DB) {
 		    to_char(f.maturity_date, 'YYYY-MM-DD')  AS maturity_date,
 		    (f.maturity_date::date - CURRENT_DATE)  AS days_to_maturity
 		FROM cbs_fixed_deposits f
-		JOIN app.cbs_officer_map m
-		  ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+		JOIN app.v_fd_officer m
+		  ON m.cbs_id = f.cbs_id
 		 AND m.officer_user_id IS NOT NULL
 		WHERE f.status = 'Active'
 		  AND f.raw->>'hasDisbursed' IS DISTINCT FROM 'false'

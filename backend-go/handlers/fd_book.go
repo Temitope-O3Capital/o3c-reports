@@ -72,19 +72,21 @@ func RegisterFDBook(r chi.Router, db *core.DB) {
    distinct officers — and app.cbs_officer_map crosswalks all 21 known Udara
    names to workspace users with 100% coverage of both books.
 
-   sqlFDOfficerName is the officer as Udara spells it, read out of raw. When the
-   officer_name column lands on the table these two consts are the ONLY switch
-   point in this file: change sqlFDOfficerName to `btrim(f.officer_name)` and
-   every query below follows. The equivalent switch points elsewhere are the
-   three joins in executive.go, the FD joins in overview.go, and the one in
-   account_alerts.go.
+   That crosswalk is now reached through app.v_fd_officer (migration 284) rather
+   than joined inline here, because a name crosswalk alone cannot be CORRECTED:
+   repointing a name in cbs_officer_map moves every one of that officer's records
+   at once, and Udara's API has no endpoint that can change an account officer at
+   all (the officer is a field on the loan/FD account; there is no update endpoint
+   for either). The view resolves account override > party override > Udara's own
+   name, so a single wrongly-attributed deposit can be fixed without touching the
+   other 382.
 
-   btrim matters. Udara pads 7 of the 21 officer names with a trailing space and
-   cbs_officer_map was hand-seeded from those exact strings, so plain equality
-   matches by luck: trim one side only and 173 of 380 deposits (98 on the active
-   book — 6 officers, ₦11.03bn of principal) fall out of officer attribution
-   with no error at all, and that attribution feeds sales targets and
-   commission. Trimming both sides is identical today and survives the cleanup.
+   btrim matters, and now lives inside the view. Udara pads 7 of the 21 officer
+   names with a trailing space and cbs_officer_map was hand-seeded from those
+   exact strings, so plain equality matches by luck: trim one side only and 173 of
+   380 deposits (98 on the active book — 6 officers, ₦11.03bn of principal) fall
+   out of officer attribution with no error at all, and that attribution feeds
+   sales targets and commission.
 */
 // Register paging bounds — see fdBookList for the contract.
 const (
@@ -92,13 +94,24 @@ const (
 	fdBookListHardCap = 10000 // backstop for limit=0 ("whole book")
 )
 
+// The switch point the comment above anticipated, taken.
+//
+// These now read app.v_fd_officer (migration 284), which resolves the officer as
+// account override > party override > Udara's accountOfficerName via
+// app.cbs_officer_map. The btrim-on-both-sides crosswalk and the label fallback
+// live inside that view now, so every surface gets the same answer and a
+// correction made in one place shows up everywhere.
+//
+// Verified drop-in when introduced: the view returns exactly one row per deposit
+// (383/383) and the resolved officer matched the previous inline join on all 383,
+// so repointing changed no number until someone records an override.
 const (
-	sqlFDOfficerName = `btrim(f.raw->>'accountOfficerName')`
-	sqlFDOfficerJoin = `LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = ` + sqlFDOfficerName + `
+	sqlFDOfficerName = `m.udara_officer_name`
+	sqlFDOfficerJoin = `LEFT JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 				LEFT JOIN o3c_users u             ON u.id = m.officer_user_id`
-	// The officer as the workspace should show them: their o3c_users name when the
-	// crosswalk resolves, otherwise Udara's own spelling so nothing goes missing.
-	sqlFDOfficerLabel = `COALESCE(NULLIF(btrim(u.full_name),''), NULLIF(` + sqlFDOfficerName + `,''), 'Unassigned')`
+	// The officer as the workspace should show them: the resolved user's name when
+	// there is one, otherwise Udara's own spelling so nothing goes missing.
+	sqlFDOfficerLabel = `m.officer_label`
 )
 
 // fdBookByOfficer — the funded Active book split by account officer, so the FD

@@ -527,7 +527,7 @@ func overviewTopPerformers(db *core.DB) http.HandlerFunc {
 			if rows, _ := db.PGQuery(ctx, `
 				SELECT m.officer_user_id AS oid, COALESCE(SUM(l.loan_amount_kobo),0) AS v, COUNT(*) AS c
 				FROM cbs_loans l
-				JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(l.raw->>'accountOfficerName') AND m.officer_user_id IS NOT NULL
+				JOIN app.v_loan_officer m ON m.cbs_id = l.cbs_id AND m.officer_user_id IS NOT NULL
 				WHERE l.start_date::date BETWEEN $1 AND $2
 				GROUP BY 1`, d(cs), d(ce)); rows != nil {
 				for _, row := range rows {
@@ -539,7 +539,7 @@ func overviewTopPerformers(db *core.DB) http.HandlerFunc {
 			if rows, _ := db.PGQuery(ctx, `
 				SELECT m.officer_user_id AS oid, COALESCE(SUM(f.principal_kobo),0) AS v, COUNT(*) AS c
 				FROM cbs_fixed_deposits f
-				JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName') AND m.officer_user_id IS NOT NULL
+				JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id AND m.officer_user_id IS NOT NULL
 				WHERE f.commencement_date::date BETWEEN $1 AND $2
 				GROUP BY 1`, d(cs), d(ce)); rows != nil {
 				for _, row := range rows {
