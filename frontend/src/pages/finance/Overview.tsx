@@ -164,12 +164,22 @@ export default function FinanceOverview() {
           accent={(treasury?.net_flow_ngn ?? 0) >= 0 ? GREEN : RED} loading={loading} />
       </div>
 
-      {/* Secondary KPI strip (balance-sheet) */}
+      {/* Secondary KPI strip — balance-sheet positions, NOT period income.
+          These four used to sit in an unlabelled strip below the revenue KPIs,
+          and "Accrued FD Interest" carried the same BLUE accent as "Interest
+          Income" two rows above it with no sub-label. Both FD figures are money
+          O3 OWES depositors — ₦19.6bn of principal and ₦0.9bn accrued at the
+          time of writing — so rendering the accrual in the income colour read
+          the largest number on the page as earnings. Both now carry the AMBER
+          liability accent and say whose money it is. */}
+      <p style={{ margin: `0 0 ${SP[2]}`, fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        Balance Sheet Position · Not Period Income
+      </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
-        <KpiCard label="FD Book" value={fmtKoboExact(treasury?.fd_liabilities_kobo ?? 0)} sub={`${fmtNum(treasury?.active_fds ?? 0)} active`} icon="savings" accent={AMBER} loading={loading} />
-        <KpiCard label="Loan Book" value={fmtKoboExact(loanBook)} sub={`NPL ${fmtKoboExact(npl)}`} icon="account_balance_wallet" accent={NAVY} loading={loading} />
+        <KpiCard label="FD Book (Liability)" value={fmtKoboExact(treasury?.fd_liabilities_kobo ?? 0)} sub={`${fmtNum(treasury?.active_fds ?? 0)} active · owed to depositors`} icon="savings" accent={AMBER} loading={loading} />
+        <KpiCard label="Loan Book (Asset)" value={fmtKoboExact(loanBook)} sub={`NPL ${fmtKoboExact(npl)}`} icon="account_balance_wallet" accent={NAVY} loading={loading} />
         <KpiCard label="NPL Ratio" value={fmtPct(nplRatio)} icon="warning" accent={nplRatio > 5 ? RED : AMBER} loading={loading} />
-        <KpiCard label="Accrued FD Interest" value={fmtKoboExact(treasury?.fd_accrued_kobo ?? 0)} icon="percent" accent={BLUE} loading={loading} />
+        <KpiCard label="Accrued FD Interest (Liability)" value={fmtKoboExact(treasury?.fd_accrued_kobo ?? 0)} sub="cost of funds owed · not income" icon="savings" accent={AMBER} loading={loading} />
       </div>
 
       {/* Revenue by month + revenue by product */}
@@ -243,12 +253,12 @@ export default function FinanceOverview() {
           )}
         </SectionCard>
 
-        <SectionCard title="Portfolio Position" subtitle="Live CBS book">
+        <SectionCard title="Portfolio Position" subtitle="Live CBS book · assets and liabilities">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <Tile label="Loan Book" value={fmtKoboExact(loanBook)} sub={`${fmtNum(eod?.position?.loans_active ?? 0)} active · ${fmtNum(eod?.position?.borrowers_active ?? 0)} borrowers`} />
+            <Tile label="Loan Book (Asset)" value={fmtKoboExact(loanBook)} sub={`${fmtNum(eod?.position?.loans_active ?? 0)} active · ${fmtNum(eod?.position?.borrowers_active ?? 0)} borrowers`} />
             <Tile label="NPL" value={fmtKoboExact(npl)} color={nplRatio > 5 ? RED : AMBER} sub={`${fmtPct(nplRatio)} of book`} />
-            <Tile label="FD Book" value={fmtKoboExact(treasury?.fd_liabilities_kobo ?? 0)} sub={`${fmtNum(treasury?.active_fds ?? 0)} active`} />
-            <Tile label="Accrued FD Interest" value={fmtKoboExact(treasury?.fd_accrued_kobo ?? 0)} color={BLUE} />
+            <Tile label="FD Book (Liability)" value={fmtKoboExact(treasury?.fd_liabilities_kobo ?? 0)} color={AMBER} sub={`${fmtNum(treasury?.active_fds ?? 0)} active · owed to depositors`} />
+            <Tile label="Accrued FD Interest (Liability)" value={fmtKoboExact(treasury?.fd_accrued_kobo ?? 0)} color={AMBER} sub="cost of funds owed · not income" />
           </div>
         </SectionCard>
       </div>
