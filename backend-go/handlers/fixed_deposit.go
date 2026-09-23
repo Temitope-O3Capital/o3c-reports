@@ -485,8 +485,8 @@ func fdEarlyWithdrawalApprove(db *core.DB) http.HandlerFunc {
 				Date:          time.Now(),
 				Description:   "FD early withdrawal - " + ref,
 				Reference:     ref,
-				DebitAccount:  "fixed_deposits_liability",
-				CreditAccount: "cash",
+				DebitAccount:  "2100", // Fixed Deposit Liability
+				CreditAccount: "1001", // Cash / Bank
 				AmountKobo:    netPayout,
 				SourceType:    "fd_early_withdrawal",
 				SourceID:      toInt64(req["id"]),
@@ -660,8 +660,8 @@ func fdRollover(db *core.DB) http.HandlerFunc {
 				Date:          time.Now(),
 				Description:   fmt.Sprintf("FD rollover - old %s to new %s", oldRef, newRef),
 				Reference:     "FDR-" + oldRef,
-				DebitAccount:  "fixed_deposits_liability",
-				CreditAccount: "fixed_deposits_liability",
+				DebitAccount:  "2100", // Fixed Deposit Liability
+				CreditAccount: "2100", // Fixed Deposit Liability
 				AmountKobo:    int64(principalVal * 100),
 				SourceType:    "fd_rollover",
 				SourceID:      newID,
@@ -733,8 +733,8 @@ func fdLiquidate(db *core.DB) http.HandlerFunc {
 				Date:          time.Now(),
 				Description:   "FD liquidation - " + ref,
 				Reference:     ref,
-				DebitAccount:  "fixed_deposits_liability",
-				CreditAccount: "cash",
+				DebitAccount:  "2100", // Fixed Deposit Liability
+				CreditAccount: "1001", // Cash / Bank
 				AmountKobo:    amount,
 				SourceType:    "fd_liquidate",
 				SourceID:      toInt64(fdRows[0]["id"]),

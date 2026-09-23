@@ -462,8 +462,8 @@ func cardCreateDispute(db *core.DB) http.HandlerFunc {
 				Date:          time.Now(),
 				Description:   "Card dispute provisional credit - " + ref,
 				Reference:     ref,
-				DebitAccount:  "dispute_suspense",
-				CreditAccount: "card_liability",
+				DebitAccount:  "2300", // Card Dispute Suspense
+				CreditAccount: "2200", // Card Liability - Customer Float
 				AmountKobo:    req.AmountKobo,
 				SourceType:    "card_dispute",
 				SourceID:      newID,
@@ -566,11 +566,13 @@ func cardAdvanceDispute(db *core.DB) http.HandlerFunc {
 			ref := fmt.Sprintf("DSP-%04d", id)
 			var drAcct, crAcct string
 			if req.Status == "resolved" {
-				// Customer wins: pay out from suspense
-				drAcct, crAcct = "dispute_suspense", "cash"
+				// Customer wins: pay out from suspense.
+				// 2300 Card Dispute Suspense → 1001 Cash / Bank
+				drAcct, crAcct = "2300", "1001"
 			} else {
-				// Dispute declined (bank wins): reverse provisional credit
-				drAcct, crAcct = "card_liability", "dispute_suspense"
+				// Dispute declined (bank wins): reverse the provisional credit.
+				// 2200 Card Liability - Customer Float → 2300 Card Dispute Suspense
+				drAcct, crAcct = "2200", "2300"
 			}
 			if glErr := postJournalTx(ctx, tx, glEntry{
 				Date:          time.Now(),
