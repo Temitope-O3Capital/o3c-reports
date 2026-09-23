@@ -219,6 +219,16 @@ func ccStampQueueForPhone(ctx context.Context, db *core.DB, phone string) {
 // The length()=10 guard is load-bearing, not tidiness: app.norm_phone returns ''
 // (never NULL) for anything it cannot parse, so a bare equality is TRUE when both
 // sides are blank — which would suppress every contact with no phone on file.
+//
+// PASS A QUALIFIED COLUMN. phoneCol lands inside a subquery over dnc_list, which has
+// its own `phone` column, so an UNQUALIFIED "phone" resolves to dnc_list.phone and
+// the comparison becomes norm_phone(d.phone) = norm_phone(d.phone) — true for every
+// listed row. The expression then reads FALSE for everyone and suppresses the entire
+// table. That is not hypothetical: three call sites here passed "phone", and on
+// 2026-09-23 the outbound queue was serving 0 of its 14,965 pending contacts, none of
+// which was actually on the list. Use "call_center_contacts.phone", "l.customer_phone",
+// "x.phone" or a bind parameter — never a bare column name that dnc_list also has.
+// TestDNCExprIsAlwaysQualified enforces this.
 func ccNotOnDNCExpr(phoneCol string) string {
 	return `NOT EXISTS (SELECT 1 FROM dnc_list d
 	                     WHERE norm_phone(d.phone) = norm_phone(` + phoneCol + `)
@@ -2378,7 +2388,7 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		             COALESCE(purpose,'marketing') AS purpose, COALESCE(source,'zoho_crm') AS source, ref
 		      FROM call_center_contacts
 		      WHERE status = 'pending'
-		        AND `+ccNotOnDNCExpr("phone"), cooldown, ccExhaustedAttempts)
+		        AND `+ccNotOnDNCExpr("call_center_contacts.phone"), cooldown, ccExhaustedAttempts)
 		q := sel
 		var args []any
 		n := 1
@@ -2503,7 +2513,7 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 			        COUNT(*) FILTER (WHERE callback_at IS NOT NULL AND callback_at <= NOW()) AS callbacks_due,
 			        COUNT(*) FILTER (WHERE callback_at IS NOT NULL)       AS callbacks
 			 FROM call_center_contacts
-			 WHERE status = 'pending' AND `+ccNotOnDNCExpr("phone"),
+			 WHERE status = 'pending' AND `+ccNotOnDNCExpr("call_center_contacts.phone"),
 				cooldown, ccExhaustedAttempts, cooldown, ccExhaustedAttempts)+cond, args...); len(sr) > 0 {
 			summary = sr[0]
 		}
@@ -2513,7 +2523,7 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		if pr, _ := db.PGQuery(r.Context(),
 			`SELECT COALESCE(purpose,'marketing') AS purpose, COUNT(*) AS n
 			 FROM call_center_contacts
-			 WHERE status='pending' AND `+ccNotOnDNCExpr("phone")+scopeCond+`
+			 WHERE status='pending' AND `+ccNotOnDNCExpr("call_center_contacts.phone")+scopeCond+`
 			 GROUP BY 1`, scopeArgs...); len(pr) > 0 {
 			for _, row := range pr {
 				switch str(row["purpose"]) {

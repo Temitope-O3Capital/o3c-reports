@@ -133,6 +133,34 @@ func withSMSOptOut(body string) string {
 	return strings.TrimRight(body, " \n\t") + " Reply STOP to opt out."
 }
 
+// optOutKeywords are the words that withSMSOptOut's promise has to answer to. The
+// list is the industry-standard set (CTIA); OPT OUT, OPT-OUT and OPTOUT all reduce
+// to the same entry once punctuation and spacing are stripped.
+var optOutKeywords = map[string]bool{
+	"stop": true, "stopall": true, "unsubscribe": true,
+	"cancel": true, "end": true, "quit": true, "optout": true,
+}
+
+// optOutKeyword reports whether an inbound SMS is the customer opting out.
+//
+// The match is deliberately on the WHOLE message, with letters only: "STOP",
+// "stop.", "Stop!" and "opt out" all count, while "please stop my card" and "when
+// does my card end?" do not. That asymmetry is the point — a missed opt-out is a
+// regulatory breach, but a service request silently swallowed as an opt-out is a
+// customer who can no longer reach us and does not know it.
+//
+// Read by hdInboundSMS, which had no opt-out path at all: the STOP we promise at
+// the end of every campaign SMS went into a support ticket and nowhere else.
+func optOutKeyword(body string) bool {
+	var letters strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(body)) {
+		if r >= 'a' && r <= 'z' {
+			letters.WriteRune(r)
+		}
+	}
+	return optOutKeywords[letters.String()]
+}
+
 func sendSMS(ctx context.Context, db *core.DB, phone, body string) (ok bool, providerID string) {
 	apiKey := resolveCredKey(ctx, db, "TERMII_API_KEY")
 	if apiKey == "" {
@@ -368,12 +396,22 @@ func startDispatch(db *core.DB, campaignID int64) {
 			cid := toInt64(c["id"])
 
 			if isSMS && str(c["sms_status"]) == "pending" && str(c["phone"]) != "" {
+				// The do-not-call list is settled INSIDE the claim, not checked before
+				// it: a number added to the list mid-run would otherwise slip through
+				// the gap between a check and the send. A suppressed number is claimed
+				// straight to 'skipped', so it is still accounted for and the campaign
+				// can complete — it is simply never sent.
+				//
+				// Until now campaign SMS ignored dnc_list entirely; its entries
+				// suppressed the dialler and nothing else, so a customer who asked not
+				// to be called could still be texted by every campaign.
 				claimed, _ := db.PGQuery(ctx, `
 					UPDATE campaign_contacts
-					SET sms_status='sending', updated_at=NOW()
+					SET sms_status = CASE WHEN `+ccNotOnDNCExpr("campaign_contacts.phone")+` THEN 'sending' ELSE 'skipped' END,
+					    updated_at = NOW()
 					WHERE id=$1 AND sms_status='pending'
-					RETURNING id`, cid)
-				if len(claimed) > 0 {
+					RETURNING sms_status`, cid)
+				if len(claimed) > 0 && str(claimed[0]["sms_status"]) == "sending" {
 					body := withSMSOptOut(renderTemplate(str(camp["sms_body"]), mergeData))
 					ok, pid := sendSMS(ctx, db, str(c["phone"]), body)
 					smsStatus := "sent"
@@ -391,12 +429,16 @@ func startDispatch(db *core.DB, campaignID int64) {
 			}
 
 			if isWhatsApp && str(c["whatsapp_status"]) == "pending" && str(c["phone"]) != "" {
+				// Same rule as SMS above. A do-not-call request is about the NUMBER, so
+				// it has to cover WhatsApp too — reaching the same person on the same
+				// handset through a different app is not a different consent.
 				claimed, _ := db.PGQuery(ctx, `
 					UPDATE campaign_contacts
-					SET whatsapp_status='sending', updated_at=NOW()
+					SET whatsapp_status = CASE WHEN `+ccNotOnDNCExpr("campaign_contacts.phone")+` THEN 'sending' ELSE 'skipped' END,
+					    updated_at = NOW()
 					WHERE id=$1 AND whatsapp_status='pending'
-					RETURNING id`, cid)
-				if len(claimed) > 0 {
+					RETURNING whatsapp_status`, cid)
+				if len(claimed) > 0 && str(claimed[0]["whatsapp_status"]) == "sending" {
 					body := renderTemplate(str(camp["whatsapp_body"]), mergeData)
 					templateName := str(camp["whatsapp_template_name"])
 					ok, pid := sendWhatsAppCampaign(ctx, db, str(c["phone"]), body, templateName)
@@ -1130,12 +1172,24 @@ func prepareCampaignRecipients(ctx context.Context, db *core.DB, campaignID int6
 			UPDATE campaign_contacts
 			SET whatsapp_status='skipped', updated_at=NOW()
 			WHERE campaign_id=$1 AND whatsapp_status='pending' AND NULLIF(TRIM(phone),'') IS NULL`, campaignID)
+		// Suppressed numbers are skipped here as well as at claim time, so the
+		// campaign's counts tell the truth BEFORE it starts rather than only after.
+		_, _ = db.PGExec(ctx, `
+			UPDATE campaign_contacts
+			SET whatsapp_status='skipped', updated_at=NOW()
+			WHERE campaign_id=$1 AND whatsapp_status='pending'
+			  AND NOT (`+ccNotOnDNCExpr("campaign_contacts.phone")+`)`, campaignID)
 	}
 	if isSMS {
 		_, _ = db.PGExec(ctx, `
 			UPDATE campaign_contacts
 			SET sms_status='skipped', updated_at=NOW()
 			WHERE campaign_id=$1 AND sms_status='pending' AND NULLIF(TRIM(phone),'') IS NULL`, campaignID)
+		_, _ = db.PGExec(ctx, `
+			UPDATE campaign_contacts
+			SET sms_status='skipped', updated_at=NOW()
+			WHERE campaign_id=$1 AND sms_status='pending'
+			  AND NOT (`+ccNotOnDNCExpr("campaign_contacts.phone")+`)`, campaignID)
 	}
 	if isEmail {
 		if err := ensureMailSchema(ctx, db); err == nil {

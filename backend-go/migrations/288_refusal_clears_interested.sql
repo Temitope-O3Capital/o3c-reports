@@ -1,4 +1,12 @@
--- 283: a lead that was reached again and REFUSED should not still read "Interested".
+-- 288: a lead that was reached again and REFUSED should not still read "Interested".
+--
+-- RENUMBERED. This shipped as 283_refusal_clears_interested.sql and ran in production
+-- at 10:39 on 2026-09-23, before another migration claimed 283 the same day;
+-- TestMigrationNumbersDoNotCollide then required the newer file to move, and that was
+-- this one. Renaming re-runs it under the new name, which is safe and was verified
+-- against the already-migrated database BEFORE the rename: both statements report
+-- UPDATE 0. Each is self-limiting — the first reads only leads still on 'interested',
+-- the second only hand-offs still open — so replaying it changes nothing.
 --
 -- Third in the family that began with 275 and 278. All three are the same shape: the
 -- forward-only rank guard in syncLeadFromCall let a lead advance but never step back,

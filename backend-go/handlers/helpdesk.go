@@ -3581,6 +3581,49 @@ func hdInboundSMS(db *core.DB) http.HandlerFunc {
 			return
 		}
 
+		// ── Opt-out ───────────────────────────────────────────────────────────
+		// Every campaign SMS ends "Reply STOP to opt out" (withSMSOptOut, campaigns.go).
+		// Nothing here ever read that reply: the word STOP appeared nowhere in the
+		// backend, so a customer who sent it got a support ticket opened, was never
+		// added to dnc_list, and kept receiving messages. We were promising an opt-out
+		// we did not honour.
+		//
+		// Suppression runs FIRST, before any ticket work, so it still lands even if
+		// everything below it fails.
+		if optOutKeyword(bodyText) {
+			if np := normalizePhone(phone); len(np) == 10 {
+				if _, err := db.PGExec(ctx,
+					`INSERT INTO dnc_list (phone, reason)
+					 VALUES ($1, 'Customer replied STOP by SMS')
+					 ON CONFLICT (phone) DO NOTHING`, np); err != nil {
+					// A do-not-call we failed to record is a regulatory gap, not a no-op.
+					slog.Error("hdInboundSMS: STOP received but NOT suppressed", "phone", np, "err", err)
+				} else {
+					slog.Info("hdInboundSMS: opt-out honoured", "phone", np)
+				}
+			} else {
+				slog.Warn("hdInboundSMS: STOP received from an unusable number — NOT suppressed", "phone", phone)
+			}
+			// Thread it onto an OPEN conversation if one exists, so the agent can see
+			// that the customer opted out — but never open a NEW ticket for it. A STOP
+			// is a completed instruction, not a support request, and one ticket per
+			// opt-out is exactly the noise that buried the alerting rail before.
+			if rows, _ := db.PGQuery(ctx, `
+				SELECT id FROM helpdesk_tickets
+				 WHERE customer_phone=$1 AND status NOT IN ('resolved','closed') AND deleted_at IS NULL
+				 ORDER BY created_at DESC LIMIT 1`, phone); len(rows) > 0 {
+				tid := toInt64(rows[0]["id"])
+				db.PGExec(ctx, //nolint:errcheck
+					`INSERT INTO helpdesk_messages
+					    (ticket_id, direction, channel, author_name, body_text, provider_message_id)
+					VALUES ($1,'inbound','sms',$2,$3,$4)`,
+					tid, phone, bodyText, providerMsgID)
+				hdRecordEvent(ctx, db, tid, 0, "sms_opt_out", "", phone)
+			}
+			w.WriteHeader(200)
+			return
+		}
+
 		var ticketID int64
 		var ticket map[string]any
 
