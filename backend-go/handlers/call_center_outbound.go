@@ -219,6 +219,16 @@ func ccStampQueueForPhone(ctx context.Context, db *core.DB, phone string) {
 // The length()=10 guard is load-bearing, not tidiness: app.norm_phone returns ''
 // (never NULL) for anything it cannot parse, so a bare equality is TRUE when both
 // sides are blank — which would suppress every contact with no phone on file.
+//
+// PASS A QUALIFIED COLUMN. phoneCol lands inside a subquery over dnc_list, which has
+// its own `phone` column, so an UNQUALIFIED "phone" resolves to dnc_list.phone and
+// the comparison becomes norm_phone(d.phone) = norm_phone(d.phone) — true for every
+// listed row. The expression then reads FALSE for everyone and suppresses the entire
+// table. That is not hypothetical: three call sites here passed "phone", and on
+// 2026-09-23 the outbound queue was serving 0 of its 14,965 pending contacts, none of
+// which was actually on the list. Use "call_center_contacts.phone", "l.customer_phone",
+// "x.phone" or a bind parameter — never a bare column name that dnc_list also has.
+// TestDNCExprIsAlwaysQualified enforces this.
 func ccNotOnDNCExpr(phoneCol string) string {
 	return `NOT EXISTS (SELECT 1 FROM dnc_list d
 	                     WHERE norm_phone(d.phone) = norm_phone(` + phoneCol + `)
@@ -2394,7 +2404,7 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		             COALESCE(purpose,'marketing') AS purpose, COALESCE(source,'zoho_crm') AS source, ref
 		      FROM call_center_contacts
 		      WHERE status = 'pending'
-		        AND `+ccNotOnDNCExpr("phone"), cooldown, ccExhaustedAttempts)
+		        AND `+ccNotOnDNCExpr("call_center_contacts.phone"), cooldown, ccExhaustedAttempts)
 		q := sel
 		var args []any
 		n := 1
@@ -2519,7 +2529,7 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 			        COUNT(*) FILTER (WHERE callback_at IS NOT NULL AND callback_at <= NOW()) AS callbacks_due,
 			        COUNT(*) FILTER (WHERE callback_at IS NOT NULL)       AS callbacks
 			 FROM call_center_contacts
-			 WHERE status = 'pending' AND `+ccNotOnDNCExpr("phone"),
+			 WHERE status = 'pending' AND `+ccNotOnDNCExpr("call_center_contacts.phone"),
 				cooldown, ccExhaustedAttempts, cooldown, ccExhaustedAttempts)+cond, args...); len(sr) > 0 {
 			summary = sr[0]
 		}
@@ -2529,7 +2539,7 @@ func ccListQueue(db *core.DB) http.HandlerFunc {
 		if pr, _ := db.PGQuery(r.Context(),
 			`SELECT COALESCE(purpose,'marketing') AS purpose, COUNT(*) AS n
 			 FROM call_center_contacts
-			 WHERE status='pending' AND `+ccNotOnDNCExpr("phone")+scopeCond+`
+			 WHERE status='pending' AND `+ccNotOnDNCExpr("call_center_contacts.phone")+scopeCond+`
 			 GROUP BY 1`, scopeArgs...); len(pr) > 0 {
 			for _, row := range pr {
 				switch str(row["purpose"]) {
@@ -3091,6 +3101,25 @@ func leadStatusFromCall(outcome string, disposition *string) string {
 		d = strings.ToLower(strings.TrimSpace(*disposition))
 	}
 	switch {
+	// ── Win-back outcomes, matched FIRST ──────────────────────────────────────
+	// These are full sentences, and several contain words the generic matching
+	// below keys on: "Left Over Service or an Unresolved Issue" contains "resolved"
+	// and would close the lead as a support resolution, and "Reactivating — Will Use
+	// Again" matches nothing at all and would fall through to a bare "called",
+	// losing the one outcome a win-back call exists to produce.
+	case strings.Contains(d, "reactivating"):
+		// They are coming back. That is a conversion, and it must rank terminal so a
+		// later no-answer cannot knock it back out of the converted count.
+		return "converted"
+	case strings.Contains(d, "not interested in returning"):
+		return "called"
+	case strings.Contains(d, "left over"),
+		strings.Contains(d, "using another provider"),
+		strings.Contains(d, "no longer needs"):
+		// A recorded reason for leaving. The contact is closed either way; what
+		// matters is that the reason is now on the record, which for 94.7% of
+		// churned customers it never was.
+		return "closed"
 	case strings.Contains(d, "do not call"):
 		return "dnc"
 	case strings.Contains(d, "converted"):
@@ -3147,6 +3176,44 @@ func leadStatusFromCall(outcome string, disposition *string) string {
 		return "called"
 	}
 	return "called"
+}
+
+// leadDeclinedOnCall reports whether this call is the CUSTOMER THEMSELVES saying no.
+// It is the one thing allowed to overturn an earned 'interested'.
+//
+// Why it has to exist: 'interested' ranks 4 and "Not Interested" maps to 'called'
+// (rank 1), so syncLeadFromCall's forward-only guard refused the move. A lead that
+// was reached again and declined kept reading as Interested — on the Leads screen,
+// in the qualified count, and to Sales, who in two of the three live cases had
+// already been handed the lead and were still chasing it.
+//
+// Deliberately narrow: this is NOT "any call that ranks below 'interested'".
+//   - 'no_answer' establishes nothing about whether they still want the product.
+//     The last thing they actually told us is still "interested".
+//   - 'not_ready' is a timing objection — its own hint reads "Interested but not
+//     now" — so it does not contradict interest.
+//   - a bare call logged with no disposition maps to 'called' as well, and must
+//     not silently un-qualify a warm lead.
+//   - "Not Eligible" is OUR decline rather than theirs; it maps to 'closed', which
+//     already outranks 'interested' and needs no help from here.
+// Only an explicit refusal counts.
+func leadDeclinedOnCall(outcome string, disposition *string) bool {
+	d := ""
+	if disposition != nil {
+		d = strings.TrimSpace(*disposition)
+	}
+	if d == "" {
+		d = outcome
+	}
+	// Underscores become spaces so the CODE ("answered_not_interested") and the
+	// LABEL ("Answered — Not Interested") are matched by the same words. Callers
+	// pass whichever they hold: the outbound queue passes the label, the call-log
+	// and call-edit endpoints pass whatever the client sent.
+	d = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(d), "_", " "))
+	if d == "" {
+		return false
+	}
+	return strings.Contains(d, "not interested") || strings.Contains(d, "do not call")
 }
 
 // advanceLeadStatus moves a lead to the status a call implies WITHOUT re-recording the
@@ -3288,6 +3355,10 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 	// drift out of step with the mapping above.
 	outcomeKnown := status != "pending"
 
+	// Did the customer just refuse? That is the only thing allowed to overturn an
+	// earned 'interested' — see leadDeclinedOnCall for why it is this narrow.
+	declined := leadDeclinedOnCall(outcome, disposition)
+
 	// The business disposition (falling back to the raw outcome) — now stored durably
 	// on the lead itself, so its history survives a later void/merge of the call.
 	dispo := outcome
@@ -3316,15 +3387,24 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		   -- the last call established ($6) — including "nobody answered", which is a
 		   -- fact about that call and what the Leads screen should show.
 		   --
-		   -- Two things this deliberately does NOT do. It does not discard the promise:
-		   -- callback_at below still stands on a no-answer, and the outbound queue
-		   -- dials from the CONTACT row's callback_at rather than this status, so the
-		   -- customer is still rung back. And it is not a general escape from the rank
-		   -- guard: 'interested' and 'converted' are earned, and still cannot be walked
-		   -- backwards, which is what that guard was built to protect.
+		   -- This does not discard the promise: callback_at below still stands on a
+		   -- no-answer, and the outbound queue dials from the CONTACT row's
+		   -- callback_at rather than this status, so the customer is still rung back.
+		   --
+		   -- A REFUSAL OVERTURNS 'interested' ($7). 'interested' ranks 4 and "Not
+		   -- Interested" maps to 'called' (rank 1), so a lead that was reached again
+		   -- and declined kept reading as Interested — on the Leads screen, in the
+		   -- qualified count, and to Sales, who had already been handed it. Only an
+		   -- explicit refusal does this (leadDeclinedOnCall): a no-answer says nothing
+		   -- about whether they still want the product, "Not Ready Yet" is a timing
+		   -- objection, and a bare logged call must not un-qualify a warm lead.
+		   --
+		   -- 'converted' and the other terminal statuses rank 5 and are still
+		   -- untouchable, which is what the guard was built to protect.
 		   SET status           = CASE
 		                            WHEN $5::int >= `+ccLeadStatusRankSQL+` THEN $1
 		                            WHEN $6::boolean AND status IN ('callback','not_ready') THEN $1
+		                            WHEN $7::boolean AND status = 'interested' THEN $1
 		                            ELSE status END,
 		       last_disposition = COALESCE(NULLIF($4,''), last_disposition),
 		       last_called_at   = NOW(),
@@ -3348,7 +3428,7 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		                               WHEN $1 IN ('pending','no_answer') THEN callback_at
 		                               ELSE NULL END
 		 WHERE id = $2`,
-		status, leadID, callbackAt, dispo, ccLeadStatusRank[status], outcomeKnown)
+		status, leadID, callbackAt, dispo, ccLeadStatusRank[status], outcomeKnown, declined)
 	if err != nil {
 		slog.Error("syncLeadFromCall: update lead", "lead", leadID, "err", err)
 		return
@@ -3357,6 +3437,15 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		// The lead id itself did not match any row — status/callback tracking for
 		// this call was lost. The call itself is still recorded below.
 		slog.Warn("syncLeadFromCall: lead not found", "lead", leadID, "proposed_status", status)
+	}
+
+	// A refusal also ends any open hand-off to Sales. Moving the lead off
+	// 'interested' is only half the job: two of the three leads found frozen there
+	// had already been auto-forwarded as "qualified by a call-centre call", so
+	// Sales went on working customers who had since said no. No-op when the lead
+	// was never forwarded, or when Sales has already resolved the hand-off.
+	if declined {
+		ccCloseForwardOnRefusal(ctx, db, leadID, dispo)
 	}
 
 	// Keep the lead-funnel table in step — canonical code + handle time, so connect

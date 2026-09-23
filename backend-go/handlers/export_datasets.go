@@ -597,6 +597,41 @@ var exportDatasets = []exportDataset{
 
 	// ── Customers (continued) ─────────────────────────────────────────────────
 	{
+		Key:    "customer_lifecycle",
+		Label:  "Retention & Win-Back",
+		Module: "Customers",
+		Desc: "One row per customer: where they sit on the dormancy clock, what they " +
+			"were worth in their last active year, and whether they can be worked. " +
+			"bucket='unknown' means we hold NO transaction history for that customer " +
+			"(the ledger is card-only and covers ~37% of the base) — they are unmeasured, " +
+			"not dormant, and should be filtered out of any retention analysis.",
+		From: `app.customer_lifecycle cl
+		         JOIN app.parties p ON p.party_id = cl.party_id
+		         LEFT JOIN LATERAL (SELECT c.cif FROM app.customers c
+		                             WHERE c.party_id = cl.party_id
+		                             ORDER BY c.cif LIMIT 1) c ON TRUE`,
+		OrderBy:   "cl.value_kobo DESC NULLS LAST",
+		KeyCol:    "cl.party_id",
+		DateCol:   "cl.last_txn_at::date",
+		DateLabel: "Last Transaction",
+		Cols: []exportCol{
+			{Key: "cif", Label: "CIF", Type: colText, Expr: "c.cif"},
+			{Key: "full_name", Label: "Customer", Type: colText, Expr: "p.full_name"},
+			{Key: "bucket", Label: "Stage", Type: colText, Expr: "cl.bucket"},
+			{Key: "value_tier", Label: "Value Tier", Type: colText, Expr: "cl.value_tier"},
+			{Key: "value_kobo", Label: "Last Active Year", Type: colMoney, Expr: "cl.value_kobo"},
+			{Key: "lifetime_value_kobo", Label: "Lifetime Spend", Type: colMoney, Expr: "cl.lifetime_value_kobo"},
+			{Key: "days_since_txn", Label: "Days Since Last Txn", Type: colInt, Expr: "cl.days_since_txn"},
+			{Key: "open_products", Label: "Open Products", Type: colInt, Expr: "cl.open_products"},
+			{Key: "measured", Label: "Has History", Type: colBool, Expr: "cl.measured"},
+			{Key: "contactable", Label: "Contactable", Type: colBool, Expr: "cl.contactable"},
+			{Key: "has_open_recovery", Label: "In Recovery", Type: colBool, Expr: "cl.has_open_recovery"},
+			{Key: "primary_phone", Label: "Phone", Type: colText, Expr: "p.primary_phone"},
+			{Key: "primary_email", Label: "Email", Type: colText, Expr: "p.primary_email"},
+			{Key: "computed_at", Label: "Scored At", Type: colDate, Expr: "cl.computed_at"},
+		},
+	},
+	{
 		Key:    "parties",
 		Label:  "People (Deduplicated)",
 		Module: "Customers",

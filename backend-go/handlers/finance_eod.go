@@ -64,7 +64,12 @@ func finTransactionsList(db *core.DB) http.HandlerFunc {
 			args = append(args, v)
 			n++
 		}
-		if v := qstr(r, "channel"); v != "" {
+		// "unclassified" is the sentinel for rows the feed gave no channel at all
+		// (4,979 of them, stored NULL). They were unreachable from the filter — the
+		// only way to see them was to page through everything.
+		if v := qstr(r, "channel"); v == "unclassified" {
+			where += " AND channel IS NULL"
+		} else if v != "" {
 			where += fmt.Sprintf(" AND channel = $%d", n)
 			args = append(args, v)
 			n++
@@ -138,16 +143,43 @@ func finEODReport(db *core.DB) http.HandlerFunc {
 			"as_of":        asOf,
 			"generated_at": time.Now().Format(time.RFC3339),
 			"flags": []string{
-				"Income is derived from transaction codes, not GL-posted (the GL ledger is not populated).",
+				"Card income is derived from transaction codes, not GL-posted (the GL ledger is not populated).",
+				"Loan interest is scheduled accrual (interest due on the date per the Udara repayment schedule), not cash received — so Income Earned mixes a cash basis and an accrual basis.",
 				"Daily card activity is unavailable — the card book is a monthly cycle snapshot.",
+				"Position is the CBS snapshot on or before this date; the FD register carries no history, so FD accrual is only available live (see Treasury), not as-of.",
 			},
 		}
 
-		// Previous business date (for day-over-day context).
+		// Previous business date, WITH its movement totals.
+		//
+		// prev_date was returned on its own for a long time and nothing could be
+		// done with it — a date with no figures behind it renders no comparison,
+		// so the report offered no day-over-day context at all. The previous day's
+		// movements come back alongside it now, and the KPI strip shows the delta.
+		var prevDate string
 		if rows, _ := db.PGQuery(ctx,
 			`SELECT to_char(MAX(txn_date),'YYYY-MM-DD') AS d
 			 FROM app.transactions WHERE txn_date < $1::date`, asOf); len(rows) > 0 {
+			prevDate = str(rows[0]["d"])
 			out["prev_date"] = rows[0]["d"]
+		}
+		if prevDate != "" {
+			if rows, _ := db.PGQuery(ctx, `
+				SELECT
+				  COUNT(*)                        AS txn_count,
+				  COALESCE(SUM(amount_credit),0)  AS credit_ngn,
+				  COALESCE(SUM(amount_debit),0)   AS debit_ngn
+				FROM app.transactions
+				WHERE txn_date = $1::date`, prevDate); len(rows) > 0 {
+				cr := toFloat64(rows[0]["credit_ngn"])
+				dr := toFloat64(rows[0]["debit_ngn"])
+				out["prev_movements"] = map[string]any{
+					"txn_count":  toInt64(rows[0]["txn_count"]),
+					"credit_ngn": cr,
+					"debit_ngn":  dr,
+					"net_ngn":    cr - dr,
+				}
+			}
 		}
 
 		/* ── Movements (transaction feed, NAIRA) ─────────────────────────── */
@@ -198,28 +230,47 @@ func finEODReport(db *core.DB) http.HandlerFunc {
 			out["by_product"] = rows
 		}
 
-		/* ── Income earned that day (income_daily view, NAIRA) ───────────── */
-		if rows, _ := db.PGQuery(ctx, `
-			SELECT category, COALESCE(SUM(amount_ngn),0) AS amount_ngn, COALESCE(SUM(txn_count),0) AS txn_count
-			FROM app.income_daily
-			WHERE income_date = $1::date
-			GROUP BY category`, asOf); rows != nil {
-			inc := map[string]any{"interest_ngn": 0.0, "fee_ngn": 0.0, "penalty_ngn": 0.0}
-			var total float64
-			for _, row := range rows {
-				amt := toFloat64(row["amount_ngn"])
-				total += amt
-				switch str(row["category"]) {
-				case "interest":
-					inc["interest_ngn"] = amt
-				case "fee":
-					inc["fee_ngn"] = amt
-				case "penalty":
-					inc["penalty_ngn"] = amt
+		/* ── Income earned that day (NAIRA) ──────────────────────────────────
+		   app.income_daily (card / txn-code income) PLUS loan-schedule interest
+		   due on the date.
+
+		   The loan half used to be missing here while /income-statement has folded
+		   it in for some time, so the two screens reported different income for the
+		   same day and neither said why. Both now stand on the same basis. Card
+		   income is transaction-derived and the loan line is scheduled accrual —
+		   that mix is called out in the report's flags rather than blended away. */
+		{
+			var cardInterest, fee, penalty, loanInterest float64
+			if rows, _ := db.PGQuery(ctx, `
+				SELECT category, COALESCE(SUM(amount_ngn),0) AS amount_ngn
+				FROM app.income_daily
+				WHERE income_date = $1::date
+				GROUP BY category`, asOf); rows != nil {
+				for _, row := range rows {
+					amt := toFloat64(row["amount_ngn"])
+					switch str(row["category"]) {
+					case "interest":
+						cardInterest = amt
+					case "fee":
+						fee = amt
+					case "penalty":
+						penalty = amt
+					}
 				}
 			}
-			inc["total_ngn"] = total
-			out["income"] = inc
+			if rows, _ := db.PGQuery(ctx, `
+				SELECT COALESCE(SUM(interest_kobo),0)::numeric / 100 AS v
+				FROM app.cbs_loan_schedules WHERE payment_date = $1::date`, asOf); len(rows) > 0 {
+				loanInterest = toFloat64(rows[0]["v"])
+			}
+			out["income"] = map[string]any{
+				"card_interest_ngn": cardInterest,
+				"loan_interest_ngn": loanInterest,
+				"interest_ngn":      cardInterest + loanInterest,
+				"fee_ngn":           fee,
+				"penalty_ngn":       penalty,
+				"total_ngn":         cardInterest + loanInterest + fee + penalty,
+			}
 		}
 
 		/* ── Portfolio position as-of (CBS snapshot, KOBO) ───────────────────

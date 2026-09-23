@@ -131,6 +131,17 @@ func main() {
 	// Send to Recovery) works alongside it.
 	go handlers.ScheduleRecoveryEscalation(db)
 
+	// Retention lifecycle recompute — daily at 03:30, AFTER the 02:00 recovery sweep
+	// so a customer escalated overnight is already flagged when their bucket is
+	// scored. An open recovery case is what keeps someone out of a win-back queue.
+	go handlers.StartRetentionWorker(db)
+
+	// Retention journeys — the customer-facing half. Daily at 09:00, inside business
+	// hours so anyone who replies reaches a staffed floor. SENDS NOTHING unless
+	// CUSTOMER_MESSAGING_MODE is set: default is off, staff_preview computes and logs
+	// without dispatching, and only an exact "live" actually messages customers.
+	go handlers.StartRetentionJourneyWorker(db)
+
 	// NDPR erasure worker — processes approved erasure DSARs daily at midnight.
 	go handlers.StartNDPRErasureWorker(db)
 
@@ -603,6 +614,13 @@ func main() {
 		r.Route("/api/fd-book", func(r chi.Router) {
 			handlers.RegisterFDBook(r, db)
 		})
+		// Account-officer corrections on the Udara loan/FD books. Mounted at the top
+		// level rather than under a product route because it spans both, and because
+		// the loan and deposit books are the only place the officer could not be
+		// corrected — Udara's API has no endpoint that can change one.
+		r.Route("/api/officer-overrides", func(r chi.Router) {
+			handlers.RegisterOfficerOverrides(r, db)
+		})
 		r.Route("/api/cards-credit", func(r chi.Router) {
 			handlers.RegisterCardsCredit(r, db)
 		})
@@ -686,6 +704,12 @@ func main() {
 		// and churn. Access is gated per-endpoint (management + operating teams).
 		r.Route("/api/growth", func(r chi.Router) {
 			handlers.RegisterGrowth(r, db)
+		})
+		// Retention — the per-customer half of the same question. /api/growth reports
+		// churn in aggregate; this serves the STORED lifecycle bucket and value tier,
+		// so a single customer can actually be worked rather than only counted.
+		r.Route("/api/retention", func(r chi.Router) {
+			handlers.RegisterRetention(r, db)
 		})
 		r.Route("/api/cbs", func(r chi.Router) {
 			handlers.RegisterCoreBanking(r, cbsClient)

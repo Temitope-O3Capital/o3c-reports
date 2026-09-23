@@ -114,9 +114,18 @@ export default function FinanceTransactions() {
     abortRef.current = new AbortController()
     setLoading(true); setError(null)
     try {
+      // The KPI strip takes the SAME window and filters as the ledger. It used to
+      // call the endpoint bare, which meant month-to-date always — so filtering
+      // the table to January left the four cards above it reporting September,
+      // with nothing on screen saying they were different periods.
+      const kpiQS = new URLSearchParams()
+      kpiQS.set('date_from', dateFrom)
+      kpiQS.set('date_to', dateTo)
+      if (fDir.size) kpiQS.set('direction', [...fDir][0])
+      if (fChannel.size) kpiQS.set('channel', [...fChannel][0])
       const [res, kpiRes] = await Promise.all([
         apiFetch<any>(`/api/finance/transactions?${buildQS(off)}`, { signal: abortRef.current.signal }),
-        apiFetch<any>('/api/finance/transaction-kpis'),
+        apiFetch<any>(`/api/finance/transaction-kpis?${kpiQS.toString()}`, { signal: abortRef.current.signal }),
       ])
       setRows(Array.isArray(res?.data) ? res.data : [])
       setTotal(res?.total ?? 0)
@@ -127,9 +136,16 @@ export default function FinanceTransactions() {
     } finally {
       setLoading(false)
     }
-  }, [buildQS])
+  }, [buildQS, dateFrom, dateTo, fDir, fChannel])
 
-  useEffect(() => { load(0) }, [load])
+  // `search` feeds buildQS, so load's identity changed on every keystroke and
+  // this effect fired a request per character. The in-flight call was aborted
+  // each time, but the server still saw the traffic and the table flickered
+  // through partial matches. 300ms of quiet before asking.
+  useEffect(() => {
+    const id = setTimeout(() => load(0), 300)
+    return () => clearTimeout(id)
+  }, [load])
 
   function handleReset() {
     setSearch(''); setFDir(new Set()); setFChannel(new Set())
@@ -141,6 +157,7 @@ export default function FinanceTransactions() {
   const showStart = total === 0 ? 0 : offset + 1
   const showEnd = Math.min(offset + PAGE_SIZE, total)
   const kpiLoading = loading && !kpis
+  const periodLabel = `${fmtDate(dateFrom)} – ${fmtDate(dateTo)}`
 
   return (
     <Page
@@ -155,10 +172,13 @@ export default function FinanceTransactions() {
       <ErrBanner error={error} onRetry={() => load(0)} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: SP[3], marginBottom: SP[4] }}>
-        <KpiCard label="Transactions (MTD)" value={kpis ? fmtNum(kpis.total_count) : '—'} icon="receipt_long" accent={NAVY} loading={kpiLoading} />
-        <KpiCard label="Credits (MTD)" value={kpis ? fmt(kpis.total_credits_ngn) : '—'} icon="south_east" accent={GREEN} loading={kpiLoading} />
-        <KpiCard label="Debits (MTD)" value={kpis ? fmt(kpis.total_debits_ngn) : '—'} icon="north_west" accent={RED} loading={kpiLoading} />
-        <KpiCard label="Net Position (MTD)" value={kpis ? fmt(kpis.net_position_ngn) : '—'} icon="account_balance_wallet" accent={(kpis?.net_position_ngn ?? 0) >= 0 ? GREEN : RED} loading={kpiLoading} />
+        {/* These describe the filtered window, not a fixed month-to-date — the
+            sub-label names the period so the strip and the table below can never
+            be read as covering different spans. */}
+        <KpiCard label="Transactions" value={kpis ? fmtNum(kpis.total_count) : '—'} sub={periodLabel} icon="receipt_long" accent={NAVY} loading={kpiLoading} />
+        <KpiCard label="Credits" value={kpis ? fmt(kpis.total_credits_ngn) : '—'} sub={periodLabel} icon="south_east" accent={GREEN} loading={kpiLoading} />
+        <KpiCard label="Debits" value={kpis ? fmt(kpis.total_debits_ngn) : '—'} sub={periodLabel} icon="north_west" accent={RED} loading={kpiLoading} />
+        <KpiCard label="Net Position" value={kpis ? fmt(kpis.net_position_ngn) : '—'} sub={periodLabel} icon="account_balance_wallet" accent={(kpis?.net_position_ngn ?? 0) >= 0 ? GREEN : RED} loading={kpiLoading} />
       </div>
 
       <SectionCard title="Movement Ledger" badge={total} padding={false}>
@@ -177,10 +197,14 @@ export default function FinanceTransactions() {
             },
             {
               key: 'channel', label: 'Channel',
+              // The three real channels plus the 4,979 rows the feed gave no
+              // channel at all. Without the last option those rows could only be
+              // reached by paging through the whole ledger.
               options: [
                 { value: 'interswitch', label: 'Interswitch', color: '#2563EB' },
                 { value: 'collection', label: 'Collection', color: '#D97706' },
                 { value: 'internal', label: 'Internal', color: '#7C3AED' },
+                { value: 'unclassified', label: 'Unclassified', color: '#6B7280' },
               ],
               selected: fChannel,
               onChange: setFChannel,

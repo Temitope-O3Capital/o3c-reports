@@ -1477,14 +1477,28 @@ func execRiskHandler(db *core.DB) http.HandlerFunc {
 
 		// Card exposure. The card book is the larger credit asset, so a risk view drawn
 		// only from cbs_loans understates total exposure by roughly two thirds.
+		//
+		// Source is the LIVE card book (app.card_balances, migration 280), not
+		// app.card_cycle_data. The cycle table is a monthly billing extract and its
+		// newest cycle was 2026-07-14 while this page was being read on 2026-09-23 —
+		// ten weeks stale — so an exec risk screen was quoting a card exposure two
+		// billing cycles behind the collections and recovery queues, which have always
+		// read the daily feed. The two books disagreed by design and nothing said so.
+		//
+		// receivable_kobo, not the signed balance: exposure is money owed, and the
+		// signed column would net prepaid and Blink float against it. Naira only —
+		// the 217 USD accounts are a separate currency and there is no rate policy to
+		// fold them in with. Overdue is the receivable carrying days_overdue > 0, the
+		// same test collections uses, rather than the cycle table's overdue_amount.
 		var cardGross, cardOverdue, cardTop10, cardTop50 int64
 		var cardAccounts int64
+		var cardAsOf string
 		if rows, e := db.PGQuery(ctx, `
 			WITH g AS (
-			  SELECT outstanding_balance_kobo AS v, overdue_amount_kobo AS od
-			    FROM app.card_cycle_data
-			   WHERE cycle_date = (SELECT MAX(cycle_date) FROM app.card_cycle_data)
-			     AND outstanding_balance_kobo > 0)
+			  SELECT receivable_kobo AS v,
+			         CASE WHEN COALESCE(days_overdue,0) > 0 THEN receivable_kobo ELSE 0 END AS od
+			    FROM app.card_balances
+			   WHERE currency = 'NGN' AND receivable_kobo > 0)
 			SELECT COALESCE(SUM(v), 0) AS gross, COUNT(*) AS accounts,
 			       COALESCE(SUM(od), 0) AS overdue,
 			       COALESCE((SELECT SUM(v) FROM (SELECT v FROM g ORDER BY v DESC LIMIT 10) t), 0) AS top10,
@@ -1496,6 +1510,12 @@ func execRiskHandler(db *core.DB) http.HandlerFunc {
 			cardTop10 = toInt64(rows[0]["top10"])
 			cardTop50 = toInt64(rows[0]["top50"])
 		}
+		// How fresh the feed behind those figures actually is, so a stalled upstream
+		// export reads as a stale date on the page instead of a quiet drift.
+		if rows, e := db.PGQuery(ctx,
+			`SELECT MAX(last_seen)::date::text AS d FROM app.accounts`); e == nil && len(rows) > 0 {
+			cardAsOf = str(rows[0]["d"])
+		}
 		cardTop10Pct, cardTop50Pct, cardNplPct := 0.0, 0.0, 0.0
 		if cardGross > 0 {
 			cardTop10Pct = round1(float64(cardTop10) / float64(cardGross) * 100)
@@ -1503,16 +1523,18 @@ func execRiskHandler(db *core.DB) http.HandlerFunc {
 			cardNplPct = round1(float64(cardOverdue) / float64(cardGross) * 100)
 		}
 
-		// Card product risk — delinquency per product, worst first.
+		// Card product risk — delinquency per product, worst first. Same live source
+		// and same overdue test as the exposure figures above, so the product table
+		// and the headline it sits under can no longer come from different months.
 		cardProducts := make([]map[string]any, 0)
 		if rows, e := db.PGQuery(ctx, `
-			SELECT COALESCE(NULLIF(product_code,''),'?') AS product,
-			       COUNT(*) FILTER (WHERE outstanding_balance_kobo > 0) AS count,
-			       COALESCE(SUM(outstanding_balance_kobo) FILTER (WHERE outstanding_balance_kobo > 0), 0) AS outstanding_kobo,
-			       COALESCE(SUM(overdue_amount_kobo), 0) AS overdue_kobo
-			  FROM app.card_cycle_data
-			 WHERE cycle_date = (SELECT MAX(cycle_date) FROM app.card_cycle_data)
-			 GROUP BY 1 HAVING COALESCE(SUM(outstanding_balance_kobo) FILTER (WHERE outstanding_balance_kobo > 0), 0) > 0
+			SELECT COALESCE(NULLIF(product_name,''),'?') AS product,
+			       COUNT(*) FILTER (WHERE receivable_kobo > 0) AS count,
+			       COALESCE(SUM(receivable_kobo), 0) AS outstanding_kobo,
+			       COALESCE(SUM(receivable_kobo) FILTER (WHERE COALESCE(days_overdue,0) > 0), 0) AS overdue_kobo
+			  FROM app.card_balances
+			 WHERE currency = 'NGN'
+			 GROUP BY 1 HAVING COALESCE(SUM(receivable_kobo), 0) > 0
 			 ORDER BY 3 DESC LIMIT 10`); e == nil {
 			for _, row := range rows {
 				out := toInt64(row["outstanding_kobo"])
@@ -1608,6 +1630,8 @@ func execRiskHandler(db *core.DB) http.HandlerFunc {
 
 			"card_exposure_kobo":   cardGross,
 			"card_accounts":        cardAccounts,
+			"card_asof":            cardAsOf,
+			"card_basis":           "Live card book (app.card_balances), naira receivable only — not the monthly billing cycle extract.",
 			"card_overdue_kobo":    cardOverdue,
 			"card_npl_pct":         cardNplPct,
 			"card_top10_pct":       cardTop10Pct,
@@ -1937,7 +1961,7 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 			       COUNT(*) FILTER (WHERE f.maturity_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30) AS maturing_30d,
 			       COUNT(*) FILTER (WHERE f.maturity_date::date < CURRENT_DATE) AS past_due_count
 			FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			LEFT JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			LEFT JOIN o3c_users u             ON u.id = m.officer_user_id
 			WHERE f.status='Active' AND f.` + sqlFDFunded + `
 			GROUP BY 1, 2 ORDER BY principal_kobo DESC`); e == nil {
@@ -1996,7 +2020,7 @@ func execFixedDepositsHandler(db *core.DB) http.HandlerFunc {
 			       COALESCE(NULLIF(f.product_name,''),'Other') AS product,
 			       f.principal_kobo, COALESCE(f.interest_rate,0) AS rate, f.maturity_date::date::text AS maturity
 			FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			LEFT JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			LEFT JOIN o3c_users u             ON u.id = m.officer_user_id
 			WHERE f.status='Active' AND f.` + sqlFDFunded + `
 			-- Unique tiebreaker: principal ties are common on a deposit book (round
@@ -2079,7 +2103,7 @@ func execFixedDepositsList(db *core.DB) http.HandlerFunc {
 
 		var total int64
 		if rows, e := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			LEFT JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			LEFT JOIN o3c_users u ON u.id = m.officer_user_id `+where, args...); e == nil && len(rows) > 0 {
 			total = toInt64(rows[0]["n"])
 		}
@@ -2096,7 +2120,7 @@ func execFixedDepositsList(db *core.DB) http.HandlerFunc {
 			       f.commencement_date::date::text AS commencement, f.maturity_date::date::text AS maturity,
 			       f.status, COALESCE(f.branch_name,'') AS branch
 			FROM cbs_fixed_deposits f
-			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			LEFT JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			LEFT JOIN o3c_users u             ON u.id = m.officer_user_id
 			`+where+fmt.Sprintf(` ORDER BY f.principal_kobo DESC LIMIT $%d OFFSET $%d`, n, n+1), args...); e == nil {
 			for _, row := range rows {

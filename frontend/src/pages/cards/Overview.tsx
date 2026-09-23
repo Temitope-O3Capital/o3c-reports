@@ -17,6 +17,29 @@ interface KPIs {
   inactive: number
   activation_rate: number
   unique_merchants: number
+  balances_by_currency?: BalanceRow[]
+  balances_by_family?: BalanceRow[]
+}
+
+// Money on the card book, from app.card_balances (migration 280). Two sides, never
+// one number: receivable_kobo is what customers owe O3 (an asset), float_kobo is
+// customer money O3 is holding — prepaid and Blink stored value, plus credit cards
+// sitting in credit (a liability). Currency is a grouping key, not a column to sum
+// across: 217 accounts are in USD and there is no rate policy to blend them with.
+interface BalanceRow {
+  currency: string
+  family?: string
+  receivable_kobo: number
+  float_kobo: number
+  accounts: number
+  accounts_owing?: number
+  accounts_in_credit?: number
+}
+
+const CCY_SYMBOL: Record<string, string> = { NGN: '₦', USD: '$' }
+
+function money(ccy: string, kobo: number): string {
+  return `${CCY_SYMBOL[ccy] ?? `${ccy} `}${fmtNum(Math.round(Number(kobo || 0) / 100))}`
 }
 
 interface ProductRow { Product_Name?: string; product_name?: string; category?: string; count: number }
@@ -116,6 +139,12 @@ export default function CardsOverview() {
     color: f.color,
   })).filter(d => d.value > 0)
 
+  // Currencies with money on them, biggest first, so naira leads and the USD book
+  // sits beneath it rather than being averaged into it.
+  const balanceRows = (kpis?.balances_by_currency ?? [])
+    .filter(c => Number(c.receivable_kobo) > 0 || Number(c.float_kobo) > 0)
+    .sort((a, b) => (Number(b.receivable_kobo) + Number(b.float_kobo)) - (Number(a.receivable_kobo) + Number(a.float_kobo)))
+
   const unmatchedCards = products
     .filter(p => !CARD_FAMILIES.some(f => f.key === p.category))
     .reduce((s, p) => s + Number(p.count ?? 0), 0)
@@ -135,6 +164,66 @@ export default function CardsOverview() {
         <KpiCard label="Inactive" value={fmtNum(kpis?.inactive ?? 0)} loading={loading} />
         <KpiCard label="Unique Merchants" value={fmtNum(kpis?.unique_merchants ?? 0)} loading={loading} />
       </div>
+
+      {/* Money on the book.
+          This module reported counts only — issued, active, inactive, merchants —
+          so the balances sitting on the card book appeared nowhere in the module
+          that owns them, and the prepaid and Blink float appeared nowhere at all.
+          Receivable and float are shown apart because they are opposite sides of
+          the book, and each currency gets its own row because no FX policy exists
+          to merge them. */}
+      {balanceRows.length > 0 && (
+        <SectionCard
+          title="Balances on the Book"
+          subtitle="What customers owe O3, and customer money O3 is holding — kept apart, and per currency"
+          style={{ marginBottom: SP[5] }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+            {balanceRows.map(c => {
+              const fams = (kpis?.balances_by_family ?? []).filter(f => f.currency === c.currency)
+              return (
+                <div key={c.currency}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: SP[4] }}>
+                    <div style={{ padding: SP[3], borderRadius: 8, border: '1px solid var(--bdr)' }}>
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Receivable · {c.currency}
+                      </div>
+                      <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)', marginTop: 2 }}>
+                        {money(c.currency, c.receivable_kobo)}
+                      </div>
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>
+                        owed to O3 · {fmtNum(c.accounts_owing ?? 0)} card{(c.accounts_owing ?? 0) === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                    <div style={{ padding: SP[3], borderRadius: 8, border: '1px solid var(--bdr)' }}>
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Customer Float · {c.currency}
+                      </div>
+                      <div style={{ ...NUM, fontSize: TEXT.xl, fontWeight: FW.bold, color: 'var(--txt)', marginTop: 2 }}>
+                        {money(c.currency, c.float_kobo)}
+                      </div>
+                      <div style={{ fontSize: TEXT.xs, color: 'var(--txt2)', marginTop: 2 }}>
+                        held for customers · {fmtNum(c.accounts_in_credit ?? 0)} card{(c.accounts_in_credit ?? 0) === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                  </div>
+                  {fams.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP[3], marginTop: SP[2] }}>
+                      {fams.map(f => (
+                        <span key={f.family} style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: familyColor(f.family), display: 'inline-block', marginRight: 5 }} />
+                          {familyLabel(f.family)}: <b style={NUM}>{money(c.currency, f.receivable_kobo)}</b> owed ·{' '}
+                          <b style={NUM}>{money(c.currency, f.float_kobo)}</b> held
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </SectionCard>
+      )}
 
       {/* Charts row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: SP[4], marginBottom: SP[5] }}>

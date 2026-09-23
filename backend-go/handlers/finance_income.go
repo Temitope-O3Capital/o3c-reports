@@ -103,16 +103,47 @@ func finIncomeStatement(db *core.DB) http.HandlerFunc {
 			out["prev"] = foldLoan(rows[0], loanInt(prevFrom, prevTo))
 		}
 
-		// Daily trend
+		// Daily trend.
+		//
+		// Loan-schedule interest is folded in PER DAY, not only into the totals.
+		// While this read app.income_daily alone the chart summed to less than the
+		// Total Revenue headline sitting directly above it — ₦64.3m plotted against
+		// a ₦97.4m KPI on the default 30-day window, a 34% hole with nothing on the
+		// page to explain it. totals, by_category and by_product all already
+		// carried the loan book; the trend was the one place that did not.
+		//
+		// card_interest_ngn and loan_interest_ngn stay split so the chart can show
+		// which book earned what; interest_ngn is their sum, kept for callers that
+		// only want the one interest series.
 		if rows, _ := db.PGQuery(ctx, `
-			SELECT to_char(income_date,'YYYY-MM-DD') AS date,
-			  COALESCE(SUM(amount_ngn) FILTER (WHERE category='interest'),0) AS interest_ngn,
-			  COALESCE(SUM(amount_ngn) FILTER (WHERE category='fee'),0)      AS fee_ngn,
-			  COALESCE(SUM(amount_ngn) FILTER (WHERE category='penalty'),0)  AS penalty_ngn,
-			  COALESCE(SUM(amount_ngn),0)                                    AS total_ngn
-			FROM app.income_daily
-			WHERE income_date BETWEEN $1::date AND $2::date
-			GROUP BY income_date ORDER BY income_date`, from, to); rows != nil {
+			SELECT to_char(d,'YYYY-MM-DD') AS date,
+			  COALESCE(SUM(card_interest_ngn),0) AS card_interest_ngn,
+			  COALESCE(SUM(loan_interest_ngn),0) AS loan_interest_ngn,
+			  COALESCE(SUM(card_interest_ngn),0) + COALESCE(SUM(loan_interest_ngn),0) AS interest_ngn,
+			  COALESCE(SUM(fee_ngn),0)     AS fee_ngn,
+			  COALESCE(SUM(penalty_ngn),0) AS penalty_ngn,
+			  COALESCE(SUM(card_interest_ngn),0) + COALESCE(SUM(loan_interest_ngn),0)
+			    + COALESCE(SUM(fee_ngn),0) + COALESCE(SUM(penalty_ngn),0) AS total_ngn
+			FROM (
+			  SELECT income_date AS d,
+			    COALESCE(SUM(amount_ngn) FILTER (WHERE category='interest'),0) AS card_interest_ngn,
+			    0::numeric                                                     AS loan_interest_ngn,
+			    COALESCE(SUM(amount_ngn) FILTER (WHERE category='fee'),0)      AS fee_ngn,
+			    COALESCE(SUM(amount_ngn) FILTER (WHERE category='penalty'),0)  AS penalty_ngn
+			  FROM app.income_daily
+			  WHERE income_date BETWEEN $1::date AND $2::date
+			  GROUP BY income_date
+			  UNION ALL
+			  SELECT payment_date AS d,
+			    0::numeric,
+			    COALESCE(SUM(interest_kobo),0)::numeric / 100,
+			    0::numeric,
+			    0::numeric
+			  FROM app.cbs_loan_schedules
+			  WHERE payment_date BETWEEN $1::date AND $2::date
+			  GROUP BY payment_date
+			) x
+			GROUP BY d ORDER BY d`, from, to); rows != nil {
 			out["trend"] = rows
 		}
 
@@ -160,6 +191,34 @@ func finIncomeStatement(db *core.DB) http.HandlerFunc {
 				}
 			}
 			out["by_category"] = rows
+		}
+
+		// Income booked in a currency other than naira.
+		//
+		// Everything above reads app.income_daily, which is naira-only. That is the
+		// right call for a single-currency statement — a dozen call sites sum it
+		// straight into naira headlines — but the consequence was that income on the
+		// USD card book appeared NOWHERE: not converted, not listed, not even counted
+		// as excluded. Over the trailing year that was 471 postings worth 313,340.08
+		// in currency 840, all on Amex USD.
+		//
+		// It is returned here per currency and unconverted. No rate is applied,
+		// because whether those amounts are dollars or naira posted against a
+		// USD-flagged account is a question for the card team, and multiplying by a
+		// rate would bury that question inside a number rather than ask it.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT currency, currency_code,
+			  COALESCE(SUM(amount) FILTER (WHERE category='interest'),0) AS interest,
+			  COALESCE(SUM(amount) FILTER (WHERE category='fee'),0)      AS fee,
+			  COALESCE(SUM(amount) FILTER (WHERE category='penalty'),0)  AS penalty,
+			  COALESCE(SUM(amount),0)                                    AS total,
+			  COALESCE(SUM(txn_count),0)                                 AS txn_count
+			FROM app.income_by_currency
+			WHERE income_date BETWEEN $1::date AND $2::date AND currency <> 'NGN'
+			GROUP BY 1, 2 ORDER BY total DESC`, from, to); len(rows) > 0 {
+			out["other_currency_income"] = rows
+			out["other_currency_note"] = "Booked outside naira and NOT included in the totals above. " +
+				"Shown in each currency's own units — no FX rate is applied."
 		}
 
 		respond(w, out, "pg")

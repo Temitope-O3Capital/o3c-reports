@@ -381,6 +381,14 @@ const SECTIONS: Section[] = [
           { label: 'Growth & Activity',  to: '/growth',
             vis: ['bi_analyst','bi_head','sales_head','cards_head','collections_head','recovery_head',
                   'coo','cfo','cmo','md'] },
+          // Retention & Win-Back sits beside Growth & Activity because it answers the
+          // per-customer half of the same question: Growth reports how many churned,
+          // this names them and says who is worth calling. Visible to the heads who
+          // would work it (Call Center, Care, Sales, Collections) plus BI and the
+          // C-suite; the route and PAGE_FOR gate on the 'retention' page key.
+          { label: 'Retention & Win-Back', to: '/retention',
+            vis: ['bi_analyst','bi_head','sales_head','call_center_head','care_head',
+                  'collections_head','coo','cfo','cmo','head_ops','md'] },
         ],
       },
       // Mobile Analytics — app install / media-source / funnel analytics from AppsFlyer,
@@ -504,6 +512,7 @@ const PAGE_FOR: Record<string, string | string[]> = {
   '/reports/management': ['reports', 'executive'],
   '/reports/card-credit': ['cards', 'reports', 'executive', 'sales'],
   '/growth': ['kpi_dashboard', 'reports', 'executive'],
+  '/retention': 'retention',
   '/statements': 'statements', '/statements/credit-cards': 'statements', '/core-banking': 'core-banking',
   // Admin
   '/admin': 'admin_users',

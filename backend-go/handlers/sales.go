@@ -282,14 +282,14 @@ func salesMyDashboard(db *core.DB) http.HandlerFunc {
 			loan AS (
 			  SELECT COALESCE(SUM(l.loan_amount_kobo),0) AS kobo
 			  FROM cbs_loans l
-			  JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(l.raw->>'accountOfficerName')
+			  JOIN app.v_loan_officer m ON m.cbs_id = l.cbs_id
 			  WHERE m.officer_user_id = $1
 			    AND DATE_TRUNC('month', l.start_date) = DATE_TRUNC('month', NOW())
 			),
 			fd AS (
 			  SELECT COALESCE(SUM(f.principal_kobo),0) AS kobo
 			  FROM cbs_fixed_deposits f
-			  JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			  JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			  WHERE m.officer_user_id = $1
 			    AND DATE_TRUNC('month', f.commencement_date) = DATE_TRUNC('month', NOW())
 			),
@@ -1029,7 +1029,7 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			           COUNT(l.cbs_id)                     AS actual_loans,
 			           COALESCE(SUM(l.loan_amount_kobo),0) AS actual_kobo
 			    FROM cbs_loans l
-			    JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(l.raw->>'accountOfficerName')
+			    JOIN app.v_loan_officer m ON m.cbs_id = l.cbs_id
 			    WHERE DATE_TRUNC('month', l.start_date) = %s
 			      AND ($1 = '' OR l.start_date::date >= $1::date)
 			      AND ($2 = '' OR l.start_date::date <= $2::date)
@@ -1074,7 +1074,7 @@ func salesTargetActuals(db *core.DB) http.HandlerFunc {
 			           COUNT(f.cbs_id)                   AS actual_fds,
 			           COALESCE(SUM(f.principal_kobo),0) AS actual_fd_kobo
 			    FROM cbs_fixed_deposits f
-			    JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(f.raw->>'accountOfficerName')
+			    JOIN app.v_fd_officer m ON m.cbs_id = f.cbs_id
 			    WHERE DATE_TRUNC('month', f.commencement_date) = %s
 			      AND ($1 = '' OR f.commencement_date::date >= $1::date)
 			      AND ($2 = '' OR f.commencement_date::date <= $2::date)
@@ -1382,7 +1382,11 @@ func salesCohortDetail(db *core.DB) http.HandlerFunc {
 			                 FROM app.accounts a WHERE a.cif = c.cif AND a.product_line IS NOT NULL), '') AS product_type,
 			       COALESCE(u.txns, 0)::text || ' txns' AS employer,
 			       0::bigint AS amount_requested_kobo,
-			       ROUND(COALESCE((SELECT SUM(a.current_dr_balance) FROM app.accounts a WHERE a.cif = c.cif), 0) * 100)::bigint AS outstanding_kobo,
+			       -- Outstanding means MONEY OWED, so it is the receivable side only.
+			       -- SUM(current_dr_balance) netted a customer's prepaid/Blink float
+			       -- against their card debt and could return a negative "outstanding".
+			       -- app.card_balances (migration 280) keeps the two sides apart.
+			       COALESCE((SELECT SUM(b.receivable_kobo) FROM app.card_balances b WHERE b.cif = c.cif), 0)::bigint AS outstanding_kobo,
 			       0 AS dpd,
 			       CASE WHEN u.last_txn IS NULL                                THEN 'never'
 			            WHEN u.last_txn >= CURRENT_DATE - INTERVAL '90 days'   THEN 'active'

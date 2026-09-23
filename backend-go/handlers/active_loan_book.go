@@ -75,7 +75,7 @@ func albList(db *core.DB) http.HandlerFunc {
 		             cl.collateral_type, cl.collateral_description, cl.collateral_valuation_kobo,
 		             cl.ledger_balance_kobo, cl.interest_frequency, cl.lending_model,
 		             cl.officer_name, cl.status,
-		             ` + cbsOfficerUserID("cl.officer_name") + `
+		             ` + cbsOfficerUserID("loan", "cl.cbs_id") + `
 		      FROM cbs_loans cl
 		      WHERE cl.status NOT IN ('Closed','Revoked')
 		      ) x WHERE 1=1`
@@ -166,7 +166,7 @@ func albStats(db *core.DB) http.HandlerFunc {
 			       COUNT(*) AS count,
 			       COALESCE(SUM(cl.outstanding_principal_kobo), 0) AS outstanding_kobo
 			FROM cbs_loans cl
-			LEFT JOIN app.cbs_officer_map m ON btrim(m.udara_name) = btrim(cl.officer_name)
+			LEFT JOIN app.v_loan_officer m ON m.cbs_id = cl.cbs_id
 			WHERE cl.status NOT IN ('Closed','Revoked')
 			GROUP BY 1, 2
 			ORDER BY outstanding_kobo DESC`)
@@ -209,7 +209,7 @@ func albGet(db *core.DB) http.HandlerFunc {
 			       cl.collateral_type, cl.collateral_description, cl.collateral_valuation_kobo,
 			       cl.ledger_balance_kobo, cl.interest_frequency, cl.lending_model,
 			       cl.status, cl.officer_name,
-			       `+cbsOfficerUserID("cl.officer_name")+`
+			       `+cbsOfficerUserID("loan", "cl.cbs_id")+`
 			FROM cbs_loans cl
 			WHERE cl.cbs_id=$1`, id)
 		if err != nil || len(rows) == 0 {

@@ -46,19 +46,31 @@ func custName(master bool, alias string) string {
 	return alias + `.raw->>'name' AS customer_name`
 }
 
-// cbsOfficerUserID resolves a Udara account-officer name to the workspace user id
-// through app.cbs_officer_map, as a correlated scalar subquery so it can never add
-// or drop a row (btrim(udara_name) is unique across all 21 map rows).
+// cbsOfficerUserID resolves the account officer for a Udara record, as a correlated
+// scalar subquery so it can never add or drop a row.
 //
-// btrim BOTH sides, always. 7 of the 21 map rows carry a TRAILING SPACE because Udara
-// sends them that way and the map was hand-seeded from those exact strings; both
-// cbs_loans.officer_name and cbs_fixed_deposits.officer_name store the name verbatim
-// to match. Trimming only ONE side is silent data loss, not a cosmetic difference:
-// on the deposit book it matches 207 of 380 rows instead of 380, dropping about
-// 11.03bn naira of principal out of officer attribution without raising any error.
-func cbsOfficerUserID(nameExpr string) string {
-	return `(SELECT m.officer_user_id FROM app.cbs_officer_map m
-		        WHERE btrim(m.udara_name) = btrim(` + nameExpr + `)) AS officer_user_id`
+// It reads app.v_loan_officer / app.v_fd_officer (migration 284) rather than
+// app.cbs_officer_map directly, so a workspace OVERRIDE is honoured here too. A name
+// crosswalk on its own cannot be corrected — repointing a name moves every one of
+// that officer's records — and Udara's API has no endpoint that can change an
+// account officer, so the override is the only way a wrong one gets fixed. Reading
+// the map here while every other surface reads the view would mean this report kept
+// showing the uncorrected officer.
+//
+// btrim still matters and now lives inside the view: 7 of the 21 map rows carry a
+// TRAILING SPACE because Udara sends them that way and the map was hand-seeded from
+// those exact strings. Trimming only ONE side is silent data loss — on the deposit
+// book it matches 207 of 380 rows instead of 380, dropping about 11.03bn naira of
+// principal out of officer attribution without raising any error.
+//
+// kind is "loan" or "fd"; idExpr is the record's cbs_id on the outer query.
+func cbsOfficerUserID(kind, idExpr string) string {
+	view := "app.v_fd_officer"
+	if kind == "loan" {
+		view = "app.v_loan_officer"
+	}
+	return `(SELECT m.officer_user_id FROM ` + view + ` m
+		        WHERE m.cbs_id = ` + idExpr + `) AS officer_user_id`
 }
 
 // cbsLoanBook returns the credit book: totals, breakdowns by status/product, and the loan list.
@@ -86,8 +98,19 @@ func cbsLoanBook(db *core.DB) http.HandlerFunc {
 			       cl.product_name, cl.status, cl.loan_amount_kobo, cl.outstanding_principal_kobo,
 			       cl.outstanding_interest_kobo, cl.interest_rate, cl.tenor_days,
 			       cl.date_booked, cl.start_date, cl.maturity_date, cl.officer_name,
-			       `+cbsOfficerUserID("cl.officer_name")+`
-			FROM cbs_loans cl ORDER BY cl.outstanding_principal_kobo DESC`)
+			       `+cbsOfficerUserID("loan", "cl.cbs_id")+`,
+			       -- Restructure lineage (migration 277). A facility whose account number is
+			       -- the previous one's suffix + 1, for the SAME customer, with the prior
+			       -- Closed, is that debt on new terms — not new lending. Without this the
+			       -- page presents FOLTI's N156,000,000 as a fresh facility when it is a
+			       -- N250,000,000 loan re-papered.
+			       (r.successor_account IS NOT NULL) AS is_restructure,
+			       r.prior_account,
+			       r.prior_amount_kobo,
+			       COALESCE(r.new_lending_kobo, cl.loan_amount_kobo) AS new_lending_kobo
+			FROM cbs_loans cl
+			LEFT JOIN app.loan_restructure_links r ON r.successor_account = cl.cbs_account_number
+			ORDER BY cl.outstanding_principal_kobo DESC`)
 
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
 			"summary":    firstRow(summary),
@@ -128,8 +151,29 @@ func cbsFDBook(db *core.DB) http.HandlerFunc {
 			       cf.product_name, cf.status, cf.principal_kobo, cf.accrued_interest_kobo,
 			       cf.ledger_balance_kobo, cf.interest_rate, cf.tenor_days,
 			       cf.date_booked, cf.commencement_date, cf.maturity_date,
-			       cf.officer_name, `+cbsOfficerUserID("cf.officer_name")+`
-			FROM cbs_fixed_deposits cf ORDER BY cf.principal_kobo DESC`)
+			       cf.officer_name, `+cbsOfficerUserID("fd", "cf.cbs_id")+`,
+			       -- Rollover lineage (migration 276). A deposit that commenced as another
+			       -- matured, same customer, prior now Closed, is the same money rolling —
+			       -- 60 of the active deposits are, carrying N5.27bn. Counting their
+			       -- principal as fresh inflow books the same money twice.
+			       (l.successor_account IS NOT NULL) AS is_rollover,
+			       l.prior_account,
+			       l.prior_matures,
+			       l.prior_aged_out,
+			       -- Deposits whose lineage could NOT be drawn. Where one matured deposit
+			       -- commenced several, or several fed one, there is no 1:1 chain, and
+			       -- app.compute_fd_rollover_links() deliberately records the fact rather
+			       -- than picking a pairing. Until now it recorded it into a table nothing
+			       -- read — so the rollover figure was quietly understated with no sign
+			       -- that anything was missing. Surfaced here so the gap is visible and a
+			       -- person can settle these by hand.
+			       (SELECT a.reason FROM app.fd_rollover_ambiguous a
+			         WHERE a.successor_account = cf.cbs_account_number
+			            OR a.prior_account     = cf.cbs_account_number
+			         LIMIT 1) AS lineage_ambiguous_reason
+			FROM cbs_fixed_deposits cf
+			LEFT JOIN app.fd_rollover_links l ON l.successor_account = cf.cbs_account_number
+			ORDER BY cf.principal_kobo DESC`)
 
 		cbsWriteJSON(w, http.StatusOK, map[string]any{
 			"summary":         firstRow(summary),

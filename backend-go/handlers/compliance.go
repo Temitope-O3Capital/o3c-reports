@@ -1393,24 +1393,47 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 			"car_min_pct":   10.0,
 		}
 
-		// Compute CAR: equity capital / risk-weighted assets (loan portfolio) * 100.
-		// Uses gl_accounts type='equity' for capital and loan_applications outstanding for RWA.
-		carPct := 0.0
-		carRows, carErr := db.PGQuery(ctx, `
-			SELECT
-			    COALESCE((SELECT SUM(je.amount_kobo) FROM gl_journal_entries je
-			              JOIN gl_accounts ga ON ga.id = je.account_id
-			              WHERE ga.type = 'equity' AND je.direction = 'CR'), 0) AS equity_kobo,
-			    COALESCE((SELECT SUM(outstanding_kobo) FROM loan_applications
-			              WHERE stage = 'active' AND outstanding_kobo > 0), 0)  AS rwa_kobo`)
-		if carErr == nil && len(carRows) > 0 {
-			equity := float64(toInt64(carRows[0]["equity_kobo"]))
-			rwa := float64(toInt64(carRows[0]["rwa_kobo"]))
-			if rwa > 0 {
-				carPct = round1(equity / rwa * 100)
-			}
+		// Capital Adequacy Ratio — reported as NOT COMPUTABLE, because it is not.
+		//
+		// This used to run a query against columns that do not exist on this schema:
+		// gl_accounts.type (the column is `class`), gl_journal_entries.account_id and
+		// .direction (the table has debit_account / credit_account, both TEXT). It
+		// errored on every request, carErr was swallowed, and car_pct was published as
+		// 0.0 against a 10% minimum — a capital ratio of zero, shown as if measured.
+		//
+		// Fixing the column names would not help: there is no equity anywhere to read.
+		// gl_accounts gained 3000 Retained Earnings and 3100 Share Capital in migration
+		// 282 so that capital CAN be posted, but nothing has been, and the GL holds only
+		// workspace-originated collections postings. CAR needs a capital figure this
+		// database does not have.
+		//
+		// So it returns null with a reason. A ratio that cannot be computed must not be
+		// rendered as a number — least of all a prudential one a regulator reads.
+		var equityKobo int64
+		if rows, e := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(CASE WHEN je.credit_account = ga.code THEN je.amount_kobo
+			                         WHEN je.debit_account  = ga.code THEN -je.amount_kobo
+			                         ELSE 0 END), 0) AS equity_kobo
+			  FROM gl_journal_entries je
+			  JOIN gl_accounts ga ON ga.class = 'Equity'
+			                     AND (ga.code = je.credit_account OR ga.code = je.debit_account)`); e == nil && len(rows) > 0 {
+			equityKobo = toInt64(rows[0]["equity_kobo"])
 		}
-		result["car_pct"] = carPct
+		var rwaKobo int64
+		if rows, e := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(outstanding_principal_kobo), 0) AS rwa_kobo
+			  FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')`); e == nil && len(rows) > 0 {
+			rwaKobo = toInt64(rows[0]["rwa_kobo"])
+		}
+		if equityKobo > 0 && rwaKobo > 0 {
+			result["car_pct"] = round1(float64(equityKobo) / float64(rwaKobo) * 100)
+			result["car_basis"] = "Equity posted to the GL (gl_accounts class 'Equity') over open loan principal."
+		} else {
+			result["car_pct"] = nil
+			result["car_basis"] = "Not computable: no capital has been posted to the general ledger, " +
+				"so there is no equity figure to divide by risk-weighted assets. " +
+				"Previously published as 0.0% by a query that errored on every request."
+		}
 		result["cbn_thresholds"].(map[string]any)["car_min_pct"] = 10.0
 
 		// H7: breach detection — NPL and PAR90 are max thresholds (breach if above).
@@ -1428,8 +1451,11 @@ func compliancePrudentialRatios(db *core.DB) http.HandlerFunc {
 		if v, ok := result["par90_pct"].(float64); ok && v > 5.0 {
 			breaches = append(breaches, breach{"PAR90", v, 5.0, "above_max"})
 		}
-		if carPct > 0 && carPct < 10.0 {
-			breaches = append(breaches, breach{"CAR", carPct, 10.0, "below_min"})
+		// Only when CAR is actually computable. A null ratio is not a breach —
+		// it is an unanswered question, and raising a prudential breach alert off
+		// a missing figure would page the compliance head about nothing.
+		if v, ok := result["car_pct"].(float64); ok && v > 0 && v < 10.0 {
+			breaches = append(breaches, breach{"CAR", v, 10.0, "below_min"})
 		}
 		if breaches == nil {
 			breaches = []breach{}
@@ -2867,35 +2893,95 @@ func complianceBoardPack(db *core.DB) http.HandlerFunc {
 		}
 		var metrics []Metric
 
-		// Loan book
+		// Loan book — the Udara book.
+		//
+		// Every figure here used to come from loan_applications, which holds LOS
+		// applications in flight and has never held a booked loan: 8 rows, all
+		// 'submitted', no amount, no booked_at. Origination is booked in Udara. So
+		// the board pack reported Active Loans 0, Loan Book ₦0.00, PAR30 0.0% and
+		// Accounts DPD>30 0 against a real book of 41 open loans, ₦920.8m and a
+		// PAR30 of 48% — the entire lending picture, reported as nothing.
+		//
+		// Read live from cbs_loans rather than cbs_portfolio_snapshot so the PAR30
+		// numerator and denominator come from the same rows. That costs a small
+		// timing difference against Treasury and End of Day, which read the daily
+		// snapshot: ~₦1.3m on ₦920m at the time of writing, a day's drift, not a
+		// difference of method. Arrears use app.cbs_loan_dpd, the canonical
+		// schedule-first rule, never an inlined day-count.
 		if rows, err := db.PGQuery(ctx, `
-			SELECT
-			    COUNT(*) FILTER (WHERE status NOT IN ('declined','draft')) AS total_apps,
-			    COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status='active'),0) AS book_kobo,
-			    COUNT(*) FILTER (WHERE status='active') AS active_loans,
-			    COALESCE(SUM(amount_approved_kobo) FILTER (
-			        WHERE status='active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 30),0) AS par30_kobo
-			FROM loan_applications`); err == nil && len(rows) > 0 {
+			WITH l AS (
+			    SELECT outstanding_principal_kobo AS out_kobo,
+			           `+cbsLoanDPDBare+` AS dpd
+			      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
+			SELECT COUNT(*) AS active_loans,
+			       COALESCE(SUM(out_kobo),0) AS book_kobo,
+			       COUNT(*) FILTER (WHERE dpd > 30) AS dpd30_count,
+			       COALESCE(SUM(out_kobo) FILTER (WHERE dpd > 30),0) AS par30_kobo
+			  FROM l`); err == nil && len(rows) > 0 {
 			row := rows[0]
 			bookKobo := toInt64(row["book_kobo"])
-			par30Kobo := toInt64(row["par30_kobo"])
 			par30Pct := 0.0
 			if bookKobo > 0 {
-				par30Pct = float64(par30Kobo) / float64(bookKobo) * 100
+				par30Pct = float64(toInt64(row["par30_kobo"])) / float64(bookKobo) * 100
 			}
 			metrics = append(metrics,
-				Metric{"Active Loans", fmt.Sprintf("%d", toInt64(row["active_loans"]))},
-				Metric{"Loan Book (₦)", fmt.Sprintf("%.2f", float64(bookKobo)/100)},
+				Metric{"Active Loans (Udara)", fmt.Sprintf("%d", toInt64(row["active_loans"]))},
+				Metric{"Loan Book — Udara (₦)", fmt.Sprintf("%.2f", float64(bookKobo)/100)},
 				Metric{"PAR30 (%)", fmt.Sprintf("%.1f%%", par30Pct)},
-				Metric{"Total Applications", fmt.Sprintf("%d", toInt64(row["total_apps"]))},
+				Metric{"Accounts DPD>30", fmt.Sprintf("%d", toInt64(row["dpd30_count"]))},
 			)
 		}
 
-		// Fixed deposits
+		// Loan book — the part that is NOT in Udara.
+		//
+		// Loans were uploaded into recovery that exist nowhere in the core banking
+		// system: 54 cases carrying data_source='manual', of which 31 are still
+		// active at ₦529.3m. Zero of the 54 match a cbs_loans account number on
+		// either key, so there is no double count with the figure above.
+		//
+		// Reported as its own line rather than folded into the Udara book: one is a
+		// performing book and the other is a recovery book, and a board reading a
+		// single merged "Loan Book" would be told they are the same kind of money.
+		// The total is given as well, because total exposure is the question a board
+		// actually asks.
+		if rows, err := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS cases, COALESCE(SUM(outstanding_kobo),0) AS out_kobo
+			  FROM recovery_cases
+			 WHERE product_type='loan' AND data_source='manual' AND status='active'`); err == nil && len(rows) > 0 {
+			offKobo := toInt64(rows[0]["out_kobo"])
+			metrics = append(metrics,
+				Metric{"Loans Off-Udara (uploaded)", fmt.Sprintf("%d", toInt64(rows[0]["cases"]))},
+				Metric{"Loan Book — Off-Udara (₦)", fmt.Sprintf("%.2f", float64(offKobo)/100)},
+			)
+			if r2, err2 := db.PGQuery(ctx, `
+				SELECT COALESCE(SUM(outstanding_principal_kobo),0) AS k
+				  FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')`); err2 == nil && len(r2) > 0 {
+				metrics = append(metrics, Metric{"Total Loan Exposure (₦)",
+					fmt.Sprintf("%.2f", float64(toInt64(r2[0]["k"])+offKobo)/100)})
+			}
+		}
+
+		// LOS pipeline. This is what loan_applications legitimately measures —
+		// applications in flight, not a book — so it is labelled as that.
+		if rows, err := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS c FROM loan_applications
+			 WHERE status NOT IN ('declined','draft')`); err == nil && len(rows) > 0 {
+			metrics = append(metrics, Metric{"Applications In Flight", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
+		}
+
+		// Fixed deposits.
+		//
+		// This read fd_transactions — the retired workspace FD ops book, which has
+		// held zero rows since the deposit desk moved to Udara. So the board pack
+		// published "FD Count 0 / FD Book ₦0.00" while the real funded book stood at
+		// 213 deposits and ₦19.86bn: the largest number in the business, reported to
+		// the board as nothing. Same basis as Treasury and /api/fd-book/kpis — the
+		// live CBS register, Active and funded, principal converted from kobo.
 		if rows, err := db.PGQuery(ctx, `
 			SELECT COUNT(*) AS fd_count,
-			       COALESCE(SUM(principal),0) AS total_principal
-			FROM fd_transactions WHERE transaction_type='inflow'`); err == nil && len(rows) > 0 {
+			       COALESCE(SUM(principal_kobo),0)::numeric / 100 AS total_principal
+			FROM cbs_fixed_deposits
+			WHERE status='Active' AND `+sqlFDFunded); err == nil && len(rows) > 0 {
 			row := rows[0]
 			metrics = append(metrics,
 				Metric{"FD Count", fmt.Sprintf("%d", toInt64(row["fd_count"]))},
@@ -2916,10 +3002,19 @@ func complianceBoardPack(db *core.DB) http.HandlerFunc {
 			metrics = append(metrics, Metric{"Open Support Tickets", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
 		}
 
-		// Open compliance findings
+		// Open audit findings.
+		//
+		// This queried compliance_findings — a table that does not exist in this
+		// database. The query therefore errored, `err == nil` was false, and the
+		// metric was dropped from the pack silently: not shown as zero, not shown
+		// at all, with nothing anywhere saying a line was missing. That is the
+		// failure mode of guarding a metric on `err == nil` and no other signal.
+		// The real table is audit_findings.
 		if rows, err := db.PGQuery(ctx, `
-			SELECT COUNT(*) AS c FROM compliance_findings WHERE status NOT IN ('closed')`); err == nil && len(rows) > 0 {
-			metrics = append(metrics, Metric{"Open Compliance Findings", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
+			SELECT COUNT(*) AS c FROM audit_findings WHERE status <> 'closed'`); err == nil && len(rows) > 0 {
+			metrics = append(metrics, Metric{"Open Audit Findings", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
+		} else if err != nil {
+			slog.Error("board pack: open audit findings query failed", "err", err)
 		}
 
 		// Open SARs

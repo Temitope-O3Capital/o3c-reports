@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Page, KpiCard, SectionCard, DataTable, DateFilter, ErrBanner, EmptyState, Badge } from '../../components/UI'
 import type { TableCol } from '../../components/UI'
 import { apiFetch, unwrap } from '../../lib/api'
 import { fmt, fmtExact, fmtNum, fmtDate } from '../../lib/fmt'
-import { GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
+import { GREEN, AMBER, BLUE, NAVY, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
 import { EArea, EBar } from '../../components/echarts'
 
 // The Income Statement is DERIVED — computed live from the transaction feed by
@@ -13,6 +13,10 @@ import { EArea, EBar } from '../../components/echarts'
 // or GL data behind it, so it is not a full profit-and-loss.
 
 interface IncomeBucket {
+  // card_interest_ngn is transaction-derived; loan_interest_ngn is interest DUE
+  // per the Udara repayment schedule. interest_ngn is the two together.
+  card_interest_ngn: number
+  loan_interest_ngn: number
   interest_ngn: number
   fee_ngn: number
   penalty_ngn: number
@@ -22,6 +26,8 @@ interface IncomeBucket {
 
 interface TrendRow {
   date: string
+  card_interest_ngn: number
+  loan_interest_ngn: number
   interest_ngn: number
   fee_ngn: number
   penalty_ngn: number
@@ -42,6 +48,19 @@ interface CategoryRow {
   txn_count: number
 }
 
+// Income booked outside naira. It is NOT folded into the totals above and no FX
+// rate is applied — see migration 281. Before this it was filtered out of
+// app.income_daily and appeared nowhere on the page at all.
+interface FxIncomeRow {
+  currency: string
+  currency_code: string
+  interest: number
+  fee: number
+  penalty: number
+  total: number
+  txn_count: number
+}
+
 interface IncomeStatement {
   from: string
   to: string
@@ -50,6 +69,8 @@ interface IncomeStatement {
   trend: TrendRow[]
   by_product: ProductRow[]
   by_category: CategoryRow[]
+  other_currency_income?: FxIncomeRow[]
+  other_currency_note?: string
 }
 
 // Percentage change vs the preceding equal-length window. Guarded for prev=0 so a
@@ -80,6 +101,13 @@ export default function FinanceIncome() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // The first load sends no window and the response says which one the server
+  // chose; seeding the filter from it writes `from`/`to`, which are load's own
+  // dependencies — so the page used to immediately fetch the identical window a
+  // second time. This records that the change came from the seed rather than
+  // from the user, and skips exactly that one re-run.
+  const seededRef = useRef(false)
+
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
@@ -88,13 +116,16 @@ export default function FinanceIncome() {
       const data = unwrap<IncomeStatement>(r)
       setInc(data)
       // Seed the date filter from the response on first load (no params sent).
-      if (!from && data?.from) setFrom(data.from)
-      if (!to && data?.to) setTo(data.to)
+      if (!from && data?.from) { seededRef.current = true; setFrom(data.from) }
+      if (!to && data?.to) { seededRef.current = true; setTo(data.to) }
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [from, to])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    if (seededRef.current) { seededRef.current = false; return }
+    load()
+  }, [load])
 
   const totals = inc?.totals
   const prev = inc?.prev
@@ -153,6 +184,7 @@ export default function FinanceIncome() {
           change={pctChange(Number(totals?.total_ngn ?? 0), Number(prev?.total_ngn ?? 0))} changePeriod="vs prev period"
           icon="payments" accent={GREEN} loading={loading} />
         <KpiCard label="Interest Income" value={fmt(totals?.interest_ngn ?? 0)}
+          sub={`${fmt(totals?.card_interest_ngn ?? 0)} card · ${fmt(totals?.loan_interest_ngn ?? 0)} loan`}
           change={pctChange(Number(totals?.interest_ngn ?? 0), Number(prev?.interest_ngn ?? 0))} changePeriod="vs prev period"
           icon="trending_up" accent={BLUE} loading={loading} />
         <KpiCard label="Fee Income" value={fmt(totals?.fee_ngn ?? 0)}
@@ -170,8 +202,14 @@ export default function FinanceIncome() {
         </SectionCard>
       ) : (
         <>
-          {/* Revenue trend — stacked daily composition */}
-          <SectionCard title="Revenue Trend" subtitle="Daily revenue by stream (interest · fees · penalty)" style={{ marginBottom: SP[5] }}>
+          {/* Revenue trend — stacked daily composition.
+              Card and loan interest are stacked as separate bands. The chart used
+              to plot a single "Interest" series sourced from card income only,
+              while Total Revenue above it already included the loan book — so the
+              stack summed to less than the headline (₦64.3m plotted under a ₦97.4m
+              KPI on the default window) with nothing on the page accounting for
+              the difference. The stack now reconciles to Total Revenue. */}
+          <SectionCard title="Revenue Trend" subtitle="Daily revenue by stream — stacks to Total Revenue" style={{ marginBottom: SP[5] }}>
             {trendData.length === 0
               ? <EmptyState icon="show_chart" title="No Daily Data" />
               : (
@@ -183,7 +221,8 @@ export default function FinanceIncome() {
                   valueFmt={fmt}
                   axisFmt={fmt}
                   series={[
-                    { key: 'interest_ngn', name: 'Interest', color: BLUE },
+                    { key: 'card_interest_ngn', name: 'Card Interest', color: BLUE },
+                    { key: 'loan_interest_ngn', name: 'Loan Interest', color: NAVY },
                     { key: 'fee_ngn', name: 'Fees', color: PURPLE },
                     { key: 'penalty_ngn', name: 'Penalty', color: AMBER },
                   ]}
@@ -239,13 +278,45 @@ export default function FinanceIncome() {
         </>
       )}
 
+      {/* Income booked outside naira.
+          The statement above is naira-only by design, but until now the non-naira
+          income was simply filtered away and shown nowhere — 471 postings worth
+          313,340.08 in USD over the trailing year. It is listed here in its own
+          units, outside the totals, with no rate applied. */}
+      {(inc?.other_currency_income?.length ?? 0) > 0 && (
+        <SectionCard
+          title="Income in Other Currencies"
+          subtitle="Booked outside naira · excluded from the totals above · no FX rate applied"
+          style={{ marginBottom: SP[5] }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {inc!.other_currency_income!.map(f => (
+              <div key={f.currency} style={{ display: 'flex', alignItems: 'baseline', gap: SP[3], flexWrap: 'wrap' }}>
+                <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{f.currency}</span>
+                <span style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>
+                  {Number(f.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                  interest {Number(f.interest).toLocaleString(undefined, { maximumFractionDigits: 2 })} ·
+                  {' '}fees {Number(f.fee).toLocaleString(undefined, { maximumFractionDigits: 2 })} ·
+                  {' '}{fmtNum(f.txn_count)} postings
+                </span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
       {/* Honest scope note */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6 }}>
         <Badge variant="info" dot style={{ flexShrink: 0, marginTop: 1 }}>Note</Badge>
         <span>
-          This is a top-line revenue statement derived from transaction revenue codes (interest, fees and penalty).
-          There is no expense or general-ledger data behind it, so it is not a full profit-and-loss.
-          All figures are exact naira from the live transaction feed — total revenue for the period is {fmtExact(totals?.total_ngn ?? 0)}.
+          This is a top-line revenue statement. Card interest, fees and penalty are derived from transaction
+          revenue codes on the live feed; loan interest is the amount DUE in the period per the Udara repayment
+          schedule, which is an accrual basis rather than cash received. There is no expense or general-ledger
+          data behind any of it, so this is not a full profit-and-loss. Figures are exact naira — total revenue
+          for the period is {fmtExact(totals?.total_ngn ?? 0)}.
+          {(inc?.other_currency_income?.length ?? 0) > 0 && ' Income booked in other currencies is listed separately above and is not included in that total; no exchange rate is applied to it.'}
         </span>
       </div>
     </Page>

@@ -497,9 +497,24 @@ func linkCBSCustomers(ctx context.Context, db *core.DB) (int, error) {
 
 // assignCBSOfficers ensures every Udara customer has their account officer set as a
 // relationship manager. The heavy lifting lives in the SQL function app.sync_cbs_officers()
-// (migration 183): it mints a no-login user for any officer not already on the roster and
-// assigns one officer per CIF, non-destructively (an existing/manual assignment is never
-// overwritten). Returns the number of new assignments made this run.
+// (migrations 183/184, rewritten in 283): it mints a no-login user for any officer not
+// already on the roster and assigns one officer per Udara customer.
+//
+// Two things worth knowing before changing anything here.
+//
+// The row is keyed 'UD-'||<udara customer id>, NOT the bare id. A bare Udara id in a
+// column named `cif` collides with a real cards CIF belonging to a different person —
+// migration 269 re-keyed 201 such rows, and because this function was not fixed at the
+// same time it put every one of them straight back on the next sync, so 183 card
+// customers were again showing a stranger's account officer. Migration 283 fixed the
+// function; do not reintroduce a bare id.
+//
+// It refreshes only rows it owns (source='cbs'), so a genuine officer change in Udara
+// flows through while a manual assignment made in the CRM (/api/sales/book/assign,
+// source 'manual'/'converted') survives the next sync. Without that, correcting a
+// wrongly-matched officer in the workspace would last until this worker next ran.
+//
+// Returns the number of assignments inserted or refreshed this run.
 func assignCBSOfficers(ctx context.Context, db *core.DB) (int, error) {
 	var n sql.NullInt64
 	if err := db.PG.QueryRowContext(ctx, `SELECT app.sync_cbs_officers()`).Scan(&n); err != nil {

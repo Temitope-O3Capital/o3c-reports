@@ -52,7 +52,14 @@ func blinkSummary(db *core.DB) http.HandlerFunc {
 			       COUNT(*) FILTER (WHERE activity_class = 'Active')          AS active_30d,
 			       COUNT(*) FILTER (WHERE activity_class = 'Never used')      AS never_used,
 			       COUNT(DISTINCT cif)                                        AS cardholders,
-			       COALESCE(SUM(txn_count), 0)                                AS lifetime_txns
+			       COALESCE(SUM(txn_count), 0)                                AS lifetime_txns,
+			       -- Money on the Blink book. It had no money figure at all: the page
+			       -- counted cards and transactions and never said how much customer
+			       -- float O3 was holding on them.
+			       COALESCE(ROUND(SUM(GREATEST(-current_dr_balance, 0)) * 100), 0)::bigint AS float_kobo,
+			       COALESCE(ROUND(SUM(GREATEST(-current_dr_balance, 0))
+			                      FILTER (WHERE card_state = 'Live') * 100), 0)::bigint    AS float_live_kobo,
+			       COUNT(*) FILTER (WHERE current_dr_balance < 0)             AS cards_funded
 			  `+blinkCardsFrom); err == nil && len(rows) > 0 {
 			totals = rows[0]
 		} else if err != nil {
@@ -147,6 +154,9 @@ func blinkCards(db *core.DB) http.HandlerFunc {
 			       TO_CHAR(opened_date,      'YYYY-MM-DD')                 AS opened_date,
 			       TO_CHAR(card_expiry_date, 'YYYY-MM-DD')                 AS expiry_date,
 			       is_expired,
+			       -- Signed, and the list renders it as an absolute value with a CR
+			       -- marker (see BlinkCard.tsx) — a Blink balance is the customer's
+			       -- own float, which on a debit-balance book is negative.
 			       COALESCE(ROUND(current_dr_balance * 100), 0)::bigint    AS balance_kobo,
 			       COALESCE(product_currency, 'NGN')                       AS currency
 			  FROM app.card_book_full

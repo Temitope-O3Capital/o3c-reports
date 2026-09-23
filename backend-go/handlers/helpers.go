@@ -347,10 +347,48 @@ type glEntry struct {
 
 // postJournalTx inserts a GL journal entry inside an existing transaction.
 // Returns an error — callers must roll back and surface it.
+//
+// SCOPE OF THIS LEDGER. Udara is the banking system and the book of record. This
+// is NOT a general ledger of the business and must not be read as one: it records
+// only money actions the workspace itself performs — collections payments posted,
+// write-offs approved, disbursements, card disputes. The ₦19.6bn deposit book and
+// the loan book live in Udara and have never posted here, deliberately; a second
+// ledger free to drift from the core banking system is worse than one book of
+// record. Anything that needs assets and liabilities should read the live books
+// instead, which is what /api/finance/position does.
 func postJournalTx(ctx context.Context, tx *sql.Tx, e glEntry) error {
 	if e.AmountKobo <= 0 {
 		return fmt.Errorf("gl journal amount must be positive (got %d)", e.AmountKobo)
 	}
+
+	// Both legs must name an account that exists in the chart.
+	//
+	// debit_account and credit_account are free TEXT with no foreign key, and this
+	// helper used to validate nothing but the amount. An entry naming an account
+	// that was never seeded therefore inserted happily and then disappeared from
+	// every report that joins gl_accounts — money posted to nowhere, no error
+	// raised anywhere. Several call sites carried exactly that bug, naming 'cash',
+	// 'fixed_deposits_liability', 'card_liability' and 'dispute_suspense', none of
+	// which are codes in the chart; they had simply never fired. Failing loudly
+	// here closes the whole class of bug, for user-supplied manual postings as
+	// much as for hard-coded call sites.
+	var known int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT code) FROM gl_accounts WHERE code IN ($1, $2)`,
+		e.DebitAccount, e.CreditAccount).Scan(&known); err != nil {
+		return fmt.Errorf("gl account lookup failed: %w", err)
+	}
+	// A both-legs-same entry names one distinct code, not two.
+	want := 2
+	if e.DebitAccount == e.CreditAccount {
+		want = 1
+	}
+	if known != want {
+		return fmt.Errorf(
+			"gl journal names an account that is not in the chart (debit %q, credit %q, source %s/%d)",
+			e.DebitAccount, e.CreditAccount, e.SourceType, e.SourceID)
+	}
+
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO gl_journal_entries
 			(entry_date, description, reference, debit_account, credit_account,

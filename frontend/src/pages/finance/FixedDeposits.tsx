@@ -4,13 +4,16 @@ import { Page, KpiCard, SectionCard, DataTable, Tabs, ErrBanner, EmptyState } fr
 import type { TableCol } from '../../components/UI'
 import { EBar, EArea } from '../../components/echarts'
 import FDRegister, { officerOf } from './FDRegister'
+import OfficerCorrections from './OfficerCorrections'
 import type { FDDeposit } from './FDRegister'
 import { apiFetch, unwrap, unwrapList } from '../../lib/api'
 import { fmtKoboExact, fmtKobo, fmtCount, fmtDate, fmtPct } from '../../lib/fmt'
 import { NAVY, GREEN, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
 
 // Fixed Deposits — a READ-ONLY view of the live CBS deposit register
-// (cbs_fixed_deposits, ~₦17.84bn book). The legacy workspace ops book
+// (cbs_fixed_deposits; ₦19.61bn across 229 active deposits at the time of
+// writing — the book moves, so treat the figure as a scale, not a constant).
+// The legacy workspace ops book
 // (fd_transactions) and all of its manual booking / rollover / liquidate /
 // early-withdrawal actions are retired: this page only reads and displays.
 //
@@ -72,10 +75,11 @@ const koboFmt = (v: number) => fmtKobo(v)
 //
 // Best-effort throughout. An officer we cannot resolve costs a name in one column; it
 // must never cost the register itself, so every failure path returns the rows unchanged.
-// NOTE: fdBookList's ORDER BY has no tiebreaker, so a deposit sharing a maturity date
-// with another can in principle fall between the two pages and come back without an
-// officer. Harmless here (the cell shows "—"), and it goes away entirely once either
-// the list ORDER BY gains a tiebreaker or the grouped source carries the officer.
+//
+// This used to carry a caveat that fdBookList's ORDER BY had no tiebreaker, so a deposit
+// sharing a maturity date could slip between two pages and arrive without an officer.
+// That ordering now ends in f.cbs_account_number, which is unique across the book, so
+// the paging is stable and the caveat no longer applies.
 async function graftOfficers(rows: FDDeposit[]): Promise<FDDeposit[]> {
   const byAccount = new Map<string, string>()
   try {
@@ -122,8 +126,8 @@ const PRODUCT_COLS: TableCol<ProductRow>[] = [
   { key: 'annual_interest_kobo', label: 'Annual Interest', align: 'right', sortable: true, render: r => <span style={{ ...NUM, color: AMBER }}>{fmtKoboExact(r.annual_interest_kobo)}</span> },
 ]
 
-type TabKey = 'overview' | 'register' | 'accrual'
-const TAB_KEYS: TabKey[] = ['overview', 'register', 'accrual']
+type TabKey = 'overview' | 'register' | 'accrual' | 'officers'
+const TAB_KEYS: TabKey[] = ['overview', 'register', 'accrual', 'officers']
 const isTabKey = (v: string | null): v is TabKey => !!v && (TAB_KEYS as string[]).includes(v)
 
 export default function FixedDeposits() {
@@ -268,6 +272,10 @@ export default function FixedDeposits() {
           // that the register is one row per customer.
           { key: 'register', label: 'Register', badge: kpis?.unique_customers || undefined },
           { key: 'accrual', label: 'Accrual' },
+          // The officer on a deposit comes from Udara and could not be corrected
+          // anywhere until migration 284 — Udara's API has no endpoint that can
+          // change one. This is where a wrong one gets fixed.
+          { key: 'officers', label: 'Officer Corrections' },
         ]}
         active={tab}
         onChange={setTab}
@@ -342,6 +350,9 @@ export default function FixedDeposits() {
           />
         </SectionCard>
       )}
+
+      {/* ── Officer corrections ────────────────────────────────────────────── */}
+      {tab === 'officers' && <OfficerCorrections />}
     </Page>
   )
 }

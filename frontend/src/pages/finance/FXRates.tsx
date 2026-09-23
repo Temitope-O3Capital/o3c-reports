@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiPost } from '../../lib/api'
 import { NAVY, GREEN, AMBER, BLUE, PURPLE, TEXT, FW, SP, RADIUS, NUM } from '../../lib/design'
-import { Page, SectionCard, Spinner, DateFilter } from '../../components/UI'
+import { Page, SectionCard, Spinner, DateFilter, ErrBanner } from '../../components/UI'
 import { EArea } from '../../components/echarts'
 import { toast } from 'sonner'
 
@@ -49,13 +49,20 @@ export default function FXRates() {
   const [loadingLatest, setLoadingLatest] = useState(true)
   const [loadingHist,   setLoadingHist]   = useState(false)
   const [refreshing,    setRefreshing]    = useState(false)
+  const [error,         setError]         = useState<string | null>(null)
   const [, setTick] = useState(0)
 
+  // Load failures surface in an ErrBanner with a retry, the way every other
+  // Finance page reports them. A toast was the only signal before: it vanishes
+  // after a few seconds and leaves an empty page behind with no way to try
+  // again and nothing explaining why the cards are blank. Toasts are kept for
+  // the refresh ACTION, where a transient confirmation is the right shape.
   const loadLatest = useCallback(() => {
     setLoadingLatest(true)
+    setError(null)
     apiFetch('/api/finance/fx-rates/latest')
       .then(d => setLatest(d.rates ?? []))
-      .catch(() => toast.error('Failed to load FX rates'))
+      .catch((e: any) => setError(e?.message || 'Failed to load FX rates'))
       .finally(() => setLoadingLatest(false))
   }, [])
 
@@ -90,7 +97,7 @@ export default function FXRates() {
     setLoadingHist(true)
     apiFetch(`/api/finance/fx-rates/history?currency=${currency}&from=${from}&to=${to}`)
       .then(d => setHistory(d.rows ?? []))
-      .catch(() => toast.error('Failed to load history'))
+      .catch((e: any) => setError(e?.message || 'Failed to load rate history'))
       .finally(() => setLoadingHist(false))
   }, [currency, from, to])
 
@@ -145,6 +152,8 @@ export default function FXRates() {
         </div>
       }
     >
+      <ErrBanner error={error} onRetry={() => { loadLatest(); loadHistory() }} />
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: SP[6] }}>
 
         {/* ── Rate cards ──────────────────────────────────────────────── */}
@@ -420,14 +429,3 @@ function badge(color: string): React.CSSProperties {
   }
 }
 
-const INPUT_S: React.CSSProperties = {
-  height: 34, padding: '0 10px', borderRadius: RADIUS.md,
-  border: '1px solid var(--input-bdr)', background: 'var(--input-bg)',
-  color: 'var(--txt)', fontSize: TEXT.sm, outline: 'none',
-}
-
-const BTN_OUTLINE: React.CSSProperties = {
-  height: 34, padding: '0 14px', borderRadius: RADIUS.md,
-  border: '1.5px solid var(--bdr)', background: 'var(--card)',
-  color: 'var(--txt)', fontSize: TEXT.sm, fontWeight: FW.semibold, cursor: 'pointer',
-}

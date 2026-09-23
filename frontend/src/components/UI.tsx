@@ -1682,6 +1682,13 @@ const DF_PRESET_GROUPS: { label: string; get: () => [string, string] }[][] = [
 ]
 
 const DF_WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+
+// Below this viewport width the two-month panel cannot fit beside its presets
+// column, so it collapses to one month with the presets wrapped above it.
+// 720 is the widest the full layout is ever drawn at (≈621px panel + the 8px
+// gutter on each side + room for the trigger to sit off the left edge).
+const DF_NARROW = 720
+const DF_GUTTER = 8   // px kept clear between the panel and the viewport edge
 const CELL = 30  // px per calendar cell
 
 function DFMonthGrid({ ym, lo, hi, pendingStart, onDay, onHover }: {
@@ -1781,7 +1788,21 @@ export function DateFilter({ from, to, onChange, align = 'left' }: {
   const [viewYM,       setViewYM]       = useState(initYM)
   const [pendingStart, setPendingStart] = useState<string | null>(null)
   const [hover,        setHover]        = useState<string | null>(null)
-  const ref = useRef<HTMLDivElement>(null)
+  const ref      = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Viewport width, tracked only while the panel is open.
+  //
+  // The panel used to be a fixed ~621px box (136px presets + two 210px month
+  // grids + padding) positioned absolutely at the trigger's edge, with no
+  // max-width and nothing clamping it to the screen. Anywhere the trigger sat
+  // in the right half of a narrow viewport — the Report Builder toolbar wraps,
+  // so the date control lands at an unpredictable x — the panel ran off-screen
+  // and was clipped. Below DF_NARROW it drops to one month with the presets as
+  // a wrapping row on top; at any width it is then nudged back inside the
+  // viewport by the measured overflow.
+  const [vw, setVw] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth))
+  const [shift, setShift] = useState(0)
 
   // Close on outside click
   useEffect(() => {
@@ -1793,6 +1814,37 @@ export function DateFilter({ from, to, onChange, align = 'left' }: {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
+
+  // Track resize (and orientation change) only while open.
+  useEffect(() => {
+    if (!open) return
+    const onResize = () => setVw(window.innerWidth)
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [open])
+
+  const narrow = vw < DF_NARROW
+
+  // Pull the panel back inside the viewport. Measured rather than computed, so
+  // it stays correct whichever way `align` anchors it and whatever the panel's
+  // natural width turns out to be. Re-runs whenever the layout that drives that
+  // width changes.
+  useEffect(() => {
+    if (!open) { setShift(0); return }
+    const el = panelRef.current
+    if (!el) return
+    const prev = shift
+    const r = el.getBoundingClientRect()
+    // Undo the shift already applied before measuring the untranslated box.
+    const left = r.left - prev
+    const right = r.right - prev
+    let next = 0
+    if (right > vw - DF_GUTTER) next = -(right - (vw - DF_GUTTER))
+    if (left + next < DF_GUTTER) next = DF_GUTTER - left
+    if (Math.abs(next - prev) > 0.5) setShift(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, vw, narrow, viewYM, shift])
 
   // Re-anchor to the range end (recent side) each time the picker opens.
   useEffect(() => {
@@ -1854,29 +1906,47 @@ export function DateFilter({ from, to, onChange, align = 'left' }: {
 
       {/* Dropdown panel */}
       {open && (
-        <div style={{
+        <div ref={panelRef} style={{
           position: 'absolute', top: 'calc(100% + 6px)', ...(align === 'right' ? { right: 0 } : { left: 0 }), zIndex: 500,
+          transform: shift ? `translateX(${shift}px)` : undefined,
           background: 'var(--card)', border: '1px solid var(--card-bdr)',
           borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.14)',
-          display: 'flex', overflow: 'hidden',
+          display: 'flex', flexDirection: narrow ? 'column' : 'row', overflow: 'hidden',
+          // Narrow: pin the width. Left to shrink-to-fit, the wrapping presets row
+          // reports a max-content width of every chip on one line (~1000px) and
+          // drags the whole panel out to it, leaving a 210px month grid floating in
+          // a half-empty box. 268px is the single month (7 x 30px + padding) with
+          // enough slack for two preset chips per row.
+          ...(narrow ? { width: `min(calc(100vw - ${DF_GUTTER * 2}px), 268px)` } : null),
+          // Never wider than the screen, and scroll rather than overflow a short one.
+          maxWidth: `calc(100vw - ${DF_GUTTER * 2}px)`,
+          maxHeight: `calc(100vh - ${DF_GUTTER * 2}px)`, overflowY: 'auto',
         }}>
 
-          {/* Presets column */}
-          <div style={{ width: 136, borderRight: '1px solid var(--bdr)', padding: '10px 0', flexShrink: 0 }}>
+          {/* Presets — a side column when there is room, a wrapping row when there isn't */}
+          <div style={narrow
+            ? { display: 'flex', flexWrap: 'wrap', gap: 4, borderBottom: '1px solid var(--bdr)', padding: '8px 10px' }
+            : { width: 136, borderRight: '1px solid var(--bdr)', padding: '10px 0', flexShrink: 0 }}>
             {DF_PRESET_GROUPS.map((group, gi) => (
-              <div key={gi}>
-                {gi > 0 && <div style={{ height: 1, background: 'var(--bdr)', margin: '4px 0' }} />}
+              <div key={gi} style={narrow ? { display: 'contents' } : undefined}>
+                {gi > 0 && !narrow && <div style={{ height: 1, background: 'var(--bdr)', margin: '4px 0' }} />}
                 {group.map(p => {
                   const [f, t] = p.get()
                   const active = f === from && t === to
                   return (
-                    <button key={p.label} onClick={() => applyPreset(f, t)} style={{
+                    <button key={p.label} onClick={() => applyPreset(f, t)} style={narrow ? {
+                      padding: '5px 10px', borderRadius: 999, cursor: 'pointer',
+                      border: `1px solid ${active ? NAVY : 'var(--bdr)'}`,
+                      background: active ? NAVY : 'var(--card)',
+                      color: active ? '#fff' : 'var(--txt)',
+                      fontSize: 12, fontWeight: active ? 600 : 400, whiteSpace: 'nowrap',
+                    } : {
                       display: 'flex', alignItems: 'center', gap: 6, width: '100%',
                       padding: '6px 12px', background: 'transparent', border: 'none',
                       cursor: 'pointer', fontSize: 12.5, fontWeight: active ? 600 : 400,
                       color: active ? NAVY : 'var(--txt)', textAlign: 'left',
                     }}>
-                      <span className="material-symbols-rounded" style={{ fontSize: 13, color: active ? NAVY : 'transparent', flexShrink: 0 }}>check</span>
+                      {!narrow && <span className="material-symbols-rounded" style={{ fontSize: 13, color: active ? NAVY : 'transparent', flexShrink: 0 }}>check</span>}
                       {p.label}
                     </button>
                   )
@@ -1886,7 +1956,7 @@ export function DateFilter({ from, to, onChange, align = 'left' }: {
           </div>
 
           {/* Calendar area */}
-          <div style={{ padding: '14px 16px 12px' }}>
+          <div style={{ padding: narrow ? '12px 12px 10px' : '14px 16px 12px' }}>
             {/* Month navigation */}
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
               <button onClick={() => setViewYM(_dfPrevYM(viewYM))} style={navBtn}>
@@ -1898,13 +1968,16 @@ export function DateFilter({ from, to, onChange, align = 'left' }: {
               </button>
             </div>
 
-            {/* Two months side by side */}
+            {/* Two months side by side — one at narrow widths, where the second
+                does not fit. The nav arrows still reach every month. */}
             <div style={{ display: 'flex', gap: 16 }}>
               <DFMonthGrid ym={viewYM} lo={lo} hi={hi} pendingStart={pendingStart}
                 onDay={handleDayClick} onHover={setHover} />
-              <div style={{ width: 1, background: 'var(--bdr)', flexShrink: 0 }} />
-              <DFMonthGrid ym={month2} lo={lo} hi={hi} pendingStart={pendingStart}
-                onDay={handleDayClick} onHover={setHover} />
+              {!narrow && <>
+                <div style={{ width: 1, background: 'var(--bdr)', flexShrink: 0 }} />
+                <DFMonthGrid ym={month2} lo={lo} hi={hi} pendingStart={pendingStart}
+                  onDay={handleDayClick} onHover={setHover} />
+              </>}
             </div>
 
             {/* Footer */}

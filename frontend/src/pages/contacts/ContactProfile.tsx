@@ -14,8 +14,25 @@ import LogActivityModal from '../../components/LogActivityModal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// The stored retention row (migration 289). Absent when the party has not been
+// scored yet. `measured: false` means we hold no money history for them AT ALL —
+// most of the base — which is not the same as "never transacted" and must never be
+// rendered as churn.
+interface LifecycleBlock {
+  bucket: 'active' | 'cooling' | 'at_risk' | 'dormant' | 'lapsed' | 'churned' | 'never' | 'unknown'
+  value_tier: 'vip' | 'gold' | 'silver' | 'mass' | 'unclassified'
+  value_kobo: number
+  days_since_txn: number | null
+  last_txn_at: string | null
+  measured: boolean
+  has_open_recovery: boolean
+  contactable: boolean
+  computed_at: string
+}
+
 interface ContactProfileData {
   cif: string
+  lifecycle?: LifecycleBlock
   customer_id?: string
   identifiers?: {
     customer_id: string
@@ -991,13 +1008,74 @@ function isCoreBankingOnly(profile: ContactProfileData, identity: IdentityBlock 
   return !!identity?.linked && (profile.identifiers?.cifs?.length ?? 0) === 0
 }
 
+// How each retention bucket reads in the hero. Amber is "still ours but slipping",
+// red is "gone". 'active' is deliberately absent: a badge saying a customer is fine
+// is noise on a screen whose badges otherwise all mean "look at this".
+const BUCKET_BADGE: Record<string, { label: string; colour: string; icon: string }> = {
+  cooling: { label: 'Cooling',  colour: '#D9A54E', icon: 'trending_down' },
+  at_risk: { label: 'At Risk',  colour: '#E08A3C', icon: 'warning' },
+  dormant: { label: 'Dormant',  colour: '#D9683C', icon: 'bedtime' },
+  lapsed:  { label: 'Lapsed',   colour: '#C4472F', icon: 'person_off' },
+  churned: { label: 'Churned',  colour: '#95282A', icon: 'heart_broken' },
+}
+const TIER_BADGE: Record<string, { label: string; colour: string }> = {
+  vip:    { label: 'VIP',    colour: '#B08D2E' },
+  gold:   { label: 'Gold',   colour: '#B08D2E' },
+  silver: { label: 'Silver', colour: '#8C97A3' },
+}
+
+// The retention pair: where this customer sits on the dormancy clock, and whether
+// they are worth the call. Rendered only when there is something to act on.
+function RetentionBadges({ lifecycle }: { lifecycle?: LifecycleBlock }) {
+  if (!lifecycle) return null
+  // Unmeasured customers carry no bucket worth showing. Saying "Churned" about
+  // someone whose transactions we simply never captured would be a lie the whole
+  // engine is built to avoid — app.transactions is card-only and covers ~37% of
+  // customers, so silence here is the honest rendering.
+  if (!lifecycle.measured) return null
+
+  const b = BUCKET_BADGE[lifecycle.bucket]
+  const t = TIER_BADGE[lifecycle.value_tier]
+  if (!b && !t) return null
+
+  const days = lifecycle.days_since_txn
+  const chip = (key: string, colour: string, icon: string, label: string, title: string) => (
+    <span key={key} title={title} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '3px 10px', borderRadius: RADIUS.xl,
+      background: 'rgba(255,255,255,0.12)', border: `1px solid ${colour}`,
+      fontSize: TEXT.xs, fontWeight: FW.bold, color: '#fff',
+    }}>
+      <span className="material-symbols-rounded" style={{ fontSize: 13, color: colour }}>{icon}</span>
+      {label}
+    </span>
+  )
+
+  return (
+    <>
+      {b && chip('bucket', b.colour, b.icon, b.label,
+        days == null ? 'No transaction on record' : `Last transaction ${days} days ago`)}
+      {t && chip('tier', t.colour, 'workspace_premium', t.label,
+        `Worth NGN ${(lifecycle.value_kobo / 100).toLocaleString('en-NG', { maximumFractionDigits: 0 })} in their last active year`)}
+      {/* An open recovery case makes this a collections conversation. Saying so on
+          the hero stops an agent pitching a product to someone we are chasing. */}
+      {lifecycle.has_open_recovery && b && chip('rec', '#95282A', 'gavel', 'In Recovery',
+        'Do not work this customer for win-back — Collections owns the conversation')}
+    </>
+  )
+}
+
 function HeroStatusBadges({ profile, identity }: { profile: ContactProfileData; identity: IdentityBlock | null }) {
   const active = LIFECYCLE_STEPS.filter(s => profile[s.key as keyof ContactProfileData] as boolean)
   const pep = identity?.pep === true
   const coreOnly = isCoreBankingOnly(profile, identity)
-  if (active.length === 0 && !pep && !coreOnly) return null
+  const retention = profile.lifecycle?.measured === true
+  if (active.length === 0 && !pep && !coreOnly && !retention) return null
   return (
     <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 12 }}>
+      {/* Retention leads: whether a customer is slipping away changes how every
+          other badge on this hero should be read. */}
+      <RetentionBadges lifecycle={profile.lifecycle} />
       {/* A politically exposed person is a risk flag, not a detail row: it leads the
           hero badges and stays visible on every tab, not just Overview. */}
       {pep && (
