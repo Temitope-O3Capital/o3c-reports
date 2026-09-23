@@ -388,14 +388,19 @@ func ticketAudience(ctx context.Context, db *core.DB, ticketID int64) []int64 {
 	return out
 }
 
-// activeAgentIDs returns the call-centre agents who actually work the queues.
+// activeAgentIDs returns the agents of one role who actually work the queues.
 // Leaf agents only — supervisors are notified separately and do not need a copy
 // of every agent-level alert.
-func activeAgentIDs(ctx context.Context, db *core.DB) []int64 {
+//
+// The role is a parameter because Care and the Call Center are separate teams:
+// this used to be hard-coded to call_center_agent, so alerts about customer mail
+// went to the phone floor and never to the care_agents who work that mail.
+// Callers pass teamAgentRole(team).
+func activeAgentIDs(ctx context.Context, db *core.DB, role string) []int64 {
 	rows, _ := db.PGQuery(ctx, `
 		SELECT id FROM o3c_users
-		 WHERE is_active = TRUE AND deleted_at IS NULL AND role = 'call_center_agent'
-		 ORDER BY id`)
+		 WHERE is_active = TRUE AND deleted_at IS NULL AND role = $1
+		 ORDER BY id`, role)
 	out := make([]int64, 0, len(rows))
 	for _, r := range rows {
 		if id := toInt64(r["id"]); id > 0 {

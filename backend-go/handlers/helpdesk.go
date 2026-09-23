@@ -89,8 +89,89 @@ func ensureHelpdeskColumns(ctx context.Context, db *core.DB) {
 	}
 }
 
+// ── Which team owns a ticket ─────────────────────────────────────────────────
+//
+// Care and the Call Center are two separate teams sharing one ticket table, and
+// the CHANNEL is what divides them: Care works the customer mailbox, the Call
+// Center works the phone queues. core/auth.go already draws that line — a
+// call-centre agent cannot see Care and a Care agent cannot see Call Center —
+// but the alerting never followed it. Every SLA breach, SLA warning,
+// unassigned-pool and escalation alert was addressed to call_center_head and
+// the call-centre agents regardless of the channel the ticket arrived on.
+//
+// So Care was told nothing about its own mail while the Call Center was paged
+// about it: of ~1,290 open tickets 680 are email — the largest single channel —
+// yet all 2,108 SLA-breach and 2,107 SLA-warning notifications ever sent landed
+// on call-centre accounts and admin, and Care's three people received none.
+//
+// Every alert about a ticket is routed through these helpers now.
+const (
+	teamCare       = "care"
+	teamCallCenter = "call_center"
+)
+
+// ticketTeam maps a ticket's channel to the team that works it. Email is Care;
+// phone, call, web and social are the Call Center. An unknown or empty channel
+// stays with the Call Center, which is where such tickets have always gone.
+func ticketTeam(channel string) string {
+	if strings.EqualFold(strings.TrimSpace(channel), "email") {
+		return teamCare
+	}
+	return teamCallCenter
+}
+
+// teamSupervisorRole and teamAgentRole name the roles that staff each team.
+func teamSupervisorRole(team string) string {
+	if team == teamCare {
+		return "care_head"
+	}
+	return "call_center_head"
+}
+
+func teamAgentRole(team string) string {
+	if team == teamCare {
+		return "care_agent"
+	}
+	return "call_center_agent"
+}
+
+// teamChannelClause scopes a helpdesk_tickets query to one team's channels, so a
+// team's floor totals describe its own work and not the other team's. The Call
+// Center side is written as "not email" rather than an IN list, so a channel
+// added later is still counted by somebody instead of disappearing from both.
+func teamChannelClause(team, alias string) string {
+	if team == teamCare {
+		return " AND " + alias + ".channel = 'email'"
+	}
+	return " AND COALESCE(" + alias + ".channel,'') <> 'email'"
+}
+
+// teamQueueURL points an alert at the page where that team actually works.
+// Care has its own inbox; sending a Care alert to /helpdesk/tickets dropped the
+// recipient into the Call Center's queue, filtered to tickets that are not theirs.
+func teamQueueURL(team, query string) string {
+	if team == teamCare {
+		return "/care/inbox?" + query
+	}
+	return "/helpdesk/tickets?" + query
+}
+
+// teamItemNoun is what each team calls the thing in its queue: Care handles mail
+// and says so throughout its UI, the Call Center handles tickets.
+func teamItemNoun(team string, n int) string {
+	noun := "Ticket"
+	if team == teamCare {
+		noun = "Email"
+	}
+	if n != 1 {
+		noun += "s"
+	}
+	return noun
+}
+
 // StartSLABreachMonitor runs every 60 s, finds tickets whose SLA has expired but
-// sla_breached is not yet set, marks them, and notifies the assigned agent + call_center_head.
+// sla_breached is not yet set, marks them, and notifies the assigned agent plus
+// the supervisor of the team that owns the ticket's channel (see ticketTeam).
 func StartSLABreachMonitor(db *core.DB) {
 	go func() {
 		ticker := time.NewTicker(60 * time.Second)
@@ -105,7 +186,8 @@ func StartSLABreachMonitor(db *core.DB) {
 				WHERE sla_due_at < NOW()
 				  AND (sla_breached IS NULL OR sla_breached=false)
 				  AND status NOT IN ('resolved','closed')
-				RETURNING id, ticket_ref, assigned_to, COALESCE(priority,'') AS priority`)
+				RETURNING id, ticket_ref, assigned_to, COALESCE(priority,'') AS priority,
+				          COALESCE(channel,'') AS channel`)
 			if err != nil {
 				slog.Error("SLA breach monitor: update failed", "err", err)
 				continue
@@ -130,7 +212,8 @@ func StartSLABreachMonitor(db *core.DB) {
 				  AND (sla_warning_sent IS NULL OR sla_warning_sent=FALSE)
 				  AND (sla_breached IS NULL OR sla_breached=FALSE)
 				  AND status NOT IN ('resolved','closed')
-				RETURNING id, ticket_ref, assigned_to, COALESCE(priority,'') AS priority`)
+				RETURNING id, ticket_ref, assigned_to, COALESCE(priority,'') AS priority,
+				          COALESCE(channel,'') AS channel`)
 			if len(warnRows) > 0 {
 				hdNotifySLADigest(ctx, db, warnRows, "warn")
 			}
@@ -158,7 +241,7 @@ func StartSLABreachMonitor(db *core.DB) {
 }
 
 // hdNotifySLADigest fires ONE collapsing in-app notification per affected agent
-// (and one floor digest to call_center_head) for a batch of tickets that just
+// (and one floor digest per team supervisor) for a batch of tickets that just
 // breached ("breach") or just entered the 30-minute warning window ("warn").
 //
 // It replaces the old one-notification-per-ticket firehose. With the GroupKey
@@ -166,7 +249,24 @@ func StartSLABreachMonitor(db *core.DB) {
 // this on cycles where a ticket actually transitioned), an agent sees a single
 // "N tickets past SLA" row that updates in place — not hundreds of separate pings,
 // which is why ~3,400 SLA breach + ~3,300 warning notifications had piled up unread.
+//
+// The batch is split by team FIRST. An email breaching SLA is Care's to answer
+// and a phone ticket breaching is the Call Center's, so the two are never counted
+// into one another's totals and never sent to one another's supervisor.
 func hdNotifySLADigest(ctx context.Context, db *core.DB, fresh []core.Row, kind string) {
+	byTeam := map[string][]core.Row{}
+	for _, r := range fresh {
+		team := ticketTeam(str(r["channel"]))
+		byTeam[team] = append(byTeam[team], r)
+	}
+	for team, rows := range byTeam {
+		hdNotifySLADigestForTeam(ctx, db, team, rows, kind)
+	}
+}
+
+// hdNotifySLADigestForTeam sends one team's share of an SLA transition: a digest
+// to each affected owner, and one floor digest to that team's supervisor.
+func hdNotifySLADigestForTeam(ctx context.Context, db *core.DB, team string, fresh []core.Row, kind string) {
 	perAgent := map[int64]int{}
 	for _, r := range fresh {
 		if a := toInt64(r["assigned_to"]); a > 0 {
@@ -174,48 +274,59 @@ func hdNotifySLADigest(ctx context.Context, db *core.DB, fresh []core.Row, kind 
 		}
 	}
 
-	var evt, groupAgent, groupFloor, nowVerb, totalWord, actionURL, prio string
+	var evt, groupAgent, groupFloor, nowVerb, totalWord, query, prio string
 	if kind == "warn" {
-		evt, groupAgent, groupFloor = EvtTicketSLAWarning, "sla:warn:agent", "sla:warn:floor"
+		evt = EvtTicketSLAWarning
+		groupAgent, groupFloor = "sla:warn:agent:"+team, "sla:warn:floor:"+team
 		nowVerb, totalWord = "are within 30 min of breaching SLA", "at risk"
-		actionURL, prio = "/helpdesk/tickets?sort=sla", "high"
+		query, prio = "sort=sla", "high"
 	} else {
-		evt, groupAgent, groupFloor = EvtTicketSLABreach, "sla:breach:agent", "sla:breach:floor"
+		evt = EvtTicketSLABreach
+		groupAgent, groupFloor = "sla:breach:agent:"+team, "sla:breach:floor:"+team
 		nowVerb, totalWord = "breached SLA", "past SLA"
-		actionURL, prio = "/helpdesk/tickets?bucket=overdue&sort=sla", "urgent"
+		query, prio = "bucket=overdue&sort=sla", "urgent"
 	}
+	// The GroupKeys carry the team so that a Care digest and a Call Center digest
+	// collapse separately — someone who holds both roles must not have one
+	// overwrite the other in place.
+	actionURL := teamQueueURL(team, query)
+	// Care works mail, the Call Center works tickets; each is told about its own
+	// in its own words.
+	item := strings.ToLower(teamItemNoun(team, 2))
 
 	// Per-agent digest — the fresh count plus their whole open pile for context.
 	for agentID, freshN := range perAgent {
-		total := hdOpenSLACount(ctx, db, kind, agentID)
+		total := hdOpenSLACount(ctx, db, kind, agentID, team)
 		Notify(context.WithoutCancel(ctx), db, NotifPayload{
 			EventType: evt, UserID: agentID,
-			Title:     fmt.Sprintf("%d ticket(s) %s", freshN, nowVerb),
-			Body:      fmt.Sprintf("%d of your tickets just %s — %d %s in total. Open the queue to action them.", freshN, nowVerb, total, totalWord),
+			Title:     fmt.Sprintf("%d %s %s", freshN, teamItemNoun(team, freshN), nowVerb),
+			Body:      fmt.Sprintf("%d of your %s just %s, %d %s in total. Open the queue and work them.", freshN, item, nowVerb, total, totalWord),
 			ActionURL: actionURL, EntityRef: groupAgent, GroupKey: groupAgent, Priority: prio,
 		})
 	}
 
-	// Floor digest for supervisors — one row, whole floor.
-	floorTotal := hdOpenSLACount(ctx, db, kind, 0)
-	NotifyRole(context.WithoutCancel(ctx), db, "call_center_head", NotifPayload{
+	// Floor digest for the supervisor of THIS team — one row, their whole floor.
+	floorTotal := hdOpenSLACount(ctx, db, kind, 0, team)
+	NotifyRole(context.WithoutCancel(ctx), db, teamSupervisorRole(team), NotifPayload{
 		EventType: evt,
-		Title:     fmt.Sprintf("%d ticket(s) %s", len(fresh), nowVerb),
-		Body:      fmt.Sprintf("%d tickets just %s across the floor — %d %s in total.", len(fresh), nowVerb, floorTotal, totalWord),
+		Title:     fmt.Sprintf("%d %s %s", len(fresh), teamItemNoun(team, len(fresh)), nowVerb),
+		Body:      fmt.Sprintf("%d %s just %s across the floor, %d %s in total.", len(fresh), item, nowVerb, floorTotal, totalWord),
 		ActionURL: actionURL, EntityRef: groupFloor, GroupKey: groupFloor, Priority: prio,
 	})
 }
 
 // hdOpenSLACount counts open tickets currently past SLA (kind "breach") or at risk
 // within the next 60 minutes (kind "warn"); agentID 0 counts the whole floor.
-func hdOpenSLACount(ctx context.Context, db *core.DB, kind string, agentID int64) int {
+// The count is scoped to one team's channels, so "N past SLA in total" means N of
+// YOUR team's — Care was previously quoted the Call Center's backlog as its own.
+func hdOpenSLACount(ctx context.Context, db *core.DB, kind string, agentID int64, team string) int {
 	cond := "t.sla_due_at < NOW()"
 	if kind == "warn" {
 		cond = "t.sla_due_at >= NOW() AND t.sla_due_at <= NOW() + INTERVAL '60 minutes'"
 	}
 	q := `SELECT COUNT(*) AS n FROM helpdesk_tickets t
 	       WHERE t.status NOT IN ('resolved','closed') AND t.deleted_at IS NULL
-	         AND t.sla_due_at IS NOT NULL AND ` + cond
+	         AND t.sla_due_at IS NOT NULL AND ` + cond + teamChannelClause(team, "t")
 	args := []any{}
 	if agentID > 0 {
 		q += " AND t.assigned_to = $1"
@@ -228,16 +339,24 @@ func hdOpenSLACount(ctx context.Context, db *core.DB, kind string, agentID int64
 	return 0
 }
 
-// hdUnassignedDigest sends a single rolled-up alert about the unowned pool.
+// hdUnassignedDigest sends a single rolled-up alert about the unowned pool — one
+// per team, to that team's own supervisor and agents. Unowned mail is Care's
+// backlog to distribute and Care's work to claim; the call centre can do neither.
 func hdUnassignedDigest(ctx context.Context, db *core.DB) {
+	for _, team := range []string{teamCare, teamCallCenter} {
+		hdUnassignedDigestForTeam(ctx, db, team)
+	}
+}
+
+func hdUnassignedDigestForTeam(ctx context.Context, db *core.DB, team string) {
 	rows, err := db.PGQuery(ctx, `
 		SELECT COUNT(*)                                          AS n,
-		       COUNT(*) FILTER (WHERE sla_breached)              AS breached,
-		       COUNT(*) FILTER (WHERE priority IN ('urgent','high')) AS urgent
-		  FROM helpdesk_tickets
-		 WHERE assigned_to IS NULL
-		   AND status NOT IN ('resolved','closed')
-		   AND created_at < NOW() - INTERVAL '1 hour'`)
+		       COUNT(*) FILTER (WHERE t.sla_breached)            AS breached,
+		       COUNT(*) FILTER (WHERE t.priority IN ('urgent','high')) AS urgent
+		  FROM helpdesk_tickets t
+		 WHERE t.assigned_to IS NULL
+		   AND t.status NOT IN ('resolved','closed')
+		   AND t.created_at < NOW() - INTERVAL '1 hour'`+teamChannelClause(team, "t"))
 	if err != nil || len(rows) == 0 {
 		return
 	}
@@ -246,8 +365,9 @@ func hdUnassignedDigest(ctx context.Context, db *core.DB) {
 		return
 	}
 	breached := toInt64(rows[0]["breached"])
+	item := strings.ToLower(teamItemNoun(team, int(n)))
 
-	body := fmt.Sprintf("%d ticket(s) have been waiting over an hour with no owner", n)
+	body := fmt.Sprintf("%d %s have been waiting over an hour with no owner", n, item)
 	if breached > 0 {
 		body += fmt.Sprintf(", %d already past SLA", breached)
 	}
@@ -256,22 +376,25 @@ func hdUnassignedDigest(ctx context.Context, db *core.DB) {
 		prio = "high"
 	}
 
+	// GroupKey carries the team so Care's pool and the Call Center's pool collapse
+	// into separate rows instead of overwriting each other.
+	group := "tickets:unassigned:" + team
 	p := NotifPayload{
 		EventType: EvtTicketUnassignedAlert,
-		Title:     fmt.Sprintf("%d unassigned tickets", n),
+		Title:     fmt.Sprintf("%d Unassigned %s", n, teamItemNoun(team, int(n))),
 		Body:      body + ".",
-		ActionURL: "/helpdesk/tickets?bucket=unassigned",
-		EntityRef: "tickets:unassigned",
-		GroupKey:  "tickets:unassigned",
+		ActionURL: teamQueueURL(team, "bucket=unassigned"),
+		EntityRef: group,
+		GroupKey:  group,
 		Priority:  prio,
 	}
-	go NotifyRole(context.WithoutCancel(ctx), db, "call_center_head", p)
+	go NotifyRole(context.WithoutCancel(ctx), db, teamSupervisorRole(team), p)
 
 	// Agents get the claimable-work version of the same fact.
 	agentP := p
-	agentP.Title = fmt.Sprintf("%d tickets waiting to be picked up", n)
+	agentP.Title = fmt.Sprintf("%d %s Waiting to Be Picked Up", n, teamItemNoun(team, int(n)))
 	agentP.Body = body + ". Open the queue to claim one."
-	NotifyUsers(context.WithoutCancel(ctx), db, activeAgentIDs(ctx, db), agentP)
+	NotifyUsers(context.WithoutCancel(ctx), db, activeAgentIDs(ctx, db, teamAgentRole(team)), agentP)
 }
 
 func RegisterHelpdesk(r chi.Router, db *core.DB) {
@@ -2451,7 +2574,7 @@ func hdUpdateTicket(db *core.DB) http.HandlerFunc {
 					"escalated_at=COALESCE(escalated_at,NOW()), escalated_by=COALESCE(escalated_by,NULLIF($%d,0)::bigint), escalation_resolved_at=NULL", n))
 				args = append(args, callerID)
 				n++
-				go NotifyRole(context.Background(), db, "call_center_head", NotifPayload{
+				go NotifyRole(context.Background(), db, teamSupervisorRole(ticketTeam(str(ticket["channel"]))), NotifPayload{
 					EventType: "ticket_escalated",
 					Title:     fmt.Sprintf("Ticket escalated: %s", str(ticket["ticket_ref"])),
 					Body:      fmt.Sprintf("Ticket %s (%s) has been escalated and needs review.", str(ticket["ticket_ref"]), str(ticket["subject"])),
@@ -2683,12 +2806,12 @@ func hdSendMessage(db *core.DB) http.HandlerFunc {
 			     body_text, body_html, attachments, email_message_id, in_reply_to, is_internal_note,
 			     cc_addrs, bcc_addrs, send_state, send_after)
 			VALUES ($1,'outbound',$2,$3,$4,$5,$6,$7::jsonb,$8,NULLIF($9,''),$10,
-			        $11::jsonb,$12::jsonb,$13, NOW() + ($14 || ' seconds')::interval)
+			        $11::jsonb,$12::jsonb,$13, NOW() + make_interval(secs => $14))
 			RETURNING *`,
 			ticketID, channel, user.ID, user.FullName,
 			b.BodyText, ptrOrNil(b.BodyHTML), attachJSON,
 			emailMsgID, inReplyTo, b.IsInternalNote,
-			ccJSON, bccJSON, sendState, strconv.Itoa(holdSecs))
+			ccJSON, bccJSON, sendState, holdSecs)
 		if err != nil {
 			slog.Error("hdSendMessage: insert", "err", err)
 			respondErr(w, 500, "Could not insert message")
@@ -3261,7 +3384,7 @@ func hdCSATSubmit(db *core.DB) http.HandlerFunc {
 		}
 
 		tRows, _ := db.PGQuery(r.Context(),
-			"SELECT id, ticket_ref FROM helpdesk_tickets WHERE csat_token=$1", token)
+			"SELECT id, ticket_ref, COALESCE(channel,'') AS channel FROM helpdesk_tickets WHERE csat_token=$1", token)
 		if len(tRows) == 0 {
 			respondErr(w, 404, "Invalid CSAT token")
 			return
@@ -3285,7 +3408,8 @@ func hdCSATSubmit(db *core.DB) http.HandlerFunc {
 
 		if b.Score <= 2 {
 			ticketRef := str(tRows[0]["ticket_ref"])
-			go NotifyRole(context.Background(), db, "call_center_head", NotifPayload{
+			// A bad score on a mail thread is Care's to review, not the phone floor's.
+			go NotifyRole(context.Background(), db, teamSupervisorRole(ticketTeam(str(tRows[0]["channel"]))), NotifPayload{
 				EventType: EvtCSATLowScore,
 				Title:     fmt.Sprintf("Low CSAT score (%d/5) on %s", b.Score, ticketRef),
 				Body:      fmt.Sprintf("Customer rated %d/5 for ticket %s. Comment: %s", b.Score, ticketRef, b.Comment),

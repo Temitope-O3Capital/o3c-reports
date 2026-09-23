@@ -146,7 +146,7 @@ func hdEscalateTicket(db *core.DB) http.HandlerFunc {
 			   AND status NOT IN ('resolved','closed')
 			   AND escalation_resolved_at IS NULL
 			   AND escalated_at IS NULL
-			 RETURNING ticket_ref, subject, assigned_to`,
+			 RETURNING ticket_ref, subject, assigned_to, COALESCE(channel,'') AS channel`,
 			user.ID, b.ToUserID, b.Reason, ticketID)
 		if err != nil {
 			respondErr(w, 500, "Could not escalate")
@@ -174,22 +174,25 @@ func hdEscalateTicket(db *core.DB) http.HandlerFunc {
 
 		p := NotifPayload{
 			EventType: "ticket_escalated",
-			Title:     fmt.Sprintf("Escalated to you: %s", ref),
-			Body:      fmt.Sprintf("%s — %s (escalated by %s)", str(t["subject"]), b.Reason, user.FullName),
+			Title:     fmt.Sprintf("Escalated to You: %s", ref),
+			Body:      fmt.Sprintf("%s. %s. Escalated by %s.", str(t["subject"]), b.Reason, user.FullName),
 			ActionURL: fmt.Sprintf("/helpdesk/%d", ticketID),
 			EntityRef: ref,
 			Priority:  "high",
 		}
+		// The supervisor copy follows the channel: mail escalations are Care's,
+		// phone escalations are the Call Center's.
+		supRole := teamSupervisorRole(ticketTeam(str(t["channel"])))
 		if b.ToUserID > 0 {
 			// Named target: tell that person directly, and copy the supervisors so an
 			// escalation cannot disappear into one person's inbox.
 			NotifyUsers(context.WithoutCancel(ctx), db, []int64{b.ToUserID}, p)
 			sup := p
 			sup.Title = fmt.Sprintf("Escalated: %s", ref)
-			go NotifyRole(context.WithoutCancel(ctx), db, "call_center_head", sup)
+			go NotifyRole(context.WithoutCancel(ctx), db, supRole, sup)
 		} else {
 			p.Title = fmt.Sprintf("Escalated: %s", ref)
-			go NotifyRole(context.WithoutCancel(ctx), db, "call_center_head", p)
+			go NotifyRole(context.WithoutCancel(ctx), db, supRole, p)
 		}
 		// The owner needs to know their ticket left their hands.
 		if owner := toInt64(t["assigned_to"]); owner > 0 && owner != user.ID {

@@ -37,9 +37,9 @@ func stageOutboxMail(ctx context.Context, db *core.DB, userID int64, p outboxPay
 	raw, _ := json.Marshal(p)
 	rows, err := db.PGQuery(ctx, `
 		INSERT INTO mail_outbox (created_by, from_email, subject, payload, send_after)
-		VALUES ($1, NULLIF($2,''), $3, $4::jsonb, NOW() + ($5 || ' seconds')::interval)
+		VALUES ($1, NULLIF($2,''), $3, $4::jsonb, NOW() + make_interval(secs => $5))
 		RETURNING id`,
-		userID, p.FromEmail, p.Subject, string(raw), strconv.Itoa(holdSeconds))
+		userID, p.FromEmail, p.Subject, string(raw), holdSeconds)
 	if err != nil {
 		return 0, err
 	}

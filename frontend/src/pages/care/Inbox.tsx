@@ -483,6 +483,21 @@ export default function CareInbox() {
     setSelected(prev => (prev === m ? prev : m))
   }, [mailParam])
 
+  // An SLA alert links here as /care/inbox?bucket=overdue&sort=sla (and the
+  // unassigned-pool digest as ?bucket=unassigned). Both are read from the URL and
+  // passed straight through to the tickets API, which already understands them —
+  // without this the link silently dropped its filter and dumped the reader into
+  // the default inbox, with no sign of which mail the alert was about.
+  const bucket = searchParams.get('bucket') ?? ''
+  const sort = searchParams.get('sort') ?? ''
+  const clearBucket = useCallback(() => {
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      p.delete('bucket'); p.delete('sort')
+      return p
+    }, { replace: true })
+  }, [setSearchParams])
+
   // Every filter lives in the pop-up modal; the active ones surface as removable chips.
   const [status, setStatus] = useState('open')
   const [owner, setOwner] = useState<'all' | 'mine' | 'unassigned'>('all')
@@ -504,12 +519,14 @@ export default function CareInbox() {
       if (subgroup) params.set('subgroup', subgroup)
       if (flagged) params.set('flagged', '1')
       if (debounced) params.set('search', debounced)
+      if (bucket) params.set('bucket', bucket)
+      if (sort) params.set('sort', sort)
       const resp = await apiFetch<{ tickets: MailTicket[]; total: number }>(`/api/helpdesk/tickets?${params}`)
       setItems(resp.tickets ?? [])
       setTotal(resp.total ?? 0)
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
-  }, [status, owner, subgroup, flagged, debounced])
+  }, [status, owner, subgroup, flagged, debounced, bucket, sort])
 
   const loadCounts = useCallback(() => {
     apiFetch<any>('/api/helpdesk/subgroups')
@@ -538,8 +555,15 @@ export default function CareInbox() {
   if (owner !== 'all') activeFilters.push({ key: 'owner', label: owner === 'mine' ? 'Assigned to Me' : 'Unassigned', onClear: () => setOwner('all') })
   if (subgroup) activeFilters.push({ key: 'subgroup', label: subgroup, onClear: () => setSubgroup('') })
   if (flagged) activeFilters.push({ key: 'flagged', label: 'Flagged Only', onClear: () => setFlagged(false) })
+  // The bucket arrived from an alert link rather than the filter modal, so it gets
+  // a chip too — otherwise the list looks short for no visible reason.
+  if (bucket) activeFilters.push({
+    key: 'bucket',
+    label: bucket === 'overdue' ? 'Past SLA' : bucket === 'unassigned' ? 'Unassigned' : bucket,
+    onClear: clearBucket,
+  })
 
-  function resetFilters() { setStatus('open'); setOwner('all'); setSubgroup(''); setFlagged(false); setSearch('') }
+  function resetFilters() { setStatus('open'); setOwner('all'); setSubgroup(''); setFlagged(false); setSearch(''); clearBucket() }
 
   return (
     <Page title="Care Inbox" subtitle="Customer mail, handled as tickets" noPad

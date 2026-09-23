@@ -227,7 +227,7 @@ func careEscalationTimerPass(ctx context.Context, db *core.DB) {
 		  AND escalation_due_at BETWEEN NOW() AND NOW() + INTERVAL '30 minutes'
 		  AND escalation_warned=FALSE
 		  AND status NOT IN ('resolved','closed') AND deleted_at IS NULL
-		RETURNING id, ticket_ref, subject, escalated_to`)
+		RETURNING id, ticket_ref, subject, escalated_to, COALESCE(channel,'') AS channel`)
 	for _, row := range due {
 		careEscalationNotify(ctx, db, row, "escalation_response_due",
 			fmt.Sprintf("Escalation due soon: %s", str(row["ticket_ref"])),
@@ -241,7 +241,7 @@ func careEscalationTimerPass(ctx context.Context, db *core.DB) {
 		  AND escalation_due_at IS NOT NULL AND escalation_due_at < NOW()
 		  AND escalation_overdue_alerted=FALSE
 		  AND status NOT IN ('resolved','closed') AND deleted_at IS NULL
-		RETURNING id, ticket_ref, subject, escalated_to`)
+		RETURNING id, ticket_ref, subject, escalated_to, COALESCE(channel,'') AS channel`)
 	for _, row := range over {
 		careEscalationNotify(ctx, db, row, "escalation_response_overdue",
 			fmt.Sprintf("Escalation OVERDUE: %s", str(row["ticket_ref"])),
@@ -259,7 +259,9 @@ func careEscalationNotify(ctx context.Context, db *core.DB, row core.Row, evt, t
 	if to := toInt64(row["escalated_to"]); to > 0 {
 		go NotifyUsers(context.WithoutCancel(ctx), db, []int64{to}, p)
 	}
-	go NotifyRole(context.WithoutCancel(ctx), db, "call_center_head", p)
+	// The supervisor copy goes to the head of the team that owns the channel — an
+	// escalation on customer mail is Care's to chase, not the call centre's.
+	go NotifyRole(context.WithoutCancel(ctx), db, teamSupervisorRole(ticketTeam(str(row["channel"]))), p)
 	hdRecordEvent(ctx, db, ticketID, 0, evt, "", ref)
 }
 
@@ -717,6 +719,34 @@ func hdDecideDelete(db *core.DB) http.HandlerFunc {
 
 // ── Due feeds for the SLA + Escalation popups ─────────────────────────────────
 
+// hdFloorScope decides whose at-risk work a user sees in the SLA / escalation
+// popups, and returns the WHERE fragment (plus args) that expresses it.
+//
+//   - Management sees everything.
+//   - A team head sees their own floor: care_head the mail, call_center_head the
+//     phone queues. This is the fix — the supervisor test was HasPage
+//     ("call_center_stats"), which care_head does not hold, so the head of Care
+//     saw only tickets assigned to her personally and had no view of the 680
+//     open emails her team is answering.
+//   - Everyone else sees their own tickets.
+func hdFloorScope(user *core.Claims) (string, []any) {
+	if user.CanSeeAllRows() {
+		return "TRUE", nil
+	}
+	for _, role := range user.AllRoles() {
+		switch role {
+		case "care_head":
+			return "TRUE" + teamChannelClause(teamCare, "t"), nil
+		case "call_center_head":
+			return "TRUE" + teamChannelClause(teamCallCenter, "t"), nil
+		}
+	}
+	if user.HasPage("call_center_stats") {
+		return "TRUE" + teamChannelClause(teamCallCenter, "t"), nil
+	}
+	return "t.assigned_to = $1", []any{user.ID}
+}
+
 // hdSLADue — GET /sla/due
 // Tickets assigned to me that are about to breach or have breached, for the popup.
 func hdSLADue(db *core.DB) http.HandlerFunc {
@@ -727,12 +757,7 @@ func hdSLADue(db *core.DB) http.HandlerFunc {
 			respondErr(w, 401, "Unauthorized")
 			return
 		}
-		where := "t.assigned_to = $1"
-		args := []any{user.ID}
-		if user.CanSeeAllRows() || user.HasPage("call_center_stats") {
-			where = "TRUE" // supervisors see every at-risk ticket
-			args = nil
-		}
+		where, args := hdFloorScope(user)
 		rows, err := db.PGQuery(ctx, `
 			SELECT t.id, t.ticket_ref, t.subject, t.priority, t.customer_name,
 			       t.sla_due_at, t.sla_breached,
@@ -770,11 +795,11 @@ func hdEscalationsDue(db *core.DB) http.HandlerFunc {
 			respondErr(w, 401, "Unauthorized")
 			return
 		}
-		where := "t.escalated_to = $1"
-		args := []any{user.ID}
-		if user.CanSeeAllRows() || user.HasPage("call_center_stats") {
-			where = "TRUE"
-			args = nil
+		where, args := hdFloorScope(user)
+		// Same rule as the SLA feed, but the personal case is "escalated TO me"
+		// rather than "assigned to me".
+		if len(args) > 0 {
+			where = strings.Replace(where, "t.assigned_to = $1", "t.escalated_to = $1", 1)
 		}
 		rows, err := db.PGQuery(ctx, `
 			SELECT t.id, t.ticket_ref, t.subject, t.priority, t.customer_name,
