@@ -558,6 +558,26 @@ func contactProfileHandler(db *core.DB) http.HandlerFunc {
 
 		profile["is_active_customer"] = len(activeLoans) > 0 || hasActiveCard || hasActiveFD
 
+		// Retention lifecycle — the stored bucket and value tier from migration 289.
+		// Served from here rather than through a second round-trip, because this is the
+		// one screen where "is this customer slipping away, and are they worth
+		// chasing?" has to be answerable at a glance.
+		//
+		// Absent when the party has not been scored yet (minted since the last
+		// overnight run): the caller renders nothing rather than an alarm. A row with
+		// measured=false means we hold NO money history for them at all — most of the
+		// base — which is not the same as "never transacted", and the UI says so.
+		if lc, _ := db.PGQuery(ctx, `
+			SELECT cl.bucket, cl.value_tier, cl.value_kobo, cl.days_since_txn,
+			       cl.last_txn_at, cl.measured, cl.has_open_recovery, cl.contactable,
+			       cl.computed_at
+			  FROM app.customer_lifecycle cl
+			  JOIN app.customers c ON c.party_id = cl.party_id
+			 WHERE COALESCE(NULLIF(c.cif,''), c.contact_id) = $1
+			 LIMIT 1`, cif); len(lc) > 0 {
+			profile["lifecycle"] = lc[0]
+		}
+
 		// Recent account transactions (naira amounts).
 		txnList := make([]any, 0)
 		for _, t := range txnRows {

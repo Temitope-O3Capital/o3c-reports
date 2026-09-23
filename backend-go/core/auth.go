@@ -645,14 +645,14 @@ func buildRolePages() map[string][]string {
 
 	// Per-module page sets: agent (day-to-day) + head extras (oversight/actions).
 	salesAgent := []string{"sales", "loans", "los", "crm_pipeline", "crm_contacts", "crm_tasks", "crm_reports", "cohort", "mail"}
-	salesHead := []string{"los_all", "los_assign", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive"}
+	salesHead := []string{"los_all", "los_assign", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive", "retention"}
 	bdAgent := []string{"bd", "bd_employers", "bd_pipeline", "crm_contacts", "mail"}
 	bdHead := []string{"campaigns", "contact_lists", "message_templates", "kpi_dashboard", "executive"}
 	collAgent := []string{"collections", "crm_contacts"}
 	// collHead includes "recovery" so collections leads can open the Recovery Approvals
 	// hand-off screen (route /collections/recovery-approvals gates on the recovery page);
 	// the Recovery *module* itself stays gated to recovery roles via the sidebar vis list.
-	collHead := []string{"collections_assign", "collections_payment", "collections_payment_approve", "recovery", "loans", "credit_portfolio", "kpi_dashboard", "statements", "executive", "surveys"}
+	collHead := []string{"collections_assign", "collections_payment", "collections_payment_approve", "recovery", "loans", "credit_portfolio", "kpi_dashboard", "statements", "executive", "surveys", "retention"}
 	recAgent := []string{"recovery"}
 	recHead := []string{"recovery_assign", "recovery_write_off", "loans", "credit_portfolio", "kpi_dashboard", "statements", "executive"}
 	cardsAgent := []string{"cards", "card_trends", "los_booking", "blink_card"}
@@ -665,13 +665,13 @@ func buildRolePages() map[string][]string {
 	settleAgent := []string{"settlement", "reconciliation", "eod", "transactions", "credit_portfolio"}
 	settleHead := []string{"kpi_dashboard", "statements", "executive"}
 	ccAgent := []string{"call_center", "helpdesk", "helpdesk_canned", "helpdesk_kb", "crm_contacts"}
-	ccHead := []string{"call_center_stats", "helpdesk_stats", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive", "surveys"}
+	ccHead := []string{"call_center_stats", "helpdesk_stats", "campaigns", "contact_lists", "message_templates", "kpi_dashboard", "statements", "executive", "surveys", "retention"}
 	// Care (customer email) is a separate team from Call Center (phone) — its own
 	// module + roles, so a call-center agent no longer sees Care and vice-versa. Care
 	// still uses the shared helpdesk ticket engine (email-channel tickets), hence the
 	// helpdesk/canned/kb keys; the "care" key + sidebar gate the module itself.
 	careAgent := []string{"care", "helpdesk", "helpdesk_canned", "helpdesk_kb", "crm_contacts", "surveys"}
-	careHead := []string{"helpdesk_stats", "message_templates", "kpi_dashboard", "statements", "executive"}
+	careHead := []string{"helpdesk_stats", "message_templates", "kpi_dashboard", "statements", "executive", "retention"}
 	// "los" is the base page guard on every /api/los route. Without it a risk officer
 	// could open App Review, see the queue, and then 403 on Advance AND Decline — the
 	// two actions the page exists for. los_risk_review only authorises the specific
@@ -707,7 +707,7 @@ func buildRolePages() map[string][]string {
 	// "statements", so their dashboards and statements are unaffected — what they
 	// lose is the ability to pull raw data files themselves.
 	biAnalyst := []string{"reports", "kpi_dashboard", "cohort"}
-	biHead := []string{"executive", "statements"}
+	biHead := []string{"executive", "statements", "retention"}
 
 	m := map[string][]string{
 		// ── System & Analytics ──
@@ -837,6 +837,15 @@ func buildRolePages() map[string][]string {
 	} {
 		if p, ok := m[r]; ok {
 			m[r] = union(p, []string{"report_builder"})
+		}
+	}
+
+	// Retention & Win-Back. The module heads already carry it in their own page
+	// blocks above; this adds the C-suite, who head no single module but are exactly
+	// the people who ask what became of the NGN 3.6bn of spend that stopped.
+	for _, r := range []string{"coo", "cfo", "cmo", "head_ops"} {
+		if p, ok := m[r]; ok {
+			m[r] = union(p, []string{"retention"})
 		}
 	}
 

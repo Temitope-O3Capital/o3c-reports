@@ -48,6 +48,7 @@ const ReportsUploads  = lazy(() => import('./pages/reports/Uploads'))
 const ReportsMerchantNames = lazy(() => import('./pages/reports/MerchantNames'))
 const SettlementImport = lazy(() => import('./pages/settlements/SettlementImport'))
 const GrowthActivity  = lazy(() => import('./pages/growth/GrowthActivity'))
+const Retention       = lazy(() => import('./pages/retention/Retention'))
 const ReportsBuilder  = lazy(() => import('./pages/reports/ReportBuilder'))
 const ReportsManagement = lazy(() => import('./pages/reports/ManagementReports'))
 const ReportsEditor = lazy(() => import('./pages/reports/ReportEditor'))
@@ -1286,6 +1287,7 @@ const AppShell = memo(function AppShell({ user, onLogout }: { user: AuthUser; on
                   {/* Growth & Activity — registrations / transactions / churn monitor. Open to
                       the operating teams plus BI and management (mirrors the backend gate). */}
                   <Route path="/growth" element={<RequireAccess page={['kpi_dashboard','reports','executive']} user={user}><PageErrorBoundary><GrowthActivity /></PageErrorBoundary></RequireAccess>} />
+                  <Route path="/retention" element={<RequireAccess page="retention" user={user}><PageErrorBoundary><Retention /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/bi/*"           element={<Navigate to="/reports/builder" replace />} />
                   <Route path="/core-banking"               element={<RequireAccess page="core-banking" user={user}><PageErrorBoundary><CoreBanking /></PageErrorBoundary></RequireAccess>} />
                   <Route path="/statements/credit-cards"    element={<RequireAccess page="statements" user={user}><PageErrorBoundary><CCStatements /></PageErrorBoundary></RequireAccess>} />

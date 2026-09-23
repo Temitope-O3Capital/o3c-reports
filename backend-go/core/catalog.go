@@ -31,6 +31,11 @@ var PageCatalog = []CatalogModule{
 		{"report_builder", "Report Builder"},
 		{"statements", "Statements"},
 		{"approvals", "Approvals"},
+		// Retention & Win-Back. Filed under Executive rather than under one module
+		// because no single team owns it: the Call Center works the at-risk and
+		// dormant buckets, Sales works the high-value win-backs, and Collections
+		// owns the customers who are excluded from both.
+		{"retention", "Retention & Win-Back"},
 	}},
 	{Key: "sales", Label: "Sales & BD", Icon: "trending_up", Pages: []CatalogPage{
 		{"sales", "Sales & CRM"},
