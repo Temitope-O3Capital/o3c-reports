@@ -2917,11 +2917,19 @@ func complianceBoardPack(db *core.DB) http.HandlerFunc {
 			)
 		}
 
-		// Fixed deposits
+		// Fixed deposits.
+		//
+		// This read fd_transactions — the retired workspace FD ops book, which has
+		// held zero rows since the deposit desk moved to Udara. So the board pack
+		// published "FD Count 0 / FD Book ₦0.00" while the real funded book stood at
+		// 213 deposits and ₦19.86bn: the largest number in the business, reported to
+		// the board as nothing. Same basis as Treasury and /api/fd-book/kpis — the
+		// live CBS register, Active and funded, principal converted from kobo.
 		if rows, err := db.PGQuery(ctx, `
 			SELECT COUNT(*) AS fd_count,
-			       COALESCE(SUM(principal),0) AS total_principal
-			FROM fd_transactions WHERE transaction_type='inflow'`); err == nil && len(rows) > 0 {
+			       COALESCE(SUM(principal_kobo),0)::numeric / 100 AS total_principal
+			FROM cbs_fixed_deposits
+			WHERE status='Active' AND `+sqlFDFunded); err == nil && len(rows) > 0 {
 			row := rows[0]
 			metrics = append(metrics,
 				Metric{"FD Count", fmt.Sprintf("%d", toInt64(row["fd_count"]))},

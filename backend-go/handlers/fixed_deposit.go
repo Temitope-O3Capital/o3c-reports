@@ -11,21 +11,39 @@ import (
 	"github.com/o3c/workspace/core"
 )
 
+// RegisterFixedDeposit mounts the legacy workspace FD surface — READS ONLY.
+//
+// Udara is the banking system and owns the deposit book. The workspace does not
+// book, roll over, liquidate or withdraw deposits, and the writes that used to
+// live here are unmounted:
+//
+//	POST   /transactions                                  create
+//	PUT    /transactions/{id}                             update
+//	DELETE /transactions/{id}                             delete
+//	POST   /transactions/{id}/early-withdrawal-request    early withdrawal
+//	PATCH  /transactions/{id}/early-withdrawal/{r}/approve|reject
+//	POST   /transactions/{id}/rollover                    rollover
+//	POST   /transactions/{id}/liquidate                   liquidation
+//
+// They wrote to fd_transactions — the retired ops book, zero rows since the desk
+// moved to Udara — and each of the last three also posted a GL journal. So the
+// live hazard was a deposit event recorded in the workspace and NOWHERE in the
+// core banking system, with a journal entry behind it: precisely the drift a
+// reporting system exists to avoid. The UI retired these actions long ago and no
+// caller remains, so nothing is losing a feature it was using.
+//
+// The handlers themselves are kept rather than deleted. They are the only written
+// record of how the desk worked, and re-mounting one is a line of code if a
+// workspace-side FD flow is ever wanted again — deliberately, not by accident.
+//
+// Reads stay: they serve the legacy table for any consumer still pointed at it.
+// The live book is /api/fd-book/* and /api/finance/fd-accrual, both reading
+// cbs_fixed_deposits.
 func RegisterFixedDeposit(r chi.Router, db *core.DB) {
 	access := core.RequirePages("fixed_deposit")
 
 	r.With(access).Get("/transactions", fdListTransactions(db))
-	r.With(access).Post("/transactions", fdCreateTransaction(db))
 	r.With(access).Get("/transactions/{id}", fdGetTransaction(db))
-	r.With(access).Put("/transactions/{id}", fdUpdateTransaction(db))
-	r.With(access).Delete("/transactions/{id}", fdDeleteTransaction(db))
-
-	r.With(access).Post("/transactions/{id}/early-withdrawal-request", fdEarlyWithdrawalRequest(db))
-	r.With(access).Patch("/transactions/{id}/early-withdrawal/{req_id}/approve", fdEarlyWithdrawalApprove(db))
-	r.With(access).Patch("/transactions/{id}/early-withdrawal/{req_id}/reject", fdEarlyWithdrawalReject(db))
-
-	r.With(access).Post("/transactions/{id}/rollover", fdRollover(db))
-	r.With(access).Post("/transactions/{id}/liquidate", fdLiquidate(db))
 
 	r.With(access).Get("/summary", fdSummary(db))
 	r.With(access).Get("/trend", fdTrend(db))
