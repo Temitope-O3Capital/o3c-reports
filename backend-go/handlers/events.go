@@ -38,7 +38,16 @@ var liveTopics = []struct{ Name, SQL string }{
 	// other viewer stale until they clicked away and back. Widened rather than split
 	// into a new topic so the existing subscribers pick it up with no frontend change.
 	{"cards", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(id)::text,'0') FROM card_cycle_data)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM card_issuance_requests)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM card_sale_attributions)`},
-	{"fixed_deposits", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM fd_transactions`},
+	// Exactly the cards problem one line above, and the same remedy. This watched
+	// fd_transactions — the retired ops book, zero rows since the deposit desk
+	// moved to Udara — so the signature was a constant "0:" and the topic could
+	// never fire. The deposits Dashboard subscribes to it and therefore never went
+	// live: the book could move by billions and every open viewer stayed stale
+	// until they navigated away and back. Widened to the live register rather than
+	// split into a new topic, so existing subscribers pick it up with no frontend
+	// change; the legacy table stays in the signature so anything still writing to
+	// it is not silently ignored.
+	{"fixed_deposits", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(synced_at)::text,'') FROM cbs_fixed_deposits)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM fd_transactions)`},
 	{"mail", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(received_at)::text,'') FROM inbound_mail)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM mail_messages)`},
 	{"cbs", `SELECT (SELECT COUNT(*)||':'||COALESCE(MAX(synced_at)::text,'') FROM cbs_loans)||'|'||(SELECT COUNT(*)||':'||COALESCE(MAX(synced_at)::text,'') FROM cbs_fixed_deposits)`},
 	{"crm", `SELECT COUNT(*)||':'||COALESCE(MAX(updated_at)::text,'') FROM crm_contacts`},
