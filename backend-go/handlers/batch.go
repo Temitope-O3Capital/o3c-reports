@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -207,11 +208,25 @@ func runBatch(ctx context.Context, db *core.DB) error {
 	// Gate on what was actually last delivered, so a missed month still goes out late
 	// and a second run in the same month is a no-op.
 	if boardPackDue(ctx, db) {
-		if err := batchMonthlyBoardPack(ctx, db); err != nil {
+		// A pack that was never assembled must not be recorded as delivered.
+		//
+		// The unconfigured path used to return nil, so this branch beat "ok" —
+		// which advances last_ok_at, which is exactly what boardPackDue reads. The
+		// heartbeat therefore claimed "monthly board pack delivered" for a run that
+		// returned before computing a single metric, and in doing so marked the
+		// month done: the first genuinely configured pack would have been skipped.
+		// "idle" exists for this — it records the run without advancing last_ok_at,
+		// and renders amber "Waiting" rather than green "Healthy".
+		err := batchMonthlyBoardPack(ctx, db)
+		switch {
+		case errors.Is(err, errBoardPackUnconfigured):
+			steps = append(steps, "board_pack:idle")
+			WorkerBeat(ctx, db, "board_pack", "idle", "BOARD_EMAIL_LIST not configured — nothing sent", "")
+		case err != nil:
 			slog.Error("Batch: monthly board pack failed", "err", err)
 			steps = append(steps, "board_pack:FAILED")
 			WorkerBeat(ctx, db, "board_pack", "error", "", err.Error())
-		} else {
+		default:
 			steps = append(steps, "board_pack:ok")
 			WorkerBeat(ctx, db, "board_pack", "ok", "monthly board pack delivered", "")
 		}
@@ -998,6 +1013,11 @@ func batchFDMaturityNotifications(ctx context.Context, db *core.DB) error {
 // second run in the same month sends nothing. Note the consequence on first deploy:
 // with no heartbeat recorded yet, the pack is considered owed and will send on the next
 // batch run. That is the intended reading of "this month has not been delivered".
+// errBoardPackUnconfigured means the run did nothing because there is no board
+// distribution list — not that anything failed, and emphatically not that a pack
+// went out. The caller records it as idle so last_ok_at is left alone.
+var errBoardPackUnconfigured = errors.New("board pack: BOARD_EMAIL_LIST not configured")
+
 func boardPackDue(ctx context.Context, db *core.DB) bool {
 	rows, err := db.PGQuery(ctx, `
 		SELECT (last_ok_at IS NULL
@@ -1019,7 +1039,7 @@ func batchMonthlyBoardPack(ctx context.Context, db *core.DB) error {
 	boardList := resolveCredKey(ctx, db, "BOARD_EMAIL_LIST")
 	if boardList == "" {
 		slog.Info("Board pack: BOARD_EMAIL_LIST not configured — skipping")
-		return nil
+		return errBoardPackUnconfigured
 	}
 
 	// Collect previous month's KPIs
@@ -1028,29 +1048,63 @@ func batchMonthlyBoardPack(ctx context.Context, db *core.DB) error {
 	type metric struct{ label, value string }
 	var metrics []metric
 
-	// Loan book
+	// Loan book — the Udara book. Same defect and same fix as the on-demand pack
+	// in compliance.go: every figure came from loan_applications, which holds LOS
+	// applications in flight and has never held a booked loan, so the monthly pack
+	// would have reported Active Loans 0, Loan Book ₦0.00 and PAR30 0.0% against a
+	// real 41 loans, ₦920.8m and 48%. Arrears use app.cbs_loan_dpd, the canonical
+	// schedule-first rule.
 	if rows, err := db.PGQuery(ctx, `
-		SELECT
-		    COUNT(*) FILTER (WHERE status NOT IN ('declined','draft'))     AS total_apps,
-		    COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status = 'active'), 0) AS book_kobo,
-		    COUNT(*) FILTER (WHERE status = 'active')                     AS active_loans,
-		    COALESCE(SUM(amount_approved_kobo) FILTER (
-		        WHERE status = 'active'
-		          AND GREATEST(0, CURRENT_DATE - booked_at::date) > 30), 0) AS par30_kobo
-		FROM loan_applications`); err == nil && len(rows) > 0 {
+		WITH l AS (
+		    SELECT outstanding_principal_kobo AS out_kobo,
+		           `+cbsLoanDPDBare+` AS dpd
+		      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
+		SELECT COUNT(*) AS active_loans,
+		       COALESCE(SUM(out_kobo),0) AS book_kobo,
+		       COUNT(*) FILTER (WHERE dpd > 30) AS dpd30_count,
+		       COALESCE(SUM(out_kobo) FILTER (WHERE dpd > 30),0) AS par30_kobo
+		  FROM l`); err == nil && len(rows) > 0 {
 		r := rows[0]
 		bookKobo := toInt64(r["book_kobo"])
-		par30Kobo := toInt64(r["par30_kobo"])
 		par30Pct := 0.0
 		if bookKobo > 0 {
-			par30Pct = float64(par30Kobo) / float64(bookKobo) * 100
+			par30Pct = float64(toInt64(r["par30_kobo"])) / float64(bookKobo) * 100
 		}
 		metrics = append(metrics,
-			metric{"Active Loans", fmt.Sprintf("%d", toInt64(r["active_loans"]))},
-			metric{"Loan Book (₦)", fmt.Sprintf("%.2f", float64(bookKobo)/100)},
+			metric{"Active Loans (Udara)", fmt.Sprintf("%d", toInt64(r["active_loans"]))},
+			metric{"Loan Book — Udara (₦)", fmt.Sprintf("%.2f", float64(bookKobo)/100)},
 			metric{"PAR30 (%)", fmt.Sprintf("%.1f%%", par30Pct)},
-			metric{"Total Applications", fmt.Sprintf("%d", toInt64(r["total_apps"]))},
+			metric{"Accounts DPD>30", fmt.Sprintf("%d", toInt64(r["dpd30_count"]))},
 		)
+	}
+
+	// Loan book — the part that is NOT in Udara. 54 loans were uploaded into
+	// recovery that exist nowhere in the core banking system (data_source='manual'),
+	// 31 of them still active at ₦529.3m, and none matching a cbs_loans account on
+	// any key. Its own line rather than merged: a performing book and a recovery
+	// book are not the same kind of money. Total exposure is given too.
+	if rows, err := db.PGQuery(ctx, `
+		SELECT COUNT(*) AS cases, COALESCE(SUM(outstanding_kobo),0) AS out_kobo
+		  FROM recovery_cases
+		 WHERE product_type='loan' AND data_source='manual' AND status='active'`); err == nil && len(rows) > 0 {
+		offKobo := toInt64(rows[0]["out_kobo"])
+		metrics = append(metrics,
+			metric{"Loans Off-Udara (uploaded)", fmt.Sprintf("%d", toInt64(rows[0]["cases"]))},
+			metric{"Loan Book — Off-Udara (₦)", fmt.Sprintf("%.2f", float64(offKobo)/100)},
+		)
+		if r2, err2 := db.PGQuery(ctx, `
+			SELECT COALESCE(SUM(outstanding_principal_kobo),0) AS k
+			  FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')`); err2 == nil && len(r2) > 0 {
+			metrics = append(metrics, metric{"Total Loan Exposure (₦)",
+				fmt.Sprintf("%.2f", float64(toInt64(r2[0]["k"])+offKobo)/100)})
+		}
+	}
+
+	// LOS pipeline — what loan_applications legitimately measures.
+	if rows, err := db.PGQuery(ctx, `
+		SELECT COUNT(*) AS c FROM loan_applications
+		 WHERE status NOT IN ('declined','draft')`); err == nil && len(rows) > 0 {
+		metrics = append(metrics, metric{"Applications In Flight", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
 	}
 
 	// Fixed deposits.

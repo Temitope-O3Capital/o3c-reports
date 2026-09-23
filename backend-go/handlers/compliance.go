@@ -2893,28 +2893,80 @@ func complianceBoardPack(db *core.DB) http.HandlerFunc {
 		}
 		var metrics []Metric
 
-		// Loan book
+		// Loan book — the Udara book.
+		//
+		// Every figure here used to come from loan_applications, which holds LOS
+		// applications in flight and has never held a booked loan: 8 rows, all
+		// 'submitted', no amount, no booked_at. Origination is booked in Udara. So
+		// the board pack reported Active Loans 0, Loan Book ₦0.00, PAR30 0.0% and
+		// Accounts DPD>30 0 against a real book of 41 open loans, ₦920.8m and a
+		// PAR30 of 48% — the entire lending picture, reported as nothing.
+		//
+		// Read live from cbs_loans rather than cbs_portfolio_snapshot so the PAR30
+		// numerator and denominator come from the same rows. That costs a small
+		// timing difference against Treasury and End of Day, which read the daily
+		// snapshot: ~₦1.3m on ₦920m at the time of writing, a day's drift, not a
+		// difference of method. Arrears use app.cbs_loan_dpd, the canonical
+		// schedule-first rule, never an inlined day-count.
 		if rows, err := db.PGQuery(ctx, `
-			SELECT
-			    COUNT(*) FILTER (WHERE status NOT IN ('declined','draft')) AS total_apps,
-			    COALESCE(SUM(amount_approved_kobo) FILTER (WHERE status='active'),0) AS book_kobo,
-			    COUNT(*) FILTER (WHERE status='active') AS active_loans,
-			    COALESCE(SUM(amount_approved_kobo) FILTER (
-			        WHERE status='active' AND GREATEST(0, CURRENT_DATE - booked_at::date) > 30),0) AS par30_kobo
-			FROM loan_applications`); err == nil && len(rows) > 0 {
+			WITH l AS (
+			    SELECT outstanding_principal_kobo AS out_kobo,
+			           `+cbsLoanDPDBare+` AS dpd
+			      FROM cbs_loans WHERE status NOT IN ('Closed','Revoked'))
+			SELECT COUNT(*) AS active_loans,
+			       COALESCE(SUM(out_kobo),0) AS book_kobo,
+			       COUNT(*) FILTER (WHERE dpd > 30) AS dpd30_count,
+			       COALESCE(SUM(out_kobo) FILTER (WHERE dpd > 30),0) AS par30_kobo
+			  FROM l`); err == nil && len(rows) > 0 {
 			row := rows[0]
 			bookKobo := toInt64(row["book_kobo"])
-			par30Kobo := toInt64(row["par30_kobo"])
 			par30Pct := 0.0
 			if bookKobo > 0 {
-				par30Pct = float64(par30Kobo) / float64(bookKobo) * 100
+				par30Pct = float64(toInt64(row["par30_kobo"])) / float64(bookKobo) * 100
 			}
 			metrics = append(metrics,
-				Metric{"Active Loans", fmt.Sprintf("%d", toInt64(row["active_loans"]))},
-				Metric{"Loan Book (₦)", fmt.Sprintf("%.2f", float64(bookKobo)/100)},
+				Metric{"Active Loans (Udara)", fmt.Sprintf("%d", toInt64(row["active_loans"]))},
+				Metric{"Loan Book — Udara (₦)", fmt.Sprintf("%.2f", float64(bookKobo)/100)},
 				Metric{"PAR30 (%)", fmt.Sprintf("%.1f%%", par30Pct)},
-				Metric{"Total Applications", fmt.Sprintf("%d", toInt64(row["total_apps"]))},
+				Metric{"Accounts DPD>30", fmt.Sprintf("%d", toInt64(row["dpd30_count"]))},
 			)
+		}
+
+		// Loan book — the part that is NOT in Udara.
+		//
+		// Loans were uploaded into recovery that exist nowhere in the core banking
+		// system: 54 cases carrying data_source='manual', of which 31 are still
+		// active at ₦529.3m. Zero of the 54 match a cbs_loans account number on
+		// either key, so there is no double count with the figure above.
+		//
+		// Reported as its own line rather than folded into the Udara book: one is a
+		// performing book and the other is a recovery book, and a board reading a
+		// single merged "Loan Book" would be told they are the same kind of money.
+		// The total is given as well, because total exposure is the question a board
+		// actually asks.
+		if rows, err := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS cases, COALESCE(SUM(outstanding_kobo),0) AS out_kobo
+			  FROM recovery_cases
+			 WHERE product_type='loan' AND data_source='manual' AND status='active'`); err == nil && len(rows) > 0 {
+			offKobo := toInt64(rows[0]["out_kobo"])
+			metrics = append(metrics,
+				Metric{"Loans Off-Udara (uploaded)", fmt.Sprintf("%d", toInt64(rows[0]["cases"]))},
+				Metric{"Loan Book — Off-Udara (₦)", fmt.Sprintf("%.2f", float64(offKobo)/100)},
+			)
+			if r2, err2 := db.PGQuery(ctx, `
+				SELECT COALESCE(SUM(outstanding_principal_kobo),0) AS k
+				  FROM cbs_loans WHERE status NOT IN ('Closed','Revoked')`); err2 == nil && len(r2) > 0 {
+				metrics = append(metrics, Metric{"Total Loan Exposure (₦)",
+					fmt.Sprintf("%.2f", float64(toInt64(r2[0]["k"])+offKobo)/100)})
+			}
+		}
+
+		// LOS pipeline. This is what loan_applications legitimately measures —
+		// applications in flight, not a book — so it is labelled as that.
+		if rows, err := db.PGQuery(ctx, `
+			SELECT COUNT(*) AS c FROM loan_applications
+			 WHERE status NOT IN ('declined','draft')`); err == nil && len(rows) > 0 {
+			metrics = append(metrics, Metric{"Applications In Flight", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
 		}
 
 		// Fixed deposits.
@@ -2950,10 +3002,19 @@ func complianceBoardPack(db *core.DB) http.HandlerFunc {
 			metrics = append(metrics, Metric{"Open Support Tickets", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
 		}
 
-		// Open compliance findings
+		// Open audit findings.
+		//
+		// This queried compliance_findings — a table that does not exist in this
+		// database. The query therefore errored, `err == nil` was false, and the
+		// metric was dropped from the pack silently: not shown as zero, not shown
+		// at all, with nothing anywhere saying a line was missing. That is the
+		// failure mode of guarding a metric on `err == nil` and no other signal.
+		// The real table is audit_findings.
 		if rows, err := db.PGQuery(ctx, `
-			SELECT COUNT(*) AS c FROM compliance_findings WHERE status NOT IN ('closed')`); err == nil && len(rows) > 0 {
-			metrics = append(metrics, Metric{"Open Compliance Findings", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
+			SELECT COUNT(*) AS c FROM audit_findings WHERE status <> 'closed'`); err == nil && len(rows) > 0 {
+			metrics = append(metrics, Metric{"Open Audit Findings", fmt.Sprintf("%d", toInt64(rows[0]["c"]))})
+		} else if err != nil {
+			slog.Error("board pack: open audit findings query failed", "err", err)
 		}
 
 		// Open SARs
