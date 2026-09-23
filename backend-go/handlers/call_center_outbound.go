@@ -3133,6 +3133,44 @@ func leadStatusFromCall(outcome string, disposition *string) string {
 	return "called"
 }
 
+// leadDeclinedOnCall reports whether this call is the CUSTOMER THEMSELVES saying no.
+// It is the one thing allowed to overturn an earned 'interested'.
+//
+// Why it has to exist: 'interested' ranks 4 and "Not Interested" maps to 'called'
+// (rank 1), so syncLeadFromCall's forward-only guard refused the move. A lead that
+// was reached again and declined kept reading as Interested — on the Leads screen,
+// in the qualified count, and to Sales, who in two of the three live cases had
+// already been handed the lead and were still chasing it.
+//
+// Deliberately narrow: this is NOT "any call that ranks below 'interested'".
+//   - 'no_answer' establishes nothing about whether they still want the product.
+//     The last thing they actually told us is still "interested".
+//   - 'not_ready' is a timing objection — its own hint reads "Interested but not
+//     now" — so it does not contradict interest.
+//   - a bare call logged with no disposition maps to 'called' as well, and must
+//     not silently un-qualify a warm lead.
+//   - "Not Eligible" is OUR decline rather than theirs; it maps to 'closed', which
+//     already outranks 'interested' and needs no help from here.
+// Only an explicit refusal counts.
+func leadDeclinedOnCall(outcome string, disposition *string) bool {
+	d := ""
+	if disposition != nil {
+		d = strings.TrimSpace(*disposition)
+	}
+	if d == "" {
+		d = outcome
+	}
+	// Underscores become spaces so the CODE ("answered_not_interested") and the
+	// LABEL ("Answered — Not Interested") are matched by the same words. Callers
+	// pass whichever they hold: the outbound queue passes the label, the call-log
+	// and call-edit endpoints pass whatever the client sent.
+	d = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(d), "_", " "))
+	if d == "" {
+		return false
+	}
+	return strings.Contains(d, "not interested") || strings.Contains(d, "do not call")
+}
+
 // advanceLeadStatus moves a lead to the status a call implies WITHOUT re-recording the
 // call (it is already in the ledger) — the light half of syncLeadFromCall used by the
 // phone-matched rescue below. Guarded to status='pending' so it only ever RESCUES a
@@ -3272,6 +3310,10 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 	// drift out of step with the mapping above.
 	outcomeKnown := status != "pending"
 
+	// Did the customer just refuse? That is the only thing allowed to overturn an
+	// earned 'interested' — see leadDeclinedOnCall for why it is this narrow.
+	declined := leadDeclinedOnCall(outcome, disposition)
+
 	// The business disposition (falling back to the raw outcome) — now stored durably
 	// on the lead itself, so its history survives a later void/merge of the call.
 	dispo := outcome
@@ -3300,15 +3342,24 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		   -- the last call established ($6) — including "nobody answered", which is a
 		   -- fact about that call and what the Leads screen should show.
 		   --
-		   -- Two things this deliberately does NOT do. It does not discard the promise:
-		   -- callback_at below still stands on a no-answer, and the outbound queue
-		   -- dials from the CONTACT row's callback_at rather than this status, so the
-		   -- customer is still rung back. And it is not a general escape from the rank
-		   -- guard: 'interested' and 'converted' are earned, and still cannot be walked
-		   -- backwards, which is what that guard was built to protect.
+		   -- This does not discard the promise: callback_at below still stands on a
+		   -- no-answer, and the outbound queue dials from the CONTACT row's
+		   -- callback_at rather than this status, so the customer is still rung back.
+		   --
+		   -- A REFUSAL OVERTURNS 'interested' ($7). 'interested' ranks 4 and "Not
+		   -- Interested" maps to 'called' (rank 1), so a lead that was reached again
+		   -- and declined kept reading as Interested — on the Leads screen, in the
+		   -- qualified count, and to Sales, who had already been handed it. Only an
+		   -- explicit refusal does this (leadDeclinedOnCall): a no-answer says nothing
+		   -- about whether they still want the product, "Not Ready Yet" is a timing
+		   -- objection, and a bare logged call must not un-qualify a warm lead.
+		   --
+		   -- 'converted' and the other terminal statuses rank 5 and are still
+		   -- untouchable, which is what the guard was built to protect.
 		   SET status           = CASE
 		                            WHEN $5::int >= `+ccLeadStatusRankSQL+` THEN $1
 		                            WHEN $6::boolean AND status IN ('callback','not_ready') THEN $1
+		                            WHEN $7::boolean AND status = 'interested' THEN $1
 		                            ELSE status END,
 		       last_disposition = COALESCE(NULLIF($4,''), last_disposition),
 		       last_called_at   = NOW(),
@@ -3332,7 +3383,7 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		                               WHEN $1 IN ('pending','no_answer') THEN callback_at
 		                               ELSE NULL END
 		 WHERE id = $2`,
-		status, leadID, callbackAt, dispo, ccLeadStatusRank[status], outcomeKnown)
+		status, leadID, callbackAt, dispo, ccLeadStatusRank[status], outcomeKnown, declined)
 	if err != nil {
 		slog.Error("syncLeadFromCall: update lead", "lead", leadID, "err", err)
 		return
@@ -3341,6 +3392,15 @@ func syncLeadFromCall(ctx context.Context, db *core.DB, leadID int64,
 		// The lead id itself did not match any row — status/callback tracking for
 		// this call was lost. The call itself is still recorded below.
 		slog.Warn("syncLeadFromCall: lead not found", "lead", leadID, "proposed_status", status)
+	}
+
+	// A refusal also ends any open hand-off to Sales. Moving the lead off
+	// 'interested' is only half the job: two of the three leads found frozen there
+	// had already been auto-forwarded as "qualified by a call-centre call", so
+	// Sales went on working customers who had since said no. No-op when the lead
+	// was never forwarded, or when Sales has already resolved the hand-off.
+	if declined {
+		ccCloseForwardOnRefusal(ctx, db, leadID, dispo)
 	}
 
 	// Keep the lead-funnel table in step — canonical code + handle time, so connect

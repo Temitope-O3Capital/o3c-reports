@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -361,4 +362,41 @@ func markForwardResolved(ctx context.Context, db *core.DB, contactID int64, stat
 		        resolved_at    = CASE WHEN $2 IN ('converted','rejected','closed') THEN NOW() ELSE resolved_at END
 		  WHERE contact_id = $1 AND status IN ('forwarded','accepted','assigned')`,
 		contactID, status, owner, outcome)
+}
+
+// ccCloseForwardOnRefusal ends an open Sales hand-off when the customer refuses on a
+// later call-centre call.
+//
+// The ledger has had a 'rejected' state and a reason field from the start, but only
+// the Sales handlers ever wrote them — the call centre could learn that a forwarded
+// customer had changed their mind and had no way to say so. On 2026-09-23 all 73
+// forwards sat on 'forwarded' with a NULL outcome, two of them for customers who had
+// already declined and were still being chased as qualified leads.
+//
+// Keyed on lead_id (every forward carries one) rather than contact_id, because this
+// is driven by a call logged against the LEAD. Guarded to the open states so it can
+// neither reopen nor overwrite a hand-off Sales has already resolved, and is a no-op
+// for a lead that was never forwarded. Fire-and-forget, like the caller that drives it.
+func ccCloseForwardOnRefusal(ctx context.Context, db *core.DB, leadID int64, disposition string) {
+	reason := strings.TrimSpace(disposition)
+	if reason == "" {
+		reason = "Not Interested"
+	}
+	res, err := db.PGExec(ctx,
+		`UPDATE call_center_lead_forwards
+		    SET status      = 'rejected',
+		        outcome     = 'Customer declined on a later call — ' || $2,
+		        updated_at  = NOW(),
+		        resolved_at = NOW()
+		  WHERE lead_id = $1
+		    AND status IN ('forwarded','accepted','assigned')`,
+		leadID, reason)
+	if err != nil {
+		slog.Error("ccCloseForwardOnRefusal: close hand-off", "lead", leadID, "err", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		slog.Info("Sales hand-off closed: customer declined on a later call",
+			"lead", leadID, "forwards", n, "disposition", reason)
+	}
 }
