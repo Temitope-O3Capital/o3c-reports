@@ -75,10 +75,11 @@ const koboFmt = (v: number) => fmtKobo(v)
 //
 // Best-effort throughout. An officer we cannot resolve costs a name in one column; it
 // must never cost the register itself, so every failure path returns the rows unchanged.
-// NOTE: fdBookList's ORDER BY has no tiebreaker, so a deposit sharing a maturity date
-// with another can in principle fall between the two pages and come back without an
-// officer. Harmless here (the cell shows "—"), and it goes away entirely once either
-// the list ORDER BY gains a tiebreaker or the grouped source carries the officer.
+//
+// This used to carry a caveat that fdBookList's ORDER BY had no tiebreaker, so a deposit
+// sharing a maturity date could slip between two pages and arrive without an officer.
+// That ordering now ends in f.cbs_account_number, which is unique across the book, so
+// the paging is stable and the caveat no longer applies.
 async function graftOfficers(rows: FDDeposit[]): Promise<FDDeposit[]> {
   const byAccount = new Map<string, string>()
   try {
