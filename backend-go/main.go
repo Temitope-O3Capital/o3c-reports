@@ -136,6 +136,12 @@ func main() {
 	// scored. An open recovery case is what keeps someone out of a win-back queue.
 	go handlers.StartRetentionWorker(db)
 
+	// Retention journeys — the customer-facing half. Daily at 09:00, inside business
+	// hours so anyone who replies reaches a staffed floor. SENDS NOTHING unless
+	// CUSTOMER_MESSAGING_MODE is set: default is off, staff_preview computes and logs
+	// without dispatching, and only an exact "live" actually messages customers.
+	go handlers.StartRetentionJourneyWorker(db)
+
 	// NDPR erasure worker — processes approved erasure DSARs daily at midnight.
 	go handlers.StartNDPRErasureWorker(db)
 

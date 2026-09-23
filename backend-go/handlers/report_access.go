@@ -40,6 +40,11 @@ var reportDatasetPages = map[string][]string{
 	"card_cycle_data":   {"cards", "card_trends"},
 	// Sales & BD
 	"crm_contacts": {"crm_pipeline", "crm_reports", "bd_pipeline", "call_center_stats"},
+	// Retention is cross-team by construction — the Call Center works the at-risk and
+	// dormant buckets, Sales works the high-value win-backs, and Collections owns the
+	// customers excluded from both — so it rides the 'retention' page that every one
+	// of those heads holds, rather than any single module's key.
+	"customer_lifecycle": {"retention"},
 	// Deposits & Finance
 	"fixed_deposits": {"fixed_deposit"},
 	"fee_income":     {"income", "finance"},

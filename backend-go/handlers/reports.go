@@ -887,6 +887,31 @@ func reportKPIsHandler(db *core.DB) http.HandlerFunc {
 			out["csat_score"] = toFloat(rows[0]["val"])
 		}
 
+		// Retention. The tracker carried ten KPIs and not one of them was about
+		// KEEPING a customer — every measure was acquisition, revenue or credit
+		// risk, while 6,539 customers walked out with NGN 3.6bn of annual spend and
+		// nothing on this page moved.
+		//
+		// Both are snapshots off app.customer_lifecycle (migration 289) rather than
+		// period figures: a bucket is a statement about today, not about a month.
+		// Both deliberately exclude bucket='unknown' — the ~13,300 parties we hold no
+		// transaction history for. Counting them as retained would flatter the rate;
+		// counting them as churned would invent a disaster. They are unmeasured, and
+		// a KPI has no business guessing.
+		out["dormant_rate_pct"] = 0.0
+		out["winback_value_kobo"] = 0
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT COALESCE(ROUND(
+			         100.0 * COUNT(*) FILTER (WHERE bucket IN ('lapsed','churned'))
+			         / NULLIF(COUNT(*) FILTER (WHERE measured), 0), 2), 0) AS dormant_pct,
+			       COALESCE(SUM(value_kobo) FILTER (
+			         WHERE bucket IN ('lapsed','churned')
+			           AND measured AND contactable AND NOT has_open_recovery), 0) AS winback_kobo
+			  FROM app.customer_lifecycle`); len(rows) > 0 {
+			out["dormant_rate_pct"] = toFloat(rows[0]["dormant_pct"])
+			out["winback_value_kobo"] = rows[0]["winback_kobo"]
+		}
+
 		// New customers — counted by first account opened.
 		//
 		// Originally loan applications, which reads zero for a business whose

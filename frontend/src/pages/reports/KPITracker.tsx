@@ -83,6 +83,19 @@ const KPI_DEFS: KPIDef[] = [
   { key: 'recovery_rate_pct',   label: 'Recovery Rate',   format: 'pct',  metric: 'recovery_pct' },
   { key: 'csat_score',          label: 'CSAT',            format: 'num',  metric: 'csat',
     emptyHint: 'No CSAT responses recorded yet.' },
+  // Retention. Ten KPIs here measured acquisition, revenue and credit risk, and not
+  // one measured KEEPING a customer — while 6,539 of them walked out carrying
+  // NGN 3.6bn of annual spend and nothing on this page moved.
+  //
+  // Both are snapshots, and both exclude the ~13,300 customers we hold no transaction
+  // history for: counting them as retained flatters the rate, counting them as
+  // churned invents a disaster.
+  { key: 'dormant_rate_pct',    label: 'Dormant Rate',    format: 'pct',  metric: 'dormant_rate_pct',
+    lowerIsBetter: true, snapshot: true,
+    emptyHint: 'Scored nightly from transaction recency. Customers with no transaction history are excluded.' },
+  { key: 'winback_value_kobo',  label: 'Win-Back Value',  format: 'kobo', metric: 'winback_value_kobo',
+    snapshot: true,
+    emptyHint: 'Annual spend of lapsed customers we can still reach and who are not already in recovery.' },
 ]
 
 // Metric → display format, so the targets editor can collect naira for a kobo

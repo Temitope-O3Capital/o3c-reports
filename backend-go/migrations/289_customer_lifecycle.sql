@@ -217,6 +217,18 @@ BEGIN
          -- are excluded from customer counts everywhere else; they are excluded here
          -- too, or the dormant count fills with people who never bought anything.
          WHERE COALESCE(p.party_key,'') NOT LIKE 'LEAD:%'
+           -- Nor are the company's own house accounts and the card-scheme test
+           -- cards. This is not tidiness: scored without the filter, two of the five
+           -- most valuable CHURNED customers came back as "O3 Capital" (NGN 173.3m)
+           -- and "O3 Cap I" (NGN 84.7m). An agent working the win-back list top-down
+           -- would have started by cold-calling their own employer, and NGN 258m of
+           -- house money was inflating the prize.
+           --
+           -- 21 house rows and 45 test rows. \m and \M are word boundaries, so a real
+           -- customer called "Fastest Jnr" is not mistaken for a test account — which
+           -- a bare LIKE '%test%' would have done.
+           AND COALESCE(p.full_name,'') !~* '^o3\s*[-_]?\s*(cap|cards)'
+           AND COALESCE(p.full_name,'') !~* '\m(test|dummy|sample)\M'
     )
     INSERT INTO app.customer_lifecycle AS cl (
         party_id, bucket, value_tier, last_txn_at, days_since_txn,
