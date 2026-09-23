@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/o3c/workspace/core"
@@ -15,28 +13,38 @@ import (
 // positions derived from other modules' data. It performs no financial
 // actions — GL postings live in the shared GL engine, manual journals in the
 // Settlements module, and P&L / Budget / Cost Tracking / Chart of Accounts
-// were retired. Every route below is therefore a GET; no mutations belong here.
+// were retired. Every route below is a GET bar the FX refresh; no mutations
+// belong here.
+//
+// Every handler answers through respond()/respondPaginated(), so the module
+// speaks one wire envelope and the frontend unwraps uniformly.
+//
+// Retired here: /income, /income/chart, /income/summary, /income/loans,
+// /income/fee-types and /fd-kpis. Nothing called them — the live surfaces are
+// /income-statement and /api/fd-book/kpis — and two of them could not have
+// returned anything current if something had: card_cycle_data is a statement
+// snapshot frozen at 2026-07-14, and fee_income has never held a row.
 func RegisterFinance(r chi.Router, db *core.DB) {
 	access := core.RequirePages("finance", "income")
 
-	// Income reporting (derived from card-cycle and loan data)
-	r.With(access).Get("/income", finIncomeList(db))
-	r.With(access).Get("/income/chart", finIncomeChart(db))
-	r.With(access).Get("/income/loans", finIncomeLoans(db))
-	r.With(access).Get("/income/fee-types", finIncomeFeeTypes(db))
-	r.With(access).Get("/income/summary", finIncomeSummary(db))
-
-	// Income statement — transaction-derived revenue (app.income_daily)
+	// Income statement — transaction-derived revenue (app.income_daily) folded
+	// with loan-schedule interest. See finance_income.go.
 	r.With(access).Get("/income-statement", finIncomeStatement(db))
 
-	// Fixed-deposit reporting (derived from the live CBS register)
-	r.With(access).Get("/fd-accrual", finFDAccrual(db)) // per-FD daily interest accrual
-	r.With(access).Get("/fd-kpis", finFDKPIs(db))       // headline FD metrics
+	// Per-FD daily interest accrual, from the live CBS register.
+	r.With(access).Get("/fd-accrual", finFDAccrual(db))
 
 	// Derived End-of-Day report (computed from app.transactions + snapshots;
 	// no upload). See finance_eod.go.
-	r.With(access).Get("/eod", finEODReport(db))
-	r.With(access).Get("/eod/dates", finEODDates(db))
+	//
+	// Gated on "eod" as well as the module keys. The page route gates on `eod`
+	// alone, and settlement roles are granted `eod` WITHOUT `income`/`finance`
+	// — so before this a settlement officer could open End of Day and then 403
+	// on every call the page makes. /transactions below already had the
+	// equivalent widening; this is the same fix for the same reason.
+	eodAccess := core.RequirePages("finance", "income", "eod")
+	r.With(eodAccess).Get("/eod", finEODReport(db))
+	r.With(eodAccess).Get("/eod/dates", finEODDates(db))
 
 	// Movement ledger (live transaction feed, replaces the old EOD-file list).
 	// Also reachable by holders of the standalone "transactions" page-key so the
@@ -53,12 +61,14 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 	// record. See finPosition below for why this is not the general ledger.
 	r.With(access).Get("/position", finPosition(db))
 
-	// FX (parallel-market) rates. Reads are page-gated to the module; the
-	// refresh POST triggers an outbound scrape + inserts, so it must be gated
-	// too (it previously sat ungated on the /api/finance group).
-	r.With(access).Get("/fx-rates/latest", FXRatesLatest(db))
-	r.With(access).Get("/fx-rates/history", FXRatesHistory(db))
-	r.With(access).Post("/fx-rates/refresh", FXRatesRefresh(db))
+	// FX (parallel-market) rates. Gated on "fx_rates" for the same reason as
+	// /eod — the page route gates on that key alone. The refresh POST triggers
+	// an outbound scrape + inserts, so it is gated too (it previously sat
+	// ungated on the /api/finance group).
+	fxAccess := core.RequirePages("finance", "income", "fx_rates")
+	r.With(fxAccess).Get("/fx-rates/latest", FXRatesLatest(db))
+	r.With(fxAccess).Get("/fx-rates/history", FXRatesHistory(db))
+	r.With(fxAccess).Post("/fx-rates/refresh", FXRatesRefresh(db))
 }
 
 /* ── Financial position ──────────────────────────────────────────────────────
@@ -170,14 +180,27 @@ func finTreasury(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// Trailing-30d transaction flow (naira) as a movement proxy.
+		// Cash-flow window. Defaults to the trailing 30 days, which is all this
+		// used to support — the page had no control at all and the "(30d)" in its
+		// KPI labels was the only clue. The window governs the FLOW half only:
+		// the FD and loan books below have no history to filter, so they stay a
+		// position as of now and the payload says which is which.
+		from, _ := validDate(r, "date_from")
+		to, _ := validDate(r, "date_to")
+		flowWhere := "txn_date >= CURRENT_DATE - 30 AND txn_date <= CURRENT_DATE"
+		var flowArgs []any
+		if from != "" && to != "" {
+			flowWhere = "txn_date >= $1::date AND txn_date <= $2::date"
+			flowArgs = []any{from, to}
+		}
+
 		flowRows, _ := db.PGQuery(ctx, `
 			SELECT
 			    COALESCE(SUM(amount_credit), 0)                    AS inflow_ngn,
 			    COALESCE(SUM(amount_debit), 0)                     AS outflow_ngn,
 			    COALESCE(SUM(amount_credit),0) - COALESCE(SUM(amount_debit),0) AS net_flow_ngn
 			FROM app.transactions
-			WHERE txn_date >= CURRENT_DATE - 30 AND txn_date <= CURRENT_DATE`)
+			WHERE `+flowWhere, flowArgs...)
 
 		// FD book as a deposit liability (kobo). Scoped by status, not by
 		// maturity_date >= CURRENT_DATE: that proxy counted 21 Closed deposits whose
@@ -193,15 +216,24 @@ func finTreasury(db *core.DB) http.HandlerFunc {
 			    COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
 			             FILTER (WHERE maturity_date::date < CURRENT_DATE), 0) AS past_due_kobo
 			FROM app.cbs_fixed_deposits
-			WHERE status='Active' AND ` + sqlFDFunded)
+			WHERE status='Active' AND `+sqlFDFunded)
 
 		// Loan book outstanding (kobo) from the latest CBS portfolio snapshot.
-		var loanBookKobo, nplKobo int64
+		//
+		// outstanding_interest_kobo belongs to the LOAN block of that snapshot
+		// (alongside outstanding_principal_kobo / npl_kobo / performing_kobo): it is
+		// interest receivable on the loan book, and the snapshot carries no FD
+		// accrual column at all. It is named for the book it comes from so it cannot
+		// be picked up as FD accrual — which is exactly what the End of Day report
+		// was doing, showing ₦18.0m of loan interest under "Accrued Interest (FD)"
+		// against a real FD accrual of ₦895.2m.
+		var loanBookKobo, nplKobo, loanInterestKobo int64
 		if rows, _ := db.PGQuery(ctx, `
-			SELECT outstanding_principal_kobo, npl_kobo
+			SELECT outstanding_principal_kobo, npl_kobo, outstanding_interest_kobo
 			FROM app.cbs_portfolio_snapshot ORDER BY snapshot_date DESC LIMIT 1`); len(rows) > 0 {
 			loanBookKobo = toInt64(rows[0]["outstanding_principal_kobo"])
 			nplKobo = toInt64(rows[0]["npl_kobo"])
+			loanInterestKobo = toInt64(rows[0]["outstanding_interest_kobo"])
 		}
 
 		out := map[string]any{
@@ -215,6 +247,7 @@ func finTreasury(db *core.DB) http.HandlerFunc {
 			"past_due_kobo":       int64(0),
 			"loan_book_kobo":      loanBookKobo,
 			"npl_kobo":            nplKobo,
+			"loan_interest_kobo":  loanInterestKobo,
 		}
 		if len(flowRows) > 0 {
 			out["net_flow_ngn"] = toInt64(flowRows[0]["net_flow_ngn"])
@@ -229,17 +262,26 @@ func finTreasury(db *core.DB) http.HandlerFunc {
 			out["past_due_kobo"] = toInt64(fdRows[0]["past_due_kobo"])
 		}
 
-		// Daily flow trend over the trailing 30 closed days (naira) for the
-		// treasury flow chart.
+		// Daily flow trend over the same window as the totals above.
 		if rows, _ := db.PGQuery(ctx, `
 			SELECT to_char(txn_date,'YYYY-MM-DD') AS date,
 			       COALESCE(SUM(amount_credit),0) AS inflow_ngn,
 			       COALESCE(SUM(amount_debit),0)  AS outflow_ngn,
 			       COALESCE(SUM(amount_credit),0) - COALESCE(SUM(amount_debit),0) AS net_ngn
 			FROM app.transactions
-			WHERE txn_date >= CURRENT_DATE - 30 AND txn_date <= CURRENT_DATE
-			GROUP BY txn_date ORDER BY txn_date`); rows != nil {
+			WHERE `+flowWhere+`
+			GROUP BY txn_date ORDER BY txn_date`, flowArgs...); rows != nil {
 			out["flow_trend"] = rows
+		}
+
+		// Echo the resolved flow window so the page can label its own charts
+		// instead of hard-coding "30d" next to a figure the caller may have
+		// asked for over a different span.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT to_char(MIN(txn_date),'YYYY-MM-DD') AS f, to_char(MAX(txn_date),'YYYY-MM-DD') AS t
+			FROM app.transactions WHERE `+flowWhere, flowArgs...); len(rows) > 0 {
+			out["flow_from"] = rows[0]["f"]
+			out["flow_to"] = rows[0]["t"]
 		}
 		respond(w, out, "pg")
 	}
@@ -296,436 +338,53 @@ func finFDAccrual(db *core.DB) http.HandlerFunc {
 			respondErr(w, 500, "FD accrual query failed: "+err.Error())
 			return
 		}
-		jsonRows(w, rows)
+		respond(w, rows, "pg")
 	}
 }
 
-/* ── FD KPIs ─────────────────────────────────────────────────────────────────
-   Headline metrics for the Fixed Deposit page, from the live CBS register.
-*/
-
-func finFDKPIs(db *core.DB) http.HandlerFunc {
+// finTransactionKPIs — movement totals from the live transaction feed
+// (app.transactions) over the SAME window and filters the ledger below is
+// showing, defaulting to month-to-date when no window is given.
+//
+// It used to be hard-wired to month-to-date while the table it sits above was
+// date-filtered, so setting the filter to January left a KPI strip still
+// reporting September — two periods on one screen, neither of them labelled.
+//
+// Amounts are NAIRA (the feed is major-unit); keys are suffixed *_ngn so the
+// frontend formats with fmt(), not fmtKobo().
+func finTransactionKPIs(db *core.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Live Udara/CBS fixed-deposit register. Accrued interest is carried by the CBS
-		// record directly (no per-day recompute needed).
-		//
-		// "Active" is the status, not maturity_date >= CURRENT_DATE. The old proxy
-		// counted 245 deposits — 21 Closed-but-future-dated in, 6 Active-but-past-due
-		// out — against a true Active book of 230 (213 of them funded). Past-due
-		// deposits are now reported on their own line instead of vanishing.
-		//
-		// avg_rate_pct is principal-weighted on the effective rate, the same basis as
-		// /api/fd-book/kpis and the executive FD page. The old unweighted
-		// AVG(interest_rate) ran over all 380 rows — including 150 Closed deposits
-		// zeroed on closure — and answered a question nobody asked: the average of the
-		// rate column rather than the rate the book is actually paying.
-		rows, err := db.PGQuery(r.Context(), `
-			SELECT
-			    COUNT(*)                                                     AS total_fds,
-			    COUNT(*) FILTER (WHERE book)                                 AS active_fds,
-			    COUNT(*) FILTER (WHERE status='Active' AND NOT funded)       AS unfunded_fds,
-			    COALESCE(SUM(principal_kobo) FILTER (WHERE book), 0)         AS total_principal_kobo,
-			    COALESCE(SUM(accrued_interest_kobo) FILTER (WHERE book), 0)  AS total_interest_accrued_kobo,
-			    COUNT(*) FILTER (WHERE book AND maturity_date::date < CURRENT_DATE) AS past_due_fds,
-			    COALESCE(SUM(principal_kobo + COALESCE(accrued_interest_kobo,0))
-			             FILTER (WHERE book AND maturity_date::date < CURRENT_DATE), 0) AS past_due_kobo,
-			    COUNT(*) FILTER (WHERE DATE_TRUNC('month', maturity_date::date) = DATE_TRUNC('month', CURRENT_DATE)) AS matured_this_month,
-			    COALESCE(AVG(tenor_days) FILTER (WHERE book), 0)::bigint     AS avg_tenor_days,
-			    COALESCE(ROUND(SUM(principal_kobo * eff_rate) FILTER (WHERE book AND eff_rate IS NOT NULL)
-			             / NULLIF(SUM(principal_kobo) FILTER (WHERE book AND eff_rate IS NOT NULL), 0), 1), 0) AS avg_rate_pct
-			FROM (
-			    SELECT *,
-			        (` + sqlFDFunded + `)                                      AS funded,
-			        status='Active' AND (` + sqlFDFunded + `)                  AS book,
-			        ` + sqlFDEffRate + `                                       AS eff_rate
-			    FROM cbs_fixed_deposits
-			) f`)
-		if err != nil || len(rows) == 0 {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-				"total_fds": 0, "active_fds": 0, "unfunded_fds": 0,
-				"total_principal_kobo": 0, "total_interest_accrued_kobo": 0,
-				"past_due_fds": 0, "past_due_kobo": 0,
-				"matured_this_month": 0, "avg_tenor_days": 0, "avg_rate_pct": 0,
-			})
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rows[0]) //nolint:errcheck
-	}
-}
-
-/* ── Income ledger ────────────────────────────────────────────────────────────
-   Flattens card_cycle_data into income line items per product per cycle.
-   Each row: date, source (product name), type (Interest/Fees/Penalty), amount_kobo, ref.
-   Filters: type, date_from, date_to.
-*/
-
-func finIncomeList(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		typeFilter := qstr(r, "type")
-		dateFrom := qstr(r, "date_from")
-		dateTo := qstr(r, "date_to")
-		limit := qint(r, "limit", 200, 1, 1000)
-		offset := qint(r, "offset", 0, 0, 1<<30)
-
-		dateWhere := "1=1"
-		var dateArgs []any
-		n := 1
-		if dateFrom != "" {
-			dateWhere += fmt.Sprintf(" AND d.cycle_date >= $%d::date", n)
-			dateArgs = append(dateArgs, dateFrom)
-			n++
-		}
-		if dateTo != "" {
-			dateWhere += fmt.Sprintf(" AND d.cycle_date <= $%d::date", n)
-			dateArgs = append(dateArgs, dateTo)
-			n++
-		}
-
-		buildPart := func(incomeType, col string) string {
-			return fmt.Sprintf(`
-			SELECT
-			  d.cycle_date                              AS date,
-			  COALESCE(p.product_name, d.product_code) AS source,
-			  '%s'                                      AS type,
-			  SUM(d.%s)                                 AS amount_kobo,
-			  d.product_code                            AS ref
-			FROM card_cycle_data d
-			LEFT JOIN card_products p ON p.product_code = d.product_code
-			WHERE %s AND d.%s > 0
-			GROUP BY d.cycle_date, p.product_name, d.product_code`, incomeType, col, dateWhere, col)
-		}
-
-		allTypes := []struct{ label, col string }{
-			{"Interest", "interest_charged_kobo"},
-			{"Fees", "fees_kobo"},
-			{"Penalty", "penalty_kobo"},
-		}
-
-		var parts []string
-		var partCount int
-		for _, t := range allTypes {
-			if typeFilter == "" || typeFilter == t.label {
-				parts = append(parts, buildPart(t.label, t.col))
-				partCount++
-			}
-		}
-
-		// PostgreSQL $N placeholders are global to the whole query — each $1 in every
-		// UNION branch refers to the same first argument. Do NOT duplicate dateArgs.
-		args := make([]any, 0, len(dateArgs)+2)
-		args = append(args, dateArgs...)
-		args = append(args, limit, offset)
-
-		finalSQL := fmt.Sprintf(`
-			SELECT * FROM (%s) inc
-			ORDER BY date DESC, amount_kobo DESC
-			LIMIT $%d OFFSET $%d`, strings.Join(parts, " UNION ALL "), n, n+1)
-
-		rows, err := db.PGQuery(r.Context(), finalSQL, args...)
-		if err != nil {
-			respondErr(w, 500, "income query failed: "+err.Error())
-			return
-		}
-		jsonRows(w, rows)
-	}
-}
-
-/* ── Income chart ─────────────────────────────────────────────────────────────
-   Returns income by type comparing the two most recent cycle dates.
-   Response: [{ type, current, previous }]
-*/
-
-func finIncomeChart(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		dateRows, err := db.PGQuery(r.Context(),
-			`SELECT DISTINCT TO_CHAR(cycle_date,'YYYY-MM-DD') AS d FROM card_cycle_data ORDER BY d DESC LIMIT 2`)
-		if err != nil || len(dateRows) == 0 {
-			respond(w, []map[string]any{}, "pg")
-			return
-		}
-		current := fmt.Sprintf("%v", dateRows[0]["d"])
-		previous := ""
-		if len(dateRows) > 1 {
-			previous = fmt.Sprintf("%v", dateRows[1]["d"])
-		}
-
-		var prevArg any
-		if previous != "" {
-			prevArg = previous
-		}
-		pivotRows, pivotErr := db.PGQuery(r.Context(), `
-			SELECT
-				COALESCE(SUM(CASE WHEN cycle_date=$1::date THEN interest_charged_kobo END),0) AS interest_cur,
-				COALESCE(SUM(CASE WHEN cycle_date=$1::date THEN fees_kobo END),0)             AS fees_cur,
-				COALESCE(SUM(CASE WHEN cycle_date=$1::date THEN penalty_kobo END),0)          AS penalty_cur,
-				COALESCE(SUM(CASE WHEN cycle_date=$2::date THEN interest_charged_kobo END),0) AS interest_prev,
-				COALESCE(SUM(CASE WHEN cycle_date=$2::date THEN fees_kobo END),0)             AS fees_prev,
-				COALESCE(SUM(CASE WHEN cycle_date=$2::date THEN penalty_kobo END),0)          AS penalty_prev
-			FROM card_cycle_data
-			WHERE cycle_date = $1::date OR cycle_date = $2::date`,
-			current, prevArg)
-		if pivotErr != nil || len(pivotRows) == 0 {
-			respond(w, []map[string]any{}, "pg")
-			return
-		}
-		p := pivotRows[0]
-		out := []map[string]any{
-			{"type": "Interest", "current": toInt64(p["interest_cur"]), "previous": toInt64(p["interest_prev"])},
-			{"type": "Fees", "current": toInt64(p["fees_cur"]), "previous": toInt64(p["fees_prev"])},
-			{"type": "Penalty", "current": toInt64(p["penalty_cur"]), "previous": toInt64(p["penalty_prev"])},
-		}
-		// Consistent envelope on every path (both the empty branches above and
-		// here use respond()) so the frontend can unwrap uniformly.
-		respond(w, out, "pg")
-	}
-}
-
-/* ── Income summary (KPIs) ────────────────────────────────────────────────────
-   Returns headline totals for the most recent cycle:
-   card_interest, card_fees, card_penalty, loan_interest, fee_type_income.
-*/
-
-func finIncomeSummary(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		cycleDate := qstr(r, "cycle_date")
-
-		// Default to most recent cycle
-		if cycleDate == "" {
-			rows, _ := db.PGQuery(r.Context(),
-				`SELECT TO_CHAR(cycle_date,'YYYY-MM-DD') AS d FROM card_cycle_data ORDER BY cycle_date DESC LIMIT 1`)
-			if len(rows) > 0 {
-				cycleDate = fmt.Sprintf("%v", rows[0]["d"])
-			}
-		}
-
-		// Per-currency card totals — exact values, no rounding
-		cardQ := `
-			SELECT
-			  currency,
-			  COALESCE(SUM(interest_charged_kobo),   0)::BIGINT AS card_interest,
-			  COALESCE(SUM(fees_kobo),               0)::BIGINT AS card_fees,
-			  COALESCE(SUM(penalty_kobo),            0)::BIGINT AS card_penalty,
-			  COALESCE(SUM(outstanding_balance_kobo),0)::BIGINT AS card_outstanding,
-			  COALESCE(SUM(billed_balance_kobo),     0)::BIGINT AS card_billed,
-			  COALESCE(SUM(credit_limit_kobo),       0)::BIGINT AS card_credit_limit,
-			  COALESCE(SUM(purchase_amount_kobo),    0)::BIGINT AS card_purchases,
-			  COALESCE(SUM(cash_advance_kobo),       0)::BIGINT AS card_cash_advance,
-			  COUNT(*)::BIGINT                                   AS card_accounts
-			FROM card_cycle_data
-			WHERE cycle_date = $1::date
-			GROUP BY currency`
-
-		cardRows, err := db.PGQuery(r.Context(), cardQ, cycleDate)
-		if err != nil {
-			respondErr(w, 500, "summary query failed")
-			return
-		}
-
-		// Live Udara/CBS credit book (open loans).
-		loanRows, _ := db.PGQuery(r.Context(), `
-			SELECT
-			  COALESCE(SUM(loan_amount_kobo), 0)::BIGINT AS total_disbursed_kobo,
-			  COUNT(*)::BIGINT AS active_loans
-			FROM cbs_loans
-			WHERE status NOT IN ('Closed','Revoked')`)
-
-		feeRows, _ := db.PGQuery(r.Context(), `
-			SELECT COALESCE(SUM(amount_kobo), 0)::BIGINT AS fee_type_income_kobo
-			FROM fee_income`)
-
-		// Flatten by currency suffix: _ngn / _usd
-		summary := map[string]any{"cycle_date": cycleDate}
-		for _, cr := range cardRows {
-			sfx := "_" + strings.ToLower(fmt.Sprintf("%v", cr["currency"]))
-			summary["card_interest"+sfx] = toInt64(cr["card_interest"])
-			summary["card_fees"+sfx] = toInt64(cr["card_fees"])
-			summary["card_penalty"+sfx] = toInt64(cr["card_penalty"])
-			summary["card_outstanding"+sfx] = toInt64(cr["card_outstanding"])
-			summary["card_billed"+sfx] = toInt64(cr["card_billed"])
-			summary["card_credit_limit"+sfx] = toInt64(cr["card_credit_limit"])
-			summary["card_purchases"+sfx] = toInt64(cr["card_purchases"])
-			summary["card_cash_advance"+sfx] = toInt64(cr["card_cash_advance"])
-			summary["card_accounts"+sfx] = toInt64(cr["card_accounts"])
-		}
-		// Ensure NGN and USD keys always present so frontend never gets undefined
-		for _, sfx := range []string{"_ngn", "_usd"} {
-			for _, k := range []string{"card_interest", "card_fees", "card_penalty",
-				"card_outstanding", "card_billed", "card_credit_limit",
-				"card_purchases", "card_cash_advance", "card_accounts"} {
-				if _, ok := summary[k+sfx]; !ok {
-					summary[k+sfx] = int64(0)
-				}
-			}
-		}
-
-		summary["loan_disbursed_kobo"] = int64(0)
-		summary["active_loans"] = int64(0)
-		summary["fee_type_income_kobo"] = int64(0)
-		if len(loanRows) > 0 {
-			summary["loan_disbursed_kobo"] = toInt64(loanRows[0]["total_disbursed_kobo"])
-			summary["active_loans"] = toInt64(loanRows[0]["active_loans"])
-		}
-		if len(feeRows) > 0 {
-			summary["fee_type_income_kobo"] = toInt64(feeRows[0]["fee_type_income_kobo"])
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(summary) //nolint:errcheck
-	}
-}
-
-/* ── Income — loans ───────────────────────────────────────────────────────────
-   Returns disbursed loans with rate and estimated interest earned to date.
-*/
-
-func finIncomeLoans(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		limit := qint(r, "limit", 100, 1, 500)
-		offset := qint(r, "offset", 0, 0, 1<<30)
-		dateFrom, _ := validDate(r, "date_from")
-		dateTo, _ := validDate(r, "date_to")
-
-		// Real loan book from Udara (cbs_loans); loan_applications is empty by design —
-		// origination is booked in Udara, not the workspace. Interest earned per loan is
-		// the actual accrued interest from the synced repayment schedule (interest due on
-		// or before today), with a rate×principal×elapsed estimate as a fallback for any
-		// loan whose schedule has not synced yet.
-		where := "l.status NOT IN ('Closed','Revoked')"
+		where := "txn_date <= CURRENT_DATE"
 		var args []any
 		n := 1
-		if dateFrom != "" {
-			where += fmt.Sprintf(" AND l.start_date::date >= $%d::date", n)
-			args = append(args, dateFrom)
+		if v, _ := validDate(r, "date_from"); v != "" {
+			where += fmt.Sprintf(" AND txn_date >= $%d::date", n)
+			args = append(args, v)
+			n++
+		} else {
+			where += " AND txn_date >= date_trunc('month', CURRENT_DATE)::date"
+		}
+		if v, _ := validDate(r, "date_to"); v != "" {
+			where += fmt.Sprintf(" AND txn_date <= $%d::date", n)
+			args = append(args, v)
 			n++
 		}
-		if dateTo != "" {
-			where += fmt.Sprintf(" AND l.start_date::date <= $%d::date", n)
-			args = append(args, dateTo)
+		// Mirrors the ledger's channel handling, "unclassified" sentinel included,
+		// so the strip and the table can never be filtered differently.
+		if v := qstr(r, "channel"); v == "unclassified" {
+			where += " AND channel IS NULL"
+		} else if v != "" {
+			where += fmt.Sprintf(" AND channel = $%d", n)
+			args = append(args, v)
 			n++
 		}
-		args = append(args, limit, offset)
-
-		rows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT
-			  l.cbs_id                                                         AS id,
-			  COALESCE(NULLIF(l.reference_number, ''), l.cbs_account_number)    AS loan_ref,
-			  COALESCE(l.raw->>'name', l.officer_name)                          AS applicant_name, -- Udara's own name
-			  l.product_name                                                   AS product,
-			  l.loan_amount_kobo                                               AS disbursed_amount_kobo,
-			  ROUND(COALESCE(l.interest_rate, 0) * 100)::int                    AS interest_rate_bps,
-			  ROUND(COALESCE(l.interest_rate, 0)::numeric, 2)                  AS rate_pct,
-			  TO_CHAR(l.start_date, 'YYYY-MM-DD')                             AS disbursed_at,
-			  TO_CHAR(l.maturity_date, 'YYYY-MM-DD')                          AS maturity_date,
-			  l.status,
-			  GREATEST(CURRENT_DATE - l.start_date::date, 0)                   AS days_active,
-			  COALESCE(
-			    (SELECT SUM(s.interest_kobo) FROM app.cbs_loan_schedules s
-			       WHERE s.loan_account_number = l.cbs_account_number AND s.payment_date <= CURRENT_DATE),
-			    ROUND(l.loan_amount_kobo::numeric * COALESCE(l.interest_rate, 0) / 100
-			          * GREATEST(CURRENT_DATE - l.start_date::date, 0) / 365)::bigint,
-			    0
-			  )                                                                AS interest_earned_kobo,
-			  CASE
-			    WHEN l.maturity_date IS NULL THEN 'Unknown'
-			    WHEN l.maturity_date::date < CURRENT_DATE THEN 'Matured'
-			    WHEN l.maturity_date::date <= CURRENT_DATE + INTERVAL '30 days' THEN 'Maturing Soon'
-			    ELSE 'Active'
-			  END                                                              AS maturity_status
-			FROM cbs_loans l
-			WHERE %s
-			ORDER BY l.start_date DESC
-			LIMIT $%d OFFSET $%d`, where, n, n+1), args...)
-		if err != nil {
-			respondErr(w, 500, "loan income query failed: "+err.Error())
-			return
-		}
-		jsonRows(w, rows)
-	}
-}
-
-/* ── Income — fee types ───────────────────────────────────────────────────────
-   Returns fee income grouped by fee_type and date from the fee_income table.
-   Table is empty until a fee-type-level report is connected.
-*/
-
-func finIncomeFeeTypes(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		feeType := qstr(r, "fee_type")
-		dateFrom := qstr(r, "date_from")
-		dateTo := qstr(r, "date_to")
-
-		where := "1=1"
-		var args []any
-		n := 1
-		if feeType != "" {
-			parts := strings.Split(feeType, ",")
-			phs := make([]string, len(parts))
-			for i, p := range parts {
-				phs[i] = fmt.Sprintf("$%d", n+i)
-				args = append(args, strings.TrimSpace(p))
-			}
-			n += len(parts)
-			if len(parts) == 1 {
-				where += fmt.Sprintf(" AND fee_type=%s", phs[0])
-			} else {
-				where += fmt.Sprintf(" AND fee_type IN (%s)", strings.Join(phs, ","))
-			}
-		}
-		if dateFrom != "" {
-			where += fmt.Sprintf(" AND fee_date>=$%d::date", n)
-			args = append(args, dateFrom)
-			n++
-		}
-		if dateTo != "" {
-			where += fmt.Sprintf(" AND fee_date<=$%d::date", n)
-			args = append(args, dateTo)
-			n++
+		if v := qstr(r, "direction"); v == "credit" {
+			where += " AND money_in"
+		} else if v == "debit" {
+			where += " AND NOT money_in"
 		}
 		_ = n
 
-		// Summary by fee type
-		summaryRows, _ := db.PGQuery(r.Context(), `
-			SELECT fee_type,
-			  COUNT(*)           AS count,
-			  SUM(amount_kobo)   AS total_kobo
-			FROM fee_income
-			GROUP BY fee_type
-			ORDER BY total_kobo DESC`)
-
-		// Detail rows
-		detailRows, err := db.PGQuery(r.Context(), fmt.Sprintf(`
-			SELECT
-			  TO_CHAR(fee_date,'YYYY-MM-DD') AS fee_date,
-			  fee_type,
-			  product_code,
-			  COALESCE(p.product_name, fi.product_code) AS product_name,
-			  SUM(fi.amount_kobo) AS amount_kobo,
-			  fi.currency
-			FROM fee_income fi
-			LEFT JOIN card_products p ON p.product_code = fi.product_code
-			WHERE %s
-			GROUP BY fee_date, fee_type, fi.product_code, p.product_name, fi.currency
-			ORDER BY fee_date DESC, amount_kobo DESC`, where), args...)
-		if err != nil {
-			respondErr(w, 500, "fee types query failed: "+err.Error())
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"summary": summaryRows,
-			"detail":  detailRows,
-		})
-	}
-}
-
-// finTransactionKPIs — month-to-date movement totals from the live transaction
-// feed (app.transactions). Amounts are NAIRA (the feed is major-unit); keys are
-// suffixed *_ngn so the frontend formats with fmt(), not fmtKobo().
-func finTransactionKPIs(db *core.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.PGQuery(r.Context(), `
 			SELECT
 			  COUNT(*)                                        AS total_count,
@@ -733,8 +392,7 @@ func finTransactionKPIs(db *core.DB) http.HandlerFunc {
 			  COALESCE(SUM(amount_debit), 0)                  AS total_debits_ngn,
 			  COALESCE(SUM(amount_credit),0) - COALESCE(SUM(amount_debit),0) AS net_position_ngn
 			FROM app.transactions
-			WHERE txn_date >= date_trunc('month', CURRENT_DATE)::date
-			  AND txn_date <= CURRENT_DATE`)
+			WHERE `+where, args...)
 		if err != nil || len(rows) == 0 {
 			respond(w, map[string]any{
 				"total_count": 0, "total_credits_ngn": 0, "total_debits_ngn": 0, "net_position_ngn": 0,

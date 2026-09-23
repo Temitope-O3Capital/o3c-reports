@@ -788,59 +788,23 @@ const FINANCE = [
   http.post(u('/api/fixed-deposit/transactions/:id/rollover'), () => new HttpResponse(null, { status: 204 })),
   http.post(u('/api/fixed-deposit/transactions'), () => ok({ id: 99 })),
   http.get(u('/api/fixed-deposit/maturity'), () => wd([])),
-  http.get(u('/api/finance/transaction-kpis'), () => wd({ total_count: 18420, total_credits_kobo: 3_120_000_000_00, total_debits_kobo: 2_840_000_000_00, net_position_kobo: 280_000_000_00 })),
-  http.get(u('/api/finance/fd-kpis'), () => wd({ total_fds: 84, total_principal_kobo: 1_180_000_000_00, avg_rate_pct: 10.2, maturing_this_month: 11 })),
+  // Both of these used to carry key names the API has never sent: *_kobo on a
+  // feed that is naira, and cash_position / fd_liabilities / net_liquidity on a
+  // treasury endpoint with no such fields. A fixture that lies is worse than no
+  // fixture — anything reading it saw undefined and rendered zero. These match
+  // the live contract.
+  http.get(u('/api/finance/transaction-kpis'), () => wd({
+    total_count: 18420, total_credits_ngn: 31_200_000, total_debits_ngn: 28_400_000, net_position_ngn: 2_800_000,
+  })),
 
-  // Finance income / treasury
-  http.get(u('/api/finance/treasury'), () => ok({
-    cash_position: 2_840_000_000_00, fd_liabilities: 1_240_000_000_00, net_liquidity: 1_600_000_000_00,
-  })),
-  http.get(u('/api/finance/income/summary'), () => ok({
-    loan_disbursed_kobo: 1_840_000_000_00, active_loans: 3214,
-    fee_type_income_kobo: 28_000_000_00,
-    card_interest_ngn: 8_200_000_00, card_fees_ngn: 3_400_000_00,
-    card_penalty_ngn: 800_000_00, card_outstanding_ngn: 142_000_000_00,
-    card_billed_ngn: 28_000_000_00, card_credit_limit_ngn: 320_000_000_00,
-    card_purchases_ngn: 62_000_000_00, card_cash_advance_ngn: 14_000_000_00,
-    card_accounts_ngn: 1840,
-    card_interest_usd: 0, card_fees_usd: 0, card_penalty_usd: 0,
-    card_outstanding_usd: 0, card_billed_usd: 0, card_credit_limit_usd: 0,
-    card_purchases_usd: 0, card_cash_advance_usd: 0, card_accounts_usd: 0,
-  })),
-  http.get(u('/api/finance/income/chart'), () => ok([
-    { type:'Interest',    current: 142_000_000_00, previous: 118_000_000_00 },
-    { type:'Origination', current: 18_000_000_00,  previous: 14_000_000_00  },
-    { type:'Late Fees',   current: 6_400_000_00,   previous: 5_200_000_00   },
-    { type:'Card',        current: 12_400_000_00,  previous: 9_800_000_00   },
-    { type:'Management',  current: 3_600_000_00,   previous: 3_100_000_00   },
-  ])),
-  http.get(u('/api/finance/income/loans'), () => ok(
-    Array.from({ length: 20 }, (_, i) => ({
-      id: i+1,
-      loan_ref: `LA-2026-${String(i+100).padStart(4,'0')}`,
-      applicant_name: name(),
-      product: pick(['Payday Loan','Personal Loan','SME Loan','Salary Advance']),
-      disbursed_amount_kobo: rng(5,80)*1_000_000_00,
-      rate_pct: pick([24, 28, 30, 36]),
-      disbursed_at: dateStr(rng(0,180)),
-      maturity_date: dateStr(rng(-30,365)),
-      status: pick(['active','closed','overdue']),
-      days_active: rng(1,360),
-      interest_earned_kobo: rng(1,20)*1_000_000_00,
-      maturity_status: pick(['current','matured','overdue']),
-    }))
-  )),
-  http.get(u('/api/finance/income/fee-types'), () => ok({
-    summary: [
-      { fee_type: 'Origination Fee', amount_kobo: 18_000_000_00, count: 284 },
-      { fee_type: 'Late Payment Fee', amount_kobo: 6_400_000_00, count: 142 },
-      { fee_type: 'Management Fee', amount_kobo: 3_600_000_00, count: 198 },
-    ],
-    detail: [
-      { fee_type: 'Origination Fee', loan_ref: 'LA-2026-0100', amount_kobo: 62_500_00, date: dateStr(3) },
-      { fee_type: 'Late Payment Fee', loan_ref: 'LA-2026-0101', amount_kobo: 45_000_00, date: dateStr(1) },
-      { fee_type: 'Management Fee', loan_ref: 'LA-2026-0102', amount_kobo: 18_000_00, date: dateStr(0) },
-    ],
+  // Finance treasury
+  http.get(u('/api/finance/treasury'), () => wd({
+    net_flow_ngn: -1_447_246, inflow_ngn: 1_994_692, outflow_ngn: 3_441_939,
+    fd_liabilities_kobo: 1_961_262_834_383, fd_accrued_kobo: 89_518_656_482,
+    active_fds: 229, past_due_fds: 6, past_due_kobo: 55_580_000_000,
+    loan_book_kobo: 92_213_333_365, npl_kobo: 59_108_888_921,
+    loan_interest_kobo: 1_800_993_400,
+    flow_trend: [],
   })),
 ]
 

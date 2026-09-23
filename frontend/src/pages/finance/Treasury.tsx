@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Page, KpiCard, SectionCard, ErrBanner, EmptyState, Sk } from '../../components/UI'
+import { Page, KpiCard, SectionCard, ErrBanner, EmptyState, Sk, DateFilter } from '../../components/UI'
 import { EArea, EBar } from '../../components/echarts'
+import StatTile from './StatTile'
 import { apiFetch, unwrap, unwrapList } from '../../lib/api'
-import { fmt, fmtKoboExact, fmtKobo, fmtNum, fmtDate, fmtPct } from '../../lib/fmt'
-import { NAVY, GREEN, RED, AMBER, BLUE, PURPLE, NUM, TEXT, FW, SP } from '../../lib/design'
+import { fmt, fmtKoboExact, fmtKobo, fmtNum, fmtDate, fmtPct, today } from '../../lib/fmt'
+import { NAVY, GREEN, RED, AMBER, BLUE, TEXT, FW, SP } from '../../lib/design'
 
 // Treasury — the cash-flow & balance-sheet view for Finance. Naira figures come
 // from the transaction feed (net/inflow/outflow, flow_trend); kobo figures from
@@ -24,9 +25,21 @@ interface TreasuryData {
   fd_liabilities_kobo: number
   fd_accrued_kobo: number
   active_fds: number
+  // Deposits past their maturity date and still Active — payable NOW. The API
+  // has always returned these; nothing rendered them, so the one number on this
+  // page with a deadline attached to it was the one number you could not see.
+  past_due_fds: number
+  past_due_kobo: number
   loan_book_kobo: number
   npl_kobo: number
+  // Interest receivable on the LOAN book (cbs_portfolio_snapshot). Not FD
+  // accrual — see fd_accrued_kobo for that.
+  loan_interest_kobo: number
   flow_trend: FlowPoint[]
+  // The window the flow figures actually cover, echoed by the API so the page
+  // labels its charts from the data instead of hard-coding "30d".
+  flow_from?: string
+  flow_to?: string
 }
 
 // /api/fd-book/maturity-ladder → wrapped ({ data, data_source, data_as_of }),
@@ -38,14 +51,12 @@ interface MaturityBucket {
   accrued_interest_kobo: number
 }
 
-function MiniStat({ label, value, color = 'var(--txt)', sub }: { label: string; value: string; color?: string; sub?: string }) {
-  return (
-    <div style={{ padding: '12px 16px', border: '1px solid var(--bdr)', borderRadius: 10, background: 'var(--card)' }}>
-      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: FW.semibold }}>{label}</div>
-      <div style={{ ...NUM, fontSize: 20, fontWeight: FW.bold, color, marginTop: 4 }}>{value}</div>
-      {sub && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{sub}</div>}
-    </div>
-  )
+// Local rather than added to lib/fmt: only this page needs it, and fmt.ts is
+// edited by every module at once.
+function daysAgo(n: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  return d.toISOString().slice(0, 10)
 }
 
 export default function Treasury() {
@@ -53,12 +64,18 @@ export default function Treasury() {
   const [ladder, setLadder] = useState<MaturityBucket[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Cash-flow window. The page had no control at all: every flow figure was a
+  // fixed trailing 30 days and the only hint was the "(30d)" baked into four KPI
+  // labels, so a treasurer asking "what did last quarter look like" had nowhere
+  // to ask it.
+  const [from, setFrom] = useState(daysAgo(30))
+  const [to, setTo] = useState(today())
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
       const [tr, ml] = await Promise.all([
-        apiFetch('/api/finance/treasury'),
+        apiFetch(`/api/finance/treasury?date_from=${from}&date_to=${to}`),
         apiFetch('/api/fd-book/maturity-ladder').catch(() => null),
       ])
       setData(unwrap<TreasuryData>(tr))
@@ -68,7 +85,7 @@ export default function Treasury() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [from, to])
 
   useEffect(() => { load() }, [load])
 
@@ -85,15 +102,32 @@ export default function Treasury() {
     outflow_ngn: Number(p.outflow_ngn),
   }))
 
+  // Taken from the window the API says it covered, falling back to the filter
+  // while the first response is still in flight.
+  const flowPeriod = `${fmtDate(data?.flow_from ?? from)} – ${fmtDate(data?.flow_to ?? to)}`
+
   return (
-    <Page title="Treasury" subtitle="Cash flow position · deposit & loan books" loading={loading && !data} skeletonKpis={6}>
+    <Page
+      title="Treasury"
+      subtitle="Cash flow position · deposit & loan books"
+      loading={loading && !data}
+      skeletonKpis={6}
+      actions={
+        // Labelled, because it governs the flow half only — the books below have
+        // no history to filter and stay a position as of now.
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, whiteSpace: 'nowrap' }}>Cash-flow period</span>
+          <DateFilter from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} align="right" />
+        </div>
+      }
+    >
       <ErrBanner error={error} onRetry={load} />
 
       {/* KPI strip — naira flow (from the feed) + book positions (from CBS, kobo) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: SP[4], marginBottom: SP[5] }}>
-        <KpiCard label="Net Flow (30d)" value={fmt(netFlow)} icon="trending_up" accent={netFlow >= 0 ? GREEN : RED} loading={loading} />
-        <KpiCard label="Inflow (30d)" value={fmt(data?.inflow_ngn ?? 0)} icon="south_east" accent={GREEN} loading={loading} />
-        <KpiCard label="Outflow (30d)" value={fmt(data?.outflow_ngn ?? 0)} icon="north_west" accent={RED} loading={loading} />
+        <KpiCard label="Net Flow" value={fmt(netFlow)} sub={flowPeriod} icon="trending_up" accent={netFlow >= 0 ? GREEN : RED} loading={loading} />
+        <KpiCard label="Inflow" value={fmt(data?.inflow_ngn ?? 0)} sub={flowPeriod} icon="south_east" accent={GREEN} loading={loading} />
+        <KpiCard label="Outflow" value={fmt(data?.outflow_ngn ?? 0)} sub={flowPeriod} icon="north_west" accent={RED} loading={loading} />
         <KpiCard
           label="FD Liabilities"
           value={fmtKoboExact(data?.fd_liabilities_kobo ?? 0)}
@@ -115,7 +149,7 @@ export default function Treasury() {
 
       {/* Cash flow trend — inflow vs outflow, naira */}
       <div style={{ marginBottom: SP[5] }}>
-        <SectionCard title="Cash Flow (30 Days)" subtitle="Daily inflow vs outflow · from the transaction feed">
+        <SectionCard title="Cash Flow" subtitle={`Daily inflow vs outflow · ${flowPeriod} · from the transaction feed`}>
           {loading
             ? <Sk h={240} />
             : flowData.length === 0
@@ -156,13 +190,29 @@ export default function Treasury() {
         </SectionCard>
       </div>
 
-      {/* Position — the balance-sheet view (all kobo books) */}
+      {/* Position — the balance-sheet view (all kobo books).
+          Assets and liabilities are separated rather than listed as four
+          like-looking tiles: the FD lines are money owed to depositors, and
+          sitting them next to the loan book in the same neutral treatment read
+          as four assets. */}
       <SectionCard title="Position" subtitle="Deposit & loan books · CBS/kobo">
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Assets</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: SP[4] }}>
+          <StatTile label="Loan Book" value={fmtKoboExact(loanBook)} color={NAVY} sub="outstanding principal" />
+          <StatTile label="Loan Interest Receivable" value={fmtKoboExact(data?.loan_interest_kobo ?? 0)} color={BLUE} sub="earned on the loan book" />
+          <StatTile label="NPL" value={fmtKoboExact(npl)} color={nplRatio > 5 ? RED : AMBER} sub={`${fmtPct(nplRatio)} of loan book`} />
+        </div>
+
+        <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Liabilities · owed to depositors</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-          <MiniStat label="Loan Book" value={fmtKoboExact(loanBook)} color={NAVY} />
-          <MiniStat label="NPL" value={fmtKoboExact(npl)} color={nplRatio > 5 ? RED : AMBER} sub={`${fmtPct(nplRatio)} of loan book`} />
-          <MiniStat label="FD Book" value={fmtKoboExact(data?.fd_liabilities_kobo ?? 0)} color={BLUE} sub={`${fmtNum(data?.active_fds ?? 0)} active`} />
-          <MiniStat label="Accrued FD Interest" value={fmtKoboExact(data?.fd_accrued_kobo ?? 0)} color={PURPLE} />
+          <StatTile label="FD Book" value={fmtKoboExact(data?.fd_liabilities_kobo ?? 0)} color={AMBER} sub={`${fmtNum(data?.active_fds ?? 0)} active deposits`} />
+          <StatTile label="Accrued FD Interest" value={fmtKoboExact(data?.fd_accrued_kobo ?? 0)} color={AMBER} sub="cost of funds owed · not income" />
+          <StatTile
+            label="Past Due — Payable Now"
+            value={fmtKoboExact(data?.past_due_kobo ?? 0)}
+            color={(data?.past_due_fds ?? 0) > 0 ? RED : 'var(--txt)'}
+            sub={`${fmtNum(data?.past_due_fds ?? 0)} deposit${(data?.past_due_fds ?? 0) === 1 ? '' : 's'} past maturity, still active`}
+          />
         </div>
       </SectionCard>
     </Page>

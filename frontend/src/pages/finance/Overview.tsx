@@ -4,7 +4,7 @@ import { Page, KpiCard, SectionCard, DataTable, ErrBanner, Sk, DateFilter } from
 import type { TableCol } from '../../components/UI'
 import { EBar, EDonut } from '../../components/echarts'
 import { apiFetch, unwrap } from '../../lib/api'
-import { fmt, fmtKoboExact, fmtKobo, fmtNum, fmtDate, fmtPct, today } from '../../lib/fmt'
+import { fmt, fmtKoboExact, fmtNum, fmtDate, fmtPct, today } from '../../lib/fmt'
 import { NAVY, RED, GREEN, BLUE, AMBER, PURPLE, NUM, TEXT, FW, SP, RADIUS } from '../../lib/design'
 
 // Finance Overview — a broad standalone dashboard over live sources: the
@@ -14,7 +14,13 @@ import { NAVY, RED, GREEN, BLUE, AMBER, PURPLE, NUM, TEXT, FW, SP, RADIUS } from
 const PALETTE = [PURPLE, NAVY, AMBER, BLUE, GREEN, RED, '#5B7A94']
 
 interface IncomeTotals { interest_ngn: number; fee_ngn: number; penalty_ngn: number; total_ngn: number; txn_count: number }
-interface TrendPoint { date: string; interest_ngn: number; fee_ngn: number; penalty_ngn: number; total_ngn: number }
+// card_interest_ngn / loan_interest_ngn are split on every trend point so the
+// chart can show which book earned the money. interest_ngn is their sum.
+interface TrendPoint {
+  date: string
+  card_interest_ngn: number; loan_interest_ngn: number
+  interest_ngn: number; fee_ngn: number; penalty_ngn: number; total_ngn: number
+}
 interface IncomeStmt {
   totals?: IncomeTotals
   prev?: IncomeTotals
@@ -72,16 +78,6 @@ function sixMonthsAgoStart(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
-function Tile({ label, value, color = 'var(--txt)', sub }: { label: string; value: string; color?: string; sub?: string }) {
-  return (
-    <div style={{ padding: '12px 16px', border: '1px solid var(--bdr)', borderRadius: 10, background: 'var(--card)' }}>
-      <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: FW.semibold }}>{label}</div>
-      <div style={{ ...NUM, fontSize: 20, fontWeight: FW.bold, color, marginTop: 4 }}>{value}</div>
-      {sub && <div style={{ fontSize: TEXT.xs, color: 'var(--txt3)', marginTop: 2 }}>{sub}</div>}
-    </div>
-  )
-}
-
 const TXN_COLS: TableCol<TxnRow>[] = [
   { key: 'txn_date', label: 'Date', render: r => fmtDate(r.txn_date) },
   { key: 'account_no', label: 'Account', render: r => <span style={{ ...NUM, fontSize: TEXT.sm, color: 'var(--txt2)' }}>{r.account_no || '—'}</span> },
@@ -119,7 +115,10 @@ export default function FinanceOverview() {
         apiFetch(`/api/finance/income-statement?${qs}`),
         apiFetch('/api/finance/treasury'),
         apiFetch('/api/finance/eod'),
-        apiFetch(`/api/finance/transactions?limit=10`),
+        // The movement feed follows the page's date filter too. It used to ignore
+        // it and always return the newest ten rows, so moving the range changed
+        // the revenue panels and left this table sitting on today.
+        apiFetch(`/api/finance/transactions?limit=10&${qs}`),
         apiFetch('/api/finance/position'),
       ])
       if (incRes.status === 'fulfilled') setIncome(unwrap<IncomeStmt>(incRes.value))
@@ -149,12 +148,18 @@ export default function FinanceOverview() {
 
   // Aggregate the daily trend into monthly buckets — income lands in monthly
   // billing lumps, so daily granularity is a spiky, unreadable needle.
+  //
+  // Card and loan interest are stacked separately. They used to be collapsed into
+  // one "Interest" bar built from card income alone, so the chart summed to less
+  // than the Total Revenue KPI directly above it — the loan book's contribution
+  // was in the headline and missing from the picture.
   const monthly = useMemo(() => {
-    const m = new Map<string, { month: string; label: string; interest_ngn: number; fee_ngn: number; penalty_ngn: number }>()
+    const m = new Map<string, { month: string; label: string; card_interest_ngn: number; loan_interest_ngn: number; fee_ngn: number; penalty_ngn: number }>()
     for (const t of trend) {
       const key = String(t.date).slice(0, 7)
-      const cur = m.get(key) ?? { month: key, label: monthLabel(key), interest_ngn: 0, fee_ngn: 0, penalty_ngn: 0 }
-      cur.interest_ngn += Number(t.interest_ngn || 0)
+      const cur = m.get(key) ?? { month: key, label: monthLabel(key), card_interest_ngn: 0, loan_interest_ngn: 0, fee_ngn: 0, penalty_ngn: 0 }
+      cur.card_interest_ngn += Number(t.card_interest_ngn || 0)
+      cur.loan_interest_ngn += Number(t.loan_interest_ngn || 0)
       cur.fee_ngn += Number(t.fee_ngn || 0)
       cur.penalty_ngn += Number(t.penalty_ngn || 0)
       m.set(key, cur)
@@ -171,9 +176,22 @@ export default function FinanceOverview() {
     <Page title="Finance" subtitle={totals ? `${fmt(totals.total_ngn)} revenue · ${fmtNum(totals.txn_count)} income events this period` : 'Revenue, treasury & movement overview'}
       loading={loading && !income}
       skeletonKpis={4}
-      actions={<DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />}
+      actions={
+        // Labelled because it does not govern the whole page: revenue and the
+        // movement feed follow it, while the balance-sheet strip is a position as
+        // of now, Net Flow is a fixed trailing 30 days and Movement by Channel is
+        // the latest settled day. Each of those says its own window on its own
+        // card; the filter now says what it actually drives.
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP[2] }}>
+          <span style={{ fontSize: TEXT.xs, color: 'var(--txt3)', fontWeight: FW.semibold, whiteSpace: 'nowrap' }}>Revenue &amp; movement period</span>
+          <DateFilter from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t) }} align="right" />
+        </div>
+      }
     >
-      <ErrBanner error={error} onRetry={load} />
+      {/* onRetry is called with the click event; `load` takes (silent) as its
+          first argument, so passing it bare made a retry run in silent mode with
+          no spinner. */}
+      <ErrBanner error={error} onRetry={() => load()} />
 
       {/* Primary KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[4] }}>
@@ -200,8 +218,8 @@ export default function FinanceOverview() {
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: SP[4], marginBottom: SP[5] }}>
         <KpiCard label="FD Book (Liability)" value={fmtKoboExact(treasury?.fd_liabilities_kobo ?? 0)} sub={`${fmtNum(treasury?.active_fds ?? 0)} active · owed to depositors`} icon="savings" accent={AMBER} loading={loading} />
-        <KpiCard label="Loan Book (Asset)" value={fmtKoboExact(loanBook)} sub={`NPL ${fmtKoboExact(npl)}`} icon="account_balance_wallet" accent={NAVY} loading={loading} />
-        <KpiCard label="NPL Ratio" value={fmtPct(nplRatio)} icon="warning" accent={nplRatio > 5 ? RED : AMBER} loading={loading} />
+        <KpiCard label="Loan Book (Asset)" value={fmtKoboExact(loanBook)} sub={`${fmtNum(eod?.position?.loans_active ?? 0)} active · ${fmtNum(eod?.position?.borrowers_active ?? 0)} borrowers`} icon="account_balance_wallet" accent={NAVY} loading={loading} />
+        <KpiCard label="NPL Ratio" value={fmtPct(nplRatio)} sub={`${fmtKoboExact(npl)} of book`} icon="warning" accent={nplRatio > 5 ? RED : AMBER} loading={loading} />
         <KpiCard label="Accrued FD Interest (Liability)" value={fmtKoboExact(treasury?.fd_accrued_kobo ?? 0)} sub="cost of funds owed · not income" icon="savings" accent={AMBER} loading={loading} />
       </div>
 
@@ -278,7 +296,7 @@ export default function FinanceOverview() {
 
       {/* Revenue by month + revenue by product */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
-        <SectionCard title="Revenue by Month" subtitle="Interest · fees · penalty (billing-cycle income)">
+        <SectionCard title="Revenue by Month" subtitle="Card interest · loan interest · fees · penalty — stacks to Total Revenue">
           {loading ? <Sk h={220} /> : monthly.length === 0 ? (
             <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No income in this period</div>
           ) : (
@@ -290,7 +308,8 @@ export default function FinanceOverview() {
               valueFmt={fmt}
               axisFmt={fmt}
               series={[
-                { key: 'interest_ngn', name: 'Interest', color: BLUE },
+                { key: 'card_interest_ngn', name: 'Card Interest', color: BLUE },
+                { key: 'loan_interest_ngn', name: 'Loan Interest', color: NAVY },
                 { key: 'fee_ngn', name: 'Fees', color: PURPLE },
                 { key: 'penalty_ngn', name: 'Penalty', color: AMBER },
               ]}
@@ -329,8 +348,15 @@ export default function FinanceOverview() {
         </SectionCard>
       </div>
 
-      {/* Movement by channel + portfolio position */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4], marginBottom: SP[4] }}>
+      {/* Movement by channel.
+          A "Portfolio Position" card used to sit beside this one, repeating Loan
+          Book, NPL, FD Book and Accrued FD Interest — the same four figures as the
+          balance-sheet KPI strip higher up the SAME page, and a third time over in
+          Financial Position above. Three renderings of one set of numbers, each
+          free to drift. The strip and Financial Position keep them; the card is
+          gone, and the two figures only it carried (active loans, borrowers) moved
+          onto the Loan Book KPI. */}
+      <div style={{ marginBottom: SP[4] }}>
         <SectionCard title="Movement by Channel" subtitle="Latest settled day">
           {loading ? <Sk h={200} /> : channelData.length === 0 ? (
             <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--txt2)', fontSize: TEXT.base }}>No movement</div>
@@ -345,15 +371,6 @@ export default function FinanceOverview() {
               series={[{ key: 'volume_ngn', name: 'Volume', color: NAVY }]}
             />
           )}
-        </SectionCard>
-
-        <SectionCard title="Portfolio Position" subtitle="Live CBS book · assets and liabilities">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <Tile label="Loan Book (Asset)" value={fmtKoboExact(loanBook)} sub={`${fmtNum(eod?.position?.loans_active ?? 0)} active · ${fmtNum(eod?.position?.borrowers_active ?? 0)} borrowers`} />
-            <Tile label="NPL" value={fmtKoboExact(npl)} color={nplRatio > 5 ? RED : AMBER} sub={`${fmtPct(nplRatio)} of book`} />
-            <Tile label="FD Book (Liability)" value={fmtKoboExact(treasury?.fd_liabilities_kobo ?? 0)} color={AMBER} sub={`${fmtNum(treasury?.active_fds ?? 0)} active · owed to depositors`} />
-            <Tile label="Accrued FD Interest (Liability)" value={fmtKoboExact(treasury?.fd_accrued_kobo ?? 0)} color={AMBER} sub="cost of funds owed · not income" />
-          </div>
         </SectionCard>
       </div>
 
