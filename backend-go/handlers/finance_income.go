@@ -162,6 +162,34 @@ func finIncomeStatement(db *core.DB) http.HandlerFunc {
 			out["by_category"] = rows
 		}
 
+		// Income booked in a currency other than naira.
+		//
+		// Everything above reads app.income_daily, which is naira-only. That is the
+		// right call for a single-currency statement — a dozen call sites sum it
+		// straight into naira headlines — but the consequence was that income on the
+		// USD card book appeared NOWHERE: not converted, not listed, not even counted
+		// as excluded. Over the trailing year that was 471 postings worth 313,340.08
+		// in currency 840, all on Amex USD.
+		//
+		// It is returned here per currency and unconverted. No rate is applied,
+		// because whether those amounts are dollars or naira posted against a
+		// USD-flagged account is a question for the card team, and multiplying by a
+		// rate would bury that question inside a number rather than ask it.
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT currency, currency_code,
+			  COALESCE(SUM(amount) FILTER (WHERE category='interest'),0) AS interest,
+			  COALESCE(SUM(amount) FILTER (WHERE category='fee'),0)      AS fee,
+			  COALESCE(SUM(amount) FILTER (WHERE category='penalty'),0)  AS penalty,
+			  COALESCE(SUM(amount),0)                                    AS total,
+			  COALESCE(SUM(txn_count),0)                                 AS txn_count
+			FROM app.income_by_currency
+			WHERE income_date BETWEEN $1::date AND $2::date AND currency <> 'NGN'
+			GROUP BY 1, 2 ORDER BY total DESC`, from, to); len(rows) > 0 {
+			out["other_currency_income"] = rows
+			out["other_currency_note"] = "Booked outside naira and NOT included in the totals above. " +
+				"Shown in each currency's own units — no FX rate is applied."
+		}
+
 		respond(w, out, "pg")
 	}
 }

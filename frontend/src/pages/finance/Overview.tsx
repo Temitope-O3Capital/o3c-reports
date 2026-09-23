@@ -26,6 +26,26 @@ interface Treasury {
   fd_liabilities_kobo: number; fd_accrued_kobo: number; active_fds: number
   loan_book_kobo: number; npl_kobo: number
 }
+// Assets and liabilities from the books of record (migration 282). Not the
+// general ledger — that holds only workspace-originated collections postings and
+// had no Liability class at all until 282. Amounts are kobo/cents in each line's
+// OWN currency; net_position is assets minus liabilities and is explicitly NOT
+// equity, because this database has no capital or reserves source.
+interface PositionLine {
+  currency: string; side: 'Asset' | 'Liability' | string
+  line: string; gl_code: string; amount_kobo: number; items: number
+}
+interface PositionTotal {
+  currency: string; assets_kobo: number; liabilities_kobo: number; net_position_kobo: number
+}
+interface Position {
+  lines: PositionLine[]
+  totals: PositionTotal[]
+  as_of?: { cards?: string | null; cbs?: string | null }
+  gl_entries?: number
+  basis?: string
+}
+
 interface EODLite {
   by_channel?: { channel: string; volume_ngn: number }[]
   position?: Record<string, any>
@@ -88,22 +108,25 @@ export default function FinanceOverview() {
   const [treasury, setTreasury] = useState<Treasury | null>(null)
   const [eod, setEod] = useState<EODLite | null>(null)
   const [txns, setTxns] = useState<TxnRow[]>([])
+  const [position, setPosition] = useState<Position | null>(null)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setError(null)
     const qs = `date_from=${dateFrom}&date_to=${dateTo}`
     try {
-      const [incRes, treasRes, eodRes, txnRes] = await Promise.allSettled([
+      const [incRes, treasRes, eodRes, txnRes, posRes] = await Promise.allSettled([
         apiFetch(`/api/finance/income-statement?${qs}`),
         apiFetch('/api/finance/treasury'),
         apiFetch('/api/finance/eod'),
         apiFetch(`/api/finance/transactions?limit=10`),
+        apiFetch('/api/finance/position'),
       ])
       if (incRes.status === 'fulfilled') setIncome(unwrap<IncomeStmt>(incRes.value))
       if (treasRes.status === 'fulfilled') setTreasury(unwrap<Treasury>(treasRes.value))
       if (eodRes.status === 'fulfilled') setEod(unwrap<EODLite>(eodRes.value))
       if (txnRes.status === 'fulfilled') setTxns(Array.isArray((txnRes.value as any)?.data) ? (txnRes.value as any).data : [])
+      if (posRes.status === 'fulfilled') setPosition(unwrap<Position>(posRes.value))
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -181,6 +204,77 @@ export default function FinanceOverview() {
         <KpiCard label="NPL Ratio" value={fmtPct(nplRatio)} icon="warning" accent={nplRatio > 5 ? RED : AMBER} loading={loading} />
         <KpiCard label="Accrued FD Interest (Liability)" value={fmtKoboExact(treasury?.fd_accrued_kobo ?? 0)} sub="cost of funds owed · not income" icon="savings" accent={AMBER} loading={loading} />
       </div>
+
+      {/* Financial position.
+          There was no balance sheet anywhere in the workspace, and there could
+          not have been one: the general ledger holds 1,802 rows — all collections
+          payments the workspace posted itself — against a chart of accounts with
+          no Liability class, so the ₦19.6bn deposit book had no account it could
+          even have been booked to. This is assembled from the same live books of
+          record every other figure here reads. It is a POSITION, not equity: no
+          capital or reserves source exists in this database, so assets minus
+          liabilities is labelled as what it is and nothing is invented to make
+          it balance. Currencies are never merged — there is no FX rate policy. */}
+      {(position?.lines?.length ?? 0) > 0 && (
+        <SectionCard
+          title="Financial Position"
+          subtitle={`Assets and liabilities from the live books of record · not the general ledger${position?.as_of?.cards ? ` · cards to ${fmtDate(position.as_of.cards)}` : ''}`}
+          style={{ marginBottom: SP[4] }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: SP[4] }}>
+            {(position?.totals ?? []).map(t => {
+              const sym = t.currency === 'USD' ? '$' : t.currency === 'NGN' ? '₦' : `${t.currency} `
+              const money = (kobo: number) =>
+                `${sym}${(Number(kobo || 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+              const lines = (position?.lines ?? []).filter(l => l.currency === t.currency)
+              return (
+                <div key={t.currency}>
+                  <div style={{ fontSize: TEXT.xs, fontWeight: FW.semibold, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                    {t.currency}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: SP[4] }}>
+                    {(['Asset', 'Liability'] as const).map(side => (
+                      <div key={side}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: 5, borderBottom: `2px solid ${side === 'Asset' ? NAVY : AMBER}` }}>
+                          <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt)' }}>
+                            {side === 'Asset' ? 'Assets' : 'Liabilities'}
+                          </span>
+                          <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: 'var(--txt)' }}>
+                            {money(side === 'Asset' ? t.assets_kobo : t.liabilities_kobo)}
+                          </span>
+                        </div>
+                        {lines.filter(l => l.side === side).map(l => (
+                          <div key={l.line} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '5px 0', borderBottom: '1px solid var(--bdr)' }}>
+                            <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                              {l.line}
+                              <span style={{ color: 'var(--txt3)', marginLeft: 5 }}>{l.gl_code} · {fmtNum(l.items)}</span>
+                            </span>
+                            <span style={{ ...NUM, fontSize: TEXT.xs, color: 'var(--txt)' }}>{money(l.amount_kobo)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8, paddingTop: 7, borderTop: '1px solid var(--bdr)' }}>
+                    <span style={{ fontSize: TEXT.sm, fontWeight: FW.semibold, color: 'var(--txt2)' }}>
+                      Net Position <span style={{ fontWeight: FW.normal, color: 'var(--txt3)' }}>(assets − liabilities; not equity)</span>
+                    </span>
+                    <span style={{ ...NUM, fontSize: TEXT.base, fontWeight: FW.bold, color: t.net_position_kobo >= 0 ? GREEN : RED }}>
+                      {money(t.net_position_kobo)}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ marginTop: SP[3], fontSize: TEXT.xs, color: 'var(--txt3)', lineHeight: 1.55 }}>
+            Drawn from the loan, deposit and card books, not from the general ledger — which holds
+            only {fmtNum(position?.gl_entries ?? 0)} workspace-originated postings. Each currency stands alone;
+            no exchange rate is applied. Net position is not equity: this database holds no capital or
+            reserves source, so none is shown.
+          </div>
+        </SectionCard>
+      )}
 
       {/* Revenue by month + revenue by product */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: SP[4], marginBottom: SP[4] }}>

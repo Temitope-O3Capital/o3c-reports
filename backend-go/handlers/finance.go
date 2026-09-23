@@ -49,12 +49,114 @@ func RegisterFinance(r chi.Router, db *core.DB) {
 	// portfolio snapshots)
 	r.With(access).Get("/treasury", finTreasury(db))
 
+	// Financial position — assets and liabilities per currency, from the books of
+	// record. See finPosition below for why this is not the general ledger.
+	r.With(access).Get("/position", finPosition(db))
+
 	// FX (parallel-market) rates. Reads are page-gated to the module; the
 	// refresh POST triggers an outbound scrape + inserts, so it must be gated
 	// too (it previously sat ungated on the /api/finance group).
 	r.With(access).Get("/fx-rates/latest", FXRatesLatest(db))
 	r.With(access).Get("/fx-rates/history", FXRatesHistory(db))
 	r.With(access).Post("/fx-rates/refresh", FXRatesRefresh(db))
+}
+
+/* ── Financial position ──────────────────────────────────────────────────────
+
+   Assets and liabilities per currency, from app.financial_position (migration
+   282) — the live books of record, NOT gl_journal_entries.
+
+   That distinction is the whole point. The GL holds 1,802 rows, all of them
+   collections payments the workspace itself posted, against a chart of accounts
+   that until migration 282 had no Liability class at all. The ₦19.61bn deposit
+   book has never touched it. Reading a balance sheet off that ledger would have
+   reported a business with two asset accounts and no funding.
+
+   Two things this deliberately does NOT do:
+
+     It does not convert. Naira and dollar lines are separate; there is no FX
+     rate policy in this database and inventing one inside a balance sheet is
+     how a rate assumption becomes a reported fact.
+
+     It does not report equity. Assets minus liabilities is returned as
+     net_position, and the payload says so. There is no capital, reserves or
+     retained-earnings source anywhere here — the GL's 3000/3100 accounts exist
+     so postings CAN be made, not because anything has been. A figure labelled
+     equity would be a guess wearing an accounting label.
+*/
+
+func finPosition(db *core.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		lines, err := db.PGQuery(ctx, `
+			SELECT currency, side, line, gl_code, amount_kobo, items
+			  FROM app.financial_position
+			 ORDER BY currency, side, sort`)
+		if err != nil {
+			respondErrLog(w, 500, "Financial position query failed", err)
+			return
+		}
+
+		// Totals per currency, assets and liabilities kept apart.
+		type ccy struct {
+			Currency    string `json:"currency"`
+			AssetsKobo  int64  `json:"assets_kobo"`
+			LiabsKobo   int64  `json:"liabilities_kobo"`
+			NetPosition int64  `json:"net_position_kobo"`
+		}
+		order := []string{}
+		byCcy := map[string]*ccy{}
+		for _, l := range lines {
+			c := str(l["currency"])
+			if byCcy[c] == nil {
+				byCcy[c] = &ccy{Currency: c}
+				order = append(order, c)
+			}
+			if str(l["side"]) == "Asset" {
+				byCcy[c].AssetsKobo += toInt64(l["amount_kobo"])
+			} else {
+				byCcy[c].LiabsKobo += toInt64(l["amount_kobo"])
+			}
+		}
+		totals := make([]ccy, 0, len(order))
+		for _, c := range order {
+			byCcy[c].NetPosition = byCcy[c].AssetsKobo - byCcy[c].LiabsKobo
+			totals = append(totals, *byCcy[c])
+		}
+
+		// How stale each source is, so a stalled feed shows as a date rather than
+		// as a quietly wrong position.
+		asOf := map[string]any{}
+		if rows, _ := db.PGQuery(ctx, `
+			SELECT (SELECT MAX(last_seen)::date::text FROM app.accounts)          AS cards,
+			       (SELECT MAX(snapshot_date)::text FROM app.cbs_portfolio_snapshot) AS cbs`); len(rows) > 0 {
+			asOf["cards"] = rows[0]["cards"]
+			asOf["cbs"] = rows[0]["cbs"]
+		}
+
+		// GL coverage, stated plainly rather than implied by an empty page.
+		var glEntries, glAccounts int64
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM gl_journal_entries`); len(rows) > 0 {
+			glEntries = toInt64(rows[0]["n"])
+		}
+		if rows, _ := db.PGQuery(ctx, `SELECT COUNT(*) AS n FROM gl_accounts`); len(rows) > 0 {
+			glAccounts = toInt64(rows[0]["n"])
+		}
+
+		respond(w, map[string]any{
+			"lines":       lines,
+			"totals":      totals,
+			"as_of":       asOf,
+			"gl_entries":  glEntries,
+			"gl_accounts": glAccounts,
+			"basis": "Assets and liabilities from the live books of record (cbs_loans, " +
+				"cbs_fixed_deposits, app.card_balances), not from the general ledger. " +
+				"Amounts are in each line's own currency and are never summed across currencies — " +
+				"no FX rate is applied. Assets minus liabilities is a NET POSITION, not equity: " +
+				"this database holds no capital or reserves source.",
+		}, "pg")
+	}
 }
 
 /* ── Treasury ────────────────────────────────────────────────────────────────

@@ -42,6 +42,19 @@ interface CategoryRow {
   txn_count: number
 }
 
+// Income booked outside naira. It is NOT folded into the totals above and no FX
+// rate is applied — see migration 281. Before this it was filtered out of
+// app.income_daily and appeared nowhere on the page at all.
+interface FxIncomeRow {
+  currency: string
+  currency_code: string
+  interest: number
+  fee: number
+  penalty: number
+  total: number
+  txn_count: number
+}
+
 interface IncomeStatement {
   from: string
   to: string
@@ -50,6 +63,8 @@ interface IncomeStatement {
   trend: TrendRow[]
   by_product: ProductRow[]
   by_category: CategoryRow[]
+  other_currency_income?: FxIncomeRow[]
+  other_currency_note?: string
 }
 
 // Percentage change vs the preceding equal-length window. Guarded for prev=0 so a
@@ -239,6 +254,35 @@ export default function FinanceIncome() {
         </>
       )}
 
+      {/* Income booked outside naira.
+          The statement above is naira-only by design, but until now the non-naira
+          income was simply filtered away and shown nowhere — 471 postings worth
+          313,340.08 in USD over the trailing year. It is listed here in its own
+          units, outside the totals, with no rate applied. */}
+      {(inc?.other_currency_income?.length ?? 0) > 0 && (
+        <SectionCard
+          title="Income in Other Currencies"
+          subtitle="Booked outside naira · excluded from the totals above · no FX rate applied"
+          style={{ marginBottom: SP[5] }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {inc!.other_currency_income!.map(f => (
+              <div key={f.currency} style={{ display: 'flex', alignItems: 'baseline', gap: SP[3], flexWrap: 'wrap' }}>
+                <span style={{ fontSize: TEXT.base, fontWeight: FW.semibold, color: 'var(--txt)' }}>{f.currency}</span>
+                <span style={{ ...NUM, fontSize: TEXT.lg, fontWeight: FW.bold, color: 'var(--txt)' }}>
+                  {Number(f.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span style={{ fontSize: TEXT.xs, color: 'var(--txt2)' }}>
+                  interest {Number(f.interest).toLocaleString(undefined, { maximumFractionDigits: 2 })} ·
+                  {' '}fees {Number(f.fee).toLocaleString(undefined, { maximumFractionDigits: 2 })} ·
+                  {' '}{fmtNum(f.txn_count)} postings
+                </span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
       {/* Honest scope note */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: TEXT.sm, color: 'var(--txt2)', lineHeight: 1.6 }}>
         <Badge variant="info" dot style={{ flexShrink: 0, marginTop: 1 }}>Note</Badge>
@@ -246,6 +290,7 @@ export default function FinanceIncome() {
           This is a top-line revenue statement derived from transaction revenue codes (interest, fees and penalty).
           There is no expense or general-ledger data behind it, so it is not a full profit-and-loss.
           All figures are exact naira from the live transaction feed — total revenue for the period is {fmtExact(totals?.total_ngn ?? 0)}.
+          {(inc?.other_currency_income?.length ?? 0) > 0 && ' Income booked in other currencies is listed separately above and is not included in that total; no exchange rate is applied to it.'}
         </span>
       </div>
     </Page>
