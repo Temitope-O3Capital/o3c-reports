@@ -213,6 +213,45 @@ func cardsKPIs(db *core.DB) http.HandlerFunc {
 			kpis["by_activity"] = byActivity
 		}
 
+		// Money on the book, from app.card_balances (migration 280).
+		//
+		// The Cards module reported counts only — total issued, active, inactive,
+		// merchants — and never a balance, so the money sitting on 21,330 cards
+		// appeared nowhere in the module that owns them. The obvious fix,
+		// SUM(current_dr_balance), is the one to avoid: that column is a signed
+		// DEBIT balance, so summing it nets what customers owe O3 against what O3
+		// holds FOR customers (prepaid and Blink stored value, and credit cards in
+		// credit) and, on top of that, adds the 217 USD accounts to the naira
+		// column as though a dollar were a naira.
+		//
+		// The view keeps the two sides apart and keeps currency as a grouping key.
+		// Both sides are returned per currency; the frontend shows naira as the
+		// headline and dollars beside it rather than blending them, because the
+		// blend needs an FX rate and a rate policy that do not exist yet.
+		if bal, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT currency,
+			       COALESCE(SUM(receivable_kobo), 0)::bigint AS receivable_kobo,
+			       COALESCE(SUM(float_kobo), 0)::bigint      AS float_kobo,
+			       COUNT(*)                                  AS accounts,
+			       COUNT(*) FILTER (WHERE receivable_kobo > 0) AS accounts_owing,
+			       COUNT(*) FILTER (WHERE float_kobo > 0)      AS accounts_in_credit
+			  FROM app.card_balances WHERE 1=1%s GROUP BY 1 ORDER BY 1`, ctFilter.PG()),
+			ctFilter.Args()...); len(bal) > 0 {
+			kpis["balances_by_currency"] = bal
+		}
+		// The same money split by funding family, so "the prepaid float" and "the
+		// credit receivable" are each answerable rather than only their difference.
+		if bal, _ := db.PGQuery(ctx, fmt.Sprintf(`
+			SELECT currency, family,
+			       COALESCE(SUM(receivable_kobo), 0)::bigint AS receivable_kobo,
+			       COALESCE(SUM(float_kobo), 0)::bigint      AS float_kobo,
+			       COUNT(*)                                  AS accounts
+			  FROM app.card_balances WHERE 1=1%s
+			 GROUP BY 1, 2 ORDER BY 1, 2`, ctFilter.PG()),
+			ctFilter.Args()...); len(bal) > 0 {
+			kpis["balances_by_family"] = bal
+		}
+
 		total := toFloat(kpis["total_issued"])
 		if total > 0 {
 			kpis["activation_rate"] = round1(toFloat(kpis["active"]) / total * 100)
